@@ -1,6 +1,8 @@
 #include <OgreArchive.h>
+#include <OgreArchiveFactory.h>
 #include <OgreArchiveManager.h>
 #include <OgreDataStream.h>
+#include <OgreException.h>
 #include <OgreRoot.h>
 #include <OgreRenderSystem.h>
 
@@ -10,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <ctime>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -20,6 +23,133 @@
 
 namespace
 {
+class FailingArchive final : public Ogre::Archive
+{
+public:
+    FailingArchive(const Ogre::String& name, const Ogre::String& type):
+        Ogre::Archive(name, type)
+    {
+    }
+
+    bool isCaseSensitive() const override { return true; }
+    void load() override
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "intentional archive-load rollback probe",
+            "FailingArchive::load");
+    }
+    void unload() override {}
+    Ogre::DataStreamPtr open(
+        const Ogre::String&, bool = true) const override
+    {
+        return Ogre::DataStreamPtr();
+    }
+    Ogre::StringVectorPtr list(bool = true, bool = false) const override
+    {
+        return Ogre::StringVectorPtr(OGRE_NEW Ogre::StringVector());
+    }
+    Ogre::FileInfoListPtr listFileInfo(
+        bool = true, bool = false) const override
+    {
+        return Ogre::FileInfoListPtr(OGRE_NEW Ogre::FileInfoList());
+    }
+    Ogre::StringVectorPtr find(
+        const Ogre::String&, bool = true, bool = false) const override
+    {
+        return Ogre::StringVectorPtr(OGRE_NEW Ogre::StringVector());
+    }
+    bool exists(const Ogre::String&) const override { return false; }
+    std::time_t getModifiedTime(const Ogre::String&) const override
+    {
+        return 0;
+    }
+    Ogre::FileInfoListPtr findFileInfo(
+        const Ogre::String&, bool = true, bool = false) const override
+    {
+        return Ogre::FileInfoListPtr(OGRE_NEW Ogre::FileInfoList());
+    }
+};
+
+class FailingArchiveFactory final : public Ogre::ArchiveFactory
+{
+public:
+    const Ogre::String& getType() const override
+    {
+        static const Ogre::String TYPE = "RorArchiveLoadRollbackProbe";
+        return TYPE;
+    }
+    Ogre::Archive* createInstance(
+        const Ogre::String& name, bool) override
+    {
+        ++create_count;
+        return OGRE_NEW FailingArchive(name, getType());
+    }
+    void destroyInstance(Ogre::Archive* archive) override
+    {
+        ++destroy_count;
+        OGRE_DELETE archive;
+    }
+
+    std::size_t create_count = 0U;
+    std::size_t destroy_count = 0U;
+};
+
+bool VerifyArchiveManagerLoadRollback()
+{
+    static FailingArchiveFactory factory;
+    static bool registered = false;
+    if (!registered)
+    {
+        Ogre::ArchiveManager::getSingleton().addArchiveFactory(&factory);
+        registered = true;
+    }
+
+    const Ogre::String archive_name =
+        "ror-archive-manager-load-rollback-probe";
+    const std::size_t initial_creates = factory.create_count;
+    const std::size_t initial_destroys = factory.destroy_count;
+    for (std::size_t attempt = 0U; attempt < 2U; ++attempt)
+    {
+        bool threw = false;
+        try
+        {
+            (void)Ogre::ArchiveManager::getSingleton().load(
+                archive_name, factory.getType(), true);
+        }
+        catch (const Ogre::Exception&)
+        {
+            threw = true;
+        }
+        if (!threw)
+        {
+            std::cerr << "failing archive unexpectedly loaded\n";
+            return false;
+        }
+
+        Ogre::ArchiveManager::ArchiveMapIterator archives =
+            Ogre::ArchiveManager::getSingleton().getArchiveIterator();
+        while (archives.hasMoreElements())
+        {
+            if (archives.peekNextKey() == archive_name)
+            {
+                std::cerr
+                    << "failed archive remained published after throw\n";
+                return false;
+            }
+            archives.getNext();
+        }
+    }
+    if (factory.create_count != initial_creates + 2U ||
+        factory.destroy_count != initial_destroys + 2U)
+    {
+        std::cerr
+            << "ArchiveManager did not return failed instances to factory\n";
+        return false;
+    }
+    return true;
+}
+
 bool IsOgreImage(const std::string& path)
 {
     const std::size_t slash = path.find_last_of("/\\");
@@ -260,6 +390,10 @@ int main(int argc, char** argv)
                     return 1;
                 }
                 if (!VerifyConcurrentZipReads(argv[4]))
+                {
+                    return 1;
+                }
+                if (!VerifyArchiveManagerLoadRollback())
                 {
                     return 1;
                 }

@@ -44,6 +44,7 @@ cmake/conan/locks/*.lock text eol=lf
 cmake/conan/recipes/ogre3d/patches/14.5.2/relocatable-install-paths.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/bounds-safe-shadow-texture-projectors.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/defer-glsl-program-validation.patch -whitespace
+cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/honor-toolchain-cxx-standard.patch -whitespace
 
@@ -90,6 +91,8 @@ source/main/system/RendererLauncherMain.cpp text eol=lf
 source/main/system/RendererLauncherPackageConfig.h.in text eol=lf
 source/main/system/RendererPublicLauncher.* text eol=lf
 source/main/gfx/render/** text eol=lf
+source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.* text eol=lf
+source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.* text eol=lf
 source/main/terrain/TerrainObjectManager.* whitespace=cr-at-eol
 tests/gfx/render/RenderTransportStreamTests.cpp text eol=lf
 tests/gfx/render/RenderBridgeControlTransportTests.cpp text eol=lf
@@ -98,6 +101,8 @@ tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp text eol=lf
 tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp text eol=lf
 tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp text eol=lf
 tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp text eol=lf
+tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp text eol=lf
+tests/resources/TerrainBundleArchiveVerifierTests.cpp text eol=lf
 tests/gfx/RendererBackendPolicyTests.cpp text eol=lf
 tests/gfx/RendererChildIntentTests.cpp text eol=lf
 tests/gfx/RendererChildLauncherFakeChild.cpp text eol=lf
@@ -128,10 +133,12 @@ tests/tools/test_audit_ogre14_material_scripts.py text eol=lf
 tests/tools/test_ogre_next_child_runtime_contract.py text eol=lf
 tests/tools/test_ogre14_road_material_transaction_contract.py text eol=lf
 tests/tools/test_ogre14_dynamic_material_closure_contract.py text eol=lf
+tests/tools/test_ogre14_authenticated_texture_receipt_contract.py text eol=lf
 tests/tools/test_ogre_next_window_host_contract.py text eol=lf
 tests/tools/test_ogre_next_window_presentation_contract.py text eol=lf
 tests/tools/test_ogre_next_window_run_loop_contract.py text eol=lf
 doc/nextgen/OGRE_NEXT_INTEGRATION.md text eol=lf
 doc/nextgen/NATIVE_RAY_TRACING_BACKEND.md text eol=lf
 doc/nextgen/ROADMAP.md text eol=lf
+doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md text eol=lf
 doc/nextgen/evidence/OGRE_NEXT_METAL_* text eol=lf

@@ -8,6 +8,8 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+      - conanfile.py
+      - cmake/conan/**
       - source/main/CMakeLists.txt
       - source/main/GameContext.cpp
       - source/main/main.cpp
@@ -17,6 +19,7 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
+      - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -28,6 +31,10 @@ on:
       - tools/compile_ogre14_material_semantic_catalog_v2.py
       - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/resources/ContentManager.*
+      - source/main/resources/CacheSystem.cpp
+      - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -88,6 +95,9 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/resources/TerrainBundleArchiveVerifierTests.cpp
+      - tests/tools/assert_ogre_recipe_graph.py
       - tests/gfx/render/**
       - tests/physics/**
       - tests/tools/test_ogre14_*.py
@@ -98,6 +108,8 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+      - conanfile.py
+      - cmake/conan/**
       - source/main/CMakeLists.txt
       - source/main/GameContext.cpp
       - source/main/main.cpp
@@ -107,6 +119,7 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
+      - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -118,6 +131,10 @@ on:
       - tools/compile_ogre14_material_semantic_catalog_v2.py
       - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/resources/ContentManager.*
+      - source/main/resources/CacheSystem.cpp
+      - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -178,6 +195,9 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/resources/TerrainBundleArchiveVerifierTests.cpp
+      - tests/tools/assert_ogre_recipe_graph.py
       - tests/gfx/render/**
       - tests/physics/**
       - tests/tools/test_ogre14_*.py
@@ -474,6 +494,7 @@ jobs:
           ror_ogre14_source_texture_decoder_tests
           ror_ogre14_material_semantic_catalog_v2_tests
           ror_ogre14_live_material_coordinator_tests
+          ror_ogre14_authenticated_texture_receipt_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
           --parallel ${{ matrix.jobs }}
@@ -525,6 +546,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_live_material_coordinator$'
+
+      - name: Prove authenticated source-texture receipts on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_authenticated_texture_receipt$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

@@ -55,6 +55,7 @@
 #include "Utils.h"
 
 #include <OgreArchive.h>
+#include <OgreArchiveManager.h>
 #include <OgreDataStream.h>
 #include <OgreException.h>
 #include <OgreFileSystem.h>
@@ -65,9 +66,15 @@
 #include <OgreRenderSystem.h>
 #include <OgreRenderSystemCapabilities.h>
 #include <OgreRoot.h>
+#include <OgreTextureManager.h>
+#include <OgreZip.h>
 #include <array>
 #include <cstdint>
+#include <exception>
+#include <limits>
 #include <openssl/evp.h>
+#include <type_traits>
+#include <vector>
 #include <regex>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -79,6 +86,27 @@ using namespace RoR;
 
 namespace
 {
+
+constexpr std::uint64_t
+    MAX_AUTHENTICATED_EMBEDDED_ZIP_REGISTRATION_ATTEMPTS = 65536U;
+
+std::uint64_t AllocateAuthenticatedEmbeddedZipRegistrationId()
+{
+    static std::mutex registration_mutex;
+    static std::uint64_t registration_count = 0U;
+    std::lock_guard<std::mutex> registration_lock(registration_mutex);
+    if (registration_count ==
+        MAX_AUTHENTICATED_EMBEDDED_ZIP_REGISTRATION_ATTEMPTS)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated EmbeddedZip registration-attempt space is "
+            "exhausted",
+            "AllocateAuthenticatedEmbeddedZipRegistrationId");
+    }
+    ++registration_count;
+    return registration_count;
+}
 
 std::string Sha256Bytes(const std::string& payload)
 {
@@ -177,6 +205,23 @@ ContentManager::ContentManager():
     m_base_resource_loaded(false),
     m_resource_group_listener_registered(false)
 {
+#if OGRE_VERSION_MAJOR >= 14
+    const Render::ValidationResult texture_registry_initialization =
+        Render::InitializeOgre14AuthenticatedTextureReceiptRegistry(
+            m_authenticated_texture_receipt_configuration,
+            m_authenticated_texture_receipts);
+    if (!texture_registry_initialization)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Could not initialize authenticated source-texture receipt "
+                "registry: {} ({})",
+                texture_registry_initialization.detail,
+                texture_registry_initialization.field),
+            "ContentManager::ContentManager");
+    }
+#endif
 }
 
 ContentManager::~ContentManager()
@@ -223,6 +268,51 @@ void ContentManager::EraseAuthenticatedMeshBindingsForGroupLocked(
 std::uint64_t ContentManager::AdvanceLegacyMaterialGroupGenerationLocked(
     const Ogre::String& resource_group)
 {
+#if OGRE_VERSION_MAJOR >= 14
+    if (m_next_legacy_material_group_generation ==
+        (std::numeric_limits<std::uint64_t>::max)())
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated resource-group generation space is exhausted",
+            "ContentManager::AdvanceLegacyMaterialGroupGenerationLocked");
+    }
+    const std::uint64_t next_generation =
+        m_next_legacy_material_group_generation + 1U;
+    Render::Ogre14AuthenticatedTextureReceiptRegistry texture_candidate =
+        m_authenticated_texture_receipts;
+    const Render::ValidationResult texture_transition =
+        Render::AdvanceOgre14AuthenticatedTextureGroupGeneration(
+            resource_group, next_generation, texture_candidate);
+    if (!texture_transition)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Authenticated source-texture group '{}' could not advance "
+                "to generation {}: {} ({})",
+                resource_group,
+                next_generation,
+                texture_transition.detail,
+                texture_transition.field),
+            "ContentManager::AdvanceLegacyMaterialGroupGenerationLocked");
+    }
+    m_legacy_material_group_generations[resource_group] =
+        next_generation;
+    m_next_legacy_material_group_generation = next_generation;
+    m_authenticated_texture_receipts = std::move(texture_candidate);
+    const auto authenticated_archive_group =
+        m_authenticated_package_archive_bindings_by_group.find(
+            resource_group);
+    if (authenticated_archive_group !=
+        m_authenticated_package_archive_bindings_by_group.end())
+    {
+        for (auto& archive_binding : authenticated_archive_group->second)
+        {
+            archive_binding.second.group_generation = next_generation;
+        }
+    }
+#else
     ++m_next_legacy_material_group_generation;
     if (m_next_legacy_material_group_generation == 0U)
     {
@@ -230,6 +320,7 @@ std::uint64_t ContentManager::AdvanceLegacyMaterialGroupGenerationLocked(
     }
     m_legacy_material_group_generations[resource_group] =
         m_next_legacy_material_group_generation;
+#endif
     this->EraseAuthenticatedMeshBindingsForGroupLocked(resource_group);
     return m_next_legacy_material_group_generation;
 }
@@ -241,33 +332,741 @@ void ContentManager::RegisterPackageResourceLocation(
     std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
         m_legacy_material_resolution_mutex,
         m_legacy_material_state_mutex);
-    m_package_archives_by_group[resource_group].insert(archive_name);
     this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
+    m_package_archives_by_group[resource_group].insert(archive_name);
 }
 
-void ContentManager::RegisterAuthenticatedPackageResourceLocation(
+void ContentManager::MountAuthenticatedPackageResourceLocation(
     const Ogre::String& resource_group,
-    const Ogre::String& archive_name,
-    const std::string& archive_sha256)
+    const TerrainBundleAuthenticatedArchiveSnapshot& archive_snapshot
+#if OGRE_VERSION_MAJOR >= 14
+    , Render::IOgre14AuthenticatedArchiveMountFaultInjector* fault_injector
+#endif
+    )
 {
-    std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
-        m_legacy_material_resolution_mutex,
+#if OGRE_VERSION_MAJOR >= 14
+    if (resource_group.empty() ||
+        !archive_snapshot.initialized() ||
+        archive_snapshot.version() !=
+            TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_SNAPSHOT_VERSION ||
+        archive_snapshot.source_archive_identity().empty() ||
+        !Render::IsLowercaseOgre14Sha256(
+            archive_snapshot.archive_sha256()) ||
+        archive_snapshot.bytes() == nullptr ||
+        archive_snapshot.size() == 0U ||
+        static_cast<std::uint64_t>(archive_snapshot.size()) >
+            TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALIDPARAMS,
+            "Authenticated package mount requires one complete immutable "
+            "archive snapshot",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+
+    std::scoped_lock<std::mutex, std::mutex, std::mutex>
+        legacy_material_lock(
+            m_legacy_material_archive_io_mutex,
+            m_legacy_material_resolution_mutex,
+            m_legacy_material_state_mutex);
+    if (m_next_legacy_material_group_generation ==
+        (std::numeric_limits<std::uint64_t>::max)())
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated package generation space is exhausted",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    if (m_authenticated_package_archive_retained_bytes >
+        Render::kOgre14AuthenticatedTextureMaximumRetainedBytes -
+            static_cast<std::uint64_t>(archive_snapshot.size()))
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated package archive snapshots exceed their retained "
+            "byte cap",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+
+    Ogre::ResourceGroupManager& resource_manager =
+        Ogre::ResourceGroupManager::getSingleton();
+    if (!resource_manager.resourceGroupExists(resource_group))
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_ITEM_NOT_FOUND,
+            fmt::format(
+                "Authenticated package target resource group '{}' does "
+                "not exist",
+                resource_group),
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+
+    const std::uint64_t mount_generation =
+        m_next_legacy_material_group_generation + 1U;
+    const std::uint64_t registration_id =
+        AllocateAuthenticatedEmbeddedZipRegistrationId();
+    const Ogre::String selected_archive_name = fmt::format(
+        "ror-authenticated-embedded-zip-v1-{}-g{}-r{}",
+        archive_snapshot.archive_sha256(),
+        mount_generation,
+        registration_id);
+
+    Ogre::ArchiveManager& archive_manager =
+        Ogre::ArchiveManager::getSingleton();
+    Ogre::ArchiveManager::ArchiveMapIterator existing_archives =
+        archive_manager.getArchiveIterator();
+    while (existing_archives.hasMoreElements())
+    {
+        if (existing_archives.peekNextKey() == selected_archive_name)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_DUPLICATE_ITEM,
+                fmt::format(
+                    "Authenticated synthetic archive identity '{}' already "
+                    "exists",
+                    existing_archives.peekNextKey()),
+                "ContentManager::MountAuthenticatedPackageResourceLocation");
+        }
+        existing_archives.getNext();
+    }
+
+    if (m_package_archives_by_group.size() >
+            Render::kOgre14AuthenticatedTextureMaximumGroupRecords ||
+        m_authenticated_package_archives_by_group.size() >
+            Render::kOgre14AuthenticatedTextureMaximumGroupRecords ||
+        m_authenticated_package_archive_bindings_by_group.size() >
+            Render::kOgre14AuthenticatedTextureMaximumGroupRecords ||
+        m_legacy_material_group_generations.size() >
+            Render::kOgre14AuthenticatedTextureMaximumGroupRecords ||
+        m_authenticated_mesh_bindings.size() >
+            Render::kOgre14AuthenticatedTextureMaximumLiveReceipts)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated package mount state exceeds its bounded group or "
+            "resource limit",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+
+    // Build every allocation-bearing state transition before exposing the
+    // EmbeddedZip to OGRE. The one pointer-dependent node is allocated under
+    // a null placeholder and re-keyed after ArchiveManager returns the exact
+    // mounted pointer. Publishing below is then a sequence of no-throw swaps.
+    auto package_archives_candidate = m_package_archives_by_group;
+    auto authenticated_archives_candidate =
+        m_authenticated_package_archives_by_group;
+    auto authenticated_bindings_candidate =
+        m_authenticated_package_archive_bindings_by_group;
+    auto group_generations_candidate =
+        m_legacy_material_group_generations;
+    auto mesh_bindings_candidate = m_authenticated_mesh_bindings;
+    Render::Ogre14AuthenticatedTextureReceiptRegistry texture_candidate =
+        m_authenticated_texture_receipts;
+
+    auto& package_archive_names =
+        package_archives_candidate[resource_group];
+    auto& authenticated_archive_names =
+        authenticated_archives_candidate[resource_group];
+    auto& authenticated_archive_bindings =
+        authenticated_bindings_candidate[resource_group];
+    if (package_archive_names.size() >=
+            Render::kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates ||
+        authenticated_archive_names.size() >=
+            Render::kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates ||
+        authenticated_archive_bindings.size() >=
+            Render::kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated package group exceeds its archive-binding cap",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    for (const auto& existing_binding : authenticated_archive_bindings)
+    {
+        if (existing_binding.first == nullptr ||
+            existing_binding.second.source_archive_identity ==
+                archive_snapshot.source_archive_identity())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_DUPLICATE_ITEM,
+                "Authenticated package group already contains this source "
+                "archive identity or an invalid placeholder",
+                "ContentManager::MountAuthenticatedPackageResourceLocation");
+        }
+    }
+    if (!package_archive_names.insert(selected_archive_name).second ||
+        !authenticated_archive_names.emplace(
+             selected_archive_name,
+             archive_snapshot.archive_sha256()).second)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_DUPLICATE_ITEM,
+            "Authenticated synthetic archive identity collides with group "
+            "state",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    AuthenticatedPackageArchiveBinding pending_binding;
+    pending_binding.source_archive_identity =
+        archive_snapshot.source_archive_identity();
+    pending_binding.selected_archive_name = selected_archive_name;
+    pending_binding.selected_archive_type = "EmbeddedZip";
+    pending_binding.archive_sha256 = archive_snapshot.archive_sha256();
+    pending_binding.group_generation = mount_generation;
+    pending_binding.immutable_archive = archive_snapshot;
+    if (!authenticated_archive_bindings.emplace(
+             nullptr, std::move(pending_binding)).second)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_DUPLICATE_ITEM,
+            "Authenticated archive pointer placeholder collides",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    for (auto& existing_binding : authenticated_archive_bindings)
+    {
+        existing_binding.second.group_generation = mount_generation;
+    }
+    group_generations_candidate[resource_group] = mount_generation;
+    const Render::ValidationResult texture_transition =
+        Render::AdvanceOgre14AuthenticatedTextureGroupGeneration(
+            resource_group, mount_generation, texture_candidate);
+    if (!texture_transition)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Authenticated source-texture group '{}' could not advance "
+                "to mount generation {}: {} ({})",
+                resource_group,
+                mount_generation,
+                texture_transition.detail,
+                texture_transition.field),
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    for (auto mesh_binding = mesh_bindings_candidate.begin();
+         mesh_binding != mesh_bindings_candidate.end();)
+    {
+        if (mesh_binding->second.group == resource_group)
+        {
+            mesh_binding = mesh_bindings_candidate.erase(mesh_binding);
+        }
+        else
+        {
+            ++mesh_binding;
+        }
+    }
+
+    const auto pending_insertion =
+        m_authenticated_package_archive_pending_snapshots.emplace(
+            selected_archive_name, archive_snapshot);
+    if (!pending_insertion.second)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_DUPLICATE_ITEM,
+            "Authenticated synthetic archive already has a pending owner",
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    m_authenticated_package_archive_retained_bytes +=
+        static_cast<std::uint64_t>(archive_snapshot.size());
+
+    try
+    {
+        Ogre::EmbeddedZipArchiveFactory::addEmbbeddedFile(
+            selected_archive_name,
+            archive_snapshot.bytes(),
+            archive_snapshot.size(),
+            nullptr);
+        Render::MaybeInjectOgre14AuthenticatedArchiveMountFault(
+            Render::Ogre14AuthenticatedArchiveMountStage::
+                AFTER_EMBEDDED_ZIP_REGISTRATION,
+            fault_injector);
+        resource_manager.addResourceLocation(
+            selected_archive_name,
+            "EmbeddedZip",
+            resource_group,
+            false,
+            true);
+        Render::MaybeInjectOgre14AuthenticatedArchiveMountFault(
+            Render::Ogre14AuthenticatedArchiveMountStage::
+                AFTER_RESOURCE_LOCATION_INSERTION,
+            fault_injector);
+        Ogre::Archive* selected_archive = nullptr;
+        std::size_t selected_location_count = 0U;
+        const Ogre::ResourceGroupManager::LocationList& locations =
+            resource_manager.getResourceLocationList(resource_group);
+        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+             locations)
+        {
+            if (location.archive != nullptr &&
+                location.archive->getName() == selected_archive_name)
+            {
+                selected_archive = location.archive;
+                ++selected_location_count;
+            }
+        }
+        Ogre::Archive* manager_archive = nullptr;
+        std::size_t manager_archive_count = 0U;
+        Ogre::ArchiveManager::ArchiveMapIterator mounted_archives =
+            archive_manager.getArchiveIterator();
+        while (mounted_archives.hasMoreElements())
+        {
+            const Ogre::String archive_name =
+                mounted_archives.peekNextKey();
+            Ogre::Archive* archive = mounted_archives.getNext();
+            if (archive_name == selected_archive_name)
+            {
+                manager_archive = archive;
+                ++manager_archive_count;
+            }
+        }
+        if (selected_location_count != 1U ||
+            manager_archive_count != 1U ||
+            selected_archive == nullptr ||
+            manager_archive != selected_archive ||
+            selected_archive->getName() != selected_archive_name ||
+            selected_archive->getType() != "EmbeddedZip" ||
+            !selected_archive->isReadOnly())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Authenticated EmbeddedZip mount did not resolve to one "
+                "pointer-exact archive instance",
+                "ContentManager::MountAuthenticatedPackageResourceLocation");
+        }
+
+        auto& candidate_bindings =
+            authenticated_bindings_candidate.at(resource_group);
+        auto pointer_node = candidate_bindings.extract(nullptr);
+        if (pointer_node.empty())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Authenticated archive pointer placeholder was lost",
+                "ContentManager::MountAuthenticatedPackageResourceLocation");
+        }
+        pointer_node.key() = selected_archive;
+        pointer_node.mapped().archive_pointer_token =
+            reinterpret_cast<std::uintptr_t>(selected_archive);
+        const auto pointer_insertion =
+            candidate_bindings.insert(std::move(pointer_node));
+        if (!pointer_insertion.inserted)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_DUPLICATE_ITEM,
+                "Authenticated archive pointer collides with group state",
+                "ContentManager::MountAuthenticatedPackageResourceLocation");
+        }
+
+        Render::MaybeInjectOgre14AuthenticatedArchiveMountFault(
+            Render::Ogre14AuthenticatedArchiveMountStage::
+                BEFORE_POINTER_BOUND_STATE_SWAP,
+            fault_injector);
+
+        // Remove the temporary owner from mutable pending state before the
+        // first publication swap. Its node keeps the exact bytes alive until
+        // the pointer-bound candidate owns them, and any extraction failure
+        // still reaches the external-state rollback below.
+        auto pending_owner_node =
+            m_authenticated_package_archive_pending_snapshots.extract(
+                pending_insertion.first);
+        if (pending_owner_node.empty())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Authenticated archive pending owner was lost before "
+                "publication",
+                "ContentManager::MountAuthenticatedPackageResourceLocation");
+        }
+
+        // These assertions bind the atomic-publication claim to the exact
+        // standard-library/container types compiled on every target. Readers
+        // take m_legacy_material_state_mutex, so they observe either the old
+        // state or the complete pointer-bound generation transition.
+        static_assert(
+            noexcept(m_package_archives_by_group.swap(
+                package_archives_candidate)));
+        static_assert(
+            noexcept(m_authenticated_package_archives_by_group.swap(
+                authenticated_archives_candidate)));
+        static_assert(
+            noexcept(m_authenticated_package_archive_bindings_by_group.swap(
+                authenticated_bindings_candidate)));
+        static_assert(
+            noexcept(m_legacy_material_group_generations.swap(
+                group_generations_candidate)));
+        static_assert(
+            noexcept(m_authenticated_mesh_bindings.swap(
+                mesh_bindings_candidate)));
+        static_assert(
+            noexcept(m_authenticated_texture_receipts =
+                         std::move(texture_candidate)));
+        static_assert(
+            std::is_nothrow_assignable_v<std::uint64_t&, std::uint64_t>);
+        static_assert(
+            std::is_nothrow_destructible_v<
+                decltype(package_archives_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(authenticated_archives_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(authenticated_bindings_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(group_generations_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(mesh_bindings_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(texture_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(pending_owner_node)>);
+
+        m_package_archives_by_group.swap(package_archives_candidate);
+        m_authenticated_package_archives_by_group.swap(
+            authenticated_archives_candidate);
+        m_authenticated_package_archive_bindings_by_group.swap(
+            authenticated_bindings_candidate);
+        m_legacy_material_group_generations.swap(
+            group_generations_candidate);
+        m_authenticated_mesh_bindings.swap(mesh_bindings_candidate);
+        m_authenticated_texture_receipts = std::move(texture_candidate);
+        m_next_legacy_material_group_generation = mount_generation;
+    }
+    catch (...)
+    {
+        bool rollback_complete = false;
+        try
+        {
+            if (resource_manager.resourceGroupExists(resource_group))
+            {
+                const Ogre::ResourceGroupManager::LocationList& locations =
+                    resource_manager.getResourceLocationList(resource_group);
+                for (const Ogre::ResourceGroupManager::ResourceLocation&
+                         location : locations)
+                {
+                    if (location.archive != nullptr &&
+                        location.archive->getName() == selected_archive_name)
+                    {
+                        resource_manager.removeResourceLocation(
+                            selected_archive_name, resource_group);
+                        rollback_complete = true;
+                        break;
+                    }
+                }
+            }
+            if (!rollback_complete)
+            {
+                Ogre::Archive* manager_archive = nullptr;
+                Ogre::ArchiveManager::ArchiveMapIterator archives =
+                    archive_manager.getArchiveIterator();
+                while (archives.hasMoreElements())
+                {
+                    const Ogre::String archive_name =
+                        archives.peekNextKey();
+                    Ogre::Archive* archive = archives.getNext();
+                    if (archive_name == selected_archive_name)
+                    {
+                        manager_archive = archive;
+                    }
+                }
+                if (manager_archive != nullptr)
+                {
+                    archive_manager.unload(manager_archive);
+                }
+                else
+                {
+                    Ogre::EmbeddedZipArchiveFactory::removeEmbbeddedFile(
+                        selected_archive_name);
+                }
+                rollback_complete = true;
+            }
+            if (rollback_complete)
+            {
+                Ogre::ArchiveManager::ArchiveMapIterator archives =
+                    archive_manager.getArchiveIterator();
+                while (archives.hasMoreElements())
+                {
+                    const Ogre::String archive_name =
+                        archives.peekNextKey();
+                    archives.getNext();
+                    if (archive_name == selected_archive_name)
+                    {
+                        rollback_complete = false;
+                        break;
+                    }
+                }
+            }
+            if (rollback_complete)
+            {
+                // ArchiveManager::unload() asks the EmbeddedZip factory to
+                // erase this entry. Repeat the erase explicitly: it is
+                // idempotent and makes the rollback postcondition independent
+                // of that implementation detail.
+                Ogre::EmbeddedZipArchiveFactory::removeEmbbeddedFile(
+                    selected_archive_name);
+            }
+        }
+        catch (...)
+        {
+            rollback_complete = false;
+        }
+        if (rollback_complete)
+        {
+            m_authenticated_package_archive_pending_snapshots.erase(
+                selected_archive_name);
+            m_authenticated_package_archive_retained_bytes -=
+                static_cast<std::uint64_t>(archive_snapshot.size());
+        }
+        else
+        {
+            // The external OGRE registry can no longer be proven absent. Keep
+            // the immutable bytes alive in pending state and stop the process:
+            // returning would permit this synthetic archive to shadow a later
+            // resource selection or survive into a nominally recoverable group
+            // retry. This is deliberately not a recoverable ContentManager
+            // state; process restart is the only reset boundary.
+            std::terminate();
+        }
+        throw;
+    }
+#else
+    (void)resource_group;
+    (void)archive_snapshot;
+    OGRE_EXCEPT(
+        Ogre::Exception::ERR_NOT_IMPLEMENTED,
+        "Authenticated archive snapshots require OGRE 14",
+        "ContentManager::MountAuthenticatedPackageResourceLocation");
+#endif
+}
+
+bool ContentManager::IsAuthenticatedPackageSourceMounted(
+    const Ogre::String& resource_group,
+    const Ogre::String& source_archive_identity)
+{
+    if (resource_group.empty() || source_archive_identity.empty())
+    {
+        return false;
+    }
+    std::lock_guard<std::mutex> state_lock(
         m_legacy_material_state_mutex);
-    m_package_archives_by_group[resource_group].insert(archive_name);
-    m_authenticated_package_archives_by_group[resource_group][archive_name] =
-        archive_sha256;
-    this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
+    const auto group =
+        m_authenticated_package_archive_bindings_by_group.find(
+            resource_group);
+    if (group ==
+        m_authenticated_package_archive_bindings_by_group.end())
+    {
+        return false;
+    }
+    for (const auto& archive_entry : group->second)
+    {
+        if (archive_entry.second.source_archive_identity ==
+            source_archive_identity)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ContentManager::UnregisterPackageResourceGroup(
     const Ogre::String& resource_group)
 {
-    std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
+    std::scoped_lock<std::mutex, std::mutex, std::mutex>
+        legacy_material_lock(
+        m_legacy_material_archive_io_mutex,
         m_legacy_material_resolution_mutex,
         m_legacy_material_state_mutex);
+#if OGRE_VERSION_MAJOR >= 14
+    if (m_next_legacy_material_group_generation ==
+        (std::numeric_limits<std::uint64_t>::max)())
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Authenticated resource-group generation space is exhausted",
+            "ContentManager::UnregisterPackageResourceGroup");
+    }
+    const std::uint64_t teardown_generation =
+        m_next_legacy_material_group_generation + 1U;
+    Render::Ogre14AuthenticatedTextureReceiptRegistry texture_candidate =
+        m_authenticated_texture_receipts;
+    const Render::ValidationResult texture_advance =
+        Render::AdvanceOgre14AuthenticatedTextureGroupGeneration(
+            resource_group, teardown_generation, texture_candidate);
+    if (!texture_advance)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Authenticated source-texture group '{}' could not advance "
+                "to teardown generation {}: {} ({})",
+                resource_group,
+                teardown_generation,
+                texture_advance.detail,
+                texture_advance.field),
+            "ContentManager::UnregisterPackageResourceGroup");
+    }
+    const Render::ValidationResult texture_teardown =
+        Render::TeardownOgre14AuthenticatedTextureGroup(
+            resource_group, teardown_generation, texture_candidate);
+    if (!texture_teardown)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Authenticated source-texture group '{}' generation {} "
+                "could not tear down: {} ({})",
+                resource_group,
+                teardown_generation,
+                texture_teardown.detail,
+                texture_teardown.field),
+            "ContentManager::UnregisterPackageResourceGroup");
+    }
+    m_legacy_material_group_generations[resource_group] =
+        teardown_generation;
+    m_next_legacy_material_group_generation = teardown_generation;
+    m_authenticated_texture_receipts = std::move(texture_candidate);
+    this->EraseAuthenticatedMeshBindingsForGroupLocked(resource_group);
+
+    const auto authenticated_binding_group =
+        m_authenticated_package_archive_bindings_by_group.find(
+            resource_group);
+    if (authenticated_binding_group !=
+        m_authenticated_package_archive_bindings_by_group.end())
+    {
+        Ogre::ResourceGroupManager* resource_manager =
+            Ogre::ResourceGroupManager::getSingletonPtr();
+        Ogre::ArchiveManager* archive_manager =
+            Ogre::ArchiveManager::getSingletonPtr();
+        if (resource_manager == nullptr || archive_manager == nullptr)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Authenticated archive managers are unavailable during "
+                "teardown",
+                "ContentManager::UnregisterPackageResourceGroup");
+        }
+        for (const auto& archive_entry :
+             authenticated_binding_group->second)
+        {
+            const Ogre::Archive* expected_archive = archive_entry.first;
+            const AuthenticatedPackageArchiveBinding& binding =
+                archive_entry.second;
+            if (expected_archive == nullptr ||
+                binding.archive_pointer_token !=
+                    reinterpret_cast<std::uintptr_t>(expected_archive) ||
+                expected_archive->getName() !=
+                    binding.selected_archive_name ||
+                expected_archive->getType() !=
+                    binding.selected_archive_type ||
+                binding.selected_archive_type != "EmbeddedZip" ||
+                !binding.immutable_archive.initialized())
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authenticated archive binding in group '{}' changed "
+                        "before teardown",
+                        resource_group),
+                    "ContentManager::UnregisterPackageResourceGroup");
+            }
+
+            bool location_removed = false;
+            if (resource_manager != nullptr &&
+                resource_manager->resourceGroupExists(resource_group))
+            {
+                const Ogre::ResourceGroupManager::LocationList& locations =
+                    resource_manager->getResourceLocationList(resource_group);
+                for (const Ogre::ResourceGroupManager::ResourceLocation&
+                         location : locations)
+                {
+                    if (location.archive == expected_archive)
+                    {
+                        resource_manager->removeResourceLocation(
+                            binding.selected_archive_name,
+                            resource_group);
+                        location_removed = true;
+                        break;
+                    }
+                }
+            }
+            if (!location_removed && archive_manager != nullptr)
+            {
+                Ogre::Archive* mounted_archive = nullptr;
+                Ogre::ArchiveManager::ArchiveMapIterator archives =
+                    archive_manager->getArchiveIterator();
+                while (archives.hasMoreElements())
+                {
+                    const Ogre::String archive_name =
+                        archives.peekNextKey();
+                    Ogre::Archive* archive = archives.getNext();
+                    if (archive_name == binding.selected_archive_name)
+                    {
+                        mounted_archive = archive;
+                    }
+                }
+                if (mounted_archive != expected_archive)
+                {
+                    OGRE_EXCEPT(
+                        Ogre::Exception::ERR_INVALID_STATE,
+                        fmt::format(
+                            "Authenticated archive '{}' in group '{}' lost "
+                            "its pointer-exact ArchiveManager binding",
+                            binding.selected_archive_name,
+                            resource_group),
+                        "ContentManager::UnregisterPackageResourceGroup");
+                }
+                archive_manager->unload(mounted_archive);
+            }
+
+            bool archive_still_published = false;
+            Ogre::ArchiveManager::ArchiveMapIterator remaining_archives =
+                archive_manager->getArchiveIterator();
+            while (remaining_archives.hasMoreElements())
+            {
+                const Ogre::String archive_name =
+                    remaining_archives.peekNextKey();
+                Ogre::Archive* archive = remaining_archives.getNext();
+                if (archive_name == binding.selected_archive_name ||
+                    archive == expected_archive)
+                {
+                    archive_still_published = true;
+                    break;
+                }
+            }
+            if (archive_still_published)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authenticated archive '{}' remained published after "
+                        "teardown",
+                        binding.selected_archive_name),
+                    "ContentManager::UnregisterPackageResourceGroup");
+            }
+            // This is idempotent after EmbeddedZipArchiveFactory::
+            // destroyInstance(), and guarantees that the factory registry no
+            // longer retains the immutable byte pointer before its owner is
+            // released below.
+            Ogre::EmbeddedZipArchiveFactory::removeEmbbeddedFile(
+                binding.selected_archive_name);
+
+            const std::uint64_t archive_size =
+                static_cast<std::uint64_t>(
+                    binding.immutable_archive.size());
+            if (archive_size >
+                m_authenticated_package_archive_retained_bytes)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Authenticated archive retained-byte accounting "
+                    "underflowed during teardown",
+                    "ContentManager::UnregisterPackageResourceGroup");
+            }
+            m_authenticated_package_archive_retained_bytes -= archive_size;
+        }
+    }
+#else
     this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
+#endif
     m_package_archives_by_group.erase(resource_group);
     m_authenticated_package_archives_by_group.erase(resource_group);
+    m_authenticated_package_archive_bindings_by_group.erase(resource_group);
     m_package_materials_by_group.erase(resource_group);
     m_authenticated_materials_by_group.erase(resource_group);
     m_generated_material_fallbacks_by_group.erase(resource_group);
@@ -346,13 +1145,40 @@ void ContentManager::resourceGroupScriptingEnded(
 void ContentManager::resourceRemove(const Ogre::ResourcePtr& resource)
 {
 #if OGRE_VERSION_MAJOR >= 14
-    if (resource &&
+    if (!resource)
+    {
+        return;
+    }
+    if (
         Ogre::MeshManager::getSingletonPtr() != nullptr &&
         resource->getCreator() == Ogre::MeshManager::getSingletonPtr())
     {
         std::lock_guard<std::mutex> state_lock(
             m_legacy_material_state_mutex);
         m_authenticated_mesh_bindings.erase(resource.get());
+    }
+    if (Ogre::TextureManager::getSingletonPtr() != nullptr &&
+        resource->getCreator() == Ogre::TextureManager::getSingletonPtr())
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const Render::ValidationResult removal =
+            Render::RemoveOgre14AuthenticatedTextureResource(
+                resource->getGroup(),
+                reinterpret_cast<std::uintptr_t>(resource.get()),
+                static_cast<std::uint64_t>(resource->getHandle()),
+                resource->getName(),
+                m_authenticated_texture_receipts);
+        if (!removal)
+        {
+            LOG(fmt::format(
+                "[RoR|ContentManager|AuthenticatedTexture] Refused stale "
+                "resource removal for '{}' in group '{}': {} ({})",
+                resource->getName(),
+                resource->getGroup(),
+                removal.detail,
+                removal.field));
+        }
     }
 #else
     (void)resource;
@@ -1171,6 +1997,16 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
         Ogre::String,
         std::unordered_map<Ogre::String, std::string>>
         authenticated_archive_groups;
+    std::unordered_map<
+        const Ogre::Archive*,
+        AuthenticatedPackageArchiveBinding>
+        authenticated_archive_bindings;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<
+            const Ogre::Archive*,
+            AuthenticatedPackageArchiveBinding>>
+        authenticated_archive_binding_groups;
     std::unordered_map<Ogre::String, std::uint64_t>
         group_generations;
     const bool uses_autodetect_group =
@@ -1183,6 +2019,8 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
         {
             authenticated_archive_groups =
                 m_authenticated_package_archives_by_group;
+            authenticated_archive_binding_groups =
+                m_authenticated_package_archive_bindings_by_group;
             group_generations =
                 m_legacy_material_group_generations;
         }
@@ -1202,6 +2040,14 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
             {
                 authenticated_archives =
                     authenticated_group->second;
+            }
+            const auto authenticated_binding_group =
+                m_authenticated_package_archive_bindings_by_group.find(group);
+            if (authenticated_binding_group !=
+                m_authenticated_package_archive_bindings_by_group.end())
+            {
+                authenticated_archive_bindings =
+                    authenticated_binding_group->second;
             }
         }
 
@@ -1286,11 +2132,145 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
         // An authenticated script already selected this generated name. Never
         // delegate it back to OGRE's resource lookup: a later same-named
         // untrusted location must not replace the authorized procedural bytes.
-        Ogre::MemoryDataStream* replacement =
-            OGRE_NEW Ogre::MemoryDataStream(
-                name, dds.size(), true, false);
-        replacement->write(dds.data(), dds.size());
-        replacement->seek(0U);
+        Ogre::DataStreamPtr replacement;
+#if OGRE_VERSION_MAJOR >= 14
+        const bool is_texture_resource =
+            resource != nullptr &&
+            Ogre::TextureManager::getSingletonPtr() != nullptr &&
+            resource->getCreator() ==
+                Ogre::TextureManager::getSingletonPtr();
+        if (is_texture_resource)
+        {
+            if (resource->getName() != name ||
+                resource->getGroup() != group)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Generated texture '{}' in group '{}' does not match "
+                        "the exact loading resource identity",
+                        name,
+                        group),
+                    "ContentManager::resourceLoading");
+            }
+
+            Render::Ogre14AuthenticatedTextureCaptureInput capture_input;
+            capture_input.source_kind =
+                Render::Ogre14AuthenticatedTextureSourceKind::
+                    VERSIONED_GENERATED_FALLBACK;
+            capture_input.effective_resource_group = group;
+            capture_input.group_generation = group_generation;
+            capture_input.archive_sha256 = resolution_archive_sha256;
+            capture_input.exact_member_name = name;
+            capture_input.generated_fallback_rule =
+                Render::kOgre14GeneratedTextureFallbackRule;
+            capture_input.generated_fallback_rule_version =
+                Render::kOgre14GeneratedTextureFallbackRuleVersion;
+            capture_input.binding.resource_pointer_token =
+                reinterpret_cast<std::uintptr_t>(resource);
+            capture_input.binding.resource_handle =
+                static_cast<std::uint64_t>(resource->getHandle());
+            capture_input.binding.resource_state_count =
+                static_cast<std::uint64_t>(resource->getStateCount());
+            capture_input.binding.exact_resource_name =
+                resource->getName();
+
+            Render::Ogre14AuthenticatedTextureReceipt receipt;
+            const Render::ValidationResult capture =
+                Render::BuildOgre14AuthenticatedTextureReceipt(
+                    m_authenticated_texture_receipt_configuration,
+                    capture_input,
+                    dds.data(),
+                    dds.size(),
+                    receipt);
+            if (!capture)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Generated texture '{}' in group '{}' could not "
+                        "produce an authenticated byte receipt: {} ({})",
+                        name,
+                        group,
+                        capture.detail,
+                        capture.field),
+                    "ContentManager::resourceLoading");
+            }
+
+            Ogre::DataStreamPtr replacement_stream(
+                OGRE_NEW Ogre::MemoryDataStream(
+                    name, receipt.source_size(), true, false));
+            replacement_stream->write(
+                receipt.source_bytes(), receipt.source_size());
+            replacement_stream->seek(0U);
+            replacement = replacement_stream;
+
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            const auto current_generation =
+                m_legacy_material_group_generations.find(group);
+            const auto current_authorized_group =
+                m_authorized_texture_fallbacks_by_group.find(group);
+            if (current_generation ==
+                    m_legacy_material_group_generations.end() ||
+                current_generation->second != group_generation ||
+                current_authorized_group ==
+                    m_authorized_texture_fallbacks_by_group.end())
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Generated texture '{}' in group '{}' changed "
+                        "authorization before receipt commit",
+                        name,
+                        group),
+                    "ContentManager::resourceLoading");
+            }
+            const auto current_authorization =
+                current_authorized_group->second.find(name);
+            if (current_authorization ==
+                    current_authorized_group->second.end() ||
+                current_authorization->second !=
+                    resolution_archive_sha256 ||
+                resource->getName() != name ||
+                resource->getGroup() != group)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Generated texture '{}' in group '{}' lost its exact "
+                        "resource or archive authorization",
+                        name,
+                        group),
+                    "ContentManager::resourceLoading");
+            }
+            const Render::ValidationResult commit =
+                Render::CommitOgre14AuthenticatedTextureReceipt(
+                    receipt, m_authenticated_texture_receipts);
+            if (!commit)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Generated texture '{}' in group '{}' could not "
+                        "commit its authenticated receipt: {} ({})",
+                        name,
+                        group,
+                        commit.detail,
+                        commit.field),
+                    "ContentManager::resourceLoading");
+            }
+        }
+        else
+#endif
+        {
+            Ogre::DataStreamPtr replacement_stream(
+                OGRE_NEW Ogre::MemoryDataStream(
+                    name, dds.size(), true, false));
+            replacement_stream->write(dds.data(), dds.size());
+            replacement_stream->seek(0U);
+            replacement = replacement_stream;
+        }
         if (report_fallback)
         {
             LOG(fmt::format(
@@ -1301,7 +2281,7 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
                 group,
                 resolution_archive_sha256));
         }
-        return Ogre::DataStreamPtr(replacement);
+        return replacement;
     }
 
 #if OGRE_VERSION_MAJOR >= 14
@@ -1314,9 +2294,11 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
     if (resource == nullptr ||
         (!uses_autodetect_group &&
          (authenticated_archives.empty() ||
+          authenticated_archive_bindings.empty() ||
           group_generation == 0U)) ||
         (uses_autodetect_group &&
-         authenticated_archive_groups.empty()))
+         (authenticated_archive_groups.empty() ||
+          authenticated_archive_binding_groups.empty())))
     {
         return Ogre::DataStreamPtr();
     }
@@ -1324,8 +2306,17 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
     Ogre::String effective_group = group;
     Ogre::DataStreamPtr authenticated_stream;
     Ogre::String selected_archive_name;
+    Ogre::String selected_archive_identity;
+    Ogre::String selected_archive_type;
+    std::uintptr_t selected_archive_pointer_token = 0U;
+    const Ogre::Archive* selected_archive_instance = nullptr;
+    Ogre::String selected_member_name;
     std::string selected_archive_sha256;
     bool change_resource_group = false;
+    const bool is_texture_resource =
+        Ogre::TextureManager::getSingletonPtr() != nullptr &&
+        resource->getCreator() ==
+            Ogre::TextureManager::getSingletonPtr();
     {
         std::lock_guard<std::mutex> archive_lock(
             m_legacy_material_archive_io_mutex);
@@ -1353,6 +2344,15 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
             }
             authenticated_archives =
                 authenticated_group->second;
+            const auto authenticated_binding_group =
+                authenticated_archive_binding_groups.find(effective_group);
+            if (authenticated_binding_group ==
+                authenticated_archive_binding_groups.end())
+            {
+                return Ogre::DataStreamPtr();
+            }
+            authenticated_archive_bindings =
+                authenticated_binding_group->second;
             group_generation =
                 effective_generation->second;
             // Resource::load() resolves OgreAutodetect after prepareImpl().
@@ -1362,30 +2362,26 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
             change_resource_group = true;
         }
 
-        // Mirror ResourceGroupManager's exact-case index preference before
-        // its case-insensitive fallback. Authenticated terrain dependencies
-        // are ZIP archives, whose exists() lookup is case-sensitive even on
-        // Windows. Only enumerate the archive index for the uncommon
-        // case-insensitive fallback.
+        // Texture selection is derived from one bounded archive index pass per
+        // location. In OGRE's non-strict Zip mode exists() and FileInfo::filename
+        // both discard information needed to distinguish full paths and case
+        // collisions, so neither is an authentication decision. Meshes retain
+        // the established ResourceGroupManager-compatible selection below.
         const Ogre::ResourceGroupManager::LocationList& locations =
             Ogre::ResourceGroupManager::getSingleton()
                 .getResourceLocationList(effective_group);
         const Ogre::Archive* selected_archive = nullptr;
-        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
-             locations)
+        if (is_texture_resource)
         {
-            if (location.archive != nullptr &&
-                location.archive->exists(name))
-            {
-                selected_archive = location.archive;
-                break;
-            }
-        }
-#if !OGRE_RESOURCEMANAGER_STRICT
-        if (selected_archive == nullptr)
-        {
-            Ogre::String folded_name = name;
-            Ogre::StringUtil::toLowerCase(folded_name);
+            Ogre::String requested_basename;
+            Ogre::String requested_path;
+            Ogre::StringUtil::splitFilename(
+                name, requested_basename, requested_path);
+            Ogre::String folded_full_name = name;
+            Ogre::String folded_basename = requested_basename;
+            Ogre::StringUtil::toLowerCase(folded_full_name);
+            Ogre::StringUtil::toLowerCase(folded_basename);
+
             for (const Ogre::ResourceGroupManager::ResourceLocation& location :
                  locations)
             {
@@ -1393,37 +2389,224 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
                 {
                     continue;
                 }
-                const Ogre::FileInfoListPtr indexed_files =
+                const Ogre::FileInfoListPtr selected_index =
                     location.archive->findFileInfo(
                         "*", location.recursive, false);
-                if (!indexed_files)
+                if (!selected_index)
                 {
-                    continue;
+                    OGRE_EXCEPT(
+                        Ogre::Exception::ERR_INVALID_STATE,
+                        fmt::format(
+                            "Archive '{}' did not expose an index while "
+                            "selecting authenticated texture '{}'",
+                            location.archive->getName(),
+                            name),
+                        "ContentManager::resourceLoading");
                 }
-                for (const Ogre::FileInfo& indexed_file : *indexed_files)
+                if (selected_index->size() >
+                    Render::kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates)
                 {
-                    Ogre::String folded_candidate =
-                        indexed_file.filename;
-                    Ogre::StringUtil::toLowerCase(folded_candidate);
-                    if (folded_candidate == folded_name)
+                    OGRE_EXCEPT(
+                        Ogre::Exception::ERR_INVALID_STATE,
+                        fmt::format(
+                            "Archive '{}' exceeds the authenticated texture "
+                            "member-count cap",
+                            location.archive->getName()),
+                        "ContentManager::resourceLoading");
+                }
+
+                const bool archive_case_sensitive =
+                    location.archive->isCaseSensitive();
+                const bool allow_zip_basename_fallback =
+                    !archive_case_sensitive &&
+                    (location.archive->getType() == "Zip" ||
+                     location.archive->getType() == "EmbeddedZip");
+                std::vector<
+                    Render::Ogre14AuthenticatedTextureArchiveMemberObservation>
+                    member_observations;
+                member_observations.reserve(selected_index->size());
+                std::uint64_t observed_identity_bytes = 0U;
+                for (const Ogre::FileInfo& indexed_file : *selected_index)
+                {
+                    if (indexed_file.path.size() >
+                            Render::kOgre14AuthenticatedTextureMaximumIdentifierBytes ||
+                        indexed_file.basename.size() >
+                            Render::kOgre14AuthenticatedTextureMaximumIdentifierBytes -
+                                indexed_file.path.size())
                     {
-                        selected_archive = location.archive;
-                        break;
+                        OGRE_EXCEPT(
+                            Ogre::Exception::ERR_INVALID_STATE,
+                            fmt::format(
+                                "Archive '{}' contains an overlong texture "
+                                "member identity",
+                                location.archive->getName()),
+                            "ContentManager::resourceLoading");
                     }
+                    const Ogre::String exact_member =
+                        indexed_file.path + indexed_file.basename;
+                    if (exact_member.empty())
+                    {
+                        continue;
+                    }
+                    if (observed_identity_bytes >
+                        Render::kOgre14AuthenticatedTextureMaximumArchiveMemberIdentityBytes -
+                            static_cast<std::uint64_t>(exact_member.size()))
+                    {
+                        OGRE_EXCEPT(
+                            Ogre::Exception::ERR_INVALID_STATE,
+                            fmt::format(
+                                "Archive '{}' exceeds the authenticated "
+                                "texture member-identity byte cap",
+                                location.archive->getName()),
+                            "ContentManager::resourceLoading");
+                    }
+                    observed_identity_bytes +=
+                        static_cast<std::uint64_t>(exact_member.size());
+                    Ogre::String folded_member = exact_member;
+                    Ogre::StringUtil::toLowerCase(folded_member);
+                    Ogre::String indexed_basename = indexed_file.basename;
+                    Ogre::StringUtil::toLowerCase(indexed_basename);
+                    Render::Ogre14AuthenticatedTextureArchiveMemberObservation
+                        observation;
+                    observation.exact_member_name = exact_member;
+                    observation.exact_full_match = exact_member == name;
+                    observation.folded_full_match =
+                        folded_member == folded_full_name;
+                    observation.folded_basename_match =
+                        allow_zip_basename_fallback &&
+                        indexed_basename == folded_basename;
+                    member_observations.push_back(std::move(observation));
                 }
-                if (selected_archive != nullptr)
+
+                Ogre::String exact_member;
+                const Render::ValidationResult member_selection =
+                    Render::SelectOgre14AuthenticatedTextureArchiveMember(
+                        archive_case_sensitive,
+                        allow_zip_basename_fallback,
+                        member_observations.data(),
+                        member_observations.size(),
+                        exact_member);
+                if (member_selection)
                 {
+                    selected_archive = location.archive;
+                    selected_member_name = std::move(exact_member);
                     break;
+                }
+                if (member_selection.code !=
+                    Render::ValidationCode::MISSING_REFERENCE)
+                {
+                    OGRE_EXCEPT(
+                        Ogre::Exception::ERR_DUPLICATE_ITEM,
+                        fmt::format(
+                            "Archive '{}' could not resolve one exact "
+                            "case-sensitive member for texture resource "
+                            "'{}': {} ({})",
+                            location.archive->getName(),
+                            name,
+                            member_selection.detail,
+                            member_selection.field),
+                        "ContentManager::resourceLoading");
                 }
             }
         }
+        else
+        {
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                 locations)
+            {
+                if (location.archive != nullptr &&
+                    location.archive->exists(name))
+                {
+                    selected_archive = location.archive;
+                    selected_member_name = name;
+                    break;
+                }
+            }
+#if !OGRE_RESOURCEMANAGER_STRICT
+            if (selected_archive == nullptr)
+            {
+                Ogre::String folded_name = name;
+                Ogre::StringUtil::toLowerCase(folded_name);
+                for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                     locations)
+                {
+                    if (location.archive == nullptr)
+                    {
+                        continue;
+                    }
+                    const Ogre::FileInfoListPtr indexed_files =
+                        location.archive->findFileInfo(
+                            "*", location.recursive, false);
+                    if (!indexed_files)
+                    {
+                        continue;
+                    }
+                    Ogre::String exact_folded_member;
+                    for (const Ogre::FileInfo& indexed_file : *indexed_files)
+                    {
+                        Ogre::String folded_candidate =
+                            indexed_file.filename;
+                        Ogre::StringUtil::toLowerCase(folded_candidate);
+                        if (folded_candidate == folded_name &&
+                            exact_folded_member.empty())
+                        {
+                            exact_folded_member = indexed_file.filename;
+                        }
+                    }
+                    if (!exact_folded_member.empty())
+                    {
+                        selected_archive = location.archive;
+                        selected_member_name = exact_folded_member;
+                        break;
+                    }
+                }
+            }
 #endif
+        }
         if (selected_archive == nullptr)
         {
             return Ogre::DataStreamPtr();
         }
 
         selected_archive_name = selected_archive->getName();
+        selected_archive_type = selected_archive->getType();
+        const auto authenticated_binding =
+            authenticated_archive_bindings.find(selected_archive);
+        if (authenticated_binding ==
+            authenticated_archive_bindings.end())
+        {
+            // Preserve OGRE's first-location-wins behavior without allowing a
+            // same-named untrusted archive to inherit later authority.
+            return Ogre::DataStreamPtr();
+        }
+        const AuthenticatedPackageArchiveBinding& selected_binding =
+            authenticated_binding->second;
+        selected_archive_identity =
+            selected_binding.source_archive_identity;
+        selected_archive_pointer_token =
+            selected_binding.archive_pointer_token;
+        selected_archive_instance = selected_archive;
+        if (selected_binding.group_generation != group_generation ||
+            selected_binding.selected_archive_name != selected_archive_name ||
+            selected_binding.selected_archive_type != selected_archive_type ||
+            selected_archive_pointer_token !=
+                reinterpret_cast<std::uintptr_t>(selected_archive) ||
+            selected_binding.archive_sha256 !=
+                selected_binding.immutable_archive.archive_sha256() ||
+            selected_archive_identity !=
+                selected_binding.immutable_archive.source_archive_identity() ||
+            !selected_binding.immutable_archive.initialized())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Selected archive '{}' for resource '{}' in group '{}' "
+                    "lost its immutable pointer-exact registration",
+                    selected_archive_name,
+                    name,
+                    effective_group),
+                "ContentManager::resourceLoading");
+        }
         const auto authenticated_archive =
             authenticated_archives.find(selected_archive_name);
         if (authenticated_archive == authenticated_archives.end())
@@ -1435,7 +2618,28 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
         }
         selected_archive_sha256 =
             authenticated_archive->second;
-        authenticated_stream = selected_archive->open(name);
+        if (!Render::IsLowercaseOgre14Sha256(
+                selected_archive_sha256) ||
+            selected_archive_sha256 != selected_binding.archive_sha256 ||
+            selected_archive_identity.empty() ||
+            selected_archive_pointer_token == 0U ||
+            selected_member_name.empty())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Selected archive '{}' for resource '{}' in group '{}' "
+                    "does not carry one authenticated identity/member",
+                    selected_archive_name,
+                    name,
+                    effective_group),
+                "ContentManager::resourceLoading");
+        }
+        // Existing authenticated mesh loading keeps its original request-name
+        // open path. Source textures use the selected exact-case index member;
+        // no AUTODETECT/name reopen can occur after capture.
+        authenticated_stream = selected_archive->open(
+            is_texture_resource ? selected_member_name : name);
     }
 
     if (!authenticated_stream)
@@ -1446,8 +2650,191 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
     {
         resource->changeGroupOwnership(effective_group);
     }
-    const Ogre::String expected_mesh_group =
+    const Ogre::String expected_resource_group =
         change_resource_group ? effective_group : group;
+
+    if (is_texture_resource)
+    {
+        if (resource->getName() != name ||
+            resource->getGroup() != expected_resource_group)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Authenticated texture '{}' in group '{}' does not "
+                    "match the exact selected loading resource",
+                    name,
+                    effective_group),
+                "ContentManager::resourceLoading");
+        }
+        const std::size_t source_size = authenticated_stream->size();
+        if (source_size == 0U ||
+            static_cast<std::uint64_t>(source_size) >
+                m_authenticated_texture_receipt_configuration
+                    .maximum_source_bytes)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Authenticated texture '{}' in group '{}' has invalid "
+                    "source byte count {}",
+                    name,
+                    effective_group,
+                    source_size),
+                "ContentManager::resourceLoading");
+        }
+        std::vector<std::uint8_t> source_bytes(source_size);
+        authenticated_stream->seek(0U);
+        const std::size_t observed_size = authenticated_stream->read(
+            source_bytes.data(), source_bytes.size());
+        if (observed_size != source_bytes.size())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Authenticated texture '{}' in group '{}' returned {} "
+                    "of {} selected source bytes",
+                    name,
+                    effective_group,
+                    observed_size,
+                    source_bytes.size()),
+                "ContentManager::resourceLoading");
+        }
+
+        Render::Ogre14AuthenticatedTextureCaptureInput capture_input;
+        capture_input.effective_resource_group = effective_group;
+        capture_input.group_generation = group_generation;
+        capture_input.archive_identity = selected_archive_identity;
+        capture_input.archive_name = selected_archive_name;
+        capture_input.archive_type = selected_archive_type;
+        capture_input.archive_sha256 = selected_archive_sha256;
+        capture_input.archive_pointer_token =
+            selected_archive_pointer_token;
+        capture_input.exact_member_name = selected_member_name;
+        capture_input.binding.resource_pointer_token =
+            reinterpret_cast<std::uintptr_t>(resource);
+        capture_input.binding.resource_handle =
+            static_cast<std::uint64_t>(resource->getHandle());
+        capture_input.binding.resource_state_count =
+            static_cast<std::uint64_t>(resource->getStateCount());
+        capture_input.binding.exact_resource_name = resource->getName();
+
+        Render::Ogre14AuthenticatedTextureReceipt receipt;
+        const Render::ValidationResult capture =
+            Render::BuildOgre14AuthenticatedTextureReceipt(
+                m_authenticated_texture_receipt_configuration,
+                capture_input,
+                source_bytes.data(),
+                source_bytes.size(),
+                receipt);
+        if (!capture)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Authenticated texture '{}' in group '{}' could not "
+                    "produce a source-byte receipt: {} ({})",
+                    name,
+                    effective_group,
+                    capture.detail,
+                    capture.field),
+                "ContentManager::resourceLoading");
+        }
+
+        Ogre::DataStreamPtr replacement(
+            OGRE_NEW Ogre::MemoryDataStream(
+                name, receipt.source_size(), true, false));
+        replacement->write(
+            receipt.source_bytes(), receipt.source_size());
+        replacement->seek(0U);
+
+        {
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            const auto current_generation =
+                m_legacy_material_group_generations.find(effective_group);
+            const auto current_authenticated_group =
+                m_authenticated_package_archives_by_group.find(
+                    effective_group);
+            const auto current_authenticated_binding_group =
+                m_authenticated_package_archive_bindings_by_group.find(
+                    effective_group);
+            if (current_generation ==
+                    m_legacy_material_group_generations.end() ||
+                current_generation->second != group_generation ||
+                current_authenticated_group ==
+                    m_authenticated_package_archives_by_group.end() ||
+                current_authenticated_binding_group ==
+                    m_authenticated_package_archive_bindings_by_group.end())
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authenticated texture '{}' in group '{}' changed "
+                        "generation/archive authority before receipt commit",
+                        name,
+                        effective_group),
+                    "ContentManager::resourceLoading");
+            }
+            const auto current_archive =
+                current_authenticated_group->second.find(
+                    selected_archive_name);
+            const auto current_archive_binding =
+                current_authenticated_binding_group->second.find(
+                    selected_archive_instance);
+            if (current_archive ==
+                    current_authenticated_group->second.end() ||
+                current_archive->second != selected_archive_sha256 ||
+                current_archive_binding ==
+                    current_authenticated_binding_group->second.end() ||
+                current_archive_binding->second.group_generation !=
+                    group_generation ||
+                current_archive_binding->second.source_archive_identity !=
+                    selected_archive_identity ||
+                current_archive_binding->second.selected_archive_name !=
+                    selected_archive_name ||
+                current_archive_binding->second.selected_archive_type !=
+                    selected_archive_type ||
+                current_archive_binding->second.archive_sha256 !=
+                    selected_archive_sha256 ||
+                current_archive_binding->second.archive_pointer_token !=
+                    selected_archive_pointer_token ||
+                selected_archive_pointer_token !=
+                    reinterpret_cast<std::uintptr_t>(
+                        selected_archive_instance) ||
+                resource->getName() != name ||
+                resource->getGroup() != expected_resource_group)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authenticated texture '{}' in group '{}' lost its "
+                        "exact resource or selected archive identity",
+                        name,
+                        effective_group),
+                    "ContentManager::resourceLoading");
+            }
+            const Render::ValidationResult commit =
+                Render::CommitOgre14AuthenticatedTextureReceipt(
+                    receipt, m_authenticated_texture_receipts);
+            if (!commit)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Authenticated texture '{}' in group '{}' could not "
+                        "commit its source-byte receipt: {} ({})",
+                        name,
+                        effective_group,
+                        commit.detail,
+                        commit.field),
+                    "ContentManager::resourceLoading");
+            }
+        }
+        // OGRE parses only this replacement over the receipt-owned bytes. The
+        // archive stream is never handed onward or reopened by name.
+        return replacement;
+    }
 
     static const std::size_t MAX_AUTHENTICATED_MESH_BYTES =
         512U * 1024U * 1024U;
@@ -1480,11 +2867,11 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
                 current_archive->second ==
                     selected_archive_sha256 &&
                 mesh->getName() == name &&
-                mesh->getGroup() == expected_mesh_group)
+                mesh->getGroup() == expected_resource_group)
             {
                 m_authenticated_mesh_bindings[resource] = {
                     effective_group,
-                    expected_mesh_group,
+                    expected_resource_group,
                     name,
                     mesh->getHandle(),
                     mesh->getStateCount(),
@@ -1517,6 +2904,35 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
         std::lock_guard<std::mutex> state_lock(
             m_legacy_material_state_mutex);
         m_authenticated_mesh_bindings.erase(resource);
+        return;
+    }
+    if (resource != nullptr &&
+        Ogre::TextureManager::getSingletonPtr() != nullptr &&
+        resource->getCreator() == Ogre::TextureManager::getSingletonPtr())
+    {
+        // A tracked authenticated texture is returned directly from
+        // resourceLoading(). Reaching this callback means OGRE opened another
+        // location, so remove only an exact stale binding and never bless the
+        // callback stream by resource name or AUTODETECT lookup.
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const Render::ValidationResult removal =
+            Render::RemoveOgre14AuthenticatedTextureResource(
+                resource->getGroup(),
+                reinterpret_cast<std::uintptr_t>(resource),
+                static_cast<std::uint64_t>(resource->getHandle()),
+                resource->getName(),
+                m_authenticated_texture_receipts);
+        if (!removal)
+        {
+            LOG(fmt::format(
+                "[RoR|ContentManager|AuthenticatedTexture] Refused stale "
+                "stream-open binding removal for '{}' in group '{}': {} ({})",
+                resource->getName(),
+                resource->getGroup(),
+                removal.detail,
+                removal.field));
+        }
         return;
     }
 #endif

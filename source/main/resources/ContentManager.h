@@ -25,6 +25,7 @@
 
 #include "CacheSystem.h"
 #include "Application.h"
+#include "TerrainBundleArchiveVerifier.h"
 
 #include <OgreResourceGroupManager.h>
 #include <OgreMeshSerializer.h>
@@ -34,6 +35,10 @@
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+
+#if OGRE_VERSION_MAJOR >= 14
+#include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+#endif
 
 namespace RoR {
 
@@ -89,10 +94,18 @@ public:
     void               AddResourcePack(ResourcePack const& resource_pack, std::string const& override_rgn = "");
     void               InitManagedMaterials(std::string const & rg_name);
     void               RegisterPackageResourceLocation(const Ogre::String& resource_group, const Ogre::String& archive_name);
-    void               RegisterAuthenticatedPackageResourceLocation(
+    void               MountAuthenticatedPackageResourceLocation(
                            const Ogre::String& resource_group,
-                           const Ogre::String& archive_name,
-                           const std::string& archive_sha256);
+                           const TerrainBundleAuthenticatedArchiveSnapshot&
+                               archive_snapshot
+#if OGRE_VERSION_MAJOR >= 14
+                           , Render::IOgre14AuthenticatedArchiveMountFaultInjector*
+                                 fault_injector = nullptr
+#endif
+                           );
+    bool               IsAuthenticatedPackageSourceMounted(
+                           const Ogre::String& resource_group,
+                           const Ogre::String& source_archive_identity);
     void               UnregisterPackageResourceGroup(const Ogre::String& resource_group);
     void               InitContentManager();
     void               InitModCache(CacheValidity validity);
@@ -140,6 +153,17 @@ private:
         std::string archive_sha256;
     };
 
+    struct AuthenticatedPackageArchiveBinding
+    {
+        Ogre::String source_archive_identity;
+        Ogre::String selected_archive_name;
+        Ogre::String selected_archive_type;
+        std::string archive_sha256;
+        std::uintptr_t archive_pointer_token = 0U;
+        std::uint64_t group_generation = 0U;
+        TerrainBundleAuthenticatedArchiveSnapshot immutable_archive;
+    };
+
     void EraseAuthenticatedMeshBindingsForGroupLocked(
         const Ogre::String& resource_group);
     std::uint64_t AdvanceLegacyMaterialGroupGenerationLocked(
@@ -160,6 +184,17 @@ private:
         Ogre::String,
         std::unordered_map<Ogre::String, std::string>>
         m_authenticated_package_archives_by_group;
+    std::unordered_map<
+        Ogre::String,
+        std::unordered_map<
+            const Ogre::Archive*,
+            AuthenticatedPackageArchiveBinding>>
+        m_authenticated_package_archive_bindings_by_group;
+    std::unordered_map<
+        Ogre::String,
+        TerrainBundleAuthenticatedArchiveSnapshot>
+        m_authenticated_package_archive_pending_snapshots;
+    std::uint64_t m_authenticated_package_archive_retained_bytes = 0U;
     std::unordered_map<Ogre::String, std::unordered_set<Ogre::String>>
         m_package_materials_by_group;
     std::unordered_map<
@@ -168,6 +203,12 @@ private:
         m_authenticated_materials_by_group;
     std::unordered_map<const Ogre::Resource*, AuthenticatedMeshBinding>
         m_authenticated_mesh_bindings;
+#if OGRE_VERSION_MAJOR >= 14
+    Render::Ogre14AuthenticatedTextureRegistryConfiguration
+        m_authenticated_texture_receipt_configuration;
+    Render::Ogre14AuthenticatedTextureReceiptRegistry
+        m_authenticated_texture_receipts;
+#endif
     std::unordered_map<
         Ogre::String,
         std::unordered_map<

@@ -1,6 +1,7 @@
 #include "TerrainBundleArchiveVerifier.h"
 
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -81,6 +82,73 @@ void TestMismatchReportsObservedDigest()
     CHECK(error == "archive SHA-256 mismatch");
 }
 
+void TestImmutableAuthenticatedSnapshotAndRollback()
+{
+    TemporaryFile archive("abc");
+    CHECK(archive.valid);
+    RoR::TerrainBundleAuthenticatedArchiveSnapshot snapshot;
+    std::string observed;
+    std::string error;
+    CHECK(RoR::LoadAndVerifyTerrainBundleArchiveSnapshot(
+        archive.path,
+        "ba7816bf8f01cfea414140de5dae2223"
+        "b00361a396177a9cb410ff61f20015ad",
+        3U,
+        snapshot,
+        observed,
+        error));
+    CHECK(snapshot.initialized());
+    CHECK(snapshot.version() ==
+        RoR::TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_SNAPSHOT_VERSION);
+    CHECK(snapshot.source_archive_identity() == archive.path);
+    CHECK(snapshot.archive_sha256() == observed);
+    CHECK(snapshot.size() == 3U);
+    CHECK(snapshot.bytes() != nullptr);
+    CHECK(snapshot.bytes()[0U] == static_cast<std::uint8_t>('a'));
+    CHECK(snapshot.bytes()[1U] == static_cast<std::uint8_t>('b'));
+    CHECK(snapshot.bytes()[2U] == static_cast<std::uint8_t>('c'));
+    CHECK(error.empty());
+
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot owner = snapshot;
+    CHECK(!RoR::LoadAndVerifyTerrainBundleArchiveSnapshot(
+        archive.path,
+        std::string(64U, '0'),
+        3U,
+        snapshot,
+        observed,
+        error));
+    CHECK(snapshot.SharesImmutableStateWith(owner));
+    CHECK(error == "archive SHA-256 mismatch");
+}
+
+void TestAuthenticatedSnapshotCaps()
+{
+    TemporaryFile archive("abc");
+    CHECK(archive.valid);
+    RoR::TerrainBundleAuthenticatedArchiveSnapshot snapshot;
+    std::string observed;
+    std::string error;
+    CHECK(!RoR::LoadAndVerifyTerrainBundleArchiveSnapshot(
+        archive.path,
+        "ba7816bf8f01cfea414140de5dae2223"
+        "b00361a396177a9cb410ff61f20015ad",
+        2U,
+        snapshot,
+        observed,
+        error));
+    CHECK(!snapshot.initialized());
+    CHECK(error == "archive exceeds authenticated snapshot byte cap");
+    CHECK(!RoR::LoadAndVerifyTerrainBundleArchiveSnapshot(
+        archive.path,
+        "ba7816bf8f01cfea414140de5dae2223"
+        "b00361a396177a9cb410ff61f20015ad",
+        RoR::TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES + 1U,
+        snapshot,
+        observed,
+        error));
+    CHECK(error == "archive byte limit is zero or exceeds its hard cap");
+}
+
 void TestStreamsAcrossReadBufferBoundaries()
 {
     TemporaryFile archive(std::string(131089U, 'x'));
@@ -132,6 +200,8 @@ int main()
 {
     TestVerifiedDigest();
     TestMismatchReportsObservedDigest();
+    TestImmutableAuthenticatedSnapshotAndRollback();
+    TestAuthenticatedSnapshotCaps();
     TestStreamsAcrossReadBufferBoundaries();
     TestInvalidExpectedDigestFailsBeforeFileAccess();
     TestMissingArchiveFailsClosed();

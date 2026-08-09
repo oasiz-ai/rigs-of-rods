@@ -1314,6 +1314,16 @@ mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
 
+The OGRE 14 source-texture edge now has the authenticated prerequisite for that
+conversion. Versioned immutable receipts retain the selected archive/member,
+group generation, resource identity, exact bytes/SHA-256, DDS/DX10 facts, and
+generated-fallback rule. Authenticated texture loads hand OGRE a replacement
+memory stream over those identical captured bytes and never reopen by name or
+`AUTODETECT`; bounded lifecycle/reset/reload semantics are specified in
+[OGRE 14 authenticated source-texture receipts](OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md).
+This closes source identity and capture, not live Ogre-Next material consumption
+or the V1 image-quality gate.
+
 The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
 subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive
 uploads, packed linear roughness/metallic extraction, padded multi-mip rows,

@@ -24,6 +24,8 @@ separately.
   `d60d2684b6fd29ba1d3bdc4aaa34bb21463488ab16af03592e3b19594f249e72`
 - Local always-on ZIP archive mutex patch SHA-256:
   `7674db9811bdf80abb0248b39504f259b85ecd9331f5bb1ca19c9b5d7a9db1b4`
+- Local ArchiveManager unpublished-instance rollback patch SHA-256:
+  `cf7aaac084432441167a384245b65400c07f23ea80e2af386cebd41832cc967a`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -57,6 +59,12 @@ resource lookup makes `ZipArchive::open()` call the separately locked
 `findFileInfo()` helper. Load, unload, open, list, find, and existence
 operations now serialize on macOS, Linux, and Windows.
 
+The local ArchiveManager rollback patch retains the exact factory which
+created an archive, rejects null factory results and duplicate map insertion,
+and returns every unpublished instance to that factory if `load()` or map
+publication throws. This closes the ownership edge required by authenticated
+`EmbeddedZip` rollback without changing successful archive lookup.
+
 On 2026-07-28, the native arm64 application exercised the rendering patches
 with PSSM plus mixed cube, 2D, and shadow samplers. The two-truck scene
 completed 1,000 physics steps, wrote and fully decoded a 2560x1440 Retina PNG,
@@ -86,19 +94,21 @@ new package revision is tracked separately from the package proof.
 
 ## Verified native package
 
-On 2026-07-29, AppleClang `21.0.0.21000101` built the locked Release package as
-native arm64 C++17 with `os.version=11.0`:
+On 2026-08-09, AppleClang executable `21.0.0.21000101` built the locked Release
+package as native arm64 C++17 with `os.version=11.0`. The reproducibility
+profile intentionally retains its existing Conan compatibility setting
+`compiler.version=15`:
 
 ```text
-ogre3d/14.5.2#b6b0c0cfeda342454587f82182559f20:
-  a7b76c6f340c40b0b8883ed9b40acfff5165c675#
-  9760d50a3820a14847ad81599fe47e89
+ogre3d/14.5.2#8cac1f7ad854acc7cb592e6a60917c70:
+  5c43930ec5f93ceae6d2e5fcd4957341351cdf91#
+  bf53e56dafb6a33b1ffe3cb08b86cc48
 ```
 
 The line breaks above are for readability. The exact Conan reference is:
 
 ```text
-ogre3d/14.5.2#b6b0c0cfeda342454587f82182559f20:a7b76c6f340c40b0b8883ed9b40acfff5165c675#9760d50a3820a14847ad81599fe47e89
+ogre3d/14.5.2#8cac1f7ad854acc7cb592e6a60917c70:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#bf53e56dafb6a33b1ffe3cb08b86cc48
 ```
 
 The proof established all of the following:
@@ -112,6 +122,9 @@ The proof established all of the following:
   `ZipArchive` from eight threads. Each thread completed 500 iterations of
   `open`, `exists`, `list`, `listFileInfo`, `find`, and `findFileInfo`. Basename
   opens deliberately entered the recursive `open()` to `findFileInfo()` path.
+- A deliberately failing archive factory threw from `Archive::load()` twice.
+  Both unpublished instances returned to the exact factory, and neither name
+  appeared in `ArchiveManager` after the failure.
 - The package contains 20 arm64 Mach-O files, all with a macOS 11.0 minimum
   deployment target, relocatable install names, 17 package-local symlinks, ten
   relative pkg-config files, and no absolute Conan prefix in loader, install,
@@ -158,9 +171,9 @@ exports the local recipe, checks the source and patch hashes, resolves the
 checked-in lock, and rejects dependency revisions, target settings, or options
 that drift.
 
-The following reproduces the dated native build on an Apple Silicon host with
-AppleClang 21. `CMAKE_POLICY_VERSION_MINIMUM=3.5` applies only to the Conan
-dependency-build subprocess; do not apply it to the top-level RoR configure.
+The following reproduces the dated native build on an Apple Silicon host.
+`CMAKE_POLICY_VERSION_MINIMUM=3.5` applies only to the Conan dependency-build
+subprocess; do not apply it to the top-level RoR configure.
 
 ```sh
 OGRE_CONAN_HOME="$(mktemp -d /tmp/ror-ogre-native-proof.XXXXXX)"
@@ -177,18 +190,11 @@ CONAN_HOME="$OGRE_CONAN_HOME" \
   conan create cmake/conan/recipes/ogre3d \
   --version=14.5.2 \
   --lockfile=cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock \
-  -pr:h=default -pr:b=default \
-  -s:h os=Macos -s:h os.version=11.0 -s:h arch=armv8 \
-  -s:h compiler=apple-clang -s:h compiler.version=21 \
-  -s:h compiler.libcxx=libc++ -s:h compiler.cppstd=17 \
-  -s:h build_type=Release \
-  -s:b os=Macos -s:b arch=armv8 \
-  -s:b compiler=apple-clang -s:b compiler.version=21 \
-  -s:b compiler.libcxx=libc++ -s:b compiler.cppstd=17 \
-  -s:b build_type=Release \
+  -pr:h=cmake/conan/profiles/macos-arm64-release \
+  -pr:b=cmake/conan/profiles/macos-arm64-release \
   --build=missing
 
-OGRE_PACKAGE_REF='ogre3d/14.5.2#b6b0c0cfeda342454587f82182559f20:a7b76c6f340c40b0b8883ed9b40acfff5165c675#9760d50a3820a14847ad81599fe47e89'
+OGRE_PACKAGE_REF='ogre3d/14.5.2#8cac1f7ad854acc7cb592e6a60917c70:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#bf53e56dafb6a33b1ffe3cb08b86cc48'
 OGRE_PACKAGE_PATH="$(
   CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
 )"
