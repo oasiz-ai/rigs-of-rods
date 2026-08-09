@@ -425,11 +425,22 @@ boundary; the native application and its focused compile test pin that edge to
 OGRE 14.5.2. `DeriveOgre14LegacyMaterialPipelineAudit` is the one public pure
 value derivation shared by this edge and `Translate`; it allocates or
 authenticates no owner. Only `CaptureOgre14LegacyNativeMaterial` can construct a
-nonempty version-1 `Ogre14LegacyNativeMaterialAuditReceipt`. It mints a fresh
-immutable audit owner directly from the captured material, texture, sampler,
-and pipeline state before publishing the transactional native capture. The
-receipt authenticates both the exact object pointer and its control block, so a
-reboxed value or translated closure owner cannot impersonate native capture.
+nonempty version-2 `Ogre14LegacyNativeMaterialAuditReceipt`. It mints a fresh
+immutable audit owner and a version-1 `RORNMD1` canonical native-declaration
+SHA-256 directly from the complete admitted Material, Technique, Pass, texture
+unit, combine, environment, shadow-policy, sampler, and pipeline structure
+before publishing the transactional native capture. A direct pre-readback
+serialization and two stable direct post-readback serializations must agree;
+the caller holds the serialized OGRE owner thread and excludes graph mutation
+for the call. The receipt authenticates both the exact object pointer and its control block,
+together with the native declaration digest/version and a
+`RORNCP1` projection of every mutable public material, sampler, texture, and
+exact mip-byte field. For the authenticated overload it also retains the exact
+loaded-resource authority: registry and source-receipt control blocks, resolver
+identity, and loaded revision. Thus an altered digest, reboxed audit value,
+caller-mutated capture, fresh capture, or translated closure owner cannot
+impersonate the native observation. Authored catalog/scene semantics and source
+archive/script bytes retain their independent authorities.
 The eventual static/terrain adapter
 must submit a complete post-buffer inventory to the translator, then map each
 dependency-ordered `source_asset_id` and immutable payload owner into

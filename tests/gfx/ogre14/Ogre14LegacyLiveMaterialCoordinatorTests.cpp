@@ -20,37 +20,6 @@
 
 namespace RoR::Render::Testing {
 
-/// Focused pure-data fixture for the coordinator test only. Production has no
-/// synthetic mint API: the exact friend in Ogre14LegacyNativeAssetExtractor.h
-/// grants nonempty receipt construction to this named fixture and the pinned
-/// OGRE-native capture function alone.
-class Ogre14LegacyNativeMaterialAuditTestAccess final {
-public:
-  static ValidationResult
-  SealSyntheticCapture(Ogre14LegacyNativeMaterialCapture &capture) {
-    Ogre14LegacyMaterialPipelineAudit value;
-    ValidationResult validation =
-        DeriveOgre14LegacyMaterialPipelineAudit(capture.material, value);
-    if (!validation) {
-      return validation;
-    }
-    auto owner = std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(
-        std::move(value));
-    capture.exact_native_material_audit = owner;
-    capture.native_material_audit_receipt =
-        Ogre14LegacyNativeMaterialAuditReceipt(std::move(owner));
-    return ValidationResult::Success();
-  }
-
-  static void AuthenticateExistingOwnerForHostileTesting(
-      Ogre14LegacyNativeMaterialCapture &capture,
-      std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit> owner) {
-    capture.exact_native_material_audit = owner;
-    capture.native_material_audit_receipt =
-        Ogre14LegacyNativeMaterialAuditReceipt(std::move(owner));
-  }
-};
-
 class Ogre14AuthenticatedTextureResolutionTestAccess final {
 public:
   static ValidationResult Mint(
@@ -741,13 +710,15 @@ void TestHostileInputsAndTransactionalRollback() {
   Ogre14LegacyMaterialObservation missing_resolution = observation_a;
   missing_resolution.native_capture.authenticated_texture_resolutions.clear();
   RejectFieldWithoutMutation(
-      1U, {missing_resolution}, "material_observations.textures",
+      1U, {missing_resolution},
+      "material_observations.native_material_audit_owner",
       "textured observation without an authenticated resolution was accepted");
 
   Ogre14LegacyMaterialObservation empty_resolution = observation_a;
   empty_resolution.native_capture.authenticated_texture_resolutions[0] = {};
   RejectFieldWithoutMutation(
-      1U, {empty_resolution}, "material_observations.texture_resolution",
+      1U, {empty_resolution},
+      "material_observations.native_material_audit_owner",
       "textured observation with an empty authenticated resolution was accepted");
 
   Ogre14LegacyMaterialObservation substituted_resolution = observation_a;
@@ -755,13 +726,14 @@ void TestHostileInputsAndTransactionalRollback() {
       MakeAuthenticatedTextureResolution(other_texture);
   RejectFieldWithoutMutation(
       1U, {substituted_resolution},
-      "material_observations.texture_resolution",
+      "material_observations.native_material_audit_owner",
       "authenticated resolution for another texture identity was accepted");
 
   Ogre14LegacyMaterialObservation stale_resolution = observation_a;
   stale_resolution.native_capture.textures[0].source_revision += 1U;
   RejectFieldWithoutMutation(
-      1U, {stale_resolution}, "material_observations.texture_resolution",
+      1U, {stale_resolution},
+      "material_observations.native_material_audit_owner",
       "authenticated resolution with a stale texture revision was accepted");
 
   Ogre14LegacyMaterialObservation foreign_resolution = observation_a;
@@ -774,7 +746,8 @@ void TestHostileInputsAndTransactionalRollback() {
                    .native_capture.authenticated_texture_resolutions[0]),
       "foreign texture authority fixture unexpectedly shared exact owners");
   RejectFieldWithoutMutation(
-      1U, {foreign_resolution}, "material_observations.texture_authority",
+      1U, {foreign_resolution},
+      "material_observations.native_material_audit_owner",
       "lone foreign texture authority was accepted");
 
   Ogre14LegacyMaterialObservation mixed_authority =
@@ -783,7 +756,7 @@ void TestHostileInputsAndTransactionalRollback() {
       MakeForeignAuthenticatedTextureResolution(other_texture);
   RejectFieldWithoutMutation(
       1U, {observation_a, mixed_authority},
-      "material_observations.texture_authority",
+      "material_observations.native_material_audit_owner",
       "distinct texture keys from different registry snapshots were accepted");
 
   Ogre14LegacyMaterialObservation reboxed_material = observation_a;
@@ -806,6 +779,43 @@ void TestHostileInputsAndTransactionalRollback() {
   missing_native_audit.native_capture.exact_native_material_audit.reset();
   RejectWithoutMutation(1U, {missing_native_audit},
                         "missing native material audit owner was accepted");
+
+  Ogre14LegacyMaterialObservation altered_native_digest = observation_a;
+  altered_native_digest.native_capture.native_material_declaration_sha256
+      .front() ^= 0x80U;
+  RejectFieldWithoutMutation(
+      1U, {altered_native_digest},
+      "material_observations.native_material_audit_owner",
+      "altered native declaration digest bypassed its opaque receipt");
+
+  Ogre14LegacyMaterialObservation stale_digest_version = observation_a;
+  stale_digest_version.native_capture
+      .native_material_declaration_serialization_version += 1U;
+  RejectFieldWithoutMutation(
+      1U, {stale_digest_version},
+      "material_observations.native_material_audit_owner",
+      "stale native declaration serialization version was accepted");
+
+  Ogre14LegacyMaterialObservation altered_diffuse = observation_a;
+  altered_diffuse.native_capture.material.diffuse_linear.x = 0.5F;
+  Require(!altered_diffuse.native_capture.native_material_audit_receipt
+               .Authenticates(altered_diffuse.native_capture),
+          "copied receipt authenticated caller-mutated diffuse state");
+  RejectFieldWithoutMutation(
+      1U, {altered_diffuse},
+      "material_observations.native_material_audit_owner",
+      "caller-mutated diffuse state retained native capture authority");
+
+  Ogre14LegacyMaterialObservation altered_sampler_state = observation_a;
+  altered_sampler_state.native_capture.material.texture_units[0]
+      .sampler.address_u = Ogre14LegacyAddressMode::MIRROR;
+  Require(!altered_sampler_state.native_capture.native_material_audit_receipt
+               .Authenticates(altered_sampler_state.native_capture),
+          "copied receipt authenticated caller-mutated sampler state");
+  RejectFieldWithoutMutation(
+      1U, {altered_sampler_state},
+      "material_observations.native_material_audit_owner",
+      "caller-mutated sampler state retained native capture authority");
 
   Ogre14LegacyMaterialObservation reboxed_owner = observation_a;
   reboxed_owner.native_capture.exact_native_material_audit =
@@ -848,10 +858,13 @@ void TestHostileInputsAndTransactionalRollback() {
           "closure-owner control-block fixture has no committed audit");
   Ogre14LegacyMaterialObservation hostile_authenticated_closure_owner =
       closure_owner_observation;
-  Testing::Ogre14LegacyNativeMaterialAuditTestAccess::
-      AuthenticateExistingOwnerForHostileTesting(
-          hostile_authenticated_closure_owner.native_capture,
-          committed_material->closure->material_audit);
+  hostile_authenticated_closure_owner.native_capture
+      .exact_native_material_audit = committed_material->closure->material_audit;
+  Require(Testing::Ogre14LegacyNativeMaterialAuditTestAccess::
+              SealExistingSyntheticCapture(
+                  hostile_authenticated_closure_owner.native_capture)
+                  .ok(),
+          "hostile closure-owner fixture did not seal");
   Ogre14LegacyPreparedMaterialFrame closure_owner_sentinel = SentinelFrame();
   const Ogre14LegacyPreparedMaterialFrame closure_owner_expected =
       closure_owner_sentinel;
@@ -900,19 +913,25 @@ void TestHostileInputsAndTransactionalRollback() {
       .push_back(
           observation_a.native_capture.authenticated_texture_resolutions[0]);
   RejectFieldWithoutMutation(
-      1U, {untextured_with_resolution}, "material_observations.textures",
+      1U, {untextured_with_resolution},
+      "material_observations.native_material_audit_owner",
       "untextured observation with an authenticated resolution was accepted");
   untextured_b.native_capture.exact_native_material_audit =
       untextured_a.native_capture.exact_native_material_audit;
   untextured_b.native_capture.native_material_audit_receipt =
       untextured_a.native_capture.native_material_audit_receipt;
+  untextured_b.native_capture.native_material_declaration_serialization_version =
+      untextured_a.native_capture
+          .native_material_declaration_serialization_version;
+  untextured_b.native_capture.native_material_declaration_sha256 =
+      untextured_a.native_capture.native_material_declaration_sha256;
   Require(
-      untextured_b.native_capture.native_material_audit_receipt.Authenticates(
-          untextured_b.native_capture.exact_native_material_audit) &&
+      !untextured_b.native_capture.native_material_audit_receipt.Authenticates(
+          untextured_b.native_capture) &&
           EquivalentOgre14LegacyMaterialPipelineAudit(
               *untextured_b.native_capture.exact_native_material_audit,
               *untextured_a.native_capture.exact_native_material_audit),
-      "cross-material native audit owner forgery fixture is not exact");
+      "cross-material copied receipt unexpectedly authenticated mutable capture data");
   RejectWithoutMutation(
       1U, {untextured_a, untextured_b},
       "one untextured native audit owner identified two exact materials");
@@ -958,7 +977,7 @@ void TestHostileInputsAndTransactionalRollback() {
       MakeForeignAuthenticatedTextureResolution(texture);
   RejectFieldWithoutMutation(
       1U, {observation_a, foreign_shared_texture},
-      "material_observations.texture_authority",
+      "material_observations.native_material_audit_owner",
       "one shared texture key accepted conflicting authenticated source "
       "authority");
 
@@ -1121,6 +1140,10 @@ void TestHostileInputsAndTransactionalRollback() {
                                     kLargeTextureEdge * 4U,
                                 0x7FU),
       kLargeTextureEdge, kLargeTextureEdge);
+  Require(Testing::Ogre14LegacyNativeMaterialAuditTestAccess::
+              SealExistingSyntheticCapture(lifetime_b.native_capture)
+                  .ok(),
+          "lifetime-cap synthetic capture did not reseal");
   Ogre14LegacyPreparedMaterialFrame lifetime_first;
   Require(
       lifetime_bounded->PrepareFrame(1U, {lifetime_a}, lifetime_first).ok() &&
@@ -1185,6 +1208,10 @@ void TestCurrentTextureAuthorityInvalidation() {
         MakeObservation(*coordinator, material, &texture);
     observation.native_capture.authenticated_texture_resolutions[0] =
         authority.Mint(texture);
+    Require(Testing::Ogre14LegacyNativeMaterialAuditTestAccess::
+                SealExistingSyntheticCapture(observation.native_capture)
+                    .ok(),
+            "local authority observation did not reseal");
     return observation;
   };
   Ogre14LegacyMaterialObservation observation = MakeLocalObservation();

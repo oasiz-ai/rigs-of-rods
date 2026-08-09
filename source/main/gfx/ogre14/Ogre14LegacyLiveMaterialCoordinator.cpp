@@ -201,8 +201,15 @@ bool SameNativeCapture(const Ogre14LegacyNativeMaterialCapture &lhs,
       lhs.textures.size() != rhs.textures.size() ||
       lhs.authenticated_texture_resolutions.size() !=
           rhs.authenticated_texture_resolutions.size() ||
+      lhs.native_material_declaration_serialization_version !=
+          rhs.native_material_declaration_serialization_version ||
+      lhs.native_material_declaration_sha256 !=
+          rhs.native_material_declaration_sha256 ||
       !SameExactOwner(lhs.exact_native_material_audit,
-                      rhs.exact_native_material_audit)) {
+                      rhs.exact_native_material_audit) ||
+      !lhs.native_material_audit_receipt
+           .SharesNativeDeclarationAuthorityWith(
+               rhs.native_material_audit_receipt)) {
     return false;
   }
   for (std::size_t index = 0U; index < lhs.textures.size(); ++index) {
@@ -235,11 +242,12 @@ ValidationResult ValidateObservation(
         "observation and native capture identify different materials");
   }
   if (!observation.native_capture.native_material_audit_receipt.Authenticates(
-          observation.native_capture.exact_native_material_audit)) {
+          observation.native_capture)) {
     return Failure(
         ValidationCode::MISSING_REFERENCE,
         "material_observations.native_material_audit_owner",
-        "native material audit owner is missing, replaced, reboxed, or not "
+        "native material audit owner, declaration digest, public capture, or "
+        "texture resolution is missing, replaced, reboxed, or not "
         "authenticated by its capture receipt");
   }
   Ogre14LegacyMaterialPipelineAudit expected_native_audit;

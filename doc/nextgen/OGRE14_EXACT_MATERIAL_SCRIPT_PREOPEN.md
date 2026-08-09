@@ -19,16 +19,17 @@ or distribute CityWorld data.
 - Patch SHA-256:
   `3344cd639959553bda2ec978ad66e4b42df00e2f56f75d39a2d780ce4aa38478`
 - Conan recipe revision:
-  `ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a`
+  `ogre3d/14.5.2#2e5eda6c54bfb7f9ae19831a65d52f74`
 - Derived MyGUI recipe revision:
-  `mygui/3.4.0#e9e186184b14342e3c8197b786f5591b`
+  `mygui/3.4.0#ca50701442923d90c0a15cf40a4644fa`
 - Native macOS arm64 Release package:
-  `ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#19b11b4099b59de34e25a9f4b8c5758d`
+  `ogre3d/14.5.2#2e5eda6c54bfb7f9ae19831a65d52f74:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#08dc6a38d8e464cd089ff1eb444ea77a`
 
-The patch is applied after the nine existing pinned patches. The checked-in
-Linux, macOS, and Windows OGRE-only locks and the corresponding three RoR
-locks all name the same new recipe revision. The root RoR and MyGUI recipes
-name it directly as well.
+The patch is applied after the nine earlier pinned patches and before the
+additive shadow-material declaration-name getter patch. The checked-in Linux,
+macOS, and Windows OGRE-only locks and the corresponding three RoR locks all
+name the same combined recipe revision. The root RoR and MyGUI recipes name it
+directly as well.
 
 ## API contract
 
@@ -119,8 +120,8 @@ are deliberate so digest equality cannot stand in for source identity.
 The static contract is run with ordinary Python and `python -O`; it verifies
 the exact touched upstream files, callback signature and ordering, no-fallback
 branches, exact-member construction, patch/source digests, probe markers, and
-all six locks. The Conan graph assertion also treats the new patch as part of
-the exact ten-patch set.
+all six locks. The Conan graph assertion treats the pre-open seam and the
+following shadow-name getter as part of the exact eleven-patch set.
 
 The native acceptance command is the pinned macOS arm64 Release `conan create`
 from the recipe README. Its relocated `test_package` must compile both probes,

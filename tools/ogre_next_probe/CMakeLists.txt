@@ -108,6 +108,7 @@ list(APPEND _ror_relevant_source_files
     "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch"
     "cmake/conan/recipes/ogre3d/README.md"
     "cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt"
     "cmake/conan/recipes/ogre3d/test_package/conanfile.py"
@@ -213,6 +214,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
@@ -2362,6 +2364,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
             cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch
             cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch
             cmake/conan/recipes/ogre3d/README.md
             cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt
             cmake/conan/recipes/ogre3d/test_package/conanfile.py
@@ -2468,6 +2471,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/render
             source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
+            source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
             source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp
             source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h
             source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp

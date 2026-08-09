@@ -55,6 +55,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/exact-material-script-preopen.patch": (
         "3344cd639959553bda2ec978ad66e4b42df00e2f56f75d39a2d780ce4aa38478"
     ),
+    "patches/14.5.2/expose-shadow-material-declaration-names.patch": (
+        "b06ad20fdc2d250d11ef5de456866cd9f1f1b1e05c6d023d6c51ffa530a3d2f4"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

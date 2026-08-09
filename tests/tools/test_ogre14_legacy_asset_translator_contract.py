@@ -35,9 +35,18 @@ NATIVE_TEST = (
     / "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
 )
 README = REPOSITORY_ROOT / "source/main/gfx/render/README.md"
+SEMANTIC_CATALOG_DOC = (
+    REPOSITORY_ROOT / "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
+)
 PROVENANCE_TOOLS = (
     REPOSITORY_ROOT / "tools/run_ogre_next_probe.py",
     REPOSITORY_ROOT / "tools/verify_ogre_next_artifact_set.py",
+    REPOSITORY_ROOT
+    / "tools/ogre_next_probe/cmake/VerifyN2SourceProvenance.cmake",
+    REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt",
+)
+OGRE_NEXT_WORKFLOW = (
+    REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
 )
 
 
@@ -55,6 +64,9 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
         cls.native_source = NATIVE_SOURCE.read_text(encoding="utf-8")
         cls.native_test = NATIVE_TEST.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
+        cls.semantic_catalog_doc = SEMANTIC_CATALOG_DOC.read_text(
+            encoding="utf-8"
+        )
 
     def test_pure_contract_is_versioned_and_native_type_free(self) -> None:
         for token in (
@@ -318,10 +330,11 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
         self.assertNotIn("MintOgre14LegacyMaterialPipelineAuditCapture", self.source)
 
         for token in (
-            "kOgre14LegacyNativeMaterialAuditReceiptVersion = 1U",
+            "kOgre14LegacyNativeMaterialAuditReceiptVersion = 2U",
             "class Ogre14LegacyNativeMaterialAuditReceipt final",
             "friend ValidationResult CaptureOgre14LegacyNativeMaterial(",
             "friend class Testing::Ogre14LegacyNativeMaterialAuditTestAccess",
+            "ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING",
             "Authenticates(",
             "exact_native_material_audit",
             "native_material_audit_receipt",
@@ -347,6 +360,105 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "separate native captures reused one audit control block",
         ):
             self.assertIn(token, self.native_test)
+
+    def test_native_declaration_digest_is_canonical_and_owner_bound(self) -> None:
+        for token in (
+            "kOgre14LegacyNativeMaterialDeclarationSerializationVersion = 1U",
+            "kOgre14LegacyNativeMaterialDeclarationDigestBytes = 32U",
+            "kOgre14LegacyNativeMaterialDeclarationMaximumCanonicalBytes",
+            "Ogre14LegacyNativeMaterialDeclarationSha256",
+            "native_material_declaration_serialization_version",
+            "native_material_declaration_sha256",
+            "SharesNativeDeclarationAuthorityWith",
+            "declaration_serialization_version_",
+            "declaration_sha256_",
+            "capture_sha256_",
+            "ComputeOgre14LegacyNativeMaterialCaptureSha256",
+        ):
+            with self.subTest(header_token=token):
+                self.assertIn(token, self.native_header)
+        for token in (
+            "kNativeMaterialDeclarationMagic",
+            "'R', 'O', 'R', 'N', 'M', 'D', '1'",
+            "BuildNativeMaterialDeclarationDigest(",
+            "Sha256(writer.bytes().data(), writer.bytes().size())",
+            "material.getReceiveShadows()",
+            "material.getTransparencyCastsShadows()",
+            "technique.getSchemeName()",
+            "technique.getLodIndex()",
+            "technique.getShadowCasterMaterial()",
+            "technique.getShadowCasterMaterialName()",
+            "technique.getShadowReceiverMaterialName()",
+            "pass.getVertexColourTracking()",
+            "pass.getTransparentSortingEnabled()",
+            "native_unit->getName()",
+            "native_unit->getEffects().size()",
+            "native_unit->getColourBlendMode()",
+            "native_unit->getAlphaBlendMode()",
+            "AppendSampler(writer, sampler)",
+            "BEFORE_DIGEST_COMMIT",
+            "BEFORE_FRESHNESS_REVALIDATION",
+            "verified_declaration_sha256",
+            "native.getSampler()",
+        ):
+            with self.subTest(source_token=token):
+                self.assertIn(token, self.native_source)
+        for token in (
+            "canonical declaration serialization or SHA-256 known answer drifted",
+            "declaration digest value semantics or alteration checks drifted",
+            "fresh native capture reused declaration control-block authority",
+            "exact material group/name did not affect the native digest",
+            "exact material resource group did not affect the native digest",
+            "altered accepted pass state did not affect the native digest",
+            "exact texture-unit name/order did not affect the native digest",
+            "exact texture resource group did not affect the native digest",
+            "exact texture resource name did not affect the native digest",
+            "altered sampler state did not affect the native digest",
+            "altered unsupported combine semantics were partially hashed",
+            "unsupported environment augmentation was partially hashed",
+            "oversized native declaration bypassed the canonical byte cap",
+            "digest bad_alloc changed deep native capture ownership",
+            "unexpected digest exception changed deep native capture ownership",
+            "mid-capture native mutation published a stale or hybrid digest",
+            "null native sampler crashed or escaped fail-closed validation",
+            "unresolved shadow-caster declaration was confused with absent state",
+            "unresolved shadow-receiver declaration was confused with absent state",
+        ):
+            with self.subTest(native_test_token=token):
+                self.assertIn(token, self.native_test)
+        for token in (
+            "Canonical native structure digest v1",
+            "RORNMD1",
+            "64 KiB",
+            "inactive manual combine union members indeterminate",
+            "PSSM versus stencil is scene-level state",
+            "version-2 opaque",
+            "texture pixels and archive/source authority",
+            "Counts precede their records",
+            "canonical zero",
+        ):
+            with self.subTest(doc_token=token):
+                self.assertIn(token, self.semantic_catalog_doc)
+
+    def test_native_digest_shipping_tus_override_release_fast_math(self) -> None:
+        strict_start = self.main_cmake.index(
+            "set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES"
+        )
+        strict_end = self.main_cmake.index(
+            "# Authenticated input traces", strict_start
+        )
+        strict_block = self.main_cmake[strict_start:strict_end]
+        for token in (
+            "if (ROR_OGRE14)",
+            "gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
+            "gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
+            "SKIP_PRECOMPILE_HEADERS ON",
+            '${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}',
+            'COMPILE_OPTIONS "/fp:strict"',
+            'COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"',
+        ):
+            with self.subTest(strict_fp_token=token):
+                self.assertIn(token, strict_block)
 
     def test_cmake_closes_pure_native_and_strict_fp_builds(self) -> None:
         self.assertGreaterEqual(
@@ -432,8 +544,11 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
                 for path in (
                     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
                     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
+                    "source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
+                    "cmake/conan/recipes/ogre3d/patches/14.5.2/"
+                    "expose-shadow-material-declaration-names.patch",
                 ):
-                    self.assertIn(f'"{path}"', text)
+                    self.assertIn(path, text)
                 self.assertIn(
                     '"tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"',
                     text,
@@ -448,6 +563,14 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
                     'test_ogre14_legacy_asset_translator_contract.py"',
                     text,
                 )
+        workflow = OGRE_NEXT_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(
+            workflow.count(
+                "source/main/gfx/ogre14/"
+                "Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+            ),
+            2,
+        )
 
 
 if __name__ == "__main__":

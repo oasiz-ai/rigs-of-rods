@@ -63,7 +63,13 @@ class Ogre14ExactMaterialScriptPreopenContractTests(unittest.TestCase):
         patch_lines = re.findall(
             r"^\s*- patch_file: (\S+)$", conandata, re.MULTILINE
         )
-        self.assertEqual(patch_lines[-1], PATCH_RELATIVE.split("ogre3d/", 1)[1])
+        self.assertEqual(
+            patch_lines[-2], PATCH_RELATIVE.split("ogre3d/", 1)[1]
+        )
+        self.assertEqual(
+            patch_lines[-1],
+            "patches/14.5.2/expose-shadow-material-declaration-names.patch",
+        )
         touched = set(re.findall(r"^--- a/(.+)$", self.patch, re.MULTILINE))
         self.assertEqual(
             touched,

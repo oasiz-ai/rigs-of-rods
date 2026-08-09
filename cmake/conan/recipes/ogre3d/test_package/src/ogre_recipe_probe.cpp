@@ -5,6 +5,7 @@
 #include <OgreException.h>
 #include <OgreRoot.h>
 #include <OgreRenderSystem.h>
+#include <OgreTechnique.h>
 
 #if defined(__APPLE__)
 #include <OgreHardwarePixelBuffer.h>
@@ -27,7 +28,22 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
+
+static_assert(
+    std::is_same<
+        decltype(std::declval<const Ogre::Technique&>()
+                     .getShadowCasterMaterialName()),
+        const Ogre::String&>::value,
+    "pinned OGRE must expose exact unresolved shadow-caster declarations");
+static_assert(
+    std::is_same<
+        decltype(std::declval<const Ogre::Technique&>()
+                     .getShadowReceiverMaterialName()),
+        const Ogre::String&>::value,
+    "pinned OGRE must expose exact unresolved shadow-receiver declarations");
 
 namespace
 {

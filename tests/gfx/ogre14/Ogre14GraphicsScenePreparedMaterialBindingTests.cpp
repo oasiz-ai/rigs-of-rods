@@ -16,29 +16,6 @@
 #include <utility>
 #include <vector>
 
-namespace RoR::Render::Testing {
-
-class Ogre14LegacyNativeMaterialAuditTestAccess final {
-public:
-  static ValidationResult
-  SealSyntheticCapture(Ogre14LegacyNativeMaterialCapture &capture) {
-    Ogre14LegacyMaterialPipelineAudit value;
-    ValidationResult validation =
-        DeriveOgre14LegacyMaterialPipelineAudit(capture.material, value);
-    if (!validation) {
-      return validation;
-    }
-    auto owner = std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(
-        std::move(value));
-    capture.exact_native_material_audit = owner;
-    capture.native_material_audit_receipt =
-        Ogre14LegacyNativeMaterialAuditReceipt(std::move(owner));
-    return ValidationResult::Success();
-  }
-};
-
-} // namespace RoR::Render::Testing
-
 namespace {
 
 using namespace RoR::Render;
