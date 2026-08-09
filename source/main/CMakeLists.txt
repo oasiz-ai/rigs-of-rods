@@ -395,7 +395,8 @@ if (ROR_OGRE14)
     # The renderer-neutral boundary above continues to build in standalone
     # tests and with either renderer dependency graph.
     list(APPEND SOURCE_FILES
-        gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp})
+        gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
+        gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp})
 endif ()
 
 include(SourceFileUtils)
