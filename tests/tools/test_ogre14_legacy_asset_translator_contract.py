@@ -21,6 +21,10 @@ TRANSLATOR_HEADER = (
     / "source/main/gfx/render/Ogre14LegacyAssetTranslator.h"
 )
 TRANSLATOR_SOURCE = TRANSLATOR_HEADER.with_suffix(".cpp")
+TRANSLATOR_TEST = (
+    REPOSITORY_ROOT
+    / "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+)
 NATIVE_HEADER = (
     REPOSITORY_ROOT
     / "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
@@ -42,6 +46,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
         cls.native_workflow = NATIVE_WORKFLOW.read_text(encoding="utf-8")
         cls.header = TRANSLATOR_HEADER.read_text(encoding="utf-8")
         cls.source = TRANSLATOR_SOURCE.read_text(encoding="utf-8")
+        cls.translator_test = TRANSLATOR_TEST.read_text(encoding="utf-8")
         cls.native_header = NATIVE_HEADER.read_text(encoding="utf-8")
         cls.native_source = NATIVE_SOURCE.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
@@ -54,12 +59,18 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "kOgre14LegacyPipelineAuditVersion = 1U",
             "kOgre14LegacyTranslatedFrameVersion = 1U",
             "kOgre14LegacyAssetTranslatorConfigurationVersion = 1U",
+            "kOgre14LegacyAssetTranslatorTransactionConfigurationVersion = 1U",
             "maximum_lifetime_asset_records",
             "maximum_decoded_bytes_per_frame",
+            "maximum_clone_metadata_bytes",
+            "maximum_epoch",
             "std::shared_ptr<const RenderAssetPayload>",
             "std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit>",
             "BuildFullSnapshot",
             "BeforeCommit",
+            "CloneForTransaction",
+            "CommitTransaction",
+            "Ogre14LegacyAssetTranslatorCommitResult",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.header)
@@ -67,6 +78,56 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
         self.assertNotIn("Ogre::", self.header)
         self.assertNotIn("GfxScene", self.source)
         self.assertNotIn("GraphicsSceneSnapshotProducer", self.source)
+
+    def test_transaction_fork_is_lineage_bound_and_noexcept_at_commit(self) -> None:
+        for token in (
+            "std::shared_ptr<const TransactionLineage>",
+            "transaction_base_epoch_",
+            "TransactionRole::CANDIDATE",
+            "transaction_lineage_.get() != candidate.transaction_lineage_.get()",
+            "candidate.transaction_base_epoch_ != state_->transaction_epoch",
+            "INCOMPATIBLE_CONFIGURATION",
+            "fault_injector_ != candidate.fault_injector_",
+            "candidate.state_->transaction_epoch = state_->transaction_epoch + 1U",
+            "if (transaction_role_ == TransactionRole::COMMITTED_SOURCE)",
+            "state_.swap(candidate.state_)",
+            "Ogre14LegacyAssetTranslator &&) = delete",
+            "Ogre14LegacyAssetTranslator &candidate) noexcept",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.header + self.source)
+
+        commit_start = self.source.index(
+            "Ogre14LegacyAssetTranslator::CommitTransaction("
+        )
+        commit_end = self.source.index(
+            "Ogre14LegacyAssetTranslator::Translate(", commit_start
+        )
+        commit_body = self.source[commit_start:commit_end]
+        for forbidden in (
+            "new ",
+            "make_unique",
+            "make_shared",
+            "ValidationResult::Failure",
+            "throw ",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, commit_body)
+
+        for token in (
+            "TestTransactionClonePreservesSourceAndImmutableOwners",
+            "TestSourceAdvanceStalesCandidateWithoutChangingIt",
+            "TestTransactionEpochExhaustionRejectsCommitExactly",
+            "TestCandidateWorkConsumesOneEpochOnlyAtPublication",
+            "TestMoveConstructionPreservesTransactionRolesAndLineage",
+            "BEFORE_CANDIDATE_PUBLISH",
+            "sentinel.get() == sentinel_identity",
+            "SameFrameOwners",
+            "FOREIGN_LINEAGE",
+            "STALE_SOURCE",
+        ):
+            with self.subTest(test_token=token):
+                self.assertIn(token, self.translator_test)
 
     def test_fail_closed_feature_set_and_exact_bytes_are_present(self) -> None:
         for token in (
@@ -176,6 +237,10 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "OGRE 14.5.2",
             "aggregate canonical decoded bytes",
             "checked arithmetic",
+            "CloneForTransaction",
+            "private immutable lineage identity",
+            "allocation-free `noexcept` publication",
+            "owner-equivalent",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.readme)
