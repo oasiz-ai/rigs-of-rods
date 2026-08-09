@@ -549,7 +549,8 @@ for existing callers.
 `gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator` owns one immutable semantic
 registry and one fresh translator identity for a scene generation. For each
 authoritative material frame it resolves every exact material key from that
-registry, rejects conflicting semantic state, canonicalizes shared
+registry, authenticates its opaque declaration receipt, rejects detached or
+conflicting semantic state, canonicalizes shared
 texture captures, and translates the complete inventory under one exclusive
 lease. It then batch-resolves all material closures from that one full frame
 and exposes shared immutable owners to the joined scene transaction. Only an

@@ -42,44 +42,6 @@ bool CheckedMultiply(std::uint64_t lhs, std::uint64_t rhs,
   return true;
 }
 
-bool SameTranslatorConfiguration(
-    const Ogre14LegacyAssetTranslatorConfiguration &lhs,
-    const Ogre14LegacyAssetTranslatorConfiguration &rhs) noexcept {
-  return lhs.version == rhs.version &&
-         lhs.maximum_texture_inputs_per_frame ==
-             rhs.maximum_texture_inputs_per_frame &&
-         lhs.maximum_material_inputs_per_frame ==
-             rhs.maximum_material_inputs_per_frame &&
-         lhs.maximum_live_assets_per_frame ==
-             rhs.maximum_live_assets_per_frame &&
-         lhs.maximum_lifetime_asset_records ==
-             rhs.maximum_lifetime_asset_records &&
-         lhs.maximum_decoded_bytes_per_asset ==
-             rhs.maximum_decoded_bytes_per_asset &&
-         lhs.maximum_decoded_bytes_per_frame ==
-             rhs.maximum_decoded_bytes_per_frame;
-}
-
-bool SameNativeDeclaration(
-    const Ogre14LegacyNativeMaterialDeclaration &lhs,
-    const Ogre14LegacyNativeMaterialDeclaration &rhs) noexcept {
-  return lhs.version == rhs.version &&
-         lhs.base_color_semantic == rhs.base_color_semantic &&
-         lhs.texture_color_role == rhs.texture_color_role &&
-         SameTranslatorConfiguration(lhs.translator_configuration,
-                                     rhs.translator_configuration);
-}
-
-bool SameSemanticResolution(
-    const Ogre14LegacyMaterialSemanticResolution &lhs,
-    const Ogre14LegacyMaterialSemanticResolution &rhs) noexcept {
-  return lhs.version == rhs.version && lhs.material_key == rhs.material_key &&
-         lhs.source == rhs.source &&
-         lhs.source_revision == rhs.source_revision &&
-         lhs.registry_fingerprint == rhs.registry_fingerprint &&
-         SameNativeDeclaration(lhs.native_declaration, rhs.native_declaration);
-}
-
 bool SameMip(const Ogre14LegacyTextureMipInput &lhs,
              const Ogre14LegacyTextureMipInput &rhs) noexcept {
   return lhs.width == rhs.width && lhs.height == rhs.height &&
@@ -137,10 +99,10 @@ ValidationResult ValidateObservation(
           resolution, observation.material_key) ||
       !Ogre14LegacyMaterialSemanticResolutionMatchesKey(
           observation.semantic_resolution, observation.material_key) ||
-      !SameSemanticResolution(resolution, observation.semantic_resolution) ||
+      !Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+          observation.semantic_resolution, resolution) ||
       observation.native_capture.material.base_color_semantic !=
-          observation.semantic_resolution.native_declaration
-              .base_color_semantic) {
+          resolution.native_declaration.base_color_semantic) {
     return Failure(ValidationCode::REVISION_MISMATCH,
                    "material_observations.semantic_resolution",
                    "native material capture disagrees with its exact semantic "
@@ -219,8 +181,8 @@ ValidationResult ValidateObservation(
     candidate_observed_texture_bytes = next_observed_texture_bytes;
     if (texture.key != observation.native_capture.material.texture_units[index]
                            .texture_key ||
-        texture.color_role != observation.semantic_resolution.native_declaration
-                                  .texture_color_role) {
+        texture.color_role !=
+            resolution.native_declaration.texture_color_role) {
       return Failure(ValidationCode::REVISION_MISMATCH,
                      "material_observations.texture_semantic",
                      "captured texture reference or color role disagrees with "

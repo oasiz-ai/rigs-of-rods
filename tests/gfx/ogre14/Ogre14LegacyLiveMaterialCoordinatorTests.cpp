@@ -334,6 +334,24 @@ void TestHostileInputsAndTransactionalRollback() {
   RequireSentinelUnchanged(semantic_sentinel, semantic_expected,
                            "semantic rejection mutated caller output");
 
+  Ogre14LegacyMaterialObservation empty_receipt = observation_a;
+  empty_receipt.semantic_resolution.declaration_identity = {};
+  RejectWithoutMutation(
+      1U, {empty_receipt},
+      "material observation with an empty semantic receipt was accepted");
+
+  auto foreign_coordinator =
+      MakeCoordinator(MakeRegistry({material_a, material_b}));
+  Ogre14LegacyMaterialObservation foreign_receipt = observation_a;
+  Require(foreign_coordinator
+              ->ResolveMaterialSemantics(material_a,
+                                         foreign_receipt.semantic_resolution)
+              .ok(),
+          "foreign semantic receipt fixture did not resolve");
+  RejectWithoutMutation(
+      1U, {foreign_receipt},
+      "material observation from a different registry build was accepted");
+
   Ogre14LegacyMaterialObservation conflicting = observation_b;
   conflicting.native_capture.textures[0].mip_levels[0].bytes[0] ^= 0xFFU;
   RejectWithoutMutation(1U, {observation_a, conflicting},
