@@ -575,6 +575,15 @@ releases the lease without advancing source/catalog lineage or changing the
 caller's previously populated output. An empty inventory is a real full frame,
 so removal and generation shutdown cannot retain stale material assets.
 
+Before copying any canonical material or texture payload, and before acquiring
+the exclusive lease, the coordinator passes a versioned borrowed identity view
+to `PreflightLifetimeAdmission`. That const translator gate derives every
+texture, material, and material-owned sampler key and ID, checks duplicate and
+persistent collisions, and proves the prospective permanent-record count fits
+the lifetime cap without copying mip bytes or mutating state. `Translate`
+remains the authoritative full-payload validation and publication path and
+rechecks the same admission after the bounded copies exist.
+
 This coordinator is the pure-data admission boundary, not the finished native
 scene tap. `GfxScene` must still collect one authoritative post-update material
 inventory, capture each material using the registry-provided native

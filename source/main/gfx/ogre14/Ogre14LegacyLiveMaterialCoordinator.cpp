@@ -362,15 +362,14 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
     }
   }
 
-  Ogre14LegacyAssetFrameInput frame_input;
-  frame_input.source_sequence = source_sequence;
-  frame_input.materials.reserve(ordered.size());
   std::map<std::string, const Ogre14LegacyTextureInput *, std::less<>> textures;
+  std::vector<const Ogre14LegacyMaterialInput *> identity_materials;
+  identity_materials.reserve(ordered.size());
   std::uint64_t sampler_count = 0U;
   for (const IndexedObservation &indexed : ordered) {
     const Ogre14LegacyNativeMaterialCapture &capture =
         indexed.observation->native_capture;
-    frame_input.materials.push_back(capture.material);
+    identity_materials.push_back(&capture.material);
     std::uint64_t next_sampler_count = 0U;
     if (!CheckedAdd(
             sampler_count,
@@ -421,14 +420,48 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
                    "material_observations.live_asset_count",
                    "derived native asset count exceeds the configured cap");
   }
-  frame_input.textures.reserve(textures.size());
+  std::vector<const Ogre14LegacyTextureInput *> identity_textures;
+  identity_textures.reserve(textures.size());
   for (const auto &entry : textures) {
     if (entry.second == nullptr) {
       return Failure(ValidationCode::MISSING_REFERENCE,
                      "material_observations.textures",
                      "canonical native texture index contains no input");
     }
-    frame_input.textures.push_back(*entry.second);
+    identity_textures.push_back(entry.second);
+  }
+
+  Ogre14LegacyAssetIdentityFrameView identity_view;
+  identity_view.texture_inputs =
+      identity_textures.empty() ? nullptr : identity_textures.data();
+  identity_view.texture_input_count = identity_textures.size();
+  identity_view.material_inputs =
+      identity_materials.empty() ? nullptr : identity_materials.data();
+  identity_view.material_input_count = identity_materials.size();
+  validation = translator_->PreflightLifetimeAdmission(identity_view);
+  if (!validation) {
+    return validation;
+  }
+
+  Ogre14LegacyAssetFrameInput frame_input;
+  frame_input.source_sequence = source_sequence;
+  frame_input.materials.reserve(identity_materials.size());
+  for (const Ogre14LegacyMaterialInput *material : identity_materials) {
+    if (material == nullptr) {
+      return Failure(ValidationCode::MISSING_REFERENCE,
+                     "material_observations.materials",
+                     "canonical native material index contains no input");
+    }
+    frame_input.materials.push_back(*material);
+  }
+  frame_input.textures.reserve(identity_textures.size());
+  for (const Ogre14LegacyTextureInput *texture : identity_textures) {
+    if (texture == nullptr) {
+      return Failure(ValidationCode::MISSING_REFERENCE,
+                     "material_observations.textures",
+                     "canonical native texture index contains no input");
+    }
+    frame_input.textures.push_back(*texture);
   }
 
   auto candidate_pending = std::make_unique<PendingFrame>();

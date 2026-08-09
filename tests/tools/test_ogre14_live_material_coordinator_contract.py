@@ -53,14 +53,26 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             '"tightly packed"',
             "observed native texture bytes exceed the configured frame cap",
             "derived native asset count exceeds the configured cap",
+            "Ogre14LegacyAssetIdentityFrameView identity_view",
+            "translator_->PreflightLifetimeAdmission(identity_view)",
             "native capture must carry exactly its referenced v1 textures",
             "native material capture disagrees with its exact semantic",
             '"declaration"',
         ):
             self.assertIn(token, self.header + self.source)
-        copy_index = self.source.index("frame_input.textures.push_back(*entry.second)")
+        preflight_index = self.source.index(
+            "translator_->PreflightLifetimeAdmission(identity_view)"
+        )
+        material_copy_index = self.source.index(
+            "frame_input.materials.push_back(*material)"
+        )
+        texture_copy_index = self.source.index(
+            "frame_input.textures.push_back(*texture)"
+        )
         lease_index = self.source.index("translator_->BeginCommittableTransaction(")
-        self.assertLess(copy_index, lease_index)
+        self.assertLess(preflight_index, material_copy_index)
+        self.assertLess(preflight_index, texture_copy_index)
+        self.assertLess(preflight_index, lease_index)
 
     def test_publication_and_lookup_fail_closed(self) -> None:
         copy_index = self.source.index("candidate_pending->prepared = prepared")
