@@ -47,6 +47,7 @@ void RequireResolutionUnchanged(
     const char *message) {
   Require(resolution.version == 77U && resolution.source_revision == 88U &&
               resolution.registry_fingerprint == 99U &&
+              !resolution.declaration_identity.has_value() &&
               resolution.native_declaration.version == 66U &&
               resolution.material_key.exact_resource_group ==
                   "sentinel-group" &&
@@ -124,6 +125,7 @@ void TestExactResolutionAndStableOrdering() {
               resolution.source_revision == 7U &&
               resolution.registry_fingerprint ==
                   forward.content_fingerprint() &&
+              resolution.declaration_identity.has_value() &&
               Ogre14LegacyMaterialSemanticResolutionMatchesKey(
                   resolution, building.material_key) &&
               resolution.native_declaration.base_color_semantic ==
@@ -154,6 +156,102 @@ void TestExactResolutionAndStableOrdering() {
   Require(forward.Resolve(original_key, translator_configuration, resolution)
               .ok(),
           "caller mutation changed immutable registry keys");
+}
+
+void TestDeclarationIdentityAuthenticity() {
+  const auto first = MakeDeclaration("Identity", "First", 9U);
+  const auto second = MakeDeclaration("Identity", "Second", 9U);
+  Ogre14LegacyMaterialSemanticRegistry registry;
+  Require(BuildOgre14LegacyMaterialSemanticRegistry(
+              Ogre14LegacyMaterialSemanticRegistryConfiguration{},
+              {first, second}, registry)
+              .ok(),
+          "identity registry did not build");
+
+  const Ogre14LegacyAssetTranslatorConfiguration translator_configuration;
+  Ogre14LegacyMaterialSemanticResolution issued;
+  Ogre14LegacyMaterialSemanticResolution authoritative;
+  Ogre14LegacyMaterialSemanticResolution other_declaration;
+  Require(registry.Resolve(first.material_key, translator_configuration, issued)
+                  .ok() &&
+              registry.Resolve(first.material_key, translator_configuration,
+                               authoritative)
+                  .ok() &&
+              registry.Resolve(second.material_key, translator_configuration,
+                               other_declaration)
+                  .ok(),
+          "identity resolutions did not resolve");
+  Require(Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+              issued, authoritative) &&
+              SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+                  issued.declaration_identity,
+                  authoritative.declaration_identity),
+          "repeat resolution did not preserve declaration identity");
+  Require(!SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+              issued.declaration_identity,
+              other_declaration.declaration_identity) &&
+              !Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+                  issued, other_declaration),
+          "cross-declaration resolution forged semantic authority");
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt empty_one;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt empty_two;
+  Require(!SameOgre14LegacyMaterialSemanticDeclarationIdentity(empty_one,
+                                                               empty_two),
+          "two caller-created empty receipts authenticated each other");
+
+  Ogre14LegacyMaterialSemanticResolution forged = issued;
+  forged.declaration_identity = {};
+  Require(!Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+              forged, authoritative),
+          "caller-created empty receipt forged an issued resolution");
+  forged = issued;
+  ++forged.source_revision;
+  Require(!Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+              forged, authoritative),
+          "mutated public provenance authenticated by receipt alone");
+
+  Ogre14LegacyMaterialSemanticRegistry copied_registry = registry;
+  Ogre14LegacyMaterialSemanticResolution copied_owner_resolution;
+  Require(copied_registry
+                  .Resolve(first.material_key, translator_configuration,
+                           copied_owner_resolution)
+                  .ok() &&
+              Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+                  issued, copied_owner_resolution),
+          "copying immutable registry ownership changed declaration identity");
+
+  Ogre14LegacyMaterialSemanticRegistry fresh_registry;
+  Require(BuildOgre14LegacyMaterialSemanticRegistry(
+              Ogre14LegacyMaterialSemanticRegistryConfiguration{},
+              {first, second}, fresh_registry)
+              .ok(),
+          "fresh identical registry did not build");
+  Ogre14LegacyMaterialSemanticResolution fresh_resolution;
+  Require(fresh_registry
+                  .Resolve(first.material_key, translator_configuration,
+                           fresh_resolution)
+                  .ok() &&
+              fresh_registry.content_fingerprint() ==
+                  registry.content_fingerprint() &&
+              !SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+                  issued.declaration_identity,
+                  fresh_resolution.declaration_identity) &&
+              !Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+                  issued, fresh_resolution),
+          "fresh registry build reused a numeric or content-derived identity");
+
+  const Ogre14LegacyMaterialSemanticResolution stale = issued;
+  Require(BuildOgre14LegacyMaterialSemanticRegistry(
+              Ogre14LegacyMaterialSemanticRegistryConfiguration{},
+              {first, second}, registry)
+              .ok(),
+          "replacement registry did not build");
+  Require(registry.Resolve(first.material_key, translator_configuration,
+                           authoritative)
+                  .ok() &&
+              !Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+                  stale, authoritative),
+          "stale result authenticated after registry replacement");
 }
 
 void TestConfigurationAndDeclarationValidation() {
@@ -273,6 +371,12 @@ void TestTransactionalRollbackAndOwnerPreservation() {
           "sentinel semantic registry did not build");
   const Ogre14LegacyMaterialSemanticRegistry owner = registry;
   const std::uint64_t fingerprint = registry.content_fingerprint();
+  Ogre14LegacyMaterialSemanticResolution issued_before_failure;
+  Require(registry.Resolve(sentinel_declaration.material_key,
+                           Ogre14LegacyAssetTranslatorConfiguration{},
+                           issued_before_failure)
+              .ok(),
+          "sentinel declaration did not resolve before rollback test");
 
   ThrowingFault fault;
   ValidationResult result = BuildOgre14LegacyMaterialSemanticRegistry(
@@ -301,7 +405,9 @@ void TestTransactionalRollbackAndOwnerPreservation() {
                            Ogre14LegacyAssetTranslatorConfiguration{},
                            resolution)
               .ok() &&
-              resolution.source_revision == 3U,
+              resolution.source_revision == 3U &&
+              Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+                  issued_before_failure, resolution),
           "rollback did not preserve reusable immutable declaration state");
 
   Ogre14LegacyMaterialSemanticResolution sentinel = SentinelResolution();
@@ -328,10 +434,21 @@ int main() {
               Ogre14LegacyMaterialSemanticRegistry>,
       "immutable semantic registry ownership must move/copy without throwing");
   static_assert(
+      std::is_nothrow_copy_constructible_v<
+          Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt> &&
+          std::is_nothrow_copy_assignable_v<
+              Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt> &&
+          std::is_nothrow_move_constructible_v<
+              Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt> &&
+          std::is_nothrow_move_assignable_v<
+              Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt>,
+      "semantic identity receipts must move/copy without throwing");
+  static_assert(
       std::is_nothrow_move_assignable_v<
           Ogre14LegacyMaterialSemanticResolution>,
       "resolved native declaration publication must not throw");
   TestExactResolutionAndStableOrdering();
+  TestDeclarationIdentityAuthenticity();
   TestConfigurationAndDeclarationValidation();
   TestCapsDuplicatesAndEmptyRegistry();
   TestTransactionalRollbackAndOwnerPreservation();

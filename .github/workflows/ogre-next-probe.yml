@@ -7,6 +7,7 @@ on:
       - .gitattributes
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
+      - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
       - source/main/CMakeLists.txt
       - source/main/GameContext.cpp
       - source/main/main.cpp
@@ -22,8 +23,11 @@ on:
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - tools/compile_ogre14_material_semantic_catalog_v2.py
+      - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -80,8 +84,10 @@ on:
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
       - tests/gfx/render/**
       - tests/physics/**
       - tests/tools/test_ogre14_*.py
@@ -91,6 +97,7 @@ on:
       - .gitattributes
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
+      - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
       - source/main/CMakeLists.txt
       - source/main/GameContext.cpp
       - source/main/main.cpp
@@ -106,8 +113,11 @@ on:
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - tools/compile_ogre14_material_semantic_catalog_v2.py
+      - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -164,8 +174,10 @@ on:
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
       - tests/gfx/render/**
       - tests/physics/**
       - tests/tools/test_ogre14_*.py
@@ -460,6 +472,7 @@ jobs:
           ror_ogre14_dynamic_material_closure_tests
           ror_ogre14_material_semantic_registry_tests
           ror_ogre14_live_material_coordinator_tests
+          ror_ogre14_material_semantic_catalog_v2_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
           --parallel ${{ matrix.jobs }}
@@ -487,6 +500,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_material_semantic_registry$'
+
+      - name: Prove compiled material semantic catalogs on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_material_semantic_catalog_v2$'
 
       - name: Prove exclusive live material preparation on the host ABI
         run: >-

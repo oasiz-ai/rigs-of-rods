@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace RoR::Render {
@@ -55,6 +56,53 @@ struct Ogre14LegacyMaterialSemanticDeclaration final {
       Ogre14LegacyTextureColorRole::BASE_COLOR_SRGB;
 };
 
+class Ogre14LegacyMaterialSemanticRegistry;
+
+/// Unforgeable identity of one declaration in one immutable registry build.
+/// Numeric revisions and diagnostic fingerprints cannot substitute for this
+/// pointer-exact lineage. Callers may retain/copy a receipt, but only a
+/// registry build can mint a nonempty one.
+class Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt final {
+public:
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt() noexcept = default;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt(
+      const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &) noexcept =
+      default;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &operator=(
+      const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &) noexcept =
+      default;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt(
+      Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &&) noexcept =
+      default;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &operator=(
+      Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &&) noexcept =
+      default;
+  ~Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt() = default;
+
+  [[nodiscard]] bool has_value() const noexcept { return owner_ != nullptr; }
+  void swap(
+      Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &other) noexcept {
+    owner_.swap(other.owner_);
+  }
+
+private:
+  explicit Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt(
+      std::shared_ptr<const void> owner) noexcept
+      : owner_(std::move(owner)) {}
+
+  std::shared_ptr<const void> owner_;
+
+  friend class Ogre14LegacyMaterialSemanticRegistry;
+  friend bool SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+      const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &,
+      const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &) noexcept;
+};
+
+/// Pointer-exact identity comparison. Two empty receipts never authenticate.
+[[nodiscard]] bool SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+    const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &lhs,
+    const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &rhs) noexcept;
+
 /// Resolution retains the explicit declaration provenance alongside the exact
 /// native-extractor input. `registry_fingerprint` is diagnostic content
 /// provenance, not an authentication token or collision-free identity.
@@ -65,6 +113,7 @@ struct Ogre14LegacyMaterialSemanticResolution final {
       Ogre14LegacyMaterialSemanticSource::CONTENT_METADATA;
   std::uint64_t source_revision = 0U;
   std::uint64_t registry_fingerprint = 0U;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt declaration_identity;
   Ogre14LegacyNativeMaterialDeclaration native_declaration;
 };
 
@@ -111,6 +160,9 @@ private:
   struct State;
   explicit Ogre14LegacyMaterialSemanticRegistry(
       std::shared_ptr<const State> state) noexcept;
+  [[nodiscard]] static
+      Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt
+      MintDeclarationIdentity();
 
   std::shared_ptr<const State> state_;
 
@@ -124,6 +176,13 @@ private:
 [[nodiscard]] bool Ogre14LegacyMaterialSemanticResolutionMatchesKey(
     const Ogre14LegacyMaterialSemanticResolution &resolution,
     const Ogre14LegacyAssetKey &material_key) noexcept;
+
+/// Authenticates an issued resolution (for example, the exact declaration
+/// supplied to native capture) against a fresh authoritative resolution. All
+/// public fields must agree and both must carry the same unforgeable receipt.
+[[nodiscard]] bool Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+    const Ogre14LegacyMaterialSemanticResolution &issued,
+    const Ogre14LegacyMaterialSemanticResolution &authoritative) noexcept;
 
 /// Builds an immutable, sorted registry. Duplicates are rejected even when
 /// byte-identical, so one exact material key has one authoritative declaration

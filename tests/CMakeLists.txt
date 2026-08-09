@@ -19,6 +19,25 @@ option(
 )
 
 find_package(Threads REQUIRED)
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+
+set(ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/material-semantic-catalog-v2.synthetic.rormat2")
+add_custom_command(
+    OUTPUT "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}"
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+        "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+        "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}"
+    DEPENDS
+        "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+        "${ROR_REPOSITORY_ROOT}/tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
+        "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+    VERBATIM)
+add_custom_target(
+    ror_ogre14_material_semantic_catalog_v2_fixture
+    DEPENDS "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}")
 
 set(ROR_WORLDMODEL_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeArtifacts.cpp"
@@ -1017,6 +1036,23 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
 add_executable(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+)
+add_dependencies(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    ror_ogre14_material_semantic_catalog_v2_fixture)
+target_include_directories(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    PRIVATE
+        "ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE=\"${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}\"")
+add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
 )
@@ -1173,6 +1209,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_dynamic_material_closure_tests
     ror_ogre14_material_semantic_registry_tests
     ror_ogre14_live_material_coordinator_tests
+    ror_ogre14_material_semantic_catalog_v2_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
     ror_render_bridge_control_transport_tests
@@ -2453,6 +2490,11 @@ add_test(
 add_test(
     NAME ogre14_live_material_coordinator
     COMMAND ror_ogre14_live_material_coordinator_tests
+)
+
+add_test(
+    NAME ogre14_material_semantic_catalog_v2
+    COMMAND ror_ogre14_material_semantic_catalog_v2_tests
 )
 
 add_test(
