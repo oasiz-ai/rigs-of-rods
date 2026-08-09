@@ -55,7 +55,8 @@ MakeTexture(std::string name = "Road/Asphalt") {
 }
 
 RoR::Render::Ogre14LegacyMaterialInput
-MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture) {
+MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture,
+                 bool reverse_winding = false) {
   using namespace RoR::Render;
   Ogre14LegacyMaterialInput material;
   material.key.exact_resource_group = "General";
@@ -64,6 +65,8 @@ MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture) {
   material.diffuse_linear = {0.5F, 0.5F, 0.5F, 1.0F};
   material.base_color_semantic = Ogre14LegacyBaseColorSemantic::UNLIT;
   material.lighting_enabled = false;
+  material.pipeline.cull = reverse_winding ? Ogre14LegacyCullMode::ANTICLOCKWISE
+                                           : Ogre14LegacyCullMode::CLOCKWISE;
   Ogre14LegacyTextureUnitInput unit;
   unit.texture_key = texture.key;
   unit.sampler.source_revision = 1U;
@@ -72,12 +75,14 @@ MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture) {
   return material;
 }
 
-RoR::Render::Ogre14LegacyTranslatedFrame MakeMaterialFrame() {
+RoR::Render::Ogre14LegacyTranslatedFrame
+MakeMaterialFrame(bool reverse_winding = false) {
   using namespace RoR::Render;
   Ogre14LegacyAssetFrameInput input;
   input.source_sequence = 1U;
   input.textures.push_back(MakeTexture());
-  input.materials.push_back(MakeRoadMaterial(input.textures.front()));
+  input.materials.push_back(
+      MakeRoadMaterial(input.textures.front(), reverse_winding));
   Ogre14LegacyAssetTranslator translator;
   Ogre14LegacyTranslatedFrame frame;
   Require(translator.Translate(input, frame).ok() && frame.full_snapshot,
@@ -140,7 +145,17 @@ MakeRoad(const RoR::Render::Ogre14LegacyTranslatedFrame &frame,
   capture.material.specular_linear = {};
   capture.material.emissive_linear = {};
   capture.material.shininess = 0.0F;
-  capture.material.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+  switch (audit.pipeline.cull) {
+  case Ogre14LegacyCullMode::NONE:
+    capture.material.cull = Ogre14GraphicsSceneMaterialCull::NONE;
+    break;
+  case Ogre14LegacyCullMode::CLOCKWISE:
+    capture.material.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+    break;
+  case Ogre14LegacyCullMode::ANTICLOCKWISE:
+    capture.material.cull = Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+    break;
+  }
   capture.material.blend = Ogre14GraphicsSceneMaterialBlend::REPLACE;
   capture.material.alpha_reject =
       Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
@@ -257,6 +272,68 @@ void TestExactRoadClosureAndSharedOwners() {
               SameOwner(first_texture->payload, closure.assets[0U].payload) &&
               SameOwner(first_sampler->payload, closure.assets[1U].payload),
           "static transaction replaced shared immutable dependency owners");
+}
+
+void TestExactWindingCacheReplacementAndRollback() {
+  using namespace RoR::Render;
+  const Ogre14LegacyTranslatedFrame clockwise_frame = MakeMaterialFrame();
+  const Ogre14LegacyTranslatedFrame anticlockwise_frame =
+      MakeMaterialFrame(true);
+  Ogre14ProceduralRoadInventoryConfiguration configuration;
+  configuration.maximum_live_roads = 1U;
+  configuration.maximum_lifetime_roads = 1U;
+  configuration.maximum_payload_bytes = 152U;
+  Ogre14ProceduralRoadInventory inventory(configuration);
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> sections;
+
+  const Ogre14ProceduralRoadCapture clockwise = MakeRoad(clockwise_frame);
+  ValidationResult result = BuildOgre14ProceduralRoadInventory(
+      {clockwise}, clockwise_frame, inventory, sections);
+  Require(result.ok() && sections.size() == 1U &&
+              !sections.front().mesh_identity.reverse_winding,
+          "exact clockwise road did not fill the exact payload cap");
+  const auto clockwise_owner = sections.front().mesh_payload;
+
+  const Ogre14ProceduralRoadCapture anticlockwise =
+      MakeRoad(anticlockwise_frame);
+  result = BuildOgre14ProceduralRoadInventory(
+      {anticlockwise}, anticlockwise_frame, inventory, sections);
+  Require(
+      result.ok() && sections.size() == 1U &&
+          sections.front().mesh_identity.reverse_winding &&
+          sections.front().resolved_material != nullptr &&
+          sections.front().resolved_material->requires_reverse_winding &&
+          !SameOwner(clockwise_owner, sections.front().mesh_payload) &&
+          inventory.known_identity_count() == 1U &&
+          inventory.live_identity_count() == 1U,
+      "same-geometry exact cull flip reused the old owner or exceeded caps");
+  const MeshResourceDescriptor &reversed_mesh =
+      std::get<MeshResourceDescriptor>(*sections.front().mesh_payload);
+  Require(reversed_mesh.topology_revision == 1U &&
+              reversed_mesh.indices ==
+                  std::vector<std::uint32_t>{0U, 2U, 1U, 0U, 3U, 2U},
+          "exact cull flip did not replace index bytes at the same topology "
+          "revision");
+
+  const auto anticlockwise_owner = sections.front().mesh_payload;
+  result = BuildOgre14ProceduralRoadInventory(
+      {anticlockwise}, anticlockwise_frame, inventory, sections);
+  Require(result.ok() &&
+              SameOwner(anticlockwise_owner, sections.front().mesh_payload),
+          "unchanged exact winding did not reuse the immutable owner");
+
+  Ogre14ProceduralRoadCapture forged = anticlockwise;
+  forged.material.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+  const std::size_t known_before = inventory.known_identity_count();
+  const std::size_t live_before = inventory.live_identity_count();
+  result = BuildOgre14ProceduralRoadInventory({forged}, anticlockwise_frame,
+                                              inventory, sections);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              inventory.known_identity_count() == known_before &&
+              inventory.live_identity_count() == live_before &&
+              sections.size() == 1U &&
+              SameOwner(anticlockwise_owner, sections.front().mesh_payload),
+          "forged admitted cull mismatch mutated cache or published output");
 }
 
 void TestActivationGateAndNativeAuditEquality() {
@@ -434,24 +511,21 @@ void TestStaticHostileTransactionsAndLineage() {
   auto binding_conflicting = prepared.sections;
   Ogre14LegacyMaterialClosure binding_conflict =
       *binding_conflicting[1U].resolved_material;
-  Ogre14LegacyAssetKey alternate_texture_key =
-      binding_conflict.asset_keys[0U];
+  Ogre14LegacyAssetKey alternate_texture_key = binding_conflict.asset_keys[0U];
   alternate_texture_key.exact_name += "-alternate";
   std::uint64_t alternate_texture_id = 0U;
-  Require(DeriveOgre14LegacySourceAssetId(
-              RenderAssetKind::TEXTURE, alternate_texture_key,
-              alternate_texture_id)
+  Require(DeriveOgre14LegacySourceAssetId(RenderAssetKind::TEXTURE,
+                                          alternate_texture_key,
+                                          alternate_texture_id)
               .ok(),
           "could not derive alternate texture identity fixture");
   TextureResourceDescriptor alternate_texture =
-      std::get<TextureResourceDescriptor>(
-          *binding_conflict.assets[0U].payload);
+      std::get<TextureResourceDescriptor>(*binding_conflict.assets[0U].payload);
   alternate_texture.debug_name = "General/Road/Asphalt-alternate";
   binding_conflict.asset_keys[0U] = alternate_texture_key;
   binding_conflict.assets[0U].source_asset_id = alternate_texture_id;
   binding_conflict.assets[0U].payload =
-      std::make_shared<const RenderAssetPayload>(
-          std::move(alternate_texture));
+      std::make_shared<const RenderAssetPayload>(std::move(alternate_texture));
   Ogre14LegacyMaterialPipelineAudit alternate_audit =
       *binding_conflict.material_audit;
   alternate_audit.texture_source_asset_id = alternate_texture_id;
@@ -462,10 +536,10 @@ void TestStaticHostileTransactionsAndLineage() {
       .material_bindings[static_cast<std::size_t>(
           MaterialTextureSlot::BASE_COLOR)]
       .texture_source_asset_id = alternate_texture_id;
-  Require(ValidateOgre14LegacyMaterialClosure(binding_conflict,
-                                               RoadMaterialKey())
-              .ok(),
-          "binding-conflict fixture was not independently valid");
+  Require(
+      ValidateOgre14LegacyMaterialClosure(binding_conflict, RoadMaterialKey())
+          .ok(),
+      "binding-conflict fixture was not independently valid");
   binding_conflicting[1U].resolved_material =
       std::make_shared<const Ogre14LegacyMaterialClosure>(
           std::move(binding_conflict));
@@ -473,9 +547,8 @@ void TestStaticHostileTransactionsAndLineage() {
       binding_conflicting, ValidationCode::REVISION_MISMATCH,
       "shared material ID accepted conflicting producer-owned bindings");
 
-  auto missing_uv =
-      std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput>{
-          prepared.sections.front()};
+  auto missing_uv = std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput>{
+      prepared.sections.front()};
   MeshResourceDescriptor mesh_without_uv =
       std::get<MeshResourceDescriptor>(*missing_uv.front().mesh_payload);
   mesh_without_uv.texture_coordinates_0.clear();
@@ -512,8 +585,8 @@ void TestStaticHostileTransactionsAndLineage() {
       "static hostile-input cap+1 was not rejected before allocation");
 
   Ogre14GraphicsSceneStaticIdentityRegistry lifetime_cap_registry;
-  for (std::size_t index = 0U;
-       index < kMaximumOgre14GraphicsSceneStaticAssets; ++index) {
+  for (std::size_t index = 0U; index < kMaximumOgre14GraphicsSceneStaticAssets;
+       ++index) {
     Require(lifetime_cap_registry
                 .RegisterDerivedAssetIdentity(
                     "lifetime-cap-seed-" + std::to_string(index),
@@ -523,18 +596,14 @@ void TestStaticHostileTransactionsAndLineage() {
   }
   assets.front().source_asset_id = 321U;
   meshes.front().source_object_id = 654U;
-  const ValidationResult lifetime_cap =
-      BuildOgre14GraphicsSceneStaticInventory(
-          {prepared.sections.front()}, lifetime_cap_registry, assets,
-          meshes);
+  const ValidationResult lifetime_cap = BuildOgre14GraphicsSceneStaticInventory(
+      {prepared.sections.front()}, lifetime_cap_registry, assets, meshes);
   Require(!lifetime_cap &&
               lifetime_cap.code == ValidationCode::VALUE_OUT_OF_RANGE &&
               lifetime_cap_registry.asset_identity_count() ==
                   kMaximumOgre14GraphicsSceneStaticAssets &&
-              assets.size() == 1U &&
-              assets.front().source_asset_id == 321U &&
-              meshes.size() == 1U &&
-              meshes.front().source_object_id == 654U,
+              assets.size() == 1U && assets.front().source_asset_id == 321U &&
+              meshes.size() == 1U && meshes.front().source_object_id == 654U,
           "static lifetime cap+1 committed a partial identity transaction");
 }
 
@@ -576,6 +645,7 @@ void TestStaticExceptionRollback() {
 
 int main() {
   TestExactRoadClosureAndSharedOwners();
+  TestExactWindingCacheReplacementAndRollback();
   TestActivationGateAndNativeAuditEquality();
   TestDetachedClosureHostileMutations();
   TestStaticHostileTransactionsAndLineage();

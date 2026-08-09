@@ -284,8 +284,13 @@ Implemented source-side behavior is:
    normals, nondegenerate winding, source-width promotion, exact material
    identity, affine handedness, stable ordering, collision-audited
    domain-separated IDs, aggregate payload limits, and topology lineage. Its
-   transaction reuses immutable payload owners for identical geometry and
-   commits caches/live IDs/tombstones/output together. Omission permanently
+   transaction reuses immutable payload owners only for identical geometry and
+   an equivalent complete reverse-winding decision, and commits
+   caches/live IDs/tombstones/output together. The versioned proof retains its
+   admitted native cull mode and rejects missing, internally inconsistent, or
+   cached-index-disagreeing state. A winding-only material change replaces the
+   payload at the unchanged geometry revision; `NONE` and `CLOCKWISE` still
+   share the same unreversed owner. Omission permanently
    tombstones a road. A focused combined-static contract now verifies that
    road candidates and terrain/native candidates share one collision audit,
    stable ordering, and immutable payload-owner reuse without advancing the

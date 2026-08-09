@@ -314,7 +314,12 @@ snapshot. It audits native bounds, finite unit normals, triangle winding,
 uint16 promotion, exact `road2` identity, transforms, collision-separated
 identity derivation, live/lifetime/payload limits, permanent removal
 tombstones, stable ordering, and revision lineage. Byte-identical roads reuse
-the same immutable mesh owner. The source currently produces static-section
+the same immutable mesh owner only when their complete admitted winding proof
+selects the same index bytes. Geometry remains the topology-revision identity:
+an exact material cull flip rebuilds the wound payload without advancing that
+revision, while `NONE` and `CLOCKWISE` proof updates reuse the same unreversed
+owner. Missing, inconsistent, or cached-payload-disagreeing proof fails before
+the inventory publishes. The source currently produces static-section
 candidates which can be combined with terrain/native static sections before
 the generic collision-audited static-inventory transaction. The focused
 combined-static contract proves collision rejection, stable ordering, and
