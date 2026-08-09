@@ -26,6 +26,7 @@
 #include "Application.h"
 
 #include "AppContext.h"
+#include "ApplicationFatalError.h"
 #include "CacheSystem.h"
 #include "CameraManager.h"
 #include "Console.h"
@@ -54,11 +55,15 @@ namespace App {
 // ------------------------------------------------------------------------------------------------
 
 // Object instances
+// ContentManager retains immutable byte owners used by EmbeddedZip archives.
+// It must outlive AppContext: normal main() returns release Ogre::Root through
+// RendererRuntimeGuard, while reverse static destruction remains a safe
+// fallback and destroys AppContext/Root before these archive owners.
+static ContentManager       g_content_manager;
 static AppContext           g_app_context;
 static CacheSystem          g_cache_system;
 static CameraManager*       g_camera_manager = nullptr;
 static Console              g_console;
-static ContentManager       g_content_manager;
 static DiscordRpc           g_discord_rpc;
 // Scene users must finish before the scene registry releases renderer-owned
 // handles. Static objects in one translation unit are destroyed in reverse
@@ -439,6 +444,13 @@ void HandleGenericException(const std::string& from, BitMask_t flags)
     try
     {
         throw; // rethrow
+    }
+    catch (const ApplicationFatalError&)
+    {
+        // A fatal error is process control flow, not a recoverable message or
+        // script exception. Preserve it across every centralized catch layer
+        // so main() can unwind the renderer guards and return its exact code.
+        throw;
     }
     catch (Ogre::Exception& oex)
     {

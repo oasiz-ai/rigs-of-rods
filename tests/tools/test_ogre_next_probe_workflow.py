@@ -91,7 +91,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "CMakeLists.txt",
             "source/main/CMakeLists.txt",
             "source/main/main.cpp",
+            "source/main/system/ApplicationFatalError.h",
             "tests/CMakeLists.txt",
+            "tests/system/ApplicationFatalShutdownContractTests.cpp",
             "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/gfx/GfxScene.*",
             "source/main/gfx/RendererBackendPolicy.*",
@@ -196,6 +198,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_flex_mesh_topology_tests",
             "ror_ogre14_metal_flex_shadow_read_contract_tests",
             "ror_gfx_actor_capture_inventory_tests",
+            "ror_application_fatal_shutdown_contract_tests",
             "ror_renderer_ogre14_game_host_session_tests",
         ):
             with self.subTest(built_target=target):
@@ -205,6 +208,17 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                     require_once(omitted, target)
         self.assertIn("--config Release", build_step)
         self.assertIn("--parallel ${{ matrix.jobs }}", build_step)
+
+        run_start = self.workflow.index(
+            "- name: Prove deformable capture transactions on the host ABI"
+        )
+        run_end = self.workflow.index(
+            "- name: Prove exact translated deformable materials on the host ABI"
+        )
+        run_step = self.workflow[run_start:run_end]
+        require_once(run_step, "ror_application_fatal_shutdown_contract")
+        self.assertIn("--build-config Release", run_step)
+        self.assertIn("--output-on-failure", run_step)
 
     def test_relevant_source_manifests_are_exactly_equivalent(self) -> None:
         runner = (
@@ -601,6 +615,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "pre-ready-require-terminal",
             "post-ready-terminal",
             "native-require-terminal",
+            "ror_application_fatal_shutdown_contract_tests",
+            "tests/system/ApplicationFatalShutdownContractTests.cpp",
+            "source/main/system/ApplicationFatalError.h",
+            "add_test(NAME ror_application_fatal_shutdown_contract",
         ):
             self.assertIn(token, cmake)
         for path in (
@@ -622,6 +640,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/terrain/TerrainObjectManager.cpp",
             "source/main/terrain/TerrainObjectManager.h",
             "source/main/main.cpp",
+            "source/main/system/ApplicationFatalError.h",
             "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildIntent.h",
             "source/main/system/RendererChildLauncher.cpp",
@@ -672,6 +691,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
+            "tests/system/ApplicationFatalShutdownContractTests.cpp",
             "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
             "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp",
             "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp",
@@ -896,6 +916,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_bridge_channel_tests",
             "ror_render_bridge_control_transport_tests",
             "ror_renderer_ogre14_game_host_session_tests",
+            "ror_application_fatal_shutdown_contract_tests",
         ):
             with self.subTest(cxx17_bridge_target=target):
                 self.assertEqual(n1_target_list.count(target), 1)

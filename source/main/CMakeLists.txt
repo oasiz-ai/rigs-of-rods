@@ -277,6 +277,7 @@ set(SOURCE_FILES
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
         resources/tuneup_fileformat/TuneupFileFormat.{h,cpp}
         system/AppCommandLine.cpp
+        system/ApplicationFatalError.h
         system/CommandLineInfo.{h,cpp}
         system/AppConfig.cpp
         system/Console.{h,cpp}

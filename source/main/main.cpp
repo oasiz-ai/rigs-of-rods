@@ -21,6 +21,7 @@
 
 #include "Actor.h"
 #include "Application.h"
+#include "ApplicationFatalError.h"
 #include "AppContext.h"
 #include "CacheSystem.h"
 #include "CameraManager.h"
@@ -326,6 +327,14 @@ int main(int argc, char *argv[])
     std::unique_ptr<RendererOgre14ProductSession>
         renderer_bridge_product_session;
     std::string renderer_bridge_scene_failure_signature;
+    int application_exit_code = 0;
+
+    // Fatal game failures are caught inside the scope of every local runtime
+    // guard. Returning the preserved code below first destroys the product
+    // session, workers and window integrations, then RendererRuntimeGuard
+    // tears down Ogre::Root while ContentManager's archive owners are alive.
+    try
+    {
 
 #ifndef _DEBUG
     try
@@ -2891,7 +2900,33 @@ int main(int argc, char *argv[])
     }
 #endif
 
-    return 0;
+    }
+    catch (const ApplicationFatalError& fatal)
+    {
+        // Do not let secondary diagnostics or capture cleanup replace the
+        // already-selected fatal process result.
+        try
+        {
+            App::ShutdownWorldModelCapture();
+        }
+        catch (...)
+        {
+        }
+        try
+        {
+            LOG(fmt::format(
+                "[RoR|Fatal] Controlled shutdown requested: code={}, "
+                "reason='{}'",
+                fatal.exit_code(),
+                fatal.what()));
+        }
+        catch (...)
+        {
+        }
+        application_exit_code = fatal.exit_code();
+    }
+
+    return application_exit_code;
 }
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32

@@ -22,6 +22,7 @@
 #include "Collisions.h"
 
 #include "Application.h"
+#include "ApplicationFatalError.h"
 #include "ApproxMath.h"
 #include "Actor.h"
 #include "ActorManager.h"
@@ -197,7 +198,9 @@ int Collisions::loadGroundModelsConfigFile(Ogre::String filename)
     if (this->collision_version != LATEST_GROUND_MODEL_VERSION)
     {
         ErrorUtils::ShowError(_L("Configuration error"), _L("Your ground configuration is too old, please copy skeleton/config/ground_models.cfg to My Documents/Rigs of Rods/config"));
-        exit(124);
+        throw ApplicationFatalError(
+            124,
+            "ground model configuration version is too old");
     }
     return 0;
 }

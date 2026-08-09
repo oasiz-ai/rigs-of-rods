@@ -150,6 +150,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/terrain/TerrainObjectManager.cpp"
     "source/main/terrain/TerrainObjectManager.h"
     "source/main/main.cpp"
+    "source/main/system/ApplicationFatalError.h"
     "source/main/system/RendererBridgeChannel.cpp"
     "source/main/system/RendererBridgeChannel.h"
     "source/main/system/RendererBridgeEndpoint.cpp"
@@ -209,6 +210,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
+    "tests/system/ApplicationFatalShutdownContractTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
     "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
@@ -1188,6 +1190,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
+        ror_application_fatal_shutdown_contract_tests
+        "${ROR_REPOSITORY_ROOT}/tests/system/ApplicationFatalShutdownContractTests.cpp")
+    target_include_directories(
+        ror_application_fatal_shutdown_contract_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_application_fatal_shutdown_contract_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_ogre14_graphics_scene_source_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp")
     target_link_libraries(
@@ -2004,6 +2016,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_flex_mesh_topology_tests
         ror_ogre14_metal_flex_shadow_read_contract_tests
         ror_gfx_actor_capture_inventory_tests
+        ror_application_fatal_shutdown_contract_tests
         ror_ogre14_graphics_scene_source_tests
         ror_ogre14_particle_capture_source_tests
         ror_ogre14_procedural_road_source_tests
@@ -2348,6 +2361,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/terrain/TerrainObjectManager.cpp
             source/main/terrain/TerrainObjectManager.h
             source/main/main.cpp
+            source/main/system/ApplicationFatalError.h
             source/main/system/RendererBridgeChannel.cpp
             source/main/system/RendererBridgeChannel.h
             source/main/system/RendererBridgeEndpoint.cpp
@@ -2413,6 +2427,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
             source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
             tests/gfx/GfxActorCaptureInventoryTests.cpp
+            tests/system/ApplicationFatalShutdownContractTests.cpp
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
             tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp
@@ -2987,6 +3002,11 @@ if (TARGET ror_gfx_actor_capture_inventory_tests)
     add_test(NAME ror_gfx_actor_capture_inventory
         COMMAND $<TARGET_FILE:ror_gfx_actor_capture_inventory_tests>
             "${ROR_REPOSITORY_ROOT}/source/main/main.cpp")
+endif ()
+if (TARGET ror_application_fatal_shutdown_contract_tests)
+    add_test(NAME ror_application_fatal_shutdown_contract
+        COMMAND $<TARGET_FILE:ror_application_fatal_shutdown_contract_tests>
+            "${ROR_REPOSITORY_ROOT}")
 endif ()
 if (TARGET ror_ogre14_graphics_scene_source_tests)
     add_test(NAME ror_ogre14_graphics_scene_source
