@@ -7,10 +7,18 @@
 #include <OgreRenderSystem.h>
 
 #if defined(__APPLE__)
+#include <OgreHardwarePixelBuffer.h>
+#include <OgrePixelFormat.h>
+#include <OgreResourceGroupManager.h>
+#include <OgreRenderWindow.h>
+#include <OgreTexture.h>
+#include <OgreTextureManager.h>
 #include <mach-o/dyld.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
+#include <array>
 #include <cstdint>
 #include <ctime>
 #include <exception>
@@ -149,6 +157,197 @@ bool VerifyArchiveManagerLoadRollback()
     }
     return true;
 }
+
+#if defined(__APPLE__)
+bool CompareBytes(
+    const std::vector<std::uint8_t>& actual,
+    const std::vector<std::uint8_t>& expected,
+    const char* label)
+{
+    if (actual.size() != expected.size())
+    {
+        std::cerr << label << " byte count changed: " << actual.size()
+                  << " != " << expected.size() << '\n';
+        return false;
+    }
+    for (std::size_t index = 0; index < actual.size(); ++index)
+    {
+        if (actual[index] != expected[index])
+        {
+            std::cerr << label << " mismatch at byte " << index << ": "
+                      << static_cast<unsigned int>(actual[index]) << " != "
+                      << static_cast<unsigned int>(expected[index]) << '\n';
+            return false;
+        }
+    }
+    return true;
+}
+
+bool VerifyTextureCaptureContract()
+{
+    constexpr std::size_t width = 4U;
+    constexpr std::size_t height = 4U;
+    constexpr std::size_t channel_count = 4U;
+    const std::array<std::array<std::uint8_t, channel_count>, 4U>
+        quadrant_pixels{{
+            {{11U, 23U, 37U, 47U}},
+            {{59U, 71U, 83U, 97U}},
+            {{101U, 113U, 127U, 139U}},
+            {{149U, 163U, 179U, 191U}},
+        }};
+
+    std::vector<std::uint8_t> source(width * height * channel_count);
+    for (std::size_t y = 0U; y < height; ++y)
+    {
+        for (std::size_t x = 0U; x < width; ++x)
+        {
+            const auto& pixel = quadrant_pixels[(y / 2U) * 2U + x / 2U];
+            const std::size_t offset = (y * width + x) * channel_count;
+            std::copy(pixel.begin(), pixel.end(), source.begin() + offset);
+        }
+    }
+
+    std::vector<std::uint8_t> expected_mip(2U * 2U * channel_count);
+    for (std::size_t y = 0U; y < 2U; ++y)
+    {
+        for (std::size_t x = 0U; x < 2U; ++x)
+        {
+            const auto& pixel = quadrant_pixels[y * 2U + x];
+            const std::size_t offset = (y * 2U + x) * channel_count;
+            std::copy(
+                pixel.begin(), pixel.end(), expected_mip.begin() + offset);
+        }
+    }
+
+    const Ogre::String texture_name =
+        "ror-terrain-composite-capture-contract";
+    Ogre::TexturePtr texture;
+    Ogre::ResourceHandle texture_handle = 0;
+    bool passed = true;
+    try
+    {
+        texture = Ogre::TextureManager::getSingleton().createManual(
+            texture_name,
+            Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+            Ogre::TEX_TYPE_2D,
+            static_cast<Ogre::uint>(width),
+            static_cast<Ogre::uint>(height),
+            2,
+            Ogre::PF_BYTE_RGBA,
+            Ogre::TU_STATIC_WRITE_ONLY | Ogre::TU_AUTOMIPMAP);
+        texture_handle = texture->getHandle();
+        if (texture->getNumMipmaps() < 1U)
+        {
+            std::cerr << "texture capture probe has no mip levels\n";
+            passed = false;
+        }
+
+        Ogre::PixelBox source_box(
+            width, height, 1U, Ogre::PF_BYTE_RGBA, source.data());
+        Ogre::HardwarePixelBufferSharedPtr level_zero =
+            texture->getBuffer(0U, 0U);
+        level_zero->blitFromMemory(source_box);
+
+        std::vector<std::uint8_t> level_zero_bytes(source.size(), 0xA5U);
+        Ogre::PixelBox level_zero_box(
+            width,
+            height,
+            1U,
+            Ogre::PF_BYTE_RGBA,
+            level_zero_bytes.data());
+        level_zero->blitToMemory(level_zero_box);
+        passed = CompareBytes(
+                     level_zero_bytes,
+                     source,
+                     "level-zero RGBA row-orientation/alpha readback") &&
+            passed;
+
+        std::vector<std::uint8_t> mip_bytes(expected_mip.size(), 0x5AU);
+        Ogre::PixelBox mip_box(
+            2U, 2U, 1U, Ogre::PF_BYTE_RGBA, mip_bytes.data());
+        Ogre::HardwarePixelBufferSharedPtr level_one =
+            texture->getBuffer(0U, 1U);
+        if (level_one->getWidth() != 2U || level_one->getHeight() != 2U)
+        {
+            std::cerr << "level-one Metal buffer dimensions are incorrect\n";
+            passed = false;
+        }
+        level_one->blitToMemory(mip_box);
+        passed = CompareBytes(
+                     mip_bytes,
+                     expected_mip,
+                     "level-one automatic mip readback") &&
+            passed;
+
+        std::vector<std::uint8_t> failed_read_sentinel(source.size(), 0xD3U);
+        const std::vector<std::uint8_t> expected_sentinel =
+            failed_read_sentinel;
+        Ogre::PixelBox failed_read_box(
+            width,
+            height,
+            1U,
+            Ogre::PF_BYTE_RGBA,
+            failed_read_sentinel.data());
+        bool invalid_read_threw = false;
+        try
+        {
+            level_zero->blitToMemory(
+                Ogre::Box(0U, 0U, width + 1U, height),
+                failed_read_box);
+        }
+        catch (const Ogre::Exception&)
+        {
+            invalid_read_threw = true;
+        }
+        if (!invalid_read_threw ||
+            !CompareBytes(
+                failed_read_sentinel,
+                expected_sentinel,
+                "failed readback rollback"))
+        {
+            std::cerr << "invalid texture readback was not fail-closed\n";
+            passed = false;
+        }
+
+        std::fill(level_zero_bytes.begin(), level_zero_bytes.end(), 0x3CU);
+        level_zero->blitToMemory(level_zero_box);
+        passed = CompareBytes(
+                     level_zero_bytes,
+                     source,
+                     "post-failure texture readback") &&
+            passed;
+
+        const std::size_t initial_state = texture->getStateCount();
+        texture->_dirtyState();
+        const std::size_t first_revision = texture->getStateCount();
+        texture->_dirtyState();
+        const std::size_t second_revision = texture->getStateCount();
+        if (first_revision != initial_state + 1U ||
+            second_revision != first_revision + 1U)
+        {
+            std::cerr << "resource dirty-state revision is not monotonic\n";
+            passed = false;
+        }
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "texture capture probe failed: " << error.what() << '\n';
+        passed = false;
+    }
+
+    texture.reset();
+    if (texture_handle != 0)
+    {
+        Ogre::TextureManager::getSingleton().remove(texture_handle);
+    }
+    if (passed)
+    {
+        std::cout << "texture-capture-contract=ok "
+                     "level0-rgba level1-automip rollback state-revision\n";
+    }
+    return passed;
+}
+#endif
 
 bool IsOgreImage(const std::string& path)
 {
@@ -385,6 +584,22 @@ int main(int argc, char** argv)
             {
                 root.setRenderSystem(renderer);
                 root.initialise(false);
+#if defined(__APPLE__)
+                Ogre::NameValuePairList window_parameters;
+                window_parameters["hidden"] = "true";
+                Ogre::RenderWindow* const probe_window =
+                    root.createRenderWindow(
+                        "RoR OGRE recipe capture probe",
+                        4U,
+                        4U,
+                        false,
+                        &window_parameters);
+                if (probe_window == nullptr)
+                {
+                    std::cerr << "renderer did not create hidden probe window\n";
+                    return 1;
+                }
+#endif
                 if (!VerifyLoadedOgreImages(argv[3]))
                 {
                     return 1;
@@ -397,6 +612,12 @@ int main(int argc, char** argv)
                 {
                     return 1;
                 }
+#if defined(__APPLE__)
+                if (!VerifyTextureCaptureContract())
+                {
+                    return 1;
+                }
+#endif
                 std::cout << renderer->getName() << '\n';
                 return 0;
             }

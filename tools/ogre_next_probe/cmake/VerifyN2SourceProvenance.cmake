@@ -22,6 +22,7 @@ set(_ror_n2_relevant_source_paths
     cmake/conan/recipes/mygui/conanfile.py
     cmake/conan/recipes/ogre3d/conandata.yml
     cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
+    cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch
     cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
     conanfile.py
     doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
@@ -180,6 +181,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py
     tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
     tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
+    tests/tools/test_ogre14_terrain_composite_recipe_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -231,6 +233,7 @@ list(APPEND _ror_n2_relevant_source_files
     "cmake/conan/recipes/mygui/conanfile.py"
     "cmake/conan/recipes/ogre3d/conandata.yml"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch"
     "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
     "conanfile.py"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
@@ -388,6 +391,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
+    "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
