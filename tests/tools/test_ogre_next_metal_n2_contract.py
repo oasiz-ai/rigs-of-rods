@@ -289,6 +289,30 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             self.assertEqual(expanded_manifest["file_count"], 2)
             self.assertNotEqual(expanded_manifest["sha256"], manifest["sha256"])
 
+    def test_deformable_capture_manifest_rejects_deletion_and_hashes_mutation(
+        self,
+    ) -> None:
+        relative = "source/main/physics/flex/FlexBody.cpp"
+        self.assertIn(relative, RUNNER.RELEVANT_SOURCE_PATHS)
+        with tempfile.TemporaryDirectory(
+            prefix="ror-metal-n2-deformable-source-"
+        ) as temp:
+            repository = Path(temp)
+            tracked = repository / relative
+            tracked.parent.mkdir(parents=True)
+            tracked.write_text("int deformable_capture = 1;\n", encoding="utf-8")
+            paths = (relative,)
+            baseline = RUNNER.relevant_source_manifest(repository, paths)
+
+            tracked.write_text("int deformable_capture = 2;\n", encoding="utf-8")
+            self.assertNotEqual(
+                RUNNER.relevant_source_manifest(repository, paths), baseline
+            )
+
+            tracked.unlink()
+            with self.assertRaises(RUNNER.ProbeError):
+                RUNNER.relevant_source_manifest(repository, paths)
+
     def test_report_validator_requires_exact_live_evidence(self) -> None:
         lock = RUNNER.load_lock()
         policy = RUNNER.detect_policy("Darwin", "arm64")
