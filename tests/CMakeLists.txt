@@ -911,6 +911,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyMaterialClosure.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ParticleCaptureSource.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ProceduralRoadSource.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14SourceTextureDecoder.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/InputEventTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
@@ -1005,6 +1006,10 @@ add_executable(
 target_include_directories(
     ror_ogre14_material_semantic_registry_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
+    ror_ogre14_source_texture_decoder_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
 )
 add_executable(
     ror_render_resource_handle_tests
@@ -1162,6 +1167,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_road_material_transaction_tests
     ror_ogre14_dynamic_material_closure_tests
     ror_ogre14_material_semantic_registry_tests
+    ror_ogre14_source_texture_decoder_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
     ror_render_bridge_control_transport_tests
@@ -2437,6 +2443,11 @@ add_test(
 add_test(
     NAME ogre14_material_semantic_registry
     COMMAND ror_ogre14_material_semantic_registry_tests
+)
+
+add_test(
+    NAME ogre14_source_texture_decoder
+    COMMAND ror_ogre14_source_texture_decoder_tests
 )
 
 add_test(

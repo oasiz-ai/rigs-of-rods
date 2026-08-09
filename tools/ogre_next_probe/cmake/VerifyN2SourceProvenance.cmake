@@ -97,6 +97,7 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
     tests/gfx/GfxActorCaptureInventoryTests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+    tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp
     tests/gfx/RendererBackendPolicyTests.cpp
     tests/gfx/RendererBridgeEndpointTests.cpp
     tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -140,6 +141,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre_next_metal_n2_contract.py
     tests/tools/test_ogre14_dynamic_material_closure_contract.py
     tests/tools/test_ogre14_material_semantic_registry_contract.py
+    tests/tools/test_ogre14_source_texture_decoder_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -263,6 +265,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+    "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -306,6 +309,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre_next_metal_n2_contract.py"
     "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
     "tests/tools/test_ogre14_material_semantic_registry_contract.py"
+    "tests/tools/test_ogre14_source_texture_decoder_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

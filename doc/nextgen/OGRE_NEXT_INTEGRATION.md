@@ -886,6 +886,28 @@ specular heuristic. It supplies the explicit declaration gate required by the
 live material coordinator; it does not itself wire CityWorld materials or make
 the Ogre-Next renderer production-ready.
 
+The renderer-neutral `Ogre14SourceTextureDecoder` version 1 closes the legacy
+DDS byte-normalization slice without importing Ogre or a GPU decoder. It
+follows the fixed 128-byte legacy DDS header layout with explicit little-endian
+reads, validates the entire declared 2D mip chain under hard and configurable
+byte/dimension caps, then emits canonical tightly packed RGBA8_UNORM. The
+supported source set is DXT1/BC1, DXT3/BC2, DXT5/BC3, unsigned ATI1/BC4,
+unsigned ATI2/BC5, and exact 32-bit RGBA/RGBX/BGRA/BGRX masks. Integer-only
+palette interpolation and virtual-edge clipping make output deterministic
+across macOS, Windows, and Linux.
+
+Color transfer semantics are deliberately external: an authoritative content
+or material record must select sRGB color or linear data, and a DXT1 caller
+must separately select opaque or one-bit-alpha interpretation. The decoder
+does not infer either fact from names, FourCC values, flags, or pixels. It
+rejects DX10 extensions and arrays, cube maps, volumes, signed and unknown
+formats, ambiguous channel layouts, inconsistent top-level sizes, impossible
+mip counts, arithmetic overflow, truncation, and trailing data. Full validation
+precedes allocation; successful decoding uses a no-throw final move, while
+injected `bad_alloc` and arbitrary exceptions preserve the previous output.
+This is a source-data prerequisite for the future live material coordinator,
+not evidence that CityWorld textures have been uploaded or rendered.
+
 Run the bounded audit with:
 
 ```sh
