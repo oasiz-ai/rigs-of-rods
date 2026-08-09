@@ -324,6 +324,65 @@ bool IsStraightSourceOver(
              Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
 }
 
+ValidationResult
+ValidatePipelineState(const Ogre14LegacyPipelineStateInput &state) {
+  if (!IsKnownBlendFactor(state.source_color) ||
+      !IsKnownBlendFactor(state.destination_color) ||
+      !IsKnownBlendFactor(state.source_alpha) ||
+      !IsKnownBlendFactor(state.destination_alpha) ||
+      !IsKnownBlendOperation(state.color_operation) ||
+      !IsKnownBlendOperation(state.alpha_operation) ||
+      !IsKnownCompare(state.depth_compare) ||
+      !IsKnownCompare(state.alpha_reject) || !IsKnownCull(state.cull) ||
+      !IsKnownManualCull(state.manual_cull)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.pipeline",
+        "pipeline contains an unknown OGRE 14 enum");
+  }
+  if (!IsFinite(state.constant_depth_bias) ||
+      !IsFinite(state.slope_scale_depth_bias) ||
+      !IsFinite(state.iteration_depth_bias)) {
+    return ValidationResult::Failure(ValidationCode::NON_FINITE_VALUE,
+                                     "material.pipeline.depth_bias",
+                                     "depth bias must be finite");
+  }
+  const bool replace = IsReplaceBlend(state);
+  const bool source_over = IsStraightSourceOver(state);
+  if ((!replace && !source_over) ||
+      state.color_operation != Ogre14LegacyBlendOperation::ADD ||
+      state.alpha_operation != Ogre14LegacyBlendOperation::ADD) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.blend",
+        "v1 accepts only replace or exact straight-alpha source-over blending");
+  }
+  if (state.color_write_mask != 0x0FU || !state.depth_check_enabled ||
+      state.depth_compare != Ogre14LegacyCompareOperation::LESS_EQUAL ||
+      state.constant_depth_bias != 0.0F ||
+      state.slope_scale_depth_bias != 0.0F ||
+      state.iteration_depth_bias != 0.0F ||
+      state.manual_cull != Ogre14LegacyManualCullMode::BACK ||
+      state.alpha_to_coverage || !state.solid_fill ||
+      state.pass_iteration_count != 1U ||
+      (replace && !state.depth_write_enabled) ||
+      (source_over && state.depth_write_enabled)) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.depth_raster",
+        "color mask, depth, cull, fill, coverage, or iteration state is "
+        "outside the exact v1 subset");
+  }
+  const bool alpha_pass =
+      state.alpha_reject == Ogre14LegacyCompareOperation::ALWAYS_PASS;
+  const bool alpha_mask =
+      state.alpha_reject == Ogre14LegacyCompareOperation::GREATER_EQUAL;
+  if ((!alpha_pass && !alpha_mask) || (source_over && alpha_mask)) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.alpha_reject",
+        "v1 accepts always-pass or >= alpha rejection and never combines "
+        "rejection with blending");
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateSamplerInput(const Ogre14LegacySamplerInput &sampler) {
   if (sampler.source_revision == 0U) {
     return ValidationResult::Failure(ValidationCode::REVISION_MISMATCH,
@@ -834,59 +893,9 @@ ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input) {
   }
 
   const Ogre14LegacyPipelineStateInput &state = input.pipeline;
-  if (!IsKnownBlendFactor(state.source_color) ||
-      !IsKnownBlendFactor(state.destination_color) ||
-      !IsKnownBlendFactor(state.source_alpha) ||
-      !IsKnownBlendFactor(state.destination_alpha) ||
-      !IsKnownBlendOperation(state.color_operation) ||
-      !IsKnownBlendOperation(state.alpha_operation) ||
-      !IsKnownCompare(state.depth_compare) ||
-      !IsKnownCompare(state.alpha_reject) || !IsKnownCull(state.cull) ||
-      !IsKnownManualCull(state.manual_cull)) {
-    return ValidationResult::Failure(
-        ValidationCode::INVALID_ENUM, "material.pipeline",
-        "pipeline contains an unknown OGRE 14 enum");
-  }
-  if (!IsFinite(state.constant_depth_bias) ||
-      !IsFinite(state.slope_scale_depth_bias) ||
-      !IsFinite(state.iteration_depth_bias)) {
-    return ValidationResult::Failure(ValidationCode::NON_FINITE_VALUE,
-                                     "material.pipeline.depth_bias",
-                                     "depth bias must be finite");
-  }
-  const bool replace = IsReplaceBlend(state);
-  const bool source_over = IsStraightSourceOver(state);
-  if ((!replace && !source_over) ||
-      state.color_operation != Ogre14LegacyBlendOperation::ADD ||
-      state.alpha_operation != Ogre14LegacyBlendOperation::ADD) {
-    return ValidationResult::Failure(
-        ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.blend",
-        "v1 accepts only replace or exact straight-alpha source-over blending");
-  }
-  if (state.color_write_mask != 0x0FU || !state.depth_check_enabled ||
-      state.depth_compare != Ogre14LegacyCompareOperation::LESS_EQUAL ||
-      state.constant_depth_bias != 0.0F ||
-      state.slope_scale_depth_bias != 0.0F ||
-      state.iteration_depth_bias != 0.0F ||
-      state.manual_cull != Ogre14LegacyManualCullMode::BACK ||
-      state.alpha_to_coverage || !state.solid_fill ||
-      state.pass_iteration_count != 1U ||
-      (replace && !state.depth_write_enabled) ||
-      (source_over && state.depth_write_enabled)) {
-    return ValidationResult::Failure(
-        ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.depth_raster",
-        "color mask, depth, cull, fill, coverage, or iteration state is "
-        "outside the exact v1 subset");
-  }
-  const bool alpha_pass =
-      state.alpha_reject == Ogre14LegacyCompareOperation::ALWAYS_PASS;
-  const bool alpha_mask =
-      state.alpha_reject == Ogre14LegacyCompareOperation::GREATER_EQUAL;
-  if ((!alpha_pass && !alpha_mask) || (source_over && alpha_mask)) {
-    return ValidationResult::Failure(
-        ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.alpha_reject",
-        "v1 accepts always-pass or >= alpha rejection and never combines "
-        "rejection with blending");
+  ValidationResult validation = ValidatePipelineState(state);
+  if (!validation) {
+    return validation;
   }
   if (input.texture_units.empty()) {
     return ValidationResult::Success();
@@ -940,6 +949,76 @@ DeriveOgre14LegacySourceAssetId(RenderAssetKind kind,
     hash = 1U;
   }
   source_asset_id = hash;
+  return ValidationResult::Success();
+}
+
+ValidationResult
+BuildOgre14LegacyStableAssetKey(RenderAssetKind kind,
+                                const Ogre14LegacyAssetKey &key,
+                                std::string &stable_key) {
+  if ((kind != RenderAssetKind::TEXTURE && kind != RenderAssetKind::SAMPLER &&
+       kind != RenderAssetKind::MATERIAL) ||
+      !IsKeyValid(key)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "asset.key",
+        "stable legacy asset key requires a supported kind and exact key");
+  }
+  try {
+    std::string candidate = StableKey(kind, key);
+    if (candidate.size() > kMaximumOgre14LegacyStableAssetKeyBytes) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "asset.stable_key",
+          "stable legacy asset key exceeds the bounded catalog encoding");
+    }
+    stable_key = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "asset.stable_key.allocation",
+        "allocation failed before the stable key was published");
+  } catch (...) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "asset.stable_key.exception",
+        "unexpected stable-key exception before publication");
+  }
+}
+
+ValidationResult ValidateOgre14LegacyMaterialPipelineAudit(
+    const Ogre14LegacyMaterialPipelineAudit &audit) {
+  if (audit.version != kOgre14LegacyPipelineAuditVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION, "material.audit.version",
+        "unsupported OGRE 14 material pipeline audit version");
+  }
+  if (!IsKnownSemantic(audit.base_color_semantic)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.audit.base_color_semantic",
+        "material audit has an unknown explicit base-color semantic");
+  }
+  ValidationResult validation = ValidatePipelineState(audit.pipeline);
+  if (!validation) {
+    return validation;
+  }
+  const bool expected_reverse =
+      audit.pipeline.cull == Ogre14LegacyCullMode::ANTICLOCKWISE;
+  if (audit.requires_reverse_winding != expected_reverse) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "material.audit.requires_reverse_winding",
+        "material audit winding does not match the exact legacy cull mode");
+  }
+  if ((audit.texture_source_asset_id == 0U) !=
+      (audit.sampler_source_asset_id == 0U)) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "material.audit.dependencies",
+        "base-color texture and sampler identities must coexist");
+  }
+  if (audit.texture_source_asset_id != 0U &&
+      audit.texture_source_asset_id == audit.sampler_source_asset_id) {
+    return ValidationResult::Failure(
+        ValidationCode::WRONG_ASSET_KIND, "material.audit.dependencies",
+        "texture and sampler must have distinct typed source identities");
+  }
   return ValidationResult::Success();
 }
 
