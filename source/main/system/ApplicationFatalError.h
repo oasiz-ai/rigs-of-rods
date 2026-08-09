@@ -85,6 +85,18 @@ private:
     bool m_succeeded = false;
 };
 
+/// Converts an idempotent runtime-release proof into the only two legal scope
+/// exit outcomes. Guard destructors must fail-stop on FAIL_STOP before a later
+/// renderer guard is allowed to unwind.
+inline ApplicationFatalShutdownDisposition
+ResolveApplicationRuntimeShutdownGate(
+    ApplicationFatalShutdownGate& release_gate) noexcept
+{
+    return release_gate.Release()
+        ? ApplicationFatalShutdownDisposition::RETURN_FROM_MAIN
+        : ApplicationFatalShutdownDisposition::FAIL_STOP;
+}
+
 template <typename CaptureStep,
           typename PresentationStep,
           typename WorkerStep,

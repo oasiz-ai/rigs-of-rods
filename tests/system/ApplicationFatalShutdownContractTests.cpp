@@ -229,6 +229,37 @@ void TestFatalShutdownGateIsIdempotent()
     Require(null_gate.attempted(), "null release gate was not attempted");
 }
 
+void TestGenericRuntimeGuardShutdownGate()
+{
+    GateFixture success_fixture{0, true};
+    RoR::ApplicationFatalShutdownGate success_gate(
+        &ReleaseGateFixture,
+        &success_fixture);
+    Require(
+        RoR::ResolveApplicationRuntimeShutdownGate(success_gate) ==
+            RoR::ApplicationFatalShutdownDisposition::RETURN_FROM_MAIN,
+        "successful runtime guard did not permit outer teardown");
+    Require(
+        RoR::ResolveApplicationRuntimeShutdownGate(success_gate) ==
+            RoR::ApplicationFatalShutdownDisposition::RETURN_FROM_MAIN,
+        "successful runtime guard did not cache its proof");
+    Require(success_fixture.calls == 1, "successful guard released twice");
+
+    GateFixture failure_fixture{0, false};
+    RoR::ApplicationFatalShutdownGate failure_gate(
+        &ReleaseGateFixture,
+        &failure_fixture);
+    Require(
+        RoR::ResolveApplicationRuntimeShutdownGate(failure_gate) ==
+            RoR::ApplicationFatalShutdownDisposition::FAIL_STOP,
+        "failed runtime guard permitted outer teardown");
+    Require(
+        RoR::ResolveApplicationRuntimeShutdownGate(failure_gate) ==
+            RoR::ApplicationFatalShutdownDisposition::FAIL_STOP,
+        "failed runtime guard did not cache fail-stop disposition");
+    Require(failure_fixture.calls == 1, "failed guard release retried");
+}
+
 void TestActiveSceneFatalShutdownSequence()
 {
     std::vector<int> order;
@@ -439,6 +470,24 @@ void TestFatalPropagationAndLifetimeOrder(const fs::path& repository_root)
                 std::string::npos &&
             main_source.find("std::_Exit(exit_code)") != std::string::npos,
         "worker proof or process fail-stop contract is missing");
+    const std::size_t worker_guard_destructor = main_source.find(
+        "~WorkerRuntimeGuard()");
+    const std::size_t generic_guard_release = main_source.find(
+        "ResolveApplicationRuntimeShutdownGate(m_release_gate)",
+        worker_guard_destructor);
+    const std::size_t ordinary_fail_stop = main_source.find(
+        "FailStopApplication(EXIT_FAILURE)", generic_guard_release);
+    const std::size_t window_guard_class = main_source.find(
+        "class RendererRuntimeGuard", ordinary_fail_stop);
+    Require(
+        worker_guard_destructor != std::string::npos &&
+            generic_guard_release != std::string::npos &&
+            ordinary_fail_stop != std::string::npos &&
+            window_guard_class != std::string::npos &&
+            worker_guard_destructor < generic_guard_release &&
+            generic_guard_release < ordinary_fail_stop &&
+            ordinary_fail_stop < window_guard_class,
+        "ordinary worker guard failure can reach renderer teardown");
 
     const std::string game_context = ReadFile(
         repository_root / "source" / "main" / "GameContext.cpp");
@@ -527,6 +576,7 @@ int main(int argc, char** argv)
         const fs::path repository_root = fs::absolute(argv[1]);
         TestFatalErrorValueSemantics();
         TestFatalShutdownGateIsIdempotent();
+        TestGenericRuntimeGuardShutdownGate();
         TestActiveSceneFatalShutdownSequence();
         TestPartialTerrainFatalShutdownSequence();
         TestWorkerJoinFailureSelectsFailStop();
