@@ -270,7 +270,14 @@ public:
 
     ~WorkerRuntimeGuard()
     {
-        (void)m_release_gate.Release();
+        if (RoR::ResolveApplicationRuntimeShutdownGate(m_release_gate) ==
+            RoR::ApplicationFatalShutdownDisposition::FAIL_STOP)
+        {
+            // This destructor precedes the window/renderer guards in reverse
+            // declaration order. Never let either unwind while a worker may
+            // still own callbacks into Ogre or ContentManager.
+            FailStopApplication(EXIT_FAILURE);
+        }
     }
 
     bool Release() noexcept { return m_release_gate.Release(); }
