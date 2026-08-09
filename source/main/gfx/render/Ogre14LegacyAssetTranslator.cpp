@@ -9,7 +9,9 @@
 #include "Ogre14LegacyAssetTranslator.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <exception>
 #include <limits>
 #include <map>
 #include <new>
@@ -603,6 +605,15 @@ bool EquivalentOgre14LegacyMaterialPipelineAudit(
   return EquivalentAudit(lhs, rhs);
 }
 
+bool SameOgre14LegacyCatalogIdentity(
+    const Ogre14LegacyCatalogIdentityReceipt &lhs,
+    const Ogre14LegacyCatalogIdentityReceipt &rhs) noexcept {
+  return lhs.owner_ != nullptr && rhs.owner_ != nullptr &&
+         lhs.owner_.get() == rhs.owner_.get() &&
+         !lhs.owner_.owner_before(rhs.owner_) &&
+         !rhs.owner_.owner_before(lhs.owner_);
+}
+
 struct Ogre14LegacyAssetTranslator::State {
   struct Record {
     Ogre14LegacyTranslatedAsset asset;
@@ -614,14 +625,21 @@ struct Ogre14LegacyAssetTranslator::State {
   std::uint64_t transaction_epoch = 0U;
   Ogre14LegacyAssetTranslatorConfiguration configuration;
   ValidationResult configuration_validation;
-  Ogre14LegacyAssetTranslatorTransactionConfiguration
-      transaction_configuration;
+  Ogre14LegacyAssetTranslatorTransactionConfiguration transaction_configuration;
   ValidationResult transaction_configuration_validation;
   std::map<std::string, Record, std::less<>> records;
   std::map<std::uint64_t, std::string> stable_keys_by_id;
 };
 
-struct Ogre14LegacyAssetTranslator::TransactionLineage final {};
+struct Ogre14LegacyAssetTranslator::TransactionLineage final {
+  static constexpr std::uint64_t kExclusiveLease = std::uint64_t{1U} << 63U;
+  static constexpr std::uint64_t kCandidateCountMask = kExclusiveLease - 1U;
+
+  /// Zero means no forks, the high bit means one exclusive lease, and every
+  /// other value is the number of compatible legacy nonexclusive forks.
+  mutable std::atomic<std::uint64_t> candidate_state{0U};
+  mutable std::atomic<Ogre14LegacyAssetTranslator *> committed_source{nullptr};
+};
 
 ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
     const Ogre14LegacyAssetTranslatorConfiguration &configuration) {
@@ -649,9 +667,10 @@ ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
           configuration.maximum_lifetime_asset_records ||
       configuration.maximum_decoded_bytes_per_asset >
           configuration.maximum_decoded_bytes_per_frame) {
-    return ValidationResult::Failure(
-        ValidationCode::VALUE_OUT_OF_RANGE, "configuration.limits",
-        "per-input and per-asset limits must fit their frame and lifetime caps");
+    return ValidationResult::Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                                     "configuration.limits",
+                                     "per-input and per-asset limits must fit "
+                                     "their frame and lifetime caps");
   }
   return ValidationResult::Success();
 }
@@ -1075,6 +1094,7 @@ Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
     : state_(std::make_unique<State>()),
       transaction_lineage_(std::make_shared<const TransactionLineage>()),
+      catalog_identity_(std::shared_ptr<const void>(transaction_lineage_)),
       fault_injector_(fault_injector) {
   state_->configuration = configuration;
   state_->configuration_validation =
@@ -1083,29 +1103,80 @@ Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
   state_->transaction_configuration_validation =
       ValidateOgre14LegacyAssetTranslatorTransactionConfiguration(
           transaction_configuration);
+  transaction_lineage_->committed_source.store(this, std::memory_order_release);
 }
 
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     std::unique_ptr<State> state,
     std::shared_ptr<const TransactionLineage> lineage,
     std::uint64_t transaction_base_epoch,
+    CandidateRegistration candidate_registration,
     IOgre14LegacyAssetTranslatorFaultInjector *fault_injector) noexcept
     : state_(std::move(state)), transaction_lineage_(std::move(lineage)),
+      catalog_identity_(std::shared_ptr<const void>(transaction_lineage_)),
       transaction_base_epoch_(transaction_base_epoch),
       transaction_role_(TransactionRole::CANDIDATE),
+      candidate_registration_(candidate_registration),
       fault_injector_(fault_injector) {}
 
-Ogre14LegacyAssetTranslator::~Ogre14LegacyAssetTranslator() = default;
+Ogre14LegacyAssetTranslator::~Ogre14LegacyAssetTranslator() {
+  ReleaseCandidateRegistration();
+  if (transaction_lineage_ != nullptr &&
+      transaction_role_ == TransactionRole::COMMITTED_SOURCE) {
+    Ogre14LegacyAssetTranslator *expected = this;
+    (void)transaction_lineage_->committed_source.compare_exchange_strong(
+        expected, nullptr, std::memory_order_acq_rel,
+        std::memory_order_acquire);
+  }
+}
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     Ogre14LegacyAssetTranslator &&other) noexcept
     : state_(std::move(other.state_)),
       transaction_lineage_(std::move(other.transaction_lineage_)),
+      catalog_identity_(std::move(other.catalog_identity_)),
       transaction_base_epoch_(other.transaction_base_epoch_),
       transaction_role_(other.transaction_role_),
+      candidate_registration_(other.candidate_registration_),
       fault_injector_(other.fault_injector_) {
+  if (transaction_lineage_ != nullptr &&
+      transaction_role_ == TransactionRole::COMMITTED_SOURCE) {
+    transaction_lineage_->committed_source.store(this,
+                                                 std::memory_order_release);
+  }
   other.transaction_base_epoch_ = 0U;
   other.transaction_role_ = TransactionRole::INVALID;
+  other.candidate_registration_ = CandidateRegistration::NONE;
   other.fault_injector_ = nullptr;
+}
+
+void Ogre14LegacyAssetTranslator::ReleaseCandidateRegistration() noexcept {
+  if (transaction_lineage_ == nullptr) {
+    candidate_registration_ = CandidateRegistration::NONE;
+    return;
+  }
+  if (candidate_registration_ == CandidateRegistration::NONEXCLUSIVE) {
+    std::uint64_t observed =
+        transaction_lineage_->candidate_state.load(std::memory_order_acquire);
+    for (;;) {
+      if (observed == 0U ||
+          (observed & TransactionLineage::kExclusiveLease) != 0U) {
+        std::terminate();
+      }
+      if (transaction_lineage_->candidate_state.compare_exchange_weak(
+              observed, observed - 1U, std::memory_order_acq_rel,
+              std::memory_order_acquire)) {
+        break;
+      }
+    }
+  } else if (candidate_registration_ == CandidateRegistration::EXCLUSIVE) {
+    std::uint64_t expected = TransactionLineage::kExclusiveLease;
+    if (!transaction_lineage_->candidate_state.compare_exchange_strong(
+            expected, 0U, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      std::terminate();
+    }
+  }
+  candidate_registration_ = CandidateRegistration::NONE;
 }
 
 std::uint64_t Ogre14LegacyAssetTranslator::source_sequence() const noexcept {
@@ -1205,6 +1276,30 @@ ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
     }
   }
 
+  std::uint64_t observed =
+      transaction_lineage_->candidate_state.load(std::memory_order_acquire);
+  for (;;) {
+    if ((observed & TransactionLineage::kExclusiveLease) != 0U) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE,
+          "translator.exclusive_transaction",
+          "an exclusive committable transaction already owns this lineage");
+    }
+    if ((observed & TransactionLineage::kCandidateCountMask) ==
+        TransactionLineage::kCandidateCountMask) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "translator.transaction_candidates",
+          "nonexclusive candidate count is exhausted");
+    }
+    if (transaction_lineage_->candidate_state.compare_exchange_weak(
+            observed, observed + 1U, std::memory_order_acq_rel,
+            std::memory_order_acquire)) {
+      break;
+    }
+  }
+  bool registration_reserved = true;
+
   try {
     if (fault_injector_ != nullptr) {
       fault_injector_->BeforeTransactionClone(
@@ -1218,7 +1313,9 @@ ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
     std::unique_ptr<Ogre14LegacyAssetTranslator> candidate(
         new Ogre14LegacyAssetTranslator(
             std::move(cloned_state), transaction_lineage_,
-            state_->transaction_epoch, fault_injector_));
+            state_->transaction_epoch, CandidateRegistration::NONEXCLUSIVE,
+            fault_injector_));
+    registration_reserved = false;
     if (fault_injector_ != nullptr) {
       fault_injector_->BeforeTransactionClone(
           Ogre14LegacyAssetTranslatorCloneStage::BEFORE_CANDIDATE_PUBLISH);
@@ -1226,15 +1323,151 @@ ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
     output = std::move(candidate);
     return ValidationResult::Success();
   } catch (const std::bad_alloc &) {
+    if (registration_reserved) {
+      (void)transaction_lineage_->candidate_state.fetch_sub(
+          1U, std::memory_order_acq_rel);
+    }
     return ValidationResult::Failure(
         ValidationCode::EMPTY_PAYLOAD, "translator.transaction_allocation",
         "allocation failed before the transaction candidate was published");
   } catch (...) {
+    if (registration_reserved) {
+      (void)transaction_lineage_->candidate_state.fetch_sub(
+          1U, std::memory_order_acq_rel);
+    }
     return ValidationResult::Failure(
-        ValidationCode::UNSUPPORTED_FEATURE,
-        "translator.transaction_exception",
+        ValidationCode::UNSUPPORTED_FEATURE, "translator.transaction_exception",
         "unexpected exception before the transaction candidate was published");
   }
+}
+
+ValidationResult Ogre14LegacyAssetTranslator::BeginCommittableTransaction(
+    Ogre14LegacyAssetTranslatorCommittableTransaction &output) {
+  if (output.active()) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "translator.committable_transaction_output",
+        "committable transaction output must be inactive");
+  }
+  if (state_ == nullptr || transaction_lineage_ == nullptr ||
+      transaction_role_ != TransactionRole::COMMITTED_SOURCE) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "translator.state",
+        "translator has no committed source state");
+  }
+  if (!state_->configuration_validation) {
+    return state_->configuration_validation;
+  }
+  if (!state_->transaction_configuration_validation) {
+    return state_->transaction_configuration_validation;
+  }
+  if (state_->transaction_epoch >=
+      state_->transaction_configuration.maximum_epoch) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "translator.transaction_epoch",
+        "exclusive transaction epoch is exhausted before staging");
+  }
+
+  std::unique_ptr<Ogre14LegacyAssetTranslator> candidate;
+  ValidationResult validation = CloneForTransaction(candidate);
+  if (!validation) {
+    return validation;
+  }
+
+  std::uint64_t expected = 1U;
+  if (!transaction_lineage_->candidate_state.compare_exchange_strong(
+          expected, TransactionLineage::kExclusiveLease,
+          std::memory_order_acq_rel, std::memory_order_acquire)) {
+    candidate.reset();
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "translator.transaction_candidates",
+        "exclusive transaction requires no outstanding sibling candidates");
+  }
+  candidate->candidate_registration_ = CandidateRegistration::EXCLUSIVE;
+
+  if (candidate->transaction_base_epoch_ != state_->transaction_epoch ||
+      candidate->state_ == nullptr ||
+      candidate->state_->transaction_epoch != state_->transaction_epoch) {
+    candidate.reset();
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "translator.transaction_epoch",
+        "committed source advanced before the exclusive lease was acquired");
+  }
+
+  Ogre14LegacyAssetTranslatorCommittableTransaction transaction(
+      std::move(candidate));
+  output = std::move(transaction);
+  return ValidationResult::Success();
+}
+
+Ogre14LegacyAssetTranslatorCommittableTransaction::
+    Ogre14LegacyAssetTranslatorCommittableTransaction(
+        std::unique_ptr<Ogre14LegacyAssetTranslator> candidate) noexcept
+    : candidate_(std::move(candidate)) {}
+
+Ogre14LegacyAssetTranslatorCommittableTransaction::
+    ~Ogre14LegacyAssetTranslatorCommittableTransaction() noexcept {
+  Discard();
+}
+
+Ogre14LegacyAssetTranslatorCommittableTransaction::
+    Ogre14LegacyAssetTranslatorCommittableTransaction(
+        Ogre14LegacyAssetTranslatorCommittableTransaction &&other) noexcept
+    : candidate_(std::move(other.candidate_)) {}
+
+Ogre14LegacyAssetTranslatorCommittableTransaction &
+Ogre14LegacyAssetTranslatorCommittableTransaction::operator=(
+    Ogre14LegacyAssetTranslatorCommittableTransaction &&other) noexcept {
+  if (this != &other) {
+    Discard();
+    candidate_ = std::move(other.candidate_);
+  }
+  return *this;
+}
+
+bool Ogre14LegacyAssetTranslatorCommittableTransaction::active()
+    const noexcept {
+  return candidate_ != nullptr &&
+         candidate_->candidate_registration_ ==
+             Ogre14LegacyAssetTranslator::CandidateRegistration::EXCLUSIVE;
+}
+
+Ogre14LegacyAssetTranslator *
+Ogre14LegacyAssetTranslatorCommittableTransaction::candidate() noexcept {
+  return active() ? candidate_.get() : nullptr;
+}
+
+const Ogre14LegacyAssetTranslator *
+Ogre14LegacyAssetTranslatorCommittableTransaction::candidate() const noexcept {
+  return active() ? candidate_.get() : nullptr;
+}
+
+Ogre14LegacyAssetTranslatorExclusiveCommitResult
+Ogre14LegacyAssetTranslatorCommittableTransaction::
+    CommitAfterAcceptedExposure() noexcept {
+  if (candidate_ == nullptr) {
+    return Ogre14LegacyAssetTranslatorExclusiveCommitResult::ALREADY_CONSUMED;
+  }
+  if (!active() || candidate_->transaction_lineage_ == nullptr) {
+    candidate_.reset();
+    return Ogre14LegacyAssetTranslatorExclusiveCommitResult::INVALID_LEASE;
+  }
+  Ogre14LegacyAssetTranslator *source =
+      candidate_->transaction_lineage_->committed_source.load(
+          std::memory_order_acquire);
+  if (source == nullptr) {
+    candidate_.reset();
+    return Ogre14LegacyAssetTranslatorExclusiveCommitResult::INVALID_SOURCE;
+  }
+  const Ogre14LegacyAssetTranslatorExclusiveCommitResult result =
+      source->CommitExclusiveTransaction(*candidate_);
+  candidate_.reset();
+  return result;
+}
+
+void Ogre14LegacyAssetTranslatorCommittableTransaction::Discard() noexcept {
+  candidate_.reset();
 }
 
 Ogre14LegacyAssetTranslatorCommitResult
@@ -1254,6 +1487,9 @@ Ogre14LegacyAssetTranslator::CommitTransaction(
   }
   if (transaction_lineage_.get() != candidate.transaction_lineage_.get()) {
     return Ogre14LegacyAssetTranslatorCommitResult::FOREIGN_LINEAGE;
+  }
+  if (candidate.candidate_registration_ == CandidateRegistration::EXCLUSIVE) {
+    return Ogre14LegacyAssetTranslatorCommitResult::EXCLUSIVE_LEASE_REQUIRED;
   }
   const Ogre14LegacyAssetTranslatorConfiguration &source_configuration =
       state_->configuration;
@@ -1294,18 +1530,53 @@ Ogre14LegacyAssetTranslator::CommitTransaction(
   }
   if (state_->transaction_epoch >=
       state_->transaction_configuration.maximum_epoch) {
-    return Ogre14LegacyAssetTranslatorCommitResult::
-        TRANSACTION_EPOCH_EXHAUSTED;
+    return Ogre14LegacyAssetTranslatorCommitResult::TRANSACTION_EPOCH_EXHAUSTED;
   }
 
   candidate.state_->transaction_epoch = state_->transaction_epoch + 1U;
   state_.swap(candidate.state_);
+  candidate.ReleaseCandidateRegistration();
   candidate.state_.reset();
   candidate.transaction_lineage_.reset();
   candidate.transaction_base_epoch_ = 0U;
   candidate.transaction_role_ = TransactionRole::INVALID;
   candidate.fault_injector_ = nullptr;
   return Ogre14LegacyAssetTranslatorCommitResult::COMMITTED;
+}
+
+Ogre14LegacyAssetTranslatorExclusiveCommitResult
+Ogre14LegacyAssetTranslator::CommitExclusiveTransaction(
+    Ogre14LegacyAssetTranslator &candidate) noexcept {
+  if (state_ == nullptr || transaction_lineage_ == nullptr ||
+      transaction_role_ != TransactionRole::COMMITTED_SOURCE) {
+    return Ogre14LegacyAssetTranslatorExclusiveCommitResult::INVALID_SOURCE;
+  }
+  if (candidate.state_ == nullptr ||
+      candidate.transaction_lineage_ == nullptr ||
+      candidate.transaction_role_ != TransactionRole::CANDIDATE ||
+      candidate.candidate_registration_ != CandidateRegistration::EXCLUSIVE ||
+      transaction_lineage_.get() != candidate.transaction_lineage_.get() ||
+      transaction_lineage_->candidate_state.load(std::memory_order_acquire) !=
+          TransactionLineage::kExclusiveLease ||
+      transaction_lineage_->committed_source.load(std::memory_order_acquire) !=
+          this ||
+      candidate.transaction_base_epoch_ != state_->transaction_epoch ||
+      candidate.state_->transaction_epoch !=
+          candidate.transaction_base_epoch_ ||
+      state_->transaction_epoch >=
+          state_->transaction_configuration.maximum_epoch) {
+    return Ogre14LegacyAssetTranslatorExclusiveCommitResult::INVALID_LEASE;
+  }
+
+  candidate.state_->transaction_epoch = state_->transaction_epoch + 1U;
+  state_.swap(candidate.state_);
+  candidate.ReleaseCandidateRegistration();
+  candidate.state_.reset();
+  candidate.transaction_lineage_.reset();
+  candidate.transaction_base_epoch_ = 0U;
+  candidate.transaction_role_ = TransactionRole::INVALID;
+  candidate.fault_injector_ = nullptr;
+  return Ogre14LegacyAssetTranslatorExclusiveCommitResult::COMMITTED;
 }
 
 ValidationResult
@@ -1315,6 +1586,14 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
     return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
                                      "translator.state",
                                      "moved-from translator has no state");
+  }
+  if (transaction_role_ == TransactionRole::COMMITTED_SOURCE &&
+      transaction_lineage_ != nullptr &&
+      (transaction_lineage_->candidate_state.load(std::memory_order_acquire) &
+       TransactionLineage::kExclusiveLease) != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "translator.exclusive_transaction",
+        "committed source cannot advance while its exclusive lease is active");
   }
   if (!state_->configuration_validation) {
     return state_->configuration_validation;
@@ -1722,6 +2001,7 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
     }
 
     Ogre14LegacyTranslatedFrame frame;
+    frame.catalog_identity = catalog_identity_;
     frame.source_sequence = input.source_sequence;
     frame.catalog_sequence = candidate.catalog_sequence;
     frame.full_snapshot = initializes_catalog;
@@ -1773,6 +2053,7 @@ ValidationResult Ogre14LegacyAssetTranslator::BuildFullSnapshot(
   }
   try {
     Ogre14LegacyTranslatedFrame frame;
+    frame.catalog_identity = catalog_identity_;
     frame.source_sequence = state_->source_sequence;
     frame.catalog_sequence = state_->catalog_sequence;
     frame.full_snapshot = true;

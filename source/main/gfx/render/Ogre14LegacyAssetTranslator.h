@@ -23,6 +23,50 @@
 
 namespace RoR::Render {
 
+class Ogre14LegacyAssetTranslator;
+
+/// Opaque, copyable proof of one translator catalog lineage. Only a
+/// translator can mint a nonempty receipt. A fresh translator therefore
+/// cannot impersonate an earlier scene generation even when its numeric
+/// source and catalog sequences repeat.
+class Ogre14LegacyCatalogIdentityReceipt final {
+public:
+  Ogre14LegacyCatalogIdentityReceipt() noexcept = default;
+  Ogre14LegacyCatalogIdentityReceipt(
+      const Ogre14LegacyCatalogIdentityReceipt &) noexcept = default;
+  Ogre14LegacyCatalogIdentityReceipt &
+  operator=(const Ogre14LegacyCatalogIdentityReceipt &) noexcept = default;
+  Ogre14LegacyCatalogIdentityReceipt(
+      Ogre14LegacyCatalogIdentityReceipt &&) noexcept = default;
+  Ogre14LegacyCatalogIdentityReceipt &
+  operator=(Ogre14LegacyCatalogIdentityReceipt &&) noexcept = default;
+  ~Ogre14LegacyCatalogIdentityReceipt() = default;
+
+  [[nodiscard]] bool has_value() const noexcept { return owner_ != nullptr; }
+
+  void swap(Ogre14LegacyCatalogIdentityReceipt &other) noexcept {
+    owner_.swap(other.owner_);
+  }
+
+private:
+  explicit Ogre14LegacyCatalogIdentityReceipt(
+      std::shared_ptr<const void> owner) noexcept
+      : owner_(std::move(owner)) {}
+
+  std::shared_ptr<const void> owner_;
+
+  friend class Ogre14LegacyAssetTranslator;
+  friend bool SameOgre14LegacyCatalogIdentity(
+      const Ogre14LegacyCatalogIdentityReceipt &,
+      const Ogre14LegacyCatalogIdentityReceipt &) noexcept;
+};
+
+/// Pointer-exact comparison of opaque lineage ownership. Two empty receipts
+/// never prove catalog agreement.
+[[nodiscard]] bool SameOgre14LegacyCatalogIdentity(
+    const Ogre14LegacyCatalogIdentityReceipt &lhs,
+    const Ogre14LegacyCatalogIdentityReceipt &rhs) noexcept;
+
 constexpr std::uint32_t kOgre14LegacyAssetTranslatorVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyTextureInputVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyMaterialInputVersion = 1U;
@@ -380,6 +424,7 @@ struct Ogre14LegacyAssetMutation {
 /// DESTROYs use material, sampler, texture order. Every owner is immutable.
 struct Ogre14LegacyTranslatedFrame {
   std::uint32_t version = kOgre14LegacyTranslatedFrameVersion;
+  Ogre14LegacyCatalogIdentityReceipt catalog_identity;
   std::uint64_t source_sequence = 0U;
   std::uint64_t catalog_sequence = 0U;
   bool full_snapshot = false;
@@ -414,6 +459,52 @@ enum class Ogre14LegacyAssetTranslatorCommitResult : std::uint8_t {
   INCOMPATIBLE_CONFIGURATION,
   STALE_SOURCE,
   TRANSACTION_EPOCH_EXHAUSTED,
+  EXCLUSIVE_LEASE_REQUIRED,
+};
+
+enum class Ogre14LegacyAssetTranslatorExclusiveCommitResult : std::uint8_t {
+  COMMITTED = 0U,
+  ALREADY_CONSUMED,
+  INVALID_SOURCE,
+  INVALID_LEASE,
+};
+
+/// Move-only RAII lease for the publication-critical translator path. While
+/// active, the committed source cannot Translate or create any sibling fork.
+/// Candidate work remains isolated. Once downstream acceptance is exposed,
+/// CommitAfterAcceptedExposure performs only infallible/noexcept state moves.
+class Ogre14LegacyAssetTranslatorCommittableTransaction final {
+public:
+  Ogre14LegacyAssetTranslatorCommittableTransaction() noexcept = default;
+  ~Ogre14LegacyAssetTranslatorCommittableTransaction() noexcept;
+
+  Ogre14LegacyAssetTranslatorCommittableTransaction(
+      const Ogre14LegacyAssetTranslatorCommittableTransaction &) = delete;
+  Ogre14LegacyAssetTranslatorCommittableTransaction &
+  operator=(const Ogre14LegacyAssetTranslatorCommittableTransaction &) = delete;
+  Ogre14LegacyAssetTranslatorCommittableTransaction(
+      Ogre14LegacyAssetTranslatorCommittableTransaction &&other) noexcept;
+  Ogre14LegacyAssetTranslatorCommittableTransaction &
+  operator=(Ogre14LegacyAssetTranslatorCommittableTransaction &&other) noexcept;
+
+  [[nodiscard]] bool active() const noexcept;
+  [[nodiscard]] Ogre14LegacyAssetTranslator *candidate() noexcept;
+  [[nodiscard]] const Ogre14LegacyAssetTranslator *candidate() const noexcept;
+
+  /// An active lease whose committed source still exists always returns
+  /// COMMITTED. Other values diagnose only destruction/discard or destruction
+  /// of the committed source.
+  [[nodiscard]] Ogre14LegacyAssetTranslatorExclusiveCommitResult
+  CommitAfterAcceptedExposure() noexcept;
+  void Discard() noexcept;
+
+private:
+  explicit Ogre14LegacyAssetTranslatorCommittableTransaction(
+      std::unique_ptr<Ogre14LegacyAssetTranslator> candidate) noexcept;
+
+  std::unique_ptr<Ogre14LegacyAssetTranslator> candidate_;
+
+  friend class Ogre14LegacyAssetTranslator;
 };
 
 [[nodiscard]] ValidationResult
@@ -480,12 +571,18 @@ public:
   [[nodiscard]] ValidationResult CloneForTransaction(
       std::unique_ptr<Ogre14LegacyAssetTranslator> &output) const;
 
+  /// Begins the exclusive renderer publication transaction. This preflights
+  /// epoch exhaustion and rejects every outstanding sibling before returning
+  /// a candidate. `output` is unchanged on failure and must be inactive.
+  [[nodiscard]] ValidationResult BeginCommittableTransaction(
+      Ogre14LegacyAssetTranslatorCommittableTransaction &output);
+
   /// Publishes a candidate from this exact translator lineage with an
   /// allocation-free state swap. Every rejection is a no-op. Successful
   /// publication invalidates `candidate`; callers may simply destroy a
   /// rejected or uncommitted candidate to discard it.
-  [[nodiscard]] Ogre14LegacyAssetTranslatorCommitResult CommitTransaction(
-      Ogre14LegacyAssetTranslator &candidate) noexcept;
+  [[nodiscard]] Ogre14LegacyAssetTranslatorCommitResult
+  CommitTransaction(Ogre14LegacyAssetTranslator &candidate) noexcept;
 
   /// Fully transactional. Any validation, allocation, collision, dependency,
   /// source-lineage, or injected failure leaves state and `output` untouched.
@@ -503,18 +600,32 @@ private:
     CANDIDATE,
     INVALID,
   };
+  enum class CandidateRegistration : std::uint8_t {
+    NONE = 0U,
+    NONEXCLUSIVE,
+    EXCLUSIVE,
+  };
 
   Ogre14LegacyAssetTranslator(
       std::unique_ptr<State> state,
       std::shared_ptr<const TransactionLineage> lineage,
       std::uint64_t transaction_base_epoch,
+      CandidateRegistration candidate_registration,
       IOgre14LegacyAssetTranslatorFaultInjector *fault_injector) noexcept;
+
+  void ReleaseCandidateRegistration() noexcept;
+  [[nodiscard]] Ogre14LegacyAssetTranslatorExclusiveCommitResult
+  CommitExclusiveTransaction(Ogre14LegacyAssetTranslator &candidate) noexcept;
 
   std::unique_ptr<State> state_;
   std::shared_ptr<const TransactionLineage> transaction_lineage_;
+  Ogre14LegacyCatalogIdentityReceipt catalog_identity_;
   std::uint64_t transaction_base_epoch_ = 0U;
   TransactionRole transaction_role_ = TransactionRole::COMMITTED_SOURCE;
+  CandidateRegistration candidate_registration_ = CandidateRegistration::NONE;
   IOgre14LegacyAssetTranslatorFaultInjector *fault_injector_ = nullptr;
+
+  friend class Ogre14LegacyAssetTranslatorCommittableTransaction;
 };
 
 } // namespace RoR::Render

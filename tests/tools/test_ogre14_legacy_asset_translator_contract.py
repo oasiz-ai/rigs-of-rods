@@ -71,6 +71,11 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "CloneForTransaction",
             "CommitTransaction",
             "Ogre14LegacyAssetTranslatorCommitResult",
+            "Ogre14LegacyCatalogIdentityReceipt",
+            "SameOgre14LegacyCatalogIdentity",
+            "Ogre14LegacyAssetTranslatorCommittableTransaction",
+            "BeginCommittableTransaction",
+            "CommitAfterAcceptedExposure",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.header)
@@ -78,6 +83,52 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
         self.assertNotIn("Ogre::", self.header)
         self.assertNotIn("GfxScene", self.source)
         self.assertNotIn("GraphicsSceneSnapshotProducer", self.source)
+
+    def test_exclusive_receipt_and_publication_lease_are_fail_closed(self) -> None:
+        for token in (
+            "std::shared_ptr<const void> owner_",
+            "friend class Ogre14LegacyAssetTranslator",
+            "catalog_identity",
+            "TransactionLineage::kExclusiveLease",
+            "candidate_state.compare_exchange_strong",
+            "translator.exclusive_transaction",
+            "EXCLUSIVE_LEASE_REQUIRED",
+            "CommitExclusiveTransaction",
+            "ReleaseCandidateRegistration",
+            "committed_source.store(this",
+            "CommitAfterAcceptedExposure() noexcept",
+            "Discard() noexcept",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.header + self.source)
+        for token in (
+            "TestCatalogIdentityIsOpaqueFreshAndCloneExact",
+            "TestExclusiveCommittableTransactionIsAtomicAndInfallible",
+            "TestExclusiveLeaseFaultExhaustionAndDestructionRelease",
+            "std::is_nothrow_move_assignable_v",
+            "ALREADY_CONSUMED",
+            "INVALID_SOURCE",
+            "translator.exclusive_test_fault",
+        ):
+            with self.subTest(test_token=token):
+                self.assertIn(token, self.translator_test)
+
+        exclusive_start = self.source.index(
+            "Ogre14LegacyAssetTranslator::CommitExclusiveTransaction("
+        )
+        exclusive_end = self.source.index(
+            "Ogre14LegacyAssetTranslator::Translate(", exclusive_start
+        )
+        exclusive_body = self.source[exclusive_start:exclusive_end]
+        for forbidden in (
+            "new ",
+            "make_unique",
+            "make_shared",
+            "ValidationResult::Failure",
+            "throw ",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, exclusive_body)
 
     def test_transaction_fork_is_lineage_bound_and_noexcept_at_commit(self) -> None:
         for token in (
@@ -241,6 +292,10 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "private immutable lineage identity",
             "allocation-free `noexcept` publication",
             "owner-equivalent",
+            "opaque catalog-identity receipt",
+            "BeginCommittableTransaction",
+            "CommitAfterAcceptedExposure",
+            "cannot `Translate`, clone, or begin another",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.readme)
