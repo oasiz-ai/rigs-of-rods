@@ -96,8 +96,10 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
     tests/tools/test_ogre14_particle_capture_contract.py
     tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
+    tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre14_road_material_transaction_contract.py
+    tests/tools/test_ogre14_dynamic_material_closure_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -220,8 +222,10 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
+    "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"
+    "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

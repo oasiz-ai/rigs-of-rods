@@ -28,6 +28,8 @@ namespace RoR::Render {
 constexpr std::uint32_t kOgre14GraphicsSceneSourceVersion = 2U;
 constexpr std::size_t kMaximumOgre14GraphicsSceneStaticSections = 65536U;
 constexpr std::size_t kMaximumOgre14GraphicsSceneStaticAssets = 65536U;
+constexpr std::size_t kMaximumOgre14GraphicsSceneDynamicSections = 65536U;
+constexpr std::size_t kMaximumOgre14GraphicsSceneDynamicAssets = 65536U;
 
 /// Every bit names state which must come from the same completed
 /// GfxScene::BufferSimulationData() boundary. An adapter may expose a partial
@@ -414,6 +416,16 @@ struct Ogre14GraphicsSceneDynamicSectionCaptureInput {
   std::string exact_entity_name;
   std::shared_ptr<const RenderAssetPayload> mesh_payload;
   Ogre14GraphicsSceneMaterialCaptureInput material;
+  /// Optional exact translated material transaction. This is the same
+  /// closure contract consumed by static sections. When absent, the original
+  /// factor-only compatibility path remains the sole material path. When
+  /// present, dependencies and producer-owned bindings are retained exactly.
+  std::shared_ptr<const Ogre14LegacyMaterialClosure> resolved_material;
+  /// Exact topology conversion proof used only with `resolved_material`.
+  /// The live adapter sets this from the native draw's winding conversion;
+  /// the required value comes from the translated pipeline audit, never from
+  /// compatibility fallback state.
+  bool mesh_reverse_winding = false;
   Matrix4x4 render_from_object;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   bool visible = true;
@@ -425,11 +437,35 @@ struct Ogre14GraphicsSceneDynamicSectionCaptureInput {
   std::shared_ptr<const Ogre14GraphicsSceneJoinedDynamicState> state;
 };
 
+struct Ogre14GraphicsSceneResolvedMaterialFrameLineage {
+  std::uint64_t source_sequence = 0U;
+  std::uint64_t catalog_sequence = 0U;
+
+  [[nodiscard]] bool empty() const noexcept {
+    return source_sequence == 0U && catalog_sequence == 0U;
+  }
+};
+
+/// Revalidates every detached exact closure across both static and dynamic
+/// candidate inventories and proves that all resolved materials came from one
+/// source/catalog frame. The joined caller must run this before merging the
+/// two asset vectors. Failure leaves `lineage` untouched.
+[[nodiscard]] ValidationResult
+ValidateOgre14GraphicsSceneResolvedMaterialFrameLineage(
+    const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput>
+        &static_inputs,
+    const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput>
+        &dynamic_inputs,
+    Ogre14GraphicsSceneResolvedMaterialFrameLineage &lineage);
+
 /// Collision-audited, transactional identity/lifecycle and semantic-revision
 /// owner for the actor deformable inventory. Removed identities are permanent
 /// tombstones for this adapter lifetime.
 class Ogre14GraphicsSceneDynamicIdentityRegistry final {
 public:
+  [[nodiscard]] ValidationResult RegisterDerivedAssetIdentity(
+      std::string_view exact_key, std::uint64_t stable_id);
+
   [[nodiscard]] std::size_t asset_identity_count() const noexcept {
     return asset_names_by_id_.size();
   }
@@ -449,19 +485,32 @@ private:
       const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &,
       Ogre14GraphicsSceneDynamicIdentityRegistry &,
       std::vector<GraphicsSceneAssetInput> &,
-      std::vector<GraphicsSceneDynamicMeshInput> &);
+      std::vector<GraphicsSceneDynamicMeshInput> &,
+      class IOgre14GraphicsSceneDynamicInventoryFaultInjector *);
 
   std::map<std::uint64_t, std::string> asset_names_by_id_;
   std::map<std::string, std::uint64_t, std::less<>> asset_ids_by_name_;
   std::map<std::uint64_t, std::string> object_names_by_id_;
   std::map<std::string, std::uint64_t, std::less<>> object_ids_by_name_;
-  std::map<std::string, std::shared_ptr<const RenderAssetPayload>, std::less<>>
-      canonical_payloads_by_asset_key_;
+  std::map<std::string, GraphicsSceneAssetInput, std::less<>>
+      canonical_assets_by_asset_key_;
   std::map<std::string, ObjectState, std::less<>> object_states_;
   std::set<std::string, std::less<>> known_asset_keys_;
   std::set<std::string, std::less<>> live_asset_keys_;
   std::set<std::string, std::less<>> known_object_keys_;
   std::set<std::string, std::less<>> live_object_keys_;
+};
+
+enum class Ogre14GraphicsSceneDynamicInventoryFaultPoint : std::uint8_t {
+  AFTER_FIRST_RESOLVED_DEPENDENCY = 0U,
+};
+
+/// Borrowed test-only exception seam. Production callers leave this null.
+class IOgre14GraphicsSceneDynamicInventoryFaultInjector {
+public:
+  virtual ~IOgre14GraphicsSceneDynamicInventoryFaultInjector() = default;
+  virtual void AtFaultPoint(
+      Ogre14GraphicsSceneDynamicInventoryFaultPoint point) = 0;
 };
 
 [[nodiscard]] ValidationResult DeriveOgre14GraphicsSceneDynamicMeshAssetId(
@@ -484,7 +533,9 @@ private:
     const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
     Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
     std::vector<GraphicsSceneAssetInput> &assets,
-    std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes);
+    std::vector<GraphicsSceneDynamicMeshInput> &dynamic_meshes,
+    IOgre14GraphicsSceneDynamicInventoryFaultInjector *fault_injector =
+        nullptr);
 
 struct Ogre14GraphicsSceneUnsupportedGeometry {
   bool terrain = false;

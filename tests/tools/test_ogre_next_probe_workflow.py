@@ -473,8 +473,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
             "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp",
             "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp",
+            "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre14_particle_capture_contract.py",
+            "tests/tools/test_ogre14_dynamic_material_closure_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
             with self.subTest(provenance_path=path):
@@ -950,6 +952,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_ogre14_road_material_transaction$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_dynamic_material_closure$'", self.workflow
+        )
+        self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
         )
@@ -1160,6 +1165,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn(
                 "ror_ogre14_road_material_transaction_tests", cmake
             )
+            self.assertIn(
+                "Ogre14DynamicMaterialClosureTests.cpp", cmake
+            )
+            self.assertIn(
+                "ror_ogre14_dynamic_material_closure_tests", cmake
+            )
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :
             probe_cmake.index(")", probe_cmake.index(
@@ -1187,6 +1198,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertEqual(
             package_dependencies.count(
                 "ror_ogre14_road_material_transaction_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_dynamic_material_closure_tests"
             ),
             1,
         )

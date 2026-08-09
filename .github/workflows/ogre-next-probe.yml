@@ -418,6 +418,14 @@ jobs:
           --output-on-failure
           -R '^ror_ogre14_road_material_transaction$'
 
+      - name: Prove exact translated deformable materials on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_dynamic_material_closure$'
+
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-
           ctest
