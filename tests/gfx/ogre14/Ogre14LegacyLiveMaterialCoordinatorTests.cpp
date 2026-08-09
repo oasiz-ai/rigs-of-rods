@@ -31,19 +31,21 @@ Ogre14LegacyAssetKey Key(std::string group, std::string name) {
   return {std::move(group), std::move(name)};
 }
 
-Ogre14LegacyTextureInput MakeTexture(const Ogre14LegacyAssetKey &key,
-                                     std::vector<std::uint8_t> rgba = {
-                                         20U, 40U, 60U, 255U}) {
+Ogre14LegacyTextureInput
+MakeTexture(const Ogre14LegacyAssetKey &key,
+            std::vector<std::uint8_t> rgba = {20U, 40U, 60U, 255U},
+            std::uint32_t width = 1U, std::uint32_t height = 1U) {
   Ogre14LegacyTextureInput texture;
   texture.key = key;
   texture.source_revision = 1U;
-  texture.width = 1U;
-  texture.height = 1U;
+  texture.width = width;
+  texture.height = height;
   Ogre14LegacyTextureMipInput mip;
-  mip.width = 1U;
-  mip.height = 1U;
-  mip.row_pitch_bytes = 4U;
-  mip.slice_pitch_bytes = 4U;
+  mip.width = width;
+  mip.height = height;
+  mip.row_pitch_bytes = static_cast<std::uint64_t>(width) * 4U;
+  mip.slice_pitch_bytes =
+      mip.row_pitch_bytes * static_cast<std::uint64_t>(height);
   mip.bytes = std::move(rgba);
   texture.mip_levels.push_back(std::move(mip));
   return texture;
@@ -137,13 +139,20 @@ void RequireSentinelUnchanged(const Ogre14LegacyPreparedMaterialFrame &sentinel,
           message);
 }
 
+template <typename T>
+bool SharesExactOwner(const std::shared_ptr<const T> &lhs,
+                      const std::shared_ptr<const T> &rhs) noexcept {
+  return lhs != nullptr && rhs != nullptr && lhs.get() == rhs.get() &&
+         !lhs.owner_before(rhs) && !rhs.owner_before(lhs);
+}
+
 bool ClosureSharesExactFrameOwners(const Ogre14LegacyTranslatedFrame &frame,
                                    const Ogre14LegacyMaterialClosure &closure) {
   for (const GraphicsSceneAssetInput &closure_asset : closure.assets) {
     bool found = false;
     for (const Ogre14LegacyTranslatedAsset &frame_asset : frame.live_assets) {
       if (frame_asset.source_asset_id == closure_asset.source_asset_id) {
-        if (frame_asset.payload.get() != closure_asset.payload.get()) {
+        if (!SharesExactOwner(frame_asset.payload, closure_asset.payload)) {
           return false;
         }
         found = true;
@@ -156,7 +165,8 @@ bool ClosureSharesExactFrameOwners(const Ogre14LegacyTranslatedFrame &frame,
   }
   for (const Ogre14LegacyTranslatedAsset &frame_asset : frame.live_assets) {
     if (frame_asset.source_asset_id == closure.material_source_asset_id) {
-      return frame_asset.material_audit.get() == closure.material_audit.get();
+      return SharesExactOwner(frame_asset.material_audit,
+                              closure.material_audit);
     }
   }
   return false;
@@ -219,8 +229,8 @@ void TestCanonicalPrepareCommitDiscardAndLineage() {
                 prepared.materials()[1].closure.get() == closure_b) ||
                (prepared.materials()[0].closure.get() == closure_b &&
                 prepared.materials()[1].closure.get() == closure_a)) &&
-              closure_a->assets.front().payload.get() ==
-                  closure_b->assets.front().payload.get() &&
+              SharesExactOwner(closure_a->assets.front().payload,
+                               closure_b->assets.front().payload) &&
               ClosureSharesExactFrameOwners(*translated, *closure_a) &&
               ClosureSharesExactFrameOwners(*translated, *closure_b),
           "prepared material lookup did not retain exact closures");
@@ -286,6 +296,38 @@ void TestCanonicalPrepareCommitDiscardAndLineage() {
                   Ogre14LegacyPreparedMaterialCommitResult::COMMITTED &&
               coordinator->source_sequence() == 3U,
           "authoritative empty material inventory did not commit");
+
+  auto identical_retry_coordinator = MakeCoordinator(registry);
+  const Ogre14LegacyMaterialObservation identical_a =
+      MakeObservation(*identical_retry_coordinator, material_a, &texture);
+  const Ogre14LegacyMaterialObservation identical_b =
+      MakeObservation(*identical_retry_coordinator, material_b, &texture);
+  Ogre14LegacyPreparedMaterialFrame discarded_identical;
+  Require(
+      identical_retry_coordinator
+          ->PrepareFrame(1U, {identical_a, identical_b}, discarded_identical)
+          .ok(),
+      "identical-retry fixture did not prepare its discarded frame");
+  identical_retry_coordinator->DiscardPreparedFrame();
+  Ogre14LegacyPreparedMaterialFrame fresh_identical;
+  Require(identical_retry_coordinator
+              ->PrepareFrame(1U, {identical_a, identical_b}, fresh_identical)
+              .ok(),
+          "identical-retry fixture did not prepare the exact retry");
+  Require(identical_retry_coordinator->CommitPreparedFrameAfterAcceptedExposure(
+              discarded_identical) == Ogre14LegacyPreparedMaterialCommitResult::
+                                          PREPARED_FRAME_MISMATCH &&
+              identical_retry_coordinator->has_pending_frame() &&
+              identical_retry_coordinator->source_sequence() == 0U,
+          "discarded identical frame committed a fresh immutable retry state");
+  const Ogre14LegacyPreparedMaterialFrame copied_fresh = fresh_identical;
+  Require(
+      copied_fresh.SharesImmutableStateWith(fresh_identical) &&
+          identical_retry_coordinator->CommitPreparedFrameAfterAcceptedExposure(
+              copied_fresh) ==
+              Ogre14LegacyPreparedMaterialCommitResult::COMMITTED &&
+          identical_retry_coordinator->source_sequence() == 1U,
+      "copied handle sharing the accepted immutable state did not commit");
 }
 
 void TestHostileInputsAndTransactionalRollback() {
@@ -293,6 +335,7 @@ void TestHostileInputsAndTransactionalRollback() {
   const Ogre14LegacyAssetKey material_b = Key("Main", "B");
   const Ogre14LegacyAssetKey missing = Key("Main", "Missing");
   const Ogre14LegacyAssetKey texture = Key("Main", "Shared");
+  const Ogre14LegacyAssetKey other_texture = Key("Main", "Other");
   auto coordinator = MakeCoordinator(MakeRegistry({material_a, material_b}));
   const Ogre14LegacyMaterialObservation observation_a =
       MakeObservation(*coordinator, material_a, &texture);
@@ -406,6 +449,32 @@ void TestHostileInputsAndTransactionalRollback() {
   RequireSentinelUnchanged(count_sentinel, count_expected,
                            "observation cap mutated caller output");
 
+  Ogre14LegacyLiveMaterialCoordinatorConfiguration texture_count_limited;
+  texture_count_limited.maximum_material_observations = 2U;
+  texture_count_limited.translator.maximum_texture_inputs_per_frame = 1U;
+  texture_count_limited.translator.maximum_material_inputs_per_frame = 2U;
+  texture_count_limited.translator.maximum_live_assets_per_frame = 6U;
+  texture_count_limited.translator.maximum_lifetime_asset_records = 6U;
+  auto texture_count_bounded = MakeCoordinator(
+      MakeRegistry({material_a, material_b}), texture_count_limited);
+  const Ogre14LegacyMaterialObservation texture_count_a =
+      MakeObservation(*texture_count_bounded, material_a, &texture);
+  const Ogre14LegacyMaterialObservation texture_count_b =
+      MakeObservation(*texture_count_bounded, material_b, &other_texture);
+  Ogre14LegacyPreparedMaterialFrame texture_count_sentinel = SentinelFrame();
+  const Ogre14LegacyPreparedMaterialFrame texture_count_expected =
+      texture_count_sentinel;
+  const ValidationResult texture_count_result =
+      texture_count_bounded->PrepareFrame(
+          1U, {texture_count_a, texture_count_b}, texture_count_sentinel);
+  Require(!texture_count_result &&
+              texture_count_result.field ==
+                  "material_observations.texture_count" &&
+              !texture_count_bounded->has_pending_frame(),
+          "unique native texture count cap+1 was accepted");
+  RequireSentinelUnchanged(texture_count_sentinel, texture_count_expected,
+                           "unique texture count cap mutated caller output");
+
   Ogre14LegacyLiveMaterialCoordinatorConfiguration live_limited;
   live_limited.maximum_material_observations = 1U;
   live_limited.translator.maximum_texture_inputs_per_frame = 1U;
@@ -454,9 +523,16 @@ void TestHostileInputsAndTransactionalRollback() {
   auto lifetime_bounded =
       MakeCoordinator(MakeRegistry({material_a, material_b}), lifetime_limited);
   const Ogre14LegacyMaterialObservation lifetime_a =
-      MakeObservation(*lifetime_bounded, material_a, &texture);
-  const Ogre14LegacyMaterialObservation lifetime_b =
-      MakeObservation(*lifetime_bounded, material_b);
+      MakeObservation(*lifetime_bounded, material_a);
+  Ogre14LegacyMaterialObservation lifetime_b =
+      MakeObservation(*lifetime_bounded, material_b, &other_texture);
+  constexpr std::uint32_t kLargeTextureEdge = 1024U;
+  lifetime_b.native_capture.textures[0] = MakeTexture(
+      other_texture,
+      std::vector<std::uint8_t>(static_cast<std::size_t>(kLargeTextureEdge) *
+                                    kLargeTextureEdge * 4U,
+                                0x7FU),
+      kLargeTextureEdge, kLargeTextureEdge);
   Ogre14LegacyPreparedMaterialFrame lifetime_first;
   Require(
       lifetime_bounded->PrepareFrame(1U, {lifetime_a}, lifetime_first).ok() &&
@@ -474,7 +550,7 @@ void TestHostileInputsAndTransactionalRollback() {
               !lifetime_bounded->has_pending_frame(),
           "lifetime asset cap+1 was accepted by the coordinator");
   RequireSentinelUnchanged(lifetime_sentinel, lifetime_expected,
-                           "lifetime cap mutated caller output");
+                           "lifetime preflight cap mutated caller output");
 
   Ogre14LegacyLiveMaterialCoordinatorConfiguration epoch_limited;
   epoch_limited.transaction.maximum_epoch = 1U;
