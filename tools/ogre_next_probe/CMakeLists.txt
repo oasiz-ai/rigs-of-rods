@@ -116,7 +116,9 @@ list(APPEND _ror_relevant_source_files
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
     "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
     "doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md"
+    "source/main/Application.cpp"
     "source/main/GameContext.cpp"
+    "source/main/GameContext.h"
     "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
@@ -126,11 +128,13 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/physics/Actor.cpp"
     "source/main/physics/ActorManager.cpp"
     "source/main/physics/ActorManager.h"
     "source/main/physics/ActorSpawner.cpp"
     "source/main/physics/ActorSpawner.h"
     "source/main/physics/ActorSpawnerFlow.cpp"
+    "source/main/physics/collision/Collisions.cpp"
     "source/main/physics/flex/FlexBody.cpp"
     "source/main/physics/flex/FlexBody.h"
     "source/main/physics/flex/FlexFactory.cpp"
@@ -149,6 +153,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/terrain/ProceduralRoad.h"
     "source/main/terrain/TerrainObjectManager.cpp"
     "source/main/terrain/TerrainObjectManager.h"
+    "source/main/terrain/Terrain.cpp"
+    "source/main/terrain/Terrain.h"
     "source/main/main.cpp"
     "source/main/system/ApplicationFatalError.h"
     "source/main/system/RendererBridgeChannel.cpp"
@@ -211,6 +217,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
     "tests/system/ApplicationFatalShutdownContractTests.cpp"
+    "tests/tools/test_ogre14_native_workflow_contract.py"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
     "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
@@ -2327,7 +2334,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
             doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
             doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+            source/main/Application.cpp
             source/main/GameContext.cpp
+            source/main/GameContext.h
             source/main/gfx/GfxActorCaptureInventory.h
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
@@ -2337,11 +2346,13 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/physics/Actor.cpp
             source/main/physics/ActorManager.cpp
             source/main/physics/ActorManager.h
             source/main/physics/ActorSpawner.cpp
             source/main/physics/ActorSpawner.h
             source/main/physics/ActorSpawnerFlow.cpp
+            source/main/physics/collision/Collisions.cpp
             source/main/physics/flex/FlexBody.cpp
             source/main/physics/flex/FlexBody.h
             source/main/physics/flex/FlexFactory.cpp
@@ -2360,6 +2371,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/terrain/ProceduralRoad.h
             source/main/terrain/TerrainObjectManager.cpp
             source/main/terrain/TerrainObjectManager.h
+            source/main/terrain/Terrain.cpp
+            source/main/terrain/Terrain.h
             source/main/main.cpp
             source/main/system/ApplicationFatalError.h
             source/main/system/RendererBridgeChannel.cpp
@@ -2428,6 +2441,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
             tests/gfx/GfxActorCaptureInventoryTests.cpp
             tests/system/ApplicationFatalShutdownContractTests.cpp
+            tests/tools/test_ogre14_native_workflow_contract.py
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
             tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp

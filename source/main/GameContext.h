@@ -114,6 +114,9 @@ public:
 
     bool                LoadTerrain(std::string const& filename_part);
     void                UnloadTerrain();
+    /// Tears down every scene object that can retain renderer-backed state.
+    /// Call only after all worker runtimes have proven quiescent.
+    bool                ShutdownSceneForFatalError() noexcept;
     const TerrainPtr&   GetTerrain() { return m_terrain; }
 
     /// @}

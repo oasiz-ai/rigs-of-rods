@@ -21,10 +21,12 @@
 
 #include "GameContext.h"
 
+#include "ApplicationFatalError.h"
 #include "AppContext.h"
 #include "Actor.h"
 #include "AeroEngine.h"
 #include "CacheSystem.h"
+#include "CameraManager.h"
 #include "Collisions.h"
 #include "Console.h"
 #include "DashBoardManager.h"
@@ -49,6 +51,8 @@
 #include "Utils.h"
 #include "VehicleAI.h"
 
+#include <limits>
+
 using namespace RoR;
 
 namespace {
@@ -64,19 +68,28 @@ public:
 
     ~TerrainResourceLoadTransaction() noexcept
     {
-        if (!m_active ||
-            !m_entry ||
-            m_entry->resource_group.empty())
+        try
         {
-            return;
+            if (!m_active ||
+                !m_entry ||
+                m_entry->resource_group.empty())
+            {
+                return;
+            }
+            const std::string resource_group = m_entry->resource_group;
+            if (!App::GetCacheSystem()->UnLoadResource(m_entry))
+            {
+                RoR::LogFormat(
+                    "[RoR|Terrain] Failed to roll back terrain resource "
+                    "group '%s'; ownership was retained for retry",
+                    resource_group.c_str());
+            }
         }
-        const std::string resource_group = m_entry->resource_group;
-        if (!App::GetCacheSystem()->UnLoadResource(m_entry))
+        catch (...)
         {
-            RoR::LogFormat(
-                "[RoR|Terrain] Failed to roll back terrain resource "
-                "group '%s'; ownership was retained for retry",
-                resource_group.c_str());
+            // This transaction runs while LoadTerrain() may already be
+            // unwinding a fatal error. Resource ownership is deliberately
+            // retained rather than allowing a second exception to terminate.
         }
     }
 
@@ -257,10 +270,40 @@ bool GameContext::LoadTerrain(std::string const& filename_part)
     // * SurveyMapTextureCreator
     // * Collisions (debug visualization)
     m_terrain = new RoR::Terrain(terrn_entry, terrn2);
-    if (!m_terrain->initialize())
+    try
     {
-        m_terrain = nullptr; // release local reference - object will be deleted when all references are released.
-        return false; // Message box already displayed
+        if (!m_terrain->initialize())
+        {
+            m_terrain = nullptr; // release local reference - object will be deleted when all references are released.
+            return false; // Message box already displayed
+        }
+    }
+    catch (const ApplicationFatalError&)
+    {
+        // Collisions can select a controlled fatal result after several
+        // renderer-backed terrain subsystems already exist. Dispose those
+        // subsystems before the resource transaction releases their archive.
+        bool partial_scene_released =
+            m_terrain->DisposeForFatalShutdown();
+        if (partial_scene_released)
+        {
+            try
+            {
+                m_terrain = nullptr;
+            }
+            catch (...)
+            {
+                partial_scene_released = false;
+            }
+        }
+        if (!partial_scene_released)
+        {
+            // A failed partial rollback is followed by process fail-stop.
+            // Retain the resource group until then so no surviving terrain
+            // pointer observes an unloaded archive.
+            resource_load_transaction.Dismiss();
+        }
+        throw;
     }
     resource_load_transaction.Dismiss();
 
@@ -284,6 +327,127 @@ void GameContext::UnloadTerrain()
         // release local reference - object will be deleted when all references are released.
         m_terrain = nullptr;
     }
+}
+
+bool GameContext::ShutdownSceneForFatalError() noexcept
+{
+    auto run_step = [](auto&& step) noexcept {
+        try
+        {
+            step();
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    };
+
+    // Avoid the ordinary ChangePlayerActor() callback graph during fatal
+    // propagation. ActorManager still owns every live actor while these
+    // secondary references are released on the main thread.
+    if (!run_step([this]() {
+            m_player_actor = nullptr;
+            m_prev_player_actor = nullptr;
+            m_last_spawned_actor = nullptr;
+            m_actor_remotely_receiving_commands = nullptr;
+        }))
+    {
+        return false;
+    }
+
+    // Actor cleanup is retryable after a disposal attempt that tombstoned an
+    // actor before throwing. Keep retries bounded so an unclean scene selects
+    // fail-stop instead of spinning while Ogre::Root is still live.
+    const std::size_t initial_actor_count =
+        m_actor_manager.GetActors().size();
+    const std::size_t max_attempts =
+        initial_actor_count > (std::numeric_limits<std::size_t>::max() - 1U) / 2U
+        ? std::numeric_limits<std::size_t>::max()
+        : initial_actor_count * 2U + 1U;
+    std::size_t attempts = 0U;
+    while (!m_actor_manager.GetActors().empty() && attempts < max_attempts)
+    {
+        ++attempts;
+        (void)run_step([this]() {
+            m_actor_manager.CleanUpSimulation();
+        });
+    }
+    if (!m_actor_manager.GetActors().empty())
+    {
+        return false;
+    }
+
+    if (!run_step([this]() {
+            m_character_factory.DeleteAllCharacters();
+        }) ||
+        !run_step([this]() {
+            m_scene_mouse.DiscardVisuals();
+        }) ||
+        !run_step([]() {
+            App::DestroyOverlayWrapper();
+        }) ||
+        !run_step([]() {
+            if (App::GetCameraManager() != nullptr)
+            {
+                App::GetCameraManager()->ResetAllBehaviors();
+            }
+        }) ||
+        !run_step([]() {
+            if (App::GetGuiManager() != nullptr)
+            {
+                App::GetGuiManager()->CollisionsDebug.CleanUp();
+                App::GetGuiManager()->MainSelector.Close();
+                App::GetGuiManager()->LoadingWindow.SetVisible(false);
+                App::GetGuiManager()->TopMenubar.ai_waypoints.clear();
+            }
+        }))
+    {
+        return false;
+    }
+
+    if (m_terrain != nullptr)
+    {
+        if (!m_terrain->DisposeForFatalShutdown())
+        {
+            return false;
+        }
+        if (!run_step([this]() {
+                m_terrain = nullptr;
+            }))
+        {
+            return false;
+        }
+    }
+
+    if (App::GetGfxScene()->GetSceneManager() != nullptr)
+    {
+        // ClearScene recreates the persistent camera and direction-arrow
+        // nodes, so both owners must still exist for this final scene wipe.
+        if (App::GetCameraManager() == nullptr ||
+            App::GetGuiManager() == nullptr ||
+            !run_step([]() {
+                App::GetGfxScene()->ClearScene();
+            }))
+        {
+            return false;
+        }
+    }
+
+    if (!run_step([]() {
+            if (App::sim_state != nullptr)
+            {
+                App::sim_state->setVal(static_cast<int>(SimState::OFF));
+            }
+            if (App::app_state != nullptr)
+            {
+                App::app_state->setVal(static_cast<int>(AppState::MAIN_MENU));
+            }
+        }))
+    {
+        return false;
+    }
+    return true;
 }
 
 // --------------------------------

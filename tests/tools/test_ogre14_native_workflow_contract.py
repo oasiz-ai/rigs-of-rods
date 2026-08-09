@@ -707,7 +707,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self,
     ) -> None:
         text = self.main_source_text
-        worker_helper = text.index("void ReleaseWorkerRuntime()")
+        worker_helper = text.index("bool ReleaseWorkerRuntime() noexcept")
         private_workers = text.index(
             "ShutdownWorkerRuntime()",
             worker_helper,
@@ -722,6 +722,10 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         )
         self.assertLess(private_workers, general_workers)
         self.assertLess(general_workers, worker_marker)
+        self.assertIn(
+            "return clean_release;",
+            text[worker_helper:text.index("void ReleaseRendererRuntime()")],
+        )
 
         helper_start = text.index("void ReleaseWindowBoundRuntime(")
         detach = text.index("DetachRenderWindowEvents()", helper_start)
@@ -761,10 +765,40 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "WorkerRuntimeGuard worker_runtime_guard",
             guard,
         )
+        fatal_scene_gate = text.index(
+            "ApplicationFatalShutdownGate fatal_scene_runtime_gate",
+            worker_guard,
+        )
         try_start = text.index("try", worker_guard)
         self.assertLess(renderer_guard, guard)
         self.assertLess(guard, try_start)
         self.assertLess(worker_guard, try_start)
+        self.assertLess(fatal_scene_gate, try_start)
+
+        fatal_catch = text.index(
+            "catch (const ApplicationFatalError& fatal)",
+            try_start,
+        )
+        fatal_sequence = text.index(
+            "RunApplicationFatalShutdownSequence(",
+            fatal_catch,
+        )
+        fatal_worker_release = text.index(
+            "worker_runtime_guard.Release()",
+            fatal_sequence,
+        )
+        fatal_scene_release = text.index(
+            "fatal_scene_runtime_gate.Release()",
+            fatal_worker_release,
+        )
+        fatal_fail_stop = text.index(
+            "FailStopApplication(fatal.exit_code())",
+            fatal_scene_release,
+        )
+        self.assertLess(fatal_sequence, fatal_worker_release)
+        self.assertLess(fatal_worker_release, fatal_scene_release)
+        self.assertLess(fatal_scene_release, fatal_fail_stop)
+        self.assertIn("std::_Exit(exit_code)", text)
 
         renderer_helper = text.index("void ReleaseRendererRuntime()")
         envmap_release = text.index(

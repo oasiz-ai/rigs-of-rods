@@ -69,6 +69,7 @@
 #include <ctime>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
@@ -146,7 +147,7 @@ void ReleaseWindowBoundRuntime(
     }
 }
 
-void ReleaseWorkerRuntime() noexcept
+bool ReleaseWorkerRuntime() noexcept
 {
     using namespace RoR;
 
@@ -168,6 +169,36 @@ void ReleaseWorkerRuntime() noexcept
             // Final shutdown must not throw from a diagnostic path.
         }
     }
+    return clean_release;
+}
+
+bool ReleaseWorkerRuntimeForGate(void*) noexcept
+{
+    return ReleaseWorkerRuntime();
+}
+
+bool ReleaseFatalSceneRuntime(void*) noexcept
+{
+    using namespace RoR;
+
+    try
+    {
+        App::GetAppContext()->EndPostProcessScene();
+    }
+    catch (...)
+    {
+        return false;
+    }
+    return App::GetGameContext()->ShutdownSceneForFatalError();
+}
+
+[[noreturn]] void FailStopApplication(int exit_code) noexcept
+{
+    // Worker or scene ownership could not be proven quiescent. Bypass every
+    // local/static destructor so neither Ogre::Root nor immutable archive
+    // owners are torn down underneath a surviving callback or scene object.
+    std::fflush(nullptr);
+    std::_Exit(exit_code);
 }
 
 void ReleaseRendererRuntime() noexcept
@@ -232,15 +263,23 @@ private:
 class WorkerRuntimeGuard
 {
 public:
-    WorkerRuntimeGuard() = default;
+    WorkerRuntimeGuard():
+        m_release_gate(&ReleaseWorkerRuntimeForGate)
+    {
+    }
 
     ~WorkerRuntimeGuard()
     {
-        ReleaseWorkerRuntime();
+        (void)m_release_gate.Release();
     }
+
+    bool Release() noexcept { return m_release_gate.Release(); }
 
     WorkerRuntimeGuard(const WorkerRuntimeGuard&) = delete;
     WorkerRuntimeGuard& operator=(const WorkerRuntimeGuard&) = delete;
+
+private:
+    RoR::ApplicationFatalShutdownGate m_release_gate;
 };
 
 class RendererRuntimeGuard
@@ -315,11 +354,14 @@ int main(int argc, char *argv[])
 #endif
 
     Ogre::OverlaySystem* overlay_system = nullptr;
-    // Local guards unwind in reverse order: workers, window integrations,
-    // then the renderer while all process-static listeners remain alive.
+    // Normal returns unwind local guards in reverse order: workers, window
+    // integrations, then the renderer. Fatal returns explicitly quiesce the
+    // workers and scene first; each guard caches that proven release.
     RendererRuntimeGuard renderer_runtime_guard;
     WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
     WorkerRuntimeGuard worker_runtime_guard;
+    ApplicationFatalShutdownGate fatal_scene_runtime_gate(
+        &ReleaseFatalSceneRuntime);
     std::unique_ptr<RendererOgre14InputEngineTarget>
         renderer_bridge_input_target;
     std::unique_ptr<Render::Ogre14GraphicsSceneSource>
@@ -330,9 +372,9 @@ int main(int argc, char *argv[])
     int application_exit_code = 0;
 
     // Fatal game failures are caught inside the scope of every local runtime
-    // guard. Returning the preserved code below first destroys the product
-    // session, workers and window integrations, then RendererRuntimeGuard
-    // tears down Ogre::Root while ContentManager's archive owners are alive.
+    // guard. The catch below first closes capture/presentation, proves worker
+    // quiescence, and disposes the scene. Only then may returning unwind
+    // RendererRuntimeGuard while ContentManager's archive owners are alive.
     try
     {
 
@@ -2903,15 +2945,7 @@ int main(int argc, char *argv[])
     }
     catch (const ApplicationFatalError& fatal)
     {
-        // Do not let secondary diagnostics or capture cleanup replace the
-        // already-selected fatal process result.
-        try
-        {
-            App::ShutdownWorldModelCapture();
-        }
-        catch (...)
-        {
-        }
+        // Preserve the selected fatal result before any cleanup diagnostics.
         try
         {
             LOG(fmt::format(
@@ -2922,6 +2956,43 @@ int main(int argc, char *argv[])
         }
         catch (...)
         {
+        }
+
+        const ApplicationFatalShutdownDisposition shutdown_disposition =
+            RunApplicationFatalShutdownSequence(
+                []() {
+                    App::ShutdownWorldModelCapture();
+                    return true;
+                },
+                [&]() {
+                    if (renderer_bridge_product_session != nullptr)
+                    {
+                        (void)renderer_bridge_product_session->Shutdown();
+                    }
+                    renderer_bridge_product_session.reset();
+                    renderer_bridge_scene_source.reset();
+                    renderer_bridge_input_target.reset();
+                    return true;
+                },
+                [&]() {
+                    return worker_runtime_guard.Release();
+                },
+                [&]() {
+                    return fatal_scene_runtime_gate.Release();
+                });
+        if (shutdown_disposition ==
+            ApplicationFatalShutdownDisposition::FAIL_STOP)
+        {
+            try
+            {
+                LOG("[RoR|Fatal] Worker/scene release was not proven; "
+                    "preserving renderer and archive owners until process "
+                    "fail-stop");
+            }
+            catch (...)
+            {
+            }
+            FailStopApplication(fatal.exit_code());
         }
         application_exit_code = fatal.exit_code();
     }

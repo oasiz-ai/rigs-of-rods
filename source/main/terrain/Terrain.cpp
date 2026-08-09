@@ -153,6 +153,32 @@ void RoR::Terrain::dispose()
     m_disposed = true;
 }
 
+bool RoR::Terrain::DisposeForFatalShutdown() noexcept
+{
+    if (m_disposed)
+    {
+        return !m_fatal_dispose_failed;
+    }
+
+    try
+    {
+        this->dispose();
+    }
+    catch (...)
+    {
+        m_fatal_dispose_failed = true;
+    }
+
+    if (!m_disposed)
+    {
+        // A partial dispose (including the legacy SHUTDOWN fast path) must
+        // never be retried after RendererRuntimeGuard has released Ogre::Root.
+        m_fatal_dispose_failed = true;
+        m_disposed = true;
+    }
+    return !m_fatal_dispose_failed;
+}
+
 bool RoR::Terrain::initialize()
 {
     auto* loading_window = &App::GetGuiManager()->LoadingWindow;
