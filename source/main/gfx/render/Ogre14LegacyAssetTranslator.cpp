@@ -611,11 +611,17 @@ struct Ogre14LegacyAssetTranslator::State {
 
   std::uint64_t source_sequence = 0U;
   std::uint64_t catalog_sequence = 0U;
+  std::uint64_t transaction_epoch = 0U;
   Ogre14LegacyAssetTranslatorConfiguration configuration;
   ValidationResult configuration_validation;
+  Ogre14LegacyAssetTranslatorTransactionConfiguration
+      transaction_configuration;
+  ValidationResult transaction_configuration_validation;
   std::map<std::string, Record, std::less<>> records;
   std::map<std::uint64_t, std::string> stable_keys_by_id;
 };
+
+struct Ogre14LegacyAssetTranslator::TransactionLineage final {};
 
 ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
     const Ogre14LegacyAssetTranslatorConfiguration &configuration) {
@@ -646,6 +652,25 @@ ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "configuration.limits",
         "per-input and per-asset limits must fit their frame and lifetime caps");
+  }
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateOgre14LegacyAssetTranslatorTransactionConfiguration(
+    const Ogre14LegacyAssetTranslatorTransactionConfiguration &configuration) {
+  if (configuration.version !=
+      kOgre14LegacyAssetTranslatorTransactionConfigurationVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION,
+        "transaction_configuration.version",
+        "unsupported translator transaction configuration version");
+  }
+  if (configuration.maximum_clone_metadata_bytes == 0U ||
+      configuration.maximum_epoch == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "transaction_configuration.limits",
+        "transaction clone metadata and epoch limits must be nonzero");
   }
   return ValidationResult::Success();
 }
@@ -1030,23 +1055,58 @@ ValidationResult ValidateOgre14LegacyMaterialPipelineAudit(
 
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
-    : Ogre14LegacyAssetTranslator(Ogre14LegacyAssetTranslatorConfiguration{},
-                                  fault_injector) {}
+    : Ogre14LegacyAssetTranslator(
+          Ogre14LegacyAssetTranslatorConfiguration{},
+          Ogre14LegacyAssetTranslatorTransactionConfiguration{},
+          fault_injector) {}
 
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     const Ogre14LegacyAssetTranslatorConfiguration &configuration,
     IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
-    : state_(std::make_unique<State>()), fault_injector_(fault_injector) {
+    : Ogre14LegacyAssetTranslator(
+          configuration,
+          Ogre14LegacyAssetTranslatorTransactionConfiguration{},
+          fault_injector) {}
+
+Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
+    const Ogre14LegacyAssetTranslatorConfiguration &configuration,
+    const Ogre14LegacyAssetTranslatorTransactionConfiguration
+        &transaction_configuration,
+    IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
+    : state_(std::make_unique<State>()),
+      transaction_lineage_(std::make_shared<const TransactionLineage>()),
+      fault_injector_(fault_injector) {
   state_->configuration = configuration;
   state_->configuration_validation =
       ValidateOgre14LegacyAssetTranslatorConfiguration(configuration);
+  state_->transaction_configuration = transaction_configuration;
+  state_->transaction_configuration_validation =
+      ValidateOgre14LegacyAssetTranslatorTransactionConfiguration(
+          transaction_configuration);
 }
+
+Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
+    std::unique_ptr<State> state,
+    std::shared_ptr<const TransactionLineage> lineage,
+    std::uint64_t transaction_base_epoch,
+    IOgre14LegacyAssetTranslatorFaultInjector *fault_injector) noexcept
+    : state_(std::move(state)), transaction_lineage_(std::move(lineage)),
+      transaction_base_epoch_(transaction_base_epoch),
+      transaction_role_(TransactionRole::CANDIDATE),
+      fault_injector_(fault_injector) {}
 
 Ogre14LegacyAssetTranslator::~Ogre14LegacyAssetTranslator() = default;
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
-    Ogre14LegacyAssetTranslator &&) noexcept = default;
-Ogre14LegacyAssetTranslator &Ogre14LegacyAssetTranslator::operator=(
-    Ogre14LegacyAssetTranslator &&) noexcept = default;
+    Ogre14LegacyAssetTranslator &&other) noexcept
+    : state_(std::move(other.state_)),
+      transaction_lineage_(std::move(other.transaction_lineage_)),
+      transaction_base_epoch_(other.transaction_base_epoch_),
+      transaction_role_(other.transaction_role_),
+      fault_injector_(other.fault_injector_) {
+  other.transaction_base_epoch_ = 0U;
+  other.transaction_role_ = TransactionRole::INVALID;
+  other.fault_injector_ = nullptr;
+}
 
 std::uint64_t Ogre14LegacyAssetTranslator::source_sequence() const noexcept {
   return state_ != nullptr ? state_->source_sequence : 0U;
@@ -1056,16 +1116,211 @@ std::uint64_t Ogre14LegacyAssetTranslator::catalog_sequence() const noexcept {
   return state_ != nullptr ? state_->catalog_sequence : 0U;
 }
 
+ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
+    std::unique_ptr<Ogre14LegacyAssetTranslator> &output) const {
+  if (state_ == nullptr || transaction_lineage_ == nullptr ||
+      transaction_role_ == TransactionRole::INVALID) {
+    return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
+                                     "translator.state",
+                                     "translator has no committed state");
+  }
+  if (transaction_role_ != TransactionRole::COMMITTED_SOURCE) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "translator.transaction_role",
+        "a transaction candidate cannot fork another candidate");
+  }
+  if (!state_->configuration_validation) {
+    return state_->configuration_validation;
+  }
+  if (!state_->transaction_configuration_validation) {
+    return state_->transaction_configuration_validation;
+  }
+
+  const Ogre14LegacyAssetTranslatorConfiguration &configuration =
+      state_->configuration;
+  const Ogre14LegacyAssetTranslatorTransactionConfiguration
+      &transaction_configuration = state_->transaction_configuration;
+  if (state_->records.size() >
+          configuration.maximum_lifetime_asset_records ||
+      state_->stable_keys_by_id.size() != state_->records.size()) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "translator.transaction_records",
+        "catalog record count is incompatible with its configured cap");
+  }
+
+  std::uint64_t metadata_bytes = 0U;
+  const auto add_metadata_string =
+      [&](const std::string &value) noexcept -> bool {
+    if (value.size() >
+        static_cast<std::size_t>(
+            (std::numeric_limits<std::uint64_t>::max)())) {
+      return false;
+    }
+    std::uint64_t next = 0U;
+    if (!CheckedAdd(metadata_bytes,
+                    static_cast<std::uint64_t>(value.size()), next)) {
+      return false;
+    }
+    metadata_bytes = next;
+    return metadata_bytes <=
+           transaction_configuration.maximum_clone_metadata_bytes;
+  };
+
+  if (!add_metadata_string(state_->configuration_validation.field) ||
+      !add_metadata_string(state_->configuration_validation.detail) ||
+      !add_metadata_string(
+          state_->transaction_configuration_validation.field) ||
+      !add_metadata_string(
+          state_->transaction_configuration_validation.detail)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "translator.transaction_clone_metadata",
+        "transaction clone metadata exceeds its configured byte cap");
+  }
+  for (const auto &entry : state_->records) {
+    const State::Record &record = entry.second;
+    const auto id_key =
+        state_->stable_keys_by_id.find(record.asset.source_asset_id);
+    if (entry.first != record.asset.stable_key ||
+        id_key == state_->stable_keys_by_id.end() ||
+        id_key->second != entry.first) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "translator.transaction_records",
+          "catalog identity maps are not byte-exact equivalents");
+    }
+    if (entry.first.size() > kMaximumOgre14LegacyStableAssetKeyBytes) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "translator.transaction_records",
+          "catalog stable key exceeds the translator's immutable byte cap");
+    }
+    if (!add_metadata_string(entry.first) ||
+        !add_metadata_string(record.asset.stable_key) ||
+        !add_metadata_string(id_key->second)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "translator.transaction_clone_metadata",
+          "transaction clone metadata exceeds its configured byte cap");
+    }
+  }
+
+  try {
+    if (fault_injector_ != nullptr) {
+      fault_injector_->BeforeTransactionClone(
+          Ogre14LegacyAssetTranslatorCloneStage::BEFORE_STATE_COPY);
+    }
+    auto cloned_state = std::make_unique<State>(*state_);
+    if (fault_injector_ != nullptr) {
+      fault_injector_->BeforeTransactionClone(
+          Ogre14LegacyAssetTranslatorCloneStage::AFTER_STATE_COPY);
+    }
+    std::unique_ptr<Ogre14LegacyAssetTranslator> candidate(
+        new Ogre14LegacyAssetTranslator(
+            std::move(cloned_state), transaction_lineage_,
+            state_->transaction_epoch, fault_injector_));
+    if (fault_injector_ != nullptr) {
+      fault_injector_->BeforeTransactionClone(
+          Ogre14LegacyAssetTranslatorCloneStage::BEFORE_CANDIDATE_PUBLISH);
+    }
+    output = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "translator.transaction_allocation",
+        "allocation failed before the transaction candidate was published");
+  } catch (...) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "translator.transaction_exception",
+        "unexpected exception before the transaction candidate was published");
+  }
+}
+
+Ogre14LegacyAssetTranslatorCommitResult
+Ogre14LegacyAssetTranslator::CommitTransaction(
+    Ogre14LegacyAssetTranslator &candidate) noexcept {
+  if (&candidate == this) {
+    return Ogre14LegacyAssetTranslatorCommitResult::SELF_COMMIT;
+  }
+  if (state_ == nullptr || transaction_lineage_ == nullptr ||
+      transaction_role_ != TransactionRole::COMMITTED_SOURCE) {
+    return Ogre14LegacyAssetTranslatorCommitResult::INVALID_SOURCE;
+  }
+  if (candidate.state_ == nullptr ||
+      candidate.transaction_lineage_ == nullptr ||
+      candidate.transaction_role_ != TransactionRole::CANDIDATE) {
+    return Ogre14LegacyAssetTranslatorCommitResult::INVALID_CANDIDATE;
+  }
+  if (transaction_lineage_.get() != candidate.transaction_lineage_.get()) {
+    return Ogre14LegacyAssetTranslatorCommitResult::FOREIGN_LINEAGE;
+  }
+  const Ogre14LegacyAssetTranslatorConfiguration &source_configuration =
+      state_->configuration;
+  const Ogre14LegacyAssetTranslatorConfiguration &candidate_configuration =
+      candidate.state_->configuration;
+  const Ogre14LegacyAssetTranslatorTransactionConfiguration
+      &source_transaction_configuration = state_->transaction_configuration;
+  const Ogre14LegacyAssetTranslatorTransactionConfiguration
+      &candidate_transaction_configuration =
+          candidate.state_->transaction_configuration;
+  if (source_configuration.version != candidate_configuration.version ||
+      source_configuration.maximum_texture_inputs_per_frame !=
+          candidate_configuration.maximum_texture_inputs_per_frame ||
+      source_configuration.maximum_material_inputs_per_frame !=
+          candidate_configuration.maximum_material_inputs_per_frame ||
+      source_configuration.maximum_live_assets_per_frame !=
+          candidate_configuration.maximum_live_assets_per_frame ||
+      source_configuration.maximum_lifetime_asset_records !=
+          candidate_configuration.maximum_lifetime_asset_records ||
+      source_configuration.maximum_decoded_bytes_per_asset !=
+          candidate_configuration.maximum_decoded_bytes_per_asset ||
+      source_configuration.maximum_decoded_bytes_per_frame !=
+          candidate_configuration.maximum_decoded_bytes_per_frame ||
+      source_transaction_configuration.version !=
+          candidate_transaction_configuration.version ||
+      source_transaction_configuration.maximum_clone_metadata_bytes !=
+          candidate_transaction_configuration.maximum_clone_metadata_bytes ||
+      source_transaction_configuration.maximum_epoch !=
+          candidate_transaction_configuration.maximum_epoch ||
+      fault_injector_ != candidate.fault_injector_) {
+    return Ogre14LegacyAssetTranslatorCommitResult::
+        INCOMPATIBLE_CONFIGURATION;
+  }
+  if (candidate.transaction_base_epoch_ != state_->transaction_epoch ||
+      candidate.state_->transaction_epoch !=
+          candidate.transaction_base_epoch_) {
+    return Ogre14LegacyAssetTranslatorCommitResult::STALE_SOURCE;
+  }
+  if (state_->transaction_epoch >=
+      state_->transaction_configuration.maximum_epoch) {
+    return Ogre14LegacyAssetTranslatorCommitResult::
+        TRANSACTION_EPOCH_EXHAUSTED;
+  }
+
+  candidate.state_->transaction_epoch = state_->transaction_epoch + 1U;
+  state_.swap(candidate.state_);
+  candidate.state_.reset();
+  candidate.transaction_lineage_.reset();
+  candidate.transaction_base_epoch_ = 0U;
+  candidate.transaction_role_ = TransactionRole::INVALID;
+  candidate.fault_injector_ = nullptr;
+  return Ogre14LegacyAssetTranslatorCommitResult::COMMITTED;
+}
+
 ValidationResult
 Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
                                        Ogre14LegacyTranslatedFrame &output) {
-  if (state_ == nullptr) {
+  if (state_ == nullptr || transaction_role_ == TransactionRole::INVALID) {
     return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
                                      "translator.state",
                                      "moved-from translator has no state");
   }
   if (!state_->configuration_validation) {
     return state_->configuration_validation;
+  }
+  if (!state_->transaction_configuration_validation) {
+    return state_->transaction_configuration_validation;
   }
   if (input.version != kOgre14LegacyAssetTranslatorVersion) {
     return ValidationResult::Failure(
@@ -1112,6 +1367,13 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
     return ValidationResult::Failure(
         ValidationCode::SEQUENCE_MISMATCH, "frame.source_sequence",
         "source sequence must start at one and advance exactly once");
+  }
+  if (transaction_role_ == TransactionRole::COMMITTED_SOURCE &&
+      state_->transaction_epoch >=
+          state_->transaction_configuration.maximum_epoch) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "translator.transaction_epoch",
+        "transaction epoch is exhausted");
   }
 
   try {
@@ -1445,6 +1707,9 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
 
     std::sort(mutations.begin(), mutations.end(), MutationOrder);
     candidate.source_sequence = input.source_sequence;
+    if (transaction_role_ == TransactionRole::COMMITTED_SOURCE) {
+      ++candidate.transaction_epoch;
+    }
     const bool initializes_catalog = state_->source_sequence == 0U;
     if (initializes_catalog || !mutations.empty()) {
       if (candidate.catalog_sequence ==
@@ -1490,13 +1755,16 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
 
 ValidationResult Ogre14LegacyAssetTranslator::BuildFullSnapshot(
     Ogre14LegacyTranslatedFrame &output) const {
-  if (state_ == nullptr) {
+  if (state_ == nullptr || transaction_role_ == TransactionRole::INVALID) {
     return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
                                      "translator.state",
                                      "moved-from translator has no state");
   }
   if (!state_->configuration_validation) {
     return state_->configuration_validation;
+  }
+  if (!state_->transaction_configuration_validation) {
+    return state_->transaction_configuration_validation;
   }
   if (state_->source_sequence == 0U || state_->catalog_sequence == 0U) {
     return ValidationResult::Failure(

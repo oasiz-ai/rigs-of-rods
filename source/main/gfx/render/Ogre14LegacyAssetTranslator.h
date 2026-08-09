@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,8 @@ constexpr std::uint32_t kOgre14LegacyMaterialInputVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyPipelineAuditVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyTranslatedFrameVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyAssetTranslatorConfigurationVersion = 1U;
+constexpr std::uint32_t
+    kOgre14LegacyAssetTranslatorTransactionConfigurationVersion = 1U;
 
 /// Defaults match the joined graphics producer's lifetime-record and payload
 /// budgets so this earlier decode/catalog stage cannot consume more resources
@@ -43,6 +46,11 @@ constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerAsset =
     512U * 1024U * 1024U;
 constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerFrame =
     512U * 1024U * 1024U;
+/// Logical mutable catalog metadata which one transaction fork may duplicate.
+/// Immutable descriptor and audit payloads remain shared and are not charged.
+constexpr std::uint64_t
+    kDefaultOgre14LegacyMaximumTransactionCloneMetadataBytes =
+        128U * 1024U * 1024U;
 /// Canonical stable keys encode an accepted resource-group/name pair plus a
 /// short type/length prefix. The translator's 255-byte debug-name admission
 /// and fixed sampler suffix fit this bound with room for decimal lengths.
@@ -65,6 +73,17 @@ struct Ogre14LegacyAssetTranslatorConfiguration {
       kDefaultOgre14LegacyMaximumDecodedBytesPerAsset;
   std::uint64_t maximum_decoded_bytes_per_frame =
       kDefaultOgre14LegacyMaximumDecodedBytesPerFrame;
+};
+
+struct Ogre14LegacyAssetTranslatorTransactionConfiguration {
+  std::uint32_t version =
+      kOgre14LegacyAssetTranslatorTransactionConfigurationVersion;
+  std::uint64_t maximum_clone_metadata_bytes =
+      kDefaultOgre14LegacyMaximumTransactionCloneMetadataBytes;
+  /// Bounds transaction-state advances and permits deterministic exhaustion
+  /// testing without changing source/catalog sequence semantics.
+  std::uint64_t maximum_epoch =
+      (std::numeric_limits<std::uint64_t>::max)();
 };
 
 /// Byte layouts are explicit and independent of the compiling host. The two
@@ -368,12 +387,33 @@ struct Ogre14LegacyTranslatedFrame {
   std::vector<Ogre14LegacyAssetMutation> mutations;
 };
 
+enum class Ogre14LegacyAssetTranslatorCloneStage : std::uint8_t {
+  BEFORE_STATE_COPY = 0U,
+  AFTER_STATE_COPY = 1U,
+  BEFORE_CANDIDATE_PUBLISH = 2U,
+};
+
 class IOgre14LegacyAssetTranslatorFaultInjector {
 public:
   virtual ~IOgre14LegacyAssetTranslatorFaultInjector() = default;
   /// Called after the entire candidate catalog and output frame validate but
   /// before commit. Tests return a failure to prove atomic rollback.
   [[nodiscard]] virtual ValidationResult BeforeCommit() noexcept = 0;
+  /// Optional borrowed test seam. Production implementations inherit this
+  /// no-op. Tests may throw at deterministic clone stages to prove rollback.
+  virtual void BeforeTransactionClone(
+      Ogre14LegacyAssetTranslatorCloneStage) {}
+};
+
+enum class Ogre14LegacyAssetTranslatorCommitResult : std::uint8_t {
+  COMMITTED = 0U,
+  SELF_COMMIT,
+  INVALID_SOURCE,
+  INVALID_CANDIDATE,
+  FOREIGN_LINEAGE,
+  INCOMPATIBLE_CONFIGURATION,
+  STALE_SOURCE,
+  TRANSACTION_EPOCH_EXHAUSTED,
 };
 
 [[nodiscard]] ValidationResult
@@ -382,6 +422,9 @@ ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input);
 ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input);
 [[nodiscard]] ValidationResult ValidateOgre14LegacyAssetTranslatorConfiguration(
     const Ogre14LegacyAssetTranslatorConfiguration &configuration);
+[[nodiscard]] ValidationResult
+ValidateOgre14LegacyAssetTranslatorTransactionConfiguration(
+    const Ogre14LegacyAssetTranslatorTransactionConfiguration &configuration);
 [[nodiscard]] ValidationResult
 DeriveOgre14LegacySourceAssetId(RenderAssetKind kind,
                                 const Ogre14LegacyAssetKey &key,
@@ -404,10 +447,18 @@ DecodeOgre14LegacyTexture(const Ogre14LegacyTextureInput &input,
 
 class Ogre14LegacyAssetTranslator final {
 public:
+  /// `fault_injector` is borrowed and must outlive this translator and every
+  /// outstanding candidate cloned from it. Commit never replaces the source's
+  /// borrowed injector.
   explicit Ogre14LegacyAssetTranslator(
       IOgre14LegacyAssetTranslatorFaultInjector *fault_injector = nullptr);
   explicit Ogre14LegacyAssetTranslator(
       const Ogre14LegacyAssetTranslatorConfiguration &configuration,
+      IOgre14LegacyAssetTranslatorFaultInjector *fault_injector = nullptr);
+  Ogre14LegacyAssetTranslator(
+      const Ogre14LegacyAssetTranslatorConfiguration &configuration,
+      const Ogre14LegacyAssetTranslatorTransactionConfiguration
+          &transaction_configuration,
       IOgre14LegacyAssetTranslatorFaultInjector *fault_injector = nullptr);
   ~Ogre14LegacyAssetTranslator();
 
@@ -416,10 +467,25 @@ public:
   operator=(const Ogre14LegacyAssetTranslator &) = delete;
   Ogre14LegacyAssetTranslator(Ogre14LegacyAssetTranslator &&) noexcept;
   Ogre14LegacyAssetTranslator &
-  operator=(Ogre14LegacyAssetTranslator &&) noexcept;
+  operator=(Ogre14LegacyAssetTranslator &&) = delete;
 
   [[nodiscard]] std::uint64_t source_sequence() const noexcept;
   [[nodiscard]] std::uint64_t catalog_sequence() const noexcept;
+
+  /// Deep-copies mutable catalog state into an isolated candidate while
+  /// retaining shared ownership of immutable payloads and audits. The source
+  /// and `output` are unchanged on every failure. Candidates cannot fork. A
+  /// source at its epoch ceiling may still fork for discardable work, but the
+  /// candidate cannot commit.
+  [[nodiscard]] ValidationResult CloneForTransaction(
+      std::unique_ptr<Ogre14LegacyAssetTranslator> &output) const;
+
+  /// Publishes a candidate from this exact translator lineage with an
+  /// allocation-free state swap. Every rejection is a no-op. Successful
+  /// publication invalidates `candidate`; callers may simply destroy a
+  /// rejected or uncommitted candidate to discard it.
+  [[nodiscard]] Ogre14LegacyAssetTranslatorCommitResult CommitTransaction(
+      Ogre14LegacyAssetTranslator &candidate) noexcept;
 
   /// Fully transactional. Any validation, allocation, collision, dependency,
   /// source-lineage, or injected failure leaves state and `output` untouched.
@@ -431,7 +497,23 @@ public:
 
 private:
   struct State;
+  struct TransactionLineage;
+  enum class TransactionRole : std::uint8_t {
+    COMMITTED_SOURCE = 0U,
+    CANDIDATE,
+    INVALID,
+  };
+
+  Ogre14LegacyAssetTranslator(
+      std::unique_ptr<State> state,
+      std::shared_ptr<const TransactionLineage> lineage,
+      std::uint64_t transaction_base_epoch,
+      IOgre14LegacyAssetTranslatorFaultInjector *fault_injector) noexcept;
+
   std::unique_ptr<State> state_;
+  std::shared_ptr<const TransactionLineage> transaction_lineage_;
+  std::uint64_t transaction_base_epoch_ = 0U;
+  TransactionRole transaction_role_ = TransactionRole::COMMITTED_SOURCE;
   IOgre14LegacyAssetTranslatorFaultInjector *fault_injector_ = nullptr;
 };
 

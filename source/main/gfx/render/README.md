@@ -460,6 +460,40 @@ is changed. Native readback applies the per-texture cap before allocating mip
 storage, while the pure translator rechecks both the per-texture and aggregate
 frame budgets before decode.
 
+Whole-scene adapters may stage this catalog with `CloneForTransaction`. A fork
+deep-copies the mutable sequence, revision, registry, identity, and tombstone
+maps but retains the exact shared owners of immutable descriptors and material
+audits. A private immutable lineage identity and the source transaction epoch
+bind each candidate to one exact committed translator; candidates cannot fork,
+ordinary translator move assignment is disabled, and self, forged, foreign,
+consumed, or stale candidates cannot publish. Noexcept move construction
+preserves the exact source/candidate role and lineage rather than laundering a
+candidate into a source. Clone metadata has its own
+versioned logical-byte budget and checked addition, so copying a hostile
+catalog cannot silently amplify its mutable keys beyond the configured cap.
+Those clone and epoch limits live in a separate versioned transaction
+configuration, leaving the legacy translator configuration v1 unchanged. The
+transaction epoch counts committed publications: a direct source `Translate`
+or successful `CommitTransaction` consumes exactly one, candidate translation
+consumes none, and even a no-op candidate commit consumes one so sibling forks
+become stale. Tests use a small nonzero ceiling to exercise exact commit
+exhaustion while production defaults to the full unsigned 64-bit range.
+
+`CommitTransaction` is an allocation-free `noexcept` publication step. It
+rechecks role, lineage, base epoch, and epoch exhaustion before swapping the
+candidate state into the source and invalidating the candidate. A caller may
+instead destroy a candidate to discard it. Allocation failure or an arbitrary
+exception before candidate publication leaves the source and an already
+populated clone output byte- and owner-equivalent; candidate translation,
+discard/retry, and rejected publication likewise leave the committed catalog
+and all previously shared owners unchanged.
+The optional fault injector is borrowed by the source and its candidates; it
+must outlive them, and publication never swaps or detaches the source pointer.
+The private lineage makes candidate configuration externally immutable;
+publication still compares every legacy and transaction configuration field
+and the borrowed injector pointer before the state swap, failing closed on any
+internal incompatibility.
+
 `Ogre14LegacyMaterialClosure` closes the last pure-data seam between that
 catalog and `GraphicsSceneSnapshotProducer`. Given an exact material key, it
 accepts only a complete full snapshot with nonzero source/catalog lineage,
