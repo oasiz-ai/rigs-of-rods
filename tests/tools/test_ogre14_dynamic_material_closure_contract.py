@@ -141,6 +141,86 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             self.gfx_scene_source,
         )
 
+    def test_native_section_reference_is_lean_and_fallback_stays_strict(self) -> None:
+        reference = self.gfx_scene_source[
+            self.gfx_scene_source.index(
+                "struct Ogre14MaterialSectionReference"
+            ) : self.gfx_scene_source.index(
+                "ValidationResult CaptureOgre14MaterialFallbackInput"
+            )
+        ]
+        for token in (
+            "Ogre::MaterialPtr material",
+            "std::string exact_resource_group",
+            "std::string exact_name",
+            "Ogre14GraphicsSceneMaterialCull cull",
+            "bool reverse_winding",
+            "CaptureOgre14MaterialSectionReference",
+            "resolved.pass->getCullingMode()",
+            "candidate.material = resolved.material",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, reference)
+        for fallback_only_gate in (
+            "getColourWriteEnabled",
+            "getSceneBlendingOperation",
+            "getSourceBlendFactor",
+            "getAlphaRejectFunction",
+        ):
+            with self.subTest(fallback_only_gate=fallback_only_gate):
+                self.assertNotIn(fallback_only_gate, reference)
+
+        fallback = self.gfx_scene_source[
+            self.gfx_scene_source.index(
+                "ValidationResult CaptureOgre14MaterialFallbackInput"
+            ) : self.gfx_scene_source.index(
+                "ValidationResult ValidateOgre14StaticVertexDeclaration"
+            )
+        ]
+        for token in (
+            "ResolveOgre14MaterialFirstPass(material, resolved)",
+            "pass->getColourWriteEnabled(",
+            "pass->getSceneBlendingOperation() != Ogre::SBO_ADD",
+            "portable fallback supports replace or straight-alpha blending",
+            "CaptureOgre14MaterialSectionReference(resolved, reference)",
+            "pass->getAlphaRejectFunction()",
+            "portable fallback supports always-pass or greater-equal alpha",
+            "output = std::move(candidate)",
+            "reverse_winding = reference.reverse_winding",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, fallback)
+        self.assertLess(
+            fallback.index("pass->getColourWriteEnabled("),
+            fallback.index(
+                "CaptureOgre14MaterialSectionReference(resolved, reference)"
+            ),
+        )
+        self.assertLess(
+            fallback.index("output = std::move(candidate)"),
+            fallback.index("reverse_winding = reference.reverse_winding"),
+        )
+
+    def test_dynamic_section_publishes_the_actual_winding_conversion(self) -> None:
+        capture = self.gfx_scene_source[
+            self.gfx_scene_source.index(
+                "ValidationResult CaptureOgre14DynamicEntitySections"
+            ) : self.gfx_scene_source.index(
+                "ValidationResult CaptureOgre14StaticMeshObjects"
+            )
+        ]
+        material_capture = capture.index(
+            "CaptureOgre14MaterialFallbackInput("
+        )
+        section_winding = capture.index(
+            "section.mesh_reverse_winding = reverse_winding"
+        )
+        cpu_winding = capture.index("base.reverse_winding = reverse_winding")
+        publish = capture.index("sections.push_back(std::move(section))")
+        self.assertLess(material_capture, section_winding)
+        self.assertLess(section_winding, cpu_winding)
+        self.assertLess(cpu_winding, publish)
+
     def test_resolved_closure_is_not_a_domain_tombstone(self) -> None:
         self.assertNotIn(
             "current_asset_keys.insert(resolved_asset_keys",

@@ -623,6 +623,16 @@ points leave an existing binding byte- and owner-equivalent. The binding also
 retains the exact prepared-frame identity which the coordinator requires at
 the final accepted-exposure commit.
 
+The native `GfxScene` collector keeps exact-material discovery separate from
+factor-fallback admission. Its lean section reference retains the owning OGRE
+`MaterialPtr`, exact group/name, first-pass cull, and the resulting winding
+conversion without applying fallback-only blend, alpha-test, or color-write
+policy. The existing fallback wrapper still runs every one of those gates and
+therefore preserves the current fail-closed output until authenticated catalog
+activation selects an exact declaration. Dynamic sections record the same
+`mesh_reverse_winding` decision used for their CPU payload and cache identity,
+so a later exact closure cannot disagree with the geometry already converted.
+
 This coordinator is the pure-data admission boundary, not the finished native
 scene tap. `GfxScene` must still collect one authoritative post-update material
 inventory, capture each material using the registry-provided native
