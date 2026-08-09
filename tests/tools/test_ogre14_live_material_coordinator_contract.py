@@ -94,6 +94,7 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "padded native texture payload was copied or accepted",
             "repeated observed texture bytes escaped the aggregate source cap",
             "material observation count cap+1 was accepted",
+            "unique native texture count cap+1 was accepted",
             "derived live-asset cap+1 was accepted",
             "decoded-byte cap+1 was accepted",
             "lifetime asset cap+1 was accepted",
@@ -104,6 +105,11 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "authoritative empty material inventory did not commit",
             "material frame committed twice",
             "stale discarded output committed a different retry candidate",
+            "discarded identical frame committed a fresh immutable retry state",
+            "copied handle sharing the accepted immutable state did not commit",
+            "SharesExactOwner(",
+            "!lhs.owner_before(rhs)",
+            "!rhs.owner_before(lhs)",
             "prepared material lookup did not retain exact closures",
         ):
             self.assertIn(token, self.cpp_test)
