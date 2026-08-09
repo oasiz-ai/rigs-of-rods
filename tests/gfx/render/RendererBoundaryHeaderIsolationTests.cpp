@@ -70,6 +70,12 @@ static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);
 static_assert(
     std::is_abstract_v<RoR::Render::IJoinedGraphicsSceneSource>,
     "the joined graphics adapter must remain a narrow source interface");
+static_assert(std::is_trivially_copyable_v<RoR::Render::Ogre14ParticleState>,
+              "realized particle values must remain portable pure data");
+static_assert(std::is_trivially_copyable_v<
+              RoR::Render::Ogre14ParticleMaterialClosureReceipt>);
+static_assert(
+    std::is_abstract_v<RoR::Render::IOgre14ParticleCaptureFaultInjector>);
 static_assert(
     std::is_same_v<decltype(RoR::Render::NativeObjectToken{}.value),
                    std::uint64_t>,

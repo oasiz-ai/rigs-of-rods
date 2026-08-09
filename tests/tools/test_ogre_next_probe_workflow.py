@@ -471,8 +471,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
+            "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp",
             "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
+            "tests/tools/test_ogre14_particle_capture_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
             with self.subTest(provenance_path=path):
@@ -939,6 +941,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_ogre14_graphics_scene_source$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_particle_capture_source$'", self.workflow
+        )
+        self.assertIn(
             "-R '^ror_ogre14_procedural_road_source$'", self.workflow
         )
         self.assertIn(
@@ -1127,6 +1132,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn("Ogre14GraphicsSceneSource.cpp", cmake)
             self.assertIn("Ogre14GraphicsSceneSourceTests.cpp", cmake)
             self.assertIn("ror_ogre14_graphics_scene_source_tests", cmake)
+            self.assertIn("Ogre14ParticleCaptureSource.cpp", cmake)
+            self.assertIn("Ogre14ParticleCaptureSourceTests.cpp", cmake)
+            self.assertIn("ror_ogre14_particle_capture_source_tests", cmake)
             self.assertIn("Ogre14ProceduralRoadSource.cpp", cmake)
             self.assertIn("Ogre14ProceduralRoadSourceTests.cpp", cmake)
             self.assertIn(
@@ -1141,6 +1149,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertEqual(
             package_dependencies.count(
                 "ror_ogre14_graphics_scene_source_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_particle_capture_source_tests"
             ),
             1,
         )

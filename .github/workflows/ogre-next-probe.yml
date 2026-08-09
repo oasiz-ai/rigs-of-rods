@@ -394,6 +394,14 @@ jobs:
           --output-on-failure
           -R '^ror_ogre14_graphics_scene_source$'
 
+      - name: Prove continuous particle capture transactions on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_particle_capture_source$'
+
       - name: Prove procedural-road capture and lifecycle on the host ABI
         run: >-
           ctest

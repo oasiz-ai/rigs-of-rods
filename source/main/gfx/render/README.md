@@ -293,6 +293,67 @@ the generic collision-audited static-inventory transaction. The focused
 combined-static contract proves collision rejection, stable ordering, and
 immutable owner reuse without mutating durable road state before commit.
 
+### Continuous OGRE 14 particle capture v1
+
+`SceneSnapshot::ParticleEvent` remains the compact contract for discrete burst
+emissions. It cannot represent a continuously retained particle, its exact
+material, direction, rotation, age, or explicit system stop/destruction. It is
+therefore incorrect to flatten the native smoke, exhaust, dust, fire, or water
+systems into a fresh burst on every frame. `Ogre14ParticleCaptureSource` adds a
+version-one, wire-adjacent continuous-state delta without changing the
+established scene-snapshot-v4 transport layout. Transport and frontend
+consumption are still a downstream milestone, so this source is not yet wired
+into `GfxScene` or advertised as shipping particle support.
+
+The future native tap supplies a complete value-only inventory after the
+copied simulation buffer and graphics update epochs have joined. It must issue
+monotonic never-reused system, per-system particle, and transition-event IDs;
+copy realized render-space position, unit direction, velocity, linear color,
+width/height, rotation, age, and lifetime; and preserve the frame's absolute
+world origin. Input traversal order is irrelevant. The source sorts systems,
+particles, and events by stable identity, derives exactly one `CREATE`,
+`UPDATE`, `STOP`, or `DESTROY` transition for every semantic change, and
+rejects missing, extra, or mismatched producer events. Unchanged frames produce
+an empty delta, exact same-sequence replay reproduces the preceding result, and
+omitted systems or particles leave permanent tombstones that cannot return.
+Effective visibility is the logical AND of system and parent visibility.
+
+There is no guessed smoke shader. Every system carries a versioned material
+closure receipt naming the exact catalog registry, catalog sequence, material
+revision, and successful translator source sequence. Capture also receives a
+borrowed const `RenderAssetRegistry` view for that exact joined boundary and
+resolves the receipt to a live `MaterialDescriptor` before lifecycle state can
+move. The caller must serialize `Apply()` and keep the view quiescent for the
+call; the registry type remains mutable and this is not a thread-safe immutable
+snapshot. A forged, stale, missing, wrong-kind, or cross-catalog receipt rejects
+the whole frame. Version one accepts only already-realized, world-space,
+camera-facing-point billboards. It fails closed if a frontend would need to
+evaluate native emitter or affector definitions, sort particles, animate a
+texture, apply a local-space transform, or reinterpret another billboard mode.
+
+All configured per-system, per-frame, lifetime-identity, event, and logical
+payload-byte limits are nonzero. The logical byte sum is derived from named
+fixed-width terms (including the full closure receipt and vector counts) and
+uses checked arithmetic before candidate allocation. Registry and output
+publication use a candidate copy and non-throwing final moves: malformed
+values, identity collisions, sequence gaps/regressions, cap exhaustion,
+allocation exceptions, and injected pre-commit faults leave both the durable
+registry and caller output unchanged. The remaining native work is to assign
+stable IDs at the owners in `DustPool`, actor exhaust/custom-particle creation,
+terrain particle objects, turboprop/turbojet smoke, and extinguishable fire;
+copy the post-update realized particle arrays without hardware-buffer reads;
+and submit the resulting adjunct transaction alongside the same joined scene
+and catalog snapshot. Signed-zero floating values are folded to canonical
+positive zero before replay comparison and publication.
+
+A system first observed with emission disabled is still created explicitly with
+`CREATE` and a stopped complete state. A previously stopped but not destroyed
+system may resume emission under the same identity; that transition is an
+`UPDATE`, not a second `CREATE`. While a system remains stopped, retained
+particles may update or age out, but the complete snapshot may not introduce a
+new particle identity until emission resumes. `DESTROY` remains the permanent
+identity boundary.
+
 Compatibility-material fallback version 1 is intentionally factor-only. It
 preserves first-pass diffuse/emissive factors, lighting, shininess-derived
 roughness, supported culling, straight alpha, and alpha rejection while

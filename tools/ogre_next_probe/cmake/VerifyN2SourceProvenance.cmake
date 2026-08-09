@@ -92,7 +92,9 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/render/RenderBridgeControlTransportTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
     tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+    tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
     tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
+    tests/tools/test_ogre14_particle_capture_contract.py
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
@@ -212,7 +214,9 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
+    "tests/tools/test_ogre14_particle_capture_contract.py"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
