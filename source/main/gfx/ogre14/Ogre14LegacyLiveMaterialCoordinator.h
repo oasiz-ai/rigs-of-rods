@@ -37,7 +37,9 @@ struct Ogre14LegacyLiveMaterialCoordinatorConfiguration final {
 /// One native capture and the exact key used to resolve its authored semantic
 /// declaration. The coordinator resolves the immutable semantic registry
 /// itself and requires the returned declaration values and registry-minted
-/// identity receipt to authenticate.
+/// identity receipt to authenticate. Textured captures additionally require
+/// one aligned registry-minted loaded-resource resolution per native texture;
+/// the compatibility extractor's unauthenticated textured output is rejected.
 struct Ogre14LegacyMaterialObservation final {
   std::uint32_t version = kOgre14LegacyMaterialObservationVersion;
   Ogre14LegacyAssetKey material_key;
@@ -167,16 +169,29 @@ private:
   Ogre14LegacyLiveMaterialCoordinator(
       Ogre14LegacyLiveMaterialCoordinatorConfiguration configuration,
       Ogre14LegacyMaterialSemanticRegistry semantic_registry,
-      std::unique_ptr<Ogre14LegacyAssetTranslator> translator) noexcept;
+      std::unique_ptr<Ogre14LegacyAssetTranslator> translator,
+      const IOgre14AuthenticatedTextureAuthorityProvider
+          *texture_authority_provider) noexcept;
 
   Ogre14LegacyLiveMaterialCoordinatorConfiguration configuration_;
   Ogre14LegacyMaterialSemanticRegistry semantic_registry_;
   std::unique_ptr<Ogre14LegacyAssetTranslator> translator_;
+  /// Borrowed stable scene-lifetime authority. The provider is queried at the
+  /// start of every frame, so an older resolution cannot survive any receipt
+  /// registry publication. A null provider admits only untextured captures.
+  const IOgre14AuthenticatedTextureAuthorityProvider
+      *texture_authority_provider_ = nullptr;
   std::unique_ptr<PendingFrame> pending_;
 
   friend ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
       const Ogre14LegacyLiveMaterialCoordinatorConfiguration &,
       const Ogre14LegacyMaterialSemanticRegistry &,
+      std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &,
+      IOgre14LegacyAssetTranslatorFaultInjector *);
+  friend ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
+      const Ogre14LegacyLiveMaterialCoordinatorConfiguration &,
+      const Ogre14LegacyMaterialSemanticRegistry &,
+      IOgre14AuthenticatedTextureAuthorityProvider &,
       std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &,
       IOgre14LegacyAssetTranslatorFaultInjector *);
 };
@@ -190,6 +205,18 @@ ValidateOgre14LegacyLiveMaterialCoordinatorConfiguration(
 [[nodiscard]] ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
     const Ogre14LegacyLiveMaterialCoordinatorConfiguration &configuration,
     const Ogre14LegacyMaterialSemanticRegistry &semantic_registry,
+    std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output,
+    IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector =
+        nullptr);
+
+/// Preferred textured-scene construction. `texture_authority_provider` is
+/// borrowed for the coordinator lifetime and must be the same scene authority
+/// that minted native extractor resolutions. It is queried afresh for every
+/// PrepareFrame call. Failure leaves `output` untouched.
+[[nodiscard]] ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
+    const Ogre14LegacyLiveMaterialCoordinatorConfiguration &configuration,
+    const Ogre14LegacyMaterialSemanticRegistry &semantic_registry,
+    IOgre14AuthenticatedTextureAuthorityProvider &texture_authority_provider,
     std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output,
     IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector =
         nullptr);

@@ -76,6 +76,7 @@
 #include <new>
 #include <openssl/evp.h>
 #include <type_traits>
+#include <utility>
 #include <vector>
 #include <regex>
 #include <rapidjson/stringbuffer.h>
@@ -242,6 +243,47 @@ ContentManager::~ContentManager()
 }
 
 #if OGRE_VERSION_MAJOR >= 14
+Render::ValidationResult
+ContentManager::CaptureAuthenticatedTextureAuthoritySnapshot(
+    Render::Ogre14AuthenticatedTextureAuthoritySnapshot& snapshot) const
+{
+    try
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const std::uintptr_t resolver_pointer_token =
+            reinterpret_cast<std::uintptr_t>(
+                static_cast<const Render::IOgre14AuthenticatedTextureResolver*>(
+                    this));
+        Render::Ogre14AuthenticatedTextureAuthoritySnapshot candidate;
+        const Render::ValidationResult mint =
+            m_authenticated_texture_receipts.MintResolverAuthoritySnapshot(
+                resolver_pointer_token, candidate);
+        if (!mint)
+        {
+            return mint;
+        }
+        static_assert(std::is_nothrow_move_assignable_v<
+            Render::Ogre14AuthenticatedTextureAuthoritySnapshot>);
+        snapshot = std::move(candidate);
+        return Render::ValidationResult::Success();
+    }
+    catch (const std::bad_alloc&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::EMPTY_PAYLOAD,
+            "texture_authority.allocation",
+            "allocation failed before texture authority publication");
+    }
+    catch (...)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "texture_authority.exception",
+            "unexpected exception before texture authority publication");
+    }
+}
+
 Render::ValidationResult ContentManager::ResolveAuthenticatedTexture(
     Ogre::Texture& texture,
     Render::Ogre14AuthenticatedTextureResolution& resolution) const
@@ -1357,9 +1399,17 @@ void ContentManager::resourceRemove(const Ogre::ResourcePtr& resource)
                 m_authenticated_texture_receipts);
         if (!removal)
         {
+            // OGRE has already removed the resource from its manager indices.
+            // Keeping the old immutable receipt publication would let a later
+            // frame authority authenticate a resource that no longer exists.
+            // Poison first; logging and recovery paths are allowed to fail,
+            // but current authority must never remain available.
+            Render::PoisonOgre14AuthenticatedTextureReceiptRegistry(
+                m_authenticated_texture_receipts);
             LOG(fmt::format(
                 "[RoR|ContentManager|AuthenticatedTexture] Refused stale "
-                "resource removal for '{}' in group '{}': {} ({})",
+                "resource removal for '{}' in group '{}'; texture authority "
+                "is terminally poisoned: {} ({})",
                 resource->getName(),
                 resource->getGroup(),
                 removal.detail,
@@ -3111,9 +3161,16 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
                 m_authenticated_texture_receipts);
         if (!removal)
         {
+            // This callback proves OGRE selected an untrusted stream after the
+            // authenticated resource binding was minted. If copy-on-write
+            // removal cannot publish, invalidate all current texture authority
+            // before formatting or logging anything fallible.
+            Render::PoisonOgre14AuthenticatedTextureReceiptRegistry(
+                m_authenticated_texture_receipts);
             LOG(fmt::format(
                 "[RoR|ContentManager|AuthenticatedTexture] Refused stale "
-                "stream-open binding removal for '{}' in group '{}': {} ({})",
+                "stream-open binding removal for '{}' in group '{}'; texture "
+                "authority is terminally poisoned: {} ({})",
                 resource->getName(),
                 resource->getGroup(),
                 removal.detail,

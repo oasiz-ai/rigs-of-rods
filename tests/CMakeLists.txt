@@ -1052,6 +1052,7 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
 )
 target_include_directories(
     ror_ogre14_live_material_coordinator_tests
@@ -1063,6 +1064,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
 )
 target_include_directories(
     ror_ogre14_graphics_scene_prepared_material_binding_tests

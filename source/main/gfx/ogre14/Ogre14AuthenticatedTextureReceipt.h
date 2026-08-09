@@ -32,6 +32,8 @@ constexpr std::uint32_t kOgre14AuthenticatedTextureReceiptVersion = 1U;
 constexpr std::uint32_t kOgre14AuthenticatedTextureCaptureInputVersion = 1U;
 constexpr std::uint32_t kOgre14AuthenticatedTextureRegistryVersion = 1U;
 constexpr std::uint32_t kOgre14AuthenticatedTextureResolutionVersion = 1U;
+constexpr std::uint32_t
+    kOgre14AuthenticatedTextureAuthoritySnapshotVersion = 1U;
 constexpr std::uint32_t kOgre14GeneratedTextureFallbackRuleVersion = 1U;
 constexpr const char kOgre14GeneratedTextureFallbackRule[] =
     "ror-legacy-material-procedural-dds-v1";
@@ -214,7 +216,9 @@ inline void MaybeInjectOgre14AuthenticatedArchiveMountFault(
 
 class Ogre14AuthenticatedTextureReceiptRegistry;
 class Ogre14AuthenticatedTextureResolution;
+class Ogre14AuthenticatedTextureAuthoritySnapshot;
 class IOgre14AuthenticatedTextureResolver;
+class IOgre14AuthenticatedTextureAuthorityProvider;
 
 namespace Testing {
 class Ogre14AuthenticatedTextureResolutionTestAccess;
@@ -316,6 +320,8 @@ private:
       const std::string &, std::uintptr_t, std::uint64_t,
       const std::string &, Ogre14AuthenticatedTextureReceiptRegistry &,
       IOgre14AuthenticatedTextureFaultInjector *);
+  friend void PoisonOgre14AuthenticatedTextureReceiptRegistry(
+      Ogre14AuthenticatedTextureReceiptRegistry &) noexcept;
   [[nodiscard]] ValidationResult MintLoadedResourceResolution(
       const std::string &effective_resource_group,
       std::uint64_t group_generation, std::uintptr_t resource_pointer_token,
@@ -332,6 +338,9 @@ private:
       const std::string &exact_resource_group,
       const std::string &exact_resource_name,
       std::uint64_t loaded_resource_state_count) const noexcept;
+  [[nodiscard]] ValidationResult MintResolverAuthoritySnapshot(
+      std::uintptr_t resolver_pointer_token,
+      Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) const;
 
   friend class ::RoR::ContentManager;
   friend class Testing::Ogre14AuthenticatedTextureResolutionTestAccess;
@@ -361,6 +370,13 @@ public:
       const noexcept;
   [[nodiscard]] std::uint64_t loaded_resource_state_count() const noexcept;
 
+  /// Exact authority equivalence for separately minted resolutions of the
+  /// same already-loaded resource. This is deliberately stronger than value
+  /// equality: both resolutions must retain the same registry snapshot,
+  /// source-receipt control block, resolver identity, and loaded state.
+  [[nodiscard]] bool SharesLoadedResourceAuthorityWith(
+      const Ogre14AuthenticatedTextureResolution &other) const noexcept;
+
   /// This is an extractor-side substitution check, not registry
   /// revalidation. Only the bound resolver can authoritatively revalidate the
   /// current registry snapshot immediately before publication.
@@ -379,7 +395,60 @@ private:
   std::shared_ptr<const State> state_;
 
   friend class Ogre14AuthenticatedTextureReceiptRegistry;
+  friend class Ogre14AuthenticatedTextureAuthoritySnapshot;
   friend class Testing::Ogre14AuthenticatedTextureResolutionTestAccess;
+};
+
+/// Opaque proof of one resolver and one exact current immutable receipt
+/// registry snapshot. The live coordinator obtains this from its trusted
+/// provider for every frame; callers cannot construct or rebox nonempty
+/// authority. It authenticates distinct texture resources from the same
+/// registry publication without requiring them to share a source receipt.
+class Ogre14AuthenticatedTextureAuthoritySnapshot final {
+public:
+  Ogre14AuthenticatedTextureAuthoritySnapshot() noexcept = default;
+  ~Ogre14AuthenticatedTextureAuthoritySnapshot() = default;
+  Ogre14AuthenticatedTextureAuthoritySnapshot(
+      const Ogre14AuthenticatedTextureAuthoritySnapshot &) noexcept = default;
+  Ogre14AuthenticatedTextureAuthoritySnapshot &operator=(
+      const Ogre14AuthenticatedTextureAuthoritySnapshot &) noexcept = default;
+  Ogre14AuthenticatedTextureAuthoritySnapshot(
+      Ogre14AuthenticatedTextureAuthoritySnapshot &&) noexcept = default;
+  Ogre14AuthenticatedTextureAuthoritySnapshot &operator=(
+      Ogre14AuthenticatedTextureAuthoritySnapshot &&) noexcept = default;
+
+  [[nodiscard]] bool initialized() const noexcept;
+  [[nodiscard]] std::uint32_t version() const noexcept;
+  [[nodiscard]] bool Authenticates(
+      const Ogre14AuthenticatedTextureResolution &resolution) const noexcept;
+  [[nodiscard]] bool SharesImmutableAuthorityWith(
+      const Ogre14AuthenticatedTextureAuthoritySnapshot &other) const noexcept;
+
+private:
+  Ogre14AuthenticatedTextureAuthoritySnapshot(
+      Ogre14AuthenticatedTextureReceiptRegistry registry_snapshot,
+      std::uintptr_t resolver_pointer_token) noexcept;
+
+  std::uint32_t version_ = 0U;
+  Ogre14AuthenticatedTextureReceiptRegistry registry_snapshot_;
+  std::uintptr_t resolver_pointer_token_ = 0U;
+
+  friend class Ogre14AuthenticatedTextureReceiptRegistry;
+  friend class Testing::Ogre14AuthenticatedTextureResolutionTestAccess;
+};
+
+/// Trusted scene authority which captures the resolver's current immutable
+/// registry publication. Implementations must serialize this call with
+/// resource lifecycle mutation. The coordinator invokes it once at the start
+/// of every frame instead of trusting a caller-supplied or first-observation
+/// snapshot.
+class IOgre14AuthenticatedTextureAuthorityProvider {
+public:
+  virtual ~IOgre14AuthenticatedTextureAuthorityProvider() = default;
+
+  [[nodiscard]] virtual ValidationResult
+  CaptureAuthenticatedTextureAuthoritySnapshot(
+      Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) const = 0;
 };
 
 /// Narrow OGRE-native authority used by the legacy extractor. Implementations
@@ -466,6 +535,14 @@ InitializeOgre14AuthenticatedTextureReceiptRegistry(
     const std::string &exact_resource_name,
     Ogre14AuthenticatedTextureReceiptRegistry &registry,
     IOgre14AuthenticatedTextureFaultInjector *fault_injector = nullptr);
+
+/// Terminally invalidates the current registry publication without allocating
+/// or throwing. Callers must use this immediately when OGRE has already
+/// removed or substituted a resource but the transactional registry removal
+/// could not publish. No new resolution or authority snapshot can then be
+/// minted until the owning ContentManager is reconstructed.
+void PoisonOgre14AuthenticatedTextureReceiptRegistry(
+    Ogre14AuthenticatedTextureReceiptRegistry &registry) noexcept;
 
 [[nodiscard]] bool IsLowercaseOgre14Sha256(
     const std::string &value) noexcept;

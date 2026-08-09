@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
 SOURCE = ROOT / "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+RECEIPT_HEADER = ROOT / "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+RECEIPT_SOURCE = ROOT / "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
 CPP_TEST = ROOT / "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
 PATHS = (
     "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp",
@@ -24,12 +27,15 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.header = HEADER.read_text(encoding="utf-8")
         cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.receipt_header = RECEIPT_HEADER.read_text(encoding="utf-8")
+        cls.receipt_source = RECEIPT_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
 
     def test_one_owned_registry_and_exclusive_translator_drive_the_frame(self) -> None:
         for token in (
             "Ogre14LegacyMaterialSemanticRegistry semantic_registry_",
             "std::unique_ptr<Ogre14LegacyAssetTranslator> translator_",
+            "texture_authority_provider_",
             "std::unique_ptr<PendingFrame> pending_",
             "semantic_registry.Resolve(",
             "BeginCommittableTransaction(",
@@ -52,8 +58,14 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "EquivalentOgre14LegacyMaterialPipelineAudit(",
             "std::owner_less<NativeAuditOwner>",
             "SameNativeCapture(",
-            "std::map<std::string, const Ogre14LegacyTextureInput *",
-            "!SameTexture(*existing->second, texture)",
+            "std::map<std::string, IndexedTexture, std::less<>> textures",
+            "authenticated_texture_resolutions.size() !=",
+            "SharesLoadedResourceAuthorityWith(",
+            "CaptureAuthenticatedTextureAuthoritySnapshot(",
+            "texture_authority.Authenticates(texture_resolution)",
+            "source_receipt->metadata()",
+            "source.binding.resource_state_count + 1U",
+            "!SameTexture(*existing->second.texture, texture)",
             "live native texture mip bytes are not canonical and",
             '"tightly packed"',
             "observed native texture bytes exceed the configured frame cap",
@@ -65,6 +77,15 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             '"declaration"',
         ):
             self.assertIn(token, self.header + self.source)
+        for token in (
+            "SharesLoadedResourceAuthorityWith(",
+            "registry_snapshot.SharesImmutableStateWith(",
+            "exact_source_receipt.SharesImmutableStateWith(",
+            "resolver_pointer_token == other.state_->resolver_pointer_token",
+            "class Ogre14AuthenticatedTextureAuthoritySnapshot final",
+            "registry_snapshot_.SharesImmutableStateWith(",
+        ):
+            self.assertIn(token, self.receipt_header + self.receipt_source)
         preflight_index = self.source.index(
             "translator_->PreflightLifetimeAdmission(identity_view)"
         )
@@ -125,6 +146,21 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
         for token in (
             "shared texture capture was accepted",
             "shared material observations did not reuse one canonical native",
+            "separately minted resolutions for one exact loaded resource did",
+            "textured observation without an authenticated resolution was accepted",
+            "textured observation with an empty authenticated resolution was accepted",
+            "authenticated resolution for another texture identity was accepted",
+            "authenticated resolution with a stale texture revision was accepted",
+            "lone foreign texture authority was accepted",
+            "distinct texture keys from different registry snapshots were accepted",
+            "old texture proof survived an unrelated registry publication",
+            "removed texture resource retained frame authority",
+            "group teardown retained stale texture authority",
+            "textured frame without a trusted scene authority was accepted",
+            "hostile texture authority provider published a material frame",
+            "hostile texture authority provider mutated caller output",
+            "untextured observation with an authenticated resolution was accepted",
+            "one shared texture key accepted conflicting authenticated source",
             "same material value under different native audit owners was accepted",
             "missing native material audit owner was accepted",
             "same-value reboxed native audit bypassed the opaque capture receipt",
@@ -180,6 +216,19 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             self.assertIn("Ogre14LegacyLiveMaterialCoordinatorTests.cpp", cmake)
             self.assertIn("Ogre14LegacyLiveMaterialCoordinator.cpp", cmake)
             self.assertIn("Ogre14LegacyMaterialSemanticRegistry.cpp", cmake)
+            for target in (
+                "ror_ogre14_live_material_coordinator_tests",
+                "ror_ogre14_graphics_scene_prepared_material_binding_tests",
+            ):
+                match = re.search(
+                    rf"add_executable\(\s*{re.escape(target)}\b.*?\)",
+                    cmake,
+                    re.DOTALL,
+                )
+                self.assertIsNotNone(match, target)
+                self.assertIn(
+                    "Ogre14AuthenticatedTextureReceipt.cpp", match.group(0)
+                )
         self.assertIn(
             "gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp}", main_cmake
         )
