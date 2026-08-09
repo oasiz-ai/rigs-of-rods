@@ -7,13 +7,89 @@
 
 #include "LegacyMaterialScriptSanitizer.h"
 
+#include <openssl/evp.h>
+
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdint>
+#include <limits>
+#include <vector>
 
 namespace RoR
 {
 namespace
 {
+
+void AppendLittleEndian32(std::vector<std::uint8_t>& bytes, std::uint32_t value)
+{
+    for (std::uint32_t shift = 0U; shift < 32U; shift += 8U)
+    {
+        bytes.push_back(static_cast<std::uint8_t>((value >> shift) & 0xffU));
+    }
+}
+
+void AppendLittleEndian64(std::vector<std::uint8_t>& bytes, std::uint64_t value)
+{
+    for (std::uint32_t shift = 0U; shift < 64U; shift += 8U)
+    {
+        bytes.push_back(static_cast<std::uint8_t>((value >> shift) & 0xffU));
+    }
+}
+
+bool AppendCanonicalString(
+    std::vector<std::uint8_t>& bytes,
+    const std::string& value)
+{
+    if (value.size() > (std::numeric_limits<std::uint32_t>::max)())
+    {
+        return false;
+    }
+    AppendLittleEndian32(bytes, static_cast<std::uint32_t>(value.size()));
+    bytes.insert(bytes.end(), value.begin(), value.end());
+    return true;
+}
+
+bool IsCanonicalSha256(const std::string& value)
+{
+    if (value.size() != 64U)
+    {
+        return false;
+    }
+    for (const char character : value)
+    {
+        if (!((character >= '0' && character <= '9') ||
+              (character >= 'a' && character <= 'f')))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool DigestCanonicalBytes(
+    const std::vector<std::uint8_t>& bytes,
+    std::string& out_sha256)
+{
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+    unsigned int digest_size = 0U;
+    if (EVP_Digest(
+            bytes.data(), bytes.size(), digest.data(), &digest_size,
+            EVP_sha256(), nullptr) != 1 ||
+        digest_size != 32U)
+    {
+        return false;
+    }
+    static constexpr char HEX[] = "0123456789abcdef";
+    std::string candidate(64U, '0');
+    for (std::size_t index = 0U; index < 32U; ++index)
+    {
+        candidate[index * 2U] = HEX[digest[index] >> 4U];
+        candidate[index * 2U + 1U] = HEX[digest[index] & 0x0fU];
+    }
+    out_sha256.swap(candidate);
+    return true;
+}
 
 const char CITYWORLD_ARCHIVE_SHA256[] =
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
@@ -845,6 +921,111 @@ LegacyMaterialScriptPlanApplication ApplyLegacyMaterialScriptEditPlan(
     result.payload = patched;
     result.applied_edit_count = plan.edit_count;
     return result;
+}
+
+bool ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+    const LegacyMaterialScriptEditPlan& plan,
+    const std::string& exact_member_name,
+    const std::string& observed_script_sha256,
+    std::string& out_sha256)
+{
+    try
+    {
+        if (plan.archive_sha256 == nullptr || plan.script_name == nullptr ||
+            plan.script_sha256 == nullptr || plan.edits == nullptr ||
+            plan.edit_count == 0U ||
+            exact_member_name != plan.script_name ||
+            observed_script_sha256 != plan.script_sha256 ||
+            !IsCanonicalSha256(plan.archive_sha256) ||
+            !IsCanonicalSha256(observed_script_sha256) ||
+            plan.edit_count > kLegacyMaterialScriptMaximumRepairPlanEdits ||
+            plan.edit_count > (std::numeric_limits<std::uint32_t>::max)())
+        {
+            return false;
+        }
+
+        std::vector<std::uint8_t> canonical;
+        canonical.reserve(256U + plan.edit_count * 32U);
+        if (!AppendCanonicalString(
+                canonical, "ror.ogre14.material-script-repair.applied") ||
+            !AppendCanonicalString(canonical, plan.archive_sha256) ||
+            !AppendCanonicalString(canonical, exact_member_name) ||
+            !AppendCanonicalString(canonical, observed_script_sha256))
+        {
+            return false;
+        }
+        AppendLittleEndian32(
+            canonical, kLegacyMaterialScriptRepairPlanVersion);
+        AppendLittleEndian32(
+            canonical, static_cast<std::uint32_t>(plan.edit_count));
+        for (std::size_t index = 0U; index < plan.edit_count; ++index)
+        {
+            const LegacyMaterialScriptEdit& edit = plan.edits[index];
+            if (edit.expected == nullptr || edit.replacement == nullptr ||
+                edit.line == 0U)
+            {
+                return false;
+            }
+            switch (edit.kind)
+            {
+            case LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE:
+                AppendLittleEndian32(canonical, 0U);
+                break;
+            case LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE:
+                AppendLittleEndian32(canonical, 1U);
+                break;
+            default:
+                return false;
+            }
+            AppendLittleEndian64(
+                canonical, static_cast<std::uint64_t>(edit.line));
+            if (!AppendCanonicalString(canonical, edit.expected) ||
+                !AppendCanonicalString(canonical, edit.replacement))
+            {
+                return false;
+            }
+        }
+        return DigestCanonicalBytes(canonical, out_sha256);
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+bool ComputeLegacyMaterialScriptNoRepairPlanSha256(
+    const std::string& archive_sha256,
+    const std::string& exact_member_name,
+    const std::string& observed_script_sha256,
+    std::string& out_sha256)
+{
+    try
+    {
+        if (!IsCanonicalSha256(archive_sha256) ||
+            exact_member_name.empty() ||
+            !IsCanonicalSha256(observed_script_sha256))
+        {
+            return false;
+        }
+        std::vector<std::uint8_t> canonical;
+        canonical.reserve(256U);
+        if (!AppendCanonicalString(
+                canonical, "ror.ogre14.material-script-repair.none") ||
+            !AppendCanonicalString(canonical, archive_sha256) ||
+            !AppendCanonicalString(canonical, exact_member_name) ||
+            !AppendCanonicalString(canonical, observed_script_sha256))
+        {
+            return false;
+        }
+        AppendLittleEndian32(
+            canonical, kLegacyMaterialScriptRepairPlanVersion);
+        AppendLittleEndian32(canonical, 0U);
+        return DigestCanonicalBytes(canonical, out_sha256);
+    }
+    catch (...)
+    {
+        return false;
+    }
 }
 
 } // namespace RoR

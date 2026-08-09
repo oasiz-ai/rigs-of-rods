@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace RoR {
 
@@ -19,6 +20,42 @@ constexpr std::uint32_t
 constexpr std::uint64_t
     TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES =
         512ULL * 1024ULL * 1024ULL;
+constexpr std::uint32_t
+    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_PREFLIGHT_VERSION = 1U;
+constexpr std::uint64_t
+    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_ENTRIES = 65536U;
+constexpr std::uint64_t
+    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_MEMBER_IDENTITY_BYTES =
+        16ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t
+    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_MEMBER_BYTES =
+        512ULL * 1024ULL * 1024ULL;
+constexpr std::uint64_t
+    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_TOTAL_MEMBER_BYTES =
+        1024ULL * 1024ULL * 1024ULL;
+constexpr std::size_t
+    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_MEMBER_NAME_BYTES = 16384U;
+
+struct TerrainBundleAuthenticatedArchiveMemberPreflight final
+{
+    std::string exact_member_name;
+    std::uint64_t compressed_size = 0U;
+    std::uint64_t uncompressed_size = 0U;
+    std::uint32_t crc32 = 0U;
+    bool directory = false;
+};
+
+/// Bounded metadata parsed directly from the immutable ZIP central and local
+/// records before OGRE or EmbeddedZip observes the archive. `members` includes
+/// directory entries because they also consume native index capacity.
+struct TerrainBundleAuthenticatedArchivePreflight final
+{
+    std::uint32_t version =
+        TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_PREFLIGHT_VERSION;
+    std::uint64_t retained_member_identity_bytes = 0U;
+    std::uint64_t total_uncompressed_bytes = 0U;
+    std::vector<TerrainBundleAuthenticatedArchiveMemberPreflight> members;
+};
 
 /// Immutable owner for the exact archive bytes finalized by SHA-256. This is
 /// the only input accepted by the authenticated EmbeddedZip mount path, so
@@ -82,6 +119,17 @@ bool LoadAndVerifyTerrainBundleArchiveSnapshot(
     std::uint64_t maximum_archive_bytes,
     TerrainBundleAuthenticatedArchiveSnapshot& out_snapshot,
     std::string& out_observed_sha256,
+    std::string& out_error);
+
+/// Parses the immutable snapshot's classic or ZIP64 central-directory
+/// envelope without mounting or decompressing it. The parser rejects count,
+/// name, identity, decoded-size, compression/flag, local-span, descriptor,
+/// arithmetic, directory-classification, overlap, and lookup-alias hazards
+/// before any entry-controlled OGRE allocation. Output is transactional on
+/// failure.
+bool BuildTerrainBundleAuthenticatedArchivePreflight(
+    const TerrainBundleAuthenticatedArchiveSnapshot& archive_snapshot,
+    TerrainBundleAuthenticatedArchivePreflight& out_preflight,
     std::string& out_error);
 
 } // namespace RoR

@@ -242,6 +242,16 @@ void TestStableDiagnosticNames()
 
 int main()
 {
+    CHECK(
+        !RoR::TerrainBundleDependencyTeardownMustFailStop(
+            false, false, false));
+    CHECK(
+        RoR::TerrainBundleDependencyTeardownMustFailStop(true, false, false));
+    CHECK(
+        RoR::TerrainBundleDependencyTeardownMustFailStop(true, true, false));
+    CHECK(
+        !RoR::TerrainBundleDependencyTeardownMustFailStop(true, true, true));
+
     TestValidExactDependencies();
     TestMalformedAndUnsafeNames();
     TestDuplicatesAndQuotas();

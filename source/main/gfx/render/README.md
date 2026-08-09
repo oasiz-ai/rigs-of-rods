@@ -1063,3 +1063,15 @@ exceptions preserve the prior output. This module has no Ogre types, GPU
 readback, host-structure casts, floating-point interpolation, or third-party
 decoder dependency. It normalizes authenticated source bytes; it does not yet
 connect content archives to the live material transaction.
+
+`gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt` is the corresponding
+source-script authority. `ContentManager` consumes the pinned exact pre-open
+archive/FileInfo seam, owns the exact original/effective bytes and reviewed
+repair-plan digest, creates each admitted native Material itself, and publishes
+only one complete resource-group generation after pointer/handle/name/group/
+origin revalidation. Each material retains the conservative ordered closure of
+its authenticated root script and all compiler imports plus a unique primary
+source index. This receipt proves creation/source lineage only; decoded texture
+pixels, semantic declarations, and the final native material-declaration digest
+remain separate mandatory authorities. The full contract is documented in
+`doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md`.

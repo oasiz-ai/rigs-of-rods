@@ -1080,6 +1080,25 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
 add_executable(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+)
+target_include_directories(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    PRIVATE ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1
+)
+target_link_libraries(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    PRIVATE OpenSSL::Crypto Threads::Threads
+)
+add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
 )
@@ -1240,6 +1259,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_live_material_coordinator_tests
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     ror_ogre14_authenticated_texture_receipt_tests
+    ror_ogre14_authenticated_material_script_receipt_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
     ror_render_bridge_control_transport_tests
@@ -1267,7 +1287,44 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre_next_dxr7_contract_tests
 )
 
-if (ROR_OGRE14 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+if (ROR_OGRE14 AND TARGET RoR)
+    # Exercise the exact production ContentManager and OGRE managers through
+    # the already-linked RoR host. This avoids a second, potentially divergent
+    # copy of the game while keeping the private native authority test-only.
+    target_sources(
+        RoR
+        PRIVATE
+            "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
+    )
+    target_compile_definitions(
+        RoR
+        PRIVATE
+            ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING=1
+    )
+
+    add_executable(
+        ror_ogre14_authenticated_archive_location_closure_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_authenticated_archive_location_closure_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre14_authenticated_archive_location_closure_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_authenticated_archive_location_closure_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_authenticated_archive_location_closure_tests)
+
     add_executable(
         ror_ogre14_legacy_native_asset_extractor_compile_tests
         "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
@@ -1616,6 +1673,10 @@ add_executable(
     ror_legacy_material_script_sanitizer_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/LegacyMaterialScriptSanitizerTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+)
+target_link_libraries(
+    ror_legacy_material_script_sanitizer_tests
+    PRIVATE OpenSSL::Crypto
 )
 if (MSVC)
     # The pinned-fixture opt-in uses the standard getenv API. Keep this
@@ -2489,6 +2550,28 @@ if (TARGET ror_ogre14_legacy_native_asset_extractor_compile_tests)
     )
 endif ()
 
+if (TARGET ror_ogre14_authenticated_archive_location_closure_tests)
+    add_test(
+        NAME ogre14_authenticated_archive_location_closure
+        COMMAND
+            ror_ogre14_authenticated_archive_location_closure_tests
+            "${ROR_REPOSITORY_ROOT}/resources/meshes"
+    )
+endif ()
+
+if (TARGET RoR AND ROR_OGRE14)
+    add_test(
+        NAME ogre14_authenticated_material_script_native_integration
+        COMMAND
+            $<TARGET_FILE:RoR>
+            --internal-ogre14-authenticated-material-script-native-integration
+    )
+    set_tests_properties(
+        ogre14_authenticated_material_script_native_integration
+        PROPERTIES TIMEOUT 60
+    )
+endif ()
+
 if (TARGET ror_ogre14_flex_shadow_load_tests)
     add_test(
         NAME ogre14_flex_shadow_load
@@ -2541,6 +2624,11 @@ add_test(
 add_test(
     NAME ogre14_authenticated_texture_receipt
     COMMAND ror_ogre14_authenticated_texture_receipt_tests
+)
+
+add_test(
+    NAME ogre14_authenticated_material_script_receipt
+    COMMAND ror_ogre14_authenticated_material_script_receipt_tests
 )
 
 add_test(

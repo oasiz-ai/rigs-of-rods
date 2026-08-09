@@ -73,6 +73,14 @@
 #include <iostream>
 #include <memory>
 #include <string>
+
+#if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
+namespace RoR {
+int RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
+    int argc,
+    char** argv);
+} // namespace RoR
+#endif
 #include <thread>
 #include <vector>
 #include <fstream>
@@ -308,6 +316,17 @@ int main(int argc, char *argv[])
         std::fflush(stderr);
         return 70;
     }
+
+#if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
+    if (argc >= 2 &&
+        std::strcmp(
+            argv[1],
+            "--internal-ogre14-authenticated-material-script-native-integration") == 0)
+    {
+        return RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
+            argc, argv);
+    }
+#endif
 
 #ifdef USE_CURL
     curl_global_init(CURL_GLOBAL_ALL); // MUST init before any threads are started

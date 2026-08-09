@@ -147,7 +147,7 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             "Render::ValidationCode::MISSING_REFERENCE",
             "location.archive->isCaseSensitive()",
             "indexed_file.path + indexed_file.basename",
-            "is_texture_resource ? selected_member_name : name",
+            "authenticated_stream = selected_archive->open(selected_member_name)",
             "receipt.source_bytes(), receipt.source_size()",
             "return replacement",
             "IsLowercaseOgre14Sha256(",
@@ -229,7 +229,8 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             "std::is_nothrow_destructible_v<",
             "m_authenticated_package_archive_pending_snapshots",
             "MAX_AUTHENTICATED_EMBEDDED_ZIP_REGISTRATION_ATTEMPTS = 65536U",
-            "archive_still_published",
+            "rollback_authority.AuthenticatesExclusive(",
+            "rollback_authority.AuthenticatesDetached(",
             "Ogre::EmbeddedZipArchiveFactory::removeEmbbeddedFile",
             "std::terminate();",
         ):

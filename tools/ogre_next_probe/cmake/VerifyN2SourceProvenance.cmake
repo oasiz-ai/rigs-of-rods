@@ -31,6 +31,7 @@ set(_ror_n2_relevant_source_paths
     cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
     conanfile.py
     doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
+    doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
     doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
     doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
     source/main/GameContext.cpp
@@ -113,6 +114,10 @@ set(_ror_n2_relevant_source_paths
     source/main/resources/CacheSystem.cpp
     source/main/resources/ContentManager.cpp
     source/main/resources/ContentManager.h
+    source/main/resources/LegacyMaterialScriptSanitizer.cpp
+    source/main/resources/LegacyMaterialScriptSanitizer.h
+    source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
+    source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
     source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp
     source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h
     source/main/gfx/render
@@ -126,6 +131,11 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h
     source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp
     source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h
+    source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp
+    source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h
+    source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
+    source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
+    tests/CMakeLists.txt
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
     tests/gfx/GfxActorCaptureInventoryTests.cpp
@@ -136,6 +146,11 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
     tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+    tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
+    tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
+    tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
+    tests/resources/LegacyMaterialScriptSanitizerTests.cpp
+    tests/resources/TerrainBundleDependencyTests.cpp
     tests/resources/TerrainBundleArchiveVerifierTests.cpp
     tests/tools/assert_ogre_recipe_graph.py
     tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py
@@ -187,6 +202,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre14_live_material_coordinator_contract.py
     tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py
     tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
+    tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
     tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
     tests/tools/test_ogre14_terrain_composite_recipe_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
@@ -249,6 +265,7 @@ list(APPEND _ror_n2_relevant_source_files
     "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
     "conanfile.py"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
+    "doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md"
     "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
     "doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md"
     "source/main/GameContext.cpp"
@@ -331,6 +348,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/resources/CacheSystem.cpp"
     "source/main/resources/ContentManager.cpp"
     "source/main/resources/ContentManager.h"
+    "source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+    "source/main/resources/LegacyMaterialScriptSanitizer.h"
+    "source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp"
+    "source/main/resources/terrn2_fileformat/TerrainBundleDependency.h"
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
@@ -343,6 +364,11 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h"
+    "tests/CMakeLists.txt"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
@@ -353,6 +379,11 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
     "tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
+    "tests/resources/LegacyMaterialScriptSanitizerTests.cpp"
+    "tests/resources/TerrainBundleDependencyTests.cpp"
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
     "tests/tools/assert_ogre_recipe_graph.py"
     "tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py"
@@ -404,6 +435,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre14_live_material_coordinator_contract.py"
     "tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
+    "tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
     "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
