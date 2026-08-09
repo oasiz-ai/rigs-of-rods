@@ -9,15 +9,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <new>
 #include <type_traits>
 #include <utility>
 
-static_assert(
-    std::is_nothrow_move_assignable<
-        RoR::Render::Ogre14TerrainCompositeCaptureReceipt>::value,
-    "terrain composite receipt publication must be transactional");
+static_assert(std::is_nothrow_move_assignable<
+                  RoR::Render::Ogre14TerrainCompositeCaptureReceipt>::value,
+              "terrain composite receipt publication must be transactional");
 
 namespace RoR::Render {
 namespace {
@@ -27,10 +27,18 @@ ValidationResult Failure(ValidationCode code, const char *field,
   return ValidationResult::Failure(code, field, detail);
 }
 
+bool CheckedAddU64(std::uint64_t lhs, std::uint64_t rhs,
+                   std::uint64_t &result) noexcept {
+  if (rhs > (std::numeric_limits<std::uint64_t>::max)() - lhs) {
+    return false;
+  }
+  result = lhs + rhs;
+  return true;
+}
+
 bool CheckedMultiplyU64(std::uint64_t lhs, std::uint64_t rhs,
                         std::uint64_t &result) noexcept {
-  if (lhs != 0U &&
-      rhs > (std::numeric_limits<std::uint64_t>::max)() / lhs) {
+  if (lhs != 0U && rhs > (std::numeric_limits<std::uint64_t>::max)() / lhs) {
     return false;
   }
   result = lhs * rhs;
@@ -52,6 +60,20 @@ ValidationResult TightRgbaLayout(std::uint32_t width, std::uint32_t height,
                    "tight PF_BYTE_RGBA byte count overflows uint64");
   }
   return ValidationResult::Success();
+}
+
+std::uint32_t FullMipLevelCount(std::uint32_t width,
+                                std::uint32_t height) noexcept {
+  std::uint32_t count = 0U;
+  while (width != 0U && height != 0U) {
+    ++count;
+    if (width == 1U && height == 1U) {
+      break;
+    }
+    width = (std::max)(1U, width / 2U);
+    height = (std::max)(1U, height / 2U);
+  }
+  return count;
 }
 
 bool IsIdentifier(const std::string &value, std::size_t maximum_bytes,
@@ -86,6 +108,51 @@ bool IsFinitePosition(const std::array<float, 3U> &position) noexcept {
          std::isfinite(position[2U]);
 }
 
+std::uint32_t FloatBits(float value) noexcept {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value),
+                "terrain composite float facts require binary32 storage");
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+bool SameFloatBits(float lhs, float rhs) noexcept {
+  return FloatBits(lhs) == FloatBits(rhs);
+}
+
+template <std::size_t Size>
+bool SameFloatArrayBits(const std::array<float, Size> &lhs,
+                        const std::array<float, Size> &rhs) noexcept {
+  for (std::size_t index = 0U; index < Size; ++index) {
+    if (!SameFloatBits(lhs[index], rhs[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const std::array<float, 16U> &IdentityTextureTransform() noexcept {
+  static const std::array<float, 16U> identity{{
+      1.0F,
+      0.0F,
+      0.0F,
+      0.0F,
+      0.0F,
+      1.0F,
+      0.0F,
+      0.0F,
+      0.0F,
+      0.0F,
+      1.0F,
+      0.0F,
+      0.0F,
+      0.0F,
+      0.0F,
+      1.0F,
+  }};
+  return identity;
+}
+
 ValidationResult ValidateConfiguration(
     const Ogre14TerrainCompositeCaptureConfiguration &configuration) {
   if (configuration.version !=
@@ -102,7 +169,10 @@ ValidationResult ValidateConfiguration(
           kOgre14TerrainCompositeHardMaximumRgbaBytes ||
       configuration.maximum_identifier_bytes == 0U ||
       configuration.maximum_identifier_bytes >
-          kOgre14TerrainCompositeHardMaximumIdentifierBytes) {
+          kOgre14TerrainCompositeHardMaximumIdentifierBytes ||
+      configuration.maximum_mip_levels == 0U ||
+      configuration.maximum_mip_levels >
+          kOgre14TerrainCompositeHardMaximumMipLevels) {
     return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
                    "terrain_composite.configuration.caps",
                    "terrain composite capture caps exceed hard bounds");
@@ -110,11 +180,95 @@ ValidationResult ValidateConfiguration(
   return ValidationResult::Success();
 }
 
+bool IsKnownSceneFogMode(Ogre14TerrainCompositeSceneFogMode mode) noexcept {
+  switch (mode) {
+  case Ogre14TerrainCompositeSceneFogMode::FOG_NONE:
+  case Ogre14TerrainCompositeSceneFogMode::FOG_EXP:
+  case Ogre14TerrainCompositeSceneFogMode::FOG_EXP2:
+  case Ogre14TerrainCompositeSceneFogMode::FOG_LINEAR:
+    return true;
+  }
+  return false;
+}
+
+ValidationResult ValidateSampling(
+    const Ogre14TerrainCompositeNativeObservation &observation) {
+  const Ogre14TerrainCompositeSamplingObservation &sampling =
+      observation.sampling;
+  if (sampling.scene_manager_pointer_token == 0U ||
+      sampling.texture_unit_pointer_token == 0U ||
+      sampling.sampler_pointer_token == 0U ||
+      sampling.bound_texture_pointer_token == 0U) {
+    return Failure(ValidationCode::INVALID_HANDLE,
+                   "terrain_composite.observation.sampling_identity",
+                   "scene, texture-unit, sampler, and texture identities must "
+                   "be nonzero");
+  }
+  if (sampling.bound_texture_pointer_token !=
+          observation.texture_pointer_token ||
+      !sampling.texture_unit_content_named ||
+      sampling.texture_unit_frame_count != 1U ||
+      sampling.texture_unit_current_frame != 0U ||
+      !sampling.texture_unit_texture_2d || sampling.texture_unit_is_blank ||
+      sampling.texture_unit_load_failing ||
+      sampling.unordered_access_mip_level != -1) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "terrain_composite.observation.texture_unit_binding",
+                   "the exact named frame-zero 2D texture unit must remain "
+                   "bound to the captured composite texture");
+  }
+  if (sampling.texture_coord_set != 0U ||
+      !sampling.texcoord_calculation_none ||
+      sampling.texture_effect_count != 0U ||
+      !SameFloatBits(sampling.texture_u_scroll, 0.0F) ||
+      !SameFloatBits(sampling.texture_v_scroll, 0.0F) ||
+      !SameFloatBits(sampling.texture_u_scale, 1.0F) ||
+      !SameFloatBits(sampling.texture_v_scale, 1.0F) ||
+      !SameFloatBits(sampling.texture_rotation_radians, 0.0F) ||
+      !SameFloatArrayBits(sampling.texture_transform,
+                          IdentityTextureTransform())) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "terrain_composite.observation.sampling_uv",
+                   "terrain composite transport requires UV0, TEXCALC_NONE, "
+                   "no effects, and an exact identity texture transform");
+  }
+  const std::array<float, 4U> black{{0.0F, 0.0F, 0.0F, 1.0F}};
+  if (sampling.address_u != Ogre14TerrainCompositeAddressMode::CLAMP ||
+      sampling.address_v != Ogre14TerrainCompositeAddressMode::CLAMP ||
+      sampling.address_w != Ogre14TerrainCompositeAddressMode::CLAMP ||
+      sampling.min_filter != Ogre14TerrainCompositeFilter::LINEAR ||
+      sampling.mag_filter != Ogre14TerrainCompositeFilter::LINEAR ||
+      sampling.mip_filter != Ogre14TerrainCompositeFilter::POINT ||
+      sampling.maximum_anisotropy != 1U ||
+      !SameFloatBits(sampling.mipmap_bias, 0.0F) ||
+      sampling.compare_enabled ||
+      sampling.compare_function !=
+          Ogre14TerrainCompositeCompareFunction::GREATER_EQUAL ||
+      !SameFloatArrayBits(sampling.border_colour, black)) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "terrain_composite.observation.sampling_sampler",
+                   "terrain composite sampler must be exact clamp/bilinear, "
+                   "point mip, black border, and non-comparison state");
+  }
+  if (sampling.texture_unit_hardware_gamma_enabled !=
+      observation.texture_hardware_gamma_enabled) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "terrain_composite.observation.gamma_agreement",
+                   "Texture and exact bound TextureUnitState hardware-gamma "
+                   "facts must agree");
+  }
+  if (!IsKnownSceneFogMode(sampling.scene_fog_mode)) {
+    return Failure(ValidationCode::INVALID_ENUM,
+                   "terrain_composite.observation.scene_fog_mode",
+                   "SceneManager exposes an unknown direct fog mode");
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateObservation(
     const Ogre14TerrainCompositeCaptureConfiguration &configuration,
     const Ogre14TerrainCompositeNativeObservation &observation) {
-  if (observation.version !=
-      kOgre14TerrainCompositeNativeObservationVersion) {
+  if (observation.version != kOgre14TerrainCompositeNativeObservationVersion) {
     return Failure(ValidationCode::UNSUPPORTED_VERSION,
                    "terrain_composite.observation.version",
                    "unsupported native terrain composite observation");
@@ -127,7 +281,8 @@ ValidationResult ValidateObservation(
       observation.texture_handle == 0U) {
     return Failure(ValidationCode::INVALID_HANDLE,
                    "terrain_composite.observation.native_identity",
-                   "terrain, texture, and pixel-buffer identities must be nonzero");
+                   "terrain, texture, and level-zero pixel-buffer identities "
+                   "must be nonzero");
   }
   if (!IsIdentifier(observation.exact_terrain_resource_group,
                     configuration.maximum_identifier_bytes) ||
@@ -147,7 +302,8 @@ ValidationResult ValidateObservation(
                     configuration.maximum_identifier_bytes)) {
     return Failure(ValidationCode::INVALID_IDENTIFIER,
                    "terrain_composite.observation.identifiers",
-                   "native terrain composite identifiers are empty, oversized, or contain NUL");
+                   "native terrain composite identifiers are empty, oversized, "
+                   "or contain NUL");
   }
   if (!IsKnownPageDefinitionKind(observation.page_definition_kind) ||
       (observation.page_definition_kind ==
@@ -164,12 +320,11 @@ ValidationResult ValidateObservation(
         observation.definition_import_data_pointer_token != 0U))) {
     return Failure(ValidationCode::INVALID_ASSET_REFERENCE,
                    "terrain_composite.observation.page_definition",
-                   "Terrain page definition kind, filename, and ImportData identity disagree");
+                   "terrain page definition kind disagrees with its exact "
+                   "source identity");
   }
-  if (observation.slot_x < -32768 || observation.slot_x > 32767 ||
-      observation.slot_y < -32768 || observation.slot_y > 32767 ||
-      !IsKnownAlignment(observation.terrain_alignment) ||
-      observation.terrain_size < 3U ||
+  if (!IsKnownAlignment(observation.terrain_alignment) ||
+      observation.terrain_size < 2U ||
       !std::isfinite(observation.terrain_world_size) ||
       observation.terrain_world_size <= 0.0F ||
       !IsFinitePosition(observation.terrain_world_position) ||
@@ -177,23 +332,15 @@ ValidationResult ValidateObservation(
       observation.terrain_derived_data_update_in_progress) {
     return Failure(ValidationCode::INVALID_DIMENSIONS,
                    "terrain_composite.observation.terrain_page",
-                   "native terrain page layout or transform is invalid");
+                   "native terrain page layout or loaded state is invalid");
   }
-
-  std::uint64_t row_pitch = 0U;
-  std::uint64_t slice_pitch = 0U;
-  ValidationResult layout = TightRgbaLayout(
-      observation.texture_width, observation.texture_height, row_pitch,
-      slice_pitch);
-  if (!layout) {
-    return layout;
-  }
-  if (observation.texture_width > configuration.maximum_dimension ||
-      observation.texture_height > configuration.maximum_dimension ||
-      slice_pitch > configuration.maximum_rgba_bytes) {
-    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
-                   "terrain_composite.observation.texture_cap",
-                   "native terrain composite exceeds configured capture caps");
+  if (observation.texture_width == 0U || observation.texture_height == 0U ||
+      observation.texture_width > configuration.maximum_dimension ||
+      observation.texture_height > configuration.maximum_dimension) {
+    return Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "terrain_composite.observation.texture_cap",
+        "native terrain composite dimensions exceed configured capture caps");
   }
   if (observation.pixel_encoding !=
           Ogre14TerrainCompositePixelEncoding::BYTE_RGBA ||
@@ -201,83 +348,201 @@ ValidationResult ValidateObservation(
           Ogre14TerrainCompositeTextureType::TEXTURE_2D ||
       observation.texture_loading_state !=
           Ogre14TerrainCompositeTextureLoadingState::LOADED ||
-      observation.texture_depth != 1U ||
-      observation.texture_face_count != 1U ||
-      observation.texture_mip_count == 0U ||
+      observation.texture_depth != 1U || observation.texture_face_count != 1U ||
       observation.selected_face != 0U || observation.selected_mip != 0U ||
-      !observation.texture_is_loaded ||
-      !observation.texture_is_manual) {
-    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
-                   "terrain_composite.observation.texture_state",
-                   "capture requires one loaded manual 2D PF_BYTE_RGBA texture at face zero, mip zero");
+      !observation.texture_is_loaded || !observation.texture_is_manual) {
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "terrain_composite.observation.texture_state",
+        "capture requires one loaded manual 2D PF_BYTE_RGBA texture");
   }
   if (observation.texture_resource_revision == 0U ||
       observation.texture_resource_revision ==
           (std::numeric_limits<std::uint64_t>::max)()) {
     return Failure(ValidationCode::REVISION_MISMATCH,
                    "terrain_composite.observation.resource_revision",
-                   "terrain composite resource revision must be stable, nonzero, and advanceable");
+                   "terrain composite resource revision must be stable, "
+                   "nonzero, and advanceable");
   }
-  if (observation.tight_row_pitch_bytes != row_pitch ||
-      observation.tight_slice_pitch_bytes != slice_pitch) {
+
+  const std::uint32_t expected_mips =
+      FullMipLevelCount(observation.texture_width, observation.texture_height);
+  if (observation.texture_additional_mip_count ==
+          (std::numeric_limits<std::uint32_t>::max)() ||
+      observation.texture_mip_count !=
+          observation.texture_additional_mip_count + 1U ||
+      observation.texture_mip_count != expected_mips ||
+      observation.texture_mip_count > configuration.maximum_mip_levels ||
+      observation.mip_chain.size() != observation.texture_mip_count) {
     return Failure(ValidationCode::SIZE_MISMATCH,
-                   "terrain_composite.observation.tight_layout",
-                   "native observation does not describe tight RGBA rows and slice");
+                   "terrain_composite.observation.full_mip_chain",
+                   "native observation must contain every mip through the "
+                   "exact 1x1 level");
   }
-  return ValidationResult::Success();
+
+  std::uint64_t total_bytes = 0U;
+  std::uint32_t expected_width = observation.texture_width;
+  std::uint32_t expected_height = observation.texture_height;
+  for (std::size_t index = 0U; index < observation.mip_chain.size(); ++index) {
+    const Ogre14TerrainCompositeNativeMipObservation &mip =
+        observation.mip_chain[index];
+    std::uint64_t row_pitch = 0U;
+    std::uint64_t slice_pitch = 0U;
+    ValidationResult layout = TightRgbaLayout(expected_width, expected_height,
+                                              row_pitch, slice_pitch);
+    if (!layout) {
+      return layout;
+    }
+    if (mip.mip_level != index || mip.pixel_buffer_pointer_token == 0U ||
+        mip.width != expected_width || mip.height != expected_height ||
+        mip.depth != 1U || mip.tight_row_pitch_bytes != row_pitch ||
+        mip.tight_slice_pitch_bytes != slice_pitch) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "terrain_composite.observation.mip_layout",
+                     "native mip identity, order, dimensions, or tight RGBA "
+                     "layout is invalid");
+    }
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (observation.mip_chain[prior].pixel_buffer_pointer_token ==
+          mip.pixel_buffer_pointer_token) {
+        return Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain_composite.observation.mip_identity",
+            "two mip levels alias the same native pixel-buffer identity");
+      }
+    }
+    if (!CheckedAddU64(total_bytes, slice_pitch, total_bytes) ||
+        total_bytes > configuration.maximum_rgba_bytes) {
+      return Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "terrain_composite.observation.full_mip_cap",
+          "aggregate terrain composite mip bytes exceed the configured cap");
+    }
+    expected_width = (std::max)(1U, expected_width / 2U);
+    expected_height = (std::max)(1U, expected_height / 2U);
+  }
+  const Ogre14TerrainCompositeNativeMipObservation &level_zero =
+      observation.mip_chain.front();
+  if (observation.pixel_buffer_pointer_token !=
+          level_zero.pixel_buffer_pointer_token ||
+      observation.tight_row_pitch_bytes != level_zero.tight_row_pitch_bytes ||
+      observation.tight_slice_pitch_bytes !=
+          level_zero.tight_slice_pitch_bytes) {
+    return Failure(
+        ValidationCode::REVISION_MISMATCH,
+        "terrain_composite.observation.level_zero_alias",
+        "V1-compatible level-zero aliases disagree with mip-chain authority");
+  }
+  return ValidateSampling(observation);
+}
+
+bool SameMipObservation(
+    const Ogre14TerrainCompositeNativeMipObservation &lhs,
+    const Ogre14TerrainCompositeNativeMipObservation &rhs) noexcept {
+  return lhs.mip_level == rhs.mip_level &&
+         lhs.pixel_buffer_pointer_token == rhs.pixel_buffer_pointer_token &&
+         lhs.width == rhs.width && lhs.height == rhs.height &&
+         lhs.depth == rhs.depth &&
+         lhs.tight_row_pitch_bytes == rhs.tight_row_pitch_bytes &&
+         lhs.tight_slice_pitch_bytes == rhs.tight_slice_pitch_bytes;
+}
+
+bool SameSampling(const Ogre14TerrainCompositeSamplingObservation &lhs,
+                  const Ogre14TerrainCompositeSamplingObservation &rhs) noexcept {
+  return lhs.scene_manager_pointer_token == rhs.scene_manager_pointer_token &&
+         lhs.texture_unit_pointer_token == rhs.texture_unit_pointer_token &&
+         lhs.sampler_pointer_token == rhs.sampler_pointer_token &&
+         lhs.bound_texture_pointer_token == rhs.bound_texture_pointer_token &&
+         lhs.texture_unit_content_named == rhs.texture_unit_content_named &&
+         lhs.texture_unit_frame_count == rhs.texture_unit_frame_count &&
+         lhs.texture_unit_current_frame == rhs.texture_unit_current_frame &&
+         lhs.texture_unit_texture_2d == rhs.texture_unit_texture_2d &&
+         lhs.texture_unit_is_blank == rhs.texture_unit_is_blank &&
+         lhs.texture_unit_load_failing == rhs.texture_unit_load_failing &&
+         lhs.unordered_access_mip_level == rhs.unordered_access_mip_level &&
+         lhs.texture_coord_set == rhs.texture_coord_set &&
+         lhs.texcoord_calculation_none == rhs.texcoord_calculation_none &&
+         lhs.texture_effect_count == rhs.texture_effect_count &&
+         SameFloatBits(lhs.texture_u_scroll, rhs.texture_u_scroll) &&
+         SameFloatBits(lhs.texture_v_scroll, rhs.texture_v_scroll) &&
+         SameFloatBits(lhs.texture_u_scale, rhs.texture_u_scale) &&
+         SameFloatBits(lhs.texture_v_scale, rhs.texture_v_scale) &&
+         SameFloatBits(lhs.texture_rotation_radians,
+                       rhs.texture_rotation_radians) &&
+         SameFloatArrayBits(lhs.texture_transform, rhs.texture_transform) &&
+         lhs.address_u == rhs.address_u && lhs.address_v == rhs.address_v &&
+         lhs.address_w == rhs.address_w && lhs.min_filter == rhs.min_filter &&
+         lhs.mag_filter == rhs.mag_filter && lhs.mip_filter == rhs.mip_filter &&
+         lhs.maximum_anisotropy == rhs.maximum_anisotropy &&
+         SameFloatBits(lhs.mipmap_bias, rhs.mipmap_bias) &&
+         lhs.compare_enabled == rhs.compare_enabled &&
+         lhs.compare_function == rhs.compare_function &&
+         SameFloatArrayBits(lhs.border_colour, rhs.border_colour) &&
+         lhs.texture_unit_hardware_gamma_enabled ==
+             rhs.texture_unit_hardware_gamma_enabled &&
+         lhs.scene_fog_mode == rhs.scene_fog_mode;
 }
 
 bool SameObservation(
     const Ogre14TerrainCompositeNativeObservation &lhs,
     const Ogre14TerrainCompositeNativeObservation &rhs) noexcept {
-  return lhs.version == rhs.version &&
-         lhs.terrain_group_pointer_token == rhs.terrain_group_pointer_token &&
-         lhs.terrain_slot_pointer_token == rhs.terrain_slot_pointer_token &&
-         lhs.terrain_pointer_token == rhs.terrain_pointer_token &&
-         lhs.packed_slot_key == rhs.packed_slot_key &&
-         lhs.slot_x == rhs.slot_x && lhs.slot_y == rhs.slot_y &&
-         lhs.exact_terrain_resource_group ==
-             rhs.exact_terrain_resource_group &&
-         lhs.exact_filename_prefix == rhs.exact_filename_prefix &&
-         lhs.exact_filename_extension == rhs.exact_filename_extension &&
-         lhs.page_definition_kind == rhs.page_definition_kind &&
-         lhs.exact_definition_filename == rhs.exact_definition_filename &&
-         lhs.definition_import_data_pointer_token ==
-             rhs.definition_import_data_pointer_token &&
-         lhs.generated_save_filename == rhs.generated_save_filename &&
-         lhs.exact_terrain_material_name ==
-             rhs.exact_terrain_material_name &&
-         lhs.terrain_alignment == rhs.terrain_alignment &&
-         lhs.terrain_size == rhs.terrain_size &&
-         lhs.terrain_world_size == rhs.terrain_world_size &&
-         lhs.terrain_world_position == rhs.terrain_world_position &&
-         lhs.terrain_is_loaded == rhs.terrain_is_loaded &&
-         lhs.terrain_derived_data_update_in_progress ==
-             rhs.terrain_derived_data_update_in_progress &&
-         lhs.texture_pointer_token == rhs.texture_pointer_token &&
-         lhs.pixel_buffer_pointer_token == rhs.pixel_buffer_pointer_token &&
-         lhs.texture_handle == rhs.texture_handle &&
-         lhs.exact_texture_resource_group ==
-             rhs.exact_texture_resource_group &&
-         lhs.exact_texture_name == rhs.exact_texture_name &&
-         lhs.pixel_encoding == rhs.pixel_encoding &&
-         lhs.texture_type == rhs.texture_type &&
-         lhs.texture_loading_state == rhs.texture_loading_state &&
-         lhs.texture_width == rhs.texture_width &&
-         lhs.texture_height == rhs.texture_height &&
-         lhs.texture_depth == rhs.texture_depth &&
-         lhs.texture_face_count == rhs.texture_face_count &&
-         lhs.texture_mip_count == rhs.texture_mip_count &&
-         lhs.selected_face == rhs.selected_face &&
-         lhs.selected_mip == rhs.selected_mip &&
-         lhs.texture_usage == rhs.texture_usage &&
-         lhs.texture_is_loaded == rhs.texture_is_loaded &&
-         lhs.texture_is_manual == rhs.texture_is_manual &&
-         lhs.texture_hardware_gamma_enabled ==
-             rhs.texture_hardware_gamma_enabled &&
-         lhs.texture_resource_revision == rhs.texture_resource_revision &&
-         lhs.tight_row_pitch_bytes == rhs.tight_row_pitch_bytes &&
-         lhs.tight_slice_pitch_bytes == rhs.tight_slice_pitch_bytes;
+  if (lhs.version != rhs.version ||
+      lhs.terrain_group_pointer_token != rhs.terrain_group_pointer_token ||
+      lhs.terrain_slot_pointer_token != rhs.terrain_slot_pointer_token ||
+      lhs.terrain_pointer_token != rhs.terrain_pointer_token ||
+      lhs.packed_slot_key != rhs.packed_slot_key || lhs.slot_x != rhs.slot_x ||
+      lhs.slot_y != rhs.slot_y ||
+      lhs.exact_terrain_resource_group != rhs.exact_terrain_resource_group ||
+      lhs.exact_filename_prefix != rhs.exact_filename_prefix ||
+      lhs.exact_filename_extension != rhs.exact_filename_extension ||
+      lhs.page_definition_kind != rhs.page_definition_kind ||
+      lhs.exact_definition_filename != rhs.exact_definition_filename ||
+      lhs.definition_import_data_pointer_token !=
+          rhs.definition_import_data_pointer_token ||
+      lhs.generated_save_filename != rhs.generated_save_filename ||
+      lhs.exact_terrain_material_name != rhs.exact_terrain_material_name ||
+      lhs.terrain_alignment != rhs.terrain_alignment ||
+      lhs.terrain_size != rhs.terrain_size ||
+      !SameFloatBits(lhs.terrain_world_size, rhs.terrain_world_size) ||
+      !SameFloatArrayBits(lhs.terrain_world_position,
+                          rhs.terrain_world_position) ||
+      lhs.terrain_is_loaded != rhs.terrain_is_loaded ||
+      lhs.terrain_derived_data_update_in_progress !=
+          rhs.terrain_derived_data_update_in_progress ||
+      lhs.texture_pointer_token != rhs.texture_pointer_token ||
+      lhs.pixel_buffer_pointer_token != rhs.pixel_buffer_pointer_token ||
+      lhs.texture_handle != rhs.texture_handle ||
+      lhs.exact_texture_resource_group != rhs.exact_texture_resource_group ||
+      lhs.exact_texture_name != rhs.exact_texture_name ||
+      lhs.pixel_encoding != rhs.pixel_encoding ||
+      lhs.texture_type != rhs.texture_type ||
+      lhs.texture_loading_state != rhs.texture_loading_state ||
+      lhs.texture_width != rhs.texture_width ||
+      lhs.texture_height != rhs.texture_height ||
+      lhs.texture_depth != rhs.texture_depth ||
+      lhs.texture_face_count != rhs.texture_face_count ||
+      lhs.texture_additional_mip_count != rhs.texture_additional_mip_count ||
+      lhs.texture_mip_count != rhs.texture_mip_count ||
+      lhs.selected_face != rhs.selected_face ||
+      lhs.selected_mip != rhs.selected_mip ||
+      lhs.texture_usage != rhs.texture_usage ||
+      lhs.texture_is_loaded != rhs.texture_is_loaded ||
+      lhs.texture_is_manual != rhs.texture_is_manual ||
+      lhs.texture_hardware_gamma_enabled !=
+          rhs.texture_hardware_gamma_enabled ||
+      lhs.texture_resource_revision != rhs.texture_resource_revision ||
+      lhs.tight_row_pitch_bytes != rhs.tight_row_pitch_bytes ||
+      lhs.tight_slice_pitch_bytes != rhs.tight_slice_pitch_bytes ||
+      lhs.mip_chain.size() != rhs.mip_chain.size() ||
+      !SameSampling(lhs.sampling, rhs.sampling)) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.mip_chain.size(); ++index) {
+    if (!SameMipObservation(lhs.mip_chain[index], rhs.mip_chain[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 constexpr std::array<std::uint32_t, 64U> kSha256RoundConstants{{
@@ -314,6 +579,22 @@ public:
     }
   }
 
+  void UpdateU32(std::uint32_t value) noexcept {
+    std::array<std::uint8_t, 4U> bytes{};
+    for (std::size_t index = 0U; index < bytes.size(); ++index) {
+      bytes[index] = static_cast<std::uint8_t>(value >> (index * 8U));
+    }
+    Update(bytes.data(), bytes.size());
+  }
+
+  void UpdateU64(std::uint64_t value) noexcept {
+    std::array<std::uint8_t, 8U> bytes{};
+    for (std::size_t index = 0U; index < bytes.size(); ++index) {
+      bytes[index] = static_cast<std::uint8_t>(value >> (index * 8U));
+    }
+    Update(bytes.data(), bytes.size());
+  }
+
   [[nodiscard]] std::array<std::uint8_t, 32U> Final() noexcept {
     const std::uint64_t bit_count =
         static_cast<std::uint64_t>(total_bytes_ + block_size_) * 8ULL;
@@ -337,8 +618,8 @@ public:
     std::array<std::uint8_t, 32U> digest{};
     for (std::size_t word = 0U; word < state_.size(); ++word) {
       for (std::size_t byte = 0U; byte < 4U; ++byte) {
-        digest[word * 4U + byte] = static_cast<std::uint8_t>(
-            state_[word] >> ((3U - byte) * 8U));
+        digest[word * 4U + byte] =
+            static_cast<std::uint8_t>(state_[word] >> ((3U - byte) * 8U));
       }
     }
     return digest;
@@ -350,21 +631,18 @@ private:
     for (std::size_t index = 0U; index < 16U; ++index) {
       const std::size_t offset = index * 4U;
       words[index] = (static_cast<std::uint32_t>(block_[offset]) << 24U) |
-                     (static_cast<std::uint32_t>(block_[offset + 1U])
-                      << 16U) |
-                     (static_cast<std::uint32_t>(block_[offset + 2U])
-                      << 8U) |
+                     (static_cast<std::uint32_t>(block_[offset + 1U]) << 16U) |
+                     (static_cast<std::uint32_t>(block_[offset + 2U]) << 8U) |
                      static_cast<std::uint32_t>(block_[offset + 3U]);
     }
     for (std::size_t index = 16U; index < words.size(); ++index) {
       const std::uint32_t before = words[index - 15U];
       const std::uint32_t after = words[index - 2U];
-      const std::uint32_t sigma0 = RotateRight(before, 7U) ^
-                                   RotateRight(before, 18U) ^ (before >> 3U);
-      const std::uint32_t sigma1 = RotateRight(after, 17U) ^
-                                   RotateRight(after, 19U) ^ (after >> 10U);
-      words[index] =
-          words[index - 16U] + sigma0 + words[index - 7U] + sigma1;
+      const std::uint32_t sigma0 =
+          RotateRight(before, 7U) ^ RotateRight(before, 18U) ^ (before >> 3U);
+      const std::uint32_t sigma1 =
+          RotateRight(after, 17U) ^ RotateRight(after, 19U) ^ (after >> 10U);
+      words[index] = words[index - 16U] + sigma0 + words[index - 7U] + sigma1;
     }
 
     std::uint32_t a = state_[0U];
@@ -407,8 +685,14 @@ private:
   }
 
   std::array<std::uint32_t, 8U> state_{{
-      0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
-      0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U,
+      0x6a09e667U,
+      0xbb67ae85U,
+      0x3c6ef372U,
+      0xa54ff53aU,
+      0x510e527fU,
+      0x9b05688cU,
+      0x1f83d9abU,
+      0x5be0cd19U,
   }};
   std::array<std::uint8_t, 64U> block_{};
   std::size_t block_size_ = 0U;
@@ -416,35 +700,68 @@ private:
 };
 
 std::array<std::uint8_t, 32U>
-ComputeSha256(const std::vector<std::uint8_t> &bytes) noexcept {
+ComputeMipDigest(const Ogre14TerrainCompositeNativeMipObservation &mip,
+                 const std::uint8_t *bytes, std::size_t byte_count) noexcept {
   Sha256 hasher;
-  if (!bytes.empty()) {
-    hasher.Update(bytes.data(), bytes.size());
+  hasher.Update(reinterpret_cast<const std::uint8_t *>(
+                    kOgre14TerrainCompositeMipDigestDomain),
+                sizeof(kOgre14TerrainCompositeMipDigestDomain));
+  hasher.UpdateU32(mip.mip_level);
+  hasher.UpdateU32(mip.width);
+  hasher.UpdateU32(mip.height);
+  hasher.UpdateU64(static_cast<std::uint64_t>(byte_count));
+  if (byte_count != 0U) {
+    hasher.Update(bytes, byte_count);
   }
   return hasher.Final();
 }
 
+std::array<std::uint8_t, 32U>
+ComputeMipDigest(const Ogre14TerrainCompositeNativeMipObservation &mip,
+                 const std::vector<std::uint8_t> &bytes) noexcept {
+  return ComputeMipDigest(mip, bytes.data(), bytes.size());
+}
+
+std::array<std::uint8_t, 32U> ComputeMipChainDigest(
+    const std::vector<Ogre14TerrainCompositeMipMetadata> &metadata,
+    std::uint64_t total_bytes) noexcept {
+  Sha256 hasher;
+  hasher.Update(reinterpret_cast<const std::uint8_t *>(
+                    kOgre14TerrainCompositeMipChainDigestDomain),
+                sizeof(kOgre14TerrainCompositeMipChainDigestDomain));
+  hasher.UpdateU32(static_cast<std::uint32_t>(metadata.size()));
+  hasher.UpdateU64(total_bytes);
+  for (const Ogre14TerrainCompositeMipMetadata &mip : metadata) {
+    hasher.UpdateU32(mip.mip_level);
+    hasher.UpdateU32(mip.width);
+    hasher.UpdateU32(mip.height);
+    hasher.UpdateU64(mip.tight_slice_pitch_bytes);
+    hasher.Update(mip.rgba_sha256.data(), mip.rgba_sha256.size());
+  }
+  return hasher.Final();
+}
+
+#if defined(ROR_OGRE14_TERRAIN_COMPOSITE_CAPTURE_INTERNAL_TESTING)
 void MaybeInject(Ogre14TerrainCompositeCaptureStage stage,
                  IOgre14TerrainCompositeCaptureFaultInjector *injector) {
   if (injector != nullptr) {
     injector->BeforeTerrainCompositeCaptureStage(stage);
   }
 }
+#endif
 
-Ogre14TerrainCompositeCaptureMetadata BuildMetadata(
-    const Ogre14TerrainCompositeNativeObservation &before,
-    const Ogre14TerrainCompositeNativeObservation &after,
-    const std::vector<std::uint8_t> &bytes) {
+Ogre14TerrainCompositeCaptureMetadata
+BuildMetadata(const Ogre14TerrainCompositeNativeObservation &before,
+              const Ogre14TerrainCompositeNativeObservation &after,
+              const std::vector<std::vector<std::uint8_t>> &mip_bytes) {
   Ogre14TerrainCompositeCaptureMetadata metadata;
-  metadata.terrain_group_pointer_token =
-      before.terrain_group_pointer_token;
+  metadata.terrain_group_pointer_token = before.terrain_group_pointer_token;
   metadata.terrain_slot_pointer_token = before.terrain_slot_pointer_token;
   metadata.terrain_pointer_token = before.terrain_pointer_token;
   metadata.packed_slot_key = before.packed_slot_key;
   metadata.slot_x = before.slot_x;
   metadata.slot_y = before.slot_y;
-  metadata.exact_terrain_resource_group =
-      before.exact_terrain_resource_group;
+  metadata.exact_terrain_resource_group = before.exact_terrain_resource_group;
   metadata.exact_filename_prefix = before.exact_filename_prefix;
   metadata.exact_filename_extension = before.exact_filename_extension;
   metadata.page_definition_kind = before.page_definition_kind;
@@ -452,8 +769,7 @@ Ogre14TerrainCompositeCaptureMetadata BuildMetadata(
   metadata.definition_import_data_pointer_token =
       before.definition_import_data_pointer_token;
   metadata.generated_save_filename = before.generated_save_filename;
-  metadata.exact_terrain_material_name =
-      before.exact_terrain_material_name;
+  metadata.exact_terrain_material_name = before.exact_terrain_material_name;
   metadata.terrain_alignment = before.terrain_alignment;
   metadata.terrain_size = before.terrain_size;
   metadata.terrain_world_size = before.terrain_world_size;
@@ -464,8 +780,7 @@ Ogre14TerrainCompositeCaptureMetadata BuildMetadata(
   metadata.texture_pointer_token = before.texture_pointer_token;
   metadata.pixel_buffer_pointer_token = before.pixel_buffer_pointer_token;
   metadata.texture_handle = before.texture_handle;
-  metadata.exact_texture_resource_group =
-      before.exact_texture_resource_group;
+  metadata.exact_texture_resource_group = before.exact_texture_resource_group;
   metadata.exact_texture_name = before.exact_texture_name;
   metadata.pixel_encoding = before.pixel_encoding;
   metadata.texture_type = before.texture_type;
@@ -474,6 +789,7 @@ Ogre14TerrainCompositeCaptureMetadata BuildMetadata(
   metadata.texture_height = before.texture_height;
   metadata.texture_depth = before.texture_depth;
   metadata.texture_face_count = before.texture_face_count;
+  metadata.texture_additional_mip_count = before.texture_additional_mip_count;
   metadata.texture_mip_count = before.texture_mip_count;
   metadata.selected_face = before.selected_face;
   metadata.selected_mip = before.selected_mip;
@@ -486,18 +802,246 @@ Ogre14TerrainCompositeCaptureMetadata BuildMetadata(
       before.texture_resource_revision;
   metadata.texture_resource_revision_after_readback =
       after.texture_resource_revision;
-  metadata.tight_row_pitch_bytes = before.tight_row_pitch_bytes;
-  metadata.tight_slice_pitch_bytes = before.tight_slice_pitch_bytes;
-  metadata.rgba_byte_count = static_cast<std::uint64_t>(bytes.size());
-  metadata.rgba_sha256 = ComputeSha256(bytes);
+  metadata.rgb_transfer =
+      before.texture_hardware_gamma_enabled
+          ? Ogre14TerrainCompositeRgbTransfer::DECODE_BEFORE_FILTER
+          : Ogre14TerrainCompositeRgbTransfer::LEGACY_UNORM_DISPLAY_DOMAIN;
+  metadata.sampling = before.sampling;
+
+  metadata.mip_chain.reserve(before.mip_chain.size());
+  for (std::size_t index = 0U; index < before.mip_chain.size(); ++index) {
+    const Ogre14TerrainCompositeNativeMipObservation &native =
+        before.mip_chain[index];
+    Ogre14TerrainCompositeMipMetadata mip;
+    mip.mip_level = native.mip_level;
+    mip.pixel_buffer_pointer_token = native.pixel_buffer_pointer_token;
+    mip.width = native.width;
+    mip.height = native.height;
+    mip.tight_row_pitch_bytes = native.tight_row_pitch_bytes;
+    mip.tight_slice_pitch_bytes = native.tight_slice_pitch_bytes;
+    mip.rgba_sha256 = ComputeMipDigest(native, mip_bytes[index]);
+    metadata.full_mip_chain_rgba_byte_count += native.tight_slice_pitch_bytes;
+    metadata.mip_chain.push_back(mip);
+  }
+  metadata.full_mip_chain_sha256 = ComputeMipChainDigest(
+      metadata.mip_chain, metadata.full_mip_chain_rgba_byte_count);
+  const Ogre14TerrainCompositeMipMetadata &level_zero =
+      metadata.mip_chain.front();
+  metadata.tight_row_pitch_bytes = level_zero.tight_row_pitch_bytes;
+  metadata.tight_slice_pitch_bytes = level_zero.tight_slice_pitch_bytes;
+  metadata.rgba_byte_count = level_zero.tight_slice_pitch_bytes;
+  metadata.rgba_sha256 = level_zero.rgba_sha256;
   return metadata;
+}
+
+bool HasEveryV2Invariant(
+    const Ogre14TerrainCompositeCaptureReceipt &receipt) noexcept {
+  const Ogre14TerrainCompositeCaptureMetadata *const metadata_pointer =
+      receipt.metadata();
+  if (metadata_pointer == nullptr) {
+    return false;
+  }
+  const Ogre14TerrainCompositeCaptureMetadata &metadata = *metadata_pointer;
+  const Ogre14TerrainCompositeSamplingObservation &sampling =
+      metadata.sampling;
+  if (metadata.version != kOgre14TerrainCompositeCaptureReceiptVersion ||
+      metadata.semantic_contract_version !=
+          kOgre14TerrainCompositeSemanticContractVersion ||
+      metadata.terrain_group_pointer_token == 0U ||
+      metadata.terrain_slot_pointer_token == 0U ||
+      metadata.terrain_pointer_token == 0U ||
+      !IsIdentifier(metadata.exact_terrain_resource_group,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes) ||
+      !IsIdentifier(metadata.exact_filename_prefix,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes, true) ||
+      !IsIdentifier(metadata.exact_filename_extension,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes, true) ||
+      !IsIdentifier(metadata.exact_definition_filename,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes, true) ||
+      !IsIdentifier(metadata.generated_save_filename,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes) ||
+      !IsIdentifier(metadata.exact_terrain_material_name,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes) ||
+      !IsKnownPageDefinitionKind(metadata.page_definition_kind) ||
+      (metadata.page_definition_kind ==
+           Ogre14TerrainCompositePageDefinitionKind::FILE_BACKED &&
+       (metadata.exact_definition_filename.empty() ||
+        metadata.definition_import_data_pointer_token != 0U)) ||
+      (metadata.page_definition_kind ==
+           Ogre14TerrainCompositePageDefinitionKind::LIVE_IMPORT &&
+       (!metadata.exact_definition_filename.empty() ||
+        metadata.definition_import_data_pointer_token == 0U)) ||
+      (metadata.page_definition_kind ==
+           Ogre14TerrainCompositePageDefinitionKind::CONSUMED_OR_RUNTIME &&
+       (!metadata.exact_definition_filename.empty() ||
+        metadata.definition_import_data_pointer_token != 0U)) ||
+      !IsKnownAlignment(metadata.terrain_alignment) ||
+      metadata.terrain_size < 2U ||
+      !std::isfinite(metadata.terrain_world_size) ||
+      metadata.terrain_world_size <= 0.0F ||
+      !IsFinitePosition(metadata.terrain_world_position) ||
+      !metadata.terrain_is_loaded ||
+      metadata.terrain_derived_data_update_in_progress ||
+      metadata.texture_pointer_token == 0U ||
+      metadata.pixel_buffer_pointer_token == 0U ||
+      metadata.texture_handle == 0U ||
+      !IsIdentifier(metadata.exact_texture_resource_group,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes) ||
+      !IsIdentifier(metadata.exact_texture_name,
+                    kOgre14TerrainCompositeHardMaximumIdentifierBytes) ||
+      metadata.pixel_encoding !=
+          Ogre14TerrainCompositePixelEncoding::BYTE_RGBA ||
+      metadata.texture_type != Ogre14TerrainCompositeTextureType::TEXTURE_2D ||
+      metadata.texture_loading_state !=
+          Ogre14TerrainCompositeTextureLoadingState::LOADED ||
+      metadata.row_order != Ogre14TerrainCompositeRowOrder::
+                                OGRE_PIXELBOX_ROW_ZERO_FIRST_NO_FLIP ||
+      metadata.channel_order !=
+          Ogre14TerrainCompositeChannelOrder::RED_GREEN_BLUE_ALPHA ||
+      metadata.rgb_semantic !=
+          Ogre14TerrainCompositeRgbSemantic::BAKED_DIFFUSE ||
+      metadata.alpha_semantic !=
+          Ogre14TerrainCompositeAlphaSemantic::LINEAR_SPECULAR_MASK ||
+      metadata.texture_width == 0U || metadata.texture_height == 0U ||
+      metadata.texture_width > kOgre14TerrainCompositeHardMaximumDimension ||
+      metadata.texture_height > kOgre14TerrainCompositeHardMaximumDimension ||
+      metadata.texture_depth != 1U || metadata.texture_face_count != 1U ||
+      metadata.selected_face != 0U || metadata.selected_mip != 0U ||
+      !metadata.texture_is_loaded || !metadata.texture_is_manual ||
+      metadata.texture_resource_revision_before_readback == 0U ||
+      metadata.texture_resource_revision_before_readback ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      metadata.texture_resource_revision_before_readback !=
+          metadata.texture_resource_revision_after_readback ||
+      metadata.texture_additional_mip_count ==
+          (std::numeric_limits<std::uint32_t>::max)() ||
+      metadata.texture_mip_count !=
+          metadata.texture_additional_mip_count + 1U ||
+      metadata.texture_mip_count !=
+          FullMipLevelCount(metadata.texture_width, metadata.texture_height) ||
+      metadata.texture_mip_count >
+          kOgre14TerrainCompositeHardMaximumMipLevels ||
+      metadata.mip_chain.empty() ||
+      metadata.mip_chain.size() != metadata.texture_mip_count ||
+      receipt.mip_level_count() != metadata.texture_mip_count ||
+      metadata.full_mip_chain_rgba_byte_count == 0U ||
+      sampling.scene_manager_pointer_token == 0U ||
+      sampling.texture_unit_pointer_token == 0U ||
+      sampling.sampler_pointer_token == 0U ||
+      sampling.bound_texture_pointer_token != metadata.texture_pointer_token ||
+      !sampling.texture_unit_content_named ||
+      sampling.texture_unit_frame_count != 1U ||
+      sampling.texture_unit_current_frame != 0U ||
+      !sampling.texture_unit_texture_2d || sampling.texture_unit_is_blank ||
+      sampling.texture_unit_load_failing ||
+      sampling.unordered_access_mip_level != -1 ||
+      sampling.texture_coord_set != 0U ||
+      !sampling.texcoord_calculation_none ||
+      sampling.texture_effect_count != 0U ||
+      !SameFloatBits(sampling.texture_u_scroll, 0.0F) ||
+      !SameFloatBits(sampling.texture_v_scroll, 0.0F) ||
+      !SameFloatBits(sampling.texture_u_scale, 1.0F) ||
+      !SameFloatBits(sampling.texture_v_scale, 1.0F) ||
+      !SameFloatBits(sampling.texture_rotation_radians, 0.0F) ||
+      !SameFloatArrayBits(sampling.texture_transform,
+                          IdentityTextureTransform()) ||
+      sampling.address_u != Ogre14TerrainCompositeAddressMode::CLAMP ||
+      sampling.address_v != Ogre14TerrainCompositeAddressMode::CLAMP ||
+      sampling.address_w != Ogre14TerrainCompositeAddressMode::CLAMP ||
+      sampling.min_filter != Ogre14TerrainCompositeFilter::LINEAR ||
+      sampling.mag_filter != Ogre14TerrainCompositeFilter::LINEAR ||
+      sampling.mip_filter != Ogre14TerrainCompositeFilter::POINT ||
+      sampling.maximum_anisotropy != 1U ||
+      !SameFloatBits(sampling.mipmap_bias, 0.0F) ||
+      sampling.compare_enabled ||
+      sampling.compare_function !=
+          Ogre14TerrainCompositeCompareFunction::GREATER_EQUAL ||
+      !SameFloatArrayBits(
+          sampling.border_colour,
+          std::array<float, 4U>{{0.0F, 0.0F, 0.0F, 1.0F}}) ||
+      sampling.texture_unit_hardware_gamma_enabled !=
+          metadata.texture_hardware_gamma_enabled ||
+      !IsKnownSceneFogMode(sampling.scene_fog_mode)) {
+    return false;
+  }
+
+  std::uint64_t total_bytes = 0U;
+  std::uint32_t expected_width = metadata.texture_width;
+  std::uint32_t expected_height = metadata.texture_height;
+  for (std::size_t index = 0U; index < metadata.mip_chain.size(); ++index) {
+    const Ogre14TerrainCompositeMipMetadata &mip = metadata.mip_chain[index];
+    std::uint64_t expected_row_pitch = 0U;
+    std::uint64_t expected_slice_pitch = 0U;
+    if (!TightRgbaLayout(expected_width, expected_height, expected_row_pitch,
+                         expected_slice_pitch) ||
+        mip.mip_level != index || mip.pixel_buffer_pointer_token == 0U ||
+        mip.width != expected_width || mip.height != expected_height ||
+        mip.tight_row_pitch_bytes != expected_row_pitch ||
+        mip.tight_slice_pitch_bytes != expected_slice_pitch ||
+        receipt.mip_rgba_size(index) != expected_slice_pitch ||
+        receipt.mip_rgba_bytes(index) == nullptr ||
+        !CheckedAddU64(total_bytes, expected_slice_pitch, total_bytes)) {
+      return false;
+    }
+    for (std::size_t prior = 0U; prior < index; ++prior) {
+      if (metadata.mip_chain[prior].pixel_buffer_pointer_token ==
+          mip.pixel_buffer_pointer_token) {
+        return false;
+      }
+    }
+    Ogre14TerrainCompositeNativeMipObservation digest_identity;
+    digest_identity.mip_level = mip.mip_level;
+    digest_identity.width = mip.width;
+    digest_identity.height = mip.height;
+    if (ComputeMipDigest(digest_identity, receipt.mip_rgba_bytes(index),
+                         receipt.mip_rgba_size(index)) != mip.rgba_sha256) {
+      return false;
+    }
+    expected_width = (std::max)(1U, expected_width / 2U);
+    expected_height = (std::max)(1U, expected_height / 2U);
+  }
+
+  const Ogre14TerrainCompositeMipMetadata &level_zero =
+      metadata.mip_chain.front();
+  if (total_bytes != metadata.full_mip_chain_rgba_byte_count ||
+      total_bytes > kOgre14TerrainCompositeHardMaximumRgbaBytes ||
+      ComputeMipChainDigest(metadata.mip_chain, total_bytes) !=
+          metadata.full_mip_chain_sha256 ||
+      metadata.pixel_buffer_pointer_token !=
+          level_zero.pixel_buffer_pointer_token ||
+      metadata.tight_row_pitch_bytes != level_zero.tight_row_pitch_bytes ||
+      metadata.tight_slice_pitch_bytes != level_zero.tight_slice_pitch_bytes ||
+      metadata.rgba_byte_count != level_zero.tight_slice_pitch_bytes ||
+      metadata.rgba_sha256 != level_zero.rgba_sha256 ||
+      receipt.rgba_bytes() != receipt.mip_rgba_bytes(0U) ||
+      receipt.rgba_size() != receipt.mip_rgba_size(0U)) {
+    return false;
+  }
+
+  const Ogre14TerrainCompositeRgbTransfer expected_transfer =
+      metadata.texture_hardware_gamma_enabled
+          ? Ogre14TerrainCompositeRgbTransfer::DECODE_BEFORE_FILTER
+          : Ogre14TerrainCompositeRgbTransfer::LEGACY_UNORM_DISPLAY_DOMAIN;
+  return metadata.rgb_transfer == expected_transfer;
+}
+
+float DecodeSrgb(std::uint8_t encoded) noexcept {
+  const float value = static_cast<float>(encoded) / 255.0F;
+  if (value <= 0.04045F) {
+    return value / 12.92F;
+  }
+  return std::pow((value + 0.055F) / 1.055F, 2.4F);
+}
+
+float Lerp(float lhs, float rhs, float amount) noexcept {
+  return lhs + (rhs - lhs) * amount;
 }
 
 } // namespace
 
 struct Ogre14TerrainCompositeCaptureReceipt::State final {
   Ogre14TerrainCompositeCaptureMetadata metadata;
-  std::vector<std::uint8_t> rgba_bytes;
+  std::vector<std::vector<std::uint8_t>> mip_rgba_bytes;
 };
 
 Ogre14TerrainCompositeCaptureReceipt::Ogre14TerrainCompositeCaptureReceipt(
@@ -515,13 +1059,32 @@ Ogre14TerrainCompositeCaptureReceipt::metadata() const noexcept {
 
 const std::uint8_t *
 Ogre14TerrainCompositeCaptureReceipt::rgba_bytes() const noexcept {
-  return state_ != nullptr && !state_->rgba_bytes.empty()
-             ? state_->rgba_bytes.data()
-             : nullptr;
+  return mip_rgba_bytes(0U);
 }
 
 std::size_t Ogre14TerrainCompositeCaptureReceipt::rgba_size() const noexcept {
-  return state_ != nullptr ? state_->rgba_bytes.size() : 0U;
+  return mip_rgba_size(0U);
+}
+
+std::size_t
+Ogre14TerrainCompositeCaptureReceipt::mip_level_count() const noexcept {
+  return state_ != nullptr ? state_->mip_rgba_bytes.size() : 0U;
+}
+
+const std::uint8_t *Ogre14TerrainCompositeCaptureReceipt::mip_rgba_bytes(
+    std::size_t mip_level) const noexcept {
+  if (state_ == nullptr || mip_level >= state_->mip_rgba_bytes.size() ||
+      state_->mip_rgba_bytes[mip_level].empty()) {
+    return nullptr;
+  }
+  return state_->mip_rgba_bytes[mip_level].data();
+}
+
+std::size_t Ogre14TerrainCompositeCaptureReceipt::mip_rgba_size(
+    std::size_t mip_level) const noexcept {
+  return state_ != nullptr && mip_level < state_->mip_rgba_bytes.size()
+             ? state_->mip_rgba_bytes[mip_level].size()
+             : 0U;
 }
 
 bool Ogre14TerrainCompositeCaptureReceipt::SharesImmutableStateWith(
@@ -532,6 +1095,42 @@ bool Ogre14TerrainCompositeCaptureReceipt::SharesImmutableStateWith(
          !other.state_.owner_before(state_);
 }
 
+ValidationResult EvaluateOgre14TerrainCompositeBilinearOracle(
+    Ogre14TerrainCompositeRgbTransfer transfer,
+    const std::array<Ogre14TerrainCompositeOracleTexel, 4U> &texels,
+    float u_fraction, float v_fraction,
+    Ogre14TerrainCompositeOracleSample &sample) {
+  if ((transfer != Ogre14TerrainCompositeRgbTransfer::DECODE_BEFORE_FILTER &&
+       transfer !=
+           Ogre14TerrainCompositeRgbTransfer::LEGACY_UNORM_DISPLAY_DOMAIN) ||
+      !std::isfinite(u_fraction) || !std::isfinite(v_fraction) ||
+      u_fraction < 0.0F || u_fraction > 1.0F || v_fraction < 0.0F ||
+      v_fraction > 1.0F) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "terrain_composite.oracle.coordinates_or_transfer",
+                   "oracle transfer must be known and bilinear fractions must "
+                   "be finite in [0,1]");
+  }
+  Ogre14TerrainCompositeOracleSample candidate;
+  for (std::size_t channel = 0U; channel < 4U; ++channel) {
+    std::array<float, 4U> values{};
+    for (std::size_t texel = 0U; texel < values.size(); ++texel) {
+      if (channel < 3U &&
+          transfer == Ogre14TerrainCompositeRgbTransfer::DECODE_BEFORE_FILTER) {
+        values[texel] = DecodeSrgb(texels[texel].rgba[channel]);
+      } else {
+        values[texel] =
+            static_cast<float>(texels[texel].rgba[channel]) / 255.0F;
+      }
+    }
+    const float top = Lerp(values[0U], values[1U], u_fraction);
+    const float bottom = Lerp(values[2U], values[3U], u_fraction);
+    candidate.rgba[channel] = Lerp(top, bottom, v_fraction);
+  }
+  sample = candidate;
+  return ValidationResult::Success();
+}
+
 ValidationResult Ogre14TerrainCompositeNativeAdapter::ValidateCaptureInputs(
     const Ogre14TerrainCompositeCaptureConfiguration &configuration,
     const Ogre14TerrainCompositeNativeObservation &observation) {
@@ -540,13 +1139,18 @@ ValidationResult Ogre14TerrainCompositeNativeAdapter::ValidateCaptureInputs(
                     : validation;
 }
 
+ValidationResult
+Ogre14TerrainCompositeNativeAdapter::ValidateCaptureConfiguration(
+    const Ogre14TerrainCompositeCaptureConfiguration &configuration) {
+  return ValidateConfiguration(configuration);
+}
+
 ValidationResult Ogre14TerrainCompositeNativeAdapter::PublishOwnedReadback(
     const Ogre14TerrainCompositeCaptureConfiguration &configuration,
     const Ogre14TerrainCompositeNativeObservation &before_readback,
-    std::vector<std::uint8_t> rgba_bytes,
+    std::vector<std::vector<std::uint8_t>> mip_rgba_bytes,
     const Ogre14TerrainCompositeNativeObservation &after_readback,
-    Ogre14TerrainCompositeCaptureReceipt &receipt,
-    IOgre14TerrainCompositeCaptureFaultInjector *fault_injector) {
+    Ogre14TerrainCompositeCaptureReceipt &receipt) {
   try {
     ValidationResult validation =
         ValidateCaptureInputs(configuration, before_readback);
@@ -560,33 +1164,48 @@ ValidationResult Ogre14TerrainCompositeNativeAdapter::PublishOwnedReadback(
     if (!SameObservation(before_readback, after_readback)) {
       return Failure(ValidationCode::REVISION_MISMATCH,
                      "terrain_composite.readback.revalidation",
-                     "terrain page, texture identity, or resource revision changed during readback");
+                     "terrain, full mip chain, texture-unit binding, UV, "
+                     "sampler, direct fog, gamma, or resource revision "
+                     "changed during readback");
     }
-    if (rgba_bytes.size() != before_readback.tight_slice_pitch_bytes) {
+    if (mip_rgba_bytes.size() != before_readback.mip_chain.size()) {
       return Failure(ValidationCode::SIZE_MISMATCH,
-                     "terrain_composite.readback.rgba_bytes",
-                     "native readback byte count differs from the tight RGBA slice");
+                     "terrain_composite.readback.full_mip_chain",
+                     "native readback did not return every observed mip level");
+    }
+    for (std::size_t index = 0U; index < mip_rgba_bytes.size(); ++index) {
+      if (mip_rgba_bytes[index].size() !=
+          before_readback.mip_chain[index].tight_slice_pitch_bytes) {
+        return Failure(
+            ValidationCode::SIZE_MISMATCH,
+            "terrain_composite.readback.mip_rgba_bytes",
+            "native mip readback byte count differs from its tight RGBA slice");
+      }
     }
 
-    auto candidate = std::make_shared<Ogre14TerrainCompositeCaptureReceipt::
-                                          State>();
+    auto candidate =
+        std::make_shared<Ogre14TerrainCompositeCaptureReceipt::State>();
     candidate->metadata =
-        BuildMetadata(before_readback, after_readback, rgba_bytes);
-    candidate->rgba_bytes = std::move(rgba_bytes);
+        BuildMetadata(before_readback, after_readback, mip_rgba_bytes);
+    candidate->mip_rgba_bytes = std::move(mip_rgba_bytes);
     Ogre14TerrainCompositeCaptureReceipt candidate_receipt(candidate);
-    MaybeInject(
-        Ogre14TerrainCompositeCaptureStage::BEFORE_RECEIPT_PUBLICATION,
-        fault_injector);
+    if (!HasEveryV2Invariant(candidate_receipt)) {
+      return Failure(ValidationCode::UNSUPPORTED_VERSION,
+                     "terrain_composite.capture.seal_transport_v2",
+                     "adapter-minted immutable owner failed final V2 digest "
+                     "and transport validation");
+    }
     receipt = std::move(candidate_receipt);
     return ValidationResult::Success();
   } catch (const std::bad_alloc &) {
-    return Failure(ValidationCode::EMPTY_PAYLOAD,
-                   "terrain_composite.capture.allocation",
-                   "allocation failed before terrain composite receipt publication");
+    return Failure(
+        ValidationCode::EMPTY_PAYLOAD, "terrain_composite.capture.allocation",
+        "allocation failed before terrain composite receipt publication");
   } catch (...) {
-    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
-                   "terrain_composite.capture.unexpected_exception",
-                   "unexpected exception before terrain composite receipt publication");
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "terrain_composite.capture.unexpected_exception",
+        "unexpected exception before terrain composite receipt publication");
   }
 }
 
@@ -595,7 +1214,7 @@ ValidationResult
 Ogre14TerrainCompositeNativeAdapter::CaptureSyntheticForTesting(
     const Ogre14TerrainCompositeCaptureConfiguration &configuration,
     const Ogre14TerrainCompositeNativeObservation &before_readback,
-    const void *rgba_bytes, std::size_t rgba_byte_count,
+    const std::vector<std::vector<std::uint8_t>> &mip_rgba_bytes,
     const Ogre14TerrainCompositeNativeObservation &after_readback,
     Ogre14TerrainCompositeCaptureReceipt &receipt,
     IOgre14TerrainCompositeCaptureFaultInjector *fault_injector) {
@@ -608,55 +1227,111 @@ Ogre14TerrainCompositeNativeAdapter::CaptureSyntheticForTesting(
     MaybeInject(
         Ogre14TerrainCompositeCaptureStage::AFTER_NATIVE_IDENTITY_CAPTURE,
         fault_injector);
-    if (rgba_bytes == nullptr && rgba_byte_count != 0U) {
-      return Failure(ValidationCode::EMPTY_PAYLOAD,
-                     "terrain_composite.readback.rgba_bytes",
-                     "nonempty synthetic readback has no source bytes");
-    }
-    std::vector<std::uint8_t> owned_bytes;
-    if (rgba_byte_count != 0U) {
-      const auto *first = static_cast<const std::uint8_t *>(rgba_bytes);
-      owned_bytes.assign(first, first + rgba_byte_count);
-    }
+    std::vector<std::vector<std::uint8_t>> owned_bytes = mip_rgba_bytes;
     MaybeInject(Ogre14TerrainCompositeCaptureStage::AFTER_RGBA_ALLOCATION,
                 fault_injector);
     MaybeInject(Ogre14TerrainCompositeCaptureStage::AFTER_NATIVE_READBACK,
                 fault_injector);
+    MaybeInject(Ogre14TerrainCompositeCaptureStage::BEFORE_RECEIPT_PUBLICATION,
+                fault_injector);
     return PublishOwnedReadback(configuration, before_readback,
                                 std::move(owned_bytes), after_readback,
-                                receipt, fault_injector);
+                                receipt);
   } catch (const std::bad_alloc &) {
-    return Failure(ValidationCode::EMPTY_PAYLOAD,
-                   "terrain_composite.capture.allocation",
-                   "allocation failed before terrain composite receipt publication");
+    return Failure(
+        ValidationCode::EMPTY_PAYLOAD, "terrain_composite.capture.allocation",
+        "allocation failed before terrain composite receipt publication");
   } catch (...) {
-    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
-                   "terrain_composite.capture.unexpected_exception",
-                   "unexpected exception before terrain composite receipt publication");
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "terrain_composite.capture.unexpected_exception",
+        "unexpected exception before terrain composite receipt publication");
   }
 }
 #endif
 
-ValidationResult ValidateOgre14TerrainCompositeMaterialDescriptorLowering(
-    const Ogre14TerrainCompositeCaptureReceipt &receipt) {
-  if (!receipt.initialized() || receipt.metadata() == nullptr) {
-    return Failure(ValidationCode::MISSING_REFERENCE,
-                   "terrain_composite.material_descriptor.receipt",
-                   "terrain composite lowering requires a native receipt");
+ValidationResult LowerOgre14TerrainCompositeOpaque(
+    const Ogre14TerrainCompositeCaptureReceipt &receipt,
+    Ogre14TerrainCompositeOpaqueLowering &lowering) {
+  try {
+    if (!receipt.initialized() || receipt.metadata() == nullptr) {
+      return Failure(ValidationCode::MISSING_REFERENCE,
+                     "terrain_composite.lowering.receipt",
+                     "opaque lowering requires an initialized V2 receipt");
+    }
+    if (!HasEveryV2Invariant(receipt)) {
+      return Failure(
+          ValidationCode::UNSUPPORTED_VERSION,
+          "terrain_composite.lowering.transport_v2_invariants",
+          "opaque lowering requires every V2 transport, mip, binding, UV, "
+          "sampler, gamma, alpha-evidence, and direct-fog invariant");
+    }
+    const Ogre14TerrainCompositeCaptureMetadata &metadata =
+        *receipt.metadata();
+    if (metadata.sampling.scene_fog_mode !=
+        Ogre14TerrainCompositeSceneFogMode::FOG_NONE) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "terrain_composite.lowering.scene_fog_mode",
+                     "opaque terrain composite lowering admits direct "
+                     "SceneManager FOG_NONE only");
+    }
+    Ogre14TerrainCompositeOpaqueLowering candidate;
+    candidate.rgb_transfer = metadata.rgb_transfer;
+    candidate.mip_chain.reserve(metadata.mip_chain.size());
+    for (std::size_t level = 0U; level < metadata.mip_chain.size(); ++level) {
+      const Ogre14TerrainCompositeMipMetadata &source_metadata =
+          metadata.mip_chain[level];
+      const std::uint8_t *const source_bytes =
+          receipt.mip_rgba_bytes(level);
+      const std::size_t source_size = receipt.mip_rgba_size(level);
+      Ogre14TerrainCompositeOpaqueMip mip;
+      mip.mip_level = source_metadata.mip_level;
+      mip.width = source_metadata.width;
+      mip.height = source_metadata.height;
+      mip.tight_row_pitch_bytes = source_metadata.tight_row_pitch_bytes;
+      mip.tight_slice_pitch_bytes = source_metadata.tight_slice_pitch_bytes;
+      mip.rgba_bytes.assign(source_bytes, source_bytes + source_size);
+      for (std::size_t alpha = 3U; alpha < mip.rgba_bytes.size(); alpha += 4U) {
+        mip.rgba_bytes[alpha] = 255U;
+      }
+      candidate.mip_chain.push_back(std::move(mip));
+    }
+
+    candidate.sampler.debug_name = "ogre14-terrain-composite-sampler";
+    candidate.sampler.minification_filter = SamplerFilter::LINEAR;
+    candidate.sampler.magnification_filter = SamplerFilter::LINEAR;
+    candidate.sampler.mip_filter = SamplerFilter::NEAREST;
+    candidate.sampler.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+    candidate.sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+    candidate.sampler.address_w = SamplerAddressMode::CLAMP_TO_EDGE;
+    candidate.sampler.mip_lod_bias = 0.0F;
+    candidate.sampler.minimum_lod = 0.0F;
+    candidate.sampler.maximum_lod =
+        static_cast<float>(candidate.mip_chain.size() - 1U);
+    candidate.sampler.anisotropy_enabled = false;
+    candidate.sampler.maximum_anisotropy = 1.0F;
+    candidate.sampler.compare_enabled = false;
+    candidate.sampler.compare_operation = SamplerCompareOperation::ALWAYS;
+    // Source authority retains OGRE Black {+0,+0,+0,+1}. CLAMP_TO_EDGE never
+    // samples a border, so the portable descriptor uses its canonical inert
+    // Float4{} value without claiming the source alpha was zero.
+    candidate.sampler.border_color = {};
+    ValidationResult validation =
+        ValidateSamplerResourceDescriptor(candidate.sampler);
+    if (!validation) {
+      return validation;
+    }
+    lowering = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "terrain_composite.lowering.allocation",
+                   "allocation failed before opaque lowering publication");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "terrain_composite.lowering.unexpected_exception",
+                   "unexpected exception before opaque lowering publication");
   }
-  if (receipt.metadata()->alpha_semantic !=
-          Ogre14TerrainCompositeAlphaSemantic::LINEAR_SPECULAR_MASK ||
-      receipt.metadata()->material_lowering_status !=
-          Ogre14TerrainCompositeMaterialLoweringStatus::
-              BLOCKED_ALPHA_IS_SPECULAR_MASK) {
-    return Failure(ValidationCode::INVALID_ENUM,
-                   "terrain_composite.material_descriptor.semantics",
-                   "terrain composite receipt carries unknown channel semantics");
-  }
-  return Failure(
-      ValidationCode::UNSUPPORTED_FEATURE,
-      "terrain_composite.material_descriptor.alpha_specular_mask",
-      "MaterialDescriptor base alpha is coverage and metallic-roughness has no legacy specular-mask channel; UNLIT and PBR lowering are not lossless");
 }
 
 } // namespace RoR::Render
