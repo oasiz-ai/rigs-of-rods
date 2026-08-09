@@ -1344,12 +1344,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_live_material_coordinator_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp")
     target_include_directories(
         ror_ogre14_live_material_coordinator_tests
         PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_live_material_coordinator_tests
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1)
     target_link_libraries(
         ror_ogre14_live_material_coordinator_tests
         PRIVATE ror_ogre_next_n1_contract)
@@ -1362,11 +1366,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp")
     target_include_directories(
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1)
     target_link_libraries(
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         PRIVATE ror_ogre_next_n1_contract)

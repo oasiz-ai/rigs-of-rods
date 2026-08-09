@@ -220,6 +220,10 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             self.assertIn("Ogre14LegacyLiveMaterialCoordinatorTests.cpp", cmake)
             self.assertIn("Ogre14LegacyLiveMaterialCoordinator.cpp", cmake)
             self.assertIn("Ogre14LegacyMaterialSemanticRegistry.cpp", cmake)
+            self.assertIn(
+                "ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1",
+                cmake,
+            )
             for target in (
                 "ror_ogre14_live_material_coordinator_tests",
                 "ror_ogre14_graphics_scene_prepared_material_binding_tests",
@@ -232,6 +236,10 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
                 self.assertIsNotNone(match, target)
                 self.assertIn(
                     "Ogre14AuthenticatedTextureReceipt.cpp", match.group(0)
+                )
+                self.assertIn(
+                    "Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
+                    match.group(0),
                 )
         self.assertIn(
             "gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp}", main_cmake
