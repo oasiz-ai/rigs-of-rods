@@ -1,8 +1,8 @@
 # OGRE 14 authenticated source-texture receipts
 
-Status: implemented capture/lifecycle and authenticated OGRE-native extraction
-boundary; consumption by the live Ogre-Next material coordinator remains a
-separate scene-wiring step.
+Status: implemented capture/lifecycle, authenticated OGRE-native extraction,
+and pure-data material-coordinator admission; native `GfxScene` collection and
+accepted-exposure wiring remain separate scene steps.
 
 ## Contract
 
@@ -106,6 +106,44 @@ capture overload remains available but deliberately leaves the resolution
 vector empty, so GPU pixels cannot be mistaken for authenticated source bytes.
 Untextured captures remain valid with an empty vector.
 
+The live material coordinator admits a textured observation only when this
+vector is aligned 1:1 with its captured textures. A textured coordinator is
+constructed with a borrowed scene-lifetime
+`IOgre14AuthenticatedTextureAuthorityProvider`; at the start of every
+`PrepareFrame` it asks that provider for the exact current resolver and
+immutable receipt-registry snapshot. Every resolution in the frame, including
+distinct texture keys, must authenticate against that common snapshot before
+any texture payload is copied. A lone foreign proof, mixed resolvers, mixed
+registry publications, resource removal, group teardown, or any unrelated
+registry publication therefore invalidates the old proof on the next frame;
+freshly resolved proofs recover. A coordinator without this trusted provider
+admits only untextured captures.
+
+Within that common authority, the coordinator also verifies each opaque
+resolution's exact source receipt, resource group/name, and checked load
+revision. Repeated observations and shared texture keys may canonicalize
+independently minted resolution objects only when they retain the same registry
+snapshot, source-receipt control block, resolver identity, and loaded state.
+The compatibility extractor's textured output has no such authority and is
+intentionally rejected at this boundary; its untextured output remains valid.
+
+This v1 gate authenticates source ownership, exact resource key, resolver,
+registry publication, and load revision. It does **not** cryptographically seal
+the mutable decoded RGBA mip vectors carried by the pure-data observation. The
+live-scene default still requires a native-extractor-minted canonical readback
+digest/receipt bound to the same resolution and exact mip layout, followed by
+accepted-exposure revalidation. Until that follow-on lands, this contract must
+not be described as pixel-payload authenticity.
+
+OGRE resource removal precedes the listener callback's copy-on-write receipt
+removal. If that publication fails for allocation, identity, or any unexpected
+reason, `ContentManager` immediately invokes the allocation-free `noexcept`
+registry poison before logging. The trusted provider can no longer mint a
+current authority snapshot, so a removed resource can never remain admitted;
+the texture-authority subsystem stays terminally fail-closed until the owning
+`ContentManager` is reconstructed. The same rule applies when an untrusted
+stream-open callback displaces an authenticated binding.
+
 OGRE's `mStateCount` is a plain `size_t`, not an atomic. Its pinned source even
 allows lost concurrent dirty increments, and OGRE exposes no public Resource
 lock spanning texture readback. Resolve, native readback, and final
@@ -164,7 +202,8 @@ bytes, legacy and DX10 DDS facts, generated-rule provenance, caps, exact-member
 and case collisions, stale generations, downstream-failure retry, reload,
 pointer reuse, resource removal, group reset/teardown, pre-resource tokens,
 non-forgeable loaded resolutions, exact `n + 1` state, resolver and registry
-substitution, unrelated-snapshot invalidation/fresh resolve, exact owner
+substitution, common frame-authority admission, unrelated/removal/teardown
+snapshot invalidation and fresh resolve, exact owner
 preservation, and allocation/unexpected exception rollback. The pinned native
 extractor test adds real `Resource::load()`/`reload()` state transitions,
 readable RGBA texture capture, final resolver revalidation, untextured and

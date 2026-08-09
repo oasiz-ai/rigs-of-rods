@@ -49,6 +49,7 @@ class ContentManager:
     private Ogre::ResourceGroupListener
 #if OGRE_VERSION_MAJOR >= 14
     , public Render::IOgre14AuthenticatedTextureResolver
+    , public Render::IOgre14AuthenticatedTextureAuthorityProvider
 #endif
 {
 public:
@@ -129,6 +130,10 @@ public:
         Ogre::Texture& texture,
         const Render::Ogre14AuthenticatedTextureResolution& resolution) const
         noexcept override;
+    [[nodiscard]] Render::ValidationResult
+    CaptureAuthenticatedTextureAuthoritySnapshot(
+        Render::Ogre14AuthenticatedTextureAuthoritySnapshot& snapshot) const
+        override;
 #endif
 
     // JSON:

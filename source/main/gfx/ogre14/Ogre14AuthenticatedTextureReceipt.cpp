@@ -14,6 +14,7 @@
 #include <map>
 #include <new>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -350,6 +351,14 @@ struct Ogre14AuthenticatedTextureResolution::State final {
   std::uint64_t loaded_resource_state_count = 0U;
 };
 
+Ogre14AuthenticatedTextureAuthoritySnapshot::
+    Ogre14AuthenticatedTextureAuthoritySnapshot(
+        Ogre14AuthenticatedTextureReceiptRegistry registry_snapshot,
+        std::uintptr_t resolver_pointer_token) noexcept
+    : version_(kOgre14AuthenticatedTextureAuthoritySnapshotVersion),
+      registry_snapshot_(std::move(registry_snapshot)),
+      resolver_pointer_token_(resolver_pointer_token) {}
+
 Ogre14AuthenticatedTextureReceipt::Ogre14AuthenticatedTextureReceipt(
     std::shared_ptr<const State> state) noexcept
     : state_(std::move(state)) {}
@@ -451,6 +460,18 @@ Ogre14AuthenticatedTextureResolution::loaded_resource_state_count() const
   return initialized() ? state_->loaded_resource_state_count : 0U;
 }
 
+bool Ogre14AuthenticatedTextureResolution::SharesLoadedResourceAuthorityWith(
+    const Ogre14AuthenticatedTextureResolution &other) const noexcept {
+  return initialized() && other.initialized() &&
+         state_->registry_snapshot.SharesImmutableStateWith(
+             other.state_->registry_snapshot) &&
+         state_->exact_source_receipt.SharesImmutableStateWith(
+             other.state_->exact_source_receipt) &&
+         state_->resolver_pointer_token == other.state_->resolver_pointer_token &&
+         state_->loaded_resource_state_count ==
+             other.state_->loaded_resource_state_count;
+}
+
 bool Ogre14AuthenticatedTextureResolution::MatchesResolver(
     const IOgre14AuthenticatedTextureResolver &resolver) const noexcept {
   return initialized() &&
@@ -477,6 +498,33 @@ bool Ogre14AuthenticatedTextureResolution::MatchesLoadedResourceIdentity(
          metadata->source.binding.resource_handle == resource_handle &&
          metadata->source.effective_resource_group == exact_resource_group &&
          metadata->source.binding.exact_resource_name == exact_resource_name;
+}
+
+bool Ogre14AuthenticatedTextureAuthoritySnapshot::initialized() const
+    noexcept {
+  return version_ == kOgre14AuthenticatedTextureAuthoritySnapshotVersion &&
+         registry_snapshot_.initialized() && resolver_pointer_token_ != 0U;
+}
+
+std::uint32_t
+Ogre14AuthenticatedTextureAuthoritySnapshot::version() const noexcept {
+  return version_;
+}
+
+bool Ogre14AuthenticatedTextureAuthoritySnapshot::Authenticates(
+    const Ogre14AuthenticatedTextureResolution &resolution) const noexcept {
+  return initialized() && resolution.initialized() &&
+         registry_snapshot_.SharesImmutableStateWith(
+             resolution.state_->registry_snapshot) &&
+         resolver_pointer_token_ == resolution.state_->resolver_pointer_token;
+}
+
+bool Ogre14AuthenticatedTextureAuthoritySnapshot::SharesImmutableAuthorityWith(
+    const Ogre14AuthenticatedTextureAuthoritySnapshot &other) const noexcept {
+  return initialized() && other.initialized() &&
+         registry_snapshot_.SharesImmutableStateWith(
+             other.registry_snapshot_) &&
+         resolver_pointer_token_ == other.resolver_pointer_token_;
 }
 
 ValidationResult Ogre14AuthenticatedTextureReceiptRegistry::FindResource(
@@ -587,6 +635,28 @@ Ogre14AuthenticatedTextureReceiptRegistry::MintLoadedResourceResolution(
                    "texture_resolution.exception",
                    "unexpected exception before authenticated texture resolution publication");
   }
+}
+
+ValidationResult
+Ogre14AuthenticatedTextureReceiptRegistry::MintResolverAuthoritySnapshot(
+    std::uintptr_t resolver_pointer_token,
+    Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) const {
+  if (state_ == nullptr) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "texture_authority.registry",
+                   "authenticated texture registry is not initialized");
+  }
+  if (resolver_pointer_token == 0U) {
+    return Failure(ValidationCode::INVALID_HANDLE,
+                   "texture_authority.resolver",
+                   "authenticated texture resolver identity is empty");
+  }
+  Ogre14AuthenticatedTextureAuthoritySnapshot candidate(*this,
+                                                         resolver_pointer_token);
+  static_assert(std::is_nothrow_move_assignable_v<
+                Ogre14AuthenticatedTextureAuthoritySnapshot>);
+  snapshot = std::move(candidate);
+  return ValidationResult::Success();
 }
 
 bool Ogre14AuthenticatedTextureReceiptRegistry::
@@ -1306,6 +1376,12 @@ ValidationResult RemoveOgre14AuthenticatedTextureResource(
                    "texture_registry.resource_remove.exception",
                    "unexpected exception before resource removal commit");
   }
+}
+
+void PoisonOgre14AuthenticatedTextureReceiptRegistry(
+    Ogre14AuthenticatedTextureReceiptRegistry &registry) noexcept {
+  static_assert(noexcept(registry.state_.reset()));
+  registry.state_.reset();
 }
 
 } // namespace RoR::Render

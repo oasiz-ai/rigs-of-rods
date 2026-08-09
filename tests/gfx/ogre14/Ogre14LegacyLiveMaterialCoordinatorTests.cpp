@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <new>
 #include <string>
@@ -50,6 +51,29 @@ public:
   }
 };
 
+class Ogre14AuthenticatedTextureResolutionTestAccess final {
+public:
+  static ValidationResult Mint(
+      const Ogre14AuthenticatedTextureReceiptRegistry &registry,
+      const std::string &group, std::uint64_t generation,
+      std::uintptr_t pointer_token, std::uint64_t handle,
+      const std::string &name, std::uint64_t loaded_state_count,
+      const IOgre14AuthenticatedTextureResolver &resolver,
+      Ogre14AuthenticatedTextureResolution &resolution) {
+    return registry.MintLoadedResourceResolution(
+        group, generation, pointer_token, handle, name, loaded_state_count,
+        reinterpret_cast<std::uintptr_t>(&resolver), resolution);
+  }
+
+  static ValidationResult MintAuthority(
+      const Ogre14AuthenticatedTextureReceiptRegistry &registry,
+      const IOgre14AuthenticatedTextureResolver &resolver,
+      Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) {
+    return registry.MintResolverAuthoritySnapshot(
+        reinterpret_cast<std::uintptr_t>(&resolver), snapshot);
+  }
+};
+
 } // namespace RoR::Render::Testing
 
 namespace {
@@ -67,13 +91,234 @@ Ogre14LegacyAssetKey Key(std::string group, std::string name) {
   return {std::move(group), std::move(name)};
 }
 
+class SyntheticTextureResolver final
+    : public IOgre14AuthenticatedTextureResolver {
+public:
+  ValidationResult ResolveAuthenticatedTexture(
+      Ogre::Texture &,
+      Ogre14AuthenticatedTextureResolution &) const override {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "synthetic_texture.resolve",
+        "pure coordinator test never resolves an OGRE texture");
+  }
+
+  bool RevalidateAuthenticatedTexture(
+      Ogre::Texture &,
+      const Ogre14AuthenticatedTextureResolution &) const noexcept override {
+    return false;
+  }
+};
+
+struct SyntheticTextureAuthority final {
+  Ogre14AuthenticatedTextureReceiptRegistry registry;
+  SyntheticTextureResolver resolver;
+  struct Binding final {
+    Ogre14LegacyAssetKey key;
+    std::uint64_t generation = 0U;
+    std::uintptr_t pointer_token = 0U;
+    std::uint64_t handle = 0U;
+  };
+  std::map<std::string, Binding, std::less<>> bindings;
+  std::map<std::string, std::uint64_t, std::less<>> group_generations;
+  std::uint64_t next_generation = 0U;
+  std::uintptr_t next_pointer_token = 0x1000U;
+  std::uint64_t next_handle = 1U;
+
+  explicit SyntheticTextureAuthority(
+      const std::vector<Ogre14LegacyAssetKey> &exact_keys) {
+    Require(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{}, registry)
+                .ok(),
+            "synthetic texture authority registry did not initialize");
+    for (const Ogre14LegacyAssetKey &key : exact_keys) {
+      Add(key);
+    }
+  }
+
+  explicit SyntheticTextureAuthority(Ogre14LegacyAssetKey exact_key)
+      : SyntheticTextureAuthority(
+            std::vector<Ogre14LegacyAssetKey>{std::move(exact_key)}) {}
+
+  static std::string StableKey(const Ogre14LegacyAssetKey &key) {
+    return key.exact_resource_group + std::string(1U, '\0') + key.exact_name;
+  }
+
+  void CommitBinding(const Binding &binding) {
+    const Ogre14LegacyAssetKey &key = binding.key;
+    Ogre14AuthenticatedTextureCaptureInput input;
+    input.effective_resource_group = key.exact_resource_group;
+    input.group_generation = binding.generation;
+    input.archive_identity = "/synthetic/texture-authority.zip";
+    input.archive_name = "ror-synthetic-texture-authority";
+    input.archive_type = "EmbeddedZip";
+    input.archive_sha256 = std::string(64U, 'a');
+    input.archive_pointer_token = binding.pointer_token + 0x10000U;
+    input.exact_member_name = key.exact_name;
+    input.binding.resource_pointer_token = binding.pointer_token;
+    input.binding.resource_handle = binding.handle;
+    input.binding.resource_state_count = 0U;
+    input.binding.exact_resource_name = key.exact_name;
+    const std::vector<std::uint8_t> source_bytes = {1U, 2U, 3U, 4U};
+    Ogre14AuthenticatedTextureReceipt receipt;
+    Require(BuildOgre14AuthenticatedTextureReceipt(
+                Ogre14AuthenticatedTextureRegistryConfiguration{}, input,
+                source_bytes.data(), source_bytes.size(), receipt)
+                    .ok() &&
+                CommitOgre14AuthenticatedTextureReceipt(receipt, registry)
+                    .ok(),
+            "synthetic texture authority receipt did not commit");
+  }
+
+  void Add(const Ogre14LegacyAssetKey &key) {
+    const std::string stable_key = StableKey(key);
+    Require(bindings.find(stable_key) == bindings.end(),
+            "synthetic texture authority duplicated one exact key");
+    auto generation = group_generations.find(key.exact_resource_group);
+    if (generation == group_generations.end()) {
+      ++next_generation;
+      Require(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+                  key.exact_resource_group, next_generation, registry)
+                  .ok(),
+              "synthetic texture authority group did not activate");
+      generation =
+          group_generations.emplace(key.exact_resource_group, next_generation)
+              .first;
+    }
+    Binding binding;
+    binding.key = key;
+    binding.generation = generation->second;
+    binding.pointer_token = next_pointer_token++;
+    binding.handle = next_handle++;
+    CommitBinding(binding);
+    bindings.emplace(stable_key, std::move(binding));
+  }
+
+  void Remove(const Ogre14LegacyAssetKey &key) {
+    const auto binding = bindings.find(StableKey(key));
+    Require(binding != bindings.end() &&
+                RemoveOgre14AuthenticatedTextureResource(
+                    key.exact_resource_group, binding->second.pointer_token,
+                    binding->second.handle, key.exact_name, registry)
+                    .ok(),
+            "synthetic texture authority resource did not remove");
+  }
+
+  void Recommit(const Ogre14LegacyAssetKey &key) {
+    const auto binding = bindings.find(StableKey(key));
+    Require(binding != bindings.end(),
+            "synthetic texture authority cannot recommit an absent binding");
+    CommitBinding(binding->second);
+  }
+
+  void TeardownAndReactivate(const std::string &group) {
+    const auto generation = group_generations.find(group);
+    Require(generation != group_generations.end() &&
+                TeardownOgre14AuthenticatedTextureGroup(
+                    group, generation->second, registry)
+                    .ok(),
+            "synthetic texture authority group did not tear down");
+    ++next_generation;
+    Require(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+                group, next_generation, registry)
+                .ok(),
+            "synthetic texture authority group did not reactivate");
+    generation->second = next_generation;
+    for (auto &entry : bindings) {
+      if (entry.second.key.exact_resource_group == group) {
+        entry.second.generation = next_generation;
+        CommitBinding(entry.second);
+      }
+    }
+  }
+
+  Ogre14AuthenticatedTextureResolution
+  Mint(const Ogre14LegacyAssetKey &key) const {
+    const auto binding = bindings.find(StableKey(key));
+    Require(binding != bindings.end(),
+            "synthetic texture authority does not own the requested key");
+    Ogre14AuthenticatedTextureResolution resolution;
+    Require(
+        Testing::Ogre14AuthenticatedTextureResolutionTestAccess::Mint(
+            registry, key.exact_resource_group, binding->second.generation,
+            binding->second.pointer_token, binding->second.handle,
+            key.exact_name, 1U, resolver, resolution)
+            .ok(),
+        "synthetic loaded texture resolution did not mint");
+    return resolution;
+  }
+
+  ValidationResult CaptureAuthenticatedTextureAuthoritySnapshot(
+      Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) const {
+    return Testing::Ogre14AuthenticatedTextureResolutionTestAccess::
+        MintAuthority(registry, resolver, snapshot);
+  }
+};
+
+class SyntheticTextureAuthorityProvider final
+    : public IOgre14AuthenticatedTextureAuthorityProvider {
+public:
+  explicit SyntheticTextureAuthorityProvider(SyntheticTextureAuthority &owner)
+      : owner_(owner) {}
+
+  ValidationResult CaptureAuthenticatedTextureAuthoritySnapshot(
+      Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) const override {
+    return owner_.CaptureAuthenticatedTextureAuthoritySnapshot(snapshot);
+  }
+
+private:
+  SyntheticTextureAuthority &owner_;
+};
+
+class HostileTextureAuthorityProvider final
+    : public IOgre14AuthenticatedTextureAuthorityProvider {
+public:
+  enum class Mode : std::uint8_t { EMPTY_SUCCESS = 0U, BAD_ALLOC, UNEXPECTED };
+  Mode mode = Mode::EMPTY_SUCCESS;
+
+  ValidationResult CaptureAuthenticatedTextureAuthoritySnapshot(
+      Ogre14AuthenticatedTextureAuthoritySnapshot &) const override {
+    if (mode == Mode::BAD_ALLOC) {
+      throw std::bad_alloc();
+    }
+    if (mode == Mode::UNEXPECTED) {
+      throw 29;
+    }
+    return ValidationResult::Success();
+  }
+};
+
+SyntheticTextureAuthority &TrustedTextureAuthority() {
+  static SyntheticTextureAuthority authority(
+      {Key("City", "Texture/Shared"), Key("Main", "Shared"),
+       Key("Main", "Other")});
+  return authority;
+}
+
+SyntheticTextureAuthorityProvider &TrustedTextureAuthorityProvider() {
+  static SyntheticTextureAuthorityProvider provider(TrustedTextureAuthority());
+  return provider;
+}
+
+Ogre14AuthenticatedTextureResolution
+MakeAuthenticatedTextureResolution(const Ogre14LegacyAssetKey &key) {
+  return TrustedTextureAuthority().Mint(key);
+}
+
+Ogre14AuthenticatedTextureResolution
+MakeForeignAuthenticatedTextureResolution(const Ogre14LegacyAssetKey &key) {
+  SyntheticTextureAuthority authority(key);
+  return authority.Mint(key);
+}
+
 Ogre14LegacyTextureInput
 MakeTexture(const Ogre14LegacyAssetKey &key,
             std::vector<std::uint8_t> rgba = {20U, 40U, 60U, 255U},
             std::uint32_t width = 1U, std::uint32_t height = 1U) {
   Ogre14LegacyTextureInput texture;
   texture.key = key;
-  texture.source_revision = 1U;
+  // The registry receipt records resource state zero, the successful OGRE load
+  // advances it to one, and the portable translator revision is state + 1.
+  texture.source_revision = 2U;
   texture.width = width;
   texture.height = height;
   Ogre14LegacyTextureMipInput mip;
@@ -100,6 +345,8 @@ MakeRawObservation(const Ogre14LegacyAssetKey &material_key,
     unit.sampler.source_revision = 1U;
     observation.native_capture.material.texture_units.push_back(unit);
     observation.native_capture.textures.push_back(MakeTexture(*texture_key));
+    observation.native_capture.authenticated_texture_resolutions.push_back(
+        MakeAuthenticatedTextureResolution(*texture_key));
   }
   Require(
       Testing::Ogre14LegacyNativeMaterialAuditTestAccess::SealSyntheticCapture(
@@ -132,8 +379,9 @@ std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> MakeCoordinator(
     const Ogre14LegacyMaterialSemanticRegistry &registry,
     Ogre14LegacyLiveMaterialCoordinatorConfiguration configuration = {}) {
   std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> coordinator;
-  Require(CreateOgre14LegacyLiveMaterialCoordinator(configuration, registry,
-                                                    coordinator)
+  Require(CreateOgre14LegacyLiveMaterialCoordinator(
+              configuration, registry, TrustedTextureAuthorityProvider(),
+              coordinator)
                   .ok() &&
               coordinator != nullptr,
           "live material coordinator fixture did not build");
@@ -436,6 +684,20 @@ void TestHostileInputsAndTransactionalRollback() {
         Require(!result && !coordinator->has_pending_frame(), message);
         RequireSentinelUnchanged(sentinel, expected, message);
       };
+  auto RejectFieldWithoutMutation =
+      [&coordinator](
+          std::uint64_t sequence,
+          const std::vector<Ogre14LegacyMaterialObservation> &inputs,
+          const char *expected_field, const char *message) {
+        Ogre14LegacyPreparedMaterialFrame sentinel = SentinelFrame();
+        const Ogre14LegacyPreparedMaterialFrame expected = sentinel;
+        const ValidationResult result =
+            coordinator->PrepareFrame(sequence, inputs, sentinel);
+        Require(!result && result.field == expected_field &&
+                    !coordinator->has_pending_frame(),
+                message);
+        RequireSentinelUnchanged(sentinel, expected, message);
+      };
 
   RejectWithoutMutation(2U, {observation_a},
                         "skipped source sequence was accepted");
@@ -451,6 +713,78 @@ void TestHostileInputsAndTransactionalRollback() {
           "shared material observations did not reuse one canonical native "
           "audit owner");
   coordinator->DiscardPreparedFrame();
+
+  Ogre14LegacyMaterialObservation independently_minted_resolution =
+      observation_a;
+  independently_minted_resolution
+      .native_capture.authenticated_texture_resolutions[0] =
+      MakeAuthenticatedTextureResolution(texture);
+  Require(
+      observation_a.native_capture.authenticated_texture_resolutions[0]
+          .SharesLoadedResourceAuthorityWith(
+              independently_minted_resolution
+                  .native_capture.authenticated_texture_resolutions[0]),
+      "separate authentic resolutions did not retain one exact source "
+      "authority");
+  Ogre14LegacyPreparedMaterialFrame same_authority_frame;
+  Require(coordinator
+                  ->PrepareFrame(1U,
+                                 {observation_a,
+                                  independently_minted_resolution},
+                                 same_authority_frame)
+                  .ok() &&
+              same_authority_frame.materials().size() == 1U,
+          "separately minted resolutions for one exact loaded resource did "
+          "not canonicalize");
+  coordinator->DiscardPreparedFrame();
+
+  Ogre14LegacyMaterialObservation missing_resolution = observation_a;
+  missing_resolution.native_capture.authenticated_texture_resolutions.clear();
+  RejectFieldWithoutMutation(
+      1U, {missing_resolution}, "material_observations.textures",
+      "textured observation without an authenticated resolution was accepted");
+
+  Ogre14LegacyMaterialObservation empty_resolution = observation_a;
+  empty_resolution.native_capture.authenticated_texture_resolutions[0] = {};
+  RejectFieldWithoutMutation(
+      1U, {empty_resolution}, "material_observations.texture_resolution",
+      "textured observation with an empty authenticated resolution was accepted");
+
+  Ogre14LegacyMaterialObservation substituted_resolution = observation_a;
+  substituted_resolution.native_capture.authenticated_texture_resolutions[0] =
+      MakeAuthenticatedTextureResolution(other_texture);
+  RejectFieldWithoutMutation(
+      1U, {substituted_resolution},
+      "material_observations.texture_resolution",
+      "authenticated resolution for another texture identity was accepted");
+
+  Ogre14LegacyMaterialObservation stale_resolution = observation_a;
+  stale_resolution.native_capture.textures[0].source_revision += 1U;
+  RejectFieldWithoutMutation(
+      1U, {stale_resolution}, "material_observations.texture_resolution",
+      "authenticated resolution with a stale texture revision was accepted");
+
+  Ogre14LegacyMaterialObservation foreign_resolution = observation_a;
+  foreign_resolution.native_capture.authenticated_texture_resolutions[0] =
+      MakeForeignAuthenticatedTextureResolution(texture);
+  Require(
+      !observation_a.native_capture.authenticated_texture_resolutions[0]
+           .SharesLoadedResourceAuthorityWith(
+               foreign_resolution
+                   .native_capture.authenticated_texture_resolutions[0]),
+      "foreign texture authority fixture unexpectedly shared exact owners");
+  RejectFieldWithoutMutation(
+      1U, {foreign_resolution}, "material_observations.texture_authority",
+      "lone foreign texture authority was accepted");
+
+  Ogre14LegacyMaterialObservation mixed_authority =
+      MakeObservation(*coordinator, material_b, &other_texture);
+  mixed_authority.native_capture.authenticated_texture_resolutions[0] =
+      MakeForeignAuthenticatedTextureResolution(other_texture);
+  RejectFieldWithoutMutation(
+      1U, {observation_a, mixed_authority},
+      "material_observations.texture_authority",
+      "distinct texture keys from different registry snapshots were accepted");
 
   Ogre14LegacyMaterialObservation reboxed_material = observation_a;
   Require(
@@ -561,6 +895,13 @@ void TestHostileInputsAndTransactionalRollback() {
       MakeObservation(*coordinator, material_a);
   Ogre14LegacyMaterialObservation untextured_b =
       MakeObservation(*coordinator, material_b);
+  Ogre14LegacyMaterialObservation untextured_with_resolution = untextured_a;
+  untextured_with_resolution.native_capture.authenticated_texture_resolutions
+      .push_back(
+          observation_a.native_capture.authenticated_texture_resolutions[0]);
+  RejectFieldWithoutMutation(
+      1U, {untextured_with_resolution}, "material_observations.textures",
+      "untextured observation with an authenticated resolution was accepted");
   untextured_b.native_capture.exact_native_material_audit =
       untextured_a.native_capture.exact_native_material_audit;
   untextured_b.native_capture.native_material_audit_receipt =
@@ -611,6 +952,15 @@ void TestHostileInputsAndTransactionalRollback() {
   RejectWithoutMutation(
       1U, {foreign_receipt},
       "material observation from a different registry build was accepted");
+
+  Ogre14LegacyMaterialObservation foreign_shared_texture = observation_b;
+  foreign_shared_texture.native_capture.authenticated_texture_resolutions[0] =
+      MakeForeignAuthenticatedTextureResolution(texture);
+  RejectFieldWithoutMutation(
+      1U, {observation_a, foreign_shared_texture},
+      "material_observations.texture_authority",
+      "one shared texture key accepted conflicting authenticated source "
+      "authority");
 
   Ogre14LegacyMaterialObservation conflicting = observation_b;
   conflicting.native_capture.textures[0].mip_levels[0].bytes[0] ^= 0xFFU;
@@ -816,6 +1166,138 @@ void TestHostileInputsAndTransactionalRollback() {
                            "epoch exhaustion mutated caller output");
 }
 
+void TestCurrentTextureAuthorityInvalidation() {
+  const Ogre14LegacyAssetKey material = Key("Main", "Material");
+  const Ogre14LegacyAssetKey texture = Key("Main", "Shared");
+  const Ogre14LegacyMaterialSemanticRegistry registry = MakeRegistry({material});
+  SyntheticTextureAuthority authority(texture);
+  SyntheticTextureAuthorityProvider provider(authority);
+  std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> coordinator;
+  Require(CreateOgre14LegacyLiveMaterialCoordinator(
+              Ogre14LegacyLiveMaterialCoordinatorConfiguration{}, registry,
+              provider, coordinator)
+                  .ok() &&
+              coordinator != nullptr,
+          "current-authority coordinator fixture did not build");
+
+  auto MakeLocalObservation = [&]() {
+    Ogre14LegacyMaterialObservation observation =
+        MakeObservation(*coordinator, material, &texture);
+    observation.native_capture.authenticated_texture_resolutions[0] =
+        authority.Mint(texture);
+    return observation;
+  };
+  Ogre14LegacyMaterialObservation observation = MakeLocalObservation();
+  Ogre14LegacyPreparedMaterialFrame prepared;
+  Require(coordinator->PrepareFrame(1U, {observation}, prepared).ok(),
+          "current scene texture authority was rejected");
+  coordinator->DiscardPreparedFrame();
+
+  auto RequireStaleRejection =
+      [&](const Ogre14LegacyMaterialObservation &stale, const char *message) {
+        Ogre14LegacyPreparedMaterialFrame sentinel = SentinelFrame();
+        const Ogre14LegacyPreparedMaterialFrame expected = sentinel;
+        const ValidationResult result =
+            coordinator->PrepareFrame(1U, {stale}, sentinel);
+        Require(!result &&
+                    result.field == "material_observations.texture_authority" &&
+                    !coordinator->has_pending_frame() &&
+                    coordinator->source_sequence() == 0U,
+                message);
+        RequireSentinelUnchanged(
+            sentinel, expected,
+            "stale scene texture authority mutated caller output");
+      };
+
+  authority.Add(Key("Unrelated", "Texture/Publication"));
+  RequireStaleRejection(
+      observation,
+      "old texture proof survived an unrelated registry publication");
+  observation = MakeLocalObservation();
+  Require(coordinator->PrepareFrame(1U, {observation}, prepared).ok(),
+          "refreshed texture proof did not recover after registry publication");
+  coordinator->DiscardPreparedFrame();
+
+  authority.Remove(texture);
+  RequireStaleRejection(observation,
+                        "removed texture resource retained frame authority");
+  authority.Recommit(texture);
+  observation = MakeLocalObservation();
+  Require(coordinator->PrepareFrame(1U, {observation}, prepared).ok(),
+          "refreshed texture proof did not recover after exact recommit");
+  coordinator->DiscardPreparedFrame();
+
+  authority.TeardownAndReactivate(texture.exact_resource_group);
+  RequireStaleRejection(observation,
+                        "group teardown retained stale texture authority");
+  observation = MakeLocalObservation();
+  Require(coordinator->PrepareFrame(1U, {observation}, prepared).ok(),
+          "refreshed texture proof did not recover after group reactivation");
+  coordinator->DiscardPreparedFrame();
+
+  std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> unanchored;
+  Require(CreateOgre14LegacyLiveMaterialCoordinator(
+              Ogre14LegacyLiveMaterialCoordinatorConfiguration{}, registry,
+              unanchored)
+                  .ok(),
+          "unanchored compatibility coordinator did not build");
+  Ogre14LegacyMaterialObservation unanchored_observation =
+      MakeRawObservation(material, &texture);
+  Require(unanchored
+              ->ResolveMaterialSemantics(
+                  material, unanchored_observation.semantic_resolution)
+              .ok(),
+          "unanchored coordinator did not issue material semantics");
+  Ogre14LegacyPreparedMaterialFrame unanchored_output = SentinelFrame();
+  const Ogre14LegacyPreparedMaterialFrame unanchored_expected =
+      unanchored_output;
+  const ValidationResult unanchored_result = unanchored->PrepareFrame(
+      1U, {unanchored_observation}, unanchored_output);
+  Require(!unanchored_result &&
+              unanchored_result.field ==
+                  "material_observations.texture_authority" &&
+              !unanchored->has_pending_frame(),
+          "textured frame without a trusted scene authority was accepted");
+  RequireSentinelUnchanged(
+      unanchored_output, unanchored_expected,
+      "missing scene texture authority mutated caller output");
+
+  for (const auto hostile_case : {
+           std::pair{HostileTextureAuthorityProvider::Mode::EMPTY_SUCCESS,
+                     "material_coordinator.texture_authority"},
+           std::pair{HostileTextureAuthorityProvider::Mode::BAD_ALLOC,
+                     "material_coordinator.allocation"},
+           std::pair{HostileTextureAuthorityProvider::Mode::UNEXPECTED,
+                     "material_coordinator.exception"}}) {
+    HostileTextureAuthorityProvider hostile_provider;
+    hostile_provider.mode = hostile_case.first;
+    std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> hostile_coordinator;
+    Require(CreateOgre14LegacyLiveMaterialCoordinator(
+                Ogre14LegacyLiveMaterialCoordinatorConfiguration{}, registry,
+                hostile_provider, hostile_coordinator)
+                    .ok(),
+            "hostile authority-provider coordinator did not build");
+    Ogre14LegacyMaterialObservation hostile_observation =
+        MakeRawObservation(material);
+    Require(hostile_coordinator
+                ->ResolveMaterialSemantics(
+                    material, hostile_observation.semantic_resolution)
+                .ok(),
+            "hostile authority-provider semantics did not resolve");
+    Ogre14LegacyPreparedMaterialFrame hostile_output = SentinelFrame();
+    const Ogre14LegacyPreparedMaterialFrame hostile_expected = hostile_output;
+    const ValidationResult hostile_result = hostile_coordinator->PrepareFrame(
+        1U, {hostile_observation}, hostile_output);
+    Require(!hostile_result && hostile_result.field == hostile_case.second &&
+                !hostile_coordinator->has_pending_frame() &&
+                hostile_coordinator->source_sequence() == 0U,
+            "hostile texture authority provider published a material frame");
+    RequireSentinelUnchanged(
+        hostile_output, hostile_expected,
+        "hostile texture authority provider mutated caller output");
+  }
+}
+
 void TestExceptionRollbackAndFreshGenerationIdentity() {
   const Ogre14LegacyAssetKey material = Key("Generation", "Material");
   const Ogre14LegacyMaterialSemanticRegistry registry =
@@ -894,6 +1376,7 @@ void TestFactoryValidationAndSentinelPreservation() {
 int main() {
   TestCanonicalPrepareCommitDiscardAndLineage();
   TestHostileInputsAndTransactionalRollback();
+  TestCurrentTextureAuthorityInvalidation();
   TestExceptionRollbackAndFreshGenerationIdentity();
   TestFactoryValidationAndSentinelPreservation();
   std::cout << "OGRE 14 live material coordinator tests passed\n";

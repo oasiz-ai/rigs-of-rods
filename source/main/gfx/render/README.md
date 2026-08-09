@@ -584,7 +584,21 @@ lease. It then batch-resolves all material closures from that one full frame
 and exposes shared immutable owners to the joined scene transaction. Every raw
 observation's texture bytes are charged before any deduplication. Repeated
 observations of one exact material may collapse only when their complete native
-capture and authenticated audit control block are identical; one control block
+capture, authenticated audit control block, and exact loaded-texture source
+authority agree. A textured coordinator borrows one scene-lifetime
+`IOgre14AuthenticatedTextureAuthorityProvider` and captures its exact current
+resolver/receipt-registry publication at the start of every frame. Every
+texture resolution, including distinct keys, must authenticate against that
+common snapshot. Thus a lone foreign proof, mixed registries/resolvers,
+unrelated registry publication, resource removal, or group teardown fails
+before any payload copy; a coordinator without a provider admits only
+untextured frames. Every textured observation must also carry one aligned
+registry-minted resolution whose source-receipt owner, resource group/name, and
+load revision agree with the captured texture; the unauthenticated compatibility
+overload is not admitted here. Independently minted resolutions may canonicalize
+only when they retain the same registry snapshot, source-receipt control block,
+resolver identity, and loaded resource state. A shared texture key cannot cross
+those authorities, and one audit control block
 can never authenticate two stable material keys. After translation, the
 coordinator compares the native and closure audits bit-for-bit, rejects any
 shared control block between them, and retains the exact native owner beside the
@@ -597,6 +611,16 @@ discard, validation failure, allocation failure, or an arbitrary exception
 releases the lease without advancing source/catalog lineage or changing the
 caller's previously populated output. An empty inventory is a real full frame,
 so removal and generation shutdown cannot retain stale material assets.
+
+This authority authenticates the source owner, key, resolver, registry
+publication, and load revision only. It does not seal caller-mutable decoded
+RGBA mip bytes. Live scene admission still requires an extractor-minted
+canonical readback digest/receipt bound to this authority and exact mip layout,
+plus accepted-exposure revalidation; no pixel-authenticity claim is made here.
+If OGRE resource removal has already occurred and receipt-registry removal
+cannot publish, `ContentManager` poisons the current registry through an
+allocation-free `noexcept` primitive before logging. No later frame can obtain
+a current authority snapshot until the owning manager is reconstructed.
 
 Before copying any canonical material or texture payload, and before acquiring
 the exclusive lease, the coordinator passes a versioned borrowed identity view

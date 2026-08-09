@@ -199,12 +199,17 @@ bool SameNativeCapture(const Ogre14LegacyNativeMaterialCapture &lhs,
                        const Ogre14LegacyNativeMaterialCapture &rhs) noexcept {
   if (lhs.version != rhs.version || !SameMaterial(lhs.material, rhs.material) ||
       lhs.textures.size() != rhs.textures.size() ||
+      lhs.authenticated_texture_resolutions.size() !=
+          rhs.authenticated_texture_resolutions.size() ||
       !SameExactOwner(lhs.exact_native_material_audit,
                       rhs.exact_native_material_audit)) {
     return false;
   }
   for (std::size_t index = 0U; index < lhs.textures.size(); ++index) {
-    if (!SameTexture(lhs.textures[index], rhs.textures[index])) {
+    if (!SameTexture(lhs.textures[index], rhs.textures[index]) ||
+        !lhs.authenticated_texture_resolutions[index]
+             .SharesLoadedResourceAuthorityWith(
+                 rhs.authenticated_texture_resolutions[index])) {
       return false;
     }
   }
@@ -215,6 +220,7 @@ ValidationResult ValidateObservation(
     const Ogre14LegacyMaterialObservation &observation,
     const Ogre14LegacyMaterialSemanticRegistry &semantic_registry,
     const Ogre14LegacyAssetTranslatorConfiguration &translator_configuration,
+    const Ogre14AuthenticatedTextureAuthoritySnapshot &texture_authority,
     std::uint64_t &observed_texture_bytes) {
   if (observation.version != kOgre14LegacyMaterialObservationVersion ||
       observation.native_capture.version !=
@@ -277,16 +283,66 @@ ValidationResult ValidateObservation(
   }
   if (observation.native_capture.material.texture_units.size() !=
           observation.native_capture.textures.size() ||
-      observation.native_capture.textures.size() > 1U) {
+      observation.native_capture.textures.size() > 1U ||
+      observation.native_capture.authenticated_texture_resolutions.size() !=
+          observation.native_capture.textures.size()) {
     return Failure(
         ValidationCode::SIZE_MISMATCH, "material_observations.textures",
-        "native capture must carry exactly its referenced v1 textures");
+        "native capture must carry exactly its referenced v1 textures and "
+        "aligned authenticated source resolutions");
   }
   std::uint64_t candidate_observed_texture_bytes = 0U;
   for (std::size_t index = 0U;
        index < observation.native_capture.textures.size(); ++index) {
     const Ogre14LegacyTextureInput &texture =
         observation.native_capture.textures[index];
+    const Ogre14AuthenticatedTextureResolution &texture_resolution =
+        observation.native_capture.authenticated_texture_resolutions[index];
+    const Ogre14AuthenticatedTextureReceipt *source_receipt =
+        texture_resolution.source_receipt();
+    const Ogre14AuthenticatedTextureReceiptMetadata *source_metadata =
+        source_receipt != nullptr ? source_receipt->metadata() : nullptr;
+    if (!texture_resolution.initialized() ||
+        texture_resolution.version() !=
+            kOgre14AuthenticatedTextureResolutionVersion ||
+        source_receipt == nullptr || source_metadata == nullptr ||
+        source_metadata->source.binding.kind !=
+            Ogre14AuthenticatedTextureBindingKind::RESOURCE) {
+      return Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "material_observations.texture_resolution",
+          "textured native capture lacks its registry-minted loaded-resource "
+          "authority",
+          index);
+    }
+    if (!texture_authority.Authenticates(texture_resolution)) {
+      return Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "material_observations.texture_authority",
+          "loaded-resource resolution was not minted by the scene's exact "
+          "current resolver and receipt-registry publication",
+          index);
+    }
+    const std::uint64_t loaded_resource_state_count =
+        texture_resolution.loaded_resource_state_count();
+    if (loaded_resource_state_count ==
+            (std::numeric_limits<std::uint64_t>::max)() ||
+        texture.source_revision != loaded_resource_state_count + 1U ||
+        source_metadata->source.binding.resource_state_count ==
+            (std::numeric_limits<std::uint64_t>::max)() ||
+        loaded_resource_state_count !=
+            source_metadata->source.binding.resource_state_count + 1U ||
+        texture.key.exact_resource_group !=
+            source_metadata->source.effective_resource_group ||
+        texture.key.exact_name !=
+            source_metadata->source.binding.exact_resource_name) {
+      return Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "material_observations.texture_resolution",
+          "authenticated source resolution disagrees with the exact texture "
+          "key or loaded resource revision",
+          index);
+    }
     validation = ValidateOgre14LegacyTextureInput(texture);
     if (!validation) {
       validation.element_index = index;
@@ -403,10 +459,13 @@ Ogre14LegacyLiveMaterialCoordinator::~Ogre14LegacyLiveMaterialCoordinator() =
 Ogre14LegacyLiveMaterialCoordinator::Ogre14LegacyLiveMaterialCoordinator(
     Ogre14LegacyLiveMaterialCoordinatorConfiguration configuration,
     Ogre14LegacyMaterialSemanticRegistry semantic_registry,
-    std::unique_ptr<Ogre14LegacyAssetTranslator> translator) noexcept
+    std::unique_ptr<Ogre14LegacyAssetTranslator> translator,
+    const IOgre14AuthenticatedTextureAuthorityProvider
+        *texture_authority_provider) noexcept
     : configuration_(std::move(configuration)),
       semantic_registry_(std::move(semantic_registry)),
-      translator_(std::move(translator)) {}
+      translator_(std::move(translator)),
+      texture_authority_provider_(texture_authority_provider) {}
 
 std::uint64_t
 Ogre14LegacyLiveMaterialCoordinator::source_sequence() const noexcept {
@@ -464,6 +523,24 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
   }
 
   ValidationResult validation = ValidationResult::Success();
+  Ogre14AuthenticatedTextureAuthoritySnapshot texture_authority;
+  if (texture_authority_provider_ != nullptr) {
+    validation = texture_authority_provider_
+                     ->CaptureAuthenticatedTextureAuthoritySnapshot(
+                         texture_authority);
+    if (!validation) {
+      return validation;
+    }
+    if (!texture_authority.initialized() ||
+        texture_authority.version() !=
+            kOgre14AuthenticatedTextureAuthoritySnapshotVersion) {
+      return Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "material_coordinator.texture_authority",
+          "scene authority provider returned no authenticated current "
+          "receipt-registry snapshot");
+    }
+  }
 
   struct IndexedObservation final {
     std::string material_stable_key;
@@ -476,6 +553,7 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
     std::uint64_t observation_texture_bytes = 0U;
     validation = ValidateObservation(observations[index], semantic_registry_,
                                      configuration_.translator,
+                                     texture_authority,
                                      observation_texture_bytes);
     if (!validation) {
       validation.element_index = index;
@@ -566,7 +644,11 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
   }
   ordered = std::move(canonical_observations);
 
-  std::map<std::string, const Ogre14LegacyTextureInput *, std::less<>> textures;
+  struct IndexedTexture final {
+    const Ogre14LegacyTextureInput *texture = nullptr;
+    const Ogre14AuthenticatedTextureResolution *resolution = nullptr;
+  };
+  std::map<std::string, IndexedTexture, std::less<>> textures;
   std::vector<const Ogre14LegacyMaterialInput *> identity_materials;
   identity_materials.reserve(ordered.size());
   std::uint64_t sampler_count = 0U;
@@ -584,7 +666,11 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
                      "derived native sampler count overflowed");
     }
     sampler_count = next_sampler_count;
-    for (const Ogre14LegacyTextureInput &texture : capture.textures) {
+    for (std::size_t texture_index = 0U;
+         texture_index < capture.textures.size(); ++texture_index) {
+      const Ogre14LegacyTextureInput &texture = capture.textures[texture_index];
+      const Ogre14AuthenticatedTextureResolution &resolution =
+          capture.authenticated_texture_resolutions[texture_index];
       std::string stable_key;
       validation = BuildOgre14LegacyStableAssetKey(RenderAssetKind::TEXTURE,
                                                    texture.key, stable_key);
@@ -593,12 +679,16 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
       }
       const auto existing = textures.find(stable_key);
       if (existing != textures.end()) {
-        if (existing->second == nullptr ||
-            !SameTexture(*existing->second, texture)) {
+        if (existing->second.texture == nullptr ||
+            existing->second.resolution == nullptr ||
+            !SameTexture(*existing->second.texture, texture) ||
+            !existing->second.resolution->SharesLoadedResourceAuthorityWith(
+                resolution)) {
           return Failure(
               ValidationCode::REVISION_MISMATCH,
               "material_observations.shared_texture",
-              "one exact texture key has conflicting captured state");
+              "one exact texture key has conflicting captured state or source "
+              "authority");
         }
       } else {
         if (textures.size() >=
@@ -608,7 +698,8 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
               "material_observations.texture_count",
               "unique native texture count exceeds the configured cap");
         }
-        textures.emplace(std::move(stable_key), &texture);
+        textures.emplace(std::move(stable_key),
+                         IndexedTexture{&texture, &resolution});
       }
     }
   }
@@ -627,12 +718,12 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
   std::vector<const Ogre14LegacyTextureInput *> identity_textures;
   identity_textures.reserve(textures.size());
   for (const auto &entry : textures) {
-    if (entry.second == nullptr) {
+    if (entry.second.texture == nullptr || entry.second.resolution == nullptr) {
       return Failure(ValidationCode::MISSING_REFERENCE,
                      "material_observations.textures",
                      "canonical native texture index contains no input");
     }
-    identity_textures.push_back(entry.second);
+    identity_textures.push_back(entry.second.texture);
   }
 
   Ogre14LegacyAssetIdentityFrameView identity_view;
@@ -867,7 +958,7 @@ ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
       translator_fault_injector);
   auto candidate = std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator>(
       new Ogre14LegacyLiveMaterialCoordinator(configuration, semantic_registry,
-                                              std::move(translator)));
+                                              std::move(translator), nullptr));
   output = std::move(candidate);
   return ValidationResult::Success();
 } catch (const std::bad_alloc &) {
@@ -878,6 +969,23 @@ ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
   return Failure(ValidationCode::UNSUPPORTED_FEATURE,
                  "material_coordinator.exception",
                  "unexpected exception before the coordinator was published");
+}
+
+ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
+    const Ogre14LegacyLiveMaterialCoordinatorConfiguration &configuration,
+    const Ogre14LegacyMaterialSemanticRegistry &semantic_registry,
+    IOgre14AuthenticatedTextureAuthorityProvider &texture_authority_provider,
+    std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output,
+    IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector) {
+  std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> candidate;
+  ValidationResult validation = CreateOgre14LegacyLiveMaterialCoordinator(
+      configuration, semantic_registry, candidate, translator_fault_injector);
+  if (!validation) {
+    return validation;
+  }
+  candidate->texture_authority_provider_ = &texture_authority_provider;
+  output = std::move(candidate);
+  return ValidationResult::Success();
 }
 
 const Ogre14LegacyPreparedMaterial *FindOgre14LegacyPreparedMaterial(

@@ -37,15 +37,22 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
         contract = self.receipt_header + self.receipt_source
         for token in (
             "kOgre14AuthenticatedTextureResolutionVersion = 1U",
+            "kOgre14AuthenticatedTextureAuthoritySnapshotVersion = 1U",
             "class Ogre14AuthenticatedTextureResolution final",
+            "class Ogre14AuthenticatedTextureAuthoritySnapshot final",
             "class IOgre14AuthenticatedTextureResolver",
+            "class IOgre14AuthenticatedTextureAuthorityProvider",
             "MintLoadedResourceResolution",
+            "MintResolverAuthoritySnapshot",
             "RevalidateLoadedResourceResolution",
             "friend class ::RoR::ContentManager",
             "registry_snapshot",
             "exact_source_receipt",
             "resolver_pointer_token",
             "SharesImmutableStateWith",
+            "SharesLoadedResourceAuthorityWith",
+            "SharesImmutableAuthorityWith",
+            "Authenticates(",
             "BEFORE_RESOLUTION_COMMIT",
         ):
             self.assertIn(token, contract)
@@ -76,14 +83,20 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
             "group teardown did not invalidate",
             "bad_alloc during resolution mint changed output authority",
             "unexpected resolution-mint exception changed output authority",
+            "separate resolution mint lost exact loaded-resource authority",
+            "different resolver shared one loaded-resource authority",
+            "source-receipt authority dimensions were",
+            "not independently enforced",
         ):
             self.assertIn(token, self.receipt_test)
 
     def test_content_manager_is_the_exact_live_authority(self) -> None:
         for token in (
             "public Render::IOgre14AuthenticatedTextureResolver",
+            "public Render::IOgre14AuthenticatedTextureAuthorityProvider",
             "ResolveAuthenticatedTexture(",
             "RevalidateAuthenticatedTexture(",
+            "CaptureAuthenticatedTextureAuthoritySnapshot(",
             'manager->getResourceType() != "Texture"',
             "texture.getCreator() != manager",
             "manager->getByHandle(texture.getHandle())",
@@ -93,6 +106,7 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
             "texture.isLoaded()",
             "m_legacy_material_state_mutex",
             "MintLoadedResourceResolution",
+            "MintResolverAuthoritySnapshot",
             "RevalidateLoadedResourceResolution",
         ):
             self.assertIn(token, self.content_header + self.content_source)
@@ -102,6 +116,31 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
         self.assertNotIn("openResource", bridge)
         self.assertNotIn("selected_archive->open", bridge)
         self.assertNotIn("findGroupContainingResource", bridge)
+
+    def test_failed_ogre_removal_terminally_poison_current_authority(self) -> None:
+        contract = self.receipt_header + self.receipt_source
+        for token in (
+            "PoisonOgre14AuthenticatedTextureReceiptRegistry(",
+            "registry.state_.reset()",
+            "failed removal did not terminally poison current authority",
+            "poisoned registry minted authority or mutated the caller sentinel",
+        ):
+            self.assertIn(token, contract + self.receipt_test)
+        self.assertIn(
+            "Ogre14AuthenticatedTextureReceiptRegistry &registry) noexcept",
+            contract,
+        )
+        removal_token = "RemoveOgre14AuthenticatedTextureResource("
+        poison_token = "PoisonOgre14AuthenticatedTextureReceiptRegistry("
+        self.assertEqual(self.content_source.count(removal_token), 2)
+        self.assertEqual(self.content_source.count(poison_token), 2)
+        cursor = 0
+        for _ in range(2):
+            removal = self.content_source.index(removal_token, cursor)
+            poison = self.content_source.index(poison_token, removal)
+            log = self.content_source.index("LOG(fmt::format(", removal)
+            self.assertLess(poison, log)
+            cursor = poison + len(poison_token)
 
     def test_native_capture_reacquires_and_revalidates_before_publish(self) -> None:
         contract = self.native_header + self.native_source
