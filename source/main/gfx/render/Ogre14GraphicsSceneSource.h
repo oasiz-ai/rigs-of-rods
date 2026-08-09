@@ -436,6 +436,18 @@ public:
   [[nodiscard]] std::size_t object_identity_count() const noexcept {
     return object_names_by_id_.size();
   }
+  void Reset() noexcept {
+    asset_names_by_id_.clear();
+    asset_ids_by_name_.clear();
+    object_names_by_id_.clear();
+    object_ids_by_name_.clear();
+    canonical_payloads_by_asset_key_.clear();
+    object_states_.clear();
+    known_asset_keys_.clear();
+    live_asset_keys_.clear();
+    known_object_keys_.clear();
+    live_object_keys_.clear();
+  }
 
 private:
   struct ObjectState {
@@ -489,7 +501,10 @@ private:
 struct Ogre14GraphicsSceneUnsupportedGeometry {
   bool terrain = false;
   bool procedural = false;
-  bool deformable = false;
+  /// Skeletal/deformable geometry outside the supported GfxActor dynamic
+  /// inventory. GfxCharacter avatars are a separately declared legacy-only
+  /// domain and must not be routed through this static-coverage blocker.
+  bool unadapted_deformable = false;
   bool paged = false;
   bool animated = false;
 };
@@ -517,6 +532,21 @@ public:
   }
   [[nodiscard]] ValidationResult RegisterDerivedTerrainPageIdentity(
       std::string_view exact_key, std::uint64_t stable_id);
+  void Reset() noexcept {
+    asset_names_by_id_.clear();
+    asset_ids_by_name_.clear();
+    object_names_by_id_.clear();
+    object_ids_by_name_.clear();
+    canonical_assets_by_asset_key_.clear();
+    known_asset_keys_.clear();
+    live_asset_keys_.clear();
+    known_object_keys_.clear();
+    live_object_keys_.clear();
+    terrain_page_names_by_id_.clear();
+    terrain_page_ids_by_name_.clear();
+    known_terrain_page_keys_.clear();
+    live_terrain_page_keys_.clear();
+  }
 
 private:
   friend ValidationResult BuildOgre14GraphicsSceneStaticInventory(
@@ -691,10 +721,10 @@ struct Ogre14GraphicsSceneLightCaptureInput {
   bool casts_shadows = true;
 };
 
-/// Retains the exact-name/u64 bijection for one adapter lifetime. The registry
-/// catches both a hash collision and inconsistent identity reuse. It is not
-/// cleared by GfxScene::ClearScene(); a producer lifetime reset remains a
-/// separate scene-lifecycle operation.
+/// Retains the exact-name/u64 bijection for one map generation. The registry
+/// catches both a hash collision and inconsistent identity reuse; the ordered
+/// scene-generation boundary resets it only after the prior empty scene has
+/// been admitted to the persistent product transport.
 class Ogre14GraphicsSceneLightIdentityRegistry final {
 public:
   /// Registers a caller-derived stable identity. Exposed as a narrow pure-data
@@ -705,6 +735,10 @@ public:
 
   [[nodiscard]] std::size_t size() const noexcept {
     return names_by_id_.size();
+  }
+  void Reset() noexcept {
+    names_by_id_.clear();
+    ids_by_name_.clear();
   }
 
 private:

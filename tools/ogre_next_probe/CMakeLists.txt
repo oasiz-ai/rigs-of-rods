@@ -100,6 +100,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/GfxScene.cpp"
     "source/main/gfx/GfxScene.h"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
@@ -174,9 +176,14 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+    "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
     "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"
@@ -693,6 +700,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/InputEventTransport.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
         "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
+        "${_ror_render_root}/Ogre14LegacyAssetTranslator.cpp"
+        "${_ror_render_root}/Ogre14LegacyMaterialClosure.cpp"
         "${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"
         "${_ror_render_root}/Ogre14ProceduralRoadSource.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
@@ -701,6 +710,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/RenderAssetId.cpp"
         "${_ror_render_root}/RenderAssetRegistry.cpp"
         "${_ror_render_root}/RenderBridgeControlTransport.cpp"
+        "${_ror_render_root}/SceneGenerationBoundaryTransport.cpp"
         "${_ror_render_root}/RenderBridgeSessionIdentity.cpp"
         "${_ror_render_root}/RenderFrame.cpp"
         "${_ror_render_root}/RenderResourceDescriptors.cpp"
@@ -1998,10 +2008,13 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/OgreNextProductionPackage.cmake
             cmake/RendererLauncherPackageConfig.cmake
             cmake/macos/StageMacOSBundle.cmake
+            doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
             source/main/gfx/GfxScene.cpp
             source/main/gfx/GfxScene.h
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
             source/main/gfx/RendererStartupHandoff.cpp
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
@@ -2038,6 +2051,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgreNextChild.cpp
             source/main/system/RendererOgreNextChild.h
             source/main/system/RendererOgreNextChildMain.cpp
+            source/main/system/RendererOgreNextLiveSession.cpp
+            source/main/system/RendererOgreNextLiveSession.h
+            source/main/system/RendererOgreNextProductionSession.cpp
+            source/main/system/RendererOgreNextProductionSession.h
+            source/main/system/RendererOgreNextSdlWindowRuntime.cpp
+            source/main/system/RendererOgreNextSdlWindowRuntime.h
+            source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
+            source/main/system/RendererOgreNextWindowHost.cpp
+            source/main/system/RendererOgreNextWindowHost.h
             source/main/system/RendererLauncherMain.cpp
             source/main/system/RendererLauncherPackageConfig.h.in
             source/main/system/RendererPublicLauncher.cpp
@@ -2058,6 +2080,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererSiblingPathTests.cpp
             tests/gfx/RendererPackageRuntimeProbeTests.cpp
             tests/gfx/RendererOgreNextChildTests.cpp
+            tests/gfx/RendererOgreNextLiveSessionTests.cpp
+            tests/gfx/RendererOgreNextWindowHostTests.cpp
             tests/gfx/RendererPublicLauncherLegacyChild.cpp
             tests/gfx/RendererPublicLauncherTests.cpp
             tests/cmake/VerifyRendererPublicBridgeExit.cmake
@@ -2066,13 +2090,22 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/render/RenderBridgeControlTransportTests.cpp
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
             tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+            tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp
+            tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
+            tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
             tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
             tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
             tests/tools/test_ogre14_particle_capture_contract.py
+            tests/tools/test_ogre14_legacy_asset_translator_contract.py
+            tests/tools/test_ogre14_legacy_material_closure_contract.py
             tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
             tests/tools/test_ogre14_road_material_transaction_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
+            tests/tools/test_ogre_next_probe_workflow.py
+            tests/tools/test_ogre_next_window_host_contract.py
+            tests/tools/test_ogre_next_window_presentation_contract.py
+            tests/tools/test_ogre_next_window_run_loop_contract.py
             tools/ogre_next_probe
             tools/ogre14_runtime_audit.py
             tools/run_ogre_next_probe.py

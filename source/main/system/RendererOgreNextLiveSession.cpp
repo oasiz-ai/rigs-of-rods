@@ -579,7 +579,9 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
                 result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,
                 channel, false);
           }
-        } else {
+        } else if (frame.kind !=
+                   Render::RenderTransportMessageKind::
+                       SCENE_GENERATION_BOUNDARY_V1) {
           return FinishWithClose(
               result, RendererOgreNextLiveSessionStatus::FAILED_DISPATCH,
               channel, false);

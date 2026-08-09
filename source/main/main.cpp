@@ -66,12 +66,14 @@
 #include "Utils.h"
 #include <Overlay/OgreOverlaySystem.h>
 #include <ctime>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 #include <fstream>
 
@@ -1432,6 +1434,88 @@ int main(int argc, char *argv[])
                 {
                     try
                     {
+                        bool renderer_scene_reset_failed = false;
+                        if (renderer_bridge_product_session != nullptr &&
+                            renderer_bridge_product_session->active())
+                        {
+                            // The child/input transport is process-scoped, but
+                            // producer identity and simulation time are map-
+                            // scoped. Admit the authoritative empty old scene
+                            // before any actor, character, terrain, or OGRE
+                            // resource is destroyed. Bounded transport pressure
+                            // is drained here so ClearScene cannot overtake a
+                            // partially submitted asset/scene pair.
+                            const auto reset_deadline =
+                                std::chrono::steady_clock::now() +
+                                std::chrono::milliseconds(2000);
+                            RendererOgre14ProductSessionResult reset_result =
+                                renderer_bridge_product_session->
+                                    ResetSceneGeneration();
+                            while (reset_result.status ==
+                                       RendererOgre14ProductSessionStatus::
+                                           PENDING_BACKPRESSURE &&
+                                   std::chrono::steady_clock::now() <
+                                       reset_deadline)
+                            {
+                                const RendererOgre14ProductSessionResult
+                                    reverse =
+                                        renderer_bridge_product_session->
+                                            PumpReverse();
+                                if (reverse.terminal)
+                                {
+                                    reset_result = reverse;
+                                    break;
+                                }
+                                std::this_thread::sleep_for(
+                                    std::chrono::milliseconds(1));
+                                reset_result =
+                                    renderer_bridge_product_session->
+                                        ResetSceneGeneration();
+                            }
+                            if (!reset_result)
+                            {
+                                // Never consume an unload while leaving the
+                                // old live map behind. If the empty production
+                                // cannot cross the bounded transport, close the
+                                // product session terminally before local OGRE
+                                // teardown, suppress any chained map load, and
+                                // request process shutdown after ClearScene.
+                                const RendererOgre14ProductSessionResult
+                                    renderer_shutdown =
+                                        renderer_bridge_product_session->
+                                            Shutdown();
+                                renderer_scene_reset_failed = true;
+                                failed_m = true;
+                                // Diagnostics must not be able to interrupt
+                                // the already-selected local teardown path,
+                                // particularly for an allocation failure.
+                                try
+                                {
+                                    LOG(fmt::format(
+                                        "[RoR|RendererBridge|Scene] Terrain "
+                                        "unload held at generation boundary: "
+                                        "status='{}', host='{}', field='{}', "
+                                        "detail='{}'",
+                                        ToString(reset_result.status),
+                                        ToString(reset_result.host_status),
+                                        reset_result.validation.field,
+                                        reset_result.validation.detail));
+                                    LOG(fmt::format(
+                                        "[RoR|RendererBridge|Scene] Product "
+                                        "closed after generation-reset failure: "
+                                        "status='{}', host='{}'",
+                                        ToString(renderer_shutdown.status),
+                                        ToString(renderer_shutdown.host_status)));
+                                }
+                                catch (...)
+                                {
+                                }
+                            }
+                            else
+                            {
+                                renderer_bridge_scene_failure_signature.clear();
+                            }
+                        }
                         App::GetAppContext()->EndPostProcessScene();
                         if (App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE)
                         {
@@ -1461,6 +1545,11 @@ int main(int argc, char *argv[])
                         App::GetSoundScriptManager()->getSoundManager()->CleanUp();
 #endif // USE_OPENAL
                         App::GetGameContext()->GetRaceSystem().ResetRaceUI();
+                        if (renderer_scene_reset_failed)
+                        {
+                            App::GetGameContext()->PushMessage(
+                                Message(MSG_APP_SHUTDOWN_REQUESTED));
+                        }
                     }
                     catch (...)
                     {

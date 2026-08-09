@@ -407,6 +407,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/gfx/GfxScene.cpp",
             "source/main/gfx/GfxScene.h",
+            "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
+            "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
             "source/main/gfx/RendererBackendPolicy.cpp",
             "source/main/gfx/RendererBackendPolicy.h",
             "source/main/gfx/RendererStartupHandoff.cpp",
@@ -471,10 +473,15 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
+            "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp",
+            "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp",
+            "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp",
             "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp",
             "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre14_particle_capture_contract.py",
+            "tests/tools/test_ogre14_legacy_asset_translator_contract.py",
+            "tests/tools/test_ogre14_legacy_material_closure_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
         ):
             with self.subTest(provenance_path=path):
@@ -986,6 +993,26 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         input_engine = (
             REPOSITORY_ROOT / "source/main/utils/InputEngine.cpp"
         ).read_text(encoding="utf-8")
+        product_header = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgre14ProductSession.h"
+        ).read_text(encoding="utf-8")
+        product_source = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgre14ProductSession.cpp"
+        ).read_text(encoding="utf-8")
+        producer_header = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/GraphicsSceneSnapshotProducer.h"
+        ).read_text(encoding="utf-8")
+        host_header = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgre14GameHostSession.h"
+        ).read_text(encoding="utf-8")
+        host_source = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgre14GameHostSession.cpp"
+        ).read_text(encoding="utf-8")
 
         buffer_call = "App::GetGfxScene()->BufferSimulationData();"
         scene_update_call = "App::GetGfxScene()->UpdateScene(dt_sim);"
@@ -1031,6 +1058,57 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "EnableRendererTransportInput()", input_engine
         )
 
+        unload_body = main[
+            main.index("case MSG_SIM_UNLOAD_TERRN_REQUESTED") :
+            main.index("case MSG_SIM_LOAD_SAVEGAME_REQUESTED")
+        ]
+        for teardown in (
+            "EndPostProcessScene();",
+            "CleanUpSimulation();",
+            "DeleteAllCharacters();",
+            "UnloadTerrain();",
+            "ClearScene();",
+        ):
+            with self.subTest(teardown=teardown):
+                self.assertLess(
+                    unload_body.index("ResetSceneGeneration();"),
+                    unload_body.index(teardown),
+                )
+        self.assertIn("FinalizeSceneGeneration()", producer_header)
+        self.assertIn("ResetSceneGeneration()", product_header)
+        self.assertIn("CompleteSceneGeneration(", host_header)
+        self.assertIn("SCENE_GENERATION_BOUNDARY_V1", host_source)
+        product_reset = product_source[
+            product_source.index(
+                "RendererOgre14ProductSession::ResetSceneGeneration()"
+            ) :
+            product_source.index(
+                "RendererOgre14ProductSession::Shutdown()"
+            )
+        ]
+        self.assertLess(
+            product_reset.index("producer_->FinalizeSceneGeneration()"),
+            product_reset.index("pending_ = std::move(pending)"),
+        )
+        self.assertIn("CompleteSceneGenerationReset()", product_reset)
+        self.assertLess(
+            product_source.index("host_.PostPhysicsCapturedAtSurface("),
+            product_source.index("host_.CompleteSceneGeneration("),
+        )
+        self.assertIn(
+            "renderer_bridge_product_session->\n"
+            "                                            Shutdown();",
+            unload_body,
+        )
+        self.assertLess(
+            unload_body.index("Shutdown();"),
+            unload_body.index("ClearScene();"),
+        )
+        self.assertLess(
+            unload_body.index("ClearScene();"),
+            unload_body.index("MSG_APP_SHUTDOWN_REQUESTED"),
+        )
+
         self.assertIn(
             "bool                               "
             "m_ogre14_scene_capture_enabled = false;",
@@ -1054,6 +1132,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "void GfxScene::CommitOgre14GraphicsSceneCapture")
         ]
         capture_compact = "".join(capture_body.split())
+        self.assertNotIn("!m_all_gfx_characters.empty()", capture_body)
+        self.assertIn("legacy player/network avatar domain", capture_body)
+        self.assertIn("entity->hasSkeleton()", gfx_source)
         for available in (
             "ENVIRONMENT",
             "ASSETS",
@@ -1122,6 +1203,26 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("m_ogre14_static_identity_registry", gfx_header)
         self.assertIn("m_ogre14_static_mesh_cache", gfx_header)
         self.assertIn("m_ogre14_terrain_page_cache", gfx_header)
+        reset_body = gfx_source[
+            gfx_source.index(
+                "void GfxScene::ResetOgre14GraphicsSceneGeneration()"
+            ) :
+            gfx_source.index("void GfxScene::Init()")
+        ]
+        for reset_token in (
+            "DiscardOgre14GraphicsSceneCapture();",
+            "m_ogre14_joined_buffer_epoch = 0U;",
+            "m_ogre14_light_identity_registry.Reset();",
+            "m_ogre14_static_identity_registry.Reset();",
+            "m_ogre14_dynamic_identity_registry.Reset();",
+            "m_ogre14_static_mesh_cache.clear();",
+            "m_ogre14_terrain_page_cache.clear();",
+            "m_ogre14_dynamic_mesh_cache.clear();",
+            "m_gfx_actor_inventory.Clear();",
+            "m_all_gfx_characters.clear();",
+        ):
+            with self.subTest(reset_token=reset_token):
+                self.assertIn(reset_token, reset_body)
         for terrain_contract in (
             "kOgre14TerrainCpuCaptureVersion",
             "ValidateOgre14GraphicsSceneTerrainPageSet",
@@ -1144,6 +1245,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         for cmake in (probe_cmake, native_cmake):
             self.assertIn("Ogre14GraphicsSceneSource.cpp", cmake)
+            self.assertIn("Ogre14LegacyAssetTranslator.cpp", cmake)
+            self.assertIn("Ogre14LegacyMaterialClosure.cpp", cmake)
             self.assertIn("Ogre14GraphicsSceneSourceTests.cpp", cmake)
             self.assertIn("ror_ogre14_graphics_scene_source_tests", cmake)
             self.assertIn("Ogre14ParticleCaptureSource.cpp", cmake)
@@ -1284,6 +1387,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for source in (
             "InputEventTransport.cpp",
             "RenderBridgeControlTransport.cpp",
+            "SceneGenerationBoundaryTransport.cpp",
             "RenderTransportEnvelope.cpp",
             "RenderTransportStream.cpp",
         ):

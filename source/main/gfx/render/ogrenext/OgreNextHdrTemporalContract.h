@@ -134,6 +134,11 @@ public:
   /// Discards the staged candidate without changing committed state.
   void AbortPrepared() noexcept;
 
+  /// Resets map-scoped simulation time and exposure history while preserving
+  /// the renderer-global committed frame ID. The next request must therefore
+  /// continue frame identity but may begin again at simulation time zero.
+  [[nodiscard]] ValidationResult ResetSceneGeneration();
+
   void Reset() noexcept;
 
   [[nodiscard]] bool initialized() const noexcept { return initialized_; }

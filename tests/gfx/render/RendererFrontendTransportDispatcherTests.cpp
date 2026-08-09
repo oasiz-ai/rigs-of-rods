@@ -9,6 +9,7 @@
 #include "RendererFrontendTransportDispatcher.h"
 
 #include <array>
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -96,12 +97,18 @@ RenderAssetDelta AssetDelta(std::uint64_t registry_id, std::uint64_t sequence,
 
 std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
                                            std::uint64_t registry_id,
-                                           std::uint64_t asset_sequence) {
+                                           std::uint64_t asset_sequence,
+                                           std::uint64_t simulation_tick =
+                                               (std::numeric_limits<
+                                                   std::uint64_t>::max)()) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
   descriptor.asset_sequence = asset_sequence;
-  descriptor.simulation_tick = snapshot_id * 10U;
+  descriptor.simulation_tick =
+      simulation_tick == (std::numeric_limits<std::uint64_t>::max)()
+          ? snapshot_id * 10U
+          : simulation_tick;
   descriptor.simulation_time_seconds =
       static_cast<double>(descriptor.simulation_tick) / 2000.0;
   SceneSnapshotCreateResult created =
@@ -141,6 +148,32 @@ SceneFrame(std::uint64_t envelope_sequence,
       EncodeSceneSnapshotTransportFrame(envelope_sequence, *scene, camera);
   Require(encoded.ok(), "scene fixture must encode");
   return CompleteFrame(encoded.bytes);
+}
+
+RenderTransportStreamFrameResult BoundaryFrame(
+    std::uint64_t envelope_sequence, std::uint64_t registry_id,
+    std::uint64_t asset_sequence, std::uint64_t finalized_snapshot_id,
+    std::uint64_t completed_generation = 1U) {
+  SceneGenerationBoundary boundary;
+  boundary.registry_id = registry_id;
+  boundary.completed_generation = completed_generation;
+  boundary.next_generation = completed_generation + 1U;
+  boundary.asset_sequence = asset_sequence;
+  boundary.finalized_snapshot_id = finalized_snapshot_id;
+  const RenderTransportEnvelopeEncodeResult encoded =
+      EncodeSceneGenerationBoundaryFrame(envelope_sequence, boundary);
+  Require(encoded.ok(), "scene-generation boundary fixture must encode");
+  return CompleteFrame(encoded.bytes);
+}
+
+void RewriteEnvelopeDigest(std::vector<std::uint8_t> &bytes) {
+  Require(bytes.size() >= kRenderTransportEnvelopeHeaderBytes,
+          "digest fixture requires a complete envelope");
+  const std::size_t payload_size =
+      bytes.size() - kRenderTransportEnvelopeHeaderBytes;
+  const auto digest = ComputeRenderTransportPayloadDigest(
+      bytes.data() + kRenderTransportEnvelopeHeaderBytes, payload_size);
+  std::copy(digest.begin(), digest.end(), bytes.begin() + 32U);
 }
 
 RendererFrontendPresentationPolicy OffscreenPolicy() {
@@ -240,6 +273,20 @@ public:
     return RenderOperationResult::Success();
   }
 
+  RenderOperationResult ResetSceneGeneration(
+      std::uint64_t next_generation) override {
+    calls.emplace_back("reset-scene-generation");
+    reset_generations.push_back(next_generation);
+    if (fail_scene_generation_reset) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "injected scene-generation reset failure");
+    }
+    simulation_lineage_initialized = false;
+    last_simulation_time_seconds = 0.0;
+    return RenderOperationResult::Success();
+  }
+
   RenderOperationResult ReleaseResource(ResourceHandle resource) override {
     calls.emplace_back("release-resource");
     release_attempts.push_back(resource);
@@ -254,6 +301,13 @@ public:
                                RenderFrameOutput &output) override {
     calls.emplace_back("render");
     rendered_requests.push_back(request);
+    if (simulation_lineage_initialized &&
+        request.scene_snapshot->simulation_time_seconds() <
+            last_simulation_time_seconds) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "unmarked simulation-time rollback");
+    }
     if (!fail_render || populate_before_render_failure) {
       PopulateOutput(request, output);
     }
@@ -261,6 +315,9 @@ public:
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE, "injected render failure");
     }
+    simulation_lineage_initialized = true;
+    last_simulation_time_seconds =
+        request.scene_snapshot->simulation_time_seconds();
     return RenderOperationResult::Success();
   }
 
@@ -292,10 +349,14 @@ public:
   std::vector<std::uint64_t> waited_frame_ids;
   std::vector<std::uint64_t> waited_timeouts;
   std::vector<ResourceHandle> release_attempts;
+  std::vector<std::uint64_t> reset_generations;
   bool fail_synchronize = false;
   bool fail_render = false;
   bool populate_before_render_failure = false;
   bool fail_wait = false;
+  bool fail_scene_generation_reset = false;
+  bool simulation_lineage_initialized = false;
+  double last_simulation_time_seconds = 0.0;
   bool invalid_output = false;
   bool duplicate_output_resource = false;
   std::size_t fail_release_attempt = 0U;
@@ -369,7 +430,7 @@ void TestIdentityDerivationAndStatusDomain() {
   Require(first_id == DeriveRenderAssetRegistryIdFromBridgeSession(first),
           "registry derivation was not deterministic");
 
-  for (unsigned value = 0U; value <= 16U; ++value) {
+  for (unsigned value = 0U; value <= 18U; ++value) {
     const auto status =
         static_cast<RendererFrontendTransportDispatchStatus>(value);
     Require(IsKnownRendererFrontendTransportDispatchStatus(status),
@@ -378,8 +439,276 @@ void TestIdentityDerivationAndStatusDomain() {
             "known dispatcher status lacked stable text");
   }
   Require(!IsKnownRendererFrontendTransportDispatchStatus(
-              static_cast<RendererFrontendTransportDispatchStatus>(17U)),
+              static_cast<RendererFrontendTransportDispatchStatus>(19U)),
           "unknown dispatcher status was accepted");
+}
+
+void TestSceneGenerationBoundaryCodecFailClosed() {
+  const std::uint64_t registry_id = 77U;
+  SceneGenerationBoundary boundary;
+  boundary.registry_id = registry_id;
+  boundary.completed_generation = 1U;
+  boundary.next_generation = 2U;
+  boundary.asset_sequence = 9U;
+  boundary.finalized_snapshot_id = 12U;
+  const RenderTransportEnvelopeEncodeResult encoded =
+      EncodeSceneGenerationBoundaryFrame(1U, boundary);
+  Require(encoded.ok(), "valid boundary did not encode");
+
+  {
+    RenderTransportSequenceState sequence;
+    SceneGenerationBoundaryTransportDecoder decoder(registry_id, sequence);
+    const SceneGenerationBoundaryTransportDecodeResult decoded =
+        decoder.Accept(encoded.bytes);
+    Require(decoded.ok() && decoded.sequence == 1U &&
+                decoded.boundary.registry_id == registry_id &&
+                decoded.boundary.completed_generation == 1U &&
+                decoded.boundary.next_generation == 2U &&
+                decoded.boundary.asset_sequence == 9U &&
+                decoded.boundary.finalized_snapshot_id == 12U &&
+                sequence.last_accepted_sequence() == 1U,
+            "boundary codec changed exact fields or sequence");
+    Require(decoder.Accept(encoded.bytes).status ==
+                RenderTransportStatus::REPLAYED_SEQUENCE,
+            "boundary replay advanced sequence");
+  }
+  {
+    RenderTransportSequenceState sequence;
+    SceneGenerationBoundaryTransportDecoder decoder(registry_id, sequence);
+    const RenderTransportEnvelopeEncodeResult out_of_order =
+        EncodeSceneGenerationBoundaryFrame(2U, boundary);
+    Require(out_of_order.ok() &&
+                decoder.Accept(out_of_order.bytes).status ==
+                    RenderTransportStatus::OUT_OF_ORDER_SEQUENCE &&
+                decoder.Accept(encoded.bytes).ok(),
+            "out-of-order boundary poisoned recoverable decoder state");
+  }
+  {
+    RenderTransportSequenceState sequence;
+    SceneGenerationBoundaryTransportDecoder decoder(registry_id + 1U,
+                                                      sequence);
+    Require(decoder.Accept(encoded.bytes).status ==
+                RenderTransportStatus::REGISTRY_VALIDATION_FAILED &&
+                sequence.last_accepted_sequence() == 0U,
+            "cross-registry boundary advanced sequence");
+  }
+  {
+    std::vector<std::uint8_t> truncated = encoded.bytes;
+    truncated.pop_back();
+    RenderTransportSequenceState sequence;
+    SceneGenerationBoundaryTransportDecoder decoder(registry_id, sequence);
+    Require(decoder.Accept(truncated).status ==
+                RenderTransportStatus::FRAME_SIZE_MISMATCH,
+            "truncated boundary was admitted");
+  }
+  {
+    std::vector<std::uint8_t> reserved = encoded.bytes;
+    reserved[kRenderTransportEnvelopeHeaderBytes + 4U] = 1U;
+    RewriteEnvelopeDigest(reserved);
+    RenderTransportSequenceState sequence;
+    SceneGenerationBoundaryTransportDecoder decoder(registry_id, sequence);
+    Require(decoder.Accept(reserved).status ==
+                RenderTransportStatus::MALFORMED_PAYLOAD,
+            "nonzero boundary reserved field was admitted");
+  }
+  {
+    std::vector<std::uint8_t> version = encoded.bytes;
+    version[kRenderTransportEnvelopeHeaderBytes] = 2U;
+    RewriteEnvelopeDigest(version);
+    RenderTransportSequenceState sequence;
+    SceneGenerationBoundaryTransportDecoder decoder(registry_id, sequence);
+    Require(decoder.Accept(version).status ==
+                RenderTransportStatus::UNSUPPORTED_TRANSPORT_VERSION,
+            "unknown boundary payload version was admitted");
+  }
+}
+
+void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
+  {
+    FakeFrontend frontend;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(23U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok(),
+            "generation fixture asset did not synchronize");
+    Require(dispatcher
+                .Dispatch(SceneFrame(2U, Scene(40U, registry_id, 1U, 500U)),
+                          OffscreenPolicy())
+                .ok(),
+            "old generation scene did not render");
+    const RendererFrontendTransportDispatchResult reset = dispatcher.Dispatch(
+        BoundaryFrame(3U, registry_id, 1U, 40U), OffscreenPolicy());
+    RequireStatus(
+        reset.status,
+        RendererFrontendTransportDispatchStatus::
+            SCENE_GENERATION_BOUNDARY_CONSUMED,
+        "authenticated generation boundary was not consumed");
+    Require(frontend.reset_generations == std::vector<std::uint64_t>{2U} &&
+                !frontend.calls.empty() &&
+                frontend.calls.back() == "reset-scene-generation",
+            "boundary did not reset only after final scene completion");
+    const RendererFrontendTransportDispatchResult reloaded =
+        dispatcher.Dispatch(
+            SceneFrame(4U, Scene(41U, registry_id, 1U, 0U)),
+            OffscreenPolicy());
+    RequireStatus(reloaded.status,
+                  RendererFrontendTransportDispatchStatus::
+                      SCENE_FRAME_COMPLETED,
+                  "marked reload tick zero did not render");
+    Require(!dispatcher.terminal() &&
+                frontend.rendered_requests.size() == 2U,
+            "marked generation reset poisoned the live dispatcher");
+  }
+
+  {
+    FakeFrontend frontend;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(24U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok(),
+            "rollback fixture asset did not synchronize");
+    Require(dispatcher
+                .Dispatch(SceneFrame(2U, Scene(50U, registry_id, 1U, 500U)),
+                          OffscreenPolicy())
+                .ok(),
+            "rollback fixture old scene did not render");
+    const RendererFrontendTransportDispatchResult rollback =
+        dispatcher.Dispatch(
+            SceneFrame(3U, Scene(51U, registry_id, 1U, 0U)),
+            OffscreenPolicy());
+    RequireStatus(rollback.status,
+                  RendererFrontendTransportDispatchStatus::
+                      FAILED_FRONTEND_RENDER,
+                  "unmarked simulation-time rollback was admitted");
+    Require(rollback.terminal && frontend.reset_generations.empty(),
+            "unmarked rollback reset frontend history");
+  }
+
+  {
+    FakeFrontend frontend;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(25U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok(),
+            "mismatch fixture asset did not synchronize");
+    Require(dispatcher
+                .Dispatch(SceneFrame(2U, Scene(60U, registry_id, 1U, 500U)),
+                          OffscreenPolicy())
+                .ok(),
+            "mismatch fixture final scene did not render");
+    const RendererFrontendTransportDispatchResult mismatch =
+        dispatcher.Dispatch(BoundaryFrame(3U, registry_id, 1U, 59U),
+                            OffscreenPolicy());
+    RequireStatus(mismatch.status,
+                  RendererFrontendTransportDispatchStatus::FAILED_LINEAGE,
+                  "boundary for another final snapshot was admitted");
+    Require(mismatch.terminal && frontend.reset_generations.empty(),
+            "mismatched boundary mutated frontend generation");
+  }
+
+
+  {
+    FakeFrontend frontend;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(26U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok(),
+            "early-boundary fixture asset did not synchronize");
+    const RendererFrontendTransportDispatchResult early =
+        dispatcher.Dispatch(BoundaryFrame(2U, registry_id, 1U, 1U),
+                            OffscreenPolicy());
+    RequireStatus(early.status,
+                  RendererFrontendTransportDispatchStatus::FAILED_LINEAGE,
+                  "boundary before final empty scene was admitted");
+    Require(early.terminal && frontend.reset_generations.empty(),
+            "early boundary reset frontend state");
+  }
+
+  {
+    FakeFrontend frontend;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(27U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok() &&
+                dispatcher
+                    .Dispatch(
+                        SceneFrame(2U, Scene(70U, registry_id, 1U, 500U)),
+                        OffscreenPolicy())
+                    .ok(),
+            "asset-sequence mismatch fixture did not initialize");
+    const RendererFrontendTransportDispatchResult mismatch =
+        dispatcher.Dispatch(BoundaryFrame(3U, registry_id, 2U, 70U),
+                            OffscreenPolicy());
+    RequireStatus(mismatch.status,
+                  RendererFrontendTransportDispatchStatus::FAILED_LINEAGE,
+                  "boundary with foreign asset sequence was admitted");
+    Require(frontend.reset_generations.empty(),
+            "foreign asset sequence reset frontend state");
+  }
+
+  {
+    FakeFrontend frontend;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(28U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok() &&
+                dispatcher
+                    .Dispatch(
+                        SceneFrame(2U, Scene(80U, registry_id, 1U, 500U)),
+                        OffscreenPolicy())
+                    .ok(),
+            "generation mismatch fixture did not initialize");
+    const RendererFrontendTransportDispatchResult mismatch =
+        dispatcher.Dispatch(
+            BoundaryFrame(3U, registry_id, 1U, 80U, 2U),
+            OffscreenPolicy());
+    RequireStatus(mismatch.status,
+                  RendererFrontendTransportDispatchStatus::FAILED_LINEAGE,
+                  "boundary with foreign generation was admitted");
+    Require(frontend.reset_generations.empty(),
+            "foreign generation reset frontend state");
+  }
+
+  {
+    FakeFrontend frontend;
+    frontend.fail_scene_generation_reset = true;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(29U));
+    const std::uint64_t registry_id = dispatcher.registry_id();
+    Require(dispatcher
+                .Dispatch(AssetFrame(1U, AssetDelta(registry_id, 1U, true)),
+                          OffscreenPolicy())
+                .ok() &&
+                dispatcher
+                    .Dispatch(
+                        SceneFrame(2U, Scene(90U, registry_id, 1U, 500U)),
+                        OffscreenPolicy())
+                    .ok(),
+            "reset-failure fixture did not initialize");
+    const RendererFrontendTransportDispatchResult failed =
+        dispatcher.Dispatch(BoundaryFrame(3U, registry_id, 1U, 90U),
+                            OffscreenPolicy());
+    RequireStatus(
+        failed.status,
+        RendererFrontendTransportDispatchStatus::
+            FAILED_FRONTEND_SCENE_GENERATION_RESET,
+        "frontend scene-generation reset failure was not terminal");
+    Require(failed.terminal && dispatcher.terminal() &&
+                frontend.reset_generations ==
+                    std::vector<std::uint64_t>{2U},
+            "reset failure did not poison dispatcher exactly once");
+  }
 }
 
 void TestPresentationPolicyValidation() {
@@ -846,6 +1175,8 @@ void TestForgedCompleteFrameMetadataFailsClosed() {
 
 int main() {
   TestIdentityDerivationAndStatusDomain();
+  TestSceneGenerationBoundaryCodecFailClosed();
+  TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback();
   TestPresentationPolicyValidation();
   TestRetiredSceneAdvancesLineageWithoutFrontendWork();
   TestStalePresentationExtentRetiresAfterDecode();

@@ -293,13 +293,16 @@ RenderBridgeSurfaceState SuspendedSurface(std::uint64_t revision) {
   return surface;
 }
 
-std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t registry_id) {
+std::shared_ptr<const SceneSnapshot> Scene(
+    std::uint64_t registry_id, std::uint64_t snapshot_id = 1U,
+    double simulation_time_seconds = 1.0 / 48.0) {
   SceneSnapshotDescriptor descriptor;
-  descriptor.snapshot_id = 1U;
+  descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
   descriptor.asset_sequence = 1U;
-  descriptor.simulation_tick = 1U;
-  descriptor.simulation_time_seconds = 1.0 / 48.0;
+  descriptor.simulation_tick =
+      static_cast<std::uint64_t>(simulation_time_seconds * 2000.0);
+  descriptor.simulation_time_seconds = simulation_time_seconds;
   SceneSnapshotCreateResult created =
       CreateSceneSnapshot(std::move(descriptor));
   Require(created.ok(), "scene fixture invalid");
@@ -321,6 +324,32 @@ std::vector<std::uint8_t> SceneFrame(std::uint64_t registry_id) {
   const SceneSnapshotTransportEncodeResult encoded =
       EncodeSceneSnapshotTransportFrame(2U, *Scene(registry_id), Camera());
   Require(encoded.ok(), "scene frame fixture did not encode");
+  return encoded.bytes;
+}
+
+std::vector<std::uint8_t> SceneFrame(
+    std::uint64_t envelope_sequence, std::uint64_t registry_id,
+    std::uint64_t snapshot_id, double simulation_time_seconds) {
+  const SceneSnapshotTransportEncodeResult encoded =
+      EncodeSceneSnapshotTransportFrame(
+          envelope_sequence,
+          *Scene(registry_id, snapshot_id, simulation_time_seconds),
+          Camera());
+  Require(encoded.ok(), "generation scene frame fixture did not encode");
+  return encoded.bytes;
+}
+
+std::vector<std::uint8_t> BoundaryFrame(std::uint64_t registry_id,
+                                        std::uint64_t snapshot_id) {
+  SceneGenerationBoundary boundary;
+  boundary.registry_id = registry_id;
+  boundary.completed_generation = 1U;
+  boundary.next_generation = 2U;
+  boundary.asset_sequence = 1U;
+  boundary.finalized_snapshot_id = snapshot_id;
+  const RenderTransportEnvelopeEncodeResult encoded =
+      EncodeSceneGenerationBoundaryFrame(3U, boundary);
+  Require(encoded.ok(), "live generation boundary fixture did not encode");
   return encoded.bytes;
 }
 
@@ -357,6 +386,12 @@ public:
     ++asset_calls;
     return RenderOperationResult::Success();
   }
+  RenderOperationResult ResetSceneGeneration(std::uint64_t) override {
+    ++scene_generation_resets;
+    simulation_lineage_initialized = false;
+    last_simulation_time_seconds = 0.0;
+    return RenderOperationResult::Success();
+  }
   RenderOperationResult ReleaseResource(ResourceHandle resource) override {
     Require(resource.valid(), "dispatcher released invalid fake resource");
     ++release_calls;
@@ -364,6 +399,13 @@ public:
   }
   RenderOperationResult Render(const RenderFrameRequest &request,
                                RenderFrameOutput &output) override {
+    if (simulation_lineage_initialized &&
+        request.scene_snapshot->simulation_time_seconds() <
+            last_simulation_time_seconds) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "unmarked live-session simulation rollback");
+    }
     ++render_calls;
     frame_ids.push_back(request.frame_id);
     presented.push_back(request.present);
@@ -383,6 +425,9 @@ public:
         ResourceKind::RENDER_TARGET, 41U,
         static_cast<std::uint32_t>(render_calls - 1U), 1U);
     output.attachments.push_back(color);
+    simulation_lineage_initialized = true;
+    last_simulation_time_seconds =
+        request.scene_snapshot->simulation_time_seconds();
     return RenderOperationResult::Success();
   }
   bool IsFrameComplete(std::uint64_t) const noexcept override { return true; }
@@ -400,9 +445,12 @@ public:
   std::uint64_t render_calls = 0U;
   std::uint64_t wait_calls = 0U;
   std::uint64_t release_calls = 0U;
+  std::uint64_t scene_generation_resets = 0U;
   std::vector<std::uint64_t> frame_ids;
   std::vector<bool> presented;
   std::vector<std::uint64_t> surface_revisions;
+  bool simulation_lineage_initialized = false;
+  double last_simulation_time_seconds = 0.0;
 };
 
 struct PollContext final {
@@ -605,6 +653,56 @@ void TestCompleteMonotonicFramesAndResponses() {
   Require(!IsNativeOpen(forward.read_handle) &&
               !IsNativeOpen(reverse.write_handle),
           "session did not close adopted native handles");
+  CloseNative(reverse.read_handle);
+}
+
+void TestLiveSceneGenerationBoundaryAdmitsReloadTickZero() {
+  NativePipe forward = MakePipe();
+  NativePipe reverse = MakePipe();
+  const RendererBridgeEndpoint endpoint =
+      MakeEndpoint(forward.read_handle, reverse.write_handle, 8U);
+  const std::uint64_t registry_id =
+      DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
+  const std::array<std::vector<std::uint8_t>, 4U> frames{{
+      AssetFrame(registry_id),
+      SceneFrame(2U, registry_id, 10U, 5.0),
+      BoundaryFrame(registry_id, 10U),
+      SceneFrame(4U, registry_id, 11U, 0.0),
+  }};
+
+  FakeFrontend frontend;
+  PollContext poll;
+  RendererOgreNextLiveSessionResult session;
+  std::thread worker([&]() {
+    session = RunRendererOgreNextLiveSession(endpoint, Runtime(frontend, poll));
+  });
+  static_cast<void>(ReadNativeFrame(reverse.read_handle));
+  for (const std::vector<std::uint8_t> &frame : frames) {
+    WriteNative(forward.write_handle, frame.data(), frame.size());
+    static_cast<void>(ReadNativeFrame(reverse.read_handle));
+    static_cast<void>(ReadNativeFrame(reverse.read_handle));
+  }
+  CloseNative(forward.write_handle);
+  worker.join();
+
+  Require(session.status ==
+              RendererOgreNextLiveSessionStatus::COMPLETED_PEER_EOF &&
+              session.completed && session.asset_frames == 1U &&
+              session.scene_frames == 2U &&
+              session.presented_scene_frames == 2U &&
+              session.last_forward_sequence == 4U &&
+              session.last_acknowledged_forward_sequence == 4U &&
+              frontend.scene_generation_resets == 1U &&
+              frontend.render_calls == 2U && frontend.wait_calls == 2U &&
+              frontend.frame_ids == std::vector<std::uint64_t>({2U, 4U}) &&
+              frontend.last_simulation_time_seconds == 0.0,
+          "live dispatch did not consume final empty before tick-zero reload");
+  Require(poll.observed_forward_sequences ==
+              std::vector<std::uint64_t>({1U, 2U, 3U, 4U}),
+          "live generation boundary changed forward polling lineage");
+  Require(!IsNativeOpen(forward.read_handle) &&
+              !IsNativeOpen(reverse.write_handle),
+          "live generation boundary did not close adopted handles");
   CloseNative(reverse.read_handle);
 }
 
@@ -1150,6 +1248,7 @@ int main() {
       std::is_trivially_copy_constructible_v<RendererOgreNextLiveSessionRuntime>);
   TestStatusDomainAndRejections();
   TestCompleteMonotonicFramesAndResponses();
+  TestLiveSceneGenerationBoundaryAdmitsReloadTickZero();
   TestWindowCloseControlCompletesCleanly();
   TestEmptyPeerEofDoesNotFabricateAcknowledgement();
   TestSurfaceChangePrecedesAffectedFrameResponse();

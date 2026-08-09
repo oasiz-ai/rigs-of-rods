@@ -37,3 +37,4 @@
 #include "ResourceHandle.h"
 #include "SceneSnapshot.h"
 #include "SceneSnapshotTransport.h"
+#include "SceneGenerationBoundaryTransport.h"

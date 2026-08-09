@@ -15,6 +15,7 @@
 #include "RenderBridgeSessionIdentity.h"
 #include "RenderTransportStream.h"
 #include "RendererFrontend.h"
+#include "SceneGenerationBoundaryTransport.h"
 #include "SceneSnapshotTransport.h"
 
 #include <cstdint>
@@ -22,7 +23,7 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kRendererFrontendTransportDispatcherContractVersion =
-    3U;
+    4U;
 constexpr std::uint32_t kRendererFrontendPresentationPolicyVersion = 3U;
 
 /// Explicit policy supplied by the native window/presentation owner for each
@@ -57,6 +58,7 @@ enum class RendererFrontendTransportDispatchStatus : std::uint8_t {
   ASSET_DELTA_SYNCHRONIZED = 0U,
   SCENE_FRAME_COMPLETED,
   SCENE_FRAME_RETIRED,
+  SCENE_GENERATION_BOUNDARY_CONSUMED,
   REJECTED_TERMINAL,
   REJECTED_INVALID_SESSION,
   REJECTED_INVALID_FRAME,
@@ -70,6 +72,7 @@ enum class RendererFrontendTransportDispatchStatus : std::uint8_t {
   FAILED_FRONTEND_WAIT,
   FAILED_FRONTEND_OUTPUT,
   FAILED_RESOURCE_RELEASE,
+  FAILED_FRONTEND_SCENE_GENERATION_RESET,
   FAILED_INTERNAL,
 };
 
@@ -98,7 +101,9 @@ struct RendererFrontendTransportDispatchResult final {
            status ==
                RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED ||
            status ==
-               RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED;
+               RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED ||
+           status == RendererFrontendTransportDispatchStatus::
+                         SCENE_GENERATION_BOUNDARY_CONSUMED;
   }
   explicit operator bool() const noexcept { return ok(); }
 };
@@ -173,6 +178,9 @@ private:
   [[nodiscard]] RendererFrontendTransportDispatchResult
   DispatchScene(const RenderTransportStreamFrameResult &frame,
                 const RendererFrontendPresentationPolicy &presentation_policy);
+  [[nodiscard]] RendererFrontendTransportDispatchResult
+  DispatchSceneGenerationBoundary(
+      const RenderTransportStreamFrameResult &frame);
   [[nodiscard]] ResourceReleaseResult
   ReleaseTransferredResources(const RenderFrameOutput &output) noexcept;
   [[nodiscard]] RendererFrontendTransportDispatchResult
@@ -191,9 +199,14 @@ private:
   RenderTransportSequenceState sequence_state_;
   RenderAssetDeltaTransportDecoder asset_decoder_;
   SceneSnapshotTransportDecoder scene_decoder_;
+  SceneGenerationBoundaryTransportDecoder scene_generation_decoder_;
   RendererFrontendTransportDispatchStatus terminal_cause_ =
       RendererFrontendTransportDispatchStatus::FAILED_INTERNAL;
   bool terminal_ = false;
+  std::uint64_t scene_generation_ = 1U;
+  std::uint64_t last_scene_snapshot_id_ = 0U;
+  std::uint64_t last_scene_asset_sequence_ = 0U;
+  bool last_scene_was_empty_ = false;
 };
 
 } // namespace RoR::Render

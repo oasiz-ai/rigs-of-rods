@@ -270,6 +270,28 @@ void TestDeterministicSimulationTimeAndGpuLineage() {
                               untouched)
                .ok(),
           "oversized deterministic frame delta was accepted");
+
+  HdrR16Float initial_history;
+  Require(QuantizeHdrR16Float(
+              OgreNextHdrTemporalConfiguration{}.initial_inverse_luminance,
+              initial_history)
+              .ok() &&
+              state.ResetSceneGeneration().ok() && state.initialized() &&
+              state.committed_frame_id() == 2U &&
+              state.previous_inverse_luminance().bits ==
+                  initial_history.bits &&
+              !state.last_history_comparison().accepted,
+          "scene reset lost global frame lineage or retained map history");
+  OgreNextHdrTemporalFramePlan reloaded_plan;
+  Require(state.PrepareFrame(Frame(3U, Scene(5U, 0.0)),
+                             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                             reloaded_plan)
+                  .ok() &&
+              reloaded_plan.frame_id == 3U &&
+              reloaded_plan.delta_seconds == 0.0F &&
+              reloaded_plan.previous_inverse_luminance_r16.bits ==
+                  initial_history.bits,
+          "marked next generation did not admit tick-zero temporal history");
 }
 
 void TestTwoPhaseCommitIsAtomicAndRetryable() {
@@ -384,6 +406,8 @@ void TestTwoPhaseCommitIsAtomicAndRetryable() {
   Require(state.PrepareCommit(second_plan, -0.5F, second_expected).ok() &&
               state.CanCommitPrepared(),
           "second temporal candidate was not prepared");
+  Require(!state.ResetSceneGeneration().ok() && state.CanCommitPrepared(),
+          "scene reset discarded a prepared temporal commit");
   state.Reset();
   Require(!state.CanCommitPrepared() && !state.initialized() &&
               state.committed_frame_id() == 0U &&

@@ -21,7 +21,7 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererOgre14ProductSessionContractVersion = 1U;
+constexpr std::uint32_t kRendererOgre14ProductSessionContractVersion = 2U;
 
 struct RendererOgre14ProductSessionConfig final {
   std::uint32_t version = kRendererOgre14ProductSessionContractVersion;
@@ -33,6 +33,7 @@ struct RendererOgre14ProductSessionConfig final {
 enum class RendererOgre14ProductSessionStatus : std::uint8_t {
   READY = 0U,
   REVERSE_DRAINED,
+  SCENE_GENERATION_RESET,
   WAITING_FOR_SURFACE,
   WAITING_FOR_CAMERA_EXTENT,
   FRAME_QUEUED,
@@ -44,6 +45,7 @@ enum class RendererOgre14ProductSessionStatus : std::uint8_t {
   FAILED_HOST,
   FAILED_INPUT,
   FAILED_PRODUCER,
+  FAILED_ALLOCATION,
   FAILED_SHUTDOWN_TIMEOUT,
   FAILED_INTERNAL,
 };
@@ -93,6 +95,15 @@ public:
   /// BufferSimulationData() copy and joined flex/wheel work for this frame.
   [[nodiscard]] RendererOgre14ProductSessionResult PostUpdatedScene(
       Render::IJoinedGraphicsSceneSource &source);
+  /// Finalizes the current map as an empty scene, queues its authenticated
+  /// boundary for ordered child consumption, and resets only scene-scoped
+  /// producer/host lineage. Bounded backpressure retains the final production;
+  /// callers retry this method before destroying OGRE scene resources. The
+  /// host stream, child process, surface, and input adapter remain active.
+  /// Allocation or unexpected producer failures are converted to explicit
+  /// results so the terrain-unload caller always reaches ordered teardown.
+  [[nodiscard]] RendererOgre14ProductSessionResult
+  ResetSceneGeneration() noexcept;
   /// Drain pending output, half-close game -> child, consume final reverse
   /// traffic through peer EOF, then join. Bounded by the configured deadline.
   [[nodiscard]] RendererOgre14ProductSessionResult Shutdown() noexcept;
@@ -113,6 +124,10 @@ private:
   };
 
   [[nodiscard]] RendererOgre14ProductSessionResult TryPending();
+  [[nodiscard]] RendererOgre14ProductSessionResult
+  CompleteSceneGenerationReset();
+  [[nodiscard]] RendererOgre14ProductSessionResult
+  ResetSceneGenerationImpl();
   [[nodiscard]] RendererOgre14ProductSessionResult FailureFromHost(
       const RendererOgre14GameHostSessionResult &host_result) const noexcept;
 
@@ -122,6 +137,9 @@ private:
   std::unique_ptr<Render::GraphicsSceneSnapshotProducer> producer_;
   std::optional<PendingProduction> pending_;
   RendererOgre14ProductSessionConfig config_;
+  std::uint64_t last_scene_surface_revision_ = 0U;
+  std::uint64_t finalizing_scene_snapshot_id_ = 0U;
+  bool scene_generation_reset_pending_ = false;
   bool started_ = false;
   bool closed_ = false;
 };

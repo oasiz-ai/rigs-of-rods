@@ -21,10 +21,65 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <new>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer)
+#define ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE 0
+#endif
+#endif
+#if !defined(ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE) &&                  \
+    (defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__))
+#define ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE 0
+#endif
+#if !defined(ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE)
+#define ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE 1
+#endif
+
+#if ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE
+namespace ProductResetAllocationFixture {
+thread_local bool fail_next = false;
+
+void Arm() noexcept { fail_next = true; }
+} // namespace ProductResetAllocationFixture
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
+
+void *operator new(std::size_t size) {
+  if (ProductResetAllocationFixture::fail_next) {
+    ProductResetAllocationFixture::fail_next = false;
+    throw std::bad_alloc();
+  }
+  if (void *allocation = std::malloc(size == 0U ? 1U : size)) {
+    return allocation;
+  }
+  throw std::bad_alloc();
+}
+
+void *operator new[](std::size_t size) { return ::operator new(size); }
+
+void operator delete(void *allocation) noexcept { std::free(allocation); }
+void operator delete[](void *allocation) noexcept {
+  ::operator delete(allocation);
+}
+void operator delete(void *allocation, std::size_t) noexcept {
+  ::operator delete(allocation);
+}
+void operator delete[](void *allocation, std::size_t) noexcept {
+  ::operator delete[](allocation);
+}
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+#endif
 
 #if defined(_WIN32)
 #if !defined(NOMINMAX)
@@ -569,7 +624,7 @@ void TestStatusConfigurationAndLineageRejections() {
     const auto status =
         static_cast<RendererOgre14GameHostSessionStatus>(value);
     Require(IsKnownRendererOgre14GameHostSessionStatus(status) ==
-                (value <= 21U),
+                (value <= 22U),
             "session status classifier changed");
   }
   Require(std::string(ToString(
@@ -1457,6 +1512,242 @@ void TestProductStartFailsClosedBeforeInputAuthority() {
           "product startup crossed failed input authority");
 }
 
+void TestProductSceneGenerationResetPreservesTransportAndRetiresIds() {
+  BridgeFixture fixture;
+  ProductInputTarget input_target;
+  RendererOgre14ProductSession product(fixture.bridge, input_target);
+  RendererOgre14ProductSessionConfig config;
+  config.host.maximum_forward_messages = 4U;
+  config.host.maximum_unacknowledged_forward_messages = 4U;
+  config.host.maximum_reverse_messages = 8U;
+  config.shutdown_drain_timeout_milliseconds = 1000U;
+  Require(product.Start(config).ok(),
+          "scene-generation product session did not start");
+  const std::uint64_t registry_id = product.host().registry_id();
+
+  RenderBridgeControl ready;
+  ready.kind = RenderBridgeControlKind::PEER_READY;
+  ready.registry_id = registry_id;
+  ready.command_id = 1U;
+  ready.surface = ActiveSurface(17U, 800U, 600U, 1600U, 1200U);
+  const RenderTransportEnvelopeEncodeResult encoded_ready =
+      EncodeRenderBridgeControlFrame(1U, ready);
+  Require(encoded_ready.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_ready.bytes.data(),
+                          encoded_ready.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().queued_reverse_messages() == 1U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok(),
+          "scene-generation peer readiness was not established");
+
+  ProductSceneSource source;
+  const RendererOgre14ProductSessionResult first =
+      product.PostUpdatedScene(source);
+  Require(first.status == RendererOgre14ProductSessionStatus::FRAME_QUEUED &&
+              first.ok() && source.captures == 1U && source.commits == 1U,
+          "first scene generation was not queued");
+  const RendererOgre14GameHostSessionResult premature_reset =
+      product.host().CompleteSceneGeneration(first.snapshot_id);
+  Require(!premature_reset &&
+              premature_reset.status ==
+                  RendererOgre14GameHostSessionStatus::
+                      REJECTED_SCENE_LINEAGE,
+          "host accepted a generation reset before an empty final scene");
+
+#if ROR_PRODUCT_RESET_THROW_FIXTURE_AVAILABLE
+  ProductResetAllocationFixture::Arm();
+  const RendererOgre14ProductSessionResult allocation_failure =
+      product.ResetSceneGeneration();
+  Require(allocation_failure.status ==
+                  RendererOgre14ProductSessionStatus::FAILED_ALLOCATION &&
+              !allocation_failure.ok() && !allocation_failure.terminal &&
+              !product.has_pending_frame() &&
+              product.host().next_forward_sequence() == 3U,
+          "generation-finalization allocation failure escaped, published "
+          "partial transport lineage, or lost retry state");
+#endif
+
+  const RendererOgre14ProductSessionResult blocked_reset =
+      product.ResetSceneGeneration();
+  Require(blocked_reset.status ==
+                  RendererOgre14ProductSessionStatus::PENDING_BACKPRESSURE &&
+              !blocked_reset.ok() && blocked_reset.snapshot_id == 2U &&
+              product.host().next_forward_sequence() == 5U,
+          "boundary did not retain exact retry state under backpressure");
+  const RendererOgre14ProductSessionResult still_blocked =
+      product.ResetSceneGeneration();
+  Require(still_blocked.status ==
+                  RendererOgre14ProductSessionStatus::PENDING_BACKPRESSURE &&
+              product.host().next_forward_sequence() == 5U,
+          "boundary backpressure retry duplicated a forward record");
+
+  RenderBridgeAcknowledgement final_empty_ack;
+  final_empty_ack.registry_id = registry_id;
+  final_empty_ack.through_forward_sequence = 4U;
+  const RenderTransportEnvelopeEncodeResult encoded_final_empty_ack =
+      EncodeRenderBridgeAcknowledgementFrame(2U, final_empty_ack);
+  Require(WaitUntil([&product]() {
+                return product.host().last_written_forward_sequence() >= 4U ||
+                       product.host().terminal();
+              }) &&
+              encoded_final_empty_ack.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_final_empty_ack.bytes.data(),
+                          encoded_final_empty_ack.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().queued_reverse_messages() == 1U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok(),
+          "final empty acknowledgement did not release boundary capacity");
+
+  const RendererOgre14ProductSessionResult reset =
+      product.ResetSceneGeneration();
+  Require(reset.status ==
+                  RendererOgre14ProductSessionStatus::SCENE_GENERATION_RESET &&
+              reset.ok() && reset.snapshot_id == 2U &&
+              product.host().next_forward_sequence() == 6U &&
+              product.host().registry_id() == registry_id &&
+              input_target.activations == 1,
+          "scene reset replaced global transport or input authority");
+
+  RenderBridgeAcknowledgement boundary_ack;
+  boundary_ack.registry_id = registry_id;
+  boundary_ack.through_forward_sequence = 5U;
+  boundary_ack.presented_scene_sequence = 4U;
+  boundary_ack.presented_snapshot_id = 2U;
+  const RenderTransportEnvelopeEncodeResult encoded_boundary_ack =
+      EncodeRenderBridgeAcknowledgementFrame(3U, boundary_ack);
+  Require(WaitUntil([&product]() {
+                return product.host().last_written_forward_sequence() >= 5U ||
+                       product.host().terminal();
+              }) &&
+              encoded_boundary_ack.ok() &&
+              WriteNative(fixture.game_inbound.write_handle,
+                          encoded_boundary_ack.bytes.data(),
+                          encoded_boundary_ack.bytes.size()) &&
+              WaitUntil([&product]() {
+                return product.host().queued_reverse_messages() == 1U ||
+                       product.host().terminal();
+              }) &&
+              product.PumpReverse().ok(),
+          "boundary acknowledgement did not release reload capacity");
+
+  source.frame.simulation_tick = 0U;
+  source.frame.simulation_time_seconds = 0.0;
+  const RendererOgre14ProductSessionResult reloaded =
+      product.PostUpdatedScene(source);
+  Require(reloaded.status ==
+                  RendererOgre14ProductSessionStatus::FRAME_QUEUED &&
+              reloaded.ok() && source.captures == 2U &&
+              source.commits == 2U && source.discards == 0U,
+          "reload tick zero was rejected or partially committed");
+
+  RenderTransportStreamDecoder stream(
+      kRenderTransportStreamAbsoluteMaximumPayloadBytes);
+  RenderTransportSequenceState forward_sequence;
+  RenderAssetDeltaTransportDecoder asset_decoder(registry_id,
+                                                  forward_sequence);
+  SceneSnapshotTransportDecoder scene_decoder(forward_sequence);
+  SceneGenerationBoundaryTransportDecoder boundary_decoder(registry_id,
+                                                             forward_sequence);
+  RenderAssetReference first_mesh;
+  RenderAssetReference reloaded_mesh;
+  for (std::uint64_t expected_sequence = 1U; expected_sequence <= 7U;
+       ++expected_sequence) {
+    RenderTransportStreamFrameResult frame;
+    Require(ReadFrame(fixture.game_outbound.read_handle, stream, frame) &&
+                frame.sequence == expected_sequence,
+            "scene reset transport sequence contained a gap");
+    if (expected_sequence == 1U || expected_sequence == 3U ||
+        expected_sequence == 6U) {
+      const RenderAssetDeltaTransportDecodeResult decoded =
+          asset_decoder.Accept(frame.bytes);
+      Require(decoded.ok() && decoded.message->delta() != nullptr,
+              "scene reset asset transaction did not decode");
+      const RenderAssetDelta &delta = *decoded.message->delta();
+      if (expected_sequence == 1U || expected_sequence == 6U) {
+        const auto mesh = std::find_if(
+            delta.mutations.begin(), delta.mutations.end(),
+            [](const RenderAssetMutation &mutation) {
+              return mutation.type == RenderAssetMutationType::UPSERT &&
+                     mutation.asset.kind == RenderAssetKind::MESH;
+            });
+        Require(mesh != delta.mutations.end(),
+                "scene generation omitted its deformable mesh asset");
+        (expected_sequence == 1U ? first_mesh : reloaded_mesh) = mesh->asset;
+      } else {
+        Require(!delta.mutations.empty() &&
+                    std::all_of(delta.mutations.begin(),
+                                delta.mutations.end(),
+                                [](const RenderAssetMutation &mutation) {
+                                  return mutation.type ==
+                                      RenderAssetMutationType::DESTROY;
+                                }),
+                "generation finalization was not an all-tombstone delta");
+      }
+    } else if (expected_sequence == 2U || expected_sequence == 4U ||
+               expected_sequence == 7U) {
+      const SceneSnapshotTransportDecodeResult decoded =
+          scene_decoder.Accept(frame.bytes);
+      Require(decoded.ok() && decoded.message->scene_snapshot() != nullptr,
+              "scene reset snapshot did not decode");
+      const SceneSnapshot &scene = *decoded.message->scene_snapshot();
+      if (expected_sequence == 4U) {
+        Require(scene.snapshot_id() == 2U &&
+                    scene.mesh_instances().empty() &&
+                    scene.dynamic_mesh_updates().empty(),
+                "old generation was not finalized as an empty scene");
+      }
+      if (expected_sequence == 7U) {
+        Require(scene.snapshot_id() == 3U &&
+                    scene.simulation_tick() == 0U,
+                "new generation lost global snapshot or local tick lineage");
+      }
+    } else {
+      const SceneGenerationBoundaryTransportDecodeResult decoded =
+          boundary_decoder.Accept(frame.bytes);
+      Require(decoded.ok() &&
+                  decoded.boundary.registry_id == registry_id &&
+                  decoded.boundary.completed_generation == 1U &&
+                  decoded.boundary.next_generation == 2U &&
+                  decoded.boundary.asset_sequence == 2U &&
+                  decoded.boundary.finalized_snapshot_id == 2U,
+              "scene-generation boundary did not bind the final empty scene");
+    }
+  }
+  Require(first_mesh.valid() && reloaded_mesh.valid() &&
+              first_mesh.id != reloaded_mesh.id &&
+              reloaded_mesh.id.low() > first_mesh.id.low(),
+          "new generation resurrected a retired renderer asset identity");
+
+  NativeHandle reverse_writer = fixture.game_inbound.write_handle;
+  NativeHandle forward_reader = fixture.game_outbound.read_handle;
+  std::atomic<bool> peer_saw_eof{false};
+  std::thread peer([reverse_writer, forward_reader, &peer_saw_eof]() mutable {
+    std::uint8_t byte = 0U;
+    for (;;) {
+      std::size_t transferred = 0U;
+      if (!ReadNative(forward_reader, &byte, 1U, transferred))
+        break;
+      if (transferred == 0U) {
+        peer_saw_eof = true;
+        break;
+      }
+    }
+    CloseNative(reverse_writer);
+  });
+  const RendererOgre14ProductSessionResult shutdown = product.Shutdown();
+  peer.join();
+  fixture.game_inbound.write_handle = kInvalidNativeHandle;
+  Require(shutdown.status == RendererOgre14ProductSessionStatus::CLOSED &&
+              shutdown.ok() && peer_saw_eof,
+          "scene-generation test transport did not close cleanly");
+}
+
 void TestAbruptPeerTeardownIsTerminal() {
   BridgeFixture fixture;
   RendererOgre14GameHostSession session(fixture.bridge);
@@ -1493,6 +1784,7 @@ int main() {
   TestQueuedSceneRetiresAcrossSurfaceBarrier();
   TestProductStartFailsClosedBeforeInputAuthority();
   TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize();
+  TestProductSceneGenerationResetPreservesTransportAndRetiresIds();
   TestAbruptPeerTeardownIsTerminal();
   return EXIT_SUCCESS;
 }

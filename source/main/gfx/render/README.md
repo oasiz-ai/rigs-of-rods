@@ -141,6 +141,18 @@ lifecycle control command. Typed decoders publish immutable owners only after
 the entire candidate passes framing, digest, allocation, semantic, registry,
 and exact-consumption validation.
 
+Forward kind `6` is the fixed version-one scene-generation boundary. It follows
+the old generation's optional all-tombstone asset delta and authoritative empty
+scene in the same authenticated sequence, and binds their exact registry,
+asset sequence, final snapshot ID, completed generation, and next generation.
+The dispatcher applies it only after that empty scene and zero-live-asset state,
+then resets frontend HDR temporal and reflection-probe scheduling state. A
+missing, forged, replayed, reordered, or mismatched marker poisons dispatch;
+simulation time moving backward without this boundary remains rejected. Source
+keys are generation-scoped, while renderer asset IDs, the registry catalog,
+snapshot/update/frame IDs, and the producer's lifetime asset-record limit stay
+process-global and monotonic.
+
 The fixed 64-byte header is independent of host structure packing:
 
 | Offset | Bytes | Encoding | Meaning |
@@ -148,7 +160,7 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets, `3` input, `4` ACK, `5` control) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets, `3` input, `4` ACK, `5` control, `6` scene boundary) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |

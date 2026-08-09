@@ -1915,6 +1915,142 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
           "adapter traversal order changed reflection-probe state or digest");
 }
 
+void TestSceneGenerationFinalizationAndTickReset() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(0x47454E4552415445ULL);
+  const GraphicsSceneSnapshotProduceResult before_first =
+      producer.FinalizeSceneGeneration();
+  Require(!before_first &&
+              before_first.validation.code ==
+                  ValidationCode::MISSING_REFERENCE &&
+              producer.LoadPublishedSnapshot() == nullptr &&
+              !producer.has_open_scene_generation() &&
+              producer.asset_sequence() == 0U,
+          "pre-publication scene finalization changed producer state");
+
+  GraphicsSceneFrameInput first_frame = MakeFrame();
+  const GraphicsSceneSnapshotProduceResult first =
+      producer.Produce(first_frame);
+  Require(first.ok() && producer.has_open_scene_generation() &&
+              first.production.asset_delta.has_value(),
+          "first map generation was not published");
+  const RenderAssetReference first_mesh =
+      first.production.scene_snapshot->mesh_instances().front().mesh;
+  const std::uint64_t first_asset_sequence = producer.asset_sequence();
+
+  const GraphicsSceneSnapshotProduceResult finalized =
+      producer.FinalizeSceneGeneration();
+  Require(finalized.ok() &&
+              finalized.production.scene_snapshot->snapshot_id() == 2U &&
+              finalized.production.scene_snapshot->simulation_tick() ==
+                  first_frame.simulation_tick &&
+              finalized.production.scene_snapshot->mesh_instances().empty() &&
+              finalized.production.scene_snapshot->lights().empty() &&
+              finalized.production.asset_delta.has_value() &&
+              finalized.production.asset_delta->base_sequence ==
+                  first_asset_sequence &&
+              finalized.production.asset_delta->mutations.size() ==
+                  first_frame.assets.size() &&
+              !producer.has_open_scene_generation(),
+          "scene generation did not finalize as one empty tombstone transaction");
+  for (const RenderAssetMutation &mutation :
+       finalized.production.asset_delta->mutations) {
+    Require(mutation.type == RenderAssetMutationType::DESTROY,
+            "scene finalization retained a live old-generation asset");
+  }
+
+  GraphicsSceneFrameInput reloaded = MakeFrame();
+  reloaded.simulation_tick = 0U;
+  reloaded.simulation_time_seconds = 0.0;
+  const GraphicsSceneSnapshotProduceResult second = producer.Produce(reloaded);
+  Require(second.ok() && second.production.scene_snapshot->snapshot_id() == 3U &&
+              second.production.scene_snapshot->simulation_tick() == 0U &&
+              second.production.asset_delta.has_value() &&
+              !second.production.asset_delta->full_snapshot &&
+              second.production.scene_snapshot->mesh_instances().front().mesh !=
+                  first_mesh &&
+              second.production.scene_snapshot->mesh_instances().front()
+                      .mesh.id.low() > first_mesh.id.low(),
+          "reload tick zero reused retired renderer identity or regressed global lineage");
+  const GraphicsSceneAssetRecoveryResult recovery =
+      producer.BuildRecoveryAssetSnapshot();
+  Require(recovery.ok() &&
+              recovery.full_snapshot.mutations.size() ==
+                  first_frame.assets.size() * 2U,
+          "generation reset recovery omitted retired tombstones or new assets");
+
+  GraphicsSceneSnapshotProducerConfiguration lifetime_config;
+  lifetime_config.registry_id = 0x4C49464554494D45ULL;
+  lifetime_config.maximum_asset_records = first_frame.assets.size();
+  GraphicsSceneSnapshotProducer lifetime_bounded(lifetime_config);
+  Require(lifetime_bounded.Produce(MakeFrame()).ok() &&
+              lifetime_bounded.FinalizeSceneGeneration().ok(),
+          "lifetime-cap fixture could not close its first generation");
+  const std::shared_ptr<const SceneSnapshot> lifetime_sentinel =
+      lifetime_bounded.LoadPublishedSnapshot();
+  const std::uint64_t lifetime_sequence =
+      lifetime_bounded.asset_sequence();
+  GraphicsSceneFrameInput lifetime_reload = MakeFrame();
+  lifetime_reload.simulation_tick = 0U;
+  lifetime_reload.simulation_time_seconds = 0.0;
+  const GraphicsSceneSnapshotProduceResult lifetime_rejected =
+      lifetime_bounded.Produce(lifetime_reload);
+  Require(!lifetime_rejected &&
+              lifetime_rejected.validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              lifetime_rejected.validation.field == "assets" &&
+              SameSharedOwner(lifetime_sentinel,
+                              lifetime_bounded.LoadPublishedSnapshot()) &&
+              lifetime_bounded.asset_sequence() == lifetime_sequence &&
+              !lifetime_bounded.has_open_scene_generation(),
+          "generation-scoped source IDs bypassed the process-global lifetime "
+          "asset-record cap or changed the final sentinel");
+
+  GraphicsSceneSnapshotProducer empty_producer = MakeProducer(0x454D50545947454EULL);
+  GraphicsSceneFrameInput empty_frame;
+  empty_frame.simulation_tick = 9U;
+  empty_frame.simulation_time_seconds = 0.5;
+  empty_frame.camera.view_id = 1U;
+  empty_frame.camera.width = 1280U;
+  empty_frame.camera.height = 720U;
+  empty_frame.camera.clip_from_view = Perspective();
+  empty_frame.camera.far_plane = 1000.0F;
+  const GraphicsSceneSnapshotProduceResult empty_first =
+      empty_producer.Produce(empty_frame);
+  const GraphicsSceneSnapshotProduceResult empty_final =
+      empty_producer.FinalizeSceneGeneration();
+  empty_frame.simulation_tick = 0U;
+  empty_frame.simulation_time_seconds = 0.0;
+  const GraphicsSceneSnapshotProduceResult empty_reload =
+      empty_producer.Produce(empty_frame);
+  Require(empty_first.ok(), "initially empty scene was rejected");
+  Require(empty_final.ok(), "initially empty scene could not be finalized");
+  Require(!empty_final.production.asset_delta.has_value(),
+          "empty finalization emitted a spurious asset delta");
+  Require(empty_reload.ok(), "empty reload tick zero was rejected");
+  Require(empty_reload.production.scene_snapshot->snapshot_id() == 3U,
+          "empty reload did not preserve global snapshot identity");
+
+  GraphicsSceneSnapshotProducerConfiguration exhausted_config;
+  exhausted_config.registry_id = 0x4641494C47454E31ULL;
+  exhausted_config.first_snapshot_id =
+      (std::numeric_limits<std::uint64_t>::max)();
+  GraphicsSceneSnapshotProducer exhausted(exhausted_config);
+  const GraphicsSceneSnapshotProduceResult last = exhausted.Produce(MakeFrame());
+  const std::shared_ptr<const SceneSnapshot> sentinel =
+      exhausted.LoadPublishedSnapshot();
+  const std::uint64_t sentinel_sequence = exhausted.asset_sequence();
+  const GraphicsSceneSnapshotProduceResult rejected =
+      exhausted.FinalizeSceneGeneration();
+  Require(last.ok() && !rejected &&
+              rejected.validation.field == "snapshot_id" &&
+              SameSharedOwner(sentinel, exhausted.LoadPublishedSnapshot()) &&
+              exhausted.asset_sequence() == sentinel_sequence &&
+              exhausted.has_open_scene_generation(),
+          "failed generation finalization changed the published sentinel");
+}
+
 } // namespace
 
 int main() {
@@ -1934,5 +2070,6 @@ int main() {
   TestDynamicMeshLineageOwnershipAndTombstones();
   TestExhaustionAndBoundsFailClosed();
   TestDeterministicAcrossAdapterTraversalOrders();
+  TestSceneGenerationFinalizationAndTickReset();
   return EXIT_SUCCESS;
 }

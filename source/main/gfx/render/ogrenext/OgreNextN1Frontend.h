@@ -369,6 +369,8 @@ public:
                 std::uint64_t timeout_nanoseconds) override;
   RenderOperationResult
   SynchronizeAssets(const RenderAssetDelta &delta) override;
+  RenderOperationResult
+  ResetSceneGeneration(std::uint64_t next_generation) override;
   RenderOperationResult ReleaseResource(ResourceHandle resource) override;
   RenderOperationResult Render(const RenderFrameRequest &request,
                                RenderFrameOutput &output) override;

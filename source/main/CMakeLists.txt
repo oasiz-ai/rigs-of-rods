@@ -60,6 +60,7 @@ set(SOURCE_FILES
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
         gfx/render/RenderBridgeControlTransport.{h,cpp}
+        gfx/render/SceneGenerationBoundaryTransport.{h,cpp}
         gfx/render/RenderBridgeSessionIdentity.{h,cpp}
         gfx/render/README.md
         gfx/render/RenderContracts.h
@@ -424,6 +425,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderBridgeControlTransport.cpp
+        gfx/render/SceneGenerationBoundaryTransport.cpp
         gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
@@ -458,6 +460,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
         gfx/render/RenderBridgeControlTransport.cpp
+        gfx/render/SceneGenerationBoundaryTransport.cpp
         gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp

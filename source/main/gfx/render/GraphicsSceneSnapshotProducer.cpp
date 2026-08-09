@@ -463,6 +463,7 @@ public:
     RenderAssetRegistry registry;
     std::map<std::uint64_t, AssetState> assets;
     std::uint64_t next_asset_ordinal = 1U;
+    std::size_t lifetime_asset_records = 0U;
     bool asset_ordinal_exhausted = false;
   };
 
@@ -616,7 +617,8 @@ public:
   }
 
   [[nodiscard]] GraphicsSceneSnapshotProduceResult
-  Produce(const GraphicsSceneFrameInput &frame) {
+  Produce(const GraphicsSceneFrameInput &frame,
+          bool finalize_scene_generation = false) {
     GraphicsSceneSnapshotProduceResult result;
     if (!configuration_validation) {
       result.validation = configuration_validation;
@@ -645,7 +647,7 @@ public:
                   "absolute render origin must be finite");
       return result;
     }
-    if (initialized &&
+    if (time_lineage_initialized &&
         (frame.simulation_tick < last_simulation_tick ||
          frame.simulation_time_seconds < last_simulation_time_seconds)) {
       result.validation = Failure(
@@ -1038,7 +1040,7 @@ public:
           }
           continue;
         }
-        if (candidate.assets.size() >=
+        if (candidate.lifetime_asset_records >=
             configuration.maximum_asset_records) {
           result.validation = Failure(
               ValidationCode::VALUE_OUT_OF_RANGE, "assets",
@@ -1064,6 +1066,7 @@ public:
         state.material_bindings = input.material_bindings;
         state.live = true;
         candidate.assets.emplace(input.source_asset_id, std::move(state));
+        ++candidate.lifetime_asset_records;
         if (candidate.next_asset_ordinal ==
             (std::numeric_limits<std::uint64_t>::max)()) {
           candidate.asset_ordinal_exhausted = true;
@@ -2046,6 +2049,22 @@ public:
       return result;
     }
 
+    if (finalize_scene_generation) {
+      // Even an already-empty source generation may still alias the producer's
+      // original const catalog owner. Allocate a fresh candidate before any
+      // state commits; never cast away constness after publication.
+      if (staged_asset_catalog == nullptr) {
+        staged_asset_catalog =
+            std::make_shared<AssetCatalog>(*candidate_asset_catalog);
+        candidate_asset_catalog = staged_asset_catalog;
+      }
+      staged_asset_catalog->assets.clear();
+      candidate_objects.clear();
+      candidate_lights.clear();
+      candidate_reflection_probes.clear();
+      candidate_mesh_asset_pairs.clear();
+    }
+
     asset_catalog = std::move(candidate_asset_catalog);
     objects = std::move(candidate_objects);
     lights = std::move(candidate_lights);
@@ -2055,16 +2074,28 @@ public:
         candidate_next_dynamic_update_sequence;
     dynamic_update_sequence_exhausted =
         candidate_dynamic_update_sequence_exhausted;
-    validated_environment_assets = candidate_environment_assets;
-    asset_compatibility_cache_initialized = true;
-    camera_state.camera = frame.camera;
-    camera_state.absolute_world_origin_meters =
-        frame.absolute_world_origin_meters;
-    camera_state.initialized = true;
-    last_simulation_tick = frame.simulation_tick;
-    last_simulation_time_seconds = frame.simulation_time_seconds;
-    last_absolute_world_origin_meters = frame.absolute_world_origin_meters;
+    validated_environment_assets = finalize_scene_generation
+                                       ? ValidatedEnvironmentAssets{}
+                                       : candidate_environment_assets;
+    asset_compatibility_cache_initialized = !finalize_scene_generation;
+    if (finalize_scene_generation) {
+      camera_state = {};
+      last_simulation_tick = 0U;
+      last_simulation_time_seconds = 0.0;
+      last_absolute_world_origin_meters = {};
+      time_lineage_initialized = false;
+    } else {
+      camera_state.camera = frame.camera;
+      camera_state.absolute_world_origin_meters =
+          frame.absolute_world_origin_meters;
+      camera_state.initialized = true;
+      last_simulation_tick = frame.simulation_tick;
+      last_simulation_time_seconds = frame.simulation_time_seconds;
+      last_absolute_world_origin_meters = frame.absolute_world_origin_meters;
+      time_lineage_initialized = true;
+    }
     initialized = true;
+    scene_generation_open = !finalize_scene_generation;
     if (next_snapshot_id ==
         (std::numeric_limits<std::uint64_t>::max)()) {
       snapshot_id_exhausted = true;
@@ -2081,6 +2112,24 @@ public:
     return result;
   }
 
+  [[nodiscard]] GraphicsSceneSnapshotProduceResult FinalizeSceneGeneration() {
+    if (!initialized || !scene_generation_open || !camera_state.initialized ||
+        published_snapshot == nullptr) {
+      GraphicsSceneSnapshotProduceResult result;
+      result.validation = Failure(
+          ValidationCode::MISSING_REFERENCE, "scene_generation",
+          "a scene generation cannot be finalized before first publication");
+      return result;
+    }
+
+    GraphicsSceneFrameInput empty;
+    empty.simulation_tick = last_simulation_tick;
+    empty.simulation_time_seconds = last_simulation_time_seconds;
+    empty.absolute_world_origin_meters = last_absolute_world_origin_meters;
+    empty.camera = camera_state.camera;
+    return Produce(empty, true);
+  }
+
   GraphicsSceneSnapshotProducerConfiguration configuration;
   ValidationResult configuration_validation;
   std::shared_ptr<const AssetCatalog> asset_catalog;
@@ -2095,6 +2144,8 @@ public:
   double last_simulation_time_seconds = 0.0;
   Double3 last_absolute_world_origin_meters{};
   bool initialized = false;
+  bool time_lineage_initialized = false;
+  bool scene_generation_open = false;
   bool snapshot_id_exhausted = false;
   std::uint64_t next_dynamic_update_sequence = 1U;
   bool dynamic_update_sequence_exhausted = false;
@@ -2137,6 +2188,11 @@ GraphicsSceneSnapshotProducer::ProduceJoinedFrame(
   }
 }
 
+GraphicsSceneSnapshotProduceResult
+GraphicsSceneSnapshotProducer::FinalizeSceneGeneration() {
+  return impl_->FinalizeSceneGeneration();
+}
+
 GraphicsSceneAssetRecoveryResult
 GraphicsSceneSnapshotProducer::BuildRecoveryAssetSnapshot() const {
   GraphicsSceneAssetRecoveryResult result;
@@ -2166,6 +2222,11 @@ std::uint64_t GraphicsSceneSnapshotProducer::registry_id() const noexcept {
 
 std::uint64_t GraphicsSceneSnapshotProducer::asset_sequence() const noexcept {
   return impl_->asset_catalog->registry.sequence();
+}
+
+bool GraphicsSceneSnapshotProducer::has_open_scene_generation() const
+    noexcept {
+  return impl_->scene_generation_open;
 }
 
 std::shared_ptr<const SceneSnapshot>

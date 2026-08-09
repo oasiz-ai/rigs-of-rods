@@ -995,12 +995,12 @@ ValidationResult ValidateOgre14GraphicsSceneStaticCoverage(
         "static_meshes.unsupported.procedural",
         "procedural road geometry is not an authored immutable MeshObject");
   }
-  if (unsupported.deformable) {
+  if (unsupported.unadapted_deformable) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE,
         "static_meshes.unsupported.deformable",
-        "actor, skeletal, or vertex-animated geometry requires a deformable "
-        "stream");
+        "skeletal or vertex-animated geometry outside the supported actor "
+        "dynamic inventory requires an explicit adapter");
   }
   if (unsupported.paged) {
     return ValidationResult::Failure(

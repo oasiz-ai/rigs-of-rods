@@ -922,6 +922,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeControlTransport.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneGenerationBoundaryTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeSessionIdentity.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
