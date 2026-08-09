@@ -1,0 +1,267 @@
+// Project-owned synthetic classification fixture. No CityWorld asset bytes.
+material Synthetic/SphericalValid
+{
+    technique
+    {
+        pass
+        {
+            texture_unit
+            {
+                texture synthetic_base.png
+                colour_op modulate
+            }
+            texture_unit
+            {
+                texture synthetic_spec.png
+                colour_op alpha_blend
+            }
+            texture_unit
+            {
+                texture synthetic_environment.png
+                colour_op_ex blend_current_alpha src_texture src_current
+                env_map spherical
+            }
+        }
+    }
+}
+
+material Synthetic/SphericalRepairReview
+{
+    technique
+    {
+        pass
+        {
+            texture_unit
+            {
+                texture synthetic_repair_base.png
+                colour_op modulate
+                texture_unit
+            }
+            texture_unit
+            {
+                texture synthetic_repair_spec.png
+                colour_op alpha_blend
+            }
+            texture_unit
+            {
+                texture synthetic_repair_environment.png
+                colour_op_ex blend_current_alpha src_texture src_current
+                env_map spherical
+            }
+        }
+    }
+}
+
+material Synthetic/EmissiveDefaultDepthWrite
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_day.png }
+        }
+        pass
+        {
+            alpha_rejection greater 192
+            scene_blend alpha_blend
+            emissive 0.3 0.3 0.3 0.3
+            texture_unit { texture synthetic_night.png }
+        }
+    }
+}
+
+material Synthetic/EmissiveExplicitDepthWriteOff
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_day_off.png }
+        }
+        pass
+        {
+            depth_write off
+            alpha_rejection greater 128
+            scene_blend alpha_blend
+            emissive .3 .3 .3 .3
+            texture_unit { texture synthetic_night_off.png }
+        }
+    }
+}
+
+material Synthetic/SuspiciousBLike
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_broken_day.png }
+        }
+        pass
+        {
+            depth_write off
+            alpha_rejection greater 128
+            scene_blend alpha_blend
+            emissive 0.3 0.3 0.3 0.3
+            texture_unit { texture synthetic_broken_night.png }
+            texture_unit
+        }
+    }
+}
+
+material Synthetic/PlanarSurface
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_planar_base.png }
+            texture_unit
+            {
+                texture superficie-metalica.jpg
+                env_map planar
+            }
+        }
+    }
+}
+
+material Synthetic/CieloComposite
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_window.png }
+            texture_unit
+            {
+                texture Cielo.jpg
+                color_op_ex blend_manual src_texture src_current 0.1
+                env_map planar
+            }
+        }
+    }
+}
+
+material Synthetic/CubePlanarSuspicious
+{
+    technique
+    {
+        pass
+        {
+            texture_unit
+            {
+                cubic_texture SyntheticEnvironment combinedUVW
+                env_map planar
+            }
+        }
+    }
+}
+
+material Synthetic/TransparentSphericalBusStop
+{
+    technique
+    {
+        pass
+        {
+            scene_blend alpha_blend
+            depth_write off
+            alpha_rejection greater 0
+            cull_hardware none
+            texture_unit { texture synthetic_transparent.png }
+            texture_unit
+            {
+                colour_op_ex blend_manual src_texture src_current 0.1
+                env_map spherical
+                texture synthetic_transparent_spec.png
+            }
+        }
+    }
+}
+
+material Synthetic/CombinedPlanarEmissive
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_combined_base.png }
+            texture_unit
+            {
+                texture superficie-metalica.jpg
+                env_map planar
+            }
+        }
+        pass
+        {
+            depth_write off
+            alpha_rejection greater 128
+            scene_blend alpha_blend
+            emissive 0.3 0.3 0.3 0.3
+            texture_unit { texture synthetic_combined_emissive.png }
+        }
+    }
+}
+
+material Synthetic/CombinedEnvironmentEmissive
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_combined_white_base.png }
+            texture_unit
+            {
+                texture superficie-metalica.jpg
+                env_map planar
+            }
+        }
+        pass
+        {
+            depth_write off
+            alpha_rejection greater 128
+            scene_blend alpha_blend
+            emissive 1.0 1.0 1.0 0.3
+            texture_unit { texture synthetic_combined_white_emissive.png }
+        }
+    }
+}
+
+material Synthetic/AdditiveFurniture
+{
+    technique
+    {
+        pass
+        {
+            ambient 0.5 0.5 0.5 1
+            diffuse 0.8 0.8 0.8 1
+            emissive 0 0 0 1
+            texture_unit { texture synthetic_furniture.png }
+        }
+        pass
+        {
+            ambient 0 0 0
+            diffuse 0 0 0
+            specular 0.5 0.5 0.5 1 12.5
+            scene_blend add
+        }
+    }
+}
+
+material Synthetic/Simple
+{
+    technique
+    {
+        pass
+        {
+            texture_unit { texture synthetic_simple.png }
+        }
+    }
+}
+
+material Synthetic/UnsupportedInherited : Synthetic/Parent
+{
+    technique
+    {
+        pass {}
+    }
+}

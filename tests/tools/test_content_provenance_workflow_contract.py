@@ -21,6 +21,9 @@ POSTPROCESS_RUNTIME_TEST_PATH = (
 MATERIAL_SCRIPT_AUDIT_TEST_PATH = (
     "tests/tools/test_audit_ogre14_material_scripts.py"
 )
+MATERIAL_FAMILY_CLASSIFIER_TEST_PATH = (
+    "tests/tools/test_classify_cityworld_material_families.py"
+)
 
 
 class ContentProvenanceWorkflowContractTests(unittest.TestCase):
@@ -40,6 +43,10 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(
             workflow.count(MATERIAL_SCRIPT_AUDIT_TEST_PATH),
+            2,
+        )
+        self.assertEqual(
+            workflow.count(MATERIAL_FAMILY_CLASSIFIER_TEST_PATH),
             2,
         )
         for runner in ("ubuntu-22.04", "windows-2025", "macos-15"):

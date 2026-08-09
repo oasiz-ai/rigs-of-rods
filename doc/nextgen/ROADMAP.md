@@ -122,6 +122,12 @@ script revisions retain their original diagnostics. The measured fixtures,
 bridge corridors, Blender/glTF authoring contract, LOD/collision requirements,
 and visual acceptance gates are tracked in the
 [CityWorld visual-upgrade specification](CITYWORLD_VISUAL_UPGRADE.md).
+The metadata-only
+[material-modernization classifier](CITYWORLD_MATERIAL_MODERNIZATION.md)
+separates exact legacy-equivalence evidence from declared PBR modernization,
+binds every decision to archive/script hashes and raw source spans, and leaves
+malformed records review-blocked without redistributing or silently rewriting
+the package.
 
 The first rights-cleared CityWorld Next content family is now present without
 modifying that archive: Blender-generated 20 m tangent and 15-degree curved

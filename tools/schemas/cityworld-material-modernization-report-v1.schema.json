@@ -1,0 +1,411 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigsofrods.org/schemas/cityworld-material-modernization-report-v1.schema.json",
+  "title": "Rigs of Rods CityWorld material modernization report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "archive",
+    "classifier",
+    "format",
+    "materials",
+    "repair_plans",
+    "schema",
+    "scripts",
+    "summary"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "tools/schemas/cityworld-material-modernization-report-v1.schema.json"
+    },
+    "archive": {"$ref": "#/$defs/archive"},
+    "classifier": {"$ref": "#/$defs/classifier"},
+    "format": {"const": "ror-cityworld-material-modernization-report-v1"},
+    "materials": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {"$ref": "#/$defs/material"}
+    },
+    "repair_plans": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {"$ref": "#/$defs/repairPlan"}
+    },
+    "schema": {"const": "ror.cityworld.material-modernization-report.v1"},
+    "scripts": {
+      "type": "array",
+      "maxItems": 50000,
+      "items": {"$ref": "#/$defs/script"}
+    },
+    "summary": {"$ref": "#/$defs/summary"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "nonnegativeCounts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "additionalProperties": {"$ref": "#/$defs/nonnegativeInteger"}
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["column", "line"],
+      "properties": {
+        "column": {"type": "integer", "minimum": 1},
+        "line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "sourceSpan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "byte_end_exclusive",
+        "byte_start",
+        "end_exclusive",
+        "sha256",
+        "start"
+      ],
+      "properties": {
+        "byte_end_exclusive": {"$ref": "#/$defs/nonnegativeInteger"},
+        "byte_start": {"$ref": "#/$defs/nonnegativeInteger"},
+        "end_exclusive": {"$ref": "#/$defs/point"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "start": {"$ref": "#/$defs/point"}
+      }
+    },
+    "anomaly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "owning_scope", "source_span"],
+      "properties": {
+        "code": {
+          "enum": [
+            "ANONYMOUS_SCOPE",
+            "MISSING_CLOSING_BRACE_BEFORE_NEXT_MATERIAL",
+            "ORPHAN_NESTED_TEXTURE_UNIT_DIRECTIVE",
+            "ORPHAN_PASS_LEVEL_TEXTURE_UNIT_DIRECTIVE",
+            "STRAY_ROOT_CLOSING_BRACE"
+          ]
+        },
+        "owning_scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source_span": {"$ref": "#/$defs/sourceSpan"}
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "declared_expanded_bytes",
+        "entry_count",
+        "sha256"
+      ],
+      "properties": {
+        "bytes": {"$ref": "#/$defs/nonnegativeInteger"},
+        "declared_expanded_bytes": {"$ref": "#/$defs/nonnegativeInteger"},
+        "entry_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "classifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "schema_sha256", "tool_sha256"],
+      "properties": {
+        "algorithm": {"const": "ror-cityworld-material-family-classifier-v1"},
+        "schema_sha256": {"$ref": "#/$defs/sha256"},
+        "tool_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "status"],
+      "properties": {
+        "family": {
+          "enum": [
+            "ADDITIVE_SPECULAR_FURNITURE",
+            "CIELO_PLANAR_WINDOW_COMPOSITE",
+            "CLEAN_TWO_PASS_ALPHA_REJECTED_EMISSIVE",
+            "COMBINED_ENVIRONMENT_EMISSIVE",
+            "COMBINED_PLANAR_EMISSIVE",
+            "PLANAR_ENVIRONMENT_OTHER",
+            "PLANAR_SURFACE_METAL",
+            "SIMPLE_SINGLE_PASS",
+            "SPHERICAL_BASE_SPEC_CURRENT_ALPHA_ENVIRONMENT",
+            "SUSPICIOUS_B_LIKE_ORPHAN_TEXTURE_UNIT",
+            "SUSPICIOUS_CUBE_PLANAR_ENVIRONMENT",
+            "SUSPICIOUS_STRUCTURE",
+            "TRANSPARENT_SPHERICAL_BUS_STOP",
+            "UNSUPPORTED_STRUCTURE"
+          ]
+        },
+        "status": {"enum": ["ELIGIBLE", "REVIEW_BLOCKED", "UNSUPPORTED"]}
+      }
+    },
+    "fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assigned_label",
+        "declared_pbr_modernization_eligible",
+        "legacy_semantic_equivalent_eligible",
+        "requirements_or_blockers"
+      ],
+      "properties": {
+        "assigned_label": {
+          "enum": [
+            "DECLARED_PBR_MODERNIZATION",
+            "LEGACY_SEMANTIC_EQUIVALENT"
+          ]
+        },
+        "declared_pbr_modernization_eligible": {"type": "boolean"},
+        "legacy_semantic_equivalent_eligible": {"type": "boolean"},
+        "requirements_or_blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    },
+    "materialSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["script_member", "script_sha256", "span"],
+      "properties": {
+        "script_member": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "script_sha256": {"$ref": "#/$defs/sha256"},
+        "span": {"$ref": "#/$defs/sourceSpan"}
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "anomalies",
+        "authored_depth_write_second_pass",
+        "environment_modes",
+        "has_authored_gpu_program",
+        "has_cube_texture_source",
+        "inherited_from",
+        "layer_equations",
+        "orphan_nested_texture_unit_directives",
+        "pass_count",
+        "technique_count",
+        "texture_references",
+        "texture_unit_count"
+      ],
+      "properties": {
+        "anomalies": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {"$ref": "#/$defs/anomaly"}
+        },
+        "authored_depth_write_second_pass": {
+          "type": ["string", "null"],
+          "enum": [null, "DEFAULT_ON", "EXPLICIT_OFF", "EXPLICIT_ON"]
+        },
+        "environment_modes": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "has_authored_gpu_program": {"type": "boolean"},
+        "has_cube_texture_source": {"type": "boolean"},
+        "inherited_from": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "layer_equations": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "orphan_nested_texture_unit_directives": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "pass_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "technique_count": {"$ref": "#/$defs/nonnegativeInteger"},
+        "texture_references": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {"type": "string", "minLength": 1, "maxLength": 4096}
+        },
+        "texture_unit_count": {"$ref": "#/$defs/nonnegativeInteger"}
+      }
+    },
+    "material": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification",
+        "fidelity",
+        "material_id",
+        "name",
+        "repair_plan_ids",
+        "source",
+        "structure"
+      ],
+      "properties": {
+        "classification": {"$ref": "#/$defs/classification"},
+        "fidelity": {"$ref": "#/$defs/fidelity"},
+        "material_id": {"$ref": "#/$defs/sha256"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "repair_plan_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 65536,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "source": {"$ref": "#/$defs/materialSource"},
+        "structure": {"$ref": "#/$defs/structure"}
+      }
+    },
+    "repairGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_sha256",
+        "material_source_span_sha256",
+        "script_member",
+        "script_sha256",
+        "token_source_span"
+      ],
+      "properties": {
+        "archive_sha256": {"$ref": "#/$defs/sha256"},
+        "material_source_span_sha256": {"$ref": "#/$defs/sha256"},
+        "script_member": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "script_sha256": {"$ref": "#/$defs/sha256"},
+        "token_source_span": {"$ref": "#/$defs/sourceSpan"}
+      }
+    },
+    "repairPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "apply_automatically",
+        "expected_family_after_review",
+        "gate",
+        "issue",
+        "material_id",
+        "repair_id",
+        "review_state"
+      ],
+      "properties": {
+        "action": {"const": "REMOVE_ORPHAN_DIRECTIVE_TOKEN"},
+        "apply_automatically": {"const": false},
+        "expected_family_after_review": {
+          "const": "SPHERICAL_BASE_SPEC_CURRENT_ALPHA_ENVIRONMENT"
+        },
+        "gate": {"$ref": "#/$defs/repairGate"},
+        "issue": {"const": "ORPHAN_NESTED_TEXTURE_UNIT_DIRECTIVE"},
+        "material_id": {"$ref": "#/$defs/sha256"},
+        "repair_id": {"$ref": "#/$defs/sha256"},
+        "review_state": {"const": "PENDING_HUMAN_REVIEW"}
+      }
+    },
+    "script": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "encoding",
+        "material_definitions",
+        "member",
+        "parser_anomalies",
+        "sha256",
+        "token_count"
+      ],
+      "properties": {
+        "bytes": {"$ref": "#/$defs/nonnegativeInteger"},
+        "encoding": {"enum": ["UTF-8", "UTF-8-BOM", "WINDOWS-1252"]},
+        "material_definitions": {"$ref": "#/$defs/nonnegativeInteger"},
+        "member": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "parser_anomalies": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {"$ref": "#/$defs/anomaly"}
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "token_count": {"$ref": "#/$defs/nonnegativeInteger"}
+      }
+    },
+    "duplicateMaterialName": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locations", "name"],
+      "properties": {
+        "locations": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 65536,
+          "items": {"type": "string", "minLength": 1, "maxLength": 8192}
+        },
+        "name": {"type": "string", "minLength": 1, "maxLength": 4096}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automatic_modernization_ready",
+        "classification_status_counts",
+        "duplicate_material_names",
+        "family_counts",
+        "fidelity_label_counts",
+        "material_definitions",
+        "parser_anomalies",
+        "repair_plans_pending_review",
+        "script_files",
+        "structural_trait_counts"
+      ],
+      "properties": {
+        "automatic_modernization_ready": {"type": "boolean"},
+        "classification_status_counts": {"$ref": "#/$defs/nonnegativeCounts"},
+        "duplicate_material_names": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {"$ref": "#/$defs/duplicateMaterialName"}
+        },
+        "family_counts": {"$ref": "#/$defs/nonnegativeCounts"},
+        "fidelity_label_counts": {"$ref": "#/$defs/nonnegativeCounts"},
+        "material_definitions": {"$ref": "#/$defs/nonnegativeInteger"},
+        "parser_anomalies": {"$ref": "#/$defs/nonnegativeInteger"},
+        "repair_plans_pending_review": {"$ref": "#/$defs/nonnegativeInteger"},
+        "script_files": {"$ref": "#/$defs/nonnegativeInteger"},
+        "structural_trait_counts": {"$ref": "#/$defs/nonnegativeCounts"}
+      }
+    }
+  }
+}
