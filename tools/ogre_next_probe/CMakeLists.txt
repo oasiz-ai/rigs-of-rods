@@ -106,10 +106,16 @@ list(APPEND _ror_relevant_source_files
     "cmake/conan/recipes/ogre3d/conandata.yml"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch"
+    "cmake/conan/recipes/ogre3d/README.md"
+    "cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt"
+    "cmake/conan/recipes/ogre3d/test_package/conanfile.py"
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_material_script_preopen_probe.cpp"
     "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
     "conanfile.py"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
     "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
+    "doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md"
     "source/main/GameContext.cpp"
     "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
@@ -214,6 +220,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
     "tests/tools/assert_ogre_recipe_graph.py"
+    "tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -2270,10 +2277,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/conan/recipes/ogre3d/conandata.yml
             cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
             cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch
+            cmake/conan/recipes/ogre3d/README.md
+            cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt
+            cmake/conan/recipes/ogre3d/test_package/conanfile.py
+            cmake/conan/recipes/ogre3d/test_package/src/ogre_material_script_preopen_probe.cpp
             cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
             conanfile.py
             doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
             doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
+            doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
             source/main/GameContext.cpp
             source/main/gfx/GfxActorCaptureInventory.h
             source/main/gfx/RendererBackendPolicy.cpp
@@ -2379,6 +2392,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
             tests/resources/TerrainBundleArchiveVerifierTests.cpp
             tests/tools/assert_ogre_recipe_graph.py
+            tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py
             tests/gfx/RendererBackendPolicyTests.cpp
             tests/gfx/RendererBridgeEndpointTests.cpp
             tests/gfx/RendererBridgeLaunchPlanTests.cpp

@@ -77,6 +77,21 @@ class OgreTestPackage(ConanFile):
                 executable_name,
             )
             shutil.copy2(executable, staged_executable)
+            preopen_executable_name = (
+                "ogre_material_script_preopen_probe.exe"
+                if self.settings.os == "Windows"
+                else "ogre_material_script_preopen_probe"
+            )
+            preopen_executable = os.path.join(
+                self.cpp.build.bindirs[0],
+                preopen_executable_name,
+            )
+            staged_preopen_executable = os.path.join(
+                relocated_package,
+                "bin",
+                preopen_executable_name,
+            )
+            shutil.copy2(preopen_executable, staged_preopen_executable)
             zip_archive = os.path.join(
                 relocated_package,
                 "bin",
@@ -107,6 +122,11 @@ class OgreTestPackage(ConanFile):
                 )
             else:
                 clear_loader_environment = 'set "OGRE_PLUGIN_DIR=" && '
+            self.run(
+                f'{clear_loader_environment}'
+                f'"{staged_preopen_executable}"',
+                env="",
+            )
             self.run(
                 f'{clear_loader_environment}"{staged_executable}" '
                 f'"{plugins_config}" "{expected_renderer}" '

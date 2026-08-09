@@ -28,6 +28,8 @@ separately.
   `cf7aaac084432441167a384245b65400c07f23ea80e2af386cebd41832cc967a`
 - Local terrain composite revision and Metal transfer patch SHA-256:
   `cb8bf0aa200793a02574725396c407e7e58eded5b242c2e7dd617c745a6dbaf5`
+- Local exact material-script pre-open patch SHA-256:
+  `3344cd639959553bda2ec978ad66e4b42df00e2f56f75d39a2d780ce4aa38478`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -78,6 +80,19 @@ shared-storage readback, preserve the per-mip dimensions already supplied by
 `Texture::createSurfaceList()`, and select the pixel buffer's actual mip level
 and face for both private and shared textures.
 
+The local material-script pre-open patch adds an explicit default-false opt-in
+and optional `ResourceLoadingListener::resourceStreamOpening()` callback after
+OGRE has selected the concrete archive and before any archive read. Opted-out
+listeners perform no new metadata I/O. The callback exposes borrowed selected
+`Archive` and exact `FileInfo` pointers; `path + basename` is the member
+authority because non-strict ZIP mode may make `filename` basename-only. An
+explicit `handled` result selects the returned stream, including a handled null
+rejection, and never falls back to `Archive::open`. Both resource-group script
+parsing and `openResourceImpl` (the path used by script imports) are covered.
+The additive virtuals require dependent binaries to be rebuilt. Full semantics
+and scope are recorded in
+`doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md`.
+
 On 2026-07-28, the native arm64 application exercised the rendering patches
 with PSSM plus mixed cube, 2D, and shadow samplers. The two-truck scene
 completed 1,000 physics steps, wrote and fully decoded a 2560x1440 Retina PNG,
@@ -113,15 +128,15 @@ profile intentionally retains its existing Conan compatibility setting
 `compiler.version=15`:
 
 ```text
-ogre3d/14.5.2#a6522b345c9ed182253e570281c54a28:
+ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:
   5c43930ec5f93ceae6d2e5fcd4957341351cdf91#
-  4988ee3efa3ef825134195858fb368a9
+  19b11b4099b59de34e25a9f4b8c5758d
 ```
 
 The line breaks above are for readability. The exact Conan reference is:
 
 ```text
-ogre3d/14.5.2#a6522b345c9ed182253e570281c54a28:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#4988ee3efa3ef825134195858fb368a9
+ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#19b11b4099b59de34e25a9f4b8c5758d
 ```
 
 The proof established all of the following:
@@ -131,6 +146,19 @@ The proof established all of the following:
   It copied the package to a random temporary prefix, cleared
   `DYLD_LIBRARY_PATH` and `DYLD_FALLBACK_LIBRARY_PATH`, loaded the package's
   `plugins.cfg`, selected Metal, and completed OGRE initialization.
+- The separate relocated material-script probe compiled against the pinned
+  14.5.2 header and exercised synthetic hostile archives before any renderer
+  was loaded. It preserved opted-out listener behavior without ordinary-open
+  metadata I/O, reduced a synthetic non-OGRE metadata exception to an explicit
+  null `FileInfo` for an opted-in listener, kept identical-byte archives as
+  distinct owners, retained nested duplicate basenames through
+  `path + basename`, and proved handled replacement and handled-null rejection
+  never call `Archive::open`. Its import fixture uses two archives with the
+  same exact qualified member, deliberately exposes basename-only
+  `FileInfo::filename`,
+  proves first-indexed owner selection, rejects a deliberately wrong singleton
+  record, recovers the unique exact record from only that selected archive's
+  listing, and consumes only handled synthetic bytes.
 - The same relocated probe opened a generated ZIP through one shared
   `ZipArchive` from eight threads. Each thread completed 500 iterations of
   `open`, `exists`, `list`, `listFileInfo`, `find`, and `findFileInfo`. Basename
@@ -215,7 +243,7 @@ CONAN_HOME="$OGRE_CONAN_HOME" \
   -pr:b=cmake/conan/profiles/macos-arm64-release \
   --build=missing
 
-OGRE_PACKAGE_REF='ogre3d/14.5.2#a6522b345c9ed182253e570281c54a28:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#4988ee3efa3ef825134195858fb368a9'
+OGRE_PACKAGE_REF='ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#19b11b4099b59de34e25a9f4b8c5758d'
 OGRE_PACKAGE_PATH="$(
   CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
 )"
