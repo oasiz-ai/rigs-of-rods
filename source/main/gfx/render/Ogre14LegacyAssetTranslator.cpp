@@ -193,8 +193,8 @@ bool CheckedAddSize(std::size_t lhs, std::size_t rhs,
   return true;
 }
 
-ValidationResult DecodedTextureByteCount(
-    const Ogre14LegacyTextureInput &input, std::uint64_t &decoded_bytes) {
+ValidationResult DecodedTextureByteCount(const Ogre14LegacyTextureInput &input,
+                                         std::uint64_t &decoded_bytes) {
   std::uint64_t candidate = 0U;
   for (std::size_t index = 0U; index < input.mip_levels.size(); ++index) {
     const Ogre14LegacyTextureMipInput &mip = input.mip_levels[index];
@@ -687,8 +687,7 @@ ValidationResult ValidateOgre14LegacyAssetTranslatorTransactionConfiguration(
   if (configuration.maximum_clone_metadata_bytes == 0U ||
       configuration.maximum_epoch == 0U) {
     return ValidationResult::Failure(
-        ValidationCode::VALUE_OUT_OF_RANGE,
-        "transaction_configuration.limits",
+        ValidationCode::VALUE_OUT_OF_RANGE, "transaction_configuration.limits",
         "transaction clone metadata and epoch limits must be nonzero");
   }
   return ValidationResult::Success();
@@ -1083,8 +1082,7 @@ Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
     const Ogre14LegacyAssetTranslatorConfiguration &configuration,
     IOgre14LegacyAssetTranslatorFaultInjector *fault_injector)
     : Ogre14LegacyAssetTranslator(
-          configuration,
-          Ogre14LegacyAssetTranslatorTransactionConfiguration{},
+          configuration, Ogre14LegacyAssetTranslatorTransactionConfiguration{},
           fault_injector) {}
 
 Ogre14LegacyAssetTranslator::Ogre14LegacyAssetTranslator(
@@ -1211,8 +1209,7 @@ ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
       state_->configuration;
   const Ogre14LegacyAssetTranslatorTransactionConfiguration
       &transaction_configuration = state_->transaction_configuration;
-  if (state_->records.size() >
-          configuration.maximum_lifetime_asset_records ||
+  if (state_->records.size() > configuration.maximum_lifetime_asset_records ||
       state_->stable_keys_by_id.size() != state_->records.size()) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "translator.transaction_records",
@@ -1223,13 +1220,12 @@ ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
   const auto add_metadata_string =
       [&](const std::string &value) noexcept -> bool {
     if (value.size() >
-        static_cast<std::size_t>(
-            (std::numeric_limits<std::uint64_t>::max)())) {
+        static_cast<std::size_t>((std::numeric_limits<std::uint64_t>::max)())) {
       return false;
     }
     std::uint64_t next = 0U;
-    if (!CheckedAdd(metadata_bytes,
-                    static_cast<std::uint64_t>(value.size()), next)) {
+    if (!CheckedAdd(metadata_bytes, static_cast<std::uint64_t>(value.size()),
+                    next)) {
       return false;
     }
     metadata_bytes = next;
@@ -1256,14 +1252,12 @@ ValidationResult Ogre14LegacyAssetTranslator::CloneForTransaction(
         id_key == state_->stable_keys_by_id.end() ||
         id_key->second != entry.first) {
       return ValidationResult::Failure(
-          ValidationCode::REVISION_MISMATCH,
-          "translator.transaction_records",
+          ValidationCode::REVISION_MISMATCH, "translator.transaction_records",
           "catalog identity maps are not byte-exact equivalents");
     }
     if (entry.first.size() > kMaximumOgre14LegacyStableAssetKeyBytes) {
       return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE,
-          "translator.transaction_records",
+          ValidationCode::VALUE_OUT_OF_RANGE, "translator.transaction_records",
           "catalog stable key exceeds the translator's immutable byte cap");
     }
     if (!add_metadata_string(entry.first) ||
@@ -1520,8 +1514,7 @@ Ogre14LegacyAssetTranslator::CommitTransaction(
       source_transaction_configuration.maximum_epoch !=
           candidate_transaction_configuration.maximum_epoch ||
       fault_injector_ != candidate.fault_injector_) {
-    return Ogre14LegacyAssetTranslatorCommitResult::
-        INCOMPATIBLE_CONFIGURATION;
+    return Ogre14LegacyAssetTranslatorCommitResult::INCOMPATIBLE_CONFIGURATION;
   }
   if (candidate.transaction_base_epoch_ != state_->transaction_epoch ||
       candidate.state_->transaction_epoch !=
@@ -1579,6 +1572,259 @@ Ogre14LegacyAssetTranslator::CommitExclusiveTransaction(
   return Ogre14LegacyAssetTranslatorExclusiveCommitResult::COMMITTED;
 }
 
+ValidationResult Ogre14LegacyAssetTranslator::PreflightLifetimeAdmission(
+    const Ogre14LegacyAssetIdentityFrameView &input) const try {
+  if (state_ == nullptr || transaction_role_ == TransactionRole::INVALID) {
+    return ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
+                                     "translator.state",
+                                     "moved-from translator has no state");
+  }
+  if (!state_->configuration_validation) {
+    return state_->configuration_validation;
+  }
+  if (!state_->transaction_configuration_validation) {
+    return state_->transaction_configuration_validation;
+  }
+  if (input.version != kOgre14LegacyAssetIdentityFrameViewVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION, "identity_frame.version",
+        "unsupported OGRE 14 legacy identity frame view version");
+  }
+
+  const Ogre14LegacyAssetTranslatorConfiguration &configuration =
+      state_->configuration;
+  if (input.texture_input_count >
+          configuration.maximum_texture_inputs_per_frame ||
+      input.material_input_count >
+          configuration.maximum_material_inputs_per_frame) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "identity_frame.asset_inputs",
+        "legacy identity input count exceeds its configured frame cap");
+  }
+  if ((input.texture_input_count != 0U && input.texture_inputs == nullptr) ||
+      (input.material_input_count != 0U && input.material_inputs == nullptr)) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "identity_frame.input_ranges",
+        "nonempty borrowed identity ranges require pointer arrays");
+  }
+
+  std::size_t live_asset_count = 0U;
+  if (!CheckedAddSize(input.texture_input_count, input.material_input_count,
+                      live_asset_count)) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "identity_frame.live_assets",
+        "prospective legacy live asset count overflows the host range");
+  }
+  for (std::size_t index = 0U; index < input.material_input_count; ++index) {
+    const Ogre14LegacyMaterialInput *const material =
+        input.material_inputs[index];
+    if (material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "identity_frame.material_inputs",
+          "borrowed material identity pointer is null", index);
+    }
+    if (material->texture_units.size() > 1U) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE,
+          "identity_frame.material_texture_units",
+          "v1 lifetime admission accepts at most one derived sampler per "
+          "material",
+          index);
+    }
+    if (!material->texture_units.empty()) {
+      if (live_asset_count == (std::numeric_limits<std::size_t>::max)()) {
+        return ValidationResult::Failure(
+            ValidationCode::SIZE_MISMATCH, "identity_frame.live_assets",
+            "prospective legacy live asset count overflows the host range",
+            index);
+      }
+      ++live_asset_count;
+    }
+  }
+  if (live_asset_count > configuration.maximum_live_assets_per_frame) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "identity_frame.live_assets",
+        "prospective legacy live asset count exceeds the configured frame "
+        "cap");
+  }
+
+  if (state_->records.size() > configuration.maximum_lifetime_asset_records ||
+      state_->stable_keys_by_id.size() != state_->records.size()) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "translator.lifetime_asset_records",
+        "persistent identity maps are incompatible with the configured "
+        "lifetime cap");
+  }
+  for (const auto &entry : state_->records) {
+    const State::Record &record = entry.second;
+    const auto persistent =
+        state_->stable_keys_by_id.find(record.asset.source_asset_id);
+    if (entry.first != record.asset.stable_key ||
+        persistent == state_->stable_keys_by_id.end() ||
+        persistent->second != entry.first) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "translator.lifetime_asset_records",
+          "persistent stable-key and source-ID maps disagree");
+    }
+  }
+
+  std::map<std::string, std::uint64_t, std::less<>> prospective_ids_by_key;
+  std::map<std::uint64_t, std::string> prospective_keys_by_id;
+  std::size_t new_lifetime_records = 0U;
+
+  const auto register_identity =
+      [&](RenderAssetKind kind, const Ogre14LegacyAssetKey &key,
+          const char *duplicate_field, std::size_t index) -> ValidationResult {
+    std::string stable_key;
+    ValidationResult validation =
+        BuildOgre14LegacyStableAssetKey(kind, key, stable_key);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    std::uint64_t source_asset_id = 0U;
+    validation = DeriveOgre14LegacySourceAssetId(kind, key, source_asset_id);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    if (fault_injector_ != nullptr) {
+      fault_injector_->AtLifetimeAdmissionIdentityForTesting(kind, key,
+                                                             source_asset_id);
+    }
+    if (source_asset_id == 0U) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER, "identity_frame.source_asset_id",
+          "prospective legacy source asset ID must be nonzero", index);
+    }
+    if (!prospective_ids_by_key.emplace(stable_key, source_asset_id).second) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER, duplicate_field,
+          "exact legacy identity is duplicated in the prospective frame",
+          index);
+    }
+    const auto local_collision = prospective_keys_by_id.find(source_asset_id);
+    if (local_collision != prospective_keys_by_id.end() &&
+        local_collision->second != stable_key) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "identity_frame.source_asset_id",
+          "distinct prospective legacy keys collide on one source ID", index);
+    }
+    prospective_keys_by_id.emplace(source_asset_id, stable_key);
+
+    const auto persistent_collision =
+        state_->stable_keys_by_id.find(source_asset_id);
+    if (persistent_collision != state_->stable_keys_by_id.end() &&
+        persistent_collision->second != stable_key) {
+      return ValidationResult::Failure(
+          ValidationCode::DUPLICATE_IDENTIFIER,
+          "identity_frame.source_asset_id",
+          "prospective legacy key collides with a persistent source ID", index);
+    }
+
+    const auto existing_record = state_->records.find(stable_key);
+    if (existing_record != state_->records.end()) {
+      if (existing_record->second.asset.kind != kind ||
+          existing_record->second.asset.source_asset_id != source_asset_id) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "identity_frame.existing_identity",
+            "an exact persistent key changed kind or source ID", index);
+      }
+      return ValidationResult::Success();
+    }
+
+    std::size_t prospective_lifetime_count = 0U;
+    if (!CheckedAddSize(state_->records.size(), new_lifetime_records,
+                        prospective_lifetime_count) ||
+        prospective_lifetime_count >=
+            configuration.maximum_lifetime_asset_records) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "frame.lifetime_asset_records",
+          "prospective legacy identity exceeds the configured permanent "
+          "lifetime cap",
+          index);
+    }
+    ++new_lifetime_records;
+    return ValidationResult::Success();
+  };
+
+  for (std::size_t index = 0U; index < input.texture_input_count; ++index) {
+    const Ogre14LegacyTextureInput *const texture = input.texture_inputs[index];
+    if (texture == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "identity_frame.texture_inputs",
+          "borrowed texture identity pointer is null", index);
+    }
+    if (texture->version != kOgre14LegacyTextureInputVersion) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_VERSION, "identity_frame.texture_version",
+          "unsupported texture identity input version", index);
+    }
+    ValidationResult validation =
+        register_identity(RenderAssetKind::TEXTURE, texture->key,
+                          "identity_frame.texture_key", index);
+    if (!validation) {
+      return validation;
+    }
+  }
+
+  for (std::size_t index = 0U; index < input.material_input_count; ++index) {
+    const Ogre14LegacyMaterialInput &material = *input.material_inputs[index];
+    if (material.version != kOgre14LegacyMaterialInputVersion) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_VERSION,
+          "identity_frame.material_version",
+          "unsupported material identity input version", index);
+    }
+    ValidationResult validation =
+        register_identity(RenderAssetKind::MATERIAL, material.key,
+                          "identity_frame.material_key", index);
+    if (!validation) {
+      return validation;
+    }
+    if (material.texture_units.empty()) {
+      continue;
+    }
+
+    std::string referenced_texture_key;
+    validation = BuildOgre14LegacyStableAssetKey(
+        RenderAssetKind::TEXTURE, material.texture_units.front().texture_key,
+        referenced_texture_key);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    if (prospective_ids_by_key.find(referenced_texture_key) ==
+        prospective_ids_by_key.end()) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "identity_frame.material_texture_key",
+          "material texture identity is absent from the prospective frame",
+          index);
+    }
+    const Ogre14LegacyAssetKey sampler_key = SamplerKey(material.key);
+    validation =
+        register_identity(RenderAssetKind::SAMPLER, sampler_key,
+                          "identity_frame.material_sampler_key", index);
+    if (!validation) {
+      return validation;
+    }
+  }
+  return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return ValidationResult::Failure(
+      ValidationCode::EMPTY_PAYLOAD, "translator.lifetime_preflight.allocation",
+      "allocation failed during read-only lifetime admission");
+} catch (...) {
+  return ValidationResult::Failure(
+      ValidationCode::UNSUPPORTED_FEATURE,
+      "translator.lifetime_preflight.exception",
+      "unexpected exception during read-only lifetime admission");
+}
+
 ValidationResult
 Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
                                        Ogre14LegacyTranslatedFrame &output) {
@@ -1608,8 +1854,7 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
   }
   const Ogre14LegacyAssetTranslatorConfiguration &configuration =
       state_->configuration;
-  if (input.textures.size() >
-          configuration.maximum_texture_inputs_per_frame ||
+  if (input.textures.size() > configuration.maximum_texture_inputs_per_frame ||
       input.materials.size() >
           configuration.maximum_material_inputs_per_frame) {
     return ValidationResult::Failure(
@@ -1650,9 +1895,9 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
   if (transaction_role_ == TransactionRole::COMMITTED_SOURCE &&
       state_->transaction_epoch >=
           state_->transaction_configuration.maximum_epoch) {
-    return ValidationResult::Failure(
-        ValidationCode::SEQUENCE_MISMATCH, "translator.transaction_epoch",
-        "transaction epoch is exhausted");
+    return ValidationResult::Failure(ValidationCode::SEQUENCE_MISMATCH,
+                                     "translator.transaction_epoch",
+                                     "transaction epoch is exhausted");
   }
 
   try {
@@ -1674,8 +1919,7 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
           candidate_lifetime_count >=
               configuration.maximum_lifetime_asset_records) {
         return ValidationResult::Failure(
-            ValidationCode::VALUE_OUT_OF_RANGE,
-            "frame.lifetime_asset_records",
+            ValidationCode::VALUE_OUT_OF_RANGE, "frame.lifetime_asset_records",
             "new legacy asset would exceed the configured lifetime cap");
       }
       ++new_lifetime_records;
@@ -1706,8 +1950,7 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
         validation.element_index = index;
         return validation;
       }
-      if (decoded_asset_bytes >
-          configuration.maximum_decoded_bytes_per_asset) {
+      if (decoded_asset_bytes > configuration.maximum_decoded_bytes_per_asset) {
         return ValidationResult::Failure(
             ValidationCode::VALUE_OUT_OF_RANGE, "texture.decoded_bytes",
             "canonical texture exceeds the configured per-asset byte cap",
@@ -1725,8 +1968,7 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
       decoded_frame_bytes = next_decoded_frame_bytes;
       TextureResourceDescriptor descriptor;
       validation = DecodeOgre14LegacyTexture(
-          texture, descriptor,
-          configuration.maximum_decoded_bytes_per_asset);
+          texture, descriptor, configuration.maximum_decoded_bytes_per_asset);
       if (!validation) {
         validation.element_index = index;
         return validation;

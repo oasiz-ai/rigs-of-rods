@@ -56,6 +56,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "kOgre14LegacyAssetTranslatorVersion = 1U",
             "kOgre14LegacyTextureInputVersion = 1U",
             "kOgre14LegacyMaterialInputVersion = 1U",
+            "kOgre14LegacyAssetIdentityFrameViewVersion = 1U",
             "kOgre14LegacyPipelineAuditVersion = 1U",
             "kOgre14LegacyTranslatedFrameVersion = 1U",
             "kOgre14LegacyAssetTranslatorConfigurationVersion = 1U",
@@ -76,6 +77,8 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "Ogre14LegacyAssetTranslatorCommittableTransaction",
             "BeginCommittableTransaction",
             "CommitAfterAcceptedExposure",
+            "Ogre14LegacyAssetIdentityFrameView",
+            "PreflightLifetimeAdmission",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.header)
@@ -117,7 +120,8 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "Ogre14LegacyAssetTranslator::CommitExclusiveTransaction("
         )
         exclusive_end = self.source.index(
-            "Ogre14LegacyAssetTranslator::Translate(", exclusive_start
+            "Ogre14LegacyAssetTranslator::PreflightLifetimeAdmission(",
+            exclusive_start,
         )
         exclusive_body = self.source[exclusive_start:exclusive_end]
         for forbidden in (
@@ -152,7 +156,8 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "Ogre14LegacyAssetTranslator::CommitTransaction("
         )
         commit_end = self.source.index(
-            "Ogre14LegacyAssetTranslator::Translate(", commit_start
+            "Ogre14LegacyAssetTranslator::CommitExclusiveTransaction(",
+            commit_start,
         )
         commit_body = self.source[commit_start:commit_end]
         for forbidden in (
@@ -178,6 +183,69 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "STALE_SOURCE",
         ):
             with self.subTest(test_token=token):
+                self.assertIn(token, self.translator_test)
+
+    def test_read_only_lifetime_admission_is_borrowed_and_fail_closed(
+        self,
+    ) -> None:
+        for token in (
+            "const Ogre14LegacyTextureInput *const *texture_inputs",
+            "const Ogre14LegacyMaterialInput *const *material_inputs",
+            "std::size_t texture_input_count",
+            "std::size_t material_input_count",
+            "PreflightLifetimeAdmission(\n"
+            "      const Ogre14LegacyAssetIdentityFrameView &input) const",
+            "AtLifetimeAdmissionIdentityForTesting",
+        ):
+            with self.subTest(header_token=token):
+                self.assertIn(token, self.header)
+
+        preflight_start = self.source.index(
+            "Ogre14LegacyAssetTranslator::PreflightLifetimeAdmission("
+        )
+        preflight_end = self.source.index(
+            "Ogre14LegacyAssetTranslator::Translate(", preflight_start
+        )
+        preflight = self.source[preflight_start:preflight_end]
+        for token in (
+            "input.texture_input_count >",
+            "input.material_input_count >",
+            "identity_frame.input_ranges",
+            "identity_frame.texture_inputs",
+            "identity_frame.material_inputs",
+            "identity_frame.live_assets",
+            "prospective_ids_by_key",
+            "prospective_keys_by_id",
+            "state_->records.find(stable_key)",
+            "state_->stable_keys_by_id.find(source_asset_id)",
+            "frame.lifetime_asset_records",
+            "catch (const std::bad_alloc &)",
+            "catch (...)",
+        ):
+            with self.subTest(preflight_token=token):
+                self.assertIn(token, preflight)
+        for forbidden in (
+            "DecodeOgre14LegacyTexture",
+            "mip.bytes",
+            "source_mip.bytes",
+            "*state_ =",
+            "state_.swap",
+        ):
+            with self.subTest(preflight_forbidden=forbidden):
+                self.assertNotIn(forbidden, preflight)
+
+        for token in (
+            "TestLifetimeAdmissionPreflightBoundsReuseAndRollback",
+            "TestLifetimeAdmissionPreflightRejectsInvalidBorrowedIdentities",
+            "TestLifetimeAdmissionCollisionAndExceptionRollback",
+            "OVERRIDE_SOURCE_ID",
+            "translator.lifetime_preflight.allocation",
+            "translator.lifetime_preflight.exception",
+            "EquivalentFrameValue(before, after)",
+            "SameFrameOwners(before, after)",
+            "texture.mip_layout",
+        ):
+            with self.subTest(runtime_token=token):
                 self.assertIn(token, self.translator_test)
 
     def test_fail_closed_feature_set_and_exact_bytes_are_present(self) -> None:
@@ -296,6 +364,11 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "BeginCommittableTransaction",
             "CommitAfterAcceptedExposure",
             "cannot `Translate`, clone, or begin another",
+            "Ogre14LegacyAssetIdentityFrameView",
+            "PreflightLifetimeAdmission",
+            "copies no mip bytes",
+            "genuinely new stable keys",
+            "early resource-admission proof",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.readme)

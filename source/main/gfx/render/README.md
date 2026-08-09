@@ -497,6 +497,21 @@ is changed. Native readback applies the per-texture cap before allocating mip
 storage, while the pure translator rechecks both the per-texture and aggregate
 frame budgets before decode.
 
+Before copying those mip payloads, a whole-scene adapter may submit a version 1
+`Ogre14LegacyAssetIdentityFrameView` to `PreflightLifetimeAdmission`. Its two
+ranges borrow arrays of canonical nonnull texture and material pointers; the
+translator reads only their versions and exact identity-bearing keys, derives
+material-owned sampler keys, and copies no mip bytes. The const preflight
+enforces input and derived-live counts, rejects duplicate or missing borrowed
+identities, detects both prospective and persistent source-ID collisions, and
+counts only genuinely new stable keys against the permanent lifetime-record
+cap. An exact key already present in the live catalog or its tombstones reuses
+that one lifetime slot. Allocation and unexpected exceptions fail
+transactionally without advancing any sequence or replacing an immutable
+owner. This is an early resource-admission proof, not publication: `Translate`
+still repeats every authoritative payload, dependency, revision, collision,
+and tombstone check against the owned frame before it can mutate the catalog.
+
 Whole-scene adapters may stage this catalog with `CloneForTransaction`. A fork
 deep-copies the mutable sequence, revision, registry, identity, and tombstone
 maps but retains the exact shared owners of immutable descriptors and material
