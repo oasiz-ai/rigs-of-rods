@@ -12,6 +12,9 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <map>
+#include <memory>
+#include <new>
 #include <string_view>
 #include <utility>
 
@@ -79,6 +82,108 @@ Float3 Cross(const Float3 &lhs, const Float3 &rhs) noexcept {
   return {lhs.y * rhs.z - lhs.z * rhs.y,
           lhs.z * rhs.x - lhs.x * rhs.z,
           lhs.x * rhs.y - lhs.y * rhs.x};
+}
+
+bool FloatBitsEqual(float lhs, float rhs) noexcept {
+  std::uint32_t lhs_bits = 0U;
+  std::uint32_t rhs_bits = 0U;
+  static_assert(sizeof(lhs_bits) == sizeof(lhs), "binary32 is required");
+  std::memcpy(&lhs_bits, &lhs, sizeof(lhs_bits));
+  std::memcpy(&rhs_bits, &rhs, sizeof(rhs_bits));
+  return lhs_bits == rhs_bits;
+}
+
+bool Float3BitsEqual(const Float3 &lhs, const Float3 &rhs) noexcept {
+  return FloatBitsEqual(lhs.x, rhs.x) && FloatBitsEqual(lhs.y, rhs.y) &&
+         FloatBitsEqual(lhs.z, rhs.z);
+}
+
+bool Float4BitsEqual(const Float4 &lhs, const Float4 &rhs) noexcept {
+  return FloatBitsEqual(lhs.x, rhs.x) && FloatBitsEqual(lhs.y, rhs.y) &&
+         FloatBitsEqual(lhs.z, rhs.z) && FloatBitsEqual(lhs.w, rhs.w);
+}
+
+bool IsStraightSourceOver(
+    const Ogre14LegacyPipelineStateInput &pipeline) noexcept {
+  return pipeline.source_color == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+         pipeline.destination_color ==
+             Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA &&
+         pipeline.source_alpha == Ogre14LegacyBlendFactor::ONE &&
+         pipeline.destination_alpha ==
+             Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+}
+
+bool CapturedCullEqualsTranslated(
+    Ogre14GraphicsSceneMaterialCull captured,
+    Ogre14LegacyCullMode translated) noexcept {
+  switch (captured) {
+  case Ogre14GraphicsSceneMaterialCull::NONE:
+    return translated == Ogre14LegacyCullMode::NONE;
+  case Ogre14GraphicsSceneMaterialCull::CLOCKWISE:
+    return translated == Ogre14LegacyCullMode::CLOCKWISE;
+  case Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE:
+    return translated == Ogre14LegacyCullMode::ANTICLOCKWISE;
+  }
+  return false;
+}
+
+ValidationResult ValidateExactRoadMaterialCapture(
+    const Ogre14ProceduralRoadCapture &capture,
+    const Ogre14LegacyMaterialClosure &closure) {
+  if (!capture.native_material_audit_complete ||
+      capture.exact_native_material_audit == nullptr) {
+    return Failure(
+        ValidationCode::MISSING_REFERENCE,
+        "road.material.exact_native_audit",
+        "exact translated road activation requires an independent native audit owner");
+  }
+  if (closure.material_audit == nullptr ||
+      !EquivalentOgre14LegacyMaterialPipelineAudit(
+          *capture.exact_native_material_audit, *closure.material_audit)) {
+    return Failure(
+        ValidationCode::REVISION_MISMATCH,
+        "road.material.exact_native_audit",
+        "captured native pipeline audit differs bit-for-bit from translated state");
+  }
+  const Ogre14LegacyMaterialPipelineAudit &audit = *closure.material_audit;
+  const MaterialDescriptor &material = std::get<MaterialDescriptor>(
+      *closure.assets.back().payload);
+  const bool textured = audit.texture_source_asset_id != 0U;
+  const bool expected_lighting =
+      audit.base_color_semantic ==
+      Ogre14LegacyBaseColorSemantic::ROUGH_DIELECTRIC_PBR;
+  const Ogre14GraphicsSceneMaterialBlend expected_blend =
+      IsStraightSourceOver(audit.pipeline)
+          ? Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA
+          : Ogre14GraphicsSceneMaterialBlend::REPLACE;
+  const Ogre14GraphicsSceneMaterialAlphaReject expected_reject =
+      audit.pipeline.alpha_reject ==
+              Ogre14LegacyCompareOperation::GREATER_EQUAL
+          ? Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL
+          : Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+  if (capture.material.pass_count != 1U ||
+      capture.material.texture_unit_count != (textured ? 1U : 0U) ||
+      capture.material.has_vertex_program ||
+      capture.material.has_fragment_program ||
+      capture.material.lighting_enabled != expected_lighting ||
+      capture.material.blend != expected_blend ||
+      capture.material.alpha_reject != expected_reject ||
+      capture.material.alpha_reject_value !=
+          audit.pipeline.alpha_reject_value ||
+      !CapturedCullEqualsTranslated(capture.material.cull,
+                                    audit.pipeline.cull) ||
+      !Float4BitsEqual(capture.material.diffuse_linear,
+                       material.base_color_factor) ||
+      !Float3BitsEqual(capture.material.ambient_linear, Float3{}) ||
+      !Float3BitsEqual(capture.material.specular_linear, Float3{}) ||
+      !Float3BitsEqual(capture.material.emissive_linear, Float3{}) ||
+      !FloatBitsEqual(capture.material.shininess, 0.0F)) {
+    return Failure(
+        ValidationCode::REVISION_MISMATCH,
+        "road.material.native_semantics",
+        "captured base factor, model, alpha, blend, cull, or program state differs from the exact translated material");
+  }
+  return ValidationResult::Success();
 }
 
 ValidationResult ValidateGeometry(const Ogre14ProceduralRoadCapture &capture,
@@ -206,6 +311,15 @@ std::string CanonicalRoadName(std::uint64_t manager_graphics_id) {
 }
 
 } // namespace
+
+class Ogre14ProceduralRoadInventoryTransaction final {
+public:
+  [[nodiscard]] static ValidationResult Build(
+      const std::vector<Ogre14ProceduralRoadCapture> &captures,
+      const Ogre14LegacyTranslatedFrame *authoritative_material_frame,
+      Ogre14ProceduralRoadInventory &inventory,
+      std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections);
+};
 
 Ogre14ProceduralRoadIdentityAllocator::Ogre14ProceduralRoadIdentityAllocator(
     std::uint64_t first_id, std::uint64_t maximum_id) noexcept
@@ -460,10 +574,11 @@ ValidationResult ResolveOgre14ProceduralRoadCacheEntry(
   return ValidationResult::Success();
 }
 
-ValidationResult BuildOgre14ProceduralRoadInventory(
+ValidationResult Ogre14ProceduralRoadInventoryTransaction::Build(
     const std::vector<Ogre14ProceduralRoadCapture> &captures,
+    const Ogre14LegacyTranslatedFrame *authoritative_material_frame,
     Ogre14ProceduralRoadInventory &inventory,
-    std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections) {
+    std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections) try {
   ValidationResult validation = ValidateConfiguration(inventory.configuration_);
   if (!validation) {
     return validation;
@@ -490,6 +605,9 @@ ValidationResult BuildOgre14ProceduralRoadInventory(
   candidate_sections.reserve(ordered.size());
   std::set<std::uint64_t> current_manager_ids;
   std::map<std::uint64_t, Ogre14ProceduralRoadCacheEntry> current_cache;
+  std::map<std::string, std::shared_ptr<const Ogre14LegacyMaterialClosure>,
+           std::less<>>
+      resolved_materials;
   std::uint64_t candidate_payload_bytes = 0U;
 
   for (std::size_t ordered_index = 0U; ordered_index < ordered.size();
@@ -531,13 +649,62 @@ ValidationResult BuildOgre14ProceduralRoadInventory(
                      "procedural-road v1 requires exact legacy material road2",
                      ordered_index);
     }
-    MaterialDescriptor audited_material;
-    validation = BuildOgre14GraphicsSceneMaterialFallback(
-        capture.material, audited_material);
-    if (!validation) {
-      validation.element_index = ordered_index;
-      validation.field = "road." + validation.field;
-      return validation;
+    std::shared_ptr<const Ogre14LegacyMaterialClosure>
+        resolved_road_material;
+    if (authoritative_material_frame != nullptr) {
+      const Ogre14LegacyAssetKey material_key{
+          capture.material.exact_resource_group,
+          capture.material.exact_name};
+      std::string stable_material_key;
+      validation = BuildOgre14LegacyStableAssetKey(
+          RenderAssetKind::MATERIAL, material_key, stable_material_key);
+      if (!validation) {
+        validation.element_index = ordered_index;
+        return validation;
+      }
+      const auto existing = resolved_materials.find(stable_material_key);
+      if (existing == resolved_materials.end()) {
+        Ogre14LegacyMaterialClosure closure;
+        validation = ResolveOgre14LegacyMaterialClosure(
+            *authoritative_material_frame, material_key, closure);
+        if (!validation) {
+          validation.element_index = ordered_index;
+          validation.field = "road." + validation.field;
+          return validation;
+        }
+        if (closure.source_sequence !=
+                authoritative_material_frame->source_sequence ||
+            closure.catalog_sequence !=
+                authoritative_material_frame->catalog_sequence) {
+          return Failure(
+              ValidationCode::SEQUENCE_MISMATCH,
+              "road.material.closure_sequence",
+              "resolved closure does not carry the authoritative full-frame lineage",
+              ordered_index);
+        }
+        resolved_road_material =
+            std::make_shared<const Ogre14LegacyMaterialClosure>(
+                std::move(closure));
+        resolved_materials.emplace(std::move(stable_material_key),
+                                   resolved_road_material);
+      } else {
+        resolved_road_material = existing->second;
+      }
+      validation = ValidateExactRoadMaterialCapture(
+          capture, *resolved_road_material);
+      if (!validation) {
+        validation.element_index = ordered_index;
+        return validation;
+      }
+    } else {
+      MaterialDescriptor audited_material;
+      validation = BuildOgre14GraphicsSceneMaterialFallback(
+          capture.material, audited_material);
+      if (!validation) {
+        validation.element_index = ordered_index;
+        validation.field = "road." + validation.field;
+        return validation;
+      }
     }
     if (!HasInvertibleAffineTransform(capture.render_from_object) ||
         LinearDeterminant(capture.render_from_object) < 0.0F) {
@@ -640,6 +807,7 @@ ValidationResult BuildOgre14ProceduralRoadInventory(
         Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
     section.mesh_payload = cache_entry.mesh_payload;
     section.material = capture.material;
+    section.resolved_material = std::move(resolved_road_material);
     section.render_from_object = capture.render_from_object;
     section.visibility_mask = capture.visibility_mask;
     section.visible = capture.visible;
@@ -663,6 +831,31 @@ ValidationResult BuildOgre14ProceduralRoadInventory(
   inventory = std::move(candidate_inventory);
   sections = std::move(candidate_sections);
   return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return Failure(ValidationCode::EMPTY_PAYLOAD,
+                 "road_inventory.allocation",
+                 "allocation failed before the road inventory was published");
+} catch (...) {
+  return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                 "road_inventory.exception",
+                 "unexpected exception before the road inventory was published");
+}
+
+ValidationResult BuildOgre14ProceduralRoadInventory(
+    const std::vector<Ogre14ProceduralRoadCapture> &captures,
+    Ogre14ProceduralRoadInventory &inventory,
+    std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections) {
+  return Ogre14ProceduralRoadInventoryTransaction::Build(
+      captures, nullptr, inventory, sections);
+}
+
+ValidationResult BuildOgre14ProceduralRoadInventory(
+    const std::vector<Ogre14ProceduralRoadCapture> &captures,
+    const Ogre14LegacyTranslatedFrame &authoritative_material_frame,
+    Ogre14ProceduralRoadInventory &inventory,
+    std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections) {
+  return Ogre14ProceduralRoadInventoryTransaction::Build(
+      captures, &authoritative_material_frame, inventory, sections);
 }
 
 } // namespace RoR::Render

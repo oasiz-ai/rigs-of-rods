@@ -678,6 +678,219 @@ GraphicsSceneAssetInput ToGraphicsAsset(
 
 } // namespace
 
+ValidationResult ValidateOgre14LegacyMaterialClosure(
+    const Ogre14LegacyMaterialClosure &closure,
+    const Ogre14LegacyAssetKey &material_key) {
+  if (closure.version != kOgre14LegacyMaterialClosureVersion) {
+    return Failure(ValidationCode::UNSUPPORTED_VERSION,
+                   "material_closure.version",
+                   "unsupported material closure version");
+  }
+  if (closure.source_sequence == 0U || closure.catalog_sequence == 0U ||
+      closure.catalog_sequence > closure.source_sequence) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "material_closure.sequence",
+                   "material closure requires valid nonzero source/catalog lineage");
+  }
+  std::uint64_t expected_material_id = 0U;
+  ValidationResult validation = DeriveOgre14LegacySourceAssetId(
+      RenderAssetKind::MATERIAL, material_key, expected_material_id);
+  if (!validation) {
+    return validation;
+  }
+  if (closure.material_source_asset_id != expected_material_id) {
+    return Failure(ValidationCode::INVALID_IDENTIFIER,
+                   "material_closure.material_source_asset_id",
+                   "closure material ID disagrees with its exact key");
+  }
+  if (closure.material_audit == nullptr) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "material_closure.material_audit",
+                   "resolved material requires its immutable translated audit");
+  }
+  validation =
+      ValidateOgre14LegacyMaterialPipelineAudit(*closure.material_audit);
+  if (!validation) {
+    return validation;
+  }
+  if (closure.requires_reverse_winding !=
+      closure.material_audit->requires_reverse_winding) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "material_closure.requires_reverse_winding",
+                   "closure winding disagrees with its translated audit");
+  }
+
+  const bool textured =
+      closure.material_audit->texture_source_asset_id != 0U;
+  if ((textured && closure.assets.size() != 3U) ||
+      (!textured && closure.assets.size() != 1U)) {
+    return Failure(ValidationCode::SIZE_MISMATCH,
+                   "material_closure.assets",
+                   "closure must contain material alone or texture, sampler, material");
+  }
+  if (closure.asset_keys.size() != closure.assets.size()) {
+    return Failure(ValidationCode::SIZE_MISMATCH,
+                   "material_closure.asset_keys",
+                   "closure requires one exact key for every dependency-ordered asset");
+  }
+  if (closure.assets.size() >
+      kMaximumOgre14LegacyMaterialClosureLiveAssets) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "material_closure.assets",
+                   "closure dependency count exceeds the translator cap");
+  }
+
+  std::set<std::uint64_t> source_ids;
+  std::uint64_t aggregate_payload_bytes = 0U;
+  for (std::size_t index = 0U; index < closure.assets.size(); ++index) {
+    const GraphicsSceneAssetInput &asset = closure.assets[index];
+    if (asset.source_asset_id == 0U ||
+        !source_ids.insert(asset.source_asset_id).second) {
+      return Failure(ValidationCode::DUPLICATE_IDENTIFIER,
+                     "material_closure.assets.source_asset_id",
+                     "closure asset IDs must be nonzero and unique", index);
+    }
+    if (asset.payload == nullptr || asset.payload->valueless_by_exception()) {
+      return Failure(ValidationCode::EMPTY_PAYLOAD,
+                     "material_closure.assets.payload",
+                     "closure assets require immutable payload owners", index);
+    }
+    const RenderAssetKind kind = RenderAssetPayloadKind(*asset.payload);
+    const RenderAssetKind expected_kind =
+        textured
+            ? (index == 0U ? RenderAssetKind::TEXTURE
+                           : index == 1U ? RenderAssetKind::SAMPLER
+                                         : RenderAssetKind::MATERIAL)
+            : RenderAssetKind::MATERIAL;
+    if (kind != expected_kind) {
+      return Failure(ValidationCode::WRONG_ASSET_KIND,
+                     "material_closure.assets.kind",
+                     "closure dependencies are not texture, sampler, material ordered",
+                     index);
+    }
+    if (kind != RenderAssetKind::MATERIAL) {
+      for (const GraphicsSceneAssetBinding &binding :
+           asset.material_bindings) {
+        if (binding.texture_source_asset_id != 0U ||
+            binding.sampler_source_asset_id != 0U) {
+          return Failure(ValidationCode::WRONG_ASSET_KIND,
+                         "material_closure.assets.material_bindings",
+                         "only the material may carry producer-owned bindings",
+                         index);
+        }
+      }
+    }
+    std::string stable_key;
+    validation = BuildOgre14LegacyStableAssetKey(
+        kind, closure.asset_keys[index], stable_key);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    Ogre14LegacyTranslatedAsset translated_asset;
+    translated_asset.kind = kind;
+    translated_asset.source_asset_id = asset.source_asset_id;
+    translated_asset.source_revision = 1U;
+    translated_asset.translated_revision = 1U;
+    translated_asset.stable_key = std::move(stable_key);
+    translated_asset.payload = asset.payload;
+    if (kind == RenderAssetKind::MATERIAL) {
+      translated_asset.material_audit = closure.material_audit;
+    }
+    Ogre14LegacyAssetKey parsed_key;
+    validation = ValidateAsset(translated_asset, parsed_key,
+                               aggregate_payload_bytes);
+    if (!validation) {
+      validation.element_index = index;
+      return validation;
+    }
+    if (parsed_key != closure.asset_keys[index]) {
+      return Failure(ValidationCode::INVALID_IDENTIFIER,
+                     "material_closure.asset_keys",
+                     "closure key is not the canonical identity used for its payload",
+                     index);
+    }
+  }
+  if (aggregate_payload_bytes >
+      kMaximumOgre14LegacyMaterialClosurePayloadBytes) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "material_closure.assets.payload_bytes",
+                   "closure texture bytes exceed the translator cap");
+  }
+
+  const GraphicsSceneAssetInput &material = closure.assets.back();
+  if (closure.asset_keys.back() != material_key) {
+    return Failure(ValidationCode::INVALID_IDENTIFIER,
+                   "material_closure.asset_keys.material",
+                   "material-last key disagrees with the requested exact identity");
+  }
+  if (material.source_asset_id != closure.material_source_asset_id) {
+    return Failure(ValidationCode::INVALID_IDENTIFIER,
+                   "material_closure.assets.material",
+                   "material-last asset ID disagrees with the closure identity");
+  }
+  const std::size_t base_color_slot =
+      static_cast<std::size_t>(MaterialTextureSlot::BASE_COLOR);
+  for (std::size_t slot = 0U; slot < material.material_bindings.size(); ++slot) {
+    const GraphicsSceneAssetBinding &binding =
+        material.material_bindings[slot];
+    if (slot == base_color_slot && textured) {
+      if (binding.texture_source_asset_id !=
+              closure.material_audit->texture_source_asset_id ||
+          binding.sampler_source_asset_id !=
+              closure.material_audit->sampler_source_asset_id) {
+        return Failure(ValidationCode::REVISION_MISMATCH,
+                       "material_closure.assets.material_bindings",
+                       "base-color binding disagrees with the translated audit");
+      }
+    } else if (binding.texture_source_asset_id != 0U ||
+               binding.sampler_source_asset_id != 0U) {
+      return Failure(ValidationCode::INVALID_ASSET_REFERENCE,
+                     "material_closure.assets.material_bindings",
+                     "closure carries an unaudited material binding");
+    }
+  }
+  if (textured) {
+    if (closure.assets[0U].source_asset_id !=
+            closure.material_audit->texture_source_asset_id ||
+        closure.assets[1U].source_asset_id !=
+            closure.material_audit->sampler_source_asset_id) {
+      return Failure(ValidationCode::REVISION_MISMATCH,
+                     "material_closure.assets.dependencies",
+                     "dependency IDs disagree with the translated audit");
+    }
+    Ogre14LegacyAssetKey sampler_key = SamplerKey(material_key);
+    std::uint64_t expected_sampler_id = 0U;
+    validation = DeriveOgre14LegacySourceAssetId(
+        RenderAssetKind::SAMPLER, sampler_key, expected_sampler_id);
+    if (!validation) {
+      return validation;
+    }
+    if (closure.assets[1U].source_asset_id != expected_sampler_id) {
+      return Failure(ValidationCode::INVALID_IDENTIFIER,
+                     "material_closure.assets.sampler_source_asset_id",
+                     "sampler ID is not exactly derived from its material key");
+    }
+    if (closure.asset_keys[1U] != sampler_key) {
+      return Failure(ValidationCode::INVALID_IDENTIFIER,
+                     "material_closure.asset_keys.sampler",
+                     "sampler key is not exactly derived from its material key");
+    }
+    validation = ValidateMaterialTextureCompatibility(
+        MaterialTextureSlot::BASE_COLOR,
+        std::get<TextureResourceDescriptor>(*closure.assets[0U].payload),
+        std::get<SamplerResourceDescriptor>(*closure.assets[1U].payload));
+    if (!validation) {
+      return validation;
+    }
+  } else if (closure.material_audit->sampler_source_asset_id != 0U) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "material_closure.assets.dependencies",
+                   "untextured material cannot retain a sampler dependency");
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ResolveOgre14LegacyMaterialClosure(
     const Ogre14LegacyTranslatedFrame &frame,
     const Ogre14LegacyAssetKey &material_key,
@@ -742,6 +955,9 @@ ValidationResult ResolveOgre14LegacyMaterialClosure(
     candidate.catalog_sequence = frame.catalog_sequence;
     candidate.material_source_asset_id = material_asset.source_asset_id;
     candidate.requires_reverse_winding = audit.requires_reverse_winding;
+    candidate.material_audit = material_asset.material_audit;
+    candidate.asset_keys.reserve(audit.texture_source_asset_id == 0U ? 1U
+                                                                     : 3U);
     candidate.assets.reserve(audit.texture_source_asset_id == 0U ? 1U : 3U);
 
     if (audit.texture_source_asset_id != 0U) {
@@ -752,11 +968,13 @@ ValidationResult ResolveOgre14LegacyMaterialClosure(
                        "material.audit.dependencies",
                        "validated dependencies disappeared during closure build");
       }
+      candidate.asset_keys.push_back(texture->second.parsed_key);
       candidate.assets.push_back(ToGraphicsAsset(*texture->second.asset));
       if (fault_injector != nullptr) {
         fault_injector->AtFaultPoint(
             Ogre14LegacyMaterialClosureFaultPoint::DURING_DEPENDENCY_ASSEMBLY);
       }
+      candidate.asset_keys.push_back(sampler->second.parsed_key);
       candidate.assets.push_back(ToGraphicsAsset(*sampler->second.asset));
     }
 
@@ -768,7 +986,12 @@ ValidationResult ResolveOgre14LegacyMaterialClosure(
       binding.texture_source_asset_id = audit.texture_source_asset_id;
       binding.sampler_source_asset_id = audit.sampler_source_asset_id;
     }
+    candidate.asset_keys.push_back(material->second.parsed_key);
     candidate.assets.push_back(std::move(material_input));
+    validation = ValidateOgre14LegacyMaterialClosure(candidate, material_key);
+    if (!validation) {
+      return validation;
+    }
     output = std::move(candidate);
     return ValidationResult::Success();
   } catch (const std::bad_alloc &) {

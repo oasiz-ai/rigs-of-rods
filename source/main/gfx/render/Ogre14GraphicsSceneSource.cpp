@@ -14,6 +14,7 @@
 #include <cstring>
 #include <exception>
 #include <limits>
+#include <new>
 #include <set>
 #include <utility>
 
@@ -162,6 +163,98 @@ std::string BuildMaterialAssetKey(std::string_view exact_resource_group,
   AppendString(key, exact_resource_group);
   AppendString(key, exact_name);
   return key;
+}
+
+bool EquivalentGraphicsSceneAssetInput(
+    const GraphicsSceneAssetInput &lhs,
+    const GraphicsSceneAssetInput &rhs) noexcept {
+  return lhs.source_asset_id == rhs.source_asset_id &&
+         lhs.payload != nullptr && rhs.payload != nullptr &&
+         !lhs.payload->valueless_by_exception() &&
+         !rhs.payload->valueless_by_exception() &&
+         EquivalentRenderAssetPayload(*lhs.payload, *rhs.payload) &&
+         lhs.material_bindings == rhs.material_bindings;
+}
+
+bool MaterialCullAgrees(
+    Ogre14GraphicsSceneMaterialCull captured,
+    Ogre14LegacyCullMode translated) noexcept {
+  switch (captured) {
+  case Ogre14GraphicsSceneMaterialCull::NONE:
+    return translated == Ogre14LegacyCullMode::NONE;
+  case Ogre14GraphicsSceneMaterialCull::CLOCKWISE:
+    return translated == Ogre14LegacyCullMode::CLOCKWISE;
+  case Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE:
+    return translated == Ogre14LegacyCullMode::ANTICLOCKWISE;
+  }
+  return false;
+}
+
+ValidationResult ValidateProducerBoundMaterialMeshCompatibility(
+    const GraphicsSceneAssetInput &material_asset,
+    const MeshResourceDescriptor &mesh) {
+  if (material_asset.payload == nullptr ||
+      material_asset.payload->valueless_by_exception() ||
+      RenderAssetPayloadKind(*material_asset.payload) !=
+          RenderAssetKind::MATERIAL) {
+    return ValidationResult::Failure(
+        ValidationCode::WRONG_ASSET_KIND, "assets.material.payload",
+        "mesh compatibility requires an immutable material payload");
+  }
+  const MaterialDescriptor &material =
+      std::get<MaterialDescriptor>(*material_asset.payload);
+  ValidationResult validation =
+      ValidateMaterialMeshCompatibility(material, mesh);
+  if (!validation) {
+    return validation;
+  }
+
+  const std::array<const TextureBinding *,
+                   kGraphicsSceneMaterialTextureSlotCount>
+      descriptor_bindings{{
+          &material.base_color_texture,
+          &material.metallic_roughness_texture,
+          &material.normal_texture,
+          &material.occlusion_texture,
+          &material.emissive_texture,
+      }};
+  for (std::size_t slot = 0U; slot < descriptor_bindings.size(); ++slot) {
+    const GraphicsSceneAssetBinding &binding =
+        material_asset.material_bindings[slot];
+    const bool has_texture = binding.texture_source_asset_id != 0U;
+    const bool has_sampler = binding.sampler_source_asset_id != 0U;
+    if (has_texture != has_sampler) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "assets.material.material_bindings",
+          "producer-owned texture and sampler identities must coexist", slot);
+    }
+    if (!has_texture) {
+      continue;
+    }
+    const TextureBinding &descriptor_binding = *descriptor_bindings[slot];
+    const bool has_coordinates =
+        descriptor_binding.texture_coordinate_set == 0U
+            ? !mesh.texture_coordinates_0.empty()
+            : !mesh.texture_coordinates_1.empty();
+    if (!has_coordinates) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          descriptor_binding.texture_coordinate_set == 0U
+              ? "mesh.texture_coordinates_0"
+              : "mesh.texture_coordinates_1",
+          "producer-bound material references a missing authored UV stream",
+          slot);
+    }
+    if (slot == static_cast<std::size_t>(MaterialTextureSlot::NORMAL) &&
+        (mesh.normals.empty() || mesh.tangents.empty())) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          mesh.normals.empty() ? "mesh.normals" : "mesh.tangents",
+          "producer-bound normal texture requires normals and tangents", slot);
+    }
+  }
+  return ValidationResult::Success();
 }
 
 std::string BuildStaticObjectKey(std::uint64_t stable_object_id,
@@ -2109,12 +2202,28 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &inputs,
     Ogre14GraphicsSceneStaticIdentityRegistry &identity_registry,
     std::vector<GraphicsSceneAssetInput> &assets,
-    std::vector<GraphicsSceneStaticMeshInput> &static_meshes) {
+    std::vector<GraphicsSceneStaticMeshInput> &static_meshes,
+    IOgre14GraphicsSceneStaticInventoryFaultInjector *fault_injector) try {
+  if (inputs.size() > kMaximumOgre14GraphicsSceneStaticSections) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "static_inventory.sections",
+        "static-section inventory exceeds its fixed hostile-input cap");
+  }
+  if (identity_registry.asset_identity_count() >
+          kMaximumOgre14GraphicsSceneStaticAssets ||
+      identity_registry.object_identity_count() >
+          kMaximumOgre14GraphicsSceneStaticSections ||
+      identity_registry.terrain_page_identity_count() >
+          kMaximumOgre14GraphicsSceneStaticSections) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "static_inventory.registry",
+        "static identity registry exceeds its fixed lifetime caps");
+  }
   Ogre14GraphicsSceneStaticIdentityRegistry candidate_registry =
       identity_registry;
   std::vector<GraphicsSceneAssetInput> candidate_assets;
   std::vector<GraphicsSceneStaticMeshInput> candidate_meshes;
-  candidate_assets.reserve(inputs.size() * 2U);
+  candidate_assets.reserve(inputs.size());
   candidate_meshes.reserve(inputs.size());
   std::map<std::uint64_t, std::size_t> asset_indices;
   std::set<std::uint64_t> object_ids;
@@ -2123,6 +2232,9 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
   std::set<std::string, std::less<>> current_object_keys;
   std::set<std::string, std::less<>> current_terrain_page_keys;
   std::map<std::string, std::uint64_t, std::less<>> terrain_page_ids;
+  std::uint64_t resolved_source_sequence = 0U;
+  std::uint64_t resolved_catalog_sequence = 0U;
+  bool injected_after_dependency = false;
 
   for (std::size_t input_index = 0U; input_index < inputs.size();
        ++input_index) {
@@ -2169,9 +2281,45 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
           "static MeshObject inventory cannot contain deformable streams",
           input_index);
     }
-    if (input.mesh_identity.reverse_winding !=
-        (input.material.cull ==
-         Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE)) {
+    const Ogre14LegacyAssetKey exact_material_key{
+        input.material.exact_resource_group, input.material.exact_name};
+    const Ogre14LegacyMaterialClosure *resolved_material =
+        input.resolved_material.get();
+    if (resolved_material != nullptr) {
+      validation = ValidateOgre14LegacyMaterialClosure(
+          *resolved_material, exact_material_key);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
+      if (resolved_source_sequence == 0U) {
+        resolved_source_sequence = resolved_material->source_sequence;
+        resolved_catalog_sequence = resolved_material->catalog_sequence;
+      } else if (resolved_source_sequence !=
+                     resolved_material->source_sequence ||
+                 resolved_catalog_sequence !=
+                     resolved_material->catalog_sequence) {
+        return ValidationResult::Failure(
+            ValidationCode::SEQUENCE_MISMATCH,
+            "static_meshes.resolved_material.sequence",
+            "all resolved materials must come from one authoritative full frame",
+            input_index);
+      }
+      if (!MaterialCullAgrees(
+              input.material.cull,
+              resolved_material->material_audit->pipeline.cull)) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "static_meshes.resolved_material.native_cull",
+            "captured material culling disagrees with the translated audit",
+            input_index);
+      }
+    }
+    const bool required_reverse_winding =
+        resolved_material != nullptr
+            ? resolved_material->requires_reverse_winding
+            : input.material.cull ==
+                  Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+    if (input.mesh_identity.reverse_winding != required_reverse_winding) {
       return ValidationResult::Failure(
           ValidationCode::REVISION_MISMATCH,
           "static_meshes.mesh_winding",
@@ -2198,6 +2346,28 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
         input.material.exact_resource_group, input.material.exact_name);
     const std::string object_key =
         BuildStaticObjectKey(input.stable_object_id, input.section_index);
+    std::vector<std::string> resolved_asset_keys;
+    if (resolved_material != nullptr) {
+      resolved_asset_keys.reserve(resolved_material->assets.size());
+      for (std::size_t asset_index = 0U;
+           asset_index < resolved_material->assets.size(); ++asset_index) {
+        const GraphicsSceneAssetInput &asset =
+            resolved_material->assets[asset_index];
+        const RenderAssetKind kind = RenderAssetPayloadKind(*asset.payload);
+        if (kind == RenderAssetKind::MATERIAL) {
+          resolved_asset_keys.push_back(material_key);
+        } else {
+          std::string exact_dependency_key;
+          validation = BuildOgre14LegacyStableAssetKey(
+              kind, resolved_material->asset_keys[asset_index],
+              exact_dependency_key);
+          if (!validation) {
+            return AtStaticSection(std::move(validation), input_index);
+          }
+          resolved_asset_keys.push_back(std::move(exact_dependency_key));
+        }
+      }
+    }
     std::uint64_t mesh_id = 0U;
     std::uint64_t material_id = 0U;
     std::uint64_t object_id = 0U;
@@ -2206,11 +2376,15 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
-    validation = DeriveOgre14GraphicsSceneMaterialAssetId(
-        input.material.exact_resource_group, input.material.exact_name,
-        material_id);
-    if (!validation) {
-      return AtStaticSection(std::move(validation), input_index);
+    if (resolved_material != nullptr) {
+      material_id = resolved_material->material_source_asset_id;
+    } else {
+      validation = DeriveOgre14GraphicsSceneMaterialAssetId(
+          input.material.exact_resource_group, input.material.exact_name,
+          material_id);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
     }
     validation = DeriveOgre14GraphicsSceneStaticSectionId(
         input.stable_object_id, input.section_index, object_id);
@@ -2241,6 +2415,15 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     validation = reject_resurrection(material_key, false);
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
+    }
+    for (const std::string &resolved_key : resolved_asset_keys) {
+      if (resolved_key == material_key) {
+        continue;
+      }
+      validation = reject_resurrection(resolved_key, false);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
     }
     validation = reject_resurrection(object_key, true);
     if (!validation) {
@@ -2281,77 +2464,133 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
-    validation = candidate_registry.RegisterDerivedAssetIdentity(
-        material_key, material_id);
-    if (!validation) {
-      return AtStaticSection(std::move(validation), input_index);
+    if (resolved_material != nullptr) {
+      for (std::size_t asset_index = 0U;
+           asset_index < resolved_material->assets.size(); ++asset_index) {
+        validation = candidate_registry.RegisterDerivedAssetIdentity(
+            resolved_asset_keys[asset_index],
+            resolved_material->assets[asset_index].source_asset_id);
+        if (!validation) {
+          return AtStaticSection(std::move(validation), input_index);
+        }
+      }
+    } else {
+      validation = candidate_registry.RegisterDerivedAssetIdentity(
+          material_key, material_id);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
     }
     validation = candidate_registry.RegisterDerivedObjectIdentity(object_key,
                                                                    object_id);
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
+    if (candidate_registry.asset_identity_count() >
+            kMaximumOgre14GraphicsSceneStaticAssets ||
+        candidate_registry.object_identity_count() >
+            kMaximumOgre14GraphicsSceneStaticSections ||
+        candidate_registry.terrain_page_identity_count() >
+            kMaximumOgre14GraphicsSceneStaticSections) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "static_inventory.registry_lifetime",
+          "static identity lifetime exceeds its fixed hostile-input cap",
+          input_index);
+    }
 
-    MaterialDescriptor material;
-    validation = BuildOgre14GraphicsSceneMaterialFallback(input.material,
-                                                          material);
+    std::vector<GraphicsSceneAssetInput> proposed_material_assets;
+    if (resolved_material != nullptr) {
+      proposed_material_assets = resolved_material->assets;
+    } else {
+      MaterialDescriptor material;
+      validation = BuildOgre14GraphicsSceneMaterialFallback(input.material,
+                                                            material);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
+      GraphicsSceneAssetInput material_asset;
+      material_asset.source_asset_id = material_id;
+      material_asset.payload = std::make_shared<const RenderAssetPayload>(
+          std::move(material));
+      proposed_material_assets.push_back(std::move(material_asset));
+    }
+    validation = ValidateProducerBoundMaterialMeshCompatibility(
+        proposed_material_assets.back(), mesh);
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
-    validation = ValidateMaterialMeshCompatibility(material, mesh);
-    if (!validation) {
-      return AtStaticSection(std::move(validation), input_index);
-    }
-    std::shared_ptr<const RenderAssetPayload> material_payload =
-        std::make_shared<const RenderAssetPayload>(std::move(material));
 
     const auto canonicalize =
-        [&candidate_registry](
-            const std::string &key,
-            std::shared_ptr<const RenderAssetPayload> proposed) {
+        [&candidate_registry](const std::string &key,
+                              const GraphicsSceneAssetInput &proposed) {
           const auto prior =
-              candidate_registry.canonical_payloads_by_asset_key_.find(key);
+              candidate_registry.canonical_assets_by_asset_key_.find(key);
           if (prior !=
-                  candidate_registry.canonical_payloads_by_asset_key_.end() &&
-              EquivalentRenderAssetPayload(*prior->second, *proposed)) {
+                  candidate_registry.canonical_assets_by_asset_key_.end() &&
+              EquivalentGraphicsSceneAssetInput(prior->second, proposed)) {
             return prior->second;
           }
-          candidate_registry.canonical_payloads_by_asset_key_[key] = proposed;
+          candidate_registry.canonical_assets_by_asset_key_[key] = proposed;
           return proposed;
         };
-    const std::shared_ptr<const RenderAssetPayload> canonical_mesh =
-        canonicalize(mesh_key, input.mesh_payload);
-    const std::shared_ptr<const RenderAssetPayload> canonical_material =
-        canonicalize(material_key, std::move(material_payload));
+    GraphicsSceneAssetInput proposed_mesh;
+    proposed_mesh.source_asset_id = mesh_id;
+    proposed_mesh.payload = input.mesh_payload;
+    const GraphicsSceneAssetInput canonical_mesh =
+        canonicalize(mesh_key, proposed_mesh);
+    std::vector<GraphicsSceneAssetInput> canonical_material_assets;
+    canonical_material_assets.reserve(proposed_material_assets.size());
+    for (std::size_t asset_index = 0U;
+         asset_index < proposed_material_assets.size(); ++asset_index) {
+      const std::string &key = resolved_material != nullptr
+                                   ? resolved_asset_keys[asset_index]
+                                   : material_key;
+      canonical_material_assets.push_back(
+          canonicalize(key, proposed_material_assets[asset_index]));
+    }
 
-    const auto add_asset = [&](std::uint64_t source_id,
-                               const std::shared_ptr<const RenderAssetPayload>
-                                   &payload_owner) -> ValidationResult {
-      const auto existing = asset_indices.find(source_id);
+    const auto add_asset = [&](const GraphicsSceneAssetInput &asset)
+        -> ValidationResult {
+      const auto existing = asset_indices.find(asset.source_asset_id);
       if (existing != asset_indices.end()) {
         const GraphicsSceneAssetInput &prior =
             candidate_assets[existing->second];
-        if (!EquivalentRenderAssetPayload(*prior.payload, *payload_owner)) {
+        if (!EquivalentGraphicsSceneAssetInput(prior, asset)) {
           return ValidationResult::Failure(
-              ValidationCode::REVISION_MISMATCH, "assets.payload",
-              "one exact OGRE 14 asset key produced conflicting payloads");
+              ValidationCode::REVISION_MISMATCH, "assets.payload_or_bindings",
+              "one OGRE 14 source ID produced conflicting payloads or bindings");
         }
         return ValidationResult::Success();
       }
-      GraphicsSceneAssetInput asset;
-      asset.source_asset_id = source_id;
-      asset.payload = payload_owner;
-      asset_indices.emplace(source_id, candidate_assets.size());
-      candidate_assets.push_back(std::move(asset));
+      if (candidate_assets.size() >=
+          kMaximumOgre14GraphicsSceneStaticAssets) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "static_inventory.assets",
+            "expanded static asset inventory exceeds its fixed cap");
+      }
+      asset_indices.emplace(asset.source_asset_id, candidate_assets.size());
+      candidate_assets.push_back(asset);
       return ValidationResult::Success();
     };
-    validation = add_asset(mesh_id, canonical_mesh);
+    validation = add_asset(canonical_mesh);
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
-    validation = add_asset(material_id, canonical_material);
-    if (!validation) {
-      return AtStaticSection(std::move(validation), input_index);
+    for (std::size_t asset_index = 0U;
+         asset_index < canonical_material_assets.size(); ++asset_index) {
+      validation = add_asset(canonical_material_assets[asset_index]);
+      if (!validation) {
+        return AtStaticSection(std::move(validation), input_index);
+      }
+      if (resolved_material != nullptr &&
+          resolved_material->assets.size() == 3U && asset_index == 0U &&
+          !injected_after_dependency && fault_injector != nullptr) {
+        injected_after_dependency = true;
+        fault_injector->AtFaultPoint(
+            Ogre14GraphicsSceneStaticInventoryFaultPoint::
+                AFTER_FIRST_RESOLVED_DEPENDENCY);
+      }
     }
     if (!object_ids.insert(object_id).second ||
         !current_object_keys.insert(object_key).second) {
@@ -2361,7 +2600,12 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
           "static-section identity is duplicated", input_index);
     }
     current_asset_keys.insert(mesh_key);
-    current_asset_keys.insert(material_key);
+    if (resolved_material != nullptr) {
+      current_asset_keys.insert(resolved_asset_keys.begin(),
+                                resolved_asset_keys.end());
+    } else {
+      current_asset_keys.insert(material_key);
+    }
 
     GraphicsSceneStaticMeshInput instance;
     instance.source_object_id = object_id;
@@ -2407,6 +2651,14 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
   assets = std::move(candidate_assets);
   static_meshes = std::move(candidate_meshes);
   return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return ValidationResult::Failure(
+      ValidationCode::EMPTY_PAYLOAD, "static_inventory.allocation",
+      "allocation failed before the static inventory was published");
+} catch (...) {
+  return ValidationResult::Failure(
+      ValidationCode::UNSUPPORTED_FEATURE, "static_inventory.exception",
+      "unexpected exception before the static inventory was published");
 }
 
 ValidationResult BuildOgre14GraphicsSceneEnvironment(

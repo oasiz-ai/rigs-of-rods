@@ -24,6 +24,8 @@
 
 namespace RoR::Render {
 
+class Ogre14ProceduralRoadInventoryTransaction;
+
 constexpr std::uint32_t kOgre14ProceduralRoadCaptureVersion = 1U;
 constexpr std::size_t kOgre14ProceduralRoadMaximumVertices = 50000U;
 constexpr std::size_t kOgre14ProceduralRoadMaximumIndices = 150000U;
@@ -46,6 +48,11 @@ struct Ogre14ProceduralRoadCapture {
   std::vector<std::uint32_t> indices;
   Ogre14GraphicsSceneMaterialCaptureInput material;
   bool native_material_audit_complete = false;
+  /// Required only by the exact translated-material overload. The owner is
+  /// immutable, but admission compares its value bit-for-bit with the
+  /// translated audit rather than trusting pointer identity.
+  std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit>
+      exact_native_material_audit;
   Matrix4x4 render_from_object;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   bool visible = true;
@@ -166,8 +173,14 @@ public:
   }
 
 private:
+  friend class Ogre14ProceduralRoadInventoryTransaction;
   friend ValidationResult BuildOgre14ProceduralRoadInventory(
       const std::vector<Ogre14ProceduralRoadCapture> &,
+      Ogre14ProceduralRoadInventory &,
+      std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &);
+  friend ValidationResult BuildOgre14ProceduralRoadInventory(
+      const std::vector<Ogre14ProceduralRoadCapture> &,
+      const Ogre14LegacyTranslatedFrame &,
       Ogre14ProceduralRoadInventory &,
       std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &);
 
@@ -210,6 +223,16 @@ private:
 /// texture/sampler translator exists. Failure leaves state/output unchanged.
 [[nodiscard]] ValidationResult BuildOgre14ProceduralRoadInventory(
     const std::vector<Ogre14ProceduralRoadCapture> &captures,
+    Ogre14ProceduralRoadInventory &inventory,
+    std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections);
+
+/// Exact activation-gated path. Every road material is resolved from this one
+/// authoritative full translated frame and must carry an independently
+/// captured, bit-exact native pipeline audit. No missing audit is promoted to
+/// resolved state and no factor fallback is attempted.
+[[nodiscard]] ValidationResult BuildOgre14ProceduralRoadInventory(
+    const std::vector<Ogre14ProceduralRoadCapture> &captures,
+    const Ogre14LegacyTranslatedFrame &authoritative_material_frame,
     Ogre14ProceduralRoadInventory &inventory,
     std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &sections);
 

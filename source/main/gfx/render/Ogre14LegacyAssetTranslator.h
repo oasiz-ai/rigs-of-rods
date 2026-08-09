@@ -324,6 +324,13 @@ struct Ogre14LegacyMaterialPipelineAudit {
   std::uint64_t sampler_source_asset_id = 0U;
 };
 
+/// Bit-exact value comparison for independently captured immutable pipeline
+/// audits. This deliberately compares IEEE-754 encodings rather than applying
+/// a tolerance, so a native capture cannot be coerced to a translated result.
+[[nodiscard]] bool EquivalentOgre14LegacyMaterialPipelineAudit(
+    const Ogre14LegacyMaterialPipelineAudit &lhs,
+    const Ogre14LegacyMaterialPipelineAudit &rhs) noexcept;
+
 struct Ogre14LegacyTranslatedAsset {
   RenderAssetKind kind = RenderAssetKind::INVALID;
   std::uint64_t source_asset_id = 0U;

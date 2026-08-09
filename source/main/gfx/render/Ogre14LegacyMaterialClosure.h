@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace RoR::Render {
@@ -41,6 +42,14 @@ struct Ogre14LegacyMaterialClosure {
   std::uint64_t catalog_sequence = 0U;
   std::uint64_t material_source_asset_id = 0U;
   bool requires_reverse_winding = false;
+  /// Exact immutable translated companion. Consumers compare its value
+  /// bit-for-bit with independently captured native state; pointer identity is
+  /// never used as proof of agreement.
+  std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit> material_audit;
+  /// Exact dependency-ordered keys parallel to `assets`. These let detached
+  /// consumers rederive every source ID and canonical debug identity rather
+  /// than trusting an ID/payload pairing supplied by a caller.
+  std::vector<Ogre14LegacyAssetKey> asset_keys;
   std::vector<GraphicsSceneAssetInput> assets;
 };
 
@@ -58,6 +67,13 @@ public:
   virtual void AtFaultPoint(
       Ogre14LegacyMaterialClosureFaultPoint point) = 0;
 };
+
+/// Revalidates a detached closure against its exact material key. This checks
+/// lineage, dependency order and kinds, immutable payloads, producer-owned
+/// bindings, translated audit semantics, and the material source identity.
+[[nodiscard]] ValidationResult ValidateOgre14LegacyMaterialClosure(
+    const Ogre14LegacyMaterialClosure &closure,
+    const Ogre14LegacyAssetKey &material_key);
 
 /// Resolves an exact material identity from an authoritative full translated
 /// snapshot. The whole snapshot is revalidated before any closure is exposed.

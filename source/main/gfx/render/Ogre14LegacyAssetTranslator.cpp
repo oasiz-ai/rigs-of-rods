@@ -597,6 +597,12 @@ UpsertMutation(const Ogre14LegacyTranslatedAsset &asset) {
 
 } // namespace
 
+bool EquivalentOgre14LegacyMaterialPipelineAudit(
+    const Ogre14LegacyMaterialPipelineAudit &lhs,
+    const Ogre14LegacyMaterialPipelineAudit &rhs) noexcept {
+  return EquivalentAudit(lhs, rhs);
+}
+
 struct Ogre14LegacyAssetTranslator::State {
   struct Record {
     Ogre14LegacyTranslatedAsset asset;
