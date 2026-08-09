@@ -1506,6 +1506,15 @@ if (MSVC)
 endif ()
 
 add_executable(
+    ror_application_fatal_shutdown_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/system/ApplicationFatalShutdownContractTests.cpp"
+)
+target_include_directories(
+    ror_application_fatal_shutdown_contract_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
     ror_beam_axial_response_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/BeamAxialResponseTests.cpp"
 )
@@ -2189,6 +2198,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_public_bridge_entrypoint
     ror_local_light_budget_tests
     ror_command_line_info_tests
+    ror_application_fatal_shutdown_contract_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
@@ -2302,6 +2312,7 @@ endif ()
 set_target_properties(
     ror_beamng_material_inventory_tests
     ror_jbeam_to_rigdef_tests
+    ror_application_fatal_shutdown_contract_tests
     ror_renderer_bridge_process_fake_game
     ror_renderer_bridge_process_fake_presentation
     ror_renderer_public_bridge_fake_game
@@ -2321,6 +2332,13 @@ add_test(
 add_test(
     NAME windows_runtime_path
     COMMAND ror_windows_runtime_path_tests
+)
+
+add_test(
+    NAME application_fatal_shutdown_contract
+    COMMAND
+        ror_application_fatal_shutdown_contract_tests
+        "${ROR_REPOSITORY_ROOT}"
 )
 
 add_test(

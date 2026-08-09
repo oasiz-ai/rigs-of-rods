@@ -68,6 +68,7 @@ set(_ror_n2_relevant_source_paths
     source/main/terrain/TerrainObjectManager.cpp
     source/main/terrain/TerrainObjectManager.h
     source/main/main.cpp
+    source/main/system/ApplicationFatalError.h
     source/main/system/RendererBridgeChannel.cpp
     source/main/system/RendererBridgeChannel.h
     source/main/system/RendererBridgeEndpoint.cpp
@@ -133,6 +134,7 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
     source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
     tests/gfx/GfxActorCaptureInventoryTests.cpp
+    tests/system/ApplicationFatalShutdownContractTests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
     tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp
@@ -293,6 +295,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/terrain/TerrainObjectManager.cpp"
     "source/main/terrain/TerrainObjectManager.h"
     "source/main/main.cpp"
+    "source/main/system/ApplicationFatalError.h"
     "source/main/system/RendererBridgeChannel.cpp"
     "source/main/system/RendererBridgeChannel.h"
     "source/main/system/RendererBridgeEndpoint.cpp"
@@ -357,6 +360,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
+    "tests/system/ApplicationFatalShutdownContractTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
     "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"

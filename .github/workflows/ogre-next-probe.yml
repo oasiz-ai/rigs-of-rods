@@ -13,6 +13,7 @@ on:
       - source/main/CMakeLists.txt
       - source/main/GameContext.cpp
       - source/main/main.cpp
+      - source/main/system/ApplicationFatalError.h
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -71,6 +72,7 @@ on:
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/GfxActorCaptureInventoryTests.cpp
+      - tests/system/ApplicationFatalShutdownContractTests.cpp
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererBridgeEndpointTests.cpp
       - tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -119,6 +121,7 @@ on:
       - source/main/CMakeLists.txt
       - source/main/GameContext.cpp
       - source/main/main.cpp
+      - source/main/system/ApplicationFatalError.h
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -177,6 +180,7 @@ on:
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
       - tests/gfx/GfxActorCaptureInventoryTests.cpp
+      - tests/system/ApplicationFatalShutdownContractTests.cpp
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererBridgeEndpointTests.cpp
       - tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -505,6 +509,7 @@ jobs:
           ror_flex_mesh_topology_tests
           ror_ogre14_metal_flex_shadow_read_contract_tests
           ror_gfx_actor_capture_inventory_tests
+          ror_application_fatal_shutdown_contract_tests
           ror_ogre14_dynamic_material_closure_tests
           ror_ogre14_material_semantic_registry_tests
           ror_ogre14_source_texture_decoder_tests
@@ -522,7 +527,7 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
-          -R '^(ror_graphics_scene_snapshot_producer|ror_flex_mesh_topology|ror_ogre14_metal_flex_shadow_read_contract|ror_gfx_actor_capture_inventory)$'
+          -R '^(ror_graphics_scene_snapshot_producer|ror_flex_mesh_topology|ror_ogre14_metal_flex_shadow_read_contract|ror_gfx_actor_capture_inventory|ror_application_fatal_shutdown_contract)$'
 
       - name: Prove exact translated deformable materials on the host ABI
         run: >-
