@@ -304,10 +304,26 @@ std::string BuildNativeStaticMeshCacheKey(
     return key;
 }
 
-RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
+struct Ogre14ResolvedMaterialFirstPass
+{
+    Ogre::MaterialPtr material;
+    Ogre::Technique* technique = nullptr;
+    Ogre::Pass* pass = nullptr;
+};
+
+struct Ogre14MaterialSectionReference
+{
+    Ogre::MaterialPtr material;
+    std::string exact_resource_group;
+    std::string exact_name;
+    RoR::Render::Ogre14GraphicsSceneMaterialCull cull =
+        RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+    bool reverse_winding = false;
+};
+
+RoR::Render::ValidationResult ResolveOgre14MaterialFirstPass(
     const Ogre::MaterialPtr& material,
-    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& output,
-    bool& reverse_winding)
+    Ogre14ResolvedMaterialFirstPass& output)
 {
     if (!material || material->getName().empty() ||
         material->getNumTechniques() == 0U)
@@ -333,6 +349,68 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
             "assets.material.native_pass",
             "OGRE drawable material first pass is null");
     }
+
+    Ogre14ResolvedMaterialFirstPass candidate;
+    candidate.material = material;
+    candidate.technique = technique;
+    candidate.pass = pass;
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+// This is deliberately narrower than the factor fallback below. Exact
+// material admission needs the authored key, owning native MaterialPtr and
+// first-pass cull before any fallback-only blend/alpha/write policy is
+// applied. It must not make an unsupported exact material look like an
+// eligible fallback; the fallback wrapper still performs every legacy gate.
+RoR::Render::ValidationResult CaptureOgre14MaterialSectionReference(
+    const Ogre14ResolvedMaterialFirstPass& resolved,
+    Ogre14MaterialSectionReference& output)
+{
+    RoR::Render::Ogre14GraphicsSceneMaterialCull cull;
+    bool reverse_winding = false;
+    switch (resolved.pass->getCullingMode())
+    {
+    case Ogre::CULL_NONE:
+        cull = RoR::Render::Ogre14GraphicsSceneMaterialCull::NONE;
+        break;
+    case Ogre::CULL_CLOCKWISE:
+        cull = RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+        break;
+    case Ogre::CULL_ANTICLOCKWISE:
+        cull =
+            RoR::Render::Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
+        reverse_winding = true;
+        break;
+    default:
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::INVALID_ENUM,
+            "assets.material.cull",
+            "OGRE material has an unknown culling mode");
+    }
+
+    Ogre14MaterialSectionReference candidate;
+    candidate.material = resolved.material;
+    candidate.exact_resource_group = resolved.material->getGroup();
+    candidate.exact_name = resolved.material->getName();
+    candidate.cull = cull;
+    candidate.reverse_winding = reverse_winding;
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
+    const Ogre::MaterialPtr& material,
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& output,
+    bool& reverse_winding)
+{
+    Ogre14ResolvedMaterialFirstPass resolved;
+    RoR::Render::ValidationResult validation =
+        ResolveOgre14MaterialFirstPass(material, resolved);
+    if (!validation)
+        return validation;
+    Ogre::Technique* const technique = resolved.technique;
+    Ogre::Pass* const pass = resolved.pass;
 
     bool write_red = false;
     bool write_green = false;
@@ -374,28 +452,10 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
             "portable fallback supports replace or straight-alpha blending");
     }
 
-    RoR::Render::Ogre14GraphicsSceneMaterialCull cull;
-    switch (pass->getCullingMode())
-    {
-    case Ogre::CULL_NONE:
-        cull = RoR::Render::Ogre14GraphicsSceneMaterialCull::NONE;
-        reverse_winding = false;
-        break;
-    case Ogre::CULL_CLOCKWISE:
-        cull = RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
-        reverse_winding = false;
-        break;
-    case Ogre::CULL_ANTICLOCKWISE:
-        cull =
-            RoR::Render::Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
-        reverse_winding = true;
-        break;
-    default:
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::INVALID_ENUM,
-            "assets.material.cull",
-            "OGRE material has an unknown culling mode");
-    }
+    Ogre14MaterialSectionReference reference;
+    validation = CaptureOgre14MaterialSectionReference(resolved, reference);
+    if (!validation)
+        return validation;
 
     RoR::Render::Ogre14GraphicsSceneMaterialAlphaReject alpha_reject;
     switch (pass->getAlphaRejectFunction())
@@ -417,8 +477,8 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
     }
 
     RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput candidate;
-    candidate.exact_resource_group = material->getGroup();
-    candidate.exact_name = material->getName();
+    candidate.exact_resource_group = reference.exact_resource_group;
+    candidate.exact_name = reference.exact_name;
     candidate.pass_count =
         static_cast<std::uint32_t>(technique->getNumPasses());
     candidate.texture_unit_count =
@@ -434,10 +494,11 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
     candidate.blend = replace
         ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
         : RoR::Render::Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
-    candidate.cull = cull;
+    candidate.cull = reference.cull;
     candidate.alpha_reject = alpha_reject;
     candidate.alpha_reject_value = pass->getAlphaRejectValue();
     output = std::move(candidate);
+    reverse_winding = reference.reverse_winding;
     return RoR::Render::ValidationResult::Success();
 }
 
@@ -1591,6 +1652,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             sub_entity->getMaterial(), section.material, reverse_winding);
         if (!validation)
             return validation;
+        section.mesh_reverse_winding = reverse_winding;
         section.receives_shadows =
             sub_entity->getMaterial()->getReceiveShadows();
 
