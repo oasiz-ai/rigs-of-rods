@@ -43,6 +43,10 @@ constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerAsset =
     512U * 1024U * 1024U;
 constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerFrame =
     512U * 1024U * 1024U;
+/// Canonical stable keys encode an accepted resource-group/name pair plus a
+/// short type/length prefix. The translator's 255-byte debug-name admission
+/// and fixed sampler suffix fit this bound with room for decimal lengths.
+constexpr std::size_t kMaximumOgre14LegacyStableAssetKeyBytes = 512U;
 
 struct Ogre14LegacyAssetTranslatorConfiguration {
   std::uint32_t version =
@@ -375,6 +379,16 @@ ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input);
 DeriveOgre14LegacySourceAssetId(RenderAssetKind kind,
                                 const Ogre14LegacyAssetKey &key,
                                 std::uint64_t &source_asset_id);
+/// Produces the exact length-delimited catalog key used by the translator.
+/// The output is unchanged on invalid input or allocation failure.
+[[nodiscard]] ValidationResult
+BuildOgre14LegacyStableAssetKey(RenderAssetKind kind,
+                                const Ogre14LegacyAssetKey &key,
+                                std::string &stable_key);
+/// Revalidates every pipeline field retained in a translated material audit,
+/// including the exact dependency-pair and winding/cull relationship.
+[[nodiscard]] ValidationResult ValidateOgre14LegacyMaterialPipelineAudit(
+    const Ogre14LegacyMaterialPipelineAudit &audit);
 [[nodiscard]] ValidationResult
 DecodeOgre14LegacyTexture(const Ogre14LegacyTextureInput &input,
                           TextureResourceDescriptor &descriptor,

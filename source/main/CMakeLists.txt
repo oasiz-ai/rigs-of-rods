@@ -45,6 +45,7 @@ set(SOURCE_FILES
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
         gfx/render/Ogre14GraphicsSceneSource.{h,cpp}
         gfx/render/Ogre14LegacyAssetTranslator.{h,cpp}
+        gfx/render/Ogre14LegacyMaterialClosure.{h,cpp}
         gfx/render/Ogre14ProceduralRoadSource.{h,cpp}
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
@@ -406,6 +407,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
         gfx/render/Ogre14LegacyAssetTranslator.cpp
+        gfx/render/Ogre14LegacyMaterialClosure.cpp
         gfx/render/Ogre14ProceduralRoadSource.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
@@ -438,6 +440,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
         gfx/render/Ogre14LegacyAssetTranslator.cpp
+        gfx/render/Ogre14LegacyMaterialClosure.cpp
         gfx/render/Ogre14ProceduralRoadSource.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp

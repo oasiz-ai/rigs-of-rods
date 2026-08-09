@@ -394,6 +394,29 @@ is changed. Native readback applies the per-texture cap before allocating mip
 storage, while the pure translator rechecks both the per-texture and aggregate
 frame budgets before decode.
 
+`Ogre14LegacyMaterialClosure` closes the last pure-data seam between that
+catalog and `GraphicsSceneSnapshotProducer`. Given an exact material key, it
+accepts only a complete full snapshot with nonzero source/catalog lineage,
+strict texture/sampler/material live order, strict tombstone/UPSERT mutation
+order, and an exact UPSERT for every live immutable owner. It independently
+parses each length-delimited stable key, recomputes its domain-separated ID,
+validates every descriptor and material audit, and applies the translator's
+65,536-record and 512 MiB hard ceilings before resolving anything.
+
+The resolver revalidates every material in the snapshot, not only the selected
+one. A textured material must name an sRGB RGBA8 2D texture and its unique
+material-derived sampler together; orphan samplers, kind mismatches, invalid
+sampler state, linear base color, semantic/model drift, pre-resolved portable
+references, guessed metallic/roughness state, and winding/cull disagreement
+all fail closed. Success preserves the immutable texture and sampler owners,
+then the immutable material owner, and writes the two audited source IDs only
+to the producer-owned base-color `material_bindings` slot. The descriptor's
+portable references remain canonical absent. Any failure or exception leaves
+the caller's closure untouched, so no partially allocated dependency list can
+enter a joined graphics transaction. A borrowed test-only fault seam exercises
+both pre-index allocation failure and an unexpected exception after partial
+local dependency assembly; production callers leave it null.
+
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the
 full-snapshot marker, sorted UPSERT/DESTROY mutations, every descriptor field,

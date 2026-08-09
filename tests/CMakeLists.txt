@@ -908,6 +908,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14GraphicsSceneSource.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyMaterialClosure.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ProceduralRoadSource.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/InputEventTransport.cpp"
@@ -953,6 +954,10 @@ add_executable(
 add_executable(
     ror_ogre14_legacy_asset_translator_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+)
+add_executable(
+    ror_ogre14_legacy_material_closure_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
 )
 add_executable(
     ror_ogre14_procedural_road_source_tests
@@ -1108,6 +1113,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_graphics_scene_snapshot_producer_tests
     ror_ogre14_graphics_scene_source_tests
     ror_ogre14_legacy_asset_translator_tests
+    ror_ogre14_legacy_material_closure_tests
     ror_ogre14_procedural_road_source_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
@@ -2292,6 +2298,11 @@ add_test(
 add_test(
     NAME ogre14_legacy_asset_translator
     COMMAND ror_ogre14_legacy_asset_translator_tests
+)
+
+add_test(
+    NAME ogre14_legacy_material_closure
+    COMMAND ror_ogre14_legacy_material_closure_tests
 )
 
 if (TARGET ror_ogre14_legacy_native_asset_extractor_compile_tests)
