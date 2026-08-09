@@ -36,13 +36,14 @@ struct Ogre14LegacyLiveMaterialCoordinatorConfiguration final {
 
 /// One native capture and the exact key used to resolve its authored semantic
 /// declaration. The coordinator resolves the immutable semantic registry
-/// itself and requires the returned declaration values to match.
+/// itself and requires the returned declaration values and registry-minted
+/// identity receipt to authenticate.
 struct Ogre14LegacyMaterialObservation final {
   std::uint32_t version = kOgre14LegacyMaterialObservationVersion;
   Ogre14LegacyAssetKey material_key;
   /// Exact declaration issued by this coordinator before native capture. Its
   /// provenance and native values are re-resolved and compared during frame
-  /// preparation.
+  /// preparation; the semantic registry's opaque receipt authenticates it.
   Ogre14LegacyMaterialSemanticResolution semantic_resolution;
   Ogre14LegacyNativeMaterialCapture native_capture;
 };
