@@ -20,6 +20,7 @@ on:
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
       - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
+      - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -122,6 +123,7 @@ on:
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
       - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
+      - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*

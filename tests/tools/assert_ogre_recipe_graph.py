@@ -52,6 +52,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/terrain-composite-revision-metal-readback.patch": (
         "cb8bf0aa200793a02574725396c407e7e58eded5b242c2e7dd617c745a6dbaf5"
     ),
+    "patches/14.5.2/exact-material-script-preopen.patch": (
+        "3344cd639959553bda2ec978ad66e4b42df00e2f56f75d39a2d780ce4aa38478"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

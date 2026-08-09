@@ -5,7 +5,7 @@ from conan.tools.cmake import CMakeToolchain, CMakeDeps
 from conan.tools.files import copy
 
 
-OGRE14_RECIPE_REVISION = "a6522b345c9ed182253e570281c54a28"
+OGRE14_RECIPE_REVISION = "ca6f6de2b610d0b8dcd5b704eaf6572a"
 SDL2_RECIPE_REVISION = "19432981a8779c918a13682d4186fa3b"
 SUPPORTED_OGRE14_TARGETS = {
     ("Linux", "x86_64"),
