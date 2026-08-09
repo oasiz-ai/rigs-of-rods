@@ -92,6 +92,9 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
 
     def test_content_manager_is_the_exact_live_authority(self) -> None:
         for token in (
+            "class ContentManager final:",
+            "public Render::IOgre14AuthenticatedMaterialScriptResolver",
+            "public Render::IOgre14AuthenticatedMaterialScriptAuthorityProvider",
             "public Render::IOgre14AuthenticatedTextureResolver",
             "public Render::IOgre14AuthenticatedTextureAuthorityProvider",
             "ResolveAuthenticatedTexture(",

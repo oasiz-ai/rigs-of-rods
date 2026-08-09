@@ -32,7 +32,8 @@ for any external package.
 
 Each record binds all of the evidence needed to reproduce one selection:
 
-- package/archive SHA-256, exact resource group, and resource generation;
+- package/archive SHA-256, exact resource group, and stable reviewed
+  package/catalog revision in domain `REVIEWED_PACKAGE_REVISION_V1`;
 - exact source script member and SHA-256, effective/repaired script SHA-256,
   and repair-plan version;
 - exact material name, native-structure SHA-256, selected scheme and LOD, and
@@ -49,6 +50,13 @@ These bindings are compatibility evidence, not an authentication substitute
 for the content loader. The production loader must independently prove the
 archive, script, repair, generation, and native-structure digests before it may
 select a record.
+
+For format version 2, `resource_generation` is the stable reviewed revision
+above. It is never ContentManager's mount-order-dependent runtime resource-group
+generation nonce, and the two values must not be compared numerically. There
+was no production v2 activation before this definition; live runtime admission
+retains both values as distinct domains. See
+`OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION.md` for that authority boundary.
 
 ## Canonical native structure digest v1
 
@@ -139,14 +147,18 @@ Capture runs on the serialized OGRE resource/render owner thread with material,
 technique, pass, texture-unit, sampler, and texture mutation excluded for the
 whole call. It serializes one direct native observation before readback, then
 two direct native observations after readback. The last observation omits the
-test fault callbacks. All three versions and SHA-256 values must agree before
+synthetic-only declaration-digest callbacks, which are compiled exclusively
+under `ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING`; production
+capture exposes no declaration-digest callback surface. All three versions and
+SHA-256 values must agree before
 publication. This catches setters which do not dirty `Material::mStateCount`
 and prevents a stale or hybrid declaration assembled from earlier portable
 capture fields.
 
-The opaque receipt also authenticates a renderer-neutral `RORNCP1` version-1
+The opaque receipt also authenticates a renderer-neutral `RORNCP2` version-2
 projection of every mutable public capture field: material identity/revision,
-program and lobe state, full pipeline, every texture-unit and sampler field,
+program and lobe state, full pipeline, every exact texture-unit name and
+sampler field,
 texture metadata and exact mip layout, a SHA-256 child digest of every mip byte
 vector, the native declaration version/digest, and authenticated-resolution
 count. The receipt privately retains the exact loaded-resource authority:
@@ -173,7 +185,7 @@ selected catalog record's
 independently authenticate archive/script/repair provenance, authored
 semantic/environment/shadow declarations, texture resolution, and exact
 source-byte authority before publishing a prepared material. Decoded pixels
-are already covered by the receipt's authenticated `RORNCP1` projection. The
+are already covered by the receipt's authenticated `RORNCP2` projection. The
 digest/receipt gate is a prerequisite for that sequence, not permission to
 skip any later authority and not live `GfxScene` wiring.
 

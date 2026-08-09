@@ -10,6 +10,7 @@ endif ()
 set(_ror_n2_relevant_source_paths
     CMakeLists.txt
     doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+    doc/nextgen/OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION.md
     cmake/OgreNextProductionPackage.cmake
     cmake/RendererLauncherPackageConfig.cmake
     cmake/macos/StageMacOSBundle.cmake
@@ -139,6 +140,9 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
     source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp
     source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h
+    source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp
+    source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.h
+    source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp
     source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp
     source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h
     source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp
@@ -155,9 +159,12 @@ set(_ror_n2_relevant_source_paths
     tests/system/ApplicationFatalShutdownContractTests.cpp
     tests/tools/test_ogre14_native_workflow_contract.py
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
+    tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionTests.cpp
+    tests/tools/test_ogre14_material_semantic_runtime_admission_contract.py
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
     tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp
     tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
+    tests/fixtures/gfx/ogre14/material-semantic-runtime-admission.synthetic.json
     tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
     tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
@@ -262,6 +269,7 @@ file(GLOB_RECURSE _ror_n2_relevant_source_files
 list(APPEND _ror_n2_relevant_source_files
     "CMakeLists.txt"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
+    "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION.md"
     "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"
     "cmake/macos/StageMacOSBundle.cmake"
@@ -390,6 +398,9 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
     "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.h"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp"
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
     "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
@@ -406,9 +417,12 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/system/ApplicationFatalShutdownContractTests.cpp"
     "tests/tools/test_ogre14_native_workflow_contract.py"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionTests.cpp"
+    "tests/tools/test_ogre14_material_semantic_runtime_admission_contract.py"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
     "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
     "tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+    "tests/fixtures/gfx/ogre14/material-semantic-runtime-admission.synthetic.json"
     "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
     "tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"

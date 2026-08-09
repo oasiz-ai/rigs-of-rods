@@ -434,8 +434,9 @@ serialization and two stable direct post-readback serializations must agree;
 the caller holds the serialized OGRE owner thread and excludes graph mutation
 for the call. The receipt authenticates both the exact object pointer and its control block,
 together with the native declaration digest/version and a
-`RORNCP1` projection of every mutable public material, sampler, texture, and
-exact mip-byte field. For the authenticated overload it also retains the exact
+`RORNCP2` projection of every mutable public material, exact texture-unit name,
+sampler, texture, and exact mip-byte field. For the authenticated overload it
+also retains the exact
 loaded-resource authority: registry and source-receipt control blocks, resolver
 identity, and loaded revision. Thus an altered digest, reboxed audit value,
 caller-mutated capture, fresh capture, or translated closure owner cannot

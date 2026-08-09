@@ -126,17 +126,28 @@ independently minted resolution objects only when they retain the same registry
 snapshot, source-receipt control block, resolver identity, and loaded state.
 The compatibility extractor's textured output has no such authority and is
 intentionally rejected at this boundary; its untextured output remains valid.
+Production semantic admission accepts only the final `RoR::ContentManager`
+whose six script/texture resolver/provider overrides are also final; an
+independently implemented or forwarding authority is available only to the
+synthetic runtime-admission build.
 
 This v1 gate authenticates source ownership, exact resource key, resolver,
 registry publication, and load revision. `RORNMD1` seals the admitted material
 declaration structure. The enclosing version-2 native audit receipt additionally
-binds a `RORNCP1` projection containing every decoded RGBA mip's exact layout,
+binds a `RORNCP2` projection containing the exact texture-unit name and every
+decoded RGBA mip's exact layout,
 byte length, and SHA-256 child digest plus the exact loaded-resource authority:
 registry and source-receipt control blocks, resolver identity, and loaded
 revision. Caller mutation of a decoded byte or sampler/material field therefore
 invalidates runtime admission. Archive/member source bytes retain their
 independent authenticated texture receipt and are not inferred from the decoded
 projection.
+
+The native declaration-digest fault stage, injector, setter, storage, and
+callback calls are compiled only for the extractor's synthetic tests under
+`ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING`. Production capture
+has no inherited callback that can mutate an earlier material while a later
+material is being admitted.
 
 OGRE resource removal precedes the listener callback's copy-on-write receipt
 removal. If that publication fails for allocation, identity, or any unexpected

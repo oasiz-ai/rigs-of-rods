@@ -42,6 +42,7 @@
 #include "gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h"
 #include "gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
 #include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+#include "gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.h"
 #endif
 
 namespace RoR {
@@ -50,15 +51,16 @@ namespace RoR {
 class ContentManagerNativeIntegrationTestAccess;
 #endif
 
-class ContentManager:
+class ContentManager final:
     public Ogre::ResourceLoadingListener, // Ogre::ResourceGroupManager::getSingleton().setLoadingListener()
     public Ogre::ScriptCompilerListener,  // Ogre::ScriptCompilerManager::getSingleton().setListener()
     private Ogre::MeshSerializerListener,
     private Ogre::ResourceGroupListener
 #if OGRE_VERSION_MAJOR >= 14
+    , public Render::IOgre14AuthenticatedMaterialScriptResolver
+    , public Render::IOgre14AuthenticatedMaterialScriptAuthorityProvider
     , public Render::IOgre14AuthenticatedTextureResolver
     , public Render::IOgre14AuthenticatedTextureAuthorityProvider
-    , public Render::IOgre14AuthenticatedMaterialScriptResolver
 #endif
 {
 public:
@@ -140,24 +142,28 @@ public:
     [[nodiscard]] Render::ValidationResult ResolveAuthenticatedTexture(
         Ogre::Texture& texture,
         Render::Ogre14AuthenticatedTextureResolution& resolution) const
-        override;
+        override final;
     [[nodiscard]] bool RevalidateAuthenticatedTexture(
         Ogre::Texture& texture,
         const Render::Ogre14AuthenticatedTextureResolution& resolution) const
-        noexcept override;
+        noexcept override final;
     [[nodiscard]] Render::ValidationResult
     CaptureAuthenticatedTextureAuthoritySnapshot(
         Render::Ogre14AuthenticatedTextureAuthoritySnapshot& snapshot) const
-        override;
+        override final;
     [[nodiscard]] Render::ValidationResult
     ResolveAuthenticatedMaterialScript(
         Ogre::Material& material,
         Render::Ogre14AuthenticatedMaterialScriptResolution& resolution) const
-        override;
+        override final;
     [[nodiscard]] bool RevalidateAuthenticatedMaterialScript(
         Ogre::Material& material,
         const Render::Ogre14AuthenticatedMaterialScriptResolution& resolution)
-        const noexcept override;
+        const noexcept override final;
+    [[nodiscard]] Render::ValidationResult
+    CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+        Render::Ogre14AuthenticatedMaterialScriptAuthoritySnapshot& snapshot)
+        const override final;
     /// Discards an in-flight whole-group source/material transaction before
     /// ResourceGroupManager tears down a parse which exited by exception.
     void AbortAuthenticatedMaterialScriptGroup(

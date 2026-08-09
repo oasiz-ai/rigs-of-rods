@@ -941,6 +941,50 @@ bool ContentManager::RevalidateAuthenticatedMaterialScript(
         return false;
     }
 }
+
+Render::ValidationResult
+ContentManager::CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+    Render::Ogre14AuthenticatedMaterialScriptAuthoritySnapshot& snapshot)
+    const
+{
+    this->RequireAuthenticatedResourceThread(
+        "ContentManager::CaptureAuthenticatedMaterialScriptAuthoritySnapshot");
+    try
+    {
+        std::scoped_lock<std::mutex, std::mutex> material_lock(
+            m_legacy_material_resolution_mutex,
+            m_legacy_material_state_mutex);
+        const std::uintptr_t resolver_pointer_token =
+            reinterpret_cast<std::uintptr_t>(
+                static_cast<const
+                    Render::IOgre14AuthenticatedMaterialScriptResolver*>(
+                        this));
+        Render::Ogre14AuthenticatedMaterialScriptAuthoritySnapshot candidate;
+        const Render::ValidationResult mint =
+            m_authenticated_material_scripts.MintResolverAuthoritySnapshot(
+                resolver_pointer_token, candidate);
+        if (!mint)
+        {
+            return mint;
+        }
+        snapshot = std::move(candidate);
+        return Render::ValidationResult::Success();
+    }
+    catch (const std::bad_alloc&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::EMPTY_PAYLOAD,
+            "material_script_authority.allocation",
+            "allocation failed before material-script authority publication");
+    }
+    catch (...)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "material_script_authority.exception",
+            "unexpected exception before material-script authority publication");
+    }
+}
 #endif
 
 void ContentManager::EnsureResourceGroupListener()

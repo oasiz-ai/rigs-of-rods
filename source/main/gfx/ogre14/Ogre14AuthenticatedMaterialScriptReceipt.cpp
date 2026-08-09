@@ -345,6 +345,15 @@ struct Ogre14AuthenticatedMaterialScriptResolution::State final {
   std::uintptr_t resolver_pointer_token = 0U;
 };
 
+Ogre14AuthenticatedMaterialScriptAuthoritySnapshot::
+    Ogre14AuthenticatedMaterialScriptAuthoritySnapshot(
+        Ogre14AuthenticatedMaterialScriptRegistry registry_snapshot,
+        std::uintptr_t resolver_pointer_token) noexcept
+    : version_(
+          kOgre14AuthenticatedMaterialScriptAuthoritySnapshotVersion),
+      registry_snapshot_(std::move(registry_snapshot)),
+      resolver_pointer_token_(resolver_pointer_token) {}
+
 void Ogre14AuthenticatedMaterialScriptRegistry::RecomputeAccounting(
     State &state) {
   std::set<const Ogre14AuthenticatedMaterialScriptReceipt::SourceState *>
@@ -1156,6 +1165,66 @@ bool Ogre14AuthenticatedMaterialScriptResolution::SharesCurrentAuthorityWith(
          state_->registry_state == other.state_->registry_state &&
          state_->resolver_pointer_token == other.state_->resolver_pointer_token &&
          state_->receipt.SharesImmutableStateWith(other.state_->receipt);
+}
+
+bool Ogre14AuthenticatedMaterialScriptResolution::MatchesResolver(
+    const IOgre14AuthenticatedMaterialScriptResolver &resolver) const
+    noexcept {
+  return initialized() &&
+         state_->resolver_pointer_token ==
+             reinterpret_cast<std::uintptr_t>(&resolver);
+}
+
+bool Ogre14AuthenticatedMaterialScriptAuthoritySnapshot::initialized() const
+    noexcept {
+  return version_ ==
+             kOgre14AuthenticatedMaterialScriptAuthoritySnapshotVersion &&
+         registry_snapshot_.initialized() && resolver_pointer_token_ != 0U;
+}
+
+std::uint32_t
+Ogre14AuthenticatedMaterialScriptAuthoritySnapshot::version() const noexcept {
+  return version_;
+}
+
+bool Ogre14AuthenticatedMaterialScriptAuthoritySnapshot::Authenticates(
+    const Ogre14AuthenticatedMaterialScriptResolution &resolution) const
+    noexcept {
+  return initialized() && resolution.initialized() && resolution.state_ &&
+         resolution.state_->registry_state == registry_snapshot_.state_ &&
+         resolution.state_->resolver_pointer_token == resolver_pointer_token_;
+}
+
+bool Ogre14AuthenticatedMaterialScriptAuthoritySnapshot::
+    SharesImmutableAuthorityWith(
+        const Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &other) const
+    noexcept {
+  return initialized() && other.initialized() &&
+         registry_snapshot_.SharesImmutableStateWith(
+             other.registry_snapshot_) &&
+         resolver_pointer_token_ == other.resolver_pointer_token_;
+}
+
+ValidationResult
+Ogre14AuthenticatedMaterialScriptRegistry::MintResolverAuthoritySnapshot(
+    std::uintptr_t resolver_pointer_token,
+    Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &snapshot) const {
+  if (!state_) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "material_script_authority.registry",
+                   "authenticated material-script registry is not initialized");
+  }
+  if (resolver_pointer_token == 0U) {
+    return Failure(ValidationCode::INVALID_HANDLE,
+                   "material_script_authority.resolver",
+                   "authenticated material-script resolver identity is empty");
+  }
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot candidate(
+      *this, resolver_pointer_token);
+  static_assert(std::is_nothrow_move_assignable_v<
+                Ogre14AuthenticatedMaterialScriptAuthoritySnapshot>);
+  snapshot = std::move(candidate);
+  return ValidationResult::Success();
 }
 
 static_assert(std::is_nothrow_copy_constructible_v<

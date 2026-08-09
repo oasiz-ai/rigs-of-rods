@@ -315,6 +315,9 @@ struct Ogre14LegacyPipelineStateInput {
 };
 
 struct Ogre14LegacyTextureUnitInput {
+  /// Exact native texture-unit name in pass order. This is part of
+  /// the authenticated capture projection; admission never normalizes it.
+  std::string exact_unit_name;
   Ogre14LegacyAssetKey texture_key;
   Ogre14LegacySamplerInput sampler;
   std::uint8_t texture_coordinate_set = 0U;

@@ -673,6 +673,12 @@ void TestNativeDeclarationDigestIsCanonicalOpaqueAndTransactional() {
                                             textured_capture)
                   .ok(),
           "canonical textured declaration digest fixture failed");
+  Ogre14LegacyNativeMaterialCapture caller_renamed_unit = textured_capture;
+  caller_renamed_unit.material.texture_units.front().exact_unit_name =
+      "caller-renamed-base-color";
+  Require(!textured_capture.native_material_audit_receipt.Authenticates(
+              caller_renamed_unit),
+          "RORNCP2 receipt ignored caller mutation of exact unit name");
 
   CanonicalMaterial renamed_unit("DigestTextured");
   Ogre::TextureUnitState *renamed_native_unit =

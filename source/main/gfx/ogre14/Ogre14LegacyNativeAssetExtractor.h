@@ -36,7 +36,7 @@ constexpr std::size_t kOgre14LegacyNativeMaterialDeclarationDigestBytes = 32U;
 constexpr std::size_t
     kOgre14LegacyNativeMaterialDeclarationMaximumCanonicalBytes = 64U * 1024U;
 constexpr std::uint32_t
-    kOgre14LegacyNativeMaterialCaptureSerializationVersion = 1U;
+    kOgre14LegacyNativeMaterialCaptureSerializationVersion = 2U;
 
 using Ogre14LegacyNativeMaterialDeclarationSha256 =
     std::array<std::uint8_t,
@@ -45,6 +45,9 @@ using Ogre14LegacyNativeMaterialCaptureSha256 =
     std::array<std::uint8_t,
                kOgre14LegacyNativeMaterialDeclarationDigestBytes>;
 
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
+/// Synthetic-only callback stages used to prove declaration capture rollback
+/// and freshness. Production builds expose no callback surface.
 enum class Ogre14LegacyNativeMaterialDeclarationDigestStage : std::uint8_t {
   AFTER_MATERIAL_IDENTITY = 0U,
   AFTER_PASS_STATE = 1U,
@@ -62,6 +65,7 @@ public:
   virtual void BeforeNativeMaterialDeclarationDigestStage(
       Ogre14LegacyNativeMaterialDeclarationDigestStage) {}
 };
+#endif
 
 /// PBR intent and texture color role must come from explicit content metadata
 /// or a versioned compatibility table. The native extractor never guesses
@@ -78,6 +82,7 @@ struct Ogre14LegacyNativeMaterialDeclaration {
 };
 
 struct Ogre14LegacyNativeMaterialCapture;
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
 namespace Testing {
 /// Installs a borrowed fault injector for the calling thread only. Tests must
 /// restore null before the injector's lifetime ends.
@@ -85,6 +90,7 @@ void SetOgre14LegacyNativeMaterialDeclarationDigestFaultInjectorForTesting(
     IOgre14LegacyNativeMaterialDeclarationDigestFaultInjector *fault_injector)
     noexcept;
 }
+#endif
 
 #if defined(ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING)
 namespace Testing {
@@ -211,10 +217,10 @@ struct Ogre14LegacyNativeMaterialCapture {
       authenticated_texture_resolutions;
 };
 
-/// Computes the version-1 renderer-neutral projection authenticated inside the
-/// opaque native receipt. It covers every mutable material and texture field,
-/// including exact mip bytes, but mints no authority. Failure leaves `sha256`
-/// untouched.
+/// Computes the RORNCP2 version-2 renderer-neutral projection authenticated
+/// inside the opaque native receipt. It covers every mutable material and
+/// texture field, including the exact texture-unit name and exact mip bytes,
+/// but mints no authority. Failure leaves `sha256` untouched.
 [[nodiscard]] ValidationResult ComputeOgre14LegacyNativeMaterialCaptureSha256(
     const Ogre14LegacyNativeMaterialCapture &capture,
     Ogre14LegacyNativeMaterialCaptureSha256 &sha256) noexcept;

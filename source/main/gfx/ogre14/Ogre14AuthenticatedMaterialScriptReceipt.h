@@ -36,6 +36,8 @@ constexpr std::uint32_t
 constexpr std::uint32_t
     kOgre14AuthenticatedMaterialScriptResolutionVersion = 1U;
 constexpr std::uint32_t
+    kOgre14AuthenticatedMaterialScriptAuthoritySnapshotVersion = 1U;
+constexpr std::uint32_t
     kOgre14AuthenticatedMaterialScriptSourceMetadataVersion = 1U;
 constexpr std::uint32_t
     kOgre14AuthenticatedMaterialScriptBindingMetadataVersion = 1U;
@@ -163,6 +165,8 @@ public:
 
 class Ogre14AuthenticatedMaterialScriptRegistry;
 class Ogre14AuthenticatedMaterialScriptResolution;
+class Ogre14AuthenticatedMaterialScriptAuthoritySnapshot;
+class IOgre14AuthenticatedMaterialScriptResolver;
 
 #if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING)
 namespace Testing {
@@ -279,11 +283,15 @@ private:
       const Ogre14AuthenticatedMaterialScriptResolution &,
       std::uintptr_t, std::uintptr_t, std::uint64_t, const std::string &,
       const std::string &, const std::string &) const noexcept;
+  [[nodiscard]] ValidationResult MintResolverAuthoritySnapshot(
+      std::uintptr_t,
+      Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &) const;
   static void RecomputeAccounting(State &);
   [[nodiscard]] static ValidationResult CheckAccounting(const State &);
 
   friend class ::RoR::ContentManager;
   friend class Ogre14AuthenticatedMaterialScriptResolution;
+  friend class Ogre14AuthenticatedMaterialScriptAuthoritySnapshot;
 #if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING)
   friend class Testing::Ogre14AuthenticatedMaterialScriptTestAccess;
 #endif
@@ -309,6 +317,11 @@ public:
       const noexcept;
   [[nodiscard]] bool SharesCurrentAuthorityWith(
       const Ogre14AuthenticatedMaterialScriptResolution &other) const noexcept;
+  /// Extractor-side substitution check binding the resolution to the exact
+  /// resolver subobject that minted it. Current-state revalidation remains a
+  /// separate final no-throw operation.
+  [[nodiscard]] bool MatchesResolver(
+      const IOgre14AuthenticatedMaterialScriptResolver &) const noexcept;
 
 private:
   struct State;
@@ -317,6 +330,58 @@ private:
   std::shared_ptr<const State> state_;
 
   friend class Ogre14AuthenticatedMaterialScriptRegistry;
+  friend class Ogre14AuthenticatedMaterialScriptAuthoritySnapshot;
+};
+
+/// Opaque proof of one material-script resolver and one exact current
+/// immutable registry publication. Numeric generations and copied receipt
+/// values cannot construct this authority.
+class Ogre14AuthenticatedMaterialScriptAuthoritySnapshot final {
+public:
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot() noexcept = default;
+  ~Ogre14AuthenticatedMaterialScriptAuthoritySnapshot() = default;
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot(
+      const Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &) noexcept =
+      default;
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &operator=(
+      const Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &) noexcept =
+      default;
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot(
+      Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &&) noexcept =
+      default;
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &operator=(
+      Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &&) noexcept =
+      default;
+
+  [[nodiscard]] bool initialized() const noexcept;
+  [[nodiscard]] std::uint32_t version() const noexcept;
+  [[nodiscard]] bool Authenticates(
+      const Ogre14AuthenticatedMaterialScriptResolution &) const noexcept;
+  [[nodiscard]] bool SharesImmutableAuthorityWith(
+      const Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &) const
+      noexcept;
+
+private:
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot(
+      Ogre14AuthenticatedMaterialScriptRegistry,
+      std::uintptr_t) noexcept;
+
+  std::uint32_t version_ = 0U;
+  Ogre14AuthenticatedMaterialScriptRegistry registry_snapshot_;
+  std::uintptr_t resolver_pointer_token_ = 0U;
+
+  friend class Ogre14AuthenticatedMaterialScriptRegistry;
+};
+
+/// Trusted provider of the current material-script registry publication. Live
+/// admission asks for a fresh snapshot rather than trusting a caller-supplied
+/// generation or a first-observation proof.
+class IOgre14AuthenticatedMaterialScriptAuthorityProvider {
+public:
+  virtual ~IOgre14AuthenticatedMaterialScriptAuthorityProvider() = default;
+  [[nodiscard]] virtual ValidationResult
+  CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+      Ogre14AuthenticatedMaterialScriptAuthoritySnapshot &) const = 0;
 };
 
 class IOgre14AuthenticatedMaterialScriptResolver {

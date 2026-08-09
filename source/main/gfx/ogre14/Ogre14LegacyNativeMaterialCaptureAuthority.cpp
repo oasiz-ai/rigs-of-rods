@@ -23,7 +23,7 @@ namespace {
 
 constexpr std::size_t kMaximumCaptureProjectionBytes = 256U * 1024U;
 constexpr std::array<std::uint8_t, 8U> kCaptureProjectionMagic{{
-    'R', 'O', 'R', 'N', 'C', 'P', '1', '\0',
+    'R', 'O', 'R', 'N', 'C', 'P', '2', '\0',
 }};
 
 class CaptureProjectionWriter final {
@@ -208,7 +208,8 @@ bool AppendSampler(CaptureProjectionWriter &writer,
 
 bool AppendTextureUnit(CaptureProjectionWriter &writer,
                        const Ogre14LegacyTextureUnitInput &unit) {
-  return AppendKey(writer, unit.texture_key) &&
+  return writer.AppendString(unit.exact_unit_name) &&
+         AppendKey(writer, unit.texture_key) &&
          AppendSampler(writer, unit.sampler) &&
          writer.AppendU8(unit.texture_coordinate_set) &&
          writer.AppendBool(unit.named_content) &&

@@ -409,6 +409,8 @@ if (ROR_OGRE14)
         gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
         gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.{h,cpp}
         gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp}
+        gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.{h,cpp}
+        gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp
         gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp})
 endif ()
 
@@ -493,10 +495,14 @@ if (ROR_OGRE14)
     list(APPEND ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
             gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp
+            gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp
             )
     set_source_files_properties(
             gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp
+            gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp
             PROPERTIES
             SKIP_PRECOMPILE_HEADERS ON
             )

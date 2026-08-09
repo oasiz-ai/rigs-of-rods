@@ -8,6 +8,7 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+      - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION.md
       - conanfile.py
       - cmake/conan/**
       - source/main/CMakeLists.txt
@@ -37,6 +38,8 @@ on:
       - source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp
       - tools/compile_ogre14_material_semantic_catalog_v2.py
       - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
@@ -114,8 +117,11 @@ on:
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionTests.cpp
+      - tests/tools/test_ogre14_material_semantic_runtime_admission_contract.py
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
+      - tests/fixtures/gfx/ogre14/material-semantic-runtime-admission.synthetic.json
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
@@ -137,6 +143,7 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+      - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION.md
       - conanfile.py
       - cmake/conan/**
       - source/main/CMakeLists.txt
@@ -166,6 +173,8 @@ on:
       - source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionNative.cpp
       - tools/compile_ogre14_material_semantic_catalog_v2.py
       - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
@@ -243,8 +252,11 @@ on:
       - tests/gfx/RendererStartupPlanTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionTests.cpp
+      - tests/tools/test_ogre14_material_semantic_runtime_admission_contract.py
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
+      - tests/fixtures/gfx/ogre14/material-semantic-runtime-admission.synthetic.json
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
@@ -412,6 +424,7 @@ jobs:
           python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
           python tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
+          python tests/tools/test_ogre14_material_semantic_runtime_admission_contract.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
@@ -434,6 +447,7 @@ jobs:
           python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python -O tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
           python -O tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
+          python -O tests/tools/test_ogre14_material_semantic_runtime_admission_contract.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only

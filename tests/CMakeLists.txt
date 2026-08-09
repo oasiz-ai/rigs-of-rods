@@ -39,6 +39,24 @@ add_custom_target(
     ror_ogre14_material_semantic_catalog_v2_fixture
     DEPENDS "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}")
 
+set(ROR_OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION_FIXTURE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/material-semantic-runtime-admission.synthetic.rormat2")
+add_custom_command(
+    OUTPUT "${ROR_OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION_FIXTURE}"
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+        "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-runtime-admission.synthetic.json"
+        "${ROR_OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION_FIXTURE}"
+    DEPENDS
+        "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+        "${ROR_REPOSITORY_ROOT}/tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
+        "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-runtime-admission.synthetic.json"
+    VERBATIM)
+add_custom_target(
+    ror_ogre14_material_semantic_runtime_admission_fixture
+    DEPENDS "${ROR_OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION_FIXTURE}")
+
 set(ROR_WORLDMODEL_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeArtifacts.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeCaptureSink.cpp"
@@ -1052,13 +1070,50 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
 )
+add_executable(
+    ror_ogre14_material_semantic_runtime_admission_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmissionTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+)
+add_dependencies(
+    ror_ogre14_material_semantic_runtime_admission_tests
+    ror_ogre14_material_semantic_runtime_admission_fixture)
+target_include_directories(
+    ror_ogre14_material_semantic_runtime_admission_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_material_semantic_runtime_admission_tests
+    PRIVATE
+        ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING=1
+        ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1
+        ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+        "ROR_OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION_FIXTURE=\"${ROR_OGRE14_MATERIAL_SEMANTIC_RUNTIME_ADMISSION_FIXTURE}\"")
+target_link_libraries(
+    ror_ogre14_material_semantic_runtime_admission_tests
+    PRIVATE OpenSSL::Crypto Threads::Threads)
 target_include_directories(
     ror_ogre14_live_material_coordinator_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
+target_link_libraries(
+    ror_ogre14_live_material_coordinator_tests
+    PRIVATE OpenSSL::Crypto)
 target_compile_definitions(
     ror_ogre14_live_material_coordinator_tests
     PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
@@ -1069,8 +1124,12 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRuntimeAdmission.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
 )
 target_include_directories(
     ror_ogre14_graphics_scene_prepared_material_binding_tests
@@ -1080,6 +1139,9 @@ target_compile_definitions(
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
 )
+target_link_libraries(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    PRIVATE OpenSSL::Crypto)
 add_executable(
     ror_ogre14_authenticated_texture_receipt_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
@@ -1279,6 +1341,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_material_semantic_registry_tests
     ror_ogre14_source_texture_decoder_tests
     ror_ogre14_material_semantic_catalog_v2_tests
+    ror_ogre14_material_semantic_runtime_admission_tests
     ror_ogre14_live_material_coordinator_tests
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     ror_ogre14_authenticated_texture_receipt_tests
@@ -1363,7 +1426,9 @@ if (ROR_OGRE14 AND TARGET RoR)
     )
     target_compile_definitions(
         ror_ogre14_legacy_native_asset_extractor_compile_tests
-        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+        PRIVATE
+            ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+            ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING=1
     )
     if (TARGET OgreMain)
         target_link_libraries(
@@ -2685,6 +2750,16 @@ add_test(
 add_test(
     NAME ogre14_material_semantic_catalog_v2
     COMMAND ror_ogre14_material_semantic_catalog_v2_tests
+)
+
+add_test(
+    NAME ogre14_material_semantic_runtime_admission
+    COMMAND ror_ogre14_material_semantic_runtime_admission_tests
+)
+add_test(
+    NAME ogre14_material_semantic_runtime_admission_contract
+    COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_LIST_DIR}/tools/test_ogre14_material_semantic_runtime_admission_contract.py"
 )
 
 add_test(

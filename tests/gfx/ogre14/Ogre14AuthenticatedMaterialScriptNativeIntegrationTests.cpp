@@ -6,6 +6,7 @@
 */
 
 #include "resources/ContentManager.h"
+#include "gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
 
 #include <OgreMaterialManager.h>
 #include <OgreRoot.h>
@@ -26,6 +27,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -78,6 +80,62 @@ public:
 } // namespace RoR
 
 namespace {
+
+class IndependentLiveAuthority
+    : public RoR::Render::IOgre14AuthenticatedMaterialScriptResolver,
+      public RoR::Render::IOgre14AuthenticatedMaterialScriptAuthorityProvider,
+      public RoR::Render::IOgre14AuthenticatedTextureResolver,
+      public RoR::Render::IOgre14AuthenticatedTextureAuthorityProvider
+{};
+
+using SealedCaptureFunction = RoR::Render::ValidationResult (*)(
+    const RoR::Render::Ogre14LegacyMaterialSemanticRuntimeAuthority&,
+    const RoR::Render::Ogre14LegacyAssetTranslatorConfiguration&,
+    Ogre::Material&,
+    RoR::ContentManager&,
+    RoR::Render::Ogre14LegacyMaterialSemanticAdmission&);
+using SealedCoordinatorFactory = RoR::Render::ValidationResult (*)(
+    const RoR::Render::Ogre14LegacyLiveMaterialCoordinatorConfiguration&,
+    const RoR::Render::Ogre14LegacyMaterialSemanticRuntimeAuthority&,
+    RoR::ContentManager&,
+    std::unique_ptr<RoR::Render::Ogre14LegacyLiveMaterialCoordinator>&);
+
+constexpr SealedCaptureFunction SEALED_CAPTURE = static_cast<
+    SealedCaptureFunction>(
+        &RoR::Render::CaptureAndAdmitOgre14LegacyMaterialSemanticRuntime);
+constexpr SealedCoordinatorFactory SEALED_COORDINATOR_FACTORY = static_cast<
+    SealedCoordinatorFactory>(
+        &RoR::Render::CreateOgre14LegacyAuthenticatedMaterialCoordinator);
+
+static_assert(std::is_final<RoR::ContentManager>::value,
+              "production ContentManager authority must be final");
+static_assert(
+    std::is_invocable<
+        SealedCaptureFunction,
+        const RoR::Render::Ogre14LegacyMaterialSemanticRuntimeAuthority&,
+        const RoR::Render::Ogre14LegacyAssetTranslatorConfiguration&,
+        Ogre::Material&,
+        RoR::ContentManager&,
+        RoR::Render::Ogre14LegacyMaterialSemanticAdmission&>::value,
+    "sealed native admission must accept the concrete ContentManager");
+static_assert(
+    !std::is_invocable<
+        SealedCaptureFunction,
+        const RoR::Render::Ogre14LegacyMaterialSemanticRuntimeAuthority&,
+        const RoR::Render::Ogre14LegacyAssetTranslatorConfiguration&,
+        Ogre::Material&,
+        IndependentLiveAuthority&,
+        RoR::Render::Ogre14LegacyMaterialSemanticAdmission&>::value,
+    "production native admission must reject independent live authorities");
+static_assert(
+    !std::is_invocable<
+        SealedCoordinatorFactory,
+        const RoR::Render::Ogre14LegacyLiveMaterialCoordinatorConfiguration&,
+        const RoR::Render::Ogre14LegacyMaterialSemanticRuntimeAuthority&,
+        IndependentLiveAuthority&,
+        std::unique_ptr<
+            RoR::Render::Ogre14LegacyLiveMaterialCoordinator>&>::value,
+    "production authenticated factory must reject independent authorities");
 
 using ArchiveEntries = std::vector<std::pair<std::string, std::string>>;
 
@@ -483,6 +541,31 @@ struct LoadedGeneration final
     Ogre::MaterialPtr second;
     RoR::Render::Ogre14AuthenticatedMaterialScriptResolution first_resolution;
     RoR::Render::Ogre14AuthenticatedMaterialScriptResolution second_resolution;
+    RoR::Render::Ogre14AuthenticatedMaterialScriptAuthoritySnapshot
+        script_authority;
+};
+
+class SubstituteMaterialScriptResolver final
+    : public RoR::Render::IOgre14AuthenticatedMaterialScriptResolver
+{
+public:
+    RoR::Render::ValidationResult ResolveAuthenticatedMaterialScript(
+        Ogre::Material&,
+        RoR::Render::Ogre14AuthenticatedMaterialScriptResolution&) const
+        override
+    {
+        return RoR::Render::ValidationResult::Failure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "native_test.substitute_resolver", "substitute never resolves");
+    }
+
+    bool RevalidateAuthenticatedMaterialScript(
+        Ogre::Material&,
+        const RoR::Render::Ogre14AuthenticatedMaterialScriptResolution&) const
+        noexcept override
+    {
+        return false;
+    }
 };
 
 LoadedGeneration LoadSuccessfulGeneration(
@@ -508,6 +591,31 @@ LoadedGeneration LoadSuccessfulGeneration(
     Require(loaded.first && loaded.second &&
                 loaded.first.get() != loaded.second.get(),
             "whole-group parse did not create both native materials");
+    RoR::Render::Ogre14LegacyMaterialSemanticRuntimeAuthority absent_runtime;
+    RoR::Render::Ogre14LegacyMaterialSemanticAdmission absent_admission;
+    const RoR::Render::ValidationResult sealed_capture = SEALED_CAPTURE(
+        absent_runtime,
+        RoR::Render::Ogre14LegacyAssetTranslatorConfiguration{},
+        *loaded.first,
+        content,
+        absent_admission);
+    std::unique_ptr<RoR::Render::Ogre14LegacyLiveMaterialCoordinator>
+        absent_coordinator;
+    const RoR::Render::ValidationResult sealed_factory =
+        SEALED_COORDINATOR_FACTORY(
+            RoR::Render::Ogre14LegacyLiveMaterialCoordinatorConfiguration{},
+            absent_runtime,
+            content,
+            absent_coordinator);
+    Require(!sealed_capture &&
+                sealed_capture.field == "semantic_runtime.live.authority" &&
+                !absent_admission.initialized() &&
+                !sealed_factory &&
+                sealed_factory.field ==
+                    "material_coordinator.semantic_runtime_authority" &&
+                absent_coordinator == nullptr,
+            "sealed ContentManager production admission/factory path did not "
+            "fail closed before absent authority publication");
     const RoR::Render::ValidationResult first_resolved =
         content.ResolveAuthenticatedMaterialScript(
             *loaded.first, loaded.first_resolution);
@@ -518,11 +626,28 @@ LoadedGeneration LoadSuccessfulGeneration(
                 loaded.first_resolution.initialized() &&
                 loaded.second_resolution.initialized(),
             "whole-group publication did not resolve both native materials");
+    SubstituteMaterialScriptResolver substitute;
+    Require(loaded.first_resolution.MatchesResolver(content) &&
+                loaded.second_resolution.MatchesResolver(content) &&
+                !loaded.first_resolution.MatchesResolver(substitute) &&
+                !loaded.second_resolution.MatchesResolver(substitute),
+            "native script resolution did not bind the exact ContentManager "
+            "resolver subobject");
     Require(content.RevalidateAuthenticatedMaterialScript(
                 *loaded.first, loaded.first_resolution) &&
                 content.RevalidateAuthenticatedMaterialScript(
                     *loaded.second, loaded.second_resolution),
             "fresh native material resolution did not revalidate");
+    const RoR::Render::ValidationResult authority_captured =
+        content.CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+            loaded.script_authority);
+    Require(authority_captured && loaded.script_authority.initialized() &&
+                loaded.script_authority.Authenticates(
+                    loaded.first_resolution) &&
+                loaded.script_authority.Authenticates(
+                    loaded.second_resolution),
+            "current native resolver did not publish one exact registry "
+            "authority snapshot");
 
     const auto* first_receipt = loaded.first_resolution.receipt();
     const auto* second_receipt = loaded.second_resolution.receipt();
@@ -691,6 +816,17 @@ void TestSuccessfulLifecycleAndReload(RoR::ContentManager& content)
                 !content.RevalidateAuthenticatedMaterialScript(
                     *first.second, first.second_resolution),
             "teardown did not revoke native material resolutions");
+    RoR::Render::Ogre14AuthenticatedMaterialScriptAuthoritySnapshot
+        after_teardown;
+    Require(content.CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+                after_teardown) &&
+                after_teardown.initialized() &&
+                !after_teardown.Authenticates(first.first_resolution) &&
+                !after_teardown.Authenticates(first.second_resolution) &&
+                !after_teardown.SharesImmutableAuthorityWith(
+                    first.script_authority),
+            "teardown published a current snapshot which still authenticated "
+            "the revoked native registry generation");
 
     const ArchiveEntries second_entries = SuccessfulEntries(2U);
     const auto second_snapshot = MakeSnapshot(second_entries, "success-2");
@@ -704,6 +840,13 @@ void TestSuccessfulLifecycleAndReload(RoR::ContentManager& content)
     Require(content.RevalidateAuthenticatedMaterialScript(
                 *second.first, second.first_resolution),
             "reload did not publish fresh native material authority");
+    Require(second.script_authority.Authenticates(second.first_resolution) &&
+                !second.script_authority.Authenticates(
+                    first.first_resolution) &&
+                !first.script_authority.Authenticates(
+                    second.first_resolution),
+            "reload accepted a stale or cross-generation native authority "
+            "snapshot");
     DestroyAndUnregister(content, group);
     Require(!content.RevalidateAuthenticatedMaterialScript(
                 *second.first, second.first_resolution),

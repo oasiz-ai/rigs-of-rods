@@ -103,7 +103,8 @@ bool SameSampler(const Ogre14LegacySamplerInput &lhs,
 
 bool SameTextureUnit(const Ogre14LegacyTextureUnitInput &lhs,
                      const Ogre14LegacyTextureUnitInput &rhs) noexcept {
-  return lhs.texture_key == rhs.texture_key &&
+  return lhs.exact_unit_name == rhs.exact_unit_name &&
+         lhs.texture_key == rhs.texture_key &&
          SameSampler(lhs.sampler, rhs.sampler) &&
          lhs.texture_coordinate_set == rhs.texture_coordinate_set &&
          lhs.named_content == rhs.named_content &&
@@ -223,8 +224,9 @@ bool SameNativeCapture(const Ogre14LegacyNativeMaterialCapture &lhs,
   return true;
 }
 
+template <typename Observation>
 ValidationResult ValidateObservation(
-    const Ogre14LegacyMaterialObservation &observation,
+    const Observation &observation,
     const Ogre14LegacyMaterialSemanticRegistry &semantic_registry,
     const Ogre14LegacyAssetTranslatorConfiguration &translator_configuration,
     const Ogre14AuthenticatedTextureAuthoritySnapshot &texture_authority,
@@ -422,12 +424,6 @@ ValidationResult ValidateObservation(
 
 } // namespace
 
-struct Ogre14LegacyPreparedMaterialFrame::State final {
-  std::uint32_t version = kOgre14LegacyPreparedMaterialFrameVersion;
-  std::shared_ptr<const Ogre14LegacyTranslatedFrame> translated_frame;
-  std::vector<Ogre14LegacyPreparedMaterial> materials;
-};
-
 Ogre14LegacyPreparedMaterialFrame::Ogre14LegacyPreparedMaterialFrame(
     std::shared_ptr<const State> state) noexcept
     : state_(std::move(state)) {}
@@ -456,10 +452,38 @@ bool Ogre14LegacyPreparedMaterialFrame::SharesImmutableStateWith(
   return state_ != nullptr && state_.get() == other.state_.get();
 }
 
-struct Ogre14LegacyLiveMaterialCoordinator::PendingFrame final {
-  Ogre14LegacyAssetTranslatorCommittableTransaction transaction;
-  Ogre14LegacyPreparedMaterialFrame prepared;
-};
+Ogre14LegacyAdmittedPreparedMaterialFrame::
+    Ogre14LegacyAdmittedPreparedMaterialFrame(
+        std::shared_ptr<const State> state) noexcept
+    : state_(std::move(state)) {}
+
+bool Ogre14LegacyAdmittedPreparedMaterialFrame::initialized() const noexcept {
+  return state_ != nullptr &&
+         state_->version == kOgre14LegacyAdmittedPreparedMaterialFrameVersion &&
+         state_->runtime_authority.initialized() &&
+         state_->script_authority.initialized() &&
+         state_->texture_authority.initialized() && state_->prepared.initialized();
+}
+
+std::uint32_t
+Ogre14LegacyAdmittedPreparedMaterialFrame::version() const noexcept {
+  return state_ != nullptr ? state_->version : 0U;
+}
+
+const Ogre14LegacyPreparedMaterialFrame *
+Ogre14LegacyAdmittedPreparedMaterialFrame::prepared_frame() const noexcept {
+  return initialized() ? &state_->prepared : nullptr;
+}
+
+std::size_t
+Ogre14LegacyAdmittedPreparedMaterialFrame::admission_count() const noexcept {
+  return initialized() ? state_->admissions.size() : 0U;
+}
+
+bool Ogre14LegacyAdmittedPreparedMaterialFrame::SharesImmutableStateWith(
+    const Ogre14LegacyAdmittedPreparedMaterialFrame &other) const noexcept {
+  return state_ != nullptr && state_ == other.state_;
+}
 
 Ogre14LegacyLiveMaterialCoordinator::~Ogre14LegacyLiveMaterialCoordinator() =
     default;
@@ -469,11 +493,23 @@ Ogre14LegacyLiveMaterialCoordinator::Ogre14LegacyLiveMaterialCoordinator(
     Ogre14LegacyMaterialSemanticRegistry semantic_registry,
     std::unique_ptr<Ogre14LegacyAssetTranslator> translator,
     const IOgre14AuthenticatedTextureAuthorityProvider
-        *texture_authority_provider) noexcept
+        *texture_authority_provider,
+    Ogre14LegacyMaterialSemanticRuntimeAuthority runtime_authority,
+    ::RoR::ContentManager *content_manager
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+    , IOgre14LegacyMaterialRuntimeLiveAuthority *testing_live_authority
+#endif
+    ) noexcept
     : configuration_(std::move(configuration)),
       semantic_registry_(std::move(semantic_registry)),
       translator_(std::move(translator)),
-      texture_authority_provider_(texture_authority_provider) {}
+      texture_authority_provider_(texture_authority_provider),
+      semantic_runtime_authority_(std::move(runtime_authority)),
+      content_manager_(content_manager)
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+      , testing_live_authority_(testing_live_authority)
+#endif
+      {}
 
 std::uint64_t
 Ogre14LegacyLiveMaterialCoordinator::source_sequence() const noexcept {
@@ -505,7 +541,112 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
     std::uint64_t source_sequence,
     const std::vector<Ogre14LegacyMaterialObservation> &observations,
     Ogre14LegacyPreparedMaterialFrame &output,
+    IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector) {
+  if (semantic_runtime_authority_.initialized()) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "material_coordinator.authenticated_path",
+                   "authenticated coordinators accept opaque admissions only");
+  }
+  const PrepareStartStatus start =
+      CheckPrepareStart(source_sequence, observations.size());
+  if (start != PrepareStartStatus::READY) {
+    return PrepareStartFailure(start);
+  }
+  return PrepareFrameImpl(source_sequence, observations, output,
+                          fault_injector);
+}
+
+Ogre14LegacyLiveMaterialCoordinator::PrepareStartStatus
+Ogre14LegacyLiveMaterialCoordinator::CheckPrepareStart(
+    std::uint64_t source_sequence, std::size_t observation_count) const
+    noexcept {
+  if (fail_stopped_) {
+    return PrepareStartStatus::FAIL_STOPPED;
+  }
+  if (pending_ != nullptr) {
+    return PrepareStartStatus::PENDING;
+  }
+  if (translator_ == nullptr || !semantic_registry_.initialized()) {
+    return PrepareStartStatus::MISSING_STATE;
+  }
+  if (observation_count > configuration_.maximum_material_observations) {
+    return PrepareStartStatus::COUNT_EXCEEDED;
+  }
+  if (source_sequence == 0U ||
+      translator_->source_sequence() ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      source_sequence != translator_->source_sequence() + 1U) {
+    return PrepareStartStatus::SEQUENCE_MISMATCH;
+  }
+  return PrepareStartStatus::READY;
+}
+
+ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareStartFailure(
+    PrepareStartStatus status) {
+  switch (status) {
+  case PrepareStartStatus::FAIL_STOPPED:
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "material_coordinator.fail_stopped",
+                   "coordinator stopped after a publication invariant failure");
+  case PrepareStartStatus::PENDING:
+    return Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "material_coordinator.pending",
+        "the preceding material frame must be committed or discarded");
+  case PrepareStartStatus::MISSING_STATE:
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "material_coordinator.state",
+                   "coordinator has no translator or semantic registry");
+  case PrepareStartStatus::COUNT_EXCEEDED:
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "material_observations.count",
+                   "material observation count exceeds the configured cap");
+  case PrepareStartStatus::SEQUENCE_MISMATCH:
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "material_coordinator.source_sequence",
+                   "material frame source sequence must advance exactly once");
+  case PrepareStartStatus::READY:
+    break;
+  }
+  return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                 "material_coordinator.start_gate",
+                 "invalid material preparation start-gate result");
+}
+
+ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrameImpl(
+    std::uint64_t source_sequence,
+    const std::vector<Ogre14LegacyMaterialObservation> &observations,
+    Ogre14LegacyPreparedMaterialFrame &output,
     IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector) try {
+  std::vector<ObservationView> views;
+  views.reserve(observations.size());
+  for (const auto &observation : observations) {
+    views.push_back(ObservationView{observation.version,
+                                    observation.material_key,
+                                    observation.semantic_resolution,
+                                    observation.native_capture});
+  }
+  return PrepareFrameViewsImpl(source_sequence, views, output,
+                               fault_injector);
+} catch (const std::bad_alloc &) {
+  return Failure(ValidationCode::EMPTY_PAYLOAD,
+                 "material_coordinator.observation_views_allocation",
+                 "allocation failed before material observation preflight");
+} catch (...) {
+  return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                 "material_coordinator.observation_views_exception",
+                 "unexpected exception before material observation preflight");
+}
+
+ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrameViewsImpl(
+    std::uint64_t source_sequence,
+    const std::vector<ObservationView> &observations,
+    Ogre14LegacyPreparedMaterialFrame &output,
+    IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector) try {
+  if (fail_stopped_) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "material_coordinator.fail_stopped",
+                   "coordinator stopped after a publication invariant failure");
+  }
   if (pending_ != nullptr) {
     return Failure(
         ValidationCode::SEQUENCE_MISMATCH, "material_coordinator.pending",
@@ -552,7 +693,7 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
 
   struct IndexedObservation final {
     std::string material_stable_key;
-    const Ogre14LegacyMaterialObservation *observation = nullptr;
+    const ObservationView *observation = nullptr;
   };
   std::vector<IndexedObservation> ordered;
   ordered.reserve(observations.size());
@@ -892,11 +1033,180 @@ ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFrame(
       "unexpected exception before the material frame was published");
 }
 
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+ValidationResult Ogre14LegacyLiveMaterialCoordinator::PrepareFreshAdmissionsImpl(
+    std::uint64_t source_sequence,
+    const std::vector<Ogre14LegacyMaterialSemanticAdmission> &admissions,
+    Ogre14LegacyAdmittedPreparedMaterialFrame &output,
+    IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector) try {
+  const PrepareStartStatus start =
+      CheckPrepareStart(source_sequence, admissions.size());
+  if (start != PrepareStartStatus::READY) {
+    return PrepareStartFailure(start);
+  }
+  if (!semantic_runtime_authority_.initialized() ||
+      testing_live_authority_ == nullptr ||
+      texture_authority_provider_ != testing_live_authority_) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "material_coordinator.authenticated_authority",
+                   "coordinator was not created by the authenticated factory");
+  }
+  // Allocate and retain the complete outer capability before the inner
+  // translator lease begins. Nothing after accepted exposure allocates.
+  auto capability =
+      std::make_shared<Ogre14LegacyAdmittedPreparedMaterialFrame::State>();
+  capability->runtime_authority = semantic_runtime_authority_;
+  // Admission copies retain shared immutable state; no mip payload is copied.
+  // Complete the only outer-capability allocation before the inner lease.
+  capability->admissions = admissions;
+
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot initial_script;
+  ValidationResult validation = testing_live_authority_
+                                    ->CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+                                        initial_script);
+  if (!validation) {
+    return validation;
+  }
+  Ogre14AuthenticatedTextureAuthoritySnapshot initial_texture;
+  validation =
+      testing_live_authority_->CaptureAuthenticatedTextureAuthoritySnapshot(
+          initial_texture);
+  if (!validation) {
+    return validation;
+  }
+
+  std::vector<ObservationView> observations;
+  observations.reserve(admissions.size());
+  for (std::size_t index = 0U; index < admissions.size(); ++index) {
+    validation = semantic_runtime_authority_.RevalidateAdmission(
+        admissions[index], initial_script, initial_texture);
+    const auto *key = admissions[index].material_key();
+    const auto *semantics = admissions[index].semantic_resolution();
+    const auto *capture = admissions[index].native_capture();
+    if (!validation || key == nullptr || semantics == nullptr ||
+        capture == nullptr) {
+      if (validation) {
+        validation = Failure(ValidationCode::MISSING_REFERENCE,
+                             "material_admissions.state",
+                             "opaque material admission is incomplete", index);
+      } else {
+        validation.element_index = index;
+      }
+      return validation;
+    }
+    for (const auto &texture_resolution :
+         capture->authenticated_texture_resolutions) {
+      if (!initial_texture.Authenticates(texture_resolution)) {
+        return Failure(ValidationCode::REVISION_MISMATCH,
+                       "material_admissions.texture_authority",
+                       "admission texture authority is stale or foreign",
+                       index);
+      }
+    }
+    observations.push_back(ObservationView{
+        kOgre14LegacyMaterialObservationVersion, *key, *semantics, *capture});
+  }
+
+  Ogre14LegacyPreparedMaterialFrame prepared;
+  validation = PrepareFrameViewsImpl(source_sequence, observations, prepared,
+                                     fault_injector);
+  if (!validation) {
+    return validation;
+  }
+  try {
+    if (fault_injector != nullptr) {
+      fault_injector->AtFaultPoint(
+          Ogre14LegacyLiveMaterialCoordinatorFaultPoint::
+              AFTER_ADMITTED_INNER_PREPARE);
+    }
+
+    Ogre14AuthenticatedMaterialScriptAuthoritySnapshot final_script;
+    validation = testing_live_authority_
+                     ->CaptureAuthenticatedMaterialScriptAuthoritySnapshot(
+                         final_script);
+    if (!validation) {
+      pending_.reset();
+      return validation;
+    }
+    Ogre14AuthenticatedTextureAuthoritySnapshot final_texture;
+    validation =
+        testing_live_authority_->CaptureAuthenticatedTextureAuthoritySnapshot(
+            final_texture);
+    if (!validation) {
+      pending_.reset();
+      return validation;
+    }
+    for (std::size_t index = 0U; index < admissions.size(); ++index) {
+      validation = semantic_runtime_authority_.RevalidateAdmission(
+          admissions[index], final_script, final_texture);
+      const auto *capture = admissions[index].native_capture();
+      if (!validation || capture == nullptr) {
+        pending_.reset();
+        if (!validation) {
+          validation.element_index = index;
+          return validation;
+        }
+        return Failure(ValidationCode::MISSING_REFERENCE,
+                       "material_admissions.state",
+                       "admission lost its native capture before publication",
+                       index);
+      }
+      for (const auto &texture_resolution :
+           capture->authenticated_texture_resolutions) {
+        if (!final_texture.Authenticates(texture_resolution)) {
+          pending_.reset();
+          return Failure(ValidationCode::REVISION_MISMATCH,
+                         "material_admissions.final_texture_authority",
+                         "texture registry changed before frame publication",
+                         index);
+        }
+      }
+    }
+
+    capability->script_authority = std::move(final_script);
+    capability->texture_authority = std::move(final_texture);
+    capability->prepared = prepared;
+    Ogre14LegacyAdmittedPreparedMaterialFrame admitted(
+        std::shared_ptr<const Ogre14LegacyAdmittedPreparedMaterialFrame::State>(
+            std::move(capability)));
+    pending_->admitted = admitted;
+    output = std::move(admitted);
+    return ValidationResult::Success();
+  } catch (...) {
+    pending_.reset();
+    throw;
+  }
+} catch (const std::bad_alloc &) {
+  pending_.reset();
+  return Failure(ValidationCode::EMPTY_PAYLOAD,
+                 "material_coordinator.admitted_allocation",
+                 "allocation failed before admitted frame publication");
+} catch (...) {
+  pending_.reset();
+  return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                 "material_coordinator.admitted_exception",
+                 "unexpected exception before admitted frame publication");
+}
+
+ValidationResult Ogre14LegacyLiveMaterialCoordinator::
+    PreparePreviouslyAdmittedFrameForTesting(
+        std::uint64_t source_sequence,
+        const std::vector<Ogre14LegacyMaterialSemanticAdmission> &admissions,
+        Ogre14LegacyAdmittedPreparedMaterialFrame &output,
+        IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector) {
+  return PrepareFreshAdmissionsImpl(source_sequence, admissions, output,
+                                    fault_injector);
+}
+#endif
+
 Ogre14LegacyPreparedMaterialCommitResult
 Ogre14LegacyLiveMaterialCoordinator::CommitPreparedFrameAfterAcceptedExposure(
     const Ogre14LegacyPreparedMaterialFrame &accepted_frame) noexcept {
-  if (pending_ == nullptr) {
+  if (fail_stopped_ || pending_ == nullptr) {
     return Ogre14LegacyPreparedMaterialCommitResult::NO_PENDING_FRAME;
+  }
+  if (semantic_runtime_authority_.initialized()) {
+    return Ogre14LegacyPreparedMaterialCommitResult::PREPARED_FRAME_MISMATCH;
   }
   if (!pending_->prepared.SharesImmutableStateWith(accepted_frame)) {
     return Ogre14LegacyPreparedMaterialCommitResult::PREPARED_FRAME_MISMATCH;
@@ -904,10 +1214,40 @@ Ogre14LegacyLiveMaterialCoordinator::CommitPreparedFrameAfterAcceptedExposure(
   const Ogre14LegacyAssetTranslatorExclusiveCommitResult result =
       pending_->transaction.CommitAfterAcceptedExposure();
   pending_.reset();
-  return result == Ogre14LegacyAssetTranslatorExclusiveCommitResult::COMMITTED
-             ? Ogre14LegacyPreparedMaterialCommitResult::COMMITTED
-             : Ogre14LegacyPreparedMaterialCommitResult::
-                   TRANSLATOR_INVARIANT_BROKEN;
+  if (result == Ogre14LegacyAssetTranslatorExclusiveCommitResult::COMMITTED) {
+    return Ogre14LegacyPreparedMaterialCommitResult::COMMITTED;
+  }
+  fail_stopped_ = true;
+  return Ogre14LegacyPreparedMaterialCommitResult::
+      TRANSLATOR_INVARIANT_BROKEN;
+}
+
+Ogre14LegacyPreparedMaterialCommitResult
+Ogre14LegacyLiveMaterialCoordinator::
+    CommitAdmittedPreparedFrameAfterAcceptedExposure(
+        const Ogre14LegacyAdmittedPreparedMaterialFrame &accepted_frame)
+        noexcept {
+  if (fail_stopped_ || pending_ == nullptr) {
+    return Ogre14LegacyPreparedMaterialCommitResult::NO_PENDING_FRAME;
+  }
+  if (!semantic_runtime_authority_.initialized() ||
+      !pending_->admitted.SharesImmutableStateWith(accepted_frame) ||
+      accepted_frame.prepared_frame() == nullptr ||
+      !pending_->prepared.SharesImmutableStateWith(
+          *accepted_frame.prepared_frame())) {
+    // A mismatched accepted capability must not consume the exact pending
+    // lease. The caller may still submit the correct wrapper or discard it.
+    return Ogre14LegacyPreparedMaterialCommitResult::PREPARED_FRAME_MISMATCH;
+  }
+  const Ogre14LegacyAssetTranslatorExclusiveCommitResult result =
+      pending_->transaction.CommitAfterAcceptedExposure();
+  pending_.reset();
+  if (result == Ogre14LegacyAssetTranslatorExclusiveCommitResult::COMMITTED) {
+    return Ogre14LegacyPreparedMaterialCommitResult::COMMITTED;
+  }
+  fail_stopped_ = true;
+  return Ogre14LegacyPreparedMaterialCommitResult::
+      TRANSLATOR_INVARIANT_BROKEN;
 }
 
 void Ogre14LegacyLiveMaterialCoordinator::DiscardPreparedFrame() noexcept {
@@ -995,6 +1335,56 @@ ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
   output = std::move(candidate);
   return ValidationResult::Success();
 }
+
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+ValidationResult CreateOgre14LegacyAuthenticatedMaterialCoordinator(
+    const Ogre14LegacyLiveMaterialCoordinatorConfiguration &configuration,
+    const Ogre14LegacyMaterialSemanticRuntimeAuthority &runtime_authority,
+    IOgre14LegacyMaterialRuntimeLiveAuthority &live_authority,
+    std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output,
+    IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector) try {
+  ValidationResult validation =
+      ValidateOgre14LegacyLiveMaterialCoordinatorConfiguration(configuration);
+  if (!validation) {
+    return validation;
+  }
+  const Ogre14LegacyMaterialSemanticRegistry *exact_registry =
+      runtime_authority.semantic_registry();
+  if (!runtime_authority.initialized() || exact_registry == nullptr ||
+      !exact_registry->initialized()) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "material_coordinator.semantic_runtime_authority",
+                   "authenticated factory requires an initialized exact runtime authority");
+  }
+  auto translator = std::make_unique<Ogre14LegacyAssetTranslator>(
+      configuration.translator, configuration.transaction,
+      translator_fault_injector);
+  auto candidate = std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator>(
+      new Ogre14LegacyLiveMaterialCoordinator(
+          configuration, *exact_registry, std::move(translator),
+          static_cast<IOgre14AuthenticatedTextureAuthorityProvider *>(
+              &live_authority),
+          runtime_authority, nullptr, &live_authority));
+  if (!candidate->semantic_registry_.SharesImmutableStateWith(
+          *exact_registry) ||
+      !candidate->semantic_runtime_authority_.SharesImmutableStateWith(
+          runtime_authority)) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "material_coordinator.semantic_runtime_authority",
+                   "authenticated factory detached the approved catalog registry owner");
+  }
+  output = std::move(candidate);
+  return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return Failure(ValidationCode::EMPTY_PAYLOAD,
+                 "material_coordinator.authenticated_allocation",
+                 "allocation failed before authenticated coordinator publication");
+} catch (...) {
+  return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                 "material_coordinator.authenticated_exception",
+                 "unexpected exception before authenticated coordinator publication");
+}
+#endif
 
 const Ogre14LegacyPreparedMaterial *FindOgre14LegacyPreparedMaterial(
     const Ogre14LegacyPreparedMaterialFrame &frame,

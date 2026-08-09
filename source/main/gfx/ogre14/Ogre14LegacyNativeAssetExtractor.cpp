@@ -39,6 +39,7 @@ static_assert(
     "native capture publication must preserve transactional rollback");
 
 namespace RoR::Render {
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
 namespace {
 
 thread_local IOgre14LegacyNativeMaterialDeclarationDigestFaultInjector
@@ -55,6 +56,7 @@ void SetOgre14LegacyNativeMaterialDeclarationDigestFaultInjectorForTesting(
 }
 
 } // namespace Testing
+#endif
 
 namespace {
 
@@ -861,6 +863,7 @@ bool AppendLayerBlendMode(NativeMaterialDeclarationWriter &writer,
          writer.AppendBool(blend.operation == Ogre::LBX_BLEND_MANUAL);
 }
 
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
 void BeforeNativeMaterialDeclarationDigestStage(
     Ogre14LegacyNativeMaterialDeclarationDigestStage stage) {
   if (g_native_material_declaration_digest_fault_injector != nullptr) {
@@ -868,10 +871,14 @@ void BeforeNativeMaterialDeclarationDigestStage(
         ->BeforeNativeMaterialDeclarationDigestStage(stage);
   }
 }
+#endif
 
 ValidationResult BuildNativeMaterialDeclarationDigest(
     const Ogre::Material &material, const Ogre::Technique &technique,
-    const Ogre::Pass &pass, bool invoke_fault_stages,
+    const Ogre::Pass &pass,
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
+    bool invoke_fault_stages,
+#endif
     std::uint32_t &serialization_version,
     Ogre14LegacyNativeMaterialDeclarationSha256 &sha256) {
   const std::size_t technique_count = material.getNumTechniques();
@@ -939,11 +946,13 @@ ValidationResult BuildNativeMaterialDeclarationDigest(
                      "native material identity or technique state is outside the canonical format")
                : writer.error();
   }
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
   if (invoke_fault_stages) {
     BeforeNativeMaterialDeclarationDigestStage(
         Ogre14LegacyNativeMaterialDeclarationDigestStage::
             AFTER_MATERIAL_IDENTITY);
   }
+#endif
 
   if (!writer.AppendU32(0U) ||
       !writer.AppendBool(pass.hasVertexProgram()) ||
@@ -992,10 +1001,12 @@ ValidationResult BuildNativeMaterialDeclarationDigest(
                      "native pass state cannot be represented canonically")
                : writer.error();
   }
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
   if (invoke_fault_stages) {
     BeforeNativeMaterialDeclarationDigestStage(
         Ogre14LegacyNativeMaterialDeclarationDigestStage::AFTER_PASS_STATE);
   }
+#endif
 
   if (texture_unit_count == 1U) {
     const Ogre::TextureUnitState *native_unit = pass.getTextureUnitState(0U);
@@ -1098,16 +1109,20 @@ ValidationResult BuildNativeMaterialDeclarationDigest(
                        "native texture combine or sampler state cannot be represented canonically")
                  : writer.error();
     }
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
     if (invoke_fault_stages) {
       BeforeNativeMaterialDeclarationDigestStage(
           Ogre14LegacyNativeMaterialDeclarationDigestStage::AFTER_TEXTURE_UNIT);
     }
+#endif
   }
 
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
   if (invoke_fault_stages) {
     BeforeNativeMaterialDeclarationDigestStage(
         Ogre14LegacyNativeMaterialDeclarationDigestStage::BEFORE_DIGEST_COMMIT);
   }
+#endif
   if (!writer.ok() || writer.bytes().empty() ||
       writer.bytes().size() >
           kOgre14LegacyNativeMaterialDeclarationMaximumCanonicalBytes) {
@@ -1140,6 +1155,7 @@ CaptureTextureUnit(const Ogre::TextureUnitState &native,
         "native texture unit has no sampler object");
   }
   Ogre14LegacyTextureUnitInput candidate;
+  candidate.exact_unit_name = native.getName();
   candidate.texture_key.exact_name = native.getTextureName();
   const unsigned int texture_coordinate_set = native.getTextureCoordSet();
   if (texture_coordinate_set > 1U) {
@@ -1426,7 +1442,11 @@ ValidationResult CaptureOgre14LegacyNativeMaterialCandidate(
     std::uint32_t before_declaration_version = 0U;
     Ogre14LegacyNativeMaterialDeclarationSha256 before_declaration_sha256{};
     validation = BuildNativeMaterialDeclarationDigest(
-        material, *technique, *pass, true, before_declaration_version,
+        material, *technique, *pass,
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
+        true,
+#endif
+        before_declaration_version,
         before_declaration_sha256);
     if (!validation) {
       return validation;
@@ -1499,9 +1519,11 @@ ValidationResult CaptureOgre14LegacyNativeMaterialCandidate(
           "texture_resolution.alignment",
           "authenticated source resolutions are not aligned with captured textures");
     }
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
     BeforeNativeMaterialDeclarationDigestStage(
         Ogre14LegacyNativeMaterialDeclarationDigestStage::
             BEFORE_FRESHNESS_REVALIDATION);
+#endif
     validation =
         ValidateNativeTechniqueAndPassState(material, *technique, *pass);
     if (!validation || !technique->isSupported()) {
@@ -1515,7 +1537,11 @@ ValidationResult CaptureOgre14LegacyNativeMaterialCandidate(
     std::uint32_t after_declaration_version = 0U;
     Ogre14LegacyNativeMaterialDeclarationSha256 after_declaration_sha256{};
     validation = BuildNativeMaterialDeclarationDigest(
-        material, *technique, *pass, true, after_declaration_version,
+        material, *technique, *pass,
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
+        true,
+#endif
+        after_declaration_version,
         after_declaration_sha256);
     if (!validation) {
       return validation;
@@ -1524,7 +1550,11 @@ ValidationResult CaptureOgre14LegacyNativeMaterialCandidate(
     Ogre14LegacyNativeMaterialDeclarationSha256
         verified_declaration_sha256{};
     validation = BuildNativeMaterialDeclarationDigest(
-        material, *technique, *pass, false, verified_declaration_version,
+        material, *technique, *pass,
+#if defined(ROR_OGRE14_NATIVE_MATERIAL_DECLARATION_DIGEST_TESTING)
+        false,
+#endif
+        verified_declaration_version,
         verified_declaration_sha256);
     if (!validation) {
       return validation;

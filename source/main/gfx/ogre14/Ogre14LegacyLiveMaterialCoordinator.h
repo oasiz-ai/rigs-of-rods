@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "Ogre14LegacyMaterialSemanticRegistry.h"
+#include "Ogre14LegacyMaterialSemanticRuntimeAdmission.h"
 #include "gfx/render/Ogre14LegacyMaterialClosure.h"
 
 #include <cstddef>
@@ -23,6 +23,7 @@ namespace RoR::Render {
 constexpr std::uint32_t kOgre14LegacyLiveMaterialCoordinatorVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyMaterialObservationVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyPreparedMaterialFrameVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyAdmittedPreparedMaterialFrameVersion = 1U;
 constexpr std::size_t kDefaultOgre14LegacyMaximumMaterialObservations =
     kDefaultOgre14LegacyMaximumMaterialInputsPerFrame;
 
@@ -97,10 +98,44 @@ private:
   friend class Ogre14LegacyLiveMaterialCoordinator;
 };
 
+/// Opaque capability for a prepared frame produced from reviewed live
+/// admissions. It retains the exact manifest/catalog/registry authority,
+/// admissions, final script/texture snapshots, and inner prepared frame.
+class Ogre14LegacyAdmittedPreparedMaterialFrame final {
+public:
+  Ogre14LegacyAdmittedPreparedMaterialFrame() noexcept = default;
+  ~Ogre14LegacyAdmittedPreparedMaterialFrame() = default;
+  Ogre14LegacyAdmittedPreparedMaterialFrame(
+      const Ogre14LegacyAdmittedPreparedMaterialFrame &) noexcept = default;
+  Ogre14LegacyAdmittedPreparedMaterialFrame &operator=(
+      const Ogre14LegacyAdmittedPreparedMaterialFrame &) noexcept = default;
+  Ogre14LegacyAdmittedPreparedMaterialFrame(
+      Ogre14LegacyAdmittedPreparedMaterialFrame &&) noexcept = default;
+  Ogre14LegacyAdmittedPreparedMaterialFrame &operator=(
+      Ogre14LegacyAdmittedPreparedMaterialFrame &&) noexcept = default;
+
+  [[nodiscard]] bool initialized() const noexcept;
+  [[nodiscard]] std::uint32_t version() const noexcept;
+  [[nodiscard]] const Ogre14LegacyPreparedMaterialFrame *prepared_frame() const
+      noexcept;
+  [[nodiscard]] std::size_t admission_count() const noexcept;
+  [[nodiscard]] bool SharesImmutableStateWith(
+      const Ogre14LegacyAdmittedPreparedMaterialFrame &) const noexcept;
+
+private:
+  struct State;
+  explicit Ogre14LegacyAdmittedPreparedMaterialFrame(
+      std::shared_ptr<const State>) noexcept;
+  std::shared_ptr<const State> state_;
+
+  friend class Ogre14LegacyLiveMaterialCoordinator;
+};
+
 enum class Ogre14LegacyLiveMaterialCoordinatorFaultPoint : std::uint8_t {
   AFTER_FIRST_OBSERVATION = 0U,
   AFTER_NATIVE_AUDIT_MATCH = 1U,
   BEFORE_PREPARED_FRAME_PUBLISH = 2U,
+  AFTER_ADMITTED_INNER_PREPARE = 3U,
 };
 
 class IOgre14LegacyLiveMaterialCoordinatorFaultInjector {
@@ -154,6 +189,32 @@ public:
       IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector =
           nullptr);
 
+  /// Production authenticated preparation. Each exact live material is
+  /// resolved, extractor-captured, admitted, and immediately translated in
+  /// this call on the serialized resource/render thread. Previously returned
+  /// admission values are intentionally not accepted as preparation input.
+  [[nodiscard]] ValidationResult PrepareAdmittedFrame(
+      std::uint64_t source_sequence,
+      const std::vector<Ogre::Material *> &live_materials,
+      Ogre14LegacyAdmittedPreparedMaterialFrame &output
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+      ,
+      IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector =
+          nullptr
+#endif
+      );
+
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+  /// Synthetic-only seam for transaction/capability tests which have no OGRE
+  /// native runtime. It is absent from production headers and binaries.
+  [[nodiscard]] ValidationResult PreparePreviouslyAdmittedFrameForTesting(
+      std::uint64_t source_sequence,
+      const std::vector<Ogre14LegacyMaterialSemanticAdmission> &admissions,
+      Ogre14LegacyAdmittedPreparedMaterialFrame &output,
+      IOgre14LegacyLiveMaterialCoordinatorFaultInjector *fault_injector =
+          nullptr);
+#endif
+
   /// Called only after the joined scene transaction has been accepted. A
   /// valid pending frame has no fallible publication work left. Publication
   /// requires the exact immutable prepared-frame state exposed downstream;
@@ -161,17 +222,64 @@ public:
   [[nodiscard]] Ogre14LegacyPreparedMaterialCommitResult
   CommitPreparedFrameAfterAcceptedExposure(
       const Ogre14LegacyPreparedMaterialFrame &accepted_frame) noexcept;
+  [[nodiscard]] Ogre14LegacyPreparedMaterialCommitResult
+  CommitAdmittedPreparedFrameAfterAcceptedExposure(
+      const Ogre14LegacyAdmittedPreparedMaterialFrame &accepted_frame)
+      noexcept;
   void DiscardPreparedFrame() noexcept;
 
 private:
   struct PendingFrame;
+  struct ObservationView;
+  enum class PrepareStartStatus : std::uint8_t {
+    READY = 0U,
+    FAIL_STOPPED,
+    PENDING,
+    MISSING_STATE,
+    COUNT_EXCEEDED,
+    SEQUENCE_MISMATCH,
+  };
 
   Ogre14LegacyLiveMaterialCoordinator(
       Ogre14LegacyLiveMaterialCoordinatorConfiguration configuration,
       Ogre14LegacyMaterialSemanticRegistry semantic_registry,
       std::unique_ptr<Ogre14LegacyAssetTranslator> translator,
       const IOgre14AuthenticatedTextureAuthorityProvider
-          *texture_authority_provider) noexcept;
+          *texture_authority_provider,
+      Ogre14LegacyMaterialSemanticRuntimeAuthority runtime_authority = {},
+      ::RoR::ContentManager *content_manager = nullptr
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+      , IOgre14LegacyMaterialRuntimeLiveAuthority *testing_live_authority =
+            nullptr
+#endif
+      )
+      noexcept;
+
+  [[nodiscard]] ValidationResult PrepareFrameImpl(
+      std::uint64_t,
+      const std::vector<Ogre14LegacyMaterialObservation> &,
+      Ogre14LegacyPreparedMaterialFrame &,
+      IOgre14LegacyLiveMaterialCoordinatorFaultInjector *);
+  [[nodiscard]] PrepareStartStatus CheckPrepareStart(
+      std::uint64_t, std::size_t) const noexcept;
+  [[nodiscard]] static ValidationResult PrepareStartFailure(
+      PrepareStartStatus);
+  [[nodiscard]] ValidationResult PrepareFrameViewsImpl(
+      std::uint64_t, const std::vector<ObservationView> &,
+      Ogre14LegacyPreparedMaterialFrame &,
+      IOgre14LegacyLiveMaterialCoordinatorFaultInjector *);
+  [[nodiscard]] ValidationResult PrepareFreshContentManagerAdmissionsImpl(
+      std::uint64_t,
+      const std::vector<Ogre14LegacyMaterialSemanticAdmission> &,
+      Ogre14LegacyAdmittedPreparedMaterialFrame &,
+      IOgre14LegacyLiveMaterialCoordinatorFaultInjector *);
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+  [[nodiscard]] ValidationResult PrepareFreshAdmissionsImpl(
+      std::uint64_t,
+      const std::vector<Ogre14LegacyMaterialSemanticAdmission> &,
+      Ogre14LegacyAdmittedPreparedMaterialFrame &,
+      IOgre14LegacyLiveMaterialCoordinatorFaultInjector *);
+#endif
 
   Ogre14LegacyLiveMaterialCoordinatorConfiguration configuration_;
   Ogre14LegacyMaterialSemanticRegistry semantic_registry_;
@@ -181,7 +289,13 @@ private:
   /// registry publication. A null provider admits only untextured captures.
   const IOgre14AuthenticatedTextureAuthorityProvider
       *texture_authority_provider_ = nullptr;
+  Ogre14LegacyMaterialSemanticRuntimeAuthority semantic_runtime_authority_;
+  ::RoR::ContentManager *content_manager_ = nullptr;
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+  IOgre14LegacyMaterialRuntimeLiveAuthority *testing_live_authority_ = nullptr;
+#endif
   std::unique_ptr<PendingFrame> pending_;
+  bool fail_stopped_ = false;
 
   friend ValidationResult CreateOgre14LegacyLiveMaterialCoordinator(
       const Ogre14LegacyLiveMaterialCoordinatorConfiguration &,
@@ -194,6 +308,56 @@ private:
       IOgre14AuthenticatedTextureAuthorityProvider &,
       std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &,
       IOgre14LegacyAssetTranslatorFaultInjector *);
+  friend ValidationResult CreateOgre14LegacyAuthenticatedMaterialCoordinator(
+      const Ogre14LegacyLiveMaterialCoordinatorConfiguration &,
+      const Ogre14LegacyMaterialSemanticRuntimeAuthority &,
+      ::RoR::ContentManager &,
+      std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+      , IOgre14LegacyAssetTranslatorFaultInjector *
+#endif
+      );
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+  friend ValidationResult CreateOgre14LegacyAuthenticatedMaterialCoordinator(
+      const Ogre14LegacyLiveMaterialCoordinatorConfiguration &,
+      const Ogre14LegacyMaterialSemanticRuntimeAuthority &,
+      IOgre14LegacyMaterialRuntimeLiveAuthority &,
+      std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &,
+      IOgre14LegacyAssetTranslatorFaultInjector *);
+#endif
+};
+
+// Private state layouts are defined here because the renderer-neutral
+// coordinator implementation and the native ContentManager admission bridge
+// are separate translation units. They remain private nested types: this
+// merely gives both owning member-function implementations a complete type
+// without adding a public construction or observation surface.
+struct Ogre14LegacyPreparedMaterialFrame::State final {
+  std::uint32_t version = kOgre14LegacyPreparedMaterialFrameVersion;
+  std::shared_ptr<const Ogre14LegacyTranslatedFrame> translated_frame;
+  std::vector<Ogre14LegacyPreparedMaterial> materials;
+};
+
+struct Ogre14LegacyAdmittedPreparedMaterialFrame::State final {
+  std::uint32_t version = kOgre14LegacyAdmittedPreparedMaterialFrameVersion;
+  Ogre14LegacyMaterialSemanticRuntimeAuthority runtime_authority;
+  std::vector<Ogre14LegacyMaterialSemanticAdmission> admissions;
+  Ogre14AuthenticatedMaterialScriptAuthoritySnapshot script_authority;
+  Ogre14AuthenticatedTextureAuthoritySnapshot texture_authority;
+  Ogre14LegacyPreparedMaterialFrame prepared;
+};
+
+struct Ogre14LegacyLiveMaterialCoordinator::PendingFrame final {
+  Ogre14LegacyAssetTranslatorCommittableTransaction transaction;
+  Ogre14LegacyPreparedMaterialFrame prepared;
+  Ogre14LegacyAdmittedPreparedMaterialFrame admitted;
+};
+
+struct Ogre14LegacyLiveMaterialCoordinator::ObservationView final {
+  std::uint32_t version = kOgre14LegacyMaterialObservationVersion;
+  const Ogre14LegacyAssetKey &material_key;
+  const Ogre14LegacyMaterialSemanticResolution &semantic_resolution;
+  const Ogre14LegacyNativeMaterialCapture &native_capture;
 };
 
 [[nodiscard]] ValidationResult
@@ -208,6 +372,34 @@ ValidateOgre14LegacyLiveMaterialCoordinatorConfiguration(
     std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output,
     IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector =
         nullptr);
+
+/// Authenticated production factory. The exact registry is copied from the
+/// opaque runtime authority and the inner translator is created here; a fresh
+/// equal-value registry cannot be substituted.
+[[nodiscard]] ValidationResult
+CreateOgre14LegacyAuthenticatedMaterialCoordinator(
+    const Ogre14LegacyLiveMaterialCoordinatorConfiguration &configuration,
+    const Ogre14LegacyMaterialSemanticRuntimeAuthority &runtime_authority,
+    ::RoR::ContentManager &content_manager,
+    std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+    ,
+    IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector =
+        nullptr
+#endif
+    );
+
+#if defined(ROR_OGRE14_SEMANTIC_RUNTIME_ADMISSION_TESTING)
+/// Synthetic-only overload for hostile combined-authority fixtures.
+[[nodiscard]] ValidationResult
+CreateOgre14LegacyAuthenticatedMaterialCoordinator(
+    const Ogre14LegacyLiveMaterialCoordinatorConfiguration &configuration,
+    const Ogre14LegacyMaterialSemanticRuntimeAuthority &runtime_authority,
+    IOgre14LegacyMaterialRuntimeLiveAuthority &live_authority,
+    std::unique_ptr<Ogre14LegacyLiveMaterialCoordinator> &output,
+    IOgre14LegacyAssetTranslatorFaultInjector *translator_fault_injector =
+        nullptr);
+#endif
 
 /// Preferred textured-scene construction. `texture_authority_provider` is
 /// borrowed for the coordinator lifetime and must be the same scene authority
