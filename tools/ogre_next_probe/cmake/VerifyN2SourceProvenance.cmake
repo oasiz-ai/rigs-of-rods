@@ -13,6 +13,8 @@ set(_ror_n2_relevant_source_paths
     cmake/RendererLauncherPackageConfig.cmake
     cmake/macos/StageMacOSBundle.cmake
     doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
+    source/main/GameContext.cpp
+    source/main/gfx/GfxActorCaptureInventory.h
     source/main/gfx/RendererBackendPolicy.cpp
     source/main/gfx/RendererBackendPolicy.h
     source/main/gfx/GfxScene.cpp
@@ -21,6 +23,23 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
+    source/main/physics/ActorManager.cpp
+    source/main/physics/ActorManager.h
+    source/main/physics/ActorSpawner.cpp
+    source/main/physics/ActorSpawner.h
+    source/main/physics/ActorSpawnerFlow.cpp
+    source/main/physics/flex/FlexBody.cpp
+    source/main/physics/flex/FlexBody.h
+    source/main/physics/flex/FlexFactory.cpp
+    source/main/physics/flex/FlexFactory.h
+    source/main/physics/flex/FlexMesh.cpp
+    source/main/physics/flex/FlexMesh.h
+    source/main/physics/flex/FlexMeshTopology.h
+    source/main/physics/flex/FlexMeshWheel.cpp
+    source/main/physics/flex/FlexMeshWheel.h
+    source/main/physics/flex/FlexObj.cpp
+    source/main/physics/flex/FlexObj.h
+    source/main/physics/flex/Flexable.h
     source/main/terrain/ProceduralManager.cpp
     source/main/terrain/ProceduralManager.h
     source/main/terrain/ProceduralRoad.cpp
@@ -44,6 +63,10 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgre14GameBridge.h
     source/main/system/RendererOgre14GameHostSession.cpp
     source/main/system/RendererOgre14GameHostSession.h
+    source/main/system/RendererOgre14InputAdapter.cpp
+    source/main/system/RendererOgre14InputAdapter.h
+    source/main/system/RendererOgre14ProductSession.cpp
+    source/main/system/RendererOgre14ProductSession.h
     source/main/system/RendererSiblingPath.cpp
     source/main/system/RendererSiblingPath.h
     source/main/system/RendererPackagedMediaPath.cpp
@@ -68,6 +91,10 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererPublicLauncher.h
     source/main/CMakeLists.txt
     source/main/gfx/render
+    source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+    source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
+    tests/gfx/GfxActorCaptureInventoryTests.cpp
+    tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
     tests/gfx/RendererBackendPolicyTests.cpp
     tests/gfx/RendererBridgeEndpointTests.cpp
     tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -91,13 +118,22 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererStartupPlanTests.cpp
     tests/gfx/render/RenderBridgeControlTransportTests.cpp
     tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
+    tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp
     tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+    tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp
+    tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
     tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
     tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
     tests/tools/test_ogre14_particle_capture_contract.py
     tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
+    tests/physics/FlexMeshTopologyTests.cpp
+    tests/physics/Ogre14FlexShadowLoadTests.cpp
+    tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
+    tests/tools/test_ogre14_legacy_asset_translator_contract.py
+    tests/tools/test_ogre14_legacy_material_closure_contract.py
     tests/tools/test_ogre14_road_material_transaction_contract.py
+    tests/tools/test_ogre_next_metal_n2_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -138,6 +174,8 @@ list(APPEND _ror_n2_relevant_source_files
     "cmake/RendererLauncherPackageConfig.cmake"
     "cmake/macos/StageMacOSBundle.cmake"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
+    "source/main/GameContext.cpp"
+    "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/GfxScene.cpp"
@@ -146,6 +184,23 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/physics/ActorManager.cpp"
+    "source/main/physics/ActorManager.h"
+    "source/main/physics/ActorSpawner.cpp"
+    "source/main/physics/ActorSpawner.h"
+    "source/main/physics/ActorSpawnerFlow.cpp"
+    "source/main/physics/flex/FlexBody.cpp"
+    "source/main/physics/flex/FlexBody.h"
+    "source/main/physics/flex/FlexFactory.cpp"
+    "source/main/physics/flex/FlexFactory.h"
+    "source/main/physics/flex/FlexMesh.cpp"
+    "source/main/physics/flex/FlexMesh.h"
+    "source/main/physics/flex/FlexMeshTopology.h"
+    "source/main/physics/flex/FlexMeshWheel.cpp"
+    "source/main/physics/flex/FlexMeshWheel.h"
+    "source/main/physics/flex/FlexObj.cpp"
+    "source/main/physics/flex/FlexObj.h"
+    "source/main/physics/flex/Flexable.h"
     "source/main/terrain/ProceduralManager.cpp"
     "source/main/terrain/ProceduralManager.h"
     "source/main/terrain/ProceduralRoad.cpp"
@@ -169,6 +224,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererOgre14GameHostSession.cpp"
     "source/main/system/RendererOgre14GameHostSession.h"
+    "source/main/system/RendererOgre14InputAdapter.cpp"
+    "source/main/system/RendererOgre14InputAdapter.h"
+    "source/main/system/RendererOgre14ProductSession.cpp"
+    "source/main/system/RendererOgre14ProductSession.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererPackagedMediaPath.cpp"
@@ -192,6 +251,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "source/main/CMakeLists.txt"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
+    "tests/gfx/GfxActorCaptureInventoryTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -215,13 +278,22 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+    "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+    "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
     "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
+    "tests/physics/FlexMeshTopologyTests.cpp"
+    "tests/physics/Ogre14FlexShadowLoadTests.cpp"
+    "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"
+    "tests/tools/test_ogre_next_metal_n2_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

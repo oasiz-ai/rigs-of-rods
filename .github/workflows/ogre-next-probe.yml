@@ -8,6 +8,7 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - source/main/CMakeLists.txt
+      - source/main/GameContext.cpp
       - source/main/main.cpp
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
@@ -15,10 +16,16 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
+      - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/physics/ActorManager.*
+      - source/main/physics/ActorSpawner.*
+      - source/main/physics/ActorSpawnerFlow.cpp
+      - source/main/physics/flex/**
       - source/main/terrain/ProceduralManager.*
       - source/main/terrain/ProceduralRoad.*
       - source/main/terrain/TerrainObjectManager.*
@@ -46,6 +53,7 @@ on:
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
+      - tests/gfx/GfxActorCaptureInventoryTests.cpp
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererBridgeEndpointTests.cpp
       - tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -69,7 +77,10 @@ on:
       - tests/cmake/VerifyRendererPublicBridgeExit.cmake
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
       - tests/gfx/render/**
+      - tests/physics/**
+      - tests/tools/test_ogre14_*.py
       - tests/tools/test_ogre_next_*.py
   pull_request:
     paths:
@@ -77,6 +88,7 @@ on:
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
       - source/main/CMakeLists.txt
+      - source/main/GameContext.cpp
       - source/main/main.cpp
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
@@ -84,10 +96,16 @@ on:
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
       - cmake/RendererLauncherPackageConfig.cmake
+      - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/physics/ActorManager.*
+      - source/main/physics/ActorSpawner.*
+      - source/main/physics/ActorSpawnerFlow.cpp
+      - source/main/physics/flex/**
       - source/main/terrain/ProceduralManager.*
       - source/main/terrain/ProceduralRoad.*
       - source/main/terrain/TerrainObjectManager.*
@@ -115,6 +133,7 @@ on:
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
       - source/main/gfx/render/**
+      - tests/gfx/GfxActorCaptureInventoryTests.cpp
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererBridgeEndpointTests.cpp
       - tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -138,7 +157,10 @@ on:
       - tests/cmake/VerifyRendererPublicBridgeExit.cmake
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
       - tests/gfx/render/**
+      - tests/physics/**
+      - tests/tools/test_ogre14_*.py
       - tests/tools/test_ogre_next_*.py
   workflow_dispatch:
 
@@ -417,6 +439,27 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_road_material_transaction$'
+
+      - name: Build deformable capture and product-session gates
+        run: >-
+          cmake
+          --build "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --target
+          ror_graphics_scene_snapshot_producer_tests
+          ror_flex_mesh_topology_tests
+          ror_ogre14_metal_flex_shadow_read_contract_tests
+          ror_gfx_actor_capture_inventory_tests
+          ror_renderer_ogre14_game_host_session_tests
+          --config Release
+          --parallel ${{ matrix.jobs }}
+
+      - name: Prove deformable capture transactions on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^(ror_graphics_scene_snapshot_producer|ror_flex_mesh_topology|ror_ogre14_metal_flex_shadow_read_contract|ror_gfx_actor_capture_inventory)$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

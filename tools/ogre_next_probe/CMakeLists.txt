@@ -96,6 +96,8 @@ list(APPEND _ror_relevant_source_files
     "cmake/RendererLauncherPackageConfig.cmake"
     "cmake/macos/StageMacOSBundle.cmake"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
+    "source/main/GameContext.cpp"
+    "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/GfxScene.cpp"
@@ -104,6 +106,23 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/physics/ActorManager.cpp"
+    "source/main/physics/ActorManager.h"
+    "source/main/physics/ActorSpawner.cpp"
+    "source/main/physics/ActorSpawner.h"
+    "source/main/physics/ActorSpawnerFlow.cpp"
+    "source/main/physics/flex/FlexBody.cpp"
+    "source/main/physics/flex/FlexBody.h"
+    "source/main/physics/flex/FlexFactory.cpp"
+    "source/main/physics/flex/FlexFactory.h"
+    "source/main/physics/flex/FlexMesh.cpp"
+    "source/main/physics/flex/FlexMesh.h"
+    "source/main/physics/flex/FlexMeshTopology.h"
+    "source/main/physics/flex/FlexMeshWheel.cpp"
+    "source/main/physics/flex/FlexMeshWheel.h"
+    "source/main/physics/flex/FlexObj.cpp"
+    "source/main/physics/flex/FlexObj.h"
+    "source/main/physics/flex/Flexable.h"
     "source/main/terrain/ProceduralManager.cpp"
     "source/main/terrain/ProceduralManager.h"
     "source/main/terrain/ProceduralRoad.cpp"
@@ -127,6 +146,10 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererOgre14GameHostSession.cpp"
     "source/main/system/RendererOgre14GameHostSession.h"
+    "source/main/system/RendererOgre14InputAdapter.cpp"
+    "source/main/system/RendererOgre14InputAdapter.h"
+    "source/main/system/RendererOgre14ProductSession.cpp"
+    "source/main/system/RendererOgre14ProductSession.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererPackagedMediaPath.cpp"
@@ -150,6 +173,10 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "source/main/CMakeLists.txt"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
+    "tests/gfx/GfxActorCaptureInventoryTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -173,13 +200,22 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererStartupPlanTests.cpp"
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+    "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+    "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
     "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
+    "tests/physics/FlexMeshTopologyTests.cpp"
+    "tests/physics/Ogre14FlexShadowLoadTests.cpp"
+    "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"
+    "tests/tools/test_ogre_next_metal_n2_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
@@ -970,7 +1006,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp")
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp")
     target_include_directories(
         ror_renderer_ogre14_game_host_session_tests
         PRIVATE
@@ -1042,6 +1080,43 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_renderer_frontend_transport_dispatcher_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_graphics_scene_snapshot_producer_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp")
+    target_link_libraries(
+        ror_graphics_scene_snapshot_producer_tests
+        PRIVATE ror_ogre_next_n1_contract Threads::Threads)
+    set_target_properties(
+        ror_graphics_scene_snapshot_producer_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_flex_mesh_topology_tests
+        "${ROR_REPOSITORY_ROOT}/tests/physics/FlexMeshTopologyTests.cpp")
+    target_include_directories(
+        ror_flex_mesh_topology_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/physics/flex")
+    set_target_properties(
+        ror_flex_mesh_topology_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        "${ROR_REPOSITORY_ROOT}/tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp")
+    set_target_properties(
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_gfx_actor_capture_inventory_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/GfxActorCaptureInventoryTests.cpp")
+    target_include_directories(
+        ror_gfx_actor_capture_inventory_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx")
+    set_target_properties(
+        ror_gfx_actor_capture_inventory_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -1717,6 +1792,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_child_tests
         ror_renderer_ogre_next_live_session_tests
         ror_renderer_frontend_transport_dispatcher_tests
+        ror_graphics_scene_snapshot_producer_tests
+        ror_flex_mesh_topology_tests
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        ror_gfx_actor_capture_inventory_tests
         ror_ogre14_graphics_scene_source_tests
         ror_ogre14_particle_capture_source_tests
         ror_ogre14_procedural_road_source_tests
@@ -1998,6 +2077,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/OgreNextProductionPackage.cmake
             cmake/RendererLauncherPackageConfig.cmake
             cmake/macos/StageMacOSBundle.cmake
+            doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
+            source/main/GameContext.cpp
+            source/main/gfx/GfxActorCaptureInventory.h
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
             source/main/gfx/GfxScene.cpp
@@ -2006,6 +2088,23 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/physics/ActorManager.cpp
+            source/main/physics/ActorManager.h
+            source/main/physics/ActorSpawner.cpp
+            source/main/physics/ActorSpawner.h
+            source/main/physics/ActorSpawnerFlow.cpp
+            source/main/physics/flex/FlexBody.cpp
+            source/main/physics/flex/FlexBody.h
+            source/main/physics/flex/FlexFactory.cpp
+            source/main/physics/flex/FlexFactory.h
+            source/main/physics/flex/FlexMesh.cpp
+            source/main/physics/flex/FlexMesh.h
+            source/main/physics/flex/FlexMeshTopology.h
+            source/main/physics/flex/FlexMeshWheel.cpp
+            source/main/physics/flex/FlexMeshWheel.h
+            source/main/physics/flex/FlexObj.cpp
+            source/main/physics/flex/FlexObj.h
+            source/main/physics/flex/Flexable.h
             source/main/terrain/ProceduralManager.cpp
             source/main/terrain/ProceduralManager.h
             source/main/terrain/ProceduralRoad.cpp
@@ -2029,6 +2128,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgre14GameBridge.h
             source/main/system/RendererOgre14GameHostSession.cpp
             source/main/system/RendererOgre14GameHostSession.h
+            source/main/system/RendererOgre14InputAdapter.cpp
+            source/main/system/RendererOgre14InputAdapter.h
+            source/main/system/RendererOgre14ProductSession.cpp
+            source/main/system/RendererOgre14ProductSession.h
             source/main/system/RendererSiblingPath.cpp
             source/main/system/RendererSiblingPath.h
             source/main/system/RendererPackagedMediaPath.cpp
@@ -2038,12 +2141,25 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgreNextChild.cpp
             source/main/system/RendererOgreNextChild.h
             source/main/system/RendererOgreNextChildMain.cpp
+            source/main/system/RendererOgreNextLiveSession.cpp
+            source/main/system/RendererOgreNextLiveSession.h
+            source/main/system/RendererOgreNextProductionSession.cpp
+            source/main/system/RendererOgreNextProductionSession.h
+            source/main/system/RendererOgreNextSdlWindowRuntime.cpp
+            source/main/system/RendererOgreNextSdlWindowRuntime.h
+            source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
+            source/main/system/RendererOgreNextWindowHost.cpp
+            source/main/system/RendererOgreNextWindowHost.h
             source/main/system/RendererLauncherMain.cpp
             source/main/system/RendererLauncherPackageConfig.h.in
             source/main/system/RendererPublicLauncher.cpp
             source/main/system/RendererPublicLauncher.h
             source/main/CMakeLists.txt
             source/main/gfx/render
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
+            tests/gfx/GfxActorCaptureInventoryTests.cpp
+            tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
             tests/gfx/RendererBackendPolicyTests.cpp
             tests/gfx/RendererBridgeEndpointTests.cpp
             tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -2058,6 +2174,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererSiblingPathTests.cpp
             tests/gfx/RendererPackageRuntimeProbeTests.cpp
             tests/gfx/RendererOgreNextChildTests.cpp
+            tests/gfx/RendererOgreNextLiveSessionTests.cpp
+            tests/gfx/RendererOgreNextWindowHostTests.cpp
             tests/gfx/RendererPublicLauncherLegacyChild.cpp
             tests/gfx/RendererPublicLauncherTests.cpp
             tests/cmake/VerifyRendererPublicBridgeExit.cmake
@@ -2065,14 +2183,27 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererStartupPlanTests.cpp
             tests/gfx/render/RenderBridgeControlTransportTests.cpp
             tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
+            tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp
             tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+            tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp
+            tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
             tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
             tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
             tests/tools/test_ogre14_particle_capture_contract.py
             tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
+            tests/physics/FlexMeshTopologyTests.cpp
+            tests/physics/Ogre14FlexShadowLoadTests.cpp
+            tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
+            tests/tools/test_ogre14_legacy_asset_translator_contract.py
+            tests/tools/test_ogre14_legacy_material_closure_contract.py
             tests/tools/test_ogre14_road_material_transaction_contract.py
+            tests/tools/test_ogre_next_metal_n2_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
+            tests/tools/test_ogre_next_probe_workflow.py
+            tests/tools/test_ogre_next_window_host_contract.py
+            tests/tools/test_ogre_next_window_presentation_contract.py
+            tests/tools/test_ogre_next_window_run_loop_contract.py
             tools/ogre_next_probe
             tools/ogre14_runtime_audit.py
             tools/run_ogre_next_probe.py
@@ -2550,6 +2681,26 @@ endif ()
 if (TARGET ror_renderer_frontend_transport_dispatcher_tests)
     add_test(NAME ror_renderer_frontend_transport_dispatcher
         COMMAND $<TARGET_FILE:ror_renderer_frontend_transport_dispatcher_tests>)
+endif ()
+if (TARGET ror_graphics_scene_snapshot_producer_tests)
+    add_test(NAME ror_graphics_scene_snapshot_producer
+        COMMAND $<TARGET_FILE:ror_graphics_scene_snapshot_producer_tests>)
+endif ()
+if (TARGET ror_flex_mesh_topology_tests)
+    add_test(NAME ror_flex_mesh_topology
+        COMMAND $<TARGET_FILE:ror_flex_mesh_topology_tests>)
+endif ()
+if (TARGET ror_ogre14_metal_flex_shadow_read_contract_tests)
+    add_test(NAME ror_ogre14_metal_flex_shadow_read_contract
+        COMMAND $<TARGET_FILE:ror_ogre14_metal_flex_shadow_read_contract_tests>
+            "${ROR_REPOSITORY_ROOT}/source/main/physics/flex/FlexFactory.cpp"
+            "${ROR_REPOSITORY_ROOT}/source/main/physics/flex/FlexBody.cpp"
+            "${ROR_REPOSITORY_ROOT}/source/main/physics/ActorSpawner.cpp")
+endif ()
+if (TARGET ror_gfx_actor_capture_inventory_tests)
+    add_test(NAME ror_gfx_actor_capture_inventory
+        COMMAND $<TARGET_FILE:ror_gfx_actor_capture_inventory_tests>
+            "${ROR_REPOSITORY_ROOT}/source/main/main.cpp")
 endif ()
 if (TARGET ror_ogre14_graphics_scene_source_tests)
     add_test(NAME ror_ogre14_graphics_scene_source

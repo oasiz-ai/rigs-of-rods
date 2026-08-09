@@ -11,6 +11,52 @@ import unittest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
 SELF_PATH = "tests/tools/test_ogre_next_probe_workflow.py"
+DEFORMABLE_CAPTURE_PROVENANCE_PATHS = (
+    "source/main/GameContext.cpp",
+    "source/main/gfx/GfxActorCaptureInventory.h",
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
+    "source/main/physics/ActorManager.cpp",
+    "source/main/physics/ActorManager.h",
+    "source/main/physics/ActorSpawner.cpp",
+    "source/main/physics/ActorSpawner.h",
+    "source/main/physics/ActorSpawnerFlow.cpp",
+    "source/main/physics/flex/FlexBody.cpp",
+    "source/main/physics/flex/FlexBody.h",
+    "source/main/physics/flex/FlexFactory.cpp",
+    "source/main/physics/flex/FlexFactory.h",
+    "source/main/physics/flex/FlexMesh.cpp",
+    "source/main/physics/flex/FlexMesh.h",
+    "source/main/physics/flex/FlexMeshTopology.h",
+    "source/main/physics/flex/FlexMeshWheel.cpp",
+    "source/main/physics/flex/FlexMeshWheel.h",
+    "source/main/physics/flex/FlexObj.cpp",
+    "source/main/physics/flex/FlexObj.h",
+    "source/main/physics/flex/Flexable.h",
+    "source/main/system/RendererOgre14InputAdapter.cpp",
+    "source/main/system/RendererOgre14InputAdapter.h",
+    "source/main/system/RendererOgre14ProductSession.cpp",
+    "source/main/system/RendererOgre14ProductSession.h",
+    "tests/gfx/GfxActorCaptureInventoryTests.cpp",
+    "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp",
+    "tests/physics/FlexMeshTopologyTests.cpp",
+    "tests/physics/Ogre14FlexShadowLoadTests.cpp",
+    "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp",
+    "tests/tools/test_ogre_next_metal_n2_contract.py",
+)
+DEFORMABLE_CAPTURE_WORKFLOW_PATHS = (
+    "source/main/GameContext.cpp",
+    "source/main/gfx/GfxActorCaptureInventory.h",
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*",
+    "source/main/physics/ActorManager.*",
+    "source/main/physics/ActorSpawner.*",
+    "source/main/physics/ActorSpawnerFlow.cpp",
+    "source/main/physics/flex/**",
+    "tests/gfx/GfxActorCaptureInventoryTests.cpp",
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp",
+    "tests/physics/**",
+    "tests/tools/test_ogre14_*.py",
+)
 
 
 class OgreNextProbeWorkflowTests(unittest.TestCase):
@@ -95,9 +141,158 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
+            *DEFORMABLE_CAPTURE_WORKFLOW_PATHS,
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.workflow.count(f"- {path}"), 2)
+
+    def test_deformable_capture_path_filter_omission_fails_contract(self) -> None:
+        def require_exact_filters(workflow: str) -> None:
+            for required_path in DEFORMABLE_CAPTURE_WORKFLOW_PATHS:
+                self.assertEqual(workflow.count(f"- {required_path}"), 2)
+
+        require_exact_filters(self.workflow)
+        for path in DEFORMABLE_CAPTURE_WORKFLOW_PATHS:
+            with self.subTest(omitted_path=path):
+                omitted = self.workflow.replace(f"      - {path}\n", "")
+                with self.assertRaises(AssertionError):
+                    require_exact_filters(omitted)
+
+    def test_product_session_and_deformable_gates_are_linked_and_built(self) -> None:
+        def require_once(block: str, token: str) -> None:
+            self.assertEqual(block.count(token), 1)
+
+        cmake = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        product_target = cmake[
+            cmake.index(
+                "add_executable(\n"
+                "        ror_renderer_ogre14_game_host_session_tests"
+            ) : cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_ogre14_game_host_session_tests"
+            )
+        ]
+        for source in (
+            "source/main/system/RendererOgre14InputAdapter.cpp",
+            "source/main/system/RendererOgre14ProductSession.cpp",
+        ):
+            with self.subTest(product_source=source):
+                require_once(product_target, source)
+                omitted = product_target.replace(source, "")
+                with self.assertRaises(AssertionError):
+                    require_once(omitted, source)
+
+        build_start = self.workflow.index(
+            "- name: Build deformable capture and product-session gates"
+        )
+        build_end = self.workflow.index(
+            "- name: Prove deformable capture transactions on the host ABI"
+        )
+        build_step = self.workflow[build_start:build_end]
+        for target in (
+            "ror_graphics_scene_snapshot_producer_tests",
+            "ror_flex_mesh_topology_tests",
+            "ror_ogre14_metal_flex_shadow_read_contract_tests",
+            "ror_gfx_actor_capture_inventory_tests",
+            "ror_renderer_ogre14_game_host_session_tests",
+        ):
+            with self.subTest(built_target=target):
+                require_once(build_step, target)
+                omitted = build_step.replace(target, "")
+                with self.assertRaises(AssertionError):
+                    require_once(omitted, target)
+        self.assertIn("--config Release", build_step)
+        self.assertIn("--parallel ${{ matrix.jobs }}", build_step)
+
+    def test_relevant_source_manifests_are_exactly_equivalent(self) -> None:
+        runner = (
+            REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py"
+        ).read_text(encoding="utf-8")
+        verifier = (
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py"
+        ).read_text(encoding="utf-8")
+        cmake = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        prelink = (
+            REPOSITORY_ROOT
+            / "tools"
+            / "ogre_next_probe"
+            / "cmake"
+            / "VerifyN2SourceProvenance.cmake"
+        ).read_text(encoding="utf-8")
+
+        def quoted_paths(block: str) -> list[str]:
+            return re.findall(r'"([^"]+)"', block)
+
+        def clean_paths(block: str) -> list[str]:
+            result = []
+            for line in block.splitlines()[1:]:
+                path = line.strip()
+                if path.endswith(")"):
+                    path = path[:-1]
+                if path:
+                    result.append(path)
+            return result
+
+        runner_paths = quoted_paths(
+            runner[
+                runner.index("RELEVANT_SOURCE_PATHS = (") :
+                runner.index("\n)\n\n\nclass ProbeError")
+            ]
+        )
+        verifier_paths = quoted_paths(
+            verifier[
+                verifier.index("RELEVANT_SOURCE_PATHS = (") :
+                verifier.index("\n)\nRT4_ATTESTATION_SCHEMA")
+            ]
+        )
+        cmake_manifest = quoted_paths(
+            cmake[
+                cmake.index("list(APPEND _ror_relevant_source_files") :
+                cmake.index("list(FILTER _ror_relevant_source_files")
+            ]
+        ) + ["source/main/gfx/render", "tools/ogre_next_probe"]
+        cmake_clean = clean_paths(
+            cmake[
+                cmake.index("set(_ror_n2_relevant_source_paths") :
+                cmake.index(
+                    "execute_process(",
+                    cmake.index("set(_ror_n2_relevant_source_paths"),
+                )
+            ]
+        )
+        prelink_clean = clean_paths(
+            prelink[
+                prelink.index("set(_ror_n2_relevant_source_paths") :
+                prelink.index("execute_process(")
+            ]
+        )
+        prelink_manifest = quoted_paths(
+            prelink[
+                prelink.index("list(APPEND _ror_n2_relevant_source_files") :
+                prelink.index("list(FILTER _ror_n2_relevant_source_files")
+            ]
+        ) + ["source/main/gfx/render", "tools/ogre_next_probe"]
+
+        expected = set(runner_paths)
+        manifests = {
+            "runner": runner_paths,
+            "artifact verifier": verifier_paths,
+            "probe configure manifest": cmake_manifest,
+            "Metal configure clean set": cmake_clean,
+            "Metal pre-link clean set": prelink_clean,
+            "Metal pre-link manifest": prelink_manifest,
+        }
+        for name, paths in manifests.items():
+            with self.subTest(manifest=name):
+                self.assertEqual(len(paths), len(set(paths)))
+                self.assertEqual(set(paths), expected)
+                omitted = set(paths)
+                omitted.remove("source/main/physics/flex/FlexBody.cpp")
+                self.assertNotEqual(omitted, expected)
 
     def test_every_probe_layer_is_required_in_normal_and_optimized_python(self) -> None:
         for test_path in (
@@ -476,6 +671,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre14_particle_capture_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
+            *DEFORMABLE_CAPTURE_PROVENANCE_PATHS,
         ):
             with self.subTest(provenance_path=path):
                 self.assertEqual(cmake_manifest.count(f'"{path}"'), 1)
