@@ -1888,6 +1888,143 @@ void TestCameraConversionRejectsGuesswork() {
           "unknown OGRE projection kind was accepted");
 }
 
+RoR::Render::GraphicsSceneAssetInput MakeMergeMaterialAsset(
+    std::uint64_t source_asset_id, float red = 1.0F) {
+  using namespace RoR::Render;
+  MaterialDescriptor material;
+  material.debug_name = "merge/material";
+  material.base_color_factor = {red, 0.5F, 0.25F, 1.0F};
+  GraphicsSceneAssetInput asset;
+  asset.source_asset_id = source_asset_id;
+  asset.payload =
+      std::make_shared<const RenderAssetPayload>(std::move(material));
+  return asset;
+}
+
+void RequireMergeSentinelUnchanged(
+    const std::vector<RoR::Render::GraphicsSceneAssetInput> &assets,
+    const std::shared_ptr<const RoR::Render::RenderAssetPayload> &owner,
+    const char *message) {
+  using namespace RoR::Render;
+  Require(assets.size() == 1U && assets.front().source_asset_id == 991U &&
+              SameSharedOwner(assets.front().payload, owner) &&
+              assets.front()
+                      .material_bindings[static_cast<std::size_t>(
+                          MaterialTextureSlot::EMISSIVE)] ==
+                  GraphicsSceneAssetBinding{771U, 772U},
+          message);
+}
+
+void TestCrossDomainAssetMergeAuditsPayloadsBindingsAndOwners() {
+  using namespace RoR::Render;
+  GraphicsSceneAssetInput static_asset = MakeMergeMaterialAsset(20U);
+  static_asset.material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::EMISSIVE)] = {101U, 102U};
+  GraphicsSceneAssetInput exact_duplicate = static_asset;
+  exact_duplicate.payload = std::make_shared<const RenderAssetPayload>(
+      *static_asset.payload);
+  const GraphicsSceneAssetInput road_asset = MakeMergeMaterialAsset(10U);
+
+  std::vector<GraphicsSceneAssetInput> merged;
+  ValidationResult result = MergeOgre14GraphicsSceneAssets(
+      {static_asset}, {exact_duplicate}, {road_asset}, merged);
+  Require(result.ok() && merged.size() == 2U &&
+              merged[0U].source_asset_id == 10U &&
+              merged[1U].source_asset_id == 20U &&
+              SameSharedOwner(merged[1U].payload, static_asset.payload) &&
+              !SameSharedOwner(merged[1U].payload,
+                               exact_duplicate.payload) &&
+              merged[1U].material_bindings == static_asset.material_bindings,
+          "exact cross-domain duplicates were not sorted or did not preserve "
+          "the first owner");
+
+  GraphicsSceneAssetInput binding_conflict = exact_duplicate;
+  binding_conflict.material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::EMISSIVE)] = {101U, 999U};
+  GraphicsSceneAssetInput sentinel = MakeMergeMaterialAsset(991U);
+  sentinel.material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::EMISSIVE)] = {771U, 772U};
+  const auto sentinel_owner = sentinel.payload;
+  merged = {sentinel};
+  result = MergeOgre14GraphicsSceneAssets(
+      {static_asset}, {binding_conflict}, {}, merged);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              result.field == "assets.merge.source_asset_id",
+          "cross-domain material-binding conflict was accepted");
+  RequireMergeSentinelUnchanged(
+      merged, sentinel_owner,
+      "binding-conflict failure changed the populated merge sentinel");
+
+  GraphicsSceneAssetInput payload_conflict = MakeMergeMaterialAsset(20U, 0.5F);
+  payload_conflict.material_bindings = static_asset.material_bindings;
+  result = MergeOgre14GraphicsSceneAssets(
+      {static_asset}, {}, {payload_conflict}, merged);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH,
+          "cross-domain payload conflict was accepted");
+  RequireMergeSentinelUnchanged(
+      merged, sentinel_owner,
+      "payload-conflict failure changed the populated merge sentinel");
+}
+
+class ThrowingAssetMergeFault final
+    : public RoR::Render::IOgre14GraphicsSceneAssetMergeFaultInjector {
+public:
+  explicit ThrowingAssetMergeFault(bool allocation) noexcept
+      : allocation_(allocation) {}
+
+  void AtFaultPoint(
+      RoR::Render::Ogre14GraphicsSceneAssetMergeFaultPoint) override {
+    if (allocation_) {
+      throw std::bad_alloc{};
+    }
+    throw std::runtime_error("deterministic joined-asset merge fault");
+  }
+
+private:
+  bool allocation_ = false;
+};
+
+void TestCrossDomainAssetMergeCapAndExceptionRollback() {
+  using namespace RoR::Render;
+  GraphicsSceneAssetInput sentinel = MakeMergeMaterialAsset(991U);
+  sentinel.material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::EMISSIVE)] = {771U, 772U};
+  const auto sentinel_owner = sentinel.payload;
+  std::vector<GraphicsSceneAssetInput> merged{sentinel};
+
+  const GraphicsSceneAssetInput repeated = MakeMergeMaterialAsset(1U);
+  std::vector<GraphicsSceneAssetInput> over_cap(
+      kMaximumOgre14GraphicsSceneMergedAssets + 1U, repeated);
+  ValidationResult result = MergeOgre14GraphicsSceneAssets(
+      over_cap, {}, {}, merged);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              result.field == "assets.merge.aggregate_count",
+          "aggregate asset cap+1 was not rejected before merge allocation");
+  RequireMergeSentinelUnchanged(
+      merged, sentinel_owner,
+      "aggregate cap failure changed the populated merge sentinel");
+
+  ThrowingAssetMergeFault allocation(true);
+  result = MergeOgre14GraphicsSceneAssets(
+      {repeated}, {}, {}, merged, &allocation);
+  Require(!result && result.code == ValidationCode::EMPTY_PAYLOAD &&
+              result.field == "assets.merge.allocation",
+          "injected merge allocation failure escaped or changed code");
+  RequireMergeSentinelUnchanged(
+      merged, sentinel_owner,
+      "allocation exception changed the populated merge sentinel owner");
+
+  ThrowingAssetMergeFault unexpected(false);
+  result = MergeOgre14GraphicsSceneAssets(
+      {repeated}, {}, {}, merged, &unexpected);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              result.field == "assets.merge.exception",
+          "injected unexpected merge exception escaped or changed code");
+  RequireMergeSentinelUnchanged(
+      merged, sentinel_owner,
+      "unexpected exception changed the populated merge sentinel owner");
+}
+
 } // namespace
 
 int main() {
@@ -1923,5 +2060,7 @@ int main() {
   TestConvertedDynamicInventoryFeedsProducer();
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
+  TestCrossDomainAssetMergeAuditsPayloadsBindingsAndOwners();
+  TestCrossDomainAssetMergeCapAndExceptionRollback();
   return EXIT_SUCCESS;
 }

@@ -1724,66 +1724,6 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     return RoR::Render::ValidationResult::Success();
 }
 
-RoR::Render::ValidationResult MergeOgre14SceneAssets(
-    const std::vector<RoR::Render::GraphicsSceneAssetInput>& static_assets,
-    const std::vector<RoR::Render::GraphicsSceneAssetInput>& dynamic_assets,
-    std::vector<RoR::Render::GraphicsSceneAssetInput>& output)
-{
-    std::vector<RoR::Render::GraphicsSceneAssetInput> candidate;
-    candidate.reserve(static_assets.size() + dynamic_assets.size());
-    std::map<std::uint64_t, std::size_t> indices;
-    const auto append = [&candidate, &indices](
-        const RoR::Render::GraphicsSceneAssetInput& asset)
-        -> RoR::Render::ValidationResult
-    {
-        if (asset.source_asset_id == 0U || asset.payload == nullptr)
-        {
-            return NativeStaticFailure(
-                RoR::Render::ValidationCode::MISSING_REFERENCE,
-                "assets.native_merge",
-                "native scene asset has no stable identity or payload owner");
-        }
-        const auto prior = indices.find(asset.source_asset_id);
-        if (prior != indices.end())
-        {
-            const auto& prior_asset = candidate[prior->second];
-            if (!RoR::Render::EquivalentRenderAssetPayload(
-                    *prior_asset.payload, *asset.payload))
-            {
-                return NativeStaticFailure(
-                    RoR::Render::ValidationCode::REVISION_MISMATCH,
-                    "assets.native_merge",
-                    "static and deformable inventories disagree on one "
-                    "stable asset payload");
-            }
-            return RoR::Render::ValidationResult::Success();
-        }
-        indices.emplace(asset.source_asset_id, candidate.size());
-        candidate.push_back(asset);
-        return RoR::Render::ValidationResult::Success();
-    };
-    for (const auto& asset : static_assets)
-    {
-        const RoR::Render::ValidationResult validation = append(asset);
-        if (!validation)
-            return validation;
-    }
-    for (const auto& asset : dynamic_assets)
-    {
-        const RoR::Render::ValidationResult validation = append(asset);
-        if (!validation)
-            return validation;
-    }
-    std::sort(candidate.begin(), candidate.end(),
-        [](const RoR::Render::GraphicsSceneAssetInput& lhs,
-           const RoR::Render::GraphicsSceneAssetInput& rhs)
-        {
-            return lhs.source_asset_id < rhs.source_asset_id;
-        });
-    output = std::move(candidate);
-    return RoR::Render::ValidationResult::Success();
-}
-
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
     bool has_deformable_geometry,
@@ -2681,8 +2621,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     dynamic_assets, candidate.frame.dynamic_meshes);
             if (!dynamic_validation)
                 return dynamic_validation;
-            dynamic_validation = MergeOgre14SceneAssets(
-                static_assets, dynamic_assets, candidate.frame.assets);
+            dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
+                static_assets, dynamic_assets, {}, candidate.frame.assets);
             if (!dynamic_validation)
                 return dynamic_validation;
 

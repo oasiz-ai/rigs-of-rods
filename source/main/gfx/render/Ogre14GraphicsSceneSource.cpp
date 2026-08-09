@@ -1841,6 +1841,102 @@ ValidationResult ValidateOgre14GraphicsSceneResolvedMaterialFrameLineage(
       "unexpected exception before resolved material lineage was published");
 }
 
+ValidationResult MergeOgre14GraphicsSceneAssets(
+    const std::vector<GraphicsSceneAssetInput> &static_assets,
+    const std::vector<GraphicsSceneAssetInput> &dynamic_assets,
+    const std::vector<GraphicsSceneAssetInput> &road_assets,
+    std::vector<GraphicsSceneAssetInput> &assets,
+    IOgre14GraphicsSceneAssetMergeFaultInjector *fault_injector) try {
+  std::size_t aggregate_count = 0U;
+  if (!CheckedAddSize(static_assets.size(), aggregate_count) ||
+      !CheckedAddSize(dynamic_assets.size(), aggregate_count) ||
+      !CheckedAddSize(road_assets.size(), aggregate_count) ||
+      aggregate_count > kMaximumOgre14GraphicsSceneMergedAssets) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "assets.merge.aggregate_count",
+        "joined static, dynamic, and road asset records exceed their fixed "
+        "aggregate cap");
+  }
+
+  std::vector<GraphicsSceneAssetInput> candidate;
+  candidate.reserve(aggregate_count);
+  std::map<std::uint64_t, std::size_t> indices;
+  bool injected_after_first_unique_asset = false;
+  const auto append = [&](const GraphicsSceneAssetInput &asset,
+                          const char *field) -> ValidationResult {
+    if (asset.source_asset_id == 0U) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER, field,
+          "joined scene asset requires a nonzero stable source identity");
+    }
+    if (asset.payload == nullptr || asset.payload->valueless_by_exception() ||
+        std::holds_alternative<std::monostate>(*asset.payload)) {
+      return ValidationResult::Failure(
+          ValidationCode::EMPTY_PAYLOAD, field,
+          "joined scene asset requires one live immutable payload owner");
+    }
+    const auto prior = indices.find(asset.source_asset_id);
+    if (prior != indices.end()) {
+      if (!EquivalentGraphicsSceneAssetInput(candidate[prior->second],
+                                             asset)) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "assets.merge.source_asset_id",
+            "one source identity has conflicting payload bytes or material "
+            "bindings across scene domains");
+      }
+      return ValidationResult::Success();
+    }
+    indices.emplace(asset.source_asset_id, candidate.size());
+    candidate.push_back(asset);
+    if (!injected_after_first_unique_asset && fault_injector != nullptr) {
+      injected_after_first_unique_asset = true;
+      fault_injector->AtFaultPoint(
+          Ogre14GraphicsSceneAssetMergeFaultPoint::AFTER_FIRST_UNIQUE_ASSET);
+    }
+    return ValidationResult::Success();
+  };
+  const auto append_domain = [&](const auto &domain_assets,
+                                 const char *field) -> ValidationResult {
+    for (const GraphicsSceneAssetInput &asset : domain_assets) {
+      ValidationResult validation = append(asset, field);
+      if (!validation) {
+        return validation;
+      }
+    }
+    return ValidationResult::Success();
+  };
+
+  ValidationResult validation =
+      append_domain(static_assets, "assets.merge.static");
+  if (!validation) {
+    return validation;
+  }
+  validation = append_domain(dynamic_assets, "assets.merge.dynamic");
+  if (!validation) {
+    return validation;
+  }
+  validation = append_domain(road_assets, "assets.merge.road");
+  if (!validation) {
+    return validation;
+  }
+  std::sort(candidate.begin(), candidate.end(),
+            [](const GraphicsSceneAssetInput &lhs,
+               const GraphicsSceneAssetInput &rhs) {
+              return lhs.source_asset_id < rhs.source_asset_id;
+            });
+  assets = std::move(candidate);
+  return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return ValidationResult::Failure(
+      ValidationCode::EMPTY_PAYLOAD, "assets.merge.allocation",
+      "allocation failed before the joined asset inventory was published");
+} catch (...) {
+  return ValidationResult::Failure(
+      ValidationCode::UNSUPPORTED_FEATURE, "assets.merge.exception",
+      "unexpected exception occurred before the joined asset inventory was published");
+}
+
 ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
     Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,
@@ -2152,14 +2248,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     if (!validation) {
       return AtDynamicSection(std::move(validation), input_index);
     }
-    if (resolved_material != nullptr) {
-      for (const std::string &resolved_key : resolved_asset_keys) {
-        validation = reject_asset_resurrection(resolved_key);
-        if (!validation) {
-          return AtDynamicSection(std::move(validation), input_index);
-        }
-      }
-    } else {
+    if (resolved_material == nullptr) {
       validation = reject_asset_resurrection(material_key);
       if (!validation) {
         return AtDynamicSection(std::move(validation), input_index);
@@ -2266,14 +2355,20 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     const GraphicsSceneAssetInput canonical_mesh =
         canonicalize(mesh_key, proposed_mesh);
     std::vector<GraphicsSceneAssetInput> canonical_material_assets;
-    canonical_material_assets.reserve(proposed_material_assets.size());
-    for (std::size_t asset_index = 0U;
-         asset_index < proposed_material_assets.size(); ++asset_index) {
-      const std::string &key = resolved_material != nullptr
-                                   ? resolved_asset_keys[asset_index]
-                                   : material_key;
+    if (resolved_material != nullptr) {
+      // Exact closure assets remain collision-audited and canonicalized here,
+      // but lifecycle ownership stays with the translator. They deliberately
+      // never enter this domain's known/live tombstone sets.
+      canonical_material_assets.reserve(proposed_material_assets.size());
+      for (std::size_t asset_index = 0U;
+           asset_index < proposed_material_assets.size(); ++asset_index) {
+        canonical_material_assets.push_back(canonicalize(
+            resolved_asset_keys[asset_index],
+            proposed_material_assets[asset_index]));
+      }
+    } else {
       canonical_material_assets.push_back(
-          canonicalize(key, proposed_material_assets[asset_index]));
+          canonicalize(material_key, proposed_material_assets.front()));
     }
     validation = add_asset(canonical_mesh);
     if (!validation) {
@@ -2295,10 +2390,7 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
       }
     }
     current_asset_keys.insert(mesh_key);
-    if (resolved_material != nullptr) {
-      current_asset_keys.insert(resolved_asset_keys.begin(),
-                                resolved_asset_keys.end());
-    } else {
+    if (resolved_material == nullptr) {
       current_asset_keys.insert(material_key);
     }
 
@@ -2371,10 +2463,10 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     candidate_meshes.push_back(std::move(instance));
   }
 
-  // Dynamic base assets and exact material dependencies remain owned for the
-  // adapter lifetime. This prevents a shared material, sampler, texture, or
-  // immutable topology from being tombstoned merely because its actor was
-  // removed, while object identities remain permanent tombstones.
+  // Dynamic base meshes and factor-fallback materials remain owned for the
+  // adapter lifetime. Exact closure dependencies are translator-owned and
+  // therefore never enter this per-domain lifecycle set. Object identities
+  // remain permanent tombstones.
   for (const std::string &key : identity_registry.live_asset_keys_) {
     if (current_asset_keys.find(key) != current_asset_keys.end()) {
       continue;
@@ -2741,15 +2833,8 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     if (!validation) {
       return AtStaticSection(std::move(validation), input_index);
     }
-    validation = reject_resurrection(material_key, false);
-    if (!validation) {
-      return AtStaticSection(std::move(validation), input_index);
-    }
-    for (const std::string &resolved_key : resolved_asset_keys) {
-      if (resolved_key == material_key) {
-        continue;
-      }
-      validation = reject_resurrection(resolved_key, false);
+    if (resolved_material == nullptr) {
+      validation = reject_resurrection(material_key, false);
       if (!validation) {
         return AtStaticSection(std::move(validation), input_index);
       }
@@ -2869,14 +2954,19 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
     const GraphicsSceneAssetInput canonical_mesh =
         canonicalize(mesh_key, proposed_mesh);
     std::vector<GraphicsSceneAssetInput> canonical_material_assets;
-    canonical_material_assets.reserve(proposed_material_assets.size());
-    for (std::size_t asset_index = 0U;
-         asset_index < proposed_material_assets.size(); ++asset_index) {
-      const std::string &key = resolved_material != nullptr
-                                   ? resolved_asset_keys[asset_index]
-                                   : material_key;
+    if (resolved_material != nullptr) {
+      // Closure keys stay collision-audited and owner-canonicalized without
+      // entering static known/live lifecycle tracking.
+      canonical_material_assets.reserve(proposed_material_assets.size());
+      for (std::size_t asset_index = 0U;
+           asset_index < proposed_material_assets.size(); ++asset_index) {
+        canonical_material_assets.push_back(canonicalize(
+            resolved_asset_keys[asset_index],
+            proposed_material_assets[asset_index]));
+      }
+    } else {
       canonical_material_assets.push_back(
-          canonicalize(key, proposed_material_assets[asset_index]));
+          canonicalize(material_key, proposed_material_assets.front()));
     }
 
     const auto add_asset = [&](const GraphicsSceneAssetInput &asset)
@@ -2929,10 +3019,7 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
           "static-section identity is duplicated", input_index);
     }
     current_asset_keys.insert(mesh_key);
-    if (resolved_material != nullptr) {
-      current_asset_keys.insert(resolved_asset_keys.begin(),
-                                resolved_asset_keys.end());
-    } else {
+    if (resolved_material == nullptr) {
       current_asset_keys.insert(material_key);
     }
 

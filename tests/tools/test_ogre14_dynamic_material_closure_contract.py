@@ -11,6 +11,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RENDER = REPOSITORY_ROOT / "source/main/gfx/render"
 SCENE_HEADER = RENDER / "Ogre14GraphicsSceneSource.h"
 SCENE_SOURCE = SCENE_HEADER.with_suffix(".cpp")
+GFX_SCENE_SOURCE = REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp"
 CPP_TEST = (
     REPOSITORY_ROOT
     / "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
@@ -26,6 +27,7 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.scene_header = SCENE_HEADER.read_text(encoding="utf-8")
         cls.scene_source = SCENE_SOURCE.read_text(encoding="utf-8")
+        cls.gfx_scene_source = GFX_SCENE_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
 
     def test_dynamic_input_reuses_the_static_exact_closure_contract(self) -> None:
@@ -99,9 +101,64 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, lineage)
 
+    def test_cross_domain_merge_is_binding_aware_bounded_and_wired(self) -> None:
+        for token in (
+            "kMaximumOgre14GraphicsSceneMergedAssets = 65536U",
+            "IOgre14GraphicsSceneAssetMergeFaultInjector",
+            "MergeOgre14GraphicsSceneAssets",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.scene_header)
+        method = self.scene_source[
+            self.scene_source.index(
+                "ValidationResult MergeOgre14GraphicsSceneAssets"
+            ) : self.scene_source.index(
+                "ValidationResult BuildOgre14GraphicsSceneDynamicInventory"
+            )
+        ]
+        for token in (
+            "CheckedAddSize(static_assets.size(), aggregate_count)",
+            "CheckedAddSize(dynamic_assets.size(), aggregate_count)",
+            "CheckedAddSize(road_assets.size(), aggregate_count)",
+            "EquivalentGraphicsSceneAssetInput",
+            "AFTER_FIRST_UNIQUE_ASSET",
+            "assets.merge.allocation",
+            "assets.merge.exception",
+            "lhs.source_asset_id < rhs.source_asset_id",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, method)
+        self.assertIn(
+            "lhs.material_bindings == rhs.material_bindings",
+            self.scene_source,
+        )
+        self.assertIn(
+            "Render::MergeOgre14GraphicsSceneAssets(",
+            self.gfx_scene_source,
+        )
+        self.assertNotIn(
+            "ValidationResult MergeOgre14SceneAssets(",
+            self.gfx_scene_source,
+        )
+
+    def test_resolved_closure_is_not_a_domain_tombstone(self) -> None:
+        self.assertNotIn(
+            "current_asset_keys.insert(resolved_asset_keys",
+            self.scene_source,
+        )
+        self.assertIn(
+            "resolved_material->assets[asset_index].source_asset_id",
+            self.scene_source,
+        )
+        self.assertIn(
+            "canonicalize(\n            resolved_asset_keys[asset_index]",
+            self.scene_source,
+        )
+
     def test_hostile_native_acceptance_matrix_is_present(self) -> None:
         for token in (
             "TestExactDynamicClosureSharedOwnersAndStaticEquivalence",
+            "TestResolvedClosureLifecycleBelongsToTranslator",
             "TestFallbackRemainsExactAndTexturedFailClosed",
             "TestWindingAndJoinedLineageAreExact",
             "TestHostileClosuresCollisionsAndUvGate",
@@ -120,6 +177,8 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             "allocation exception changed deep registry/output owners or values",
             "unexpected exception changed deep registry/output owners or values",
             "post-fault dynamic deformation owner was not reusable",
+            "distinct static B could not re-enter with the shared translator closure",
+            "translator ownership weakened static A's permanent object tombstone",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.cpp_test)
@@ -156,6 +215,9 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
                     text,
                 )
                 self.assertIn("mesh_reverse_winding", text)
+        self.assertIn(
+            "MergeOgre14GraphicsSceneAssets", PRODUCER_DOC.read_text(encoding="utf-8")
+        )
 
 
 if __name__ == "__main__":
