@@ -17,6 +17,7 @@
 #include "MaterialDescriptor.h"
 #include "Ogre14LegacyAssetTranslator.h"
 #include "Ogre14LegacyMaterialClosure.h"
+#include "Ogre14ParticleCaptureSource.h"
 #include "ParallaxProbeReference.h"
 #include "PbrReference.h"
 #include "ReflectionProbeCaptureReceipt.h"
