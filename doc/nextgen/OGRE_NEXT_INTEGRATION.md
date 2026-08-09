@@ -846,6 +846,39 @@ parity.
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.
 
+## Legacy material migration inventory
+
+`tools/audit_ogre14_material_scripts.py` reads bounded `.material` members
+directly from a user-supplied ZIP and emits
+`ror-ogre14-material-script-audit-v1`. It records exact authored material
+names, script hashes, technique/pass/texture-unit structure, program
+references, environment mapping, texture transforms, and authored
+`texture_alias` values. It deliberately does not infer PBR roles from texture
+filenames, legacy specular values, or material names. Every material still
+requires an explicit semantic declaration and exact native-state capture before
+the production translator may admit it.
+
+Against the authenticated CityWorld archive
+`ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`, the
+audit finds 538 definitions in 20 scripts. Only 323 are structural candidates
+for the current one-technique, one-pass, at-most-one-texture v1 boundary; 215
+are structurally blocked. Of the complete inventory, 200 use multiple texture
+units, 135 author environment mapping, 20 author texture transforms or
+animation, and one references an authored GPU program. The texture-unit
+histogram is 10/328/85/113/1/1 for zero through five units. The report also
+retains the known duplicate `concretorojo` definition with both exact source
+locations. These are script-level migration measurements, not proof of runtime
+OGRE inheritance, listener edits, RTShaderSystem output, native pass state, or
+visual parity.
+
+Run the bounded audit with:
+
+```sh
+python3 tools/audit_ogre14_material_scripts.py /path/to/CityWorld.zip \
+  --expect-sha256 ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3 \
+  --pretty
+```
+
 ## Completed local checkpoint
 
 On 2026-07-31 the Release probe configured and built natively with AppleClang
