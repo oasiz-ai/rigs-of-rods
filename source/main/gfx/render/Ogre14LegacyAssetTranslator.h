@@ -70,6 +70,7 @@ private:
 constexpr std::uint32_t kOgre14LegacyAssetTranslatorVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyTextureInputVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyMaterialInputVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyAssetIdentityFrameViewVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyPipelineAuditVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyTranslatedFrameVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyAssetTranslatorConfigurationVersion = 1U;
@@ -79,13 +80,11 @@ constexpr std::uint32_t
 /// Defaults match the joined graphics producer's lifetime-record and payload
 /// budgets so this earlier decode/catalog stage cannot consume more resources
 /// than the transaction which will ultimately publish it.
-constexpr std::size_t kDefaultOgre14LegacyMaximumTextureInputsPerFrame =
-    65536U;
+constexpr std::size_t kDefaultOgre14LegacyMaximumTextureInputsPerFrame = 65536U;
 constexpr std::size_t kDefaultOgre14LegacyMaximumMaterialInputsPerFrame =
     65536U;
 constexpr std::size_t kDefaultOgre14LegacyMaximumLiveAssetsPerFrame = 65536U;
-constexpr std::size_t kDefaultOgre14LegacyMaximumLifetimeAssetRecords =
-    65536U;
+constexpr std::size_t kDefaultOgre14LegacyMaximumLifetimeAssetRecords = 65536U;
 constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerAsset =
     512U * 1024U * 1024U;
 constexpr std::uint64_t kDefaultOgre14LegacyMaximumDecodedBytesPerFrame =
@@ -101,8 +100,7 @@ constexpr std::uint64_t
 constexpr std::size_t kMaximumOgre14LegacyStableAssetKeyBytes = 512U;
 
 struct Ogre14LegacyAssetTranslatorConfiguration {
-  std::uint32_t version =
-      kOgre14LegacyAssetTranslatorConfigurationVersion;
+  std::uint32_t version = kOgre14LegacyAssetTranslatorConfigurationVersion;
   std::size_t maximum_texture_inputs_per_frame =
       kDefaultOgre14LegacyMaximumTextureInputsPerFrame;
   std::size_t maximum_material_inputs_per_frame =
@@ -126,8 +124,7 @@ struct Ogre14LegacyAssetTranslatorTransactionConfiguration {
       kDefaultOgre14LegacyMaximumTransactionCloneMetadataBytes;
   /// Bounds transaction-state advances and permits deterministic exhaustion
   /// testing without changing source/catalog sequence semantics.
-  std::uint64_t maximum_epoch =
-      (std::numeric_limits<std::uint64_t>::max)();
+  std::uint64_t maximum_epoch = (std::numeric_limits<std::uint64_t>::max)();
 };
 
 /// Byte layouts are explicit and independent of the compiling host. The two
@@ -373,6 +370,19 @@ struct Ogre14LegacyAssetFrameInput {
   std::vector<Ogre14LegacyMaterialInput> materials;
 };
 
+/// Read-only, non-owning view used to admit one prospective authoritative
+/// identity inventory before callers copy texture mip payloads. Each nonempty
+/// range must point to an array of nonnull canonical input pointers which
+/// remains alive for the call. Empty ranges may use a null data pointer.
+/// Translate still revalidates the complete owned frame authoritatively.
+struct Ogre14LegacyAssetIdentityFrameView {
+  std::uint32_t version = kOgre14LegacyAssetIdentityFrameViewVersion;
+  const Ogre14LegacyTextureInput *const *texture_inputs = nullptr;
+  std::size_t texture_input_count = 0U;
+  const Ogre14LegacyMaterialInput *const *material_inputs = nullptr;
+  std::size_t material_input_count = 0U;
+};
+
 /// Immutable exact source-state companion for every translated material. The
 /// portable descriptor is valid independently; a later OgreNext inventory
 /// adapter must consume this companion to prove the admitted pipeline state
@@ -446,8 +456,12 @@ public:
   [[nodiscard]] virtual ValidationResult BeforeCommit() noexcept = 0;
   /// Optional borrowed test seam. Production implementations inherit this
   /// no-op. Tests may throw at deterministic clone stages to prove rollback.
-  virtual void BeforeTransactionClone(
-      Ogre14LegacyAssetTranslatorCloneStage) {}
+  virtual void BeforeTransactionClone(Ogre14LegacyAssetTranslatorCloneStage) {}
+  /// Optional borrowed test seam for collision and exception rollback. The
+  /// production default is an exact no-op, and Translate never consumes an
+  /// overridden value: it always derives and validates source IDs again.
+  virtual void AtLifetimeAdmissionIdentityForTesting(
+      RenderAssetKind, const Ogre14LegacyAssetKey &, std::uint64_t &) {}
 };
 
 enum class Ogre14LegacyAssetTranslatorCommitResult : std::uint8_t {
@@ -583,6 +597,14 @@ public:
   /// rejected or uncommitted candidate to discard it.
   [[nodiscard]] Ogre14LegacyAssetTranslatorCommitResult
   CommitTransaction(Ogre14LegacyAssetTranslator &candidate) noexcept;
+
+  /// Derives the exact texture/material/material-owned-sampler identities for
+  /// a borrowed authoritative inventory and proves that every new permanent
+  /// record fits the current lifetime cap. This method is const, copies no mip
+  /// bytes, and leaves the translator unchanged on every result. Translate is
+  /// still the authoritative full-state validation and publication path.
+  [[nodiscard]] ValidationResult PreflightLifetimeAdmission(
+      const Ogre14LegacyAssetIdentityFrameView &input) const;
 
   /// Fully transactional. Any validation, allocation, collision, dependency,
   /// source-lineage, or injected failure leaves state and `output` untouched.
