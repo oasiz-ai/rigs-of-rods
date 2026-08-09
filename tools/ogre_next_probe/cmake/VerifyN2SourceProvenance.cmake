@@ -12,7 +12,19 @@ set(_ror_n2_relevant_source_paths
     cmake/OgreNextProductionPackage.cmake
     cmake/RendererLauncherPackageConfig.cmake
     cmake/macos/StageMacOSBundle.cmake
+    cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock
+    cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock
+    cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock
+    cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock
+    cmake/conan/locks/ror-ogre14-macos-arm64-release.lock
+    cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock
+    cmake/conan/recipes/mygui/conanfile.py
+    cmake/conan/recipes/ogre3d/conandata.yml
+    cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
+    cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
+    conanfile.py
     doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
+    doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
     source/main/GameContext.cpp
     source/main/gfx/GfxActorCaptureInventory.h
     source/main/gfx/RendererBackendPolicy.cpp
@@ -90,13 +102,23 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererPublicLauncher.cpp
     source/main/system/RendererPublicLauncher.h
     source/main/CMakeLists.txt
+    source/main/resources/CacheSystem.cpp
+    source/main/resources/ContentManager.cpp
+    source/main/resources/ContentManager.h
+    source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp
+    source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h
     source/main/gfx/render
     source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
     source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
+    source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
+    source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
     tests/gfx/GfxActorCaptureInventoryTests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+    tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+    tests/resources/TerrainBundleArchiveVerifierTests.cpp
+    tests/tools/assert_ogre_recipe_graph.py
     tests/gfx/RendererBackendPolicyTests.cpp
     tests/gfx/RendererBridgeEndpointTests.cpp
     tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -140,6 +162,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre_next_metal_n2_contract.py
     tests/tools/test_ogre14_dynamic_material_closure_contract.py
     tests/tools/test_ogre14_material_semantic_registry_contract.py
+    tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -179,7 +202,19 @@ list(APPEND _ror_n2_relevant_source_files
     "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"
     "cmake/macos/StageMacOSBundle.cmake"
+    "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock"
+    "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock"
+    "cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock"
+    "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock"
+    "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock"
+    "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock"
+    "cmake/conan/recipes/mygui/conanfile.py"
+    "cmake/conan/recipes/ogre3d/conandata.yml"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
+    "conanfile.py"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
+    "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
     "source/main/GameContext.cpp"
     "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
@@ -257,12 +292,22 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "source/main/CMakeLists.txt"
+    "source/main/resources/CacheSystem.cpp"
+    "source/main/resources/ContentManager.cpp"
+    "source/main/resources/ContentManager.h"
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
+    "tests/tools/assert_ogre_recipe_graph.py"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -306,6 +351,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre_next_metal_n2_contract.py"
     "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
     "tests/tools/test_ogre14_material_semantic_registry_contract.py"
+    "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

@@ -46,6 +46,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/always-lock-zip-archive.patch": (
         "7674db9811bdf80abb0248b39504f259b85ecd9331f5bb1ca19c9b5d7a9db1b4"
     ),
+    "patches/14.5.2/archive-manager-load-rollback.patch": (
+        "cf7aaac084432441167a384245b65400c07f23ea80e2af386cebd41832cc967a"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

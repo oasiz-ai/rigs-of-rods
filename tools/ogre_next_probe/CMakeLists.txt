@@ -95,7 +95,19 @@ list(APPEND _ror_relevant_source_files
     "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"
     "cmake/macos/StageMacOSBundle.cmake"
+    "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock"
+    "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock"
+    "cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock"
+    "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock"
+    "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock"
+    "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock"
+    "cmake/conan/recipes/mygui/conanfile.py"
+    "cmake/conan/recipes/ogre3d/conandata.yml"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
+    "conanfile.py"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
+    "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
     "source/main/GameContext.cpp"
     "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
@@ -173,12 +185,22 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererPublicLauncher.cpp"
     "source/main/system/RendererPublicLauncher.h"
     "source/main/CMakeLists.txt"
+    "source/main/resources/CacheSystem.cpp"
+    "source/main/resources/ContentManager.cpp"
+    "source/main/resources/ContentManager.h"
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
+    "tests/tools/assert_ogre_recipe_graph.py"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -222,6 +244,7 @@ list(APPEND _ror_relevant_source_files
     "tests/tools/test_ogre_next_metal_n2_contract.py"
     "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
     "tests/tools/test_ogre14_material_semantic_registry_contract.py"
+    "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
@@ -1194,6 +1217,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
+        ror_ogre14_authenticated_texture_receipt_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp")
+    target_include_directories(
+        ror_ogre14_authenticated_texture_receipt_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_link_libraries(
+        ror_ogre14_authenticated_texture_receipt_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_authenticated_texture_receipt_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
         ror_render_bridge_control_transport_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/render/RenderBridgeControlTransportTests.cpp")
     target_link_libraries(
@@ -1836,6 +1873,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_road_material_transaction_tests
         ror_ogre14_dynamic_material_closure_tests
         ror_ogre14_material_semantic_registry_tests
+        ror_ogre14_authenticated_texture_receipt_tests
         ror_render_bridge_control_transport_tests
         ror_renderer_ogre_next_window_host_tests
         ror_renderer_ogre_next_sdl_window_runtime
@@ -2113,7 +2151,19 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/OgreNextProductionPackage.cmake
             cmake/RendererLauncherPackageConfig.cmake
             cmake/macos/StageMacOSBundle.cmake
+            cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock
+            cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock
+            cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock
+            cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock
+            cmake/conan/locks/ror-ogre14-macos-arm64-release.lock
+            cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock
+            cmake/conan/recipes/mygui/conanfile.py
+            cmake/conan/recipes/ogre3d/conandata.yml
+            cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
+            cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
+            conanfile.py
             doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
+            doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
             source/main/GameContext.cpp
             source/main/gfx/GfxActorCaptureInventory.h
             source/main/gfx/RendererBackendPolicy.cpp
@@ -2191,13 +2241,23 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererPublicLauncher.cpp
             source/main/system/RendererPublicLauncher.h
             source/main/CMakeLists.txt
+            source/main/resources/CacheSystem.cpp
+            source/main/resources/ContentManager.cpp
+            source/main/resources/ContentManager.h
+            source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp
+            source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h
             source/main/gfx/render
             source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
             source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp
             source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
+            source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
+            source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
             tests/gfx/GfxActorCaptureInventoryTests.cpp
             tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+            tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+            tests/resources/TerrainBundleArchiveVerifierTests.cpp
+            tests/tools/assert_ogre_recipe_graph.py
             tests/gfx/RendererBackendPolicyTests.cpp
             tests/gfx/RendererBridgeEndpointTests.cpp
             tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -2241,6 +2301,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/tools/test_ogre_next_metal_n2_contract.py
             tests/tools/test_ogre14_dynamic_material_closure_contract.py
             tests/tools/test_ogre14_material_semantic_registry_contract.py
+            tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
             tests/tools/test_ogre_next_probe_workflow.py
             tests/tools/test_ogre_next_window_host_contract.py
@@ -2431,6 +2492,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_road_material_transaction_tests
         ror_ogre14_dynamic_material_closure_tests
         ror_ogre14_material_semantic_registry_tests
+        ror_ogre14_authenticated_texture_receipt_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
@@ -2769,6 +2831,10 @@ endif ()
 if (TARGET ror_ogre14_material_semantic_registry_tests)
     add_test(NAME ror_ogre14_material_semantic_registry
         COMMAND $<TARGET_FILE:ror_ogre14_material_semantic_registry_tests>)
+endif ()
+if (TARGET ror_ogre14_authenticated_texture_receipt_tests)
+    add_test(NAME ror_ogre14_authenticated_texture_receipt
+        COMMAND $<TARGET_FILE:ror_ogre14_authenticated_texture_receipt_tests>)
 endif ()
 if (TARGET ror_render_bridge_control_transport_tests)
     add_test(NAME ror_render_bridge_control_transport

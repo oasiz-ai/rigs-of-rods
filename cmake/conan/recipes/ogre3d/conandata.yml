@@ -7,6 +7,7 @@ patches:
     - patch_file: patches/14.5.2/bounds-safe-shadow-texture-projectors.patch
     - patch_file: patches/14.5.2/defer-glsl-program-validation.patch
     - patch_file: patches/14.5.2/always-lock-zip-archive.patch
+    - patch_file: patches/14.5.2/archive-manager-load-rollback.patch
 
 sources:
   14.5.2:

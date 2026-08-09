@@ -510,6 +510,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             prelink.index("list(APPEND _ror_n2_relevant_source_files") :
             prelink.index("list(FILTER _ror_n2_relevant_source_files")
         ]
+        def exact_cmake_path_count(block: str, path: str) -> int:
+            return sum(
+                line.strip().strip('"') == path
+                for line in block.splitlines()
+            )
         for token in (
             "ror_renderer_backend_policy_tests",
             "tests/gfx/RendererBackendPolicyTests.cpp",
@@ -677,21 +682,45 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp",
             "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h",
             "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp",
+            "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp",
+            "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h",
+            "conanfile.py",
+            "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock",
+            "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock",
+            "cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock",
+            "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock",
+            "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock",
+            "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock",
+            "cmake/conan/recipes/mygui/conanfile.py",
+            "cmake/conan/recipes/ogre3d/conandata.yml",
+            "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch",
+            "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp",
+            "source/main/resources/CacheSystem.cpp",
+            "source/main/resources/ContentManager.cpp",
+            "source/main/resources/ContentManager.h",
+            "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp",
+            "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
+            "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp",
+            "tests/resources/TerrainBundleArchiveVerifierTests.cpp",
+            "tests/tools/assert_ogre_recipe_graph.py",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre14_particle_capture_contract.py",
             "tests/tools/test_ogre14_dynamic_material_closure_contract.py",
             "tests/tools/test_ogre14_legacy_asset_translator_contract.py",
             "tests/tools/test_ogre14_legacy_material_closure_contract.py",
             "tests/tools/test_ogre14_material_semantic_registry_contract.py",
+            "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
             *DEFORMABLE_CAPTURE_PROVENANCE_PATHS,
         ):
             with self.subTest(provenance_path=path):
                 self.assertEqual(cmake_manifest.count(f'"{path}"'), 1)
-                self.assertEqual(clean_paths.count(path), 1)
+                self.assertEqual(exact_cmake_path_count(clean_paths, path), 1)
                 self.assertEqual(runner_manifest.count(f'"{path}"'), 1)
                 self.assertEqual(verifier_manifest.count(f'"{path}"'), 1)
-                self.assertEqual(prelink_clean_paths.count(path), 1)
+                self.assertEqual(
+                    exact_cmake_path_count(prelink_clean_paths, path), 1
+                )
                 self.assertEqual(prelink_manifest.count(f'"{path}"'), 1)
         self.assertEqual(runner_manifest, verifier_manifest)
         for source in (
@@ -1165,6 +1194,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_ogre14_material_semantic_registry$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_authenticated_texture_receipt$'", self.workflow
+        )
+        self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
         )
@@ -1483,6 +1515,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn(
                 "ror_ogre14_material_semantic_registry_tests", cmake
             )
+            self.assertIn(
+                "Ogre14AuthenticatedTextureReceiptTests.cpp", cmake
+            )
+            self.assertIn(
+                "ror_ogre14_authenticated_texture_receipt_tests", cmake
+            )
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :
             probe_cmake.index(")", probe_cmake.index(
@@ -1522,6 +1560,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertEqual(
             package_dependencies.count(
                 "ror_ogre14_material_semantic_registry_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_authenticated_texture_receipt_tests"
             ),
             1,
         )

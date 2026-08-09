@@ -11,8 +11,12 @@
 
 #include <array>
 #include <cstdio>
+#include <limits>
 #include <memory>
+#include <new>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -122,6 +126,65 @@ std::string LowercaseHex(
 
 } // namespace
 
+struct TerrainBundleAuthenticatedArchiveSnapshot::State
+{
+    std::uint32_t version =
+        TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_SNAPSHOT_VERSION;
+    std::string source_archive_identity;
+    std::string archive_sha256;
+    std::vector<std::uint8_t> bytes;
+};
+
+TerrainBundleAuthenticatedArchiveSnapshot::
+    TerrainBundleAuthenticatedArchiveSnapshot(
+        std::shared_ptr<const State> state) noexcept:
+    m_state(std::move(state))
+{
+}
+
+bool TerrainBundleAuthenticatedArchiveSnapshot::initialized() const noexcept
+{
+    return m_state != nullptr;
+}
+
+std::uint32_t TerrainBundleAuthenticatedArchiveSnapshot::version() const noexcept
+{
+    return m_state != nullptr ? m_state->version : 0U;
+}
+
+const std::string&
+TerrainBundleAuthenticatedArchiveSnapshot::source_archive_identity() const noexcept
+{
+    static const std::string EMPTY;
+    return m_state != nullptr ? m_state->source_archive_identity : EMPTY;
+}
+
+const std::string&
+TerrainBundleAuthenticatedArchiveSnapshot::archive_sha256() const noexcept
+{
+    static const std::string EMPTY;
+    return m_state != nullptr ? m_state->archive_sha256 : EMPTY;
+}
+
+const std::uint8_t*
+TerrainBundleAuthenticatedArchiveSnapshot::bytes() const noexcept
+{
+    return m_state != nullptr && !m_state->bytes.empty()
+        ? m_state->bytes.data()
+        : nullptr;
+}
+
+std::size_t TerrainBundleAuthenticatedArchiveSnapshot::size() const noexcept
+{
+    return m_state != nullptr ? m_state->bytes.size() : 0U;
+}
+
+bool TerrainBundleAuthenticatedArchiveSnapshot::SharesImmutableStateWith(
+    const TerrainBundleAuthenticatedArchiveSnapshot& other) const noexcept
+{
+    return m_state == other.m_state;
+}
+
 bool VerifyTerrainBundleArchiveSha256(
     const std::string& archive_path,
     const std::string& expected_sha256,
@@ -201,6 +264,154 @@ bool VerifyTerrainBundleArchiveSha256(
         return false;
     }
     return true;
+}
+
+bool LoadAndVerifyTerrainBundleArchiveSnapshot(
+    const std::string& archive_path,
+    const std::string& expected_sha256,
+    std::uint64_t maximum_archive_bytes,
+    TerrainBundleAuthenticatedArchiveSnapshot& out_snapshot,
+    std::string& out_observed_sha256,
+    std::string& out_error)
+{
+    out_observed_sha256.clear();
+    out_error.clear();
+    if (!IsLowercaseSha256(expected_sha256))
+    {
+        out_error =
+            "expected SHA-256 must be 64 lowercase hexadecimal characters";
+        return false;
+    }
+    if (archive_path.empty() || archive_path.size() > 16384U)
+    {
+        out_error = "archive identity is empty or exceeds its hard cap";
+        return false;
+    }
+    if (maximum_archive_bytes == 0U ||
+        maximum_archive_bytes >
+            TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES ||
+        maximum_archive_bytes >
+            static_cast<std::uint64_t>(
+                (std::numeric_limits<std::size_t>::max)()))
+    {
+        out_error = "archive byte limit is zero or exceeds its hard cap";
+        return false;
+    }
+
+    try
+    {
+        std::unique_ptr<FILE, FileCloser> archive(
+            OpenArchiveReadOnly(archive_path));
+        if (!archive)
+        {
+            out_error = "could not open archive for authenticated snapshot";
+            return false;
+        }
+
+        std::unique_ptr<EVP_MD_CTX, DigestContextDeleter> context(
+            EVP_MD_CTX_new());
+        if (!context ||
+            EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1)
+        {
+            out_error = "could not initialize authenticated snapshot SHA-256";
+            return false;
+        }
+
+        std::shared_ptr<TerrainBundleAuthenticatedArchiveSnapshot::State>
+            candidate = std::make_shared<
+                TerrainBundleAuthenticatedArchiveSnapshot::State>();
+        candidate->source_archive_identity = archive_path;
+        candidate->archive_sha256 = expected_sha256;
+        std::array<unsigned char, READ_BUFFER_BYTES> buffer;
+        for (;;)
+        {
+            const std::size_t bytes_read = std::fread(
+                buffer.data(),
+                1U,
+                buffer.size(),
+                archive.get());
+            if (bytes_read != 0U)
+            {
+                if (bytes_read >
+                    static_cast<std::size_t>(maximum_archive_bytes) -
+                        candidate->bytes.size())
+                {
+                    out_error =
+                        "archive exceeds authenticated snapshot byte cap";
+                    return false;
+                }
+                if (EVP_DigestUpdate(
+                        context.get(),
+                        buffer.data(),
+                        bytes_read) != 1)
+                {
+                    out_error =
+                        "could not update authenticated snapshot SHA-256";
+                    return false;
+                }
+                candidate->bytes.insert(
+                    candidate->bytes.end(),
+                    buffer.begin(),
+                    buffer.begin() +
+                        static_cast<std::ptrdiff_t>(bytes_read));
+            }
+            if (bytes_read != buffer.size())
+            {
+                if (std::ferror(archive.get()) != 0)
+                {
+                    out_error =
+                        "could not read archive for authenticated snapshot";
+                    return false;
+                }
+                break;
+            }
+        }
+        if (candidate->bytes.empty())
+        {
+            out_error = "authenticated archive snapshot is empty";
+            return false;
+        }
+
+        std::array<unsigned char, EVP_MAX_MD_SIZE> digest;
+        unsigned int digest_size = 0U;
+        if (EVP_DigestFinal_ex(
+                context.get(),
+                digest.data(),
+                &digest_size) != 1 ||
+            digest_size != 32U)
+        {
+            out_error =
+                "could not finalize authenticated snapshot SHA-256";
+            return false;
+        }
+        out_observed_sha256 = LowercaseHex(digest.data(), digest_size);
+        if (out_observed_sha256 != expected_sha256)
+        {
+            out_error = "archive SHA-256 mismatch";
+            return false;
+        }
+
+        out_snapshot = TerrainBundleAuthenticatedArchiveSnapshot(
+            std::shared_ptr<const
+                TerrainBundleAuthenticatedArchiveSnapshot::State>(
+                    std::move(candidate)));
+        return true;
+    }
+    catch (const std::bad_alloc&)
+    {
+        out_error = "allocation failed before authenticated snapshot commit";
+        return false;
+    }
+    catch (const std::length_error&)
+    {
+        out_error = "authenticated snapshot allocation exceeded size limits";
+        return false;
+    }
+    catch (...)
+    {
+        out_error = "unexpected failure before authenticated snapshot commit";
+        return false;
+    }
 }
 
 } // namespace RoR

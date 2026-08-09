@@ -1622,11 +1622,14 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
                 resolved_entries[index];
             const TerrainBundleDependency& dependency =
                 dependencies[index];
+            TerrainBundleAuthenticatedArchiveSnapshot archive_snapshot;
             std::string observed_sha256;
             std::string verification_error;
-            if (!VerifyTerrainBundleArchiveSha256(
+            if (!LoadAndVerifyTerrainBundleArchiveSnapshot(
                     dependency_entry->resource_bundle_path,
                     dependency.expected_archive_sha256,
+                    TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES,
+                    archive_snapshot,
                     observed_sha256,
                     verification_error))
             {
@@ -1645,23 +1648,10 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
                 abandon_target_group(failure);
                 return false;
             }
-            if (resource_manager.resourceLocationExists(
-                    dependency_entry->resource_bundle_path,
-                    resource_group))
-            {
-                continue;
-            }
-            resource_manager.addResourceLocation(
-                dependency_entry->resource_bundle_path,
-                dependency_entry->resource_bundle_type,
+            App::GetContentManager()->MountAuthenticatedPackageResourceLocation(
                 resource_group,
-                false,
-                true);
+                archive_snapshot);
             added_any = true;
-            App::GetContentManager()->RegisterAuthenticatedPackageResourceLocation(
-                resource_group,
-                dependency_entry->resource_bundle_path,
-                dependency.expected_archive_sha256);
         }
 
         if (added_any)
@@ -2857,10 +2847,6 @@ CacheSystem::FindLoadedResourceGroupOwnersUsingBundlePath(
     std::vector<CacheEntryPtr> owners;
     Ogre::ResourceGroupManager* resource_manager =
         Ogre::ResourceGroupManager::getSingletonPtr();
-    if (resource_manager == nullptr)
-    {
-        return owners;
-    }
 
     std::set<std::string> inspected_groups;
     for (const CacheEntryPtr& entry: m_entries)
@@ -2872,7 +2858,14 @@ CacheSystem::FindLoadedResourceGroupOwnersUsingBundlePath(
         }
 
         const std::string& resource_group = entry->resource_group;
-        if (!resource_manager->resourceGroupExists(resource_group))
+        if (App::GetContentManager()->IsAuthenticatedPackageSourceMounted(
+                resource_group, bundle_path))
+        {
+            owners.push_back(entry);
+            continue;
+        }
+        if (resource_manager == nullptr ||
+            !resource_manager->resourceGroupExists(resource_group))
         {
             continue;
         }
