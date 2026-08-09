@@ -1,0 +1,25 @@
+--- a/OgreMain/include/OgreTechnique.h
++++ b/OgreMain/include/OgreTechnique.h
+@@ -267,5 +267,10 @@ namespace Ogre {
+         /** return this material specific  shadow casting specific material
+         */
+         MaterialPtr getShadowCasterMaterial() const;
++        /** Return the exact authored shadow-caster material declaration name.
++            This remains populated when deferred resolution has not found a
++            material and therefore cannot be reconstructed from the pointer.
++        */
++        const String& getShadowCasterMaterialName() const { return mShadowCasterMaterialName; }
+         /** Sets the details of the material to use when rendering as a
+             shadow caster.
+@@ -292,6 +297,11 @@ namespace Ogre {
+         /** return this material specific shadow receiving specific material
+         */
+         MaterialPtr getShadowReceiverMaterial() const;
++        /** Return the exact authored shadow-receiver material declaration name.
++            This remains populated when deferred resolution has not found a
++            material and therefore cannot be reconstructed from the pointer.
++        */
++        const String& getShadowReceiverMaterialName() const { return mShadowReceiverMaterialName; }
+         /** set this material specific  shadow receiving specific material
+         */
+         void setShadowReceiverMaterial(MaterialPtr val);

@@ -1051,6 +1051,7 @@ add_executable(
     ror_ogre14_live_material_coordinator_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
 )
@@ -1058,17 +1059,26 @@ target_include_directories(
     ror_ogre14_live_material_coordinator_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
+target_compile_definitions(
+    ror_ogre14_live_material_coordinator_tests
+    PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+)
 add_executable(
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
 )
 target_include_directories(
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
 )
 add_executable(
     ror_ogre14_authenticated_texture_receipt_tests
@@ -1272,12 +1282,17 @@ if (ROR_OGRE14 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         ror_ogre14_legacy_native_asset_extractor_compile_tests
         "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     )
     target_include_directories(
         ror_ogre14_legacy_native_asset_extractor_compile_tests
         PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
         SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    target_compile_definitions(
+        ror_ogre14_legacy_native_asset_extractor_compile_tests
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
     )
     if (TARGET OgreMain)
         target_link_libraries(

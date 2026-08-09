@@ -27,6 +27,7 @@ on:
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
       - tools/compile_ogre14_material_semantic_catalog_v2.py
@@ -130,6 +131,7 @@ on:
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
       - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
       - tools/compile_ogre14_material_semantic_catalog_v2.py

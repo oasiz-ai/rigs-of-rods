@@ -30,6 +30,8 @@ separately.
   `cb8bf0aa200793a02574725396c407e7e58eded5b242c2e7dd617c745a6dbaf5`
 - Local exact material-script pre-open patch SHA-256:
   `3344cd639959553bda2ec978ad66e4b42df00e2f56f75d39a2d780ce4aa38478`
+- Local exact shadow-material declaration-name patch SHA-256:
+  `b06ad20fdc2d250d11ef5de456866cd9f1f1b1e05c6d023d6c51ffa530a3d2f4`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -93,6 +95,13 @@ The additive virtuals require dependent binaries to be rebuilt. Full semantics
 and scope are recorded in
 `doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md`.
 
+The local shadow-material declaration-name patch adds const-reference getters
+for `Technique`'s exact caster and receiver material names. The existing
+pointer getters cannot distinguish an absent declaration from an unresolved
+named declaration because both return null. Native material authentication
+uses the names to reject that ambiguity without exposing mutation or changing
+OGRE's lookup behavior.
+
 On 2026-07-28, the native arm64 application exercised the rendering patches
 with PSSM plus mixed cube, 2D, and shadow samplers. The two-truck scene
 completed 1,000 physics steps, wrote and fully decoded a 2560x1440 Retina PNG,
@@ -128,15 +137,15 @@ profile intentionally retains its existing Conan compatibility setting
 `compiler.version=15`:
 
 ```text
-ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:
+ogre3d/14.5.2#2e5eda6c54bfb7f9ae19831a65d52f74:
   5c43930ec5f93ceae6d2e5fcd4957341351cdf91#
-  19b11b4099b59de34e25a9f4b8c5758d
+  08dc6a38d8e464cd089ff1eb444ea77a
 ```
 
 The line breaks above are for readability. The exact Conan reference is:
 
 ```text
-ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#19b11b4099b59de34e25a9f4b8c5758d
+ogre3d/14.5.2#2e5eda6c54bfb7f9ae19831a65d52f74:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#08dc6a38d8e464cd089ff1eb444ea77a
 ```
 
 The proof established all of the following:
@@ -146,6 +155,8 @@ The proof established all of the following:
   It copied the package to a random temporary prefix, cleared
   `DYLD_LIBRARY_PATH` and `DYLD_FALLBACK_LIBRARY_PATH`, loaded the package's
   `plugins.cfg`, selected Metal, and completed OGRE initialization.
+- The compile probe proved both shadow declaration-name getters have the exact
+  `const Ogre::String &` return type used by the native material serializer.
 - The separate relocated material-script probe compiled against the pinned
   14.5.2 header and exercised synthetic hostile archives before any renderer
   was loaded. It preserved opted-out listener behavior without ordinary-open
@@ -243,7 +254,7 @@ CONAN_HOME="$OGRE_CONAN_HOME" \
   -pr:b=cmake/conan/profiles/macos-arm64-release \
   --build=missing
 
-OGRE_PACKAGE_REF='ogre3d/14.5.2#ca6f6de2b610d0b8dcd5b704eaf6572a:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#19b11b4099b59de34e25a9f4b8c5758d'
+OGRE_PACKAGE_REF='ogre3d/14.5.2#2e5eda6c54bfb7f9ae19831a65d52f74:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#08dc6a38d8e464cd089ff1eb444ea77a'
 OGRE_PACKAGE_PATH="$(
   CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
 )"

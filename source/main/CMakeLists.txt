@@ -400,6 +400,7 @@ if (ROR_OGRE14)
         gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
         gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.{h,cpp}
         gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
+        gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
         gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.{h,cpp}
         gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp}
         gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp})
@@ -478,6 +479,22 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
         )
+if (ROR_OGRE14)
+    # Native declaration/capture authentication writes exact IEEE-754 bits and
+    # must reject hostile NaN/Inf even when the game Release target enables
+    # global fast math. Keep these owner-thread edges precise in production,
+    # not only in their focused test executables.
+    list(APPEND ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+            gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            )
+    set_source_files_properties(
+            gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            PROPERTIES
+            SKIP_PRECOMPILE_HEADERS ON
+            )
+endif ()
 if (MSVC)
     set_source_files_properties(
             ${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}

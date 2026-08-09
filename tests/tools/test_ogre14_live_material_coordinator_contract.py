@@ -163,7 +163,11 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "one shared texture key accepted conflicting authenticated source",
             "same material value under different native audit owners was accepted",
             "missing native material audit owner was accepted",
+            "altered native declaration digest bypassed its opaque receipt",
+            "stale native declaration serialization version was accepted",
             "same-value reboxed native audit bypassed the opaque capture receipt",
+            "caller-mutated diffuse state retained native capture authority",
+            "caller-mutated sampler state retained native capture authority",
             "translated closure audit owner was laundered as native capture",
             "authenticated translated closure owner escaped the post-translation",
             "native audit with mismatched cull was accepted",
@@ -196,7 +200,7 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
             "!rhs.owner_before(lhs)",
             "prepared material lookup did not retain exact closures",
             "Ogre14LegacyNativeMaterialAuditTestAccess",
-            "AuthenticateExistingOwnerForHostileTesting",
+            "SealExistingSyntheticCapture",
         ):
             self.assertIn(token, self.cpp_test)
 

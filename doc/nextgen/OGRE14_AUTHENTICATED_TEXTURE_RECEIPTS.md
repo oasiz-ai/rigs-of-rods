@@ -128,12 +128,15 @@ The compatibility extractor's textured output has no such authority and is
 intentionally rejected at this boundary; its untextured output remains valid.
 
 This v1 gate authenticates source ownership, exact resource key, resolver,
-registry publication, and load revision. It does **not** cryptographically seal
-the mutable decoded RGBA mip vectors carried by the pure-data observation. The
-live-scene default still requires a native-extractor-minted canonical readback
-digest/receipt bound to the same resolution and exact mip layout, followed by
-accepted-exposure revalidation. Until that follow-on lands, this contract must
-not be described as pixel-payload authenticity.
+registry publication, and load revision. `RORNMD1` seals the admitted material
+declaration structure. The enclosing version-2 native audit receipt additionally
+binds a `RORNCP1` projection containing every decoded RGBA mip's exact layout,
+byte length, and SHA-256 child digest plus the exact loaded-resource authority:
+registry and source-receipt control blocks, resolver identity, and loaded
+revision. Caller mutation of a decoded byte or sampler/material field therefore
+invalidates runtime admission. Archive/member source bytes retain their
+independent authenticated texture receipt and are not inferred from the decoded
+projection.
 
 OGRE resource removal precedes the listener callback's copy-on-write receipt
 removal. If that publication fails for allocation, identity, or any unexpected

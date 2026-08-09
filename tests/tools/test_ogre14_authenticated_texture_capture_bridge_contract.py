@@ -157,13 +157,20 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
             "native capture publication must preserve transactional rollback",
         ):
             self.assertIn(token, contract)
+        candidate_capture = self.native_source.split(
+            "ValidationResult CaptureOgre14LegacyNativeMaterialCandidate(", 1
+        )[1].split("\n} // namespace", 1)[0]
+        self.assertLess(
+            candidate_capture.index(
+                "RevalidateAuthenticatedTextureForPublication("
+            ),
+            candidate_capture.index("candidate_output = std::move(candidate)"),
+        )
         authenticated_overload = self.native_source.rsplit(
             "ValidationResult CaptureOgre14LegacyNativeMaterial(", 1
         )[1]
         self.assertLess(
-            authenticated_overload.index(
-                "RevalidateAuthenticatedTextureForPublication("
-            ),
+            authenticated_overload.index("&texture_resolver"),
             authenticated_overload.index("capture = std::move(candidate)"),
         )
         for token in (
