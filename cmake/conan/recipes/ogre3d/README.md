@@ -26,6 +26,8 @@ separately.
   `7674db9811bdf80abb0248b39504f259b85ecd9331f5bb1ca19c9b5d7a9db1b4`
 - Local ArchiveManager unpublished-instance rollback patch SHA-256:
   `cf7aaac084432441167a384245b65400c07f23ea80e2af386cebd41832cc967a`
+- Local terrain composite revision and Metal transfer patch SHA-256:
+  `cb8bf0aa200793a02574725396c407e7e58eded5b242c2e7dd617c745a6dbaf5`
 - macOS arm64 Release lock:
   `cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock`
 
@@ -65,6 +67,17 @@ and returns every unpublished instance to that factory if `load()` or map
 publication throws. This closes the ownership edge required by authenticated
 `EmbeddedZip` rollback without changing successful archive lookup.
 
+The local terrain-composite patch makes `Texture::getStateCount()` an exact,
+monotonic content revision for terrain composite maps: successful cached/black
+initialization and every successful composite RTT update call `_dirtyState()`.
+The dirty call follows the upload/RTT call, so exceptions do not publish a
+revision for content that was not completed. The backend-neutral Terrain
+change is shared by Metal, D3D11, and GL3Plus. Targeted Metal corrections make
+every level-zero `TU_AUTOMIPMAP` upload regenerate its mip chain, synchronize
+shared-storage readback, preserve the per-mip dimensions already supplied by
+`Texture::createSurfaceList()`, and select the pixel buffer's actual mip level
+and face for both private and shared textures.
+
 On 2026-07-28, the native arm64 application exercised the rendering patches
 with PSSM plus mixed cube, 2D, and shadow samplers. The two-truck scene
 completed 1,000 physics steps, wrote and fully decoded a 2560x1440 Retina PNG,
@@ -100,15 +113,15 @@ profile intentionally retains its existing Conan compatibility setting
 `compiler.version=15`:
 
 ```text
-ogre3d/14.5.2#8cac1f7ad854acc7cb592e6a60917c70:
+ogre3d/14.5.2#a6522b345c9ed182253e570281c54a28:
   5c43930ec5f93ceae6d2e5fcd4957341351cdf91#
-  bf53e56dafb6a33b1ffe3cb08b86cc48
+  4988ee3efa3ef825134195858fb368a9
 ```
 
 The line breaks above are for readability. The exact Conan reference is:
 
 ```text
-ogre3d/14.5.2#8cac1f7ad854acc7cb592e6a60917c70:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#bf53e56dafb6a33b1ffe3cb08b86cc48
+ogre3d/14.5.2#a6522b345c9ed182253e570281c54a28:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#4988ee3efa3ef825134195858fb368a9
 ```
 
 The proof established all of the following:
@@ -125,6 +138,14 @@ The proof established all of the following:
 - A deliberately failing archive factory threw from `Archive::load()` twice.
   Both unpublished instances returned to the exact factory, and neither name
   appeared in `ArchiveManager` after the failure.
+- An asymmetric 4x4 RGBA texture round-tripped level zero byte-for-byte,
+  including row order and alpha. Its four constant 2x2 quadrants reappeared in
+  the correct positions at mip level one, independently proving automatic mip
+  regeneration and mip-level selection. An out-of-bounds read left its
+  sentinel destination untouched, and a subsequent valid read still matched.
+  Two `_dirtyState()` calls advanced the native resource state count by
+  exactly one each; the pinned Terrain source probe separately verifies those
+  calls occur only after successful initialization/upload and RTT completion.
 - The package contains 20 arm64 Mach-O files, all with a macOS 11.0 minimum
   deployment target, relocatable install names, 17 package-local symlinks, ten
   relative pkg-config files, and no absolute Conan prefix in loader, install,
@@ -194,7 +215,7 @@ CONAN_HOME="$OGRE_CONAN_HOME" \
   -pr:b=cmake/conan/profiles/macos-arm64-release \
   --build=missing
 
-OGRE_PACKAGE_REF='ogre3d/14.5.2#8cac1f7ad854acc7cb592e6a60917c70:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#bf53e56dafb6a33b1ffe3cb08b86cc48'
+OGRE_PACKAGE_REF='ogre3d/14.5.2#a6522b345c9ed182253e570281c54a28:5c43930ec5f93ceae6d2e5fcd4957341351cdf91#4988ee3efa3ef825134195858fb368a9'
 OGRE_PACKAGE_PATH="$(
   CONAN_HOME="$OGRE_CONAN_HOME" conan cache path "$OGRE_PACKAGE_REF"
 )"

@@ -695,6 +695,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "cmake/conan/recipes/mygui/conanfile.py",
             "cmake/conan/recipes/ogre3d/conandata.yml",
             "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch",
+            "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch",
             "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp",
             "source/main/resources/CacheSystem.cpp",
             "source/main/resources/ContentManager.cpp",
@@ -712,6 +713,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/tools/test_ogre14_material_semantic_registry_contract.py",
             "tests/tools/test_ogre14_source_texture_decoder_contract.py",
             "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py",
+            "tests/tools/test_ogre14_terrain_composite_recipe_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
             *DEFORMABLE_CAPTURE_PROVENANCE_PATHS,
         ):

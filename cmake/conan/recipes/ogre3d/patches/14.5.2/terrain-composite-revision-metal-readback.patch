@@ -1,0 +1,116 @@
+--- a/RenderSystems/Metal/src/OgreMetalHardwarePixelBuffer.mm
++++ b/RenderSystems/Metal/src/OgreMetalHardwarePixelBuffer.mm
+@@ -229,13 +229,9 @@
+         mFace( face ),
+         mLevel( level )
+     {
+-        // Calculate the width and height of the texture at this mip level
+-        mWidth = mLevel == 0 ? width : width / static_cast<size_t>(pow(2.0f, level));
+-        mHeight = mLevel == 0 ? height : height / static_cast<size_t>(pow(2.0f, level));
+-        if(mWidth < 1)
+-            mWidth = 1;
+-        if(mHeight < 1)
+-            mHeight = 1;
++        // Texture::createSurfaceList already supplies the dimensions for this mip.
++        mWidth = width;
++        mHeight = height;
+-
++
+         if(target != MTLTextureType3D && target != MTLTextureType2DArray)
+             mDepth = 1; // Depth always 1 for non-3D textures
+@@ -395,6 +391,16 @@
+                 break;
+             default:
+                 OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "unhandled case");
++        }
++
++        // A level-zero upload changes the source of every automatically generated
++        // mip. Keep the chain coherent immediately, including before a CPU readback.
++        if( (mUsage & TU_AUTOMIPMAP) && mLevel == 0 &&
++            mTexture.mipmapLevelCount > 1u )
++        {
++            MetalRenderSystem *renderSystem =
++                    static_cast<MetalRenderSystem*>( Root::getSingleton().getRenderSystem() );
++            [renderSystem->getActiveDevice()->getBlitEncoder() generateMipmapsForTexture:mTexture];
+         }
+-
++
+ #if OGRE_DEBUG_MODE
+@@ -452,8 +458,8 @@
+             __unsafe_unretained id<MTLBlitCommandEncoder> blitEncoder = device->getBlitEncoder();
+-
++
+             [blitEncoder copyFromTexture:mTexture
+-                             sourceSlice:0
+-                             sourceLevel:0
++                             sourceSlice:static_cast<NSUInteger>(mFace)
++                             sourceLevel:static_cast<NSUInteger>(mLevel)
+                             sourceOrigin:MTLOriginMake( data.left, data.top, data.front )
+                               sourceSize:MTLSizeMake( data.getWidth(), data.getHeight(),
+                                                       data.getDepth() )
+@@ -468,13 +474,31 @@
+         }
+         else
+         {
+-            [mTexture getBytes:tempBox.data
+-                   bytesPerRow:bytesPerPixel * data.getWidth()
+-                    fromRegion:MTLRegionMake2D(data.left, data.top, data.getWidth(), data.getHeight())
+-                   mipmapLevel:0];
++            MetalRenderSystem *renderSystem =
++                    static_cast<MetalRenderSystem*>( Root::getSingleton().getRenderSystem() );
++            renderSystem->getActiveDevice()->stall();
++            if( mTarget == MTLTextureType2D )
++            {
++                [mTexture getBytes:tempBox.data
++                       bytesPerRow:bytesPerPixel * data.getWidth()
++                        fromRegion:MTLRegionMake2D(data.left, data.top,
++                                                   data.getWidth(), data.getHeight())
++                       mipmapLevel:static_cast<NSUInteger>(mLevel)];
++            }
++            else
++            {
++                [mTexture getBytes:tempBox.data
++                        bytesPerRow:bytesPerPixel * data.getWidth()
++                      bytesPerImage:bytesPerPixel * data.getWidth() * data.getHeight()
++                         fromRegion:MTLRegionMake3D(data.left, data.top, data.front,
++                                                    data.getWidth(), data.getHeight(),
++                                                    data.getDepth())
++                        mipmapLevel:static_cast<NSUInteger>(mLevel)
++                               slice:static_cast<NSUInteger>(mFace)];
++            }
+         }
+-
++
+-        // Convert to the target pixel format and vertically flip
++        // Convert to the target pixel format without changing row orientation.
+         PixelUtil::bulkPixelConversion(tempBox, data);
+-
++
+         delete[] (uint8*) tempBox.data;
+--- a/Components/Terrain/src/OgreTerrain.cpp
++++ b/Components/Terrain/src/OgreTerrain.cpp
+@@ -3412,4 +3412,6 @@
+-                mMaterialGenerator->updateCompositeMap(this, mCompositeMapDirtyRect);
+-
+-            mCompositeMapDirtyRectLightmapUpdate = false;
+-            mCompositeMapDirtyRect.setNull();
++                mMaterialGenerator->updateCompositeMap(this, mCompositeMapDirtyRect);
++
++            // The RTT completed successfully; publish a monotonic content revision.
++            mCompositeMap->_dirtyState();
++            mCompositeMapDirtyRectLightmapUpdate = false;
++            mCompositeMapDirtyRect.setNull();
+@@ -3558,5 +3560,8 @@
+-                buf->unlock();
+-
+-            }
+-        }
+-        else if (!mCompositeMapRequired && mCompositeMap)
++                buf->unlock();
++
++            }
++
++            // Publish initialization/cached upload as the first content revision.
++            mCompositeMap->_dirtyState();
++        }
++        else if (!mCompositeMapRequired && mCompositeMap)

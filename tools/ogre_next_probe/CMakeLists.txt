@@ -105,6 +105,7 @@ list(APPEND _ror_relevant_source_files
     "cmake/conan/recipes/mygui/conanfile.py"
     "cmake/conan/recipes/ogre3d/conandata.yml"
     "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch"
     "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
     "conanfile.py"
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
@@ -259,6 +260,7 @@ list(APPEND _ror_relevant_source_files
     "tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
     "tests/tools/test_ogre14_live_material_coordinator_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
+    "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
@@ -2245,6 +2247,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             cmake/conan/recipes/mygui/conanfile.py
             cmake/conan/recipes/ogre3d/conandata.yml
             cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch
             cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
             conanfile.py
             doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
@@ -2398,6 +2401,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/tools/test_ogre14_material_semantic_catalog_v2.py
             tests/tools/test_ogre14_live_material_coordinator_contract.py
             tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
+            tests/tools/test_ogre14_terrain_composite_recipe_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
             tests/tools/test_ogre_next_probe_workflow.py
             tests/tools/test_ogre_next_window_host_contract.py

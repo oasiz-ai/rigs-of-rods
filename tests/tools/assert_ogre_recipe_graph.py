@@ -49,6 +49,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/archive-manager-load-rollback.patch": (
         "cf7aaac084432441167a384245b65400c07f23ea80e2af386cebd41832cc967a"
     ),
+    "patches/14.5.2/terrain-composite-revision-metal-readback.patch": (
+        "cb8bf0aa200793a02574725396c407e7e58eded5b242c2e7dd617c745a6dbaf5"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",
