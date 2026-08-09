@@ -84,7 +84,28 @@ struct SemanticRecord final {
       Ogre14LegacyBaseColorSemantic::UNLIT;
   Ogre14LegacyTextureColorRole texture_color_role =
       Ogre14LegacyTextureColorRole::BASE_COLOR_SRGB;
+  Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt declaration_identity;
 };
+
+struct SemanticDeclarationIdentity final {};
+
+bool EquivalentTranslatorConfiguration(
+    const Ogre14LegacyAssetTranslatorConfiguration &lhs,
+    const Ogre14LegacyAssetTranslatorConfiguration &rhs) noexcept {
+  return lhs.version == rhs.version &&
+         lhs.maximum_texture_inputs_per_frame ==
+             rhs.maximum_texture_inputs_per_frame &&
+         lhs.maximum_material_inputs_per_frame ==
+             rhs.maximum_material_inputs_per_frame &&
+         lhs.maximum_live_assets_per_frame ==
+             rhs.maximum_live_assets_per_frame &&
+         lhs.maximum_lifetime_asset_records ==
+             rhs.maximum_lifetime_asset_records &&
+         lhs.maximum_decoded_bytes_per_asset ==
+             rhs.maximum_decoded_bytes_per_asset &&
+         lhs.maximum_decoded_bytes_per_frame ==
+             rhs.maximum_decoded_bytes_per_frame;
+}
 
 ValidationResult Failure(ValidationCode code, const char *field,
                          const char *detail) {
@@ -155,6 +176,18 @@ Ogre14LegacyMaterialSemanticRegistry::
         std::shared_ptr<const State> state) noexcept
     : state_(std::move(state)) {}
 
+Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt
+Ogre14LegacyMaterialSemanticRegistry::MintDeclarationIdentity() {
+  return Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt(
+      std::make_shared<const SemanticDeclarationIdentity>());
+}
+
+bool SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+    const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &lhs,
+    const Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt &rhs) noexcept {
+  return lhs.owner_ != nullptr && lhs.owner_ == rhs.owner_;
+}
+
 bool Ogre14LegacyMaterialSemanticRegistry::initialized() const noexcept {
   return state_ != nullptr;
 }
@@ -205,6 +238,7 @@ ValidationResult Ogre14LegacyMaterialSemanticRegistry::Resolve(
     candidate.source = found->second.source;
     candidate.source_revision = found->second.source_revision;
     candidate.registry_fingerprint = state_->content_fingerprint;
+    candidate.declaration_identity = found->second.declaration_identity;
     candidate.native_declaration.base_color_semantic =
         found->second.base_color_semantic;
     candidate.native_declaration.texture_color_role =
@@ -233,9 +267,34 @@ bool Ogre14LegacyMaterialSemanticResolutionMatchesKey(
     const Ogre14LegacyAssetKey &material_key) noexcept {
   return resolution.version ==
              kOgre14LegacyMaterialSemanticResolutionVersion &&
+         resolution.declaration_identity.has_value() &&
          resolution.material_key.exact_resource_group ==
              material_key.exact_resource_group &&
          resolution.material_key.exact_name == material_key.exact_name;
+}
+
+bool Ogre14LegacyMaterialSemanticResolutionAuthenticates(
+    const Ogre14LegacyMaterialSemanticResolution &issued,
+    const Ogre14LegacyMaterialSemanticResolution &authoritative) noexcept {
+  return issued.version == kOgre14LegacyMaterialSemanticResolutionVersion &&
+         authoritative.version ==
+             kOgre14LegacyMaterialSemanticResolutionVersion &&
+         issued.material_key == authoritative.material_key &&
+         issued.source == authoritative.source &&
+         issued.source_revision == authoritative.source_revision &&
+         issued.registry_fingerprint == authoritative.registry_fingerprint &&
+         SameOgre14LegacyMaterialSemanticDeclarationIdentity(
+             issued.declaration_identity,
+             authoritative.declaration_identity) &&
+         issued.native_declaration.version ==
+             authoritative.native_declaration.version &&
+         issued.native_declaration.base_color_semantic ==
+             authoritative.native_declaration.base_color_semantic &&
+         issued.native_declaration.texture_color_role ==
+             authoritative.native_declaration.texture_color_role &&
+         EquivalentTranslatorConfiguration(
+             issued.native_declaration.translator_configuration,
+             authoritative.native_declaration.translator_configuration);
 }
 
 ValidationResult BuildOgre14LegacyMaterialSemanticRegistry(
@@ -294,6 +353,8 @@ ValidationResult BuildOgre14LegacyMaterialSemanticRegistry(
       record.source_revision = declaration.source_revision;
       record.base_color_semantic = declaration.base_color_semantic;
       record.texture_color_role = declaration.texture_color_role;
+      record.declaration_identity =
+          Ogre14LegacyMaterialSemanticRegistry::MintDeclarationIdentity();
       const auto inserted = candidate->declarations.emplace(
           declaration.material_key, record);
       if (!inserted.second) {

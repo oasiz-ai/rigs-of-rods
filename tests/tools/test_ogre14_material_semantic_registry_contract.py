@@ -35,6 +35,9 @@ class Ogre14MaterialSemanticRegistryContractTests(unittest.TestCase):
             "Ogre14LegacyMaterialSemanticResolutionMatchesKey",
             "Ogre14LegacyBaseColorSemantic base_color_semantic",
             "Ogre14LegacyTextureColorRole texture_color_role",
+            "Ogre14LegacyMaterialSemanticDeclarationIdentityReceipt",
+            "SameOgre14LegacyMaterialSemanticDeclarationIdentity",
+            "Ogre14LegacyMaterialSemanticResolutionAuthenticates",
         ):
             self.assertIn(token, self.header)
         for forbidden in ("tolower(", "regex", "filename", "specular"):
@@ -61,6 +64,11 @@ class Ogre14MaterialSemanticRegistryContractTests(unittest.TestCase):
             "case-folded material key",
             "duplicate exact declaration key",
             "caller mutation changed immutable registry keys",
+            "cross-declaration resolution forged semantic authority",
+            "fresh registry build reused a numeric or content-derived identity",
+            "stale result authenticated after registry replacement",
+            "caller-created empty receipt forged an issued resolution",
+            "rollback did not preserve reusable immutable declaration state",
         ):
             self.assertIn(token, self.cpp_test)
 
