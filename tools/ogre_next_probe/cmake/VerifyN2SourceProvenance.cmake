@@ -9,6 +9,7 @@ endif ()
 
 set(_ror_n2_relevant_source_paths
     CMakeLists.txt
+    doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
     cmake/OgreNextProductionPackage.cmake
     cmake/RendererLauncherPackageConfig.cmake
     cmake/macos/StageMacOSBundle.cmake
@@ -93,10 +94,14 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/render
     source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
     source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
+    source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp
+    source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
     tests/gfx/GfxActorCaptureInventoryTests.cpp
+    tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+    tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
     tests/gfx/RendererBackendPolicyTests.cpp
     tests/gfx/RendererBridgeEndpointTests.cpp
     tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -140,6 +145,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre_next_metal_n2_contract.py
     tests/tools/test_ogre14_dynamic_material_closure_contract.py
     tests/tools/test_ogre14_material_semantic_registry_contract.py
+    tests/tools/test_ogre14_material_semantic_catalog_v2.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -147,9 +153,11 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre_next_window_run_loop_contract.py
     tools/ogre_next_probe
     tools/ogre14_runtime_audit.py
+    tools/compile_ogre14_material_semantic_catalog_v2.py
     tools/run_ogre_next_probe.py
     tools/validate_ogre_next_frame_probe.py
-    tools/verify_ogre_next_artifact_set.py)
+    tools/verify_ogre_next_artifact_set.py
+    tools/schemas/ogre14-material-semantic-catalog-v2.schema.json)
 execute_process(
     COMMAND git status --porcelain=v1 --untracked-files=all --
             ${_ror_n2_relevant_source_paths}
@@ -176,6 +184,7 @@ file(GLOB_RECURSE _ror_n2_relevant_source_files
     "${N2_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_n2_relevant_source_files
     "CMakeLists.txt"
+    "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"
     "cmake/macos/StageMacOSBundle.cmake"
@@ -259,10 +268,14 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/CMakeLists.txt"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+    "tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
     "tests/gfx/RendererBackendPolicyTests.cpp"
     "tests/gfx/RendererBridgeEndpointTests.cpp"
     "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
@@ -306,6 +319,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre_next_metal_n2_contract.py"
     "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
     "tests/tools/test_ogre14_material_semantic_registry_contract.py"
+    "tests/tools/test_ogre14_material_semantic_catalog_v2.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
@@ -313,8 +327,10 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre_next_window_run_loop_contract.py"
     "tools/run_ogre_next_probe.py"
     "tools/ogre14_runtime_audit.py"
+    "tools/compile_ogre14_material_semantic_catalog_v2.py"
     "tools/validate_ogre_next_frame_probe.py"
-    "tools/verify_ogre_next_artifact_set.py")
+    "tools/verify_ogre_next_artifact_set.py"
+    "tools/schemas/ogre14-material-semantic-catalog-v2.schema.json")
 list(FILTER _ror_n2_relevant_source_files EXCLUDE REGEX
     "(^|/)__pycache__/|\\.py[co]$|(^|/)\\.DS_Store$")
 list(REMOVE_DUPLICATES _ror_n2_relevant_source_files)
