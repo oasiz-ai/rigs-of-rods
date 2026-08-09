@@ -399,7 +399,8 @@ if (ROR_OGRE14)
     list(APPEND SOURCE_FILES
         gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
         gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.{h,cpp}
-        gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp})
+        gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp}
+        gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp})
 endif ()
 
 include(SourceFileUtils)
