@@ -205,11 +205,16 @@ Implemented source-side behavior is:
    authored mesh UV compatibility, and closure-derived winding. It enforces one
    source/catalog epoch across the dynamic candidate, collision-audits every
    dependency kind, canonicalizes the complete `GraphicsSceneAssetInput`
-   (payload plus all bindings), and retains dependencies for the adapter
-   lifetime without weakening object tombstones. Factor-only mode is unchanged
-   and textured or shader-authored material state still fails closed when the
-   closure is absent. Allocation, unexpected-exception, cap, collision, or
-   lineage failure publishes neither registry nor caller output.
+   (payload plus all bindings), but does not enroll resolved texture, sampler,
+   or material keys in a static/dynamic domain's known/live tombstone set.
+   Those keys are translator-owned catalog references, so a closure may move
+   from static A to a deformable object and later to distinct static B without
+   per-domain resurrection. Key-to-ID collision history and canonical owner
+   reuse remain persistent, while meshes, factor-fallback materials, and
+   object tombstones keep their existing domain lifecycle. Factor-only mode is
+   unchanged and textured or shader-authored material state still fails closed
+   when the closure is absent. Allocation, unexpected-exception, cap,
+   collision, or lineage failure publishes neither registry nor caller output.
 
    Static and dynamic builders each enforce their local epoch. Before merging
    their asset vectors, the joined caller must additionally invoke
@@ -219,6 +224,15 @@ Implemented source-side behavior is:
    `GfxScene` capture still leaves dynamic `resolved_material` absent and must
    later populate it plus `mesh_reverse_winding` from the native exact capture;
    this boundary milestone does not claim textured vehicles are live yet.
+
+   `MergeOgre14GraphicsSceneAssets()` is the final pure boundary transaction
+   for static, deformable, and procedural-road asset vectors. It bounds the
+   aggregate source records before allocation, audits every source-ID collision
+   using both bit-exact payload equivalence and every producer-owned material
+   binding, preserves the first exact immutable owner, and publishes only one
+   source-ID-sorted candidate. `GfxScene` now uses this transaction for its
+   current static/deformable join; the road vector remains empty until the live
+   road capture is wired into the same post-join boundary.
 6. `GfxScene` enumerates every defined `TerrainGroup` slot and requires each
    page to be loaded, CPU-prepared through LOD0, free of pending group prepare
    requests and derived-data work, and still attached to the exact packed

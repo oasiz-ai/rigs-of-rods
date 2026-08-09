@@ -335,7 +335,7 @@ void TestExactDynamicClosureSharedOwnersAndStaticEquivalence() {
               dynamic_meshes.size() == 2U &&
               dynamic_registry.asset_identity_count() == 5U &&
               dynamic_registry.object_identity_count() == 2U,
-          "exact deformable dependencies did not commit once");
+          "exact deformable dependencies were not collision-audited once");
   for (const GraphicsSceneDynamicMeshInput &mesh : dynamic_meshes) {
     Require(mesh.material_source_asset_id ==
                 closure->material_source_asset_id,
@@ -392,8 +392,8 @@ void TestExactDynamicClosureSharedOwnersAndStaticEquivalence() {
   Require(BuildOgre14GraphicsSceneDynamicInventory(
               {}, dynamic_registry, dynamic_assets, dynamic_meshes)
               .ok() &&
-              dynamic_meshes.empty() && dynamic_assets.size() == 5U,
-          "dynamic removal did not retain exact shared dependencies");
+              dynamic_meshes.empty() && dynamic_assets.size() == 2U,
+          "dynamic removal did not retain only its immutable base meshes");
   const std::vector<GraphicsSceneAssetInput> retained_assets = dynamic_assets;
   result = BuildOgre14GraphicsSceneDynamicInventory(
       inputs, dynamic_registry, dynamic_assets, dynamic_meshes);
@@ -401,6 +401,100 @@ void TestExactDynamicClosureSharedOwnersAndStaticEquivalence() {
               dynamic_meshes.empty() &&
               dynamic_assets.size() == retained_assets.size(),
           "removed exact dynamic identity was resurrected or mutated output");
+}
+
+void TestResolvedClosureLifecycleBelongsToTranslator() {
+  using namespace RoR::Render;
+  const auto closure = ResolvePaintClosure(MakeMaterialFrame());
+  const Ogre14GraphicsSceneStaticSectionCaptureInput static_a =
+      MakeExactStatic(closure);
+  Ogre14GraphicsSceneStaticIdentityRegistry static_registry;
+  std::vector<GraphicsSceneAssetInput> static_assets;
+  std::vector<GraphicsSceneStaticMeshInput> static_meshes;
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {static_a}, static_registry, static_assets, static_meshes)
+              .ok() &&
+              static_assets.size() == closure->assets.size() + 1U &&
+              static_registry.asset_identity_count() ==
+                  closure->assets.size() + 1U &&
+              static_registry.object_identity_count() == 1U,
+          "static A did not collision-audit translator-owned closure keys");
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {}, static_registry, static_assets, static_meshes)
+              .ok() &&
+              static_assets.empty() && static_meshes.empty(),
+          "static A could not leave without per-domain closure retention");
+
+  Ogre14GraphicsSceneDynamicIdentityRegistry dynamic_registry;
+  std::vector<GraphicsSceneAssetInput> dynamic_assets;
+  std::vector<GraphicsSceneDynamicMeshInput> dynamic_meshes;
+  const Ogre14GraphicsSceneDynamicSectionCaptureInput dynamic =
+      MakeExactDynamic(closure);
+  Require(BuildOgre14GraphicsSceneDynamicInventory(
+              {dynamic}, dynamic_registry, dynamic_assets, dynamic_meshes)
+              .ok() &&
+              dynamic_assets.size() == closure->assets.size() + 1U &&
+              dynamic_registry.asset_identity_count() ==
+                  closure->assets.size() + 1U,
+          "shared closure could not move from static A into the dynamic domain");
+  for (const GraphicsSceneAssetInput &dependency : closure->assets) {
+    const GraphicsSceneAssetInput &published =
+        FindAsset(dynamic_assets, dependency.source_asset_id);
+    Require(SameOwner(published.payload, dependency.payload) &&
+                published.material_bindings == dependency.material_bindings,
+            "dynamic interlude replaced a translator-owned closure reference");
+  }
+
+  Ogre14GraphicsSceneStaticSectionCaptureInput static_b = static_a;
+  static_b.stable_object_id = 100U;
+  static_b.exact_entity_name = "static-paint-proof-b";
+  static_b.mesh_identity.exact_mesh_name = "static-paint-proof-b.mesh";
+  static_b.render_from_object = Translation(30.0F);
+  Require(BuildOgre14GraphicsSceneStaticInventory(
+              {static_b}, static_registry, static_assets, static_meshes)
+              .ok() &&
+              static_assets.size() == closure->assets.size() + 1U &&
+              static_meshes.size() == 1U &&
+              static_registry.asset_identity_count() ==
+                  closure->assets.size() + 2U &&
+              static_registry.object_identity_count() == 2U,
+          "distinct static B could not re-enter with the shared translator closure");
+  for (const GraphicsSceneAssetInput &dependency : closure->assets) {
+    const GraphicsSceneAssetInput &published =
+        FindAsset(static_assets, dependency.source_asset_id);
+    Require(SameOwner(published.payload, dependency.payload) &&
+                published.material_bindings == dependency.material_bindings,
+            "static B did not preserve the translator closure owner/bindings");
+  }
+
+  const std::vector<GraphicsSceneAssetInput> accepted_assets = static_assets;
+  const std::vector<GraphicsSceneStaticMeshInput> accepted_meshes =
+      static_meshes;
+  Ogre14GraphicsSceneStaticSectionCaptureInput resurrected_a = static_a;
+  resurrected_a.mesh_identity.exact_mesh_name =
+      "static-paint-proof-a-new-mesh.mesh";
+  const ValidationResult resurrected =
+      BuildOgre14GraphicsSceneStaticInventory(
+          {resurrected_a}, static_registry, static_assets, static_meshes);
+  bool unchanged =
+      !resurrected && resurrected.code == ValidationCode::REVISION_MISMATCH &&
+      resurrected.field.find("source_object_id") != std::string::npos &&
+      resurrected.detail.find("removed static-section identity") !=
+          std::string::npos &&
+      static_assets.size() == accepted_assets.size() &&
+      static_meshes.size() == accepted_meshes.size();
+  for (std::size_t index = 0U; unchanged && index < static_assets.size();
+       ++index) {
+    unchanged =
+        static_assets[index].source_asset_id ==
+            accepted_assets[index].source_asset_id &&
+        SameOwner(static_assets[index].payload,
+                  accepted_assets[index].payload) &&
+        static_assets[index].material_bindings ==
+            accepted_assets[index].material_bindings;
+  }
+  Require(unchanged,
+          "translator ownership weakened static A's permanent object tombstone");
 }
 
 void TestFallbackRemainsExactAndTexturedFailClosed() {
@@ -777,6 +871,7 @@ void TestInjectedExceptionRollback() {
 
 int main() {
   TestExactDynamicClosureSharedOwnersAndStaticEquivalence();
+  TestResolvedClosureLifecycleBelongsToTranslator();
   TestFallbackRemainsExactAndTexturedFailClosed();
   TestWindingAndJoinedLineageAreExact();
   TestHostileClosuresCollisionsAndUvGate();

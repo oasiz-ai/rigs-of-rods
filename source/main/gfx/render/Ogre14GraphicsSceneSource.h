@@ -30,6 +30,34 @@ constexpr std::size_t kMaximumOgre14GraphicsSceneStaticSections = 65536U;
 constexpr std::size_t kMaximumOgre14GraphicsSceneStaticAssets = 65536U;
 constexpr std::size_t kMaximumOgre14GraphicsSceneDynamicSections = 65536U;
 constexpr std::size_t kMaximumOgre14GraphicsSceneDynamicAssets = 65536U;
+/// Aggregate hostile-input bound shared with the default scene producer.
+/// This caps source records before allocation, including exact duplicates
+/// across static, deformable, and procedural-road inventories.
+constexpr std::size_t kMaximumOgre14GraphicsSceneMergedAssets = 65536U;
+
+enum class Ogre14GraphicsSceneAssetMergeFaultPoint : std::uint8_t {
+  AFTER_FIRST_UNIQUE_ASSET = 0U,
+};
+
+/// Borrowed test-only exception seam. Production callers leave this null.
+class IOgre14GraphicsSceneAssetMergeFaultInjector {
+public:
+  virtual ~IOgre14GraphicsSceneAssetMergeFaultInjector() = default;
+  virtual void AtFaultPoint(
+      Ogre14GraphicsSceneAssetMergeFaultPoint point) = 0;
+};
+
+/// Transactionally merges three complete domain inventories. Source identity
+/// collisions require bit-exact payload and complete binding equivalence; an
+/// exact duplicate keeps the first (static, then dynamic, then road) immutable
+/// owner. Success publishes one source-ID-sorted vector. Failure, allocation
+/// exceptions, and unexpected exceptions leave `assets` untouched.
+[[nodiscard]] ValidationResult MergeOgre14GraphicsSceneAssets(
+    const std::vector<GraphicsSceneAssetInput> &static_assets,
+    const std::vector<GraphicsSceneAssetInput> &dynamic_assets,
+    const std::vector<GraphicsSceneAssetInput> &road_assets,
+    std::vector<GraphicsSceneAssetInput> &assets,
+    IOgre14GraphicsSceneAssetMergeFaultInjector *fault_injector = nullptr);
 
 /// Every bit names state which must come from the same completed
 /// GfxScene::BufferSimulationData() boundary. An adapter may expose a partial
@@ -419,7 +447,8 @@ struct Ogre14GraphicsSceneDynamicSectionCaptureInput {
   /// Optional exact translated material transaction. This is the same
   /// closure contract consumed by static sections. When absent, the original
   /// factor-only compatibility path remains the sole material path. When
-  /// present, dependencies and producer-owned bindings are retained exactly.
+  /// present, dependencies and producer-owned bindings are published exactly;
+  /// their catalog lifecycle remains owned by the translator.
   std::shared_ptr<const Ogre14LegacyMaterialClosure> resolved_material;
   /// Exact topology conversion proof used only with `resolved_material`.
   /// The live adapter sets this from the native draw's winding conversion;
