@@ -11,9 +11,13 @@ on:
       - conanfile.py
       - cmake/conan/**
       - source/main/CMakeLists.txt
+      - source/main/Application.cpp
       - source/main/GameContext.cpp
+      - source/main/GameContext.h
       - source/main/main.cpp
       - source/main/system/ApplicationFatalError.h
+      - source/main/terrain/Terrain.cpp
+      - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -40,9 +44,11 @@ on:
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
+      - source/main/physics/Actor.cpp
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
+      - source/main/physics/collision/Collisions.cpp
       - source/main/physics/flex/**
       - source/main/terrain/ProceduralManager.*
       - source/main/terrain/ProceduralRoad.*
@@ -73,6 +79,7 @@ on:
       - source/main/gfx/render/**
       - tests/gfx/GfxActorCaptureInventoryTests.cpp
       - tests/system/ApplicationFatalShutdownContractTests.cpp
+      - tests/tools/test_ogre14_native_workflow_contract.py
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererBridgeEndpointTests.cpp
       - tests/gfx/RendererBridgeLaunchPlanTests.cpp
@@ -119,9 +126,13 @@ on:
       - conanfile.py
       - cmake/conan/**
       - source/main/CMakeLists.txt
+      - source/main/Application.cpp
       - source/main/GameContext.cpp
+      - source/main/GameContext.h
       - source/main/main.cpp
       - source/main/system/ApplicationFatalError.h
+      - source/main/terrain/Terrain.cpp
+      - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -148,9 +159,11 @@ on:
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
+      - source/main/physics/Actor.cpp
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
+      - source/main/physics/collision/Collisions.cpp
       - source/main/physics/flex/**
       - source/main/terrain/ProceduralManager.*
       - source/main/terrain/ProceduralRoad.*
@@ -181,6 +194,7 @@ on:
       - source/main/gfx/render/**
       - tests/gfx/GfxActorCaptureInventoryTests.cpp
       - tests/system/ApplicationFatalShutdownContractTests.cpp
+      - tests/tools/test_ogre14_native_workflow_contract.py
       - tests/gfx/RendererBackendPolicyTests.cpp
       - tests/gfx/RendererBridgeEndpointTests.cpp
       - tests/gfx/RendererBridgeLaunchPlanTests.cpp

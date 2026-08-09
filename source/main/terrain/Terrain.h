@@ -47,6 +47,10 @@ public:
     virtual ~Terrain() override;
     bool initialize();
     void dispose();
+    /// Best-effort renderer-backed disposal used while a fatal exception is
+    /// propagating. A failed attempt is latched so later reference releases
+    /// cannot retry against an already-destroyed Ogre::Root.
+    bool DisposeForFatalShutdown() noexcept;
 
     // PLEASE maintain same order as in 'scripting/bindings/TerrainAngelscript.cpp' and 'doc/angelscript/TerrainClass.h'
 
@@ -155,6 +159,7 @@ private:
     Ogre::Light*            m_main_light = nullptr;
     float                   m_cur_gravity = DEFAULT_GRAVITY;
     bool                    m_disposed = false;
+    bool                    m_fatal_dispose_failed = false;
 };
 
 /// @} // addtogroup Terrain

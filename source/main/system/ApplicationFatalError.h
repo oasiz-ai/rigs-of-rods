@@ -39,4 +39,77 @@ private:
     const char* m_reason;
 };
 
+enum class ApplicationFatalShutdownDisposition
+{
+    RETURN_FROM_MAIN,
+    FAIL_STOP
+};
+
+/// Runs one shutdown operation at most once and retains its proven result.
+/// The opaque context makes active-scene, partial-scene, and join-failure
+/// behavior independently injectable without linking the game runtime.
+class ApplicationFatalShutdownGate final
+{
+public:
+    using ReleaseFunction = bool (*)(void*) noexcept;
+
+    ApplicationFatalShutdownGate(
+        ReleaseFunction release_function,
+        void* context = nullptr) noexcept:
+        m_release_function(release_function),
+        m_context(context)
+    {
+    }
+
+    bool Release() noexcept
+    {
+        if (!m_attempted)
+        {
+            m_attempted = true;
+            m_succeeded =
+                m_release_function != nullptr &&
+                m_release_function(m_context);
+        }
+        return m_succeeded;
+    }
+
+    bool attempted() const noexcept
+    {
+        return m_attempted;
+    }
+
+private:
+    ReleaseFunction m_release_function;
+    void* m_context;
+    bool m_attempted = false;
+    bool m_succeeded = false;
+};
+
+template <typename CaptureStep,
+          typename PresentationStep,
+          typename WorkerStep,
+          typename SceneStep>
+ApplicationFatalShutdownDisposition RunApplicationFatalShutdownSequence(
+    CaptureStep&& capture_step,
+    PresentationStep&& presentation_step,
+    WorkerStep&& worker_step,
+    SceneStep&& scene_step) noexcept
+{
+    try
+    {
+        if (!capture_step() ||
+            !presentation_step() ||
+            !worker_step() ||
+            !scene_step())
+        {
+            return ApplicationFatalShutdownDisposition::FAIL_STOP;
+        }
+    }
+    catch (...)
+    {
+        return ApplicationFatalShutdownDisposition::FAIL_STOP;
+    }
+    return ApplicationFatalShutdownDisposition::RETURN_FROM_MAIN;
+}
+
 } // namespace RoR

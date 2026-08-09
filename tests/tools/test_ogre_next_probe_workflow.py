@@ -11,6 +11,19 @@ import unittest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
 SELF_PATH = "tests/tools/test_ogre_next_probe_workflow.py"
+FATAL_SHUTDOWN_PROVENANCE_PATHS = (
+    "source/main/Application.cpp",
+    "source/main/GameContext.cpp",
+    "source/main/GameContext.h",
+    "source/main/main.cpp",
+    "source/main/physics/Actor.cpp",
+    "source/main/physics/collision/Collisions.cpp",
+    "source/main/system/ApplicationFatalError.h",
+    "source/main/terrain/Terrain.cpp",
+    "source/main/terrain/Terrain.h",
+    "tests/system/ApplicationFatalShutdownContractTests.cpp",
+    "tests/tools/test_ogre14_native_workflow_contract.py",
+)
 DEFORMABLE_CAPTURE_PROVENANCE_PATHS = (
     "source/main/GameContext.cpp",
     "source/main/gfx/GfxActorCaptureInventory.h",
@@ -91,9 +104,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "CMakeLists.txt",
             "source/main/CMakeLists.txt",
             "source/main/main.cpp",
-            "source/main/system/ApplicationFatalError.h",
             "tests/CMakeLists.txt",
-            "tests/system/ApplicationFatalShutdownContractTests.cpp",
+            *FATAL_SHUTDOWN_PROVENANCE_PATHS,
             "cmake/RendererLauncherPackageConfig.cmake",
             "source/main/gfx/GfxScene.*",
             "source/main/gfx/RendererBackendPolicy.*",
@@ -640,7 +652,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/terrain/TerrainObjectManager.cpp",
             "source/main/terrain/TerrainObjectManager.h",
             "source/main/main.cpp",
-            "source/main/system/ApplicationFatalError.h",
+            *FATAL_SHUTDOWN_PROVENANCE_PATHS,
             "source/main/system/RendererChildIntent.cpp",
             "source/main/system/RendererChildIntent.h",
             "source/main/system/RendererChildLauncher.cpp",
@@ -691,7 +703,6 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
             "tests/gfx/RendererStartupHandoffTests.cpp",
             "tests/gfx/RendererStartupPlanTests.cpp",
-            "tests/system/ApplicationFatalShutdownContractTests.cpp",
             "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
             "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp",
             "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp",

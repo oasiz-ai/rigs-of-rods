@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace
 {
@@ -180,11 +181,147 @@ void TestDirectExitScannerSemantics()
         !ContainsDirectExitCall("::_exit(125);"),
         "process-boundary _exit was classified as an in-process exit");
     Require(
+        !ContainsDirectExitCall("std::_Exit(125);"),
+        "standard fail-stop was classified as an in-process exit");
+    Require(
         !ContainsDirectExitCall("// std::exit(124);\nint result = 0;"),
         "comment text was classified as an exit call");
     Require(
         !ContainsDirectExitCall("const char* text = \"exit(124)\";"),
         "string text was classified as an exit call");
+}
+
+struct GateFixture
+{
+    int calls = 0;
+    bool result = false;
+};
+
+bool ReleaseGateFixture(void* opaque) noexcept
+{
+    GateFixture& fixture = *static_cast<GateFixture*>(opaque);
+    ++fixture.calls;
+    return fixture.result;
+}
+
+void TestFatalShutdownGateIsIdempotent()
+{
+    GateFixture success_fixture{0, true};
+    RoR::ApplicationFatalShutdownGate success_gate(
+        &ReleaseGateFixture,
+        &success_fixture);
+    Require(!success_gate.attempted(), "fresh success gate was attempted");
+    Require(success_gate.Release(), "success gate rejected release");
+    Require(success_gate.Release(), "success gate did not cache release");
+    Require(success_gate.attempted(), "success gate did not retain attempt");
+    Require(success_fixture.calls == 1, "success release ran more than once");
+
+    GateFixture failure_fixture{0, false};
+    RoR::ApplicationFatalShutdownGate failure_gate(
+        &ReleaseGateFixture,
+        &failure_fixture);
+    Require(!failure_gate.Release(), "failure gate accepted release");
+    Require(!failure_gate.Release(), "failure gate did not cache failure");
+    Require(failure_fixture.calls == 1, "failed release ran more than once");
+
+    RoR::ApplicationFatalShutdownGate null_gate(nullptr);
+    Require(!null_gate.Release(), "null release gate succeeded");
+    Require(null_gate.attempted(), "null release gate was not attempted");
+}
+
+void TestActiveSceneFatalShutdownSequence()
+{
+    std::vector<int> order;
+    bool capture_active = true;
+    bool presentation_active = true;
+    bool workers_active = true;
+    bool actors_live = true;
+    bool terrain_live = true;
+
+    const RoR::ApplicationFatalShutdownDisposition disposition =
+        RoR::RunApplicationFatalShutdownSequence(
+            [&]() {
+                order.push_back(1);
+                capture_active = false;
+                return true;
+            },
+            [&]() {
+                order.push_back(2);
+                presentation_active = false;
+                return true;
+            },
+            [&]() {
+                order.push_back(3);
+                workers_active = false;
+                return true;
+            },
+            [&]() {
+                order.push_back(4);
+                actors_live = false;
+                terrain_live = false;
+                return true;
+            });
+
+    Require(
+        disposition ==
+            RoR::ApplicationFatalShutdownDisposition::RETURN_FROM_MAIN,
+        "active-scene shutdown selected fail-stop");
+    Require(
+        order == std::vector<int>({1, 2, 3, 4}),
+        "active-scene shutdown order changed");
+    Require(
+        !capture_active && !presentation_active && !workers_active &&
+            !actors_live && !terrain_live,
+        "active-scene shutdown retained runtime state");
+}
+
+void TestPartialTerrainFatalShutdownSequence()
+{
+    std::vector<int> order;
+    bool partial_terrain_live = true;
+    const RoR::ApplicationFatalShutdownDisposition disposition =
+        RoR::RunApplicationFatalShutdownSequence(
+            [&]() { order.push_back(1); return true; },
+            [&]() { order.push_back(2); return true; },
+            [&]() { order.push_back(3); return true; },
+            [&]() {
+                order.push_back(4);
+                partial_terrain_live = false;
+                return true;
+            });
+
+    Require(
+        disposition ==
+            RoR::ApplicationFatalShutdownDisposition::RETURN_FROM_MAIN,
+        "partial-terrain shutdown selected fail-stop");
+    Require(!partial_terrain_live, "partial terrain was not disposed");
+    Require(
+        order == std::vector<int>({1, 2, 3, 4}),
+        "partial-terrain shutdown order changed");
+}
+
+void TestWorkerJoinFailureSelectsFailStop()
+{
+    std::vector<int> order;
+    bool scene_release_called = false;
+    const RoR::ApplicationFatalShutdownDisposition disposition =
+        RoR::RunApplicationFatalShutdownSequence(
+            [&]() { order.push_back(1); return true; },
+            [&]() { order.push_back(2); return true; },
+            [&]() { order.push_back(3); return false; },
+            [&]() {
+                order.push_back(4);
+                scene_release_called = true;
+                return true;
+            });
+
+    Require(
+        disposition == RoR::ApplicationFatalShutdownDisposition::FAIL_STOP,
+        "worker join failure did not select fail-stop");
+    Require(!scene_release_called, "scene released after failed worker join");
+    Require(
+        order == std::vector<int>({1, 2, 3}),
+        "worker join failure did not stop the shutdown sequence");
 }
 
 void TestFatalErrorValueSemantics()
@@ -221,8 +358,9 @@ void TestNoDirectInProcessExit(const fs::path& repository_root)
 
         const std::string source = ReadFile(entry.path());
         // Direct exit, ::exit and std::exit all contain the identifier token
-        // `exit`. POSIX `_exit` in process-supervisor wrappers is a different
-        // token and therefore deliberately remains outside this game rule.
+        // `exit`. POSIX `_exit` and standard `_Exit` are distinct fail-stop
+        // primitives; the controlled fatal path may use the latter only when
+        // unwinding renderer/archive ownership is demonstrably unsafe.
         if (ContainsDirectExitCall(source))
         {
             throw std::runtime_error(
@@ -267,6 +405,14 @@ void TestFatalPropagationAndLifetimeOrder(const fs::path& repository_root)
         "RendererRuntimeGuard renderer_runtime_guard;");
     const std::size_t fatal_catch = main_source.find(
         "catch (const ApplicationFatalError& fatal)");
+    const std::size_t fatal_sequence = main_source.find(
+        "RunApplicationFatalShutdownSequence(", fatal_catch);
+    const std::size_t worker_release = main_source.find(
+        "worker_runtime_guard.Release()", fatal_sequence);
+    const std::size_t scene_release = main_source.find(
+        "fatal_scene_runtime_gate.Release()", worker_release);
+    const std::size_t fail_stop = main_source.find(
+        "FailStopApplication(fatal.exit_code())", scene_release);
     const std::size_t preserved_code = main_source.find(
         "application_exit_code = fatal.exit_code();", fatal_catch);
     const std::size_t controlled_return = main_source.find(
@@ -274,12 +420,83 @@ void TestFatalPropagationAndLifetimeOrder(const fs::path& repository_root)
     Require(
         renderer_guard != std::string::npos &&
             fatal_catch != std::string::npos &&
+            fatal_sequence != std::string::npos &&
+            worker_release != std::string::npos &&
+            scene_release != std::string::npos &&
+            fail_stop != std::string::npos &&
             preserved_code != std::string::npos &&
             controlled_return != std::string::npos &&
             renderer_guard < fatal_catch &&
-            fatal_catch < preserved_code &&
+            fatal_catch < fatal_sequence &&
+            fatal_sequence < worker_release &&
+            worker_release < scene_release &&
+            scene_release < fail_stop &&
+            fail_stop < preserved_code &&
             preserved_code < controlled_return,
-        "fatal catch is not inside the local renderer-guard lifetime");
+        "fatal catch does not quiesce workers/scene inside renderer lifetime");
+    Require(
+        main_source.find("bool ReleaseWorkerRuntime() noexcept") !=
+                std::string::npos &&
+            main_source.find("std::_Exit(exit_code)") != std::string::npos,
+        "worker proof or process fail-stop contract is missing");
+
+    const std::string game_context = ReadFile(
+        repository_root / "source" / "main" / "GameContext.cpp");
+    const std::size_t partial_fatal = game_context.find(
+        "catch (const ApplicationFatalError&)");
+    const std::size_t partial_dispose = game_context.find(
+        "DisposeForFatalShutdown()", partial_fatal);
+    const std::size_t partial_rethrow = game_context.find(
+        "throw;", partial_dispose);
+    const std::size_t fatal_scene = game_context.find(
+        "bool GameContext::ShutdownSceneForFatalError() noexcept");
+    const std::size_t actor_cleanup = game_context.find(
+        "m_actor_manager.CleanUpSimulation()", fatal_scene);
+    const std::size_t terrain_cleanup = game_context.find(
+        "m_terrain->DisposeForFatalShutdown()", actor_cleanup);
+    const std::size_t scene_clear = game_context.find(
+        "App::GetGfxScene()->ClearScene()", terrain_cleanup);
+    Require(
+        partial_fatal != std::string::npos &&
+            partial_dispose != std::string::npos &&
+            partial_rethrow != std::string::npos &&
+            partial_fatal < partial_dispose &&
+            partial_dispose < partial_rethrow,
+        "partial terrain is not disposed before fatal propagation");
+    Require(
+        fatal_scene != std::string::npos &&
+            actor_cleanup != std::string::npos &&
+            terrain_cleanup != std::string::npos &&
+            scene_clear != std::string::npos &&
+            fatal_scene < actor_cleanup &&
+            actor_cleanup < terrain_cleanup &&
+            terrain_cleanup < scene_clear,
+        "active fatal scene teardown order changed");
+    const std::size_t transaction_destructor = game_context.find(
+        "~TerrainResourceLoadTransaction() noexcept");
+    const std::size_t transaction_catch = game_context.find(
+        "catch (...)", transaction_destructor);
+    Require(
+        transaction_destructor != std::string::npos &&
+            transaction_catch != std::string::npos &&
+            transaction_destructor < transaction_catch &&
+            transaction_catch < partial_fatal,
+        "terrain resource rollback can throw during fatal unwinding");
+
+    const std::string terrain_header = ReadFile(
+        repository_root / "source" / "main" / "terrain" / "Terrain.h");
+    const std::string terrain_source = ReadFile(
+        repository_root / "source" / "main" / "terrain" / "Terrain.cpp");
+    Require(
+        terrain_header.find("bool DisposeForFatalShutdown() noexcept;") !=
+                std::string::npos &&
+            terrain_header.find("m_fatal_dispose_failed") !=
+                std::string::npos &&
+            terrain_source.find(
+                "bool RoR::Terrain::DisposeForFatalShutdown() noexcept") !=
+                std::string::npos &&
+            terrain_source.find("m_disposed = true;") != std::string::npos,
+        "terrain fatal disposal is not latched and non-throwing");
 
     const std::string collisions = ReadFile(
         repository_root / "source" / "main" / "physics" /
@@ -309,6 +526,10 @@ int main(int argc, char** argv)
         Require(argc == 2, "expected repository root argument");
         const fs::path repository_root = fs::absolute(argv[1]);
         TestFatalErrorValueSemantics();
+        TestFatalShutdownGateIsIdempotent();
+        TestActiveSceneFatalShutdownSequence();
+        TestPartialTerrainFatalShutdownSequence();
+        TestWorkerJoinFailureSelectsFailStop();
         TestDirectExitScannerSemantics();
         TestNoDirectInProcessExit(repository_root);
         TestFatalPropagationAndLifetimeOrder(repository_root);
