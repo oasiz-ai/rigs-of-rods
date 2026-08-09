@@ -50,6 +50,13 @@ struct Ogre14LegacyMaterialObservation final {
 
 struct Ogre14LegacyPreparedMaterial final {
   Ogre14LegacyAssetKey material_key;
+  /// Exact independently captured native owner, retained without copying or
+  /// reboxing. Procedural roads assign this owner directly to
+  /// Ogre14ProceduralRoadCapture::exact_native_material_audit.
+  std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit>
+      native_material_audit;
+  /// Separately owned translated closure. Its audit must be bit-exact with the
+  /// native owner above but may never share the same control block.
   std::shared_ptr<const Ogre14LegacyMaterialClosure> closure;
 };
 
@@ -90,7 +97,8 @@ private:
 
 enum class Ogre14LegacyLiveMaterialCoordinatorFaultPoint : std::uint8_t {
   AFTER_FIRST_OBSERVATION = 0U,
-  BEFORE_PREPARED_FRAME_PUBLISH = 1U,
+  AFTER_NATIVE_AUDIT_MATCH = 1U,
+  BEFORE_PREPARED_FRAME_PUBLISH = 2U,
 };
 
 class IOgre14LegacyLiveMaterialCoordinatorFaultInjector {
@@ -190,6 +198,13 @@ ValidateOgre14LegacyLiveMaterialCoordinatorConfiguration(
 /// invalid key, malformed prepared frame, or absent material.
 [[nodiscard]] const Ogre14LegacyMaterialClosure *
 FindOgre14LegacyPreparedMaterialClosure(
+    const Ogre14LegacyPreparedMaterialFrame &frame,
+    const Ogre14LegacyAssetKey &material_key) noexcept;
+
+/// Exact lookup exposing both the independently captured native audit owner and
+/// the translated closure. Returns null for malformed or absent material state.
+[[nodiscard]] const Ogre14LegacyPreparedMaterial *
+FindOgre14LegacyPreparedMaterial(
     const Ogre14LegacyPreparedMaterialFrame &frame,
     const Ogre14LegacyAssetKey &material_key) noexcept;
 

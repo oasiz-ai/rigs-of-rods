@@ -404,6 +404,14 @@ struct Ogre14LegacyMaterialPipelineAudit {
     const Ogre14LegacyMaterialPipelineAudit &lhs,
     const Ogre14LegacyMaterialPipelineAudit &rhs) noexcept;
 
+/// Purely derives and validates the complete audit value from one admitted
+/// material input. This is shared by native capture and translation so their
+/// values cannot drift, but it does not allocate or share an audit owner.
+/// Failure leaves `output` untouched.
+[[nodiscard]] ValidationResult DeriveOgre14LegacyMaterialPipelineAudit(
+    const Ogre14LegacyMaterialInput &input,
+    Ogre14LegacyMaterialPipelineAudit &output);
+
 struct Ogre14LegacyTranslatedAsset {
   RenderAssetKind kind = RenderAssetKind::INVALID;
   std::uint64_t source_asset_id = 0U;

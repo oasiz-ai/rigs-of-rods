@@ -605,6 +605,51 @@ bool EquivalentOgre14LegacyMaterialPipelineAudit(
   return EquivalentAudit(lhs, rhs);
 }
 
+ValidationResult DeriveOgre14LegacyMaterialPipelineAudit(
+    const Ogre14LegacyMaterialInput &input,
+    Ogre14LegacyMaterialPipelineAudit &output) try {
+  ValidationResult validation = ValidateOgre14LegacyMaterialInput(input);
+  if (!validation) {
+    return validation;
+  }
+
+  Ogre14LegacyMaterialPipelineAudit candidate;
+  candidate.pipeline = input.pipeline;
+  candidate.base_color_semantic = input.base_color_semantic;
+  candidate.requires_reverse_winding =
+      input.pipeline.cull == Ogre14LegacyCullMode::ANTICLOCKWISE;
+  if (!input.texture_units.empty()) {
+    const Ogre14LegacyTextureUnitInput &unit = input.texture_units.front();
+    validation = DeriveOgre14LegacySourceAssetId(
+        RenderAssetKind::TEXTURE, unit.texture_key,
+        candidate.texture_source_asset_id);
+    if (!validation) {
+      return validation;
+    }
+    const Ogre14LegacyAssetKey sampler_key = SamplerKey(input.key);
+    validation =
+        DeriveOgre14LegacySourceAssetId(RenderAssetKind::SAMPLER, sampler_key,
+                                        candidate.sampler_source_asset_id);
+    if (!validation) {
+      return validation;
+    }
+  }
+  validation = ValidateOgre14LegacyMaterialPipelineAudit(candidate);
+  if (!validation) {
+    return validation;
+  }
+  output = std::move(candidate);
+  return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return ValidationResult::Failure(
+      ValidationCode::EMPTY_PAYLOAD, "material.audit.allocation",
+      "allocation failed before the derived material audit was published");
+} catch (...) {
+  return ValidationResult::Failure(
+      ValidationCode::UNSUPPORTED_FEATURE, "material.audit.exception",
+      "unexpected exception before the derived material audit was published");
+}
+
 bool SameOgre14LegacyCatalogIdentity(
     const Ogre14LegacyCatalogIdentityReceipt &lhs,
     const Ogre14LegacyCatalogIdentityReceipt &rhs) noexcept {
@@ -2114,13 +2159,22 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
         return validation;
       }
 
-      auto audit = std::make_shared<Ogre14LegacyMaterialPipelineAudit>();
-      audit->pipeline = material_input.pipeline;
-      audit->base_color_semantic = material_input.base_color_semantic;
-      audit->requires_reverse_winding =
-          material_input.pipeline.cull == Ogre14LegacyCullMode::ANTICLOCKWISE;
-      audit->texture_source_asset_id = texture_id;
-      audit->sampler_source_asset_id = sampler_id;
+      Ogre14LegacyMaterialPipelineAudit audit_value;
+      validation =
+          DeriveOgre14LegacyMaterialPipelineAudit(material_input, audit_value);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
+      }
+      if (audit_value.texture_source_asset_id != texture_id ||
+          audit_value.sampler_source_asset_id != sampler_id) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH, "material.audit.dependencies",
+            "derived material audit disagrees with translated dependencies",
+            index);
+      }
+      auto audit = std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(
+          std::move(audit_value));
 
       std::uint64_t material_id = 0U;
       validation = DeriveOgre14LegacySourceAssetId(

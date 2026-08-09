@@ -6,6 +6,7 @@
 */
 
 #include "gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
+#include "gfx/render/Ogre14ProceduralRoadSource.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -15,6 +16,41 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+namespace RoR::Render::Testing {
+
+/// Focused pure-data fixture for the coordinator test only. Production has no
+/// synthetic mint API: the exact friend in Ogre14LegacyNativeAssetExtractor.h
+/// grants nonempty receipt construction to this named fixture and the pinned
+/// OGRE-native capture function alone.
+class Ogre14LegacyNativeMaterialAuditTestAccess final {
+public:
+  static ValidationResult
+  SealSyntheticCapture(Ogre14LegacyNativeMaterialCapture &capture) {
+    Ogre14LegacyMaterialPipelineAudit value;
+    ValidationResult validation =
+        DeriveOgre14LegacyMaterialPipelineAudit(capture.material, value);
+    if (!validation) {
+      return validation;
+    }
+    auto owner = std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(
+        std::move(value));
+    capture.exact_native_material_audit = owner;
+    capture.native_material_audit_receipt =
+        Ogre14LegacyNativeMaterialAuditReceipt(std::move(owner));
+    return ValidationResult::Success();
+  }
+
+  static void AuthenticateExistingOwnerForHostileTesting(
+      Ogre14LegacyNativeMaterialCapture &capture,
+      std::shared_ptr<const Ogre14LegacyMaterialPipelineAudit> owner) {
+    capture.exact_native_material_audit = owner;
+    capture.native_material_audit_receipt =
+        Ogre14LegacyNativeMaterialAuditReceipt(std::move(owner));
+  }
+};
+
+} // namespace RoR::Render::Testing
 
 namespace {
 
@@ -65,6 +101,11 @@ MakeRawObservation(const Ogre14LegacyAssetKey &material_key,
     observation.native_capture.material.texture_units.push_back(unit);
     observation.native_capture.textures.push_back(MakeTexture(*texture_key));
   }
+  Require(
+      Testing::Ogre14LegacyNativeMaterialAuditTestAccess::SealSyntheticCapture(
+          observation.native_capture)
+          .ok(),
+      "synthetic native audit fixture did not seal");
   return observation;
 }
 
@@ -135,7 +176,15 @@ void RequireSentinelUnchanged(const Ogre14LegacyPreparedMaterialFrame &sentinel,
               sentinel.materials().size() == 1U &&
               sentinel.materials()[0].material_key ==
                   Key("sentinel", "material") &&
-              sentinel.materials()[0].closure != nullptr,
+              sentinel.materials()[0].native_material_audit != nullptr &&
+              sentinel.materials()[0].closure != nullptr &&
+              expected.materials().size() == 1U &&
+              sentinel.materials()[0].native_material_audit.get() ==
+                  expected.materials()[0].native_material_audit.get() &&
+              !sentinel.materials()[0].native_material_audit.owner_before(
+                  expected.materials()[0].native_material_audit) &&
+              !expected.materials()[0].native_material_audit.owner_before(
+                  sentinel.materials()[0].native_material_audit),
           message);
 }
 
@@ -144,6 +193,13 @@ bool SharesExactOwner(const std::shared_ptr<const T> &lhs,
                       const std::shared_ptr<const T> &rhs) noexcept {
   return lhs != nullptr && rhs != nullptr && lhs.get() == rhs.get() &&
          !lhs.owner_before(rhs) && !rhs.owner_before(lhs);
+}
+
+template <typename T>
+bool SharesControlBlock(const std::shared_ptr<const T> &lhs,
+                        const std::shared_ptr<const T> &rhs) noexcept {
+  return lhs != nullptr && rhs != nullptr && !lhs.owner_before(rhs) &&
+         !rhs.owner_before(lhs);
 }
 
 bool ClosureSharesExactFrameOwners(const Ogre14LegacyTranslatedFrame &frame,
@@ -218,24 +274,51 @@ void TestCanonicalPrepareCommitDiscardAndLineage() {
       FindOgre14LegacyPreparedMaterialClosure(prepared, material_a);
   const Ogre14LegacyMaterialClosure *closure_b =
       FindOgre14LegacyPreparedMaterialClosure(prepared, material_b);
-  Require(closure_a != nullptr && closure_b != nullptr &&
-              closure_a->assets.size() == 3U &&
-              closure_b->assets.size() == 3U &&
-              prepared.materials()[0].closure != nullptr &&
-              prepared.materials()[1].closure != nullptr &&
-              prepared.materials()[0].closure->material_source_asset_id <
-                  prepared.materials()[1].closure->material_source_asset_id &&
-              ((prepared.materials()[0].closure.get() == closure_a &&
-                prepared.materials()[1].closure.get() == closure_b) ||
-               (prepared.materials()[0].closure.get() == closure_b &&
-                prepared.materials()[1].closure.get() == closure_a)) &&
-              SharesExactOwner(closure_a->assets.front().payload,
-                               closure_b->assets.front().payload) &&
-              ClosureSharesExactFrameOwners(*translated, *closure_a) &&
-              ClosureSharesExactFrameOwners(*translated, *closure_b),
-          "prepared material lookup did not retain exact closures");
+  const Ogre14LegacyPreparedMaterial *prepared_a =
+      FindOgre14LegacyPreparedMaterial(prepared, material_a);
+  const Ogre14LegacyPreparedMaterial *prepared_b =
+      FindOgre14LegacyPreparedMaterial(prepared, material_b);
+  Require(
+      closure_a != nullptr && closure_b != nullptr && prepared_a != nullptr &&
+          prepared_b != nullptr && closure_a->assets.size() == 3U &&
+          closure_b->assets.size() == 3U &&
+          prepared.materials()[0].closure != nullptr &&
+          prepared.materials()[1].closure != nullptr &&
+          prepared.materials()[0].closure->material_source_asset_id <
+              prepared.materials()[1].closure->material_source_asset_id &&
+          ((prepared.materials()[0].closure.get() == closure_a &&
+            prepared.materials()[1].closure.get() == closure_b) ||
+           (prepared.materials()[0].closure.get() == closure_b &&
+            prepared.materials()[1].closure.get() == closure_a)) &&
+          SharesExactOwner(closure_a->assets.front().payload,
+                           closure_b->assets.front().payload) &&
+          SharesExactOwner(
+              prepared_a->native_material_audit,
+              observation_a.native_capture.exact_native_material_audit) &&
+          SharesExactOwner(
+              prepared_b->native_material_audit,
+              observation_b.native_capture.exact_native_material_audit) &&
+          EquivalentOgre14LegacyMaterialPipelineAudit(
+              *prepared_a->native_material_audit, *closure_a->material_audit) &&
+          EquivalentOgre14LegacyMaterialPipelineAudit(
+              *prepared_b->native_material_audit, *closure_b->material_audit) &&
+          !SharesControlBlock(prepared_a->native_material_audit,
+                              closure_a->material_audit) &&
+          !SharesControlBlock(prepared_b->native_material_audit,
+                              closure_b->material_audit) &&
+          ClosureSharesExactFrameOwners(*translated, *closure_a) &&
+          ClosureSharesExactFrameOwners(*translated, *closure_b),
+      "prepared material lookup did not retain exact closures");
+  Ogre14ProceduralRoadCapture road_capture;
+  road_capture.exact_native_material_audit = prepared_a->native_material_audit;
+  Require(SharesExactOwner(road_capture.exact_native_material_audit,
+                           prepared_a->native_material_audit),
+          "procedural road could not retain the prepared native audit owner "
+          "without copying or reboxing");
   Ogre14LegacyPreparedMaterialFrame uninitialized;
   Require(FindOgre14LegacyPreparedMaterialClosure(uninitialized, material_a) ==
+                  nullptr &&
+              FindOgre14LegacyPreparedMaterial(uninitialized, material_a) ==
                   nullptr &&
               FindOgre14LegacyPreparedMaterialClosure(
                   prepared, Key("City", "Material/Missing")) == nullptr,
@@ -356,8 +439,142 @@ void TestHostileInputsAndTransactionalRollback() {
 
   RejectWithoutMutation(2U, {observation_a},
                         "skipped source sequence was accepted");
-  RejectWithoutMutation(1U, {observation_a, observation_a},
-                        "duplicate material observation was accepted");
+  Ogre14LegacyPreparedMaterialFrame shared_material;
+  Require(coordinator
+                  ->PrepareFrame(1U, {observation_a, observation_a},
+                                 shared_material)
+                  .ok() &&
+              shared_material.materials().size() == 1U &&
+              SharesExactOwner(
+                  shared_material.materials()[0].native_material_audit,
+                  observation_a.native_capture.exact_native_material_audit),
+          "shared material observations did not reuse one canonical native "
+          "audit owner");
+  coordinator->DiscardPreparedFrame();
+
+  Ogre14LegacyMaterialObservation reboxed_material = observation_a;
+  Require(
+      Testing::Ogre14LegacyNativeMaterialAuditTestAccess::SealSyntheticCapture(
+          reboxed_material.native_capture)
+              .ok() &&
+          EquivalentOgre14LegacyMaterialPipelineAudit(
+              *observation_a.native_capture.exact_native_material_audit,
+              *reboxed_material.native_capture.exact_native_material_audit) &&
+          !SharesControlBlock(
+              observation_a.native_capture.exact_native_material_audit,
+              reboxed_material.native_capture.exact_native_material_audit),
+      "same-value different-owner native audit fixture did not rebox");
+  RejectWithoutMutation(
+      1U, {observation_a, reboxed_material},
+      "same material value under different native audit owners was accepted");
+
+  Ogre14LegacyMaterialObservation missing_native_audit = observation_a;
+  missing_native_audit.native_capture.exact_native_material_audit.reset();
+  RejectWithoutMutation(1U, {missing_native_audit},
+                        "missing native material audit owner was accepted");
+
+  Ogre14LegacyMaterialObservation reboxed_owner = observation_a;
+  reboxed_owner.native_capture.exact_native_material_audit =
+      std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(
+          *observation_a.native_capture.exact_native_material_audit);
+  RejectWithoutMutation(
+      1U, {reboxed_owner},
+      "same-value reboxed native audit bypassed the opaque capture receipt");
+
+  const Ogre14LegacyPreparedMaterial *shared_prepared =
+      FindOgre14LegacyPreparedMaterial(shared_material, material_a);
+  Require(shared_prepared != nullptr && shared_prepared->closure != nullptr &&
+              shared_prepared->closure->material_audit != nullptr,
+          "closure-owner laundering fixture has no translated audit");
+  Ogre14LegacyMaterialObservation laundered_closure_owner = observation_a;
+  laundered_closure_owner.native_capture.exact_native_material_audit =
+      shared_prepared->closure->material_audit;
+  RejectWithoutMutation(
+      1U, {laundered_closure_owner},
+      "translated closure audit owner was laundered as native capture");
+
+  auto closure_owner_coordinator = MakeCoordinator(MakeRegistry({material_a}));
+  const Ogre14LegacyMaterialObservation closure_owner_observation =
+      MakeObservation(*closure_owner_coordinator, material_a);
+  Ogre14LegacyPreparedMaterialFrame closure_owner_first;
+  Require(
+      closure_owner_coordinator
+              ->PrepareFrame(1U, {closure_owner_observation},
+                             closure_owner_first)
+              .ok() &&
+          closure_owner_coordinator->CommitPreparedFrameAfterAcceptedExposure(
+              closure_owner_first) ==
+              Ogre14LegacyPreparedMaterialCommitResult::COMMITTED,
+      "closure-owner control-block fixture did not commit its first frame");
+  const Ogre14LegacyPreparedMaterial *committed_material =
+      FindOgre14LegacyPreparedMaterial(closure_owner_first, material_a);
+  Require(committed_material != nullptr &&
+              committed_material->closure != nullptr &&
+              committed_material->closure->material_audit != nullptr,
+          "closure-owner control-block fixture has no committed audit");
+  Ogre14LegacyMaterialObservation hostile_authenticated_closure_owner =
+      closure_owner_observation;
+  Testing::Ogre14LegacyNativeMaterialAuditTestAccess::
+      AuthenticateExistingOwnerForHostileTesting(
+          hostile_authenticated_closure_owner.native_capture,
+          committed_material->closure->material_audit);
+  Ogre14LegacyPreparedMaterialFrame closure_owner_sentinel = SentinelFrame();
+  const Ogre14LegacyPreparedMaterialFrame closure_owner_expected =
+      closure_owner_sentinel;
+  const ValidationResult closure_owner_result =
+      closure_owner_coordinator->PrepareFrame(
+          2U, {hostile_authenticated_closure_owner}, closure_owner_sentinel);
+  Require(!closure_owner_result &&
+              closure_owner_result.field ==
+                  "material_closures.native_material_audit_owner" &&
+              closure_owner_coordinator->source_sequence() == 1U &&
+              !closure_owner_coordinator->has_pending_frame(),
+          "authenticated translated closure owner escaped the post-translation "
+          "control-block rejection");
+  RequireSentinelUnchanged(
+      closure_owner_sentinel, closure_owner_expected,
+      "closure-owner control-block rejection mutated caller output");
+
+  Ogre14LegacyMaterialObservation mismatched_cull = observation_a;
+  mismatched_cull.native_capture.material.pipeline.cull =
+      Ogre14LegacyCullMode::ANTICLOCKWISE;
+  RejectWithoutMutation(1U, {mismatched_cull},
+                        "native audit with mismatched cull was accepted");
+
+  Ogre14LegacyMaterialObservation mismatched_pipeline = observation_a;
+  mismatched_pipeline.native_capture.material.pipeline.alpha_reject =
+      Ogre14LegacyCompareOperation::GREATER_EQUAL;
+  mismatched_pipeline.native_capture.material.pipeline.alpha_reject_value =
+      128U;
+  RejectWithoutMutation(1U, {mismatched_pipeline},
+                        "native audit with mismatched pipeline was accepted");
+
+  Ogre14LegacyMaterialObservation mismatched_texture_id = observation_a;
+  mismatched_texture_id.native_capture.material.texture_units[0].texture_key =
+      other_texture;
+  mismatched_texture_id.native_capture.textures[0].key = other_texture;
+  RejectWithoutMutation(
+      1U, {mismatched_texture_id},
+      "native audit with mismatched texture identity was accepted");
+
+  Ogre14LegacyMaterialObservation untextured_a =
+      MakeObservation(*coordinator, material_a);
+  Ogre14LegacyMaterialObservation untextured_b =
+      MakeObservation(*coordinator, material_b);
+  untextured_b.native_capture.exact_native_material_audit =
+      untextured_a.native_capture.exact_native_material_audit;
+  untextured_b.native_capture.native_material_audit_receipt =
+      untextured_a.native_capture.native_material_audit_receipt;
+  Require(
+      untextured_b.native_capture.native_material_audit_receipt.Authenticates(
+          untextured_b.native_capture.exact_native_material_audit) &&
+          EquivalentOgre14LegacyMaterialPipelineAudit(
+              *untextured_b.native_capture.exact_native_material_audit,
+              *untextured_a.native_capture.exact_native_material_audit),
+      "cross-material native audit owner forgery fixture is not exact");
+  RejectWithoutMutation(
+      1U, {untextured_a, untextured_b},
+      "one untextured native audit owner identified two exact materials");
 
   Ogre14LegacyMaterialObservation unknown = MakeRawObservation(missing);
   RejectWithoutMutation(1U, {unknown},
@@ -426,6 +643,27 @@ void TestHostileInputsAndTransactionalRollback() {
           "repeated observed texture bytes escaped the aggregate source cap");
   RequireSentinelUnchanged(observed_sentinel, observed_expected,
                            "observed-byte cap mutated caller output");
+
+  auto repeated_observation_bounded =
+      MakeCoordinator(MakeRegistry({material_a}), observed_byte_limited);
+  const Ogre14LegacyMaterialObservation repeated_observation =
+      MakeObservation(*repeated_observation_bounded, material_a, &texture);
+  Ogre14LegacyPreparedMaterialFrame repeated_observation_sentinel =
+      SentinelFrame();
+  const Ogre14LegacyPreparedMaterialFrame repeated_observation_expected =
+      repeated_observation_sentinel;
+  const ValidationResult repeated_observation_result =
+      repeated_observation_bounded->PrepareFrame(
+          1U, {repeated_observation, repeated_observation},
+          repeated_observation_sentinel);
+  Require(!repeated_observation_result &&
+              repeated_observation_result.field ==
+                  "material_observations.texture_bytes" &&
+              !repeated_observation_bounded->has_pending_frame(),
+          "shared native audit owner waived duplicated texture-byte admission");
+  RequireSentinelUnchanged(
+      repeated_observation_sentinel, repeated_observation_expected,
+      "repeated-observation byte cap mutated caller output");
 
   Ogre14LegacyMaterialObservation wrong_key = observation_a;
   wrong_key.native_capture.material.key = material_b;
@@ -589,6 +827,8 @@ void TestExceptionRollbackAndFreshGenerationIdentity() {
   Ogre14LegacyPreparedMaterialFrame sentinel = SentinelFrame();
   const Ogre14LegacyPreparedMaterialFrame expected = sentinel;
   ThrowingFault fault;
+  fault.point =
+      Ogre14LegacyLiveMaterialCoordinatorFaultPoint::AFTER_NATIVE_AUDIT_MATCH;
   ValidationResult result =
       coordinator->PrepareFrame(1U, {observation}, sentinel, &fault);
   Require(!result && result.field == "material_coordinator.allocation" &&

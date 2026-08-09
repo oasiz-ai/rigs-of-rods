@@ -417,7 +417,15 @@ scene assembly path is not wired into `GfxScene` yet.
 `gfx/ogre14/Ogre14LegacyNativeAssetExtractor` is the native
 integration adapter and deliberately lives outside this renderer-neutral
 boundary; the native application and its focused compile test pin that edge to
-OGRE 14.5.2. The eventual static/terrain adapter
+OGRE 14.5.2. `DeriveOgre14LegacyMaterialPipelineAudit` is the one public pure
+value derivation shared by this edge and `Translate`; it allocates or
+authenticates no owner. Only `CaptureOgre14LegacyNativeMaterial` can construct a
+nonempty version-1 `Ogre14LegacyNativeMaterialAuditReceipt`. It mints a fresh
+immutable audit owner directly from the captured material, texture, sampler,
+and pipeline state before publishing the transactional native capture. The
+receipt authenticates both the exact object pointer and its control block, so a
+reboxed value or translated closure owner cannot impersonate native capture.
+The eventual static/terrain adapter
 must submit a complete post-buffer inventory to the translator, then map each
 dependency-ordered `source_asset_id` and immutable payload owner into
 `GraphicsSceneAssetInput`. For a material, it must use the two IDs in
@@ -568,7 +576,17 @@ registry, authenticates its opaque declaration receipt, rejects detached or
 conflicting semantic state, canonicalizes shared
 texture captures, and translates the complete inventory under one exclusive
 lease. It then batch-resolves all material closures from that one full frame
-and exposes shared immutable owners to the joined scene transaction. Only an
+and exposes shared immutable owners to the joined scene transaction. Every raw
+observation's texture bytes are charged before any deduplication. Repeated
+observations of one exact material may collapse only when their complete native
+capture and authenticated audit control block are identical; one control block
+can never authenticate two stable material keys. After translation, the
+coordinator compares the native and closure audits bit-for-bit, rejects any
+shared control block between them, and retains the exact native owner beside the
+separately owned closure in `Ogre14LegacyPreparedMaterial`. A procedural-road
+caller assigns that owner directly to
+`Ogre14ProceduralRoadCapture::exact_native_material_audit`; it never copies or
+reboxes `closure.material_audit`. Only an
 explicit downstream-acceptance call publishes the translator candidate;
 discard, validation failure, allocation failure, or an arbitrary exception
 releases the lease without advancing source/catalog lineage or changing the

@@ -30,6 +30,10 @@ NATIVE_HEADER = (
     / "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
 )
 NATIVE_SOURCE = NATIVE_HEADER.with_suffix(".cpp")
+NATIVE_TEST = (
+    REPOSITORY_ROOT
+    / "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
+)
 README = REPOSITORY_ROOT / "source/main/gfx/render/README.md"
 PROVENANCE_TOOLS = (
     REPOSITORY_ROOT / "tools/run_ogre_next_probe.py",
@@ -49,6 +53,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
         cls.translator_test = TRANSLATOR_TEST.read_text(encoding="utf-8")
         cls.native_header = NATIVE_HEADER.read_text(encoding="utf-8")
         cls.native_source = NATIVE_SOURCE.read_text(encoding="utf-8")
+        cls.native_test = NATIVE_TEST.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
 
     def test_pure_contract_is_versioned_and_native_type_free(self) -> None:
@@ -302,6 +307,47 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
                 self.assertIn(token, self.native_source)
         self.assertIn("class Material;", self.native_header)
 
+    def test_native_audit_mint_authority_is_not_renderer_neutral(self) -> None:
+        for token in (
+            "DeriveOgre14LegacyMaterialPipelineAudit(",
+            "Failure leaves `output` untouched",
+        ):
+            self.assertIn(token, self.header + self.source)
+        self.assertNotIn("Ogre14LegacyNativeMaterialAuditReceipt", self.header)
+        self.assertNotIn("MintOgre14LegacyMaterialPipelineAuditCapture", self.header)
+        self.assertNotIn("MintOgre14LegacyMaterialPipelineAuditCapture", self.source)
+
+        for token in (
+            "kOgre14LegacyNativeMaterialAuditReceiptVersion = 1U",
+            "class Ogre14LegacyNativeMaterialAuditReceipt final",
+            "friend ValidationResult CaptureOgre14LegacyNativeMaterial(",
+            "friend class Testing::Ogre14LegacyNativeMaterialAuditTestAccess",
+            "Authenticates(",
+            "exact_native_material_audit",
+            "native_material_audit_receipt",
+        ):
+            self.assertIn(token, self.native_header)
+        receipt_start = self.native_header.index(
+            "class Ogre14LegacyNativeMaterialAuditReceipt final"
+        )
+        receipt_end = self.native_header.index(
+            "struct Ogre14LegacyNativeMaterialCapture", receipt_start
+        )
+        receipt_body = self.native_header[receipt_start:receipt_end]
+        self.assertIn("private:", receipt_body)
+        self.assertIn(
+            "explicit Ogre14LegacyNativeMaterialAuditReceipt(", receipt_body
+        )
+        self.assertIn(
+            "std::make_shared<const Ogre14LegacyMaterialPipelineAudit>",
+            self.native_source,
+        )
+        for token in (
+            "native extractor did not mint the exact independently derived audit",
+            "separate native captures reused one audit control block",
+        ):
+            self.assertIn(token, self.native_test)
+
     def test_cmake_closes_pure_native_and_strict_fp_builds(self) -> None:
         self.assertGreaterEqual(
             self.main_cmake.count("Ogre14LegacyAssetTranslator.cpp"), 2
@@ -369,12 +415,25 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
             "copies no mip bytes",
             "genuinely new stable keys",
             "early resource-admission proof",
+            "DeriveOgre14LegacyMaterialPipelineAudit",
+            "Ogre14LegacyNativeMaterialAuditReceipt",
+            "authenticates both the exact object pointer and its control block",
+            "observation's texture bytes are charged before any deduplication",
+            "can never authenticate two stable material keys",
+            "Ogre14ProceduralRoadCapture::exact_native_material_audit",
+            "never copies or",
+            "reboxes `closure.material_audit`",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.readme)
         for tool in PROVENANCE_TOOLS:
             text = tool.read_text(encoding="utf-8")
             with self.subTest(tool=tool.name):
+                for path in (
+                    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
+                    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
+                ):
+                    self.assertIn(f'"{path}"', text)
                 self.assertIn(
                     '"tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"',
                     text,
