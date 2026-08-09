@@ -19,6 +19,8 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererBackendPolicy.h
     source/main/gfx/GfxScene.cpp
     source/main/gfx/GfxScene.h
+    source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+    source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
     source/main/gfx/RendererStartupHandoff.cpp
     source/main/gfx/RendererStartupHandoff.h
     source/main/gfx/RendererStartupPlan.cpp
@@ -122,9 +124,12 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
     tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp
     tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
+    tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
     tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
     tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
     tests/tools/test_ogre14_particle_capture_contract.py
+    tests/tools/test_ogre14_legacy_asset_translator_contract.py
+    tests/tools/test_ogre14_legacy_material_closure_contract.py
     tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
     tests/physics/FlexMeshTopologyTests.cpp
     tests/physics/Ogre14FlexShadowLoadTests.cpp
@@ -182,6 +187,8 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/GfxScene.cpp"
     "source/main/gfx/GfxScene.h"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
@@ -284,9 +291,12 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
     "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
     "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
     "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
     "tests/physics/FlexMeshTopologyTests.cpp"
     "tests/physics/Ogre14FlexShadowLoadTests.cpp"

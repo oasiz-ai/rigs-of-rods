@@ -102,6 +102,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/GfxScene.cpp"
     "source/main/gfx/GfxScene.h"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
@@ -204,9 +206,12 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
     "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
     "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
     "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
     "tests/physics/FlexMeshTopologyTests.cpp"
     "tests/physics/Ogre14FlexShadowLoadTests.cpp"
@@ -731,6 +736,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/InputEventTransport.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
         "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
+        "${_ror_render_root}/Ogre14LegacyAssetTranslator.cpp"
+        "${_ror_render_root}/Ogre14LegacyMaterialClosure.cpp"
         "${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"
         "${_ror_render_root}/Ogre14ProceduralRoadSource.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
@@ -739,6 +746,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/RenderAssetId.cpp"
         "${_ror_render_root}/RenderAssetRegistry.cpp"
         "${_ror_render_root}/RenderBridgeControlTransport.cpp"
+        "${_ror_render_root}/SceneGenerationBoundaryTransport.cpp"
         "${_ror_render_root}/RenderBridgeSessionIdentity.cpp"
         "${_ror_render_root}/RenderFrame.cpp"
         "${_ror_render_root}/RenderResourceDescriptors.cpp"
@@ -2097,6 +2105,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererBackendPolicy.h
             source/main/gfx/GfxScene.cpp
             source/main/gfx/GfxScene.h
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
             source/main/gfx/RendererStartupHandoff.cpp
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
@@ -2200,9 +2210,12 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
             tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp
             tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
+            tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
             tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
             tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
             tests/tools/test_ogre14_particle_capture_contract.py
+            tests/tools/test_ogre14_legacy_asset_translator_contract.py
+            tests/tools/test_ogre14_legacy_material_closure_contract.py
             tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
             tests/physics/FlexMeshTopologyTests.cpp
             tests/physics/Ogre14FlexShadowLoadTests.cpp

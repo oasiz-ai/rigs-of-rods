@@ -9,7 +9,9 @@
 
 #include <chrono>
 #include <new>
+#include <stdexcept>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 namespace RoR {
@@ -226,6 +228,7 @@ RendererOgre14ProductSession::TryPending() {
     }
     return FailureFromHost(posted);
   }
+  last_scene_surface_revision_ = pending.captured_surface_revision;
   pending_.reset();
   result.status = RendererOgre14ProductSessionStatus::FRAME_QUEUED;
   result.accepted = true;
@@ -246,6 +249,12 @@ RendererOgre14ProductSession::PostUpdatedScene(
     host_result.terminal_cause = host_.terminal_cause();
     host_result.terminal = true;
     return FailureFromHost(host_result);
+  }
+  if (scene_generation_reset_pending_) {
+    // The unload requester owns completion of this state machine. Ordinary
+    // frame pumping may drain its retained final production, but must never
+    // capture a new generation before the ordered reset boundary is consumed.
+    return TryPending();
   }
   if (pending_.has_value()) {
     return TryPending();
@@ -297,6 +306,129 @@ RendererOgre14ProductSession::PostUpdatedScene(
   pending.asset_submitted = !pending.production.asset_delta.has_value();
   pending_ = std::move(pending);
   return TryPending();
+}
+
+RendererOgre14ProductSessionResult
+RendererOgre14ProductSession::CompleteSceneGenerationReset() {
+  if (!scene_generation_reset_pending_ || pending_.has_value() ||
+      finalizing_scene_snapshot_id_ == 0U) {
+    return MakeResult(RendererOgre14ProductSessionStatus::REJECTED_NOT_READY,
+                      false);
+  }
+  const RendererOgre14GameHostSessionResult reset =
+      host_.CompleteSceneGeneration(finalizing_scene_snapshot_id_);
+  if (!reset) {
+    if (IsBackpressure(reset.status)) {
+      RendererOgre14ProductSessionResult result = MakeResult(
+          RendererOgre14ProductSessionStatus::PENDING_BACKPRESSURE, false);
+      result.host_status = reset.status;
+      result.surface_revision = last_scene_surface_revision_;
+      result.snapshot_id = finalizing_scene_snapshot_id_;
+      return result;
+    }
+    return FailureFromHost(reset);
+  }
+  RendererOgre14ProductSessionResult result = MakeResult(
+      RendererOgre14ProductSessionStatus::SCENE_GENERATION_RESET, true);
+  result.host_status = reset.status;
+  result.surface_revision = last_scene_surface_revision_;
+  result.snapshot_id = finalizing_scene_snapshot_id_;
+  scene_generation_reset_pending_ = false;
+  finalizing_scene_snapshot_id_ = 0U;
+  return result;
+}
+
+RendererOgre14ProductSessionResult
+RendererOgre14ProductSession::ResetSceneGeneration() noexcept {
+  try {
+    return ResetSceneGenerationImpl();
+  } catch (const std::bad_alloc &) {
+    return MakeResult(RendererOgre14ProductSessionStatus::FAILED_ALLOCATION,
+                      false);
+  } catch (const std::length_error &) {
+    return MakeResult(RendererOgre14ProductSessionStatus::FAILED_ALLOCATION,
+                      false);
+  } catch (...) {
+    return MakeResult(RendererOgre14ProductSessionStatus::FAILED_INTERNAL,
+                      false, true);
+  }
+}
+
+RendererOgre14ProductSessionResult
+RendererOgre14ProductSession::ResetSceneGenerationImpl() {
+  if (!started_ || closed_ || producer_ == nullptr) {
+    return MakeResult(RendererOgre14ProductSessionStatus::REJECTED_NOT_READY,
+                      false);
+  }
+  if (host_.terminal()) {
+    RendererOgre14GameHostSessionResult host_result;
+    host_result.status = host_.terminal_cause();
+    host_result.terminal_cause = host_.terminal_cause();
+    host_result.terminal = true;
+    return FailureFromHost(host_result);
+  }
+
+  if (scene_generation_reset_pending_) {
+    if (pending_.has_value()) {
+      const RendererOgre14ProductSessionResult submitted = TryPending();
+      if (submitted.terminal || pending_.has_value()) {
+        return submitted;
+      }
+    }
+    return CompleteSceneGenerationReset();
+  }
+
+  if (pending_.has_value()) {
+    const RendererOgre14ProductSessionResult submitted = TryPending();
+    if (submitted.terminal || pending_.has_value()) {
+      return submitted;
+    }
+  }
+
+  if (!producer_->has_open_scene_generation()) {
+    RendererOgre14ProductSessionResult result = MakeResult(
+        RendererOgre14ProductSessionStatus::SCENE_GENERATION_RESET, true);
+    result.host_status = RendererOgre14GameHostSessionStatus::READY;
+    return result;
+  }
+  if (last_scene_surface_revision_ == 0U) {
+    return MakeResult(RendererOgre14ProductSessionStatus::FAILED_INTERNAL,
+                      false);
+  }
+
+  Render::GraphicsSceneSnapshotProduceResult finalized =
+      producer_->FinalizeSceneGeneration();
+  if (!finalized) {
+    RendererOgre14ProductSessionResult result = MakeResult(
+        RendererOgre14ProductSessionStatus::FAILED_PRODUCER, false);
+    result.validation = finalized.validation;
+    return result;
+  }
+  // FinalizeSceneGeneration() commits the producer only after every candidate
+  // allocation succeeds. From this point through retention, moves must be
+  // statically non-throwing: otherwise an exception could strand the producer
+  // in a closed generation without the final production needed for retry.
+  static_assert(
+      std::is_nothrow_move_constructible<
+          Render::GraphicsSceneSnapshotProduceResult>::value,
+      "producer result retention must not throw after generation commit");
+  static_assert(
+      std::is_nothrow_move_assignable<std::optional<PendingProduction>>::value,
+      "pending generation-finalization retention must not throw");
+  PendingProduction pending;
+  pending.production = std::move(finalized.production);
+  pending.captured_surface_revision = last_scene_surface_revision_;
+  pending.asset_submitted = !pending.production.asset_delta.has_value();
+  finalizing_scene_snapshot_id_ =
+      pending.production.scene_snapshot->snapshot_id();
+  scene_generation_reset_pending_ = true;
+  pending_ = std::move(pending);
+
+  const RendererOgre14ProductSessionResult submitted = TryPending();
+  if (submitted.terminal || pending_.has_value()) {
+    return submitted;
+  }
+  return CompleteSceneGenerationReset();
 }
 
 RendererOgre14ProductSessionResult
@@ -379,6 +511,7 @@ bool IsKnownRendererOgre14ProductSessionStatus(
   switch (status) {
   case RendererOgre14ProductSessionStatus::READY:
   case RendererOgre14ProductSessionStatus::REVERSE_DRAINED:
+  case RendererOgre14ProductSessionStatus::SCENE_GENERATION_RESET:
   case RendererOgre14ProductSessionStatus::WAITING_FOR_SURFACE:
   case RendererOgre14ProductSessionStatus::WAITING_FOR_CAMERA_EXTENT:
   case RendererOgre14ProductSessionStatus::FRAME_QUEUED:
@@ -390,6 +523,7 @@ bool IsKnownRendererOgre14ProductSessionStatus(
   case RendererOgre14ProductSessionStatus::FAILED_HOST:
   case RendererOgre14ProductSessionStatus::FAILED_INPUT:
   case RendererOgre14ProductSessionStatus::FAILED_PRODUCER:
+  case RendererOgre14ProductSessionStatus::FAILED_ALLOCATION:
   case RendererOgre14ProductSessionStatus::FAILED_SHUTDOWN_TIMEOUT:
   case RendererOgre14ProductSessionStatus::FAILED_INTERNAL: return true;
   }
@@ -401,6 +535,8 @@ const char *ToString(RendererOgre14ProductSessionStatus status) noexcept {
   case RendererOgre14ProductSessionStatus::READY: return "ready";
   case RendererOgre14ProductSessionStatus::REVERSE_DRAINED:
     return "reverse_drained";
+  case RendererOgre14ProductSessionStatus::SCENE_GENERATION_RESET:
+    return "scene_generation_reset";
   case RendererOgre14ProductSessionStatus::WAITING_FOR_SURFACE:
     return "waiting_for_surface";
   case RendererOgre14ProductSessionStatus::WAITING_FOR_CAMERA_EXTENT:
@@ -421,6 +557,8 @@ const char *ToString(RendererOgre14ProductSessionStatus status) noexcept {
     return "failed_input";
   case RendererOgre14ProductSessionStatus::FAILED_PRODUCER:
     return "failed_producer";
+  case RendererOgre14ProductSessionStatus::FAILED_ALLOCATION:
+    return "failed_allocation";
   case RendererOgre14ProductSessionStatus::FAILED_SHUTDOWN_TIMEOUT:
     return "failed_shutdown_timeout";
   case RendererOgre14ProductSessionStatus::FAILED_INTERNAL:

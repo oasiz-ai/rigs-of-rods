@@ -110,6 +110,11 @@ public:
 
 private:
 
+    /// Clears every map-scoped capture identity/cache/inventory. ClearScene()
+    /// calls this only after ProductSession admits the prior empty scene;
+    /// global child/input transport ownership remains outside GfxScene.
+    void ResetOgre14GraphicsSceneGeneration() noexcept;
+
     Render::ValidationResult CaptureOgre14DynamicActorInventory(
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
         std::map<std::string,
@@ -139,8 +144,8 @@ private:
     bool                               m_ogre14_joined_buffer_ready = false;
     bool                               m_ogre14_joined_buffer_atomic = false;
     bool                               m_ogre14_scene_capture_enabled = false;
-    // Intentionally survives ClearScene(): exact OGRE light names retain one
-    // collision-audited identity for this adapter lifetime.
+    // Map-generation identities reset only at ClearScene(), after the product
+    // session has sequenced the preceding authoritative empty scene.
     Render::Ogre14GraphicsSceneLightIdentityRegistry
                                        m_ogre14_light_identity_registry;
     Render::Ogre14GraphicsSceneStaticIdentityRegistry

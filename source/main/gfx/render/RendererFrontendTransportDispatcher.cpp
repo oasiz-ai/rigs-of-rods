@@ -24,6 +24,17 @@ constexpr std::uint32_t kKnownFrameOutputBits =
     static_cast<std::uint32_t>(FrameOutputMask::SURFACE_NORMAL) |
     static_cast<std::uint32_t>(FrameOutputMask::MATERIAL_ID);
 
+bool IsFinalEmptyScene(const SceneSnapshot &snapshot) noexcept {
+  return snapshot.mesh_instances().empty() && snapshot.lights().empty() &&
+         snapshot.reflection_probes().empty() &&
+         snapshot.dynamic_mesh_updates().empty() &&
+         snapshot.particle_events().empty() &&
+         IsAbsentRenderAssetReference(
+             snapshot.environment().environment_texture) &&
+         IsAbsentRenderAssetReference(
+             snapshot.environment().environment_sampler);
+}
+
 } // namespace
 
 ValidationResult ValidateRendererFrontendPresentationPolicy(
@@ -97,6 +108,8 @@ bool IsKnownRendererFrontendTransportDispatchStatus(
   case RendererFrontendTransportDispatchStatus::ASSET_DELTA_SYNCHRONIZED:
   case RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED:
   case RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED:
+  case RendererFrontendTransportDispatchStatus::
+      SCENE_GENERATION_BOUNDARY_CONSUMED:
   case RendererFrontendTransportDispatchStatus::REJECTED_TERMINAL:
   case RendererFrontendTransportDispatchStatus::REJECTED_INVALID_SESSION:
   case RendererFrontendTransportDispatchStatus::REJECTED_INVALID_FRAME:
@@ -112,6 +125,8 @@ bool IsKnownRendererFrontendTransportDispatchStatus(
   case RendererFrontendTransportDispatchStatus::FAILED_FRONTEND_WAIT:
   case RendererFrontendTransportDispatchStatus::FAILED_FRONTEND_OUTPUT:
   case RendererFrontendTransportDispatchStatus::FAILED_RESOURCE_RELEASE:
+  case RendererFrontendTransportDispatchStatus::
+      FAILED_FRONTEND_SCENE_GENERATION_RESET:
   case RendererFrontendTransportDispatchStatus::FAILED_INTERNAL:
     return true;
   }
@@ -126,6 +141,9 @@ const char *ToString(RendererFrontendTransportDispatchStatus status) noexcept {
     return "scene-frame-completed";
   case RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED:
     return "scene-frame-retired";
+  case RendererFrontendTransportDispatchStatus::
+      SCENE_GENERATION_BOUNDARY_CONSUMED:
+    return "scene-generation-boundary-consumed";
   case RendererFrontendTransportDispatchStatus::REJECTED_TERMINAL:
     return "rejected-terminal";
   case RendererFrontendTransportDispatchStatus::REJECTED_INVALID_SESSION:
@@ -154,6 +172,9 @@ const char *ToString(RendererFrontendTransportDispatchStatus status) noexcept {
     return "failed-frontend-output";
   case RendererFrontendTransportDispatchStatus::FAILED_RESOURCE_RELEASE:
     return "failed-resource-release";
+  case RendererFrontendTransportDispatchStatus::
+      FAILED_FRONTEND_SCENE_GENERATION_RESET:
+    return "failed-frontend-scene-generation-reset";
   case RendererFrontendTransportDispatchStatus::FAILED_INTERNAL:
     return "failed-internal";
   }
@@ -166,7 +187,8 @@ RendererFrontendTransportDispatcher::RendererFrontendTransportDispatcher(
     : frontend_(&frontend),
       registry_id_(DeriveRenderAssetRegistryIdFromBridgeSession(session_id)),
       sequence_state_(1U), asset_decoder_(registry_id_, sequence_state_),
-      scene_decoder_(sequence_state_) {
+      scene_decoder_(sequence_state_),
+      scene_generation_decoder_(registry_id_, sequence_state_) {
   if (registry_id_ == 0U ||
       registry_id_ == (std::numeric_limits<std::uint64_t>::max)()) {
     terminal_ = true;
@@ -255,6 +277,8 @@ RendererFrontendTransportDispatcher::Dispatch(
       return DispatchAsset(frame);
     case RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2:
       return DispatchScene(frame, presentation_policy);
+    case RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1:
+      return DispatchSceneGenerationBoundary(frame);
     case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:
     case RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1:
     case RenderTransportMessageKind::RENDER_BRIDGE_CONTROL_V1:
@@ -390,6 +414,11 @@ RendererFrontendTransportDispatcher::DispatchScene(
     RendererFrontendTransportDispatchResult result = Success(
         RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED, frame);
     result.scene_snapshot_id = scene_snapshot_id;
+    last_scene_snapshot_id_ = scene_snapshot_id;
+    last_scene_asset_sequence_ =
+        decoded.message->scene_snapshot()->asset_sequence();
+    last_scene_was_empty_ =
+        IsFinalEmptyScene(*decoded.message->scene_snapshot());
     return result;
   }
 
@@ -492,7 +521,54 @@ RendererFrontendTransportDispatcher::DispatchScene(
       RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED, frame,
       cleanup.released);
   result.scene_snapshot_id = scene_snapshot_id;
+  last_scene_snapshot_id_ = scene_snapshot_id;
+  last_scene_asset_sequence_ =
+      decoded.message->scene_snapshot()->asset_sequence();
+  last_scene_was_empty_ =
+      IsFinalEmptyScene(*decoded.message->scene_snapshot());
   return result;
+}
+
+RendererFrontendTransportDispatchResult
+RendererFrontendTransportDispatcher::DispatchSceneGenerationBoundary(
+    const RenderTransportStreamFrameResult &frame) {
+  const SceneGenerationBoundaryTransportDecodeResult decoded =
+      scene_generation_decoder_.Accept(frame.bytes);
+  if (!decoded) {
+    return Fail(RendererFrontendTransportDispatchStatus::FAILED_DECODE, &frame,
+                decoded.status, ValidationCode::OK, RenderOperationCode::OK);
+  }
+  const SceneGenerationBoundary &boundary = decoded.boundary;
+  if (frame.kind !=
+          RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1 ||
+      decoded.sequence != frame.sequence ||
+      boundary.registry_id != registry_id_ ||
+      boundary.completed_generation != scene_generation_ ||
+      boundary.next_generation != scene_generation_ + 1U ||
+      boundary.asset_sequence != asset_decoder_.registry().sequence() ||
+      boundary.asset_sequence != last_scene_asset_sequence_ ||
+      boundary.finalized_snapshot_id != last_scene_snapshot_id_ ||
+      !last_scene_was_empty_ || asset_decoder_.registry().live_count() != 0U) {
+    return Fail(RendererFrontendTransportDispatchStatus::FAILED_LINEAGE,
+                &frame, RenderTransportStatus::RECONCILIATION_MISMATCH,
+                ValidationCode::SEQUENCE_MISMATCH,
+                RenderOperationCode::OK);
+  }
+  const RenderOperationResult reset =
+      frontend_->ResetSceneGeneration(boundary.next_generation);
+  if (!reset) {
+    return Fail(RendererFrontendTransportDispatchStatus::
+                    FAILED_FRONTEND_SCENE_GENERATION_RESET,
+                &frame, RenderTransportStatus::OK, ValidationCode::OK,
+                reset.code);
+  }
+  scene_generation_ = boundary.next_generation;
+  last_scene_snapshot_id_ = 0U;
+  last_scene_asset_sequence_ = 0U;
+  last_scene_was_empty_ = false;
+  return Success(RendererFrontendTransportDispatchStatus::
+                     SCENE_GENERATION_BOUNDARY_CONSUMED,
+                 frame);
 }
 
 } // namespace RoR::Render

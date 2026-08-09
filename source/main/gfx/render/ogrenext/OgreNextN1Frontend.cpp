@@ -3410,6 +3410,7 @@ public:
       owns_root_claim = false;
     }
     submission_state.Reset();
+    scene_generation = 1U;
     maximum_texture_dimension =
         kOgreNextN1ConservativeMaximumTextureDimension;
     maximum_anisotropy = 1.0F;
@@ -3491,6 +3492,7 @@ public:
   std::uint64_t texture_allocation_destroys = 0U;
   std::uint64_t texture_retired_name_lookups = 0U;
   std::uint64_t texture_retired_name_rejections = 0U;
+  std::uint64_t scene_generation = 1U;
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
   float maximum_anisotropy = 1.0F;
@@ -4419,6 +4421,72 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     return RenderOperationResult::Failure(RenderOperationCode::BACKEND_FAILURE,
                                           error.what());
   }
+}
+
+RenderOperationResult
+OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
+  if (!impl_->initialized) {
+    return NotInitialized();
+  }
+  if (!impl_->OnOwnerThread()) {
+    return WrongThread();
+  }
+  if (impl_->faulted) {
+    return FaultedFrontend();
+  }
+  if (impl_->scene_generation ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      next_generation != impl_->scene_generation + 1U) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "scene generation must advance exactly once");
+  }
+  if (impl_->production_output_handles.live_count() != 0U) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "scene generation reset requires released frame outputs");
+  }
+  if (impl_->reflection_probe_runtime) {
+    const RenderOperationResult probes =
+        impl_->reflection_probe_runtime->ResetSceneGeneration();
+    if (!probes) {
+      return probes;
+    }
+  }
+  if (impl_->hdr_enabled) {
+    const ValidationResult temporal =
+        impl_->hdr_temporal_state.ResetSceneGeneration();
+    if (!temporal) {
+      impl_->faulted = true;
+      return OgreNextN1OperationFromValidation(temporal);
+    }
+    HdrR16Float initial_history;
+    const ValidationResult quantized = QuantizeHdrR16Float(
+        impl_->hdr_configuration.initial_inverse_luminance, initial_history);
+    HdrR16Float observed_history;
+    const RenderOperationResult uploaded =
+        quantized
+            ? impl_->InitializeExactHdrHistory(initial_history,
+                                               observed_history)
+            : OgreNextN1OperationFromValidation(quantized);
+    if (!uploaded) {
+      impl_->faulted = true;
+      return uploaded;
+    }
+    impl_->hdr_history_comparison = OgreNextHdrHistoryComparison{};
+    impl_->hdr_history_comparison.mode =
+        OgreNextHdrHistoryValidationMode::
+            NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP;
+    impl_->hdr_history_comparison.native_inverse_luminance_r16 =
+        observed_history;
+    impl_->hdr_history_comparison.reference_inverse_luminance_r16 =
+        initial_history;
+    impl_->hdr_history_comparison.accepted = true;
+    impl_->hdr_native_history_validated = true;
+    impl_->hdr_exact_current_to_old_copy_verified = false;
+  }
+  impl_->scene_generation = next_generation;
+  return RenderOperationResult::Success();
 }
 
 RenderOperationResult

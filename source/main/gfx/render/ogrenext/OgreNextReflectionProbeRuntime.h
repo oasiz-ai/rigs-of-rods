@@ -174,6 +174,11 @@ public:
   QueryNativeOwnershipEvidence() const noexcept;
 #endif
 
+  /// Called only after the final empty scene has committed. Destroys deferred
+  /// probes and resets scheduler/tick/tombstone lineage while retaining the
+  /// initialized Ogre owners, compositor definitions, and global device.
+  [[nodiscard]] RenderOperationResult ResetSceneGeneration();
+
   /// Quiesces captures, unbinds PBS, and destroys probes while Root,
   /// SceneManager, and HLMS PBS are still alive.
   [[nodiscard]] bool Shutdown() noexcept;

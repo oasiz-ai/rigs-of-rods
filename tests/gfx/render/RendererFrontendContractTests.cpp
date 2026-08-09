@@ -15,7 +15,7 @@
 
 namespace {
 
-static_assert(RoR::Render::kRendererFrontendContractVersion == 3U,
+static_assert(RoR::Render::kRendererFrontendContractVersion == 4U,
               "native interop vtable changes require frontend contract v3");
 static_assert(RoR::Render::kNativeImageInteropContractVersion == 2U,
               "exact raster identity requires native image contract v2");
@@ -554,6 +554,11 @@ public:
 
   RoR::Render::RenderOperationResult
   SynchronizeAssets(const RoR::Render::RenderAssetDelta &) override {
+    return Unsupported();
+  }
+
+  RoR::Render::RenderOperationResult
+  ResetSceneGeneration(std::uint64_t) override {
     return Unsupported();
   }
 

@@ -16,6 +16,7 @@
 #include "render/InputEventTransport.h"
 #include "render/RenderAssetDeltaTransport.h"
 #include "render/RenderBridgeControlTransport.h"
+#include "render/SceneGenerationBoundaryTransport.h"
 #include "render/SceneSnapshotTransport.h"
 
 #include <cstddef>
@@ -24,7 +25,7 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererOgre14GameHostSessionContractVersion = 1U;
+constexpr std::uint32_t kRendererOgre14GameHostSessionContractVersion = 2U;
 constexpr std::uint32_t kRendererOgre14GameHostSessionConfigVersion = 1U;
 
 struct RendererOgre14GameHostSessionConfig final {
@@ -42,6 +43,7 @@ enum class RendererOgre14GameHostSessionStatus : std::uint8_t {
   READY = 0U,
   ASSET_DELTA_QUEUED,
   SCENE_SNAPSHOT_QUEUED,
+  SCENE_GENERATION_BOUNDARY_QUEUED,
   REVERSE_MESSAGE_READY,
   OUTBOUND_HALF_CLOSE_REQUESTED,
   CLOSED,
@@ -155,6 +157,15 @@ public:
       const Render::SceneSnapshot &snapshot,
       const Render::CameraViewRequest &camera,
       std::uint64_t captured_surface_revision);
+
+  /// Queues the authenticated generation marker after the authoritative empty
+  /// scene for the preceding map, then opens a new host simulation-time
+  /// lineage. Transport sequence, asset registry, snapshot identity, input
+  /// authority, and the child process are deliberately preserved. The
+  /// finalized snapshot must be the most recently admitted scene, preventing
+  /// a marker or next-generation scene from overtaking queued scene state.
+  [[nodiscard]] RendererOgre14GameHostSessionResult
+  CompleteSceneGeneration(std::uint64_t finalized_snapshot_id) noexcept;
 
   [[nodiscard]] RendererOgre14GameHostPollResult PollReverse();
   [[nodiscard]] RendererOgre14GameHostPollResult PollInput();

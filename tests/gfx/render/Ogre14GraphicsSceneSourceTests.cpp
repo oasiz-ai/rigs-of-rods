@@ -1029,11 +1029,11 @@ void TestUnsupportedStaticGeometryFailsClosedInStableOrder() {
               result.field == "static_meshes.unsupported.procedural",
           "procedural geometry lacks an exact fail-closed diagnostic");
   unsupported = {};
-  unsupported.deformable = true;
+  unsupported.unadapted_deformable = true;
   result = ValidateOgre14GraphicsSceneStaticCoverage(unsupported);
   Require(!result &&
               result.field == "static_meshes.unsupported.deformable",
-          "deformable geometry lacks an exact fail-closed diagnostic");
+          "unadapted deformable geometry lacks an exact fail-closed diagnostic");
   unsupported = {};
   unsupported.paged = true;
   result = ValidateOgre14GraphicsSceneStaticCoverage(unsupported);

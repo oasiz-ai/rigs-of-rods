@@ -1726,7 +1726,6 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
 
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
-    bool has_deformable_geometry,
     const std::vector<
         RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
         terrain_sections,
@@ -1738,7 +1737,6 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     std::vector<RoR::Render::GraphicsSceneStaticMeshInput>& static_meshes)
 {
     RoR::Render::Ogre14GraphicsSceneUnsupportedGeometry unsupported;
-    unsupported.deformable = has_deformable_geometry;
     if (object_manager != nullptr)
     {
         unsupported.procedural = object_manager->HasProceduralGeometry();
@@ -1947,16 +1945,7 @@ void GfxScene::CreateDustPools()
 
 void GfxScene::ClearScene()
 {
-    DiscardOgre14GraphicsSceneCapture();
-    m_ogre14_joined_buffer_ready = false;
-    m_ogre14_joined_buffer_atomic = false;
-    m_ogre14_post_update_scene_epoch = 0U;
-    // Native mesh pointers cannot outlive SceneManager resource teardown.
-    // Stable/tombstoned source identities intentionally remain in the
-    // registry until the owning producer lifetime is explicitly replaced.
-    m_ogre14_static_mesh_cache.clear();
-    m_ogre14_terrain_page_cache.clear();
-    m_ogre14_dynamic_mesh_cache.clear();
+    ResetOgre14GraphicsSceneGeneration();
 
     // Delete dustpools
     for (auto itor : m_dustpools)
@@ -1966,11 +1955,6 @@ void GfxScene::ClearScene()
     }
     m_dustpools.clear();
 
-    // Delete game elements
-    m_live_gfx_actors.clear();
-    m_gfx_actor_inventory.Clear();
-    m_all_gfx_characters.clear();
-
     // Wipe scene manager
     m_scene_manager->clearScene();
     m_gfx_freebeams_grouping_node = nullptr;
@@ -1979,6 +1963,28 @@ void GfxScene::ClearScene()
     App::GetCameraManager()->ReCreateCameraNode();
     App::GetGuiManager()->DirectionArrow.CreateArrow();
     m_gfx_freebeams_grouping_node = m_scene_manager->getRootSceneNode()->createChildSceneNode("FreeBeam Visuals");
+}
+
+void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
+{
+    DiscardOgre14GraphicsSceneCapture();
+    m_ogre14_joined_buffer_epoch = 0U;
+    m_ogre14_joined_buffer_ready = false;
+    m_ogre14_joined_buffer_atomic = false;
+    m_ogre14_post_update_scene_epoch = 0U;
+    m_ogre14_simulation_tick = 0U;
+    m_ogre14_simulation_time_seconds = 0.0;
+    m_ogre14_light_identity_registry.Reset();
+    m_ogre14_static_identity_registry.Reset();
+    m_ogre14_dynamic_identity_registry.Reset();
+    m_live_gfx_actors.clear();
+    m_gfx_actor_inventory.Clear();
+    m_all_gfx_characters.clear();
+    // Native mesh pointers and map-scoped source identities cannot cross the
+    // SceneManager teardown/reload boundary.
+    m_ogre14_static_mesh_cache.clear();
+    m_ogre14_terrain_page_cache.clear();
+    m_ogre14_dynamic_mesh_cache.clear();
 }
 
 void GfxScene::Init()
@@ -2602,8 +2608,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
             static_validation =
                 CaptureOgre14StaticMeshObjects(
-                    object_manager, !m_all_gfx_characters.empty(),
-                    terrain_sections,
+                    object_manager, terrain_sections,
                     pending->static_registry,
                     pending->static_mesh_cache,
                     static_assets,
@@ -2612,6 +2617,13 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 return static_validation;
             }
+
+            // GfxCharacter is the legacy player/network avatar domain. It is
+            // neither an authored static MeshObject nor a GfxActor deformable;
+            // character.mesh remains legacy-only until its own skeletal-pose
+            // adapter exists. Its normal presence therefore cannot poison the
+            // complete supported static + actor-dynamic inventory in this
+            // transaction.
 
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
             Render::ValidationResult dynamic_validation =

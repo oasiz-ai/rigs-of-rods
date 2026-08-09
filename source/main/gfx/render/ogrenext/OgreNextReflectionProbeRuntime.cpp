@@ -1425,6 +1425,66 @@ public:
     return clean;
   }
 
+  [[nodiscard]] RenderOperationResult ResetSceneGeneration() {
+    if (!audit.initialized) {
+      return Failure(RenderOperationCode::NOT_INITIALIZED,
+                     "runtime is not initialized");
+    }
+    if (!OnOwnerThread()) {
+      return Failure(RenderOperationCode::INVALID_ARGUMENT,
+                     "scene reset must run on the initialization thread");
+    }
+    if (faulted) {
+      return Failure(RenderOperationCode::BACKEND_FAILURE,
+                     "runtime is fault-latched after native cleanup failure");
+    }
+    if (pending != nullptr || scheduler.has_pending_plan()) {
+      return Failure(RenderOperationCode::OUTSTANDING_LEASES,
+                     "reflection work remains pending at scene reset");
+    }
+    bool native_pbs_bound = false;
+    if (pbs != nullptr) {
+      try {
+        native_pbs_bound = pbs->getParallaxCorrectedCubemap() != nullptr;
+      } catch (...) {
+        faulted = true;
+        return Failure(RenderOperationCode::BACKEND_FAILURE,
+                       "could not validate native PBS binding at scene reset");
+      }
+    }
+    if (!states.empty() || audit.live_probe_count != 0U || audit.pbs_bound ||
+        native_pbs_bound) {
+      return Failure(RenderOperationCode::INVALID_ARGUMENT,
+                     "final empty scene did not retire all reflection probes");
+    }
+    if (!DrainDeferredProbes()) {
+      faulted = true;
+      return Failure(RenderOperationCode::BACKEND_FAILURE,
+                     "retired probes could not be destroyed at scene reset");
+    }
+    scheduler.Reset();
+    audit.committed_state_digest = scheduler.committed_state_digest();
+    audit.native_execution_evidence = 0U;
+    audit.last_capture_frame_id = 0U;
+    audit.last_capture_simulation_tick = 0U;
+    audit.last_probe_id = 0U;
+    audit.last_content_revision = 0U;
+    audit.last_candidate_generation = 0U;
+    audit.last_deterministic_seed = 0U;
+    audit.last_capture_digest = 0U;
+    audit.last_canonical_payload_bytes = 0U;
+    audit.filtered_finite_component_count = 0U;
+    audit.filtered_nonzero_rgb_component_count = 0U;
+    audit.filtered_max_absolute_rgb = 0.0F;
+    audit.completed_face_count = 0U;
+    audit.completed_mip_count = 0U;
+    audit.blend_texture_ready = false;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    last_capture_evidence = {};
+#endif
+    return RenderOperationResult::Success();
+  }
+
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence
   NativeOwnershipEvidence() const noexcept {
@@ -1596,6 +1656,11 @@ RenderOperationResult OgreNextReflectionProbeRuntime::FinalizeFrame(
 bool OgreNextReflectionProbeRuntime::AbortFrame(
     std::uint64_t render_frame_id) noexcept {
   return impl_->AbortFrame(render_frame_id);
+}
+
+RenderOperationResult
+OgreNextReflectionProbeRuntime::ResetSceneGeneration() {
+  return impl_->ResetSceneGeneration();
 }
 
 OgreNextReflectionProbeAudit

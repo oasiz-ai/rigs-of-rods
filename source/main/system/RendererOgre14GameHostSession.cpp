@@ -683,8 +683,11 @@ struct RendererOgre14GameHostSession::Impl final {
   std::uint64_t last_control_command_id = 0U;
   std::uint64_t last_snapshot_id = 0U;
   std::uint64_t last_simulation_tick = 0U;
+  std::uint64_t scene_generation = 1U;
   Render::RenderBridgeSurfaceState surface_state;
   bool has_posted_scene = false;
+  bool last_scene_was_empty = false;
+  bool simulation_lineage_initialized = false;
   bool peer_ready = false;
   bool started = false;
   bool finish_forward_requested = false;
@@ -925,8 +928,9 @@ RendererOgre14GameHostSession::PostPhysicsImpl(
   }
   if (impl_->asset_registry->sequence() == 0U ||
       (impl_->has_posted_scene &&
-       (snapshot.snapshot_id() <= impl_->last_snapshot_id ||
-        snapshot.simulation_tick() <= impl_->last_simulation_tick)) ||
+       snapshot.snapshot_id() <= impl_->last_snapshot_id) ||
+      (impl_->simulation_lineage_initialized &&
+       snapshot.simulation_tick() < impl_->last_simulation_tick) ||
       impl_->next_forward_sequence ==
           (std::numeric_limits<std::uint64_t>::max)()) {
     RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
@@ -982,12 +986,102 @@ RendererOgre14GameHostSession::PostPhysicsImpl(
   impl_->last_snapshot_id = snapshot.snapshot_id();
   impl_->last_simulation_tick = snapshot.simulation_tick();
   impl_->has_posted_scene = true;
+  impl_->last_scene_was_empty = snapshot.mesh_instances().empty() &&
+                                snapshot.lights().empty() &&
+                                snapshot.reflection_probes().empty() &&
+                                snapshot.dynamic_mesh_updates().empty() &&
+                                snapshot.particle_events().empty();
+  impl_->simulation_lineage_initialized = true;
   ++impl_->next_forward_sequence;
   impl_->wake.notify_all();
   RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
       RendererOgre14GameHostSessionStatus::SCENE_SNAPSHOT_QUEUED, true);
   result.kind =
       Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
+  result.forward_sequence = sequence;
+  return result;
+}
+
+RendererOgre14GameHostSessionResult
+RendererOgre14GameHostSession::CompleteSceneGeneration(
+    std::uint64_t finalized_snapshot_id) noexcept {
+  std::lock_guard<std::mutex> lock(impl_->mutex);
+  if (impl_->terminal) {
+    return impl_->TerminalResultLocked();
+  }
+  if (!impl_->started || impl_->closed || impl_->finish_forward_requested ||
+      !impl_->has_posted_scene || finalized_snapshot_id == 0U ||
+      finalized_snapshot_id != impl_->last_snapshot_id ||
+      !impl_->last_scene_was_empty || impl_->asset_registry == nullptr ||
+      impl_->asset_registry->live_count() != 0U ||
+      impl_->next_forward_sequence ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      impl_->scene_generation >=
+          (std::numeric_limits<std::uint64_t>::max)() - 1U) {
+    RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
+        RendererOgre14GameHostSessionStatus::REJECTED_SCENE_LINEAGE, false);
+    result.validation_code = Render::ValidationCode::SEQUENCE_MISMATCH;
+    return result;
+  }
+
+  Render::SceneGenerationBoundary boundary;
+  boundary.registry_id = impl_->registry_id;
+  boundary.completed_generation = impl_->scene_generation;
+  boundary.next_generation = impl_->scene_generation + 1U;
+  boundary.asset_sequence = impl_->asset_registry->sequence();
+  boundary.finalized_snapshot_id = finalized_snapshot_id;
+  const std::uint64_t sequence = impl_->next_forward_sequence;
+  Render::RenderTransportEnvelopeEncodeResult encoded =
+      Render::EncodeSceneGenerationBoundaryFrame(sequence, boundary);
+  if (!encoded) {
+    RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
+        RendererOgre14GameHostSessionStatus::FAILED_FORWARD_ENCODING, false);
+    result.kind =
+        Render::RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1;
+    result.forward_sequence = sequence;
+    result.transport_status = encoded.status;
+    return result;
+  }
+  const std::size_t frame_bytes = encoded.bytes.size();
+  if (!impl_->HasForwardCapacityLocked(frame_bytes)) {
+    return impl_->ResultLocked(
+        RendererOgre14GameHostSessionStatus::BACKPRESSURE, false);
+  }
+  try {
+    impl_->forward_lineage.push_back(
+        {Render::RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1,
+         sequence, finalized_snapshot_id});
+    Impl::ForwardMessage queued;
+    queued.kind =
+        Render::RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1;
+    queued.sequence = sequence;
+    queued.snapshot_id = finalized_snapshot_id;
+    queued.bytes = std::move(encoded.bytes);
+    impl_->forward_queue.push_back(std::move(queued));
+  } catch (...) {
+    if (!impl_->forward_queue.empty() &&
+        impl_->forward_queue.back().sequence == sequence) {
+      impl_->forward_queue.pop_back();
+    }
+    if (!impl_->forward_lineage.empty() &&
+        impl_->forward_lineage.back().sequence == sequence) {
+      impl_->forward_lineage.pop_back();
+    }
+    return impl_->ResultLocked(
+        RendererOgre14GameHostSessionStatus::FAILED_INTERNAL, false);
+  }
+  impl_->queued_forward_bytes += frame_bytes;
+  ++impl_->next_forward_sequence;
+  ++impl_->scene_generation;
+  impl_->simulation_lineage_initialized = false;
+  impl_->last_simulation_tick = 0U;
+  impl_->wake.notify_all();
+  RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
+      RendererOgre14GameHostSessionStatus::
+          SCENE_GENERATION_BOUNDARY_QUEUED,
+      true);
+  result.kind =
+      Render::RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1;
   result.forward_sequence = sequence;
   return result;
 }
@@ -1143,6 +1237,8 @@ bool IsKnownRendererOgre14GameHostSessionStatus(
   case RendererOgre14GameHostSessionStatus::READY:
   case RendererOgre14GameHostSessionStatus::ASSET_DELTA_QUEUED:
   case RendererOgre14GameHostSessionStatus::SCENE_SNAPSHOT_QUEUED:
+  case RendererOgre14GameHostSessionStatus::
+      SCENE_GENERATION_BOUNDARY_QUEUED:
   case RendererOgre14GameHostSessionStatus::REVERSE_MESSAGE_READY:
   case RendererOgre14GameHostSessionStatus::OUTBOUND_HALF_CLOSE_REQUESTED:
   case RendererOgre14GameHostSessionStatus::CLOSED:
@@ -1175,6 +1271,9 @@ const char *ToString(RendererOgre14GameHostSessionStatus status) noexcept {
     return "asset-delta-queued";
   case RendererOgre14GameHostSessionStatus::SCENE_SNAPSHOT_QUEUED:
     return "scene-snapshot-queued";
+  case RendererOgre14GameHostSessionStatus::
+      SCENE_GENERATION_BOUNDARY_QUEUED:
+    return "scene-generation-boundary-queued";
   case RendererOgre14GameHostSessionStatus::REVERSE_MESSAGE_READY:
     return "reverse-message-ready";
   case RendererOgre14GameHostSessionStatus::OUTBOUND_HALF_CLOSE_REQUESTED:

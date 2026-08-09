@@ -183,6 +183,8 @@ struct GraphicsSceneSnapshotProducerConfiguration {
   std::uint64_t registry_id = 0U;
   std::uint64_t first_snapshot_id = 1U;
   std::uint64_t first_asset_ordinal = 1U;
+  /// Process-lifetime allocation cap. Finalizing a scene generation clears
+  /// source-key mappings but never refunds this count or renderer asset IDs.
   std::size_t maximum_asset_records = 65536U;
   std::size_t maximum_static_mesh_objects = 65536U;
   std::size_t maximum_dynamic_mesh_objects = 65536U;
@@ -273,6 +275,17 @@ public:
   [[nodiscard]] GraphicsSceneSnapshotProduceResult
   ProduceJoinedFrame(IJoinedGraphicsSceneSource &source);
 
+  /// Publishes one authoritative empty scene at the last accepted simulation
+  /// time, tombstones every live asset, and starts a new source-identity/time
+  /// generation without resetting transport-visible asset, snapshot, or
+  /// dynamic-update identities or the process-lifetime asset-record count.
+  /// Exact source IDs may therefore be derived again by the next map, but each
+  /// receives a new renderer ID and still consumes the global lifetime cap.
+  /// The returned production must be submitted in order before a tick from the
+  /// next simulation generation is accepted by the host. Invalid before the
+  /// first successful Produce().
+  [[nodiscard]] GraphicsSceneSnapshotProduceResult FinalizeSceneGeneration();
+
   /// Complete live catalog plus permanent tombstones for a fresh or
   /// device-recovered frontend. Invalid before the first successful Produce().
   [[nodiscard]] GraphicsSceneAssetRecoveryResult
@@ -280,6 +293,7 @@ public:
 
   [[nodiscard]] std::uint64_t registry_id() const noexcept;
   [[nodiscard]] std::uint64_t asset_sequence() const noexcept;
+  [[nodiscard]] bool has_open_scene_generation() const noexcept;
 
   /// Acquire-loads the last fully validated immutable production. A successful
   /// Produce() release-publishes the exact owner returned in its result only

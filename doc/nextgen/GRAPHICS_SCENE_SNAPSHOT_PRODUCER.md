@@ -3,10 +3,13 @@
 Status: the renderer-neutral version-four producer core and the joined OGRE 14
 adapter for timing, origin, constant ambient, managed lights, authored static
 `MeshObject` sections, exact fully prepared OGRE `TerrainGroup` CPU pages, the
-empty authored reflection-probe inventory, and main camera are implemented.
-Procedural roads, paged/animated geometry, deformable actors, and portable
-legacy/terrain texture assets remain explicit publication blockers; their
-presence never produces a false complete snapshot.
+empty authored reflection-probe inventory, joined `GfxActor` deformable
+sections, and main camera are implemented. Procedural roads, paged/animated
+terrain geometry, and portable legacy/terrain texture assets remain explicit
+publication blockers; their presence never produces a false complete snapshot.
+`GfxCharacter` player/network avatars are explicitly a separate legacy-only
+skeletal domain: their normal presence does not poison the supported scene, and
+the portable snapshot does not claim to render them until a pose adapter exists.
 
 ## Boundary
 
@@ -164,11 +167,15 @@ Implemented source-side behavior is:
    so capture cannot retain the former dangling pointer. ID exhaustion fails
    object loading rather than wrapping.
 2. `GfxScene` preflights the entire visible geometry domain before publishing.
-   Any procedural road not collected through its dedicated inventory, paged
-   batch, or animated terrain object returns a stable
-   `static_meshes.unsupported.*` diagnostic. The
-   `ASSETS` and `STATIC_MESHES` availability bits are committed together only
-   after the complete supported inventory succeeds.
+   Procedural roads, paged batches, animated terrain objects, and skeletal or
+   vertex-animated `TerrainObject` meshes outside the actor adapter return a
+   stable `static_meshes.unsupported.*` diagnostic. Joined actor FlexBody,
+   FlexMeshWheel, and MeshWheel tire sections use the separate authoritative
+   dynamic inventory. A normal `GfxCharacter` is neither of those domains and
+   is explicitly excluded as legacy-only rather than misreported as unsupported
+   static geometry. The `ASSETS`, `STATIC_MESHES`, and `DYNAMIC_MESHES`
+   availability bits are committed together only after both complete supported
+   inventories succeed.
 3. Each managed entity is split at its authored `SubEntity` boundary. The
    adapter honors `vertexStart`/`vertexCount` and `indexStart`/`indexCount`,
    supports 16- and 32-bit indices, copies position plus optional normal,
@@ -314,19 +321,44 @@ Implemented source-side behavior is:
 
 Remaining source-side work is native population of the exact road pipeline
 audit and joined procedural-road collection, population of exact dynamic
-material closures plus their native winding proof, portable translation for
-terrain layers, plus explicit adapters for paged vegetation and animated
-geometry.
-`GfxScene::ClearScene()`
-must also deliver the final authoritative empty inventory before the producer
-is destroyed so a new terrain receives a fresh registry lifetime. Until those
-domains are covered, maps containing any of them stay fail-closed even though
-their immutable `MeshObject` and exact terrain geometry subsets are fully
-convertible.
+and static material closures plus their native winding proof, portable
+translation for terrain layers, plus explicit adapters for paged vegetation
+and animated geometry. Until those domains are covered, maps containing any of
+them stay fail-closed even though their immutable `MeshObject` and exact terrain
+geometry subsets are fully convertible.
 
-Deformable `GfxActor` meshes, particle emission, water state, volumetric weather,
-and auxiliary cameras are later producer slices. Shipping Ogre-Next local-light
-and native RT adapters also still needs an explicitly versioned attenuation and
-sky calibration. This milestone transports and validates authoritative data; it
-does not implement shadow maps, sky scattering, GI, reflections, denoising, or
-ray-traced lighting by itself.
+Terrain unload now crosses an ordered map-generation boundary without replacing
+the process-scoped child/input transport. `RendererOgre14ProductSession` first
+drains any retained production, asks the producer for an authoritative empty
+scene and an all-tombstone asset delta when assets are live, submits them in
+order, and then queues `SCENE_GENERATION_BOUNDARY_V1`. The authenticated,
+versioned marker binds the registry, exact final asset sequence and empty
+snapshot ID, completed generation, and exact next generation. Only after the
+marker is queued may the host reopen simulation-time admission, so no new scene
+can overtake it. The child dispatcher consumes the marker only after applying
+the preceding catalog and rendering or deliberately retiring that exact empty
+scene; it then resets Ogre-Next HDR temporal/native-history state and reflection
+probe scheduling before accepting next-generation tick/time zero. An ordinary
+unmarked time rollback remains a terminal lineage error.
+
+The producer clears source-facing asset/object/light/probe/camera history, so a
+new map may reuse its deterministic source keys. The renderer-facing
+`RenderAssetRegistry`, next asset ordinal, `lifetime_asset_records` count and
+configured `maximum_asset_records` limit remain process-global across every
+generation by design; reloads receive new renderer IDs and cannot evade the
+lifetime cap. Asset sequence, snapshot IDs, and dynamic-update IDs likewise
+remain globally monotonic.
+`GfxScene::ClearScene()` then discards pending capture and resets joined epochs,
+all light/static/dynamic identity registries, terrain/static/dynamic caches, and
+the actor/character capture inventories. Consequently a new map may begin at
+simulation tick zero without moving transport identity backward or resurrecting
+a retired renderer ID. Until the remaining visual domains are covered, maps
+containing any of them stay fail-closed even though their immutable
+`MeshObject`, terrain, and actor-deformable subsets are fully convertible.
+
+`GfxCharacter` skeletal poses, particle emission, water state, volumetric
+weather, and auxiliary cameras are later producer slices. Shipping Ogre-Next
+local-light and native RT adapters also still needs an explicitly versioned
+attenuation and sky calibration. This milestone transports and validates
+authoritative data; it does not implement shadow maps, sky scattering, GI,
+reflections, denoising, or ray-traced lighting by itself.
