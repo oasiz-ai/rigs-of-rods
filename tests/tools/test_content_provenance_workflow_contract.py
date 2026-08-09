@@ -18,6 +18,9 @@ POSTPROCESS_RESOURCE_TEST_PATH = (
 POSTPROCESS_RUNTIME_TEST_PATH = (
     "tests/tools/test_postprocess_runtime_contract.py"
 )
+MATERIAL_SCRIPT_AUDIT_TEST_PATH = (
+    "tests/tools/test_audit_ogre14_material_scripts.py"
+)
 
 
 class ContentProvenanceWorkflowContractTests(unittest.TestCase):
@@ -33,6 +36,10 @@ class ContentProvenanceWorkflowContractTests(unittest.TestCase):
         )
         self.assertEqual(
             workflow.count(POSTPROCESS_RUNTIME_TEST_PATH),
+            2,
+        )
+        self.assertEqual(
+            workflow.count(MATERIAL_SCRIPT_AUDIT_TEST_PATH),
             2,
         )
         for runner in ("ubuntu-22.04", "windows-2025", "macos-15"):
