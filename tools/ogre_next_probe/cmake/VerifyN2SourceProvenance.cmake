@@ -129,11 +129,13 @@ set(_ror_n2_relevant_source_paths
     tests/physics/FlexMeshTopologyTests.cpp
     tests/physics/Ogre14FlexShadowLoadTests.cpp
     tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp
+    tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
     tests/tools/test_ogre14_legacy_asset_translator_contract.py
     tests/tools/test_ogre14_legacy_material_closure_contract.py
     tests/tools/test_ogre14_road_material_transaction_contract.py
     tests/tools/test_ogre_next_metal_n2_contract.py
+    tests/tools/test_ogre14_dynamic_material_closure_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -289,11 +291,13 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/physics/FlexMeshTopologyTests.cpp"
     "tests/physics/Ogre14FlexShadowLoadTests.cpp"
     "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
+    "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
     "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
     "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"
     "tests/tools/test_ogre_next_metal_n2_contract.py"
+    "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"

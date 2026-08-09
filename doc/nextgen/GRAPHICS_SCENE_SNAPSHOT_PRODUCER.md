@@ -164,8 +164,9 @@ Implemented source-side behavior is:
    so capture cannot retain the former dangling pointer. ID exhaustion fails
    object loading rather than wrapping.
 2. `GfxScene` preflights the entire visible geometry domain before publishing.
-   Any procedural road, actor/deformable mesh, paged batch, or animated terrain
-   object returns a stable `static_meshes.unsupported.*` diagnostic. The
+   Any procedural road not collected through its dedicated inventory, paged
+   batch, or animated terrain object returns a stable
+   `static_meshes.unsupported.*` diagnostic. The
    `ASSETS` and `STATIC_MESHES` availability bits are committed together only
    after the complete supported inventory succeeds.
 3. Each managed entity is split at its authored `SubEntity` boundary. The
@@ -196,6 +197,28 @@ Implemented source-side behavior is:
    creates no guessed portable contribution. Additional passes, texture units,
    shader programs, unsupported blending, alpha combinations, or native values
    fail closed instead of losing authored visuals.
+
+   Dynamic/deformable section inputs now accept the same optional immutable
+   `Ogre14LegacyMaterialClosure` as static sections. Exact mode rederives the
+   material group/name key and translator ID, validates closure version,
+   dependency order, immutable payloads, producer-owned bindings, native cull,
+   authored mesh UV compatibility, and closure-derived winding. It enforces one
+   source/catalog epoch across the dynamic candidate, collision-audits every
+   dependency kind, canonicalizes the complete `GraphicsSceneAssetInput`
+   (payload plus all bindings), and retains dependencies for the adapter
+   lifetime without weakening object tombstones. Factor-only mode is unchanged
+   and textured or shader-authored material state still fails closed when the
+   closure is absent. Allocation, unexpected-exception, cap, collision, or
+   lineage failure publishes neither registry nor caller output.
+
+   Static and dynamic builders each enforce their local epoch. Before merging
+   their asset vectors, the joined caller must additionally invoke
+   `ValidateOgre14GraphicsSceneResolvedMaterialFrameLineage()` over both input
+   sets. That preflight revalidates every detached closure and rejects
+   equivalent materials from different source/catalog frames. The current live
+   `GfxScene` capture still leaves dynamic `resolved_material` absent and must
+   later populate it plus `mesh_reverse_winding` from the native exact capture;
+   this boundary milestone does not claim textured vehicles are live yet.
 6. `GfxScene` enumerates every defined `TerrainGroup` slot and requires each
    page to be loaded, CPU-prepared through LOD0, free of pending group prepare
    requests and derived-data work, and still attached to the exact packed
@@ -276,8 +299,10 @@ Implemented source-side behavior is:
    vehicle-local environment-map implementation.
 
 Remaining source-side work is native population of the exact road pipeline
-audit and joined procedural-road collection, portable translation for terrain
-layers, plus explicit adapters for paged vegetation and animated geometry.
+audit and joined procedural-road collection, population of exact dynamic
+material closures plus their native winding proof, portable translation for
+terrain layers, plus explicit adapters for paged vegetation and animated
+geometry.
 `GfxScene::ClearScene()`
 must also deliver the final authoritative empty inventory before the producer
 is destroyed so a new terrain receives a fresh registry lifetime. Until those

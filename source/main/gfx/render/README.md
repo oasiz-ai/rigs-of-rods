@@ -231,10 +231,25 @@ requires an update stream it cannot reproduce exactly. Current exclusions includ
 frame-varying FlexBody blend colors, dynamic tangents, skinning, extra texture
 coordinate sets, and any other unsupported dynamic declaration. As with static
 objects, the compatibility material fallback rejects texture units, shader
-programs, or multipass state; the future material translator must land before
-ordinary textured vehicles can publish end to end without losing authored
-appearance. Mirrored dynamic transforms and identity resurrection also fail
-closed.
+programs, or multipass state. The renderer-neutral dynamic input can instead own
+the same immutable exact translated material closure used by static sections. In
+that mode it rederives the exact group/name key and translator ID, validates the
+closure version and source/catalog lineage, preserves dependency order and shared
+payload owners, compares complete producer-owned bindings, validates authored UV
+availability, and derives required topology winding from the translated audit.
+The factor-only path is not consulted. Full-asset canonicalization and collision
+rules are intentionally shared with the static path, including payload plus all
+material bindings. Mirrored dynamic transforms and identity resurrection also
+fail closed.
+
+Before a joined caller merges independently built static and dynamic asset
+vectors, it must call
+`ValidateOgre14GraphicsSceneResolvedMaterialFrameLineage()` over both candidate
+input sets. That transaction revalidates every detached closure and proves a
+single source/catalog epoch across both domains; equivalent payloads from
+different epochs are not interchangeable. The live `GfxScene` tap does not yet
+populate `resolved_material` or its `mesh_reverse_winding` proof, so textured
+vehicles remain fail-closed end to end until that native wiring lands.
 
 The adapter now publishes an authored `MeshObject` static subset only when its
 whole geometry domain is representable. `TerrainObjectManager` supplies

@@ -449,6 +449,7 @@ jobs:
           ror_flex_mesh_topology_tests
           ror_ogre14_metal_flex_shadow_read_contract_tests
           ror_gfx_actor_capture_inventory_tests
+          ror_ogre14_dynamic_material_closure_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
           --parallel ${{ matrix.jobs }}
@@ -460,6 +461,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^(ror_graphics_scene_snapshot_producer|ror_flex_mesh_topology|ror_ogre14_metal_flex_shadow_read_contract|ror_gfx_actor_capture_inventory)$'
+
+      - name: Prove exact translated deformable materials on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_dynamic_material_closure$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

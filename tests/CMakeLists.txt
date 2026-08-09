@@ -993,6 +993,10 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
 )
 add_executable(
+    ror_ogre14_dynamic_material_closure_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
+)
+add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
 )
@@ -1146,6 +1150,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_particle_capture_source_tests
     ror_ogre14_procedural_road_source_tests
     ror_ogre14_road_material_transaction_tests
+    ror_ogre14_dynamic_material_closure_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
     ror_render_bridge_control_transport_tests
@@ -2411,6 +2416,11 @@ add_test(
 add_test(
     NAME ogre14_road_material_transaction
     COMMAND ror_ogre14_road_material_transaction_tests
+)
+
+add_test(
+    NAME ogre14_dynamic_material_closure
+    COMMAND ror_ogre14_dynamic_material_closure_tests
 )
 
 add_test(
