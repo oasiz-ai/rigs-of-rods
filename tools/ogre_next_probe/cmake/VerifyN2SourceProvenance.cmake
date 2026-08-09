@@ -117,6 +117,8 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
     source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp
     source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h
+    source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp
+    source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
     tests/gfx/GfxActorCaptureInventoryTests.cpp
@@ -125,6 +127,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp
     tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
     tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+    tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
     tests/resources/TerrainBundleArchiveVerifierTests.cpp
     tests/tools/assert_ogre_recipe_graph.py
@@ -174,6 +177,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre14_source_texture_decoder_contract.py
     tests/tools/test_ogre14_material_semantic_catalog_v2.py
     tests/tools/test_ogre14_live_material_coordinator_contract.py
+    tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py
     tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
     tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
@@ -321,6 +325,8 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
     "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
+    "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
+    "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
@@ -329,6 +335,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
     "tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
     "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
+    "tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
     "tests/tools/assert_ogre_recipe_graph.py"
@@ -378,6 +385,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre14_source_texture_decoder_contract.py"
     "tests/tools/test_ogre14_material_semantic_catalog_v2.py"
     "tests/tools/test_ogre14_live_material_coordinator_contract.py"
+    "tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"

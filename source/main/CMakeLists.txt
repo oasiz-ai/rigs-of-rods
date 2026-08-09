@@ -398,6 +398,7 @@ if (ROR_OGRE14)
     # tests and with either renderer dependency graph.
     list(APPEND SOURCE_FILES
         gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
+        gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.{h,cpp}
         gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
         gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.{h,cpp}
         gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp}
