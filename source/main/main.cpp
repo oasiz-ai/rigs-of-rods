@@ -1614,14 +1614,17 @@ int main(int argc, char *argv[])
                             ((*actor_ptr)->ar_state == ActorState::NETWORKED_OK))
                         {
                             ActorPtr actor = *actor_ptr;
-                            actor->ar_state = ActorState::NETWORKED_HIDDEN; // Stop net. updates
-                            App::GetGfxScene()->HideGfxActor(actor->GetGfxActor()); // Remove active visuals while preserving capture identity
-                            actor->GetGfxActor()->GetSimDataBuffer().simbuf_actor_state = ActorState::NETWORKED_HIDDEN; // Hack - manually propagate the new state to SimBuffer so Character can reflect it.
-                            actor->GetGfxActor()->SetAllMeshesVisible(false);
-                            actor->GetGfxActor()->SetCastShadows(false);
-                            actor->muteAllSounds(); // Stop sounds
-                            actor->forceAllFlaresOff();
-                            actor->setSmokeEnabled(false);
+                            if (App::GetGfxScene()->HideGfxActor(
+                                    actor->GetGfxActor()))
+                            {
+                                actor->ar_state = ActorState::NETWORKED_HIDDEN; // Stop net. updates
+                                actor->GetGfxActor()->GetSimDataBuffer().simbuf_actor_state = ActorState::NETWORKED_HIDDEN; // Hack - manually propagate the new state to SimBuffer so Character can reflect it.
+                                actor->GetGfxActor()->SetAllMeshesVisible(false);
+                                actor->GetGfxActor()->SetCastShadows(false);
+                                actor->muteAllSounds(); // Stop sounds
+                                actor->forceAllFlaresOff();
+                                actor->setSmokeEnabled(false);
+                            }
                         }
                     }
                     catch (...) 
@@ -1642,12 +1645,15 @@ int main(int argc, char *argv[])
                             ((*actor_ptr)->ar_state == ActorState::NETWORKED_HIDDEN))
                         {
                             ActorPtr actor = *actor_ptr;
-                            actor->ar_state = ActorState::NETWORKED_OK; // Resume net. updates
-                            App::GetGfxScene()->UnhideGfxActor(actor->GetGfxActor()); // Restore visuals (also resumes updating SimBuffer)
-                            actor->GetGfxActor()->SetAllMeshesVisible(true);
-                            actor->GetGfxActor()->SetCastShadows(true);
-                            actor->unmuteAllSounds(); // Unmute sounds
-                            actor->setSmokeEnabled(true);
+                            if (App::GetGfxScene()->UnhideGfxActor(
+                                    actor->GetGfxActor()))
+                            {
+                                actor->ar_state = ActorState::NETWORKED_OK; // Resume net. updates
+                                actor->GetGfxActor()->SetAllMeshesVisible(true);
+                                actor->GetGfxActor()->SetCastShadows(true);
+                                actor->unmuteAllSounds(); // Unmute sounds
+                                actor->setSmokeEnabled(true);
+                            }
                         }
                     }
                     catch (...) 

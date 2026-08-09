@@ -28,6 +28,7 @@
 #include "CameraManager.h"
 #include "ForwardDeclarations.h"
 #include "EnvironmentMap.h" // RoR::GfxEnvmap
+#include "GfxActorCaptureInventory.h"
 #include "GfxData.h"
 #include "render/Ogre14GraphicsSceneSource.h"
 #include "SimBuffers.h"
@@ -72,10 +73,10 @@ public:
     void           DrawNetLabel(Ogre::Vector3 pos, float cam_dist, std::string const& nick, int colornum);
     void           UpdateScene(float dt);
     void           ClearScene();
-    void           RegisterGfxActor(RoR::GfxActor* gfx_actor);
-    void           HideGfxActor(RoR::GfxActor* gfx_actor);
-    void           UnhideGfxActor(RoR::GfxActor* gfx_actor);
-    void           DestroyGfxActor(RoR::GfxActor* gfx_actor);
+    bool           RegisterGfxActor(RoR::GfxActor* gfx_actor);
+    bool           HideGfxActor(RoR::GfxActor* gfx_actor);
+    bool           UnhideGfxActor(RoR::GfxActor* gfx_actor);
+    void           DestroyGfxActor(RoR::GfxActor* gfx_actor) noexcept;
     void           ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor);
     /// Synchronizes all non-UI visuals needed by canonical capture from one
     /// joined simulation boundary. The supplied camera replaces mutable
@@ -101,7 +102,8 @@ public:
     GfxEnvmap&     GetEnvMap() { return m_envmap; }
     RoR::SkidmarkConfig* GetSkidmarkConf () { return &m_skidmark_conf; }
     Ogre::SceneManager* GetSceneManager() { return m_scene_manager; }
-    std::vector<GfxActor*>& GetGfxActors() { return m_all_gfx_actors; }
+    const std::vector<GfxActor*>& GetGfxActors() const
+                   { return m_gfx_actor_inventory.Active(); }
     std::vector<GfxCharacter*>& GetGfxCharacters() { return m_all_gfx_characters; }
 
     static Ogre::Quaternion SpecialGetRotationTo(const Ogre::Vector3& src, const Ogre::Vector3& dest);
@@ -118,19 +120,10 @@ private:
 
     std::map<std::string, DustPool *> m_dustpools;
     Ogre::SceneManager*               m_scene_manager = nullptr;
-    std::vector<GfxActor*>            m_all_gfx_actors;
     std::vector<GfxActor*>            m_live_gfx_actors;
-    struct GfxActorInventoryRecord
-    {
-        GfxActor* actor = nullptr;
-        bool hidden = false;
-    };
-    // Ownership/lifecycle inventory is distinct from m_all_gfx_actors, which
-    // remains the active legacy update list. Hidden network actors stay here
-    // so capture preserves their identities; only destruction removes them.
-    std::map<std::int64_t, GfxActorInventoryRecord>
-                                       m_gfx_actor_inventory;
-    std::set<std::int64_t>             m_destroyed_gfx_actor_ids;
+    // Hidden actors remain durably identified while leaving the legacy active
+    // update list. Destroyed records retain a null-owner tombstone.
+    GfxActorCaptureInventory           m_gfx_actor_inventory;
     std::vector<GfxCharacter*>        m_all_gfx_characters;
     RoR::GfxEnvmap                    m_envmap;
     GameContextSB                     m_simbuf;

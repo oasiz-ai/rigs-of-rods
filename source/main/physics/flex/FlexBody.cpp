@@ -32,6 +32,8 @@
 
 #include <Ogre.h>
 
+#include <memory>
+#include <new>
 #include <utility>
 
 using namespace Ogre;
@@ -51,12 +53,38 @@ static void MakeFlexBuffersDynamic(Ogre::VertexData* vertex_data)
         {
             continue;
         }
+        if (!source->hasShadowBuffer() || source->getSizeInBytes() == 0U)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Flexbody dynamic-buffer conversion requires a CPU shadow",
+                "MakeFlexBuffersDynamic");
+        }
 
         Ogre::HardwareVertexBufferSharedPtr dynamic_buffer =
             Ogre::HardwareBufferManager::getSingleton().createVertexBuffer(
                 source->getVertexSize(), source->getNumVertices(),
-                Ogre::HBU_CPU_TO_GPU, source->hasShadowBuffer());
-        dynamic_buffer->copyData(*source, 0, 0, source->getSizeInBytes(), true);
+                Ogre::HBU_CPU_TO_GPU, true);
+        if (dynamic_buffer.isNull() || !dynamic_buffer->hasShadowBuffer() ||
+            dynamic_buffer->getSizeInBytes() != source->getSizeInBytes())
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Flexbody dynamic buffer did not retain its CPU shadow",
+                "MakeFlexBuffersDynamic");
+        }
+        Ogre::HardwareBufferLockGuard shadow_lock(
+            source, 0U, source->getSizeInBytes(),
+            Ogre::HardwareBuffer::HBL_READ_ONLY);
+        if (shadow_lock.pData == nullptr)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Flexbody source shadow exposed no CPU bytes",
+                "MakeFlexBuffersDynamic");
+        }
+        dynamic_buffer->writeData(
+            0U, source->getSizeInBytes(), shadow_lock.pData, true);
         vertex_data->vertexBufferBinding->setBinding(binding.first, dynamic_buffer);
     }
 }
@@ -72,7 +100,9 @@ FlexBody::FlexBody(
     Ogre::Vector3 offset,
     Ogre::Quaternion const & rot,
     std::vector<unsigned int> & node_indices,
-    std::vector<ForvertTempData>& forvert_data
+    std::vector<ForvertTempData>& forvert_data,
+    FlexBodyInitialVertexStreams initial_vertex_streams,
+    std::vector<FlexMeshTopologySection> cpu_topology
 ):
       m_center_offset(offset)
     , m_node_center(ref)
@@ -81,10 +111,13 @@ FlexBody::FlexBody(
     , m_scene_entity(ent)
     , m_gfx_actor(gfx_actor)
 {
+    Ogre::Vector3* vertices = nullptr;
+    try
+    {
+    m_cpu_topology_sections = std::move(cpu_topology);
     ROR_ASSERT(m_node_x != NODENUM_INVALID);
     ROR_ASSERT(m_node_y != NODENUM_INVALID);
 
-    Ogre::Vector3* vertices = nullptr;
     std::string mesh_name = ent->getMesh()->getName();
 
     Vector3 normal = Vector3::UNIT_Y;
@@ -167,6 +200,23 @@ FlexBody::FlexBody(
 
     //create optimal VertexDeclaration
     VertexDeclaration* optimalVD=HardwareBufferManager::getSingleton().createVertexDeclaration();
+    const auto destroy_unowned_vertex_declaration =
+        [](VertexDeclaration* declaration) noexcept
+        {
+            if (declaration == nullptr)
+                return;
+            try
+            {
+                HardwareBufferManager::getSingleton().
+                    destroyVertexDeclaration(declaration);
+            }
+            catch (...)
+            {
+            }
+        };
+    std::unique_ptr<VertexDeclaration,
+                    decltype(destroy_unowned_vertex_declaration)>
+        optimal_vd_owner(optimalVD, destroy_unowned_vertex_declaration);
     optimalVD->addElement(0, 0, VET_FLOAT3, VES_POSITION);
     optimalVD->addElement(1, 0, VET_FLOAT3, VES_NORMAL);
     if (m_has_texture_blend) optimalVD->addElement(2, 0, VET_COLOUR_ARGB, VES_DIFFUSE);
@@ -193,7 +243,7 @@ FlexBody::FlexBody(
                 mesh->sharedVertexData->vertexDeclaration->addElement(index, 0, VET_COLOUR_ARGB, VES_DIFFUSE);
                 mesh->sharedVertexData->vertexDeclaration->sort();
                 index=mesh->sharedVertexData->vertexDeclaration->findElementBySemantic(VES_DIFFUSE)->getSource();
-                HardwareVertexBufferSharedPtr vbuf=HardwareBufferManager::getSingleton().createVertexBuffer(VertexElement::getTypeSize(VET_COLOUR_ARGB), mesh->sharedVertexData->vertexCount, HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE);
+                HardwareVertexBufferSharedPtr vbuf=HardwareBufferManager::getSingleton().createVertexBuffer(VertexElement::getTypeSize(VET_COLOUR_ARGB), mesh->sharedVertexData->vertexCount, HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE, true);
                 mesh->sharedVertexData->vertexBufferBinding->setBinding(index, vbuf);
             }
         }
@@ -211,7 +261,7 @@ FlexBody::FlexBody(
                     vertex_decl->sort();
                     vertex_decl->findElementBySemantic(VES_DIFFUSE)->getSource();
                     HardwareVertexBufferSharedPtr vbuf = HardwareBufferManager::getSingleton().createVertexBuffer(
-                        VertexElement::getTypeSize(VET_COLOUR_ARGB), vertex_data->vertexCount, HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE);
+                        VertexElement::getTypeSize(VET_COLOUR_ARGB), vertex_data->vertexCount, HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE, true);
                     vertex_data->vertexBufferBinding->setBinding(index, vbuf);
                 }
             }
@@ -224,9 +274,12 @@ FlexBody::FlexBody(
     {
 #if OGRE_VERSION_MAJOR >= 14
         mesh->sharedVertexData->reorganiseBuffers(optimalVD);
+        // VertexData owns this declaration after reorganisation returns.
+        (void)optimal_vd_owner.release();
         MakeFlexBuffersDynamic(mesh->sharedVertexData);
 #else
         mesh->sharedVertexData->reorganiseBuffers(optimalVD, optimalBufferUsages);
+        (void)optimal_vd_owner.release();
 #endif
         mesh->sharedVertexData->removeUnusedBuffers();
         mesh->sharedVertexData->closeGapsInBindings();
@@ -292,9 +345,25 @@ FlexBody::FlexBody(
         m_locators    = preloaded_from_cache->locators;
         m_dst_normals = (Vector3*)malloc(sizeof(Vector3)*m_vertex_count); // Use malloc() for compatibility
 
+        if (m_dst_pos == nullptr || m_src_normals == nullptr ||
+            m_locators == nullptr || m_dst_normals == nullptr)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Flexbody cache contains incomplete CPU buffers",
+                "FlexBody::FlexBody");
+        }
+
         if (m_has_texture_blend)
         {
             m_src_colors = preloaded_from_cache->src_colors;
+            if (m_src_colors == nullptr)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Flexbody cache contains no colour buffer",
+                    "FlexBody::FlexBody");
+            }
         }
 
         if (mesh->sharedVertexData)
@@ -340,30 +409,37 @@ FlexBody::FlexBody(
     }
     else
     {
+        ROR_ASSERT(initial_vertex_streams.positions.size() == m_vertex_count);
+        ROR_ASSERT(initial_vertex_streams.normals.size() == m_vertex_count);
         vertices=(Vector3*)malloc(sizeof(Vector3)*m_vertex_count);
         m_dst_pos=(Vector3*)malloc(sizeof(Vector3)*m_vertex_count);
         m_src_normals=(Vector3*)malloc(sizeof(Vector3)*m_vertex_count);
         m_dst_normals=(Vector3*)malloc(sizeof(Vector3)*m_vertex_count);
+        if (vertices == nullptr || m_dst_pos == nullptr ||
+            m_src_normals == nullptr || m_dst_normals == nullptr)
+        {
+            throw std::bad_alloc();
+        }
         if (m_has_texture_blend)
         {
             m_src_colors=(ARGB*)malloc(sizeof(ARGB)*m_vertex_count);
+            if (m_src_colors == nullptr)
+                throw std::bad_alloc();
             for (int i=0; i<(int)m_vertex_count; i++) m_src_colors[i]=0x00000000;
         }
-        Vector3* vpt=vertices;
-        Vector3* npt=m_src_normals;
+        std::copy(initial_vertex_streams.positions.begin(),
+                  initial_vertex_streams.positions.end(), vertices);
+        std::copy(initial_vertex_streams.normals.begin(),
+                  initial_vertex_streams.normals.end(), m_src_normals);
         if (mesh->sharedVertexData)
         {
             m_shared_buf_num_verts=(int)mesh->sharedVertexData->vertexCount;
             //vertices
             int source=mesh->sharedVertexData->vertexDeclaration->findElementBySemantic(VES_POSITION)->getSource();
             m_shared_vbuf_pos=mesh->sharedVertexData->vertexBufferBinding->getBuffer(source);
-            m_shared_vbuf_pos->readData(0, mesh->sharedVertexData->vertexCount*sizeof(Vector3), (void*)vpt);
-            vpt+=mesh->sharedVertexData->vertexCount;
             //normals
             source=mesh->sharedVertexData->vertexDeclaration->findElementBySemantic(VES_NORMAL)->getSource();
             m_shared_vbuf_norm=mesh->sharedVertexData->vertexBufferBinding->getBuffer(source);
-            m_shared_vbuf_norm->readData(0, mesh->sharedVertexData->vertexCount*sizeof(Vector3), (void*)npt);
-            npt+=mesh->sharedVertexData->vertexCount;
             //colors
             if (m_has_texture_blend)
             {
@@ -386,13 +462,9 @@ FlexBody::FlexBody(
             //vertices
             int source = vertex_data->vertexDeclaration->findElementBySemantic(VES_POSITION)->getSource();
             m_submesh_vbufs_pos[cursubmesh]=vertex_data->vertexBufferBinding->getBuffer(source);
-            m_submesh_vbufs_pos[cursubmesh]->readData(0, vertex_count*sizeof(Vector3), (void*)vpt);
-            vpt += vertex_count;
             //normals
             source = vertex_data->vertexDeclaration->findElementBySemantic(VES_NORMAL)->getSource();
             m_submesh_vbufs_norm[cursubmesh]=vertex_data->vertexBufferBinding->getBuffer(source);
-            m_submesh_vbufs_norm[cursubmesh]->readData(0, vertex_count*sizeof(Vector3), (void*)npt);
-            npt += vertex_count;
             //colors
             if (m_has_texture_blend)
             {
@@ -559,7 +631,11 @@ FlexBody::FlexBody(
         }
     }
 
-    if (vertices != nullptr) { free(vertices); }
+    if (vertices != nullptr)
+    {
+        free(vertices);
+        vertices = nullptr;
+    }
 
     // Keep the forset nodes for diagnostics
     for (unsigned int nodenum : node_indices)
@@ -567,72 +643,74 @@ FlexBody::FlexBody(
         m_forset_nodes.push_back((NodeNum_t)nodenum);
     }
 
-    if (App::GetConsole()->cVarGet("flexbody_defrag_enabled", CVAR_TYPE_BOOL)->getBool()
-        // For simplicity, only take 1-submesh meshes (almost always the case anyway)
-        && m_scene_entity->getMesh()->getNumSubMeshes() == 1)
+    if (App::GetConsole()->cVarGet(
+            "flexbody_defrag_enabled", CVAR_TYPE_BOOL)->getBool())
     {
-        this->defragmentFlexbodyMesh();
+        // Defragmentation rewrites separate native vertex and index buffers.
+        // Ogre 14 exposes no all-or-nothing multi-buffer commit, so a driver
+        // failure could leave only part of the renderer state reordered. Keep
+        // the optional optimization disabled until it can be expressed as a
+        // native atomic rebind transaction.
+        LOG("FLEXBODY Warning: mesh defragmentation is disabled because "
+            "renderer multi-buffer commits are not atomic: " + mesh_name);
     }
 
-    // Snapshot topology only after optional defragmentation has rewritten the
-    // native index ranges. The renderer bridge subsequently consumes this
-    // CPU owner and never locks the hardware index buffers.
-    if (!this->captureCpuTopology())
+    // UV0 was captured from CPU shadows before entity/native ownership. It is
+    // immutable for a flexbody, while joined position/normal staging is copied
+    // from m_dst_* only after the deformation task joins.
+    if (m_has_texture &&
+        initial_vertex_streams.has_complete_texcoords0 &&
+        initial_vertex_streams.texcoords0.size() == m_vertex_count)
     {
-        LOG("FLEXBODY Warning: could not retain immutable CPU topology for " +
-            mesh_name);
+        m_src_texcoords0 = std::move(initial_vertex_streams.texcoords0);
     }
-
-    // Preserve immutable UV0 on the CPU before any renderer bridge capture.
-    // Position/normal streams are copied from m_dst_* after task join; UVs
-    // never need to be read back from a dynamic hardware buffer.
-    if (m_has_texture)
+    }
+    catch (...)
     {
-        std::vector<Ogre::Vector2> candidate_texcoords;
-        candidate_texcoords.reserve(m_vertex_count);
-        const auto append_texcoords = [&candidate_texcoords](
-            const Ogre::VertexData* vertex_data) -> bool
+        // A throwing constructor has no FlexBody destructor. Release every
+        // raw CPU allocation and detach any partially published SceneNode;
+        // FlexFactory still owns and destroys the Entity itself.
+        if (vertices != nullptr)
+            free(vertices);
+        if (m_scene_node != nullptr)
         {
-            if (vertex_data == nullptr || vertex_data->vertexStart != 0U ||
-                vertex_data->vertexDeclaration == nullptr ||
-                vertex_data->vertexBufferBinding == nullptr)
+            try
             {
-                return false;
+                Ogre::SceneNode* const parent =
+                    m_scene_node->getParentSceneNode();
+                if (parent != nullptr)
+                    parent->removeChild(m_scene_node);
             }
-            const Ogre::VertexElement* const element =
-                vertex_data->vertexDeclaration->findElementBySemantic(
-                    Ogre::VES_TEXTURE_COORDINATES, 0U);
-            if (element == nullptr || element->getType() != Ogre::VET_FLOAT2)
-                return false;
-            const Ogre::HardwareVertexBufferSharedPtr buffer =
-                vertex_data->vertexBufferBinding->getBuffer(
-                    element->getSource());
-            if (buffer.isNull() ||
-                buffer->getVertexSize() != sizeof(Ogre::Vector2) ||
-                element->getOffset() != 0U ||
-                vertex_data->vertexCount > buffer->getNumVertices())
+            catch (...)
             {
-                return false;
             }
-            const std::size_t old_size = candidate_texcoords.size();
-            candidate_texcoords.resize(old_size + vertex_data->vertexCount);
-            buffer->readData(
-                0U, vertex_data->vertexCount * sizeof(Ogre::Vector2),
-                candidate_texcoords.data() + old_size);
-            return true;
-        };
-
-        bool captured = true;
-        if (mesh->sharedVertexData != nullptr)
-            captured = append_texcoords(mesh->sharedVertexData);
-        for (int index = 0; captured && index < num_submeshes; ++index)
-        {
-            const Ogre::SubMesh* const submesh = mesh->getSubMesh(index);
-            if (!submesh->useSharedVertices)
-                captured = append_texcoords(submesh->vertexData);
+            try
+            {
+                App::GetGfxScene()->GetSceneManager()->destroySceneNode(
+                    m_scene_node);
+            }
+            catch (...)
+            {
+            }
+            m_scene_node = nullptr;
         }
-        if (captured && candidate_texcoords.size() == m_vertex_count)
-            m_src_texcoords0 = std::move(candidate_texcoords);
+        if (m_locators != nullptr)
+            delete[] m_locators;
+        if (m_src_normals != nullptr)
+            free(m_src_normals);
+        if (m_dst_normals != nullptr)
+            free(m_dst_normals);
+        if (m_dst_pos != nullptr)
+            free(m_dst_pos);
+        if (m_src_colors != nullptr)
+            free(m_src_colors);
+        m_locators = nullptr;
+        m_src_normals = nullptr;
+        m_dst_normals = nullptr;
+        m_dst_pos = nullptr;
+        m_src_colors = nullptr;
+        m_scene_entity = nullptr;
+        throw;
     }
 }
 
@@ -644,7 +722,7 @@ FlexBody::FlexBody(PlaceholderType p_type, FlexbodyID_t id, const std::string& o
     m_placeholder_type = p_type;
 }
 
-FlexBody::~FlexBody()
+FlexBody::~FlexBody() noexcept
 {
     // Stuff using <new>
     if (m_locators != nullptr) { delete[] m_locators; }
@@ -669,29 +747,65 @@ FlexBody::~FlexBody()
     }
 }
 
-void FlexBody::destroyOgreObjects()
+void FlexBody::destroyOgreObjects() noexcept
 {
-    // Separated out from destructor so that exceptions can be handled separately (C++ destructor cannot propagate exceptions)
-    // -----------------------------------------------------------------------------------------------------------------------
-
-    // OGRE resource - scene node
-    if (m_scene_node != nullptr)
+    // Clear member pointers before best-effort renderer calls so cleanup is
+    // idempotent and cannot terminate stack unwinding from a failed factory
+    // transaction.
+    Ogre::SceneNode* const scene_node =
+        std::exchange(m_scene_node, nullptr);
+    if (scene_node != nullptr)
     {
-        m_scene_node->getParentSceneNode()->removeChild(m_scene_node);
-        App::GetGfxScene()->GetSceneManager()->destroySceneNode(m_scene_node);
+        try
+        {
+            Ogre::SceneNode* const parent =
+                scene_node->getParentSceneNode();
+            if (parent != nullptr)
+                parent->removeChild(scene_node);
+        }
+        catch (...)
+        {
+        }
+        try
+        {
+            App::GetGfxScene()->GetSceneManager()->destroySceneNode(
+                scene_node);
+        }
+        catch (...)
+        {
+        }
     }
-    m_scene_node = nullptr;
 
-    // OGRE resource - scene entity
-    if (m_scene_entity != nullptr)
+    Ogre::Entity* const scene_entity =
+        std::exchange(m_scene_entity, nullptr);
+    if (scene_entity == nullptr)
+        return;
+
+    Ogre::MeshPtr mesh;
+    try
     {
-        Ogre::MeshPtr mesh = m_scene_entity->getMesh();
-        App::GetGfxScene()->GetSceneManager()->destroyEntity(m_scene_entity);
-
-        // OGRE resource - mesh (unique copy - should be destroyed)
-        Ogre::MeshManager::getSingleton().remove(mesh->getHandle());
+        mesh = scene_entity->getMesh();
     }
-    m_scene_entity = nullptr;
+    catch (...)
+    {
+    }
+    try
+    {
+        App::GetGfxScene()->GetSceneManager()->destroyEntity(scene_entity);
+    }
+    catch (...)
+    {
+    }
+    if (!mesh.isNull())
+    {
+        try
+        {
+            Ogre::MeshManager::getSingleton().remove(mesh->getHandle());
+        }
+        catch (...)
+        {
+        }
+    }
 }
 
 bool FlexBody::isVisible() const
@@ -811,97 +925,6 @@ bool FlexBody::copyJoinedCpuStaging(
     texcoords0 = m_src_texcoords0;
     return true;
 }
-
-bool FlexBody::captureCpuTopology()
-{
-    if (m_scene_entity == nullptr || m_scene_entity->getMesh().isNull())
-        return false;
-
-    const Ogre::MeshPtr mesh = m_scene_entity->getMesh();
-    std::vector<FlexMeshTopologySection> candidate;
-    candidate.reserve(mesh->getNumSubMeshes());
-    for (std::size_t section_index = 0U;
-         section_index < mesh->getNumSubMeshes(); ++section_index)
-    {
-        const Ogre::SubMesh* const submesh = mesh->getSubMesh(section_index);
-        if (submesh == nullptr || submesh->indexData == nullptr ||
-            submesh->indexData->indexBuffer.isNull())
-        {
-            return false;
-        }
-        const Ogre::VertexData* const vertex_data = submesh->useSharedVertices
-            ? mesh->sharedVertexData
-            : submesh->vertexData;
-        if (vertex_data == nullptr || vertex_data->vertexStart != 0U ||
-            vertex_data->vertexCount == 0U ||
-            vertex_data->vertexCount >
-                (std::numeric_limits<std::uint32_t>::max)())
-        {
-            return false;
-        }
-
-        const Ogre::HardwareIndexBufferSharedPtr buffer =
-            submesh->indexData->indexBuffer;
-        const std::size_t start = submesh->indexData->indexStart;
-        const std::size_t count = submesh->indexData->indexCount;
-        if (count == 0U || count % 3U != 0U ||
-            start > buffer->getNumIndexes() ||
-            count > buffer->getNumIndexes() - start)
-        {
-            return false;
-        }
-
-        FlexMeshTopologySection section;
-        section.vertex_count =
-            static_cast<std::uint32_t>(vertex_data->vertexCount);
-        section.indices.resize(count);
-        if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
-        {
-            section.index_format =
-                FlexMeshTopologySection::IndexFormat::UINT16;
-            std::vector<std::uint16_t> source(count);
-            buffer->readData(start * sizeof(std::uint16_t),
-                             count * sizeof(std::uint16_t), source.data());
-            for (std::size_t index = 0U; index < count; ++index)
-                section.indices[index] = source[index];
-        }
-        else if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT)
-        {
-            section.index_format =
-                FlexMeshTopologySection::IndexFormat::UINT32;
-            buffer->readData(start * sizeof(std::uint32_t),
-                             count * sizeof(std::uint32_t),
-                             section.indices.data());
-        }
-        else
-        {
-            return false;
-        }
-        if (std::any_of(section.indices.begin(), section.indices.end(),
-                        [&section](std::uint32_t index) {
-                            return index >= section.vertex_count;
-                        }))
-        {
-            return false;
-        }
-        candidate.push_back(std::move(section));
-    }
-
-    if (candidate.size() != mesh->getNumSubMeshes())
-        return false;
-    if (!m_cpu_topology_sections.empty())
-    {
-        const std::uint64_t prior_revision =
-            m_cpu_topology_sections.front().revision;
-        if (prior_revision == (std::numeric_limits<std::uint64_t>::max)())
-            return false;
-        for (FlexMeshTopologySection& section : candidate)
-            section.revision = prior_revision + 1U;
-    }
-    m_cpu_topology_sections = std::move(candidate);
-    return true;
-}
-
 void FlexBody::reset()
 {
     if (m_has_texture_blend)
@@ -943,167 +966,6 @@ void FlexBody::updateBlend() //so easy!
         {
             m_src_colors[i]=(col&0xFFFFFF00)+0x000000FF*nd->nd_is_wet;
             m_blend_changed = true;
-        }
-    }
-}
-
-int evalNodeDistance(NodeNum_t a, NodeNum_t b)
-{
-    if (a > b)
-    {
-        return App::flexbody_defrag_const_penalty->getInt()
-            + App::flexbody_defrag_prog_down_penalty->getInt() * (a - b);
-    }
-    else if (a < b)
-    {
-        return App::flexbody_defrag_const_penalty->getInt()
-            + App::flexbody_defrag_prog_down_penalty->getInt() * (b - a);
-    }
-    else
-    {
-        return 0;
-    }
-}
-
-int evalMemoryDistance(Locator_t& a, Locator_t& b)
-{
-    return 0
-        + evalNodeDistance(a.ref, b.ref) + evalNodeDistance(a.nx, b.ref) + evalNodeDistance(a.ny, b.ref)
-        + evalNodeDistance(a.ref, b.nx) + evalNodeDistance(a.nx, b.nx) + evalNodeDistance(a.ny, b.nx)
-        + evalNodeDistance(a.ref, b.ny) + evalNodeDistance(a.nx, b.ny) + evalNodeDistance(a.ny, b.ny)
-        + evalNodeDistance(a.getSmallestNode(), b.getSmallestNode())
-        + evalNodeDistance(a.getMean(), b.getMean());
-}
-
-template<typename uint_T> void reorderIndexBuffer(Ogre::IndexData* idx_data, std::vector<int> const& new_index_lookup)
-{
-    uint_T* workibuf = new uint_T[idx_data->indexCount];
-    idx_data->indexBuffer->readData(0, idx_data->indexBuffer->getSizeInBytes(), workibuf);
-    for (size_t i = 0; i < idx_data->indexCount; i++)
-    {
-        workibuf[i] = new_index_lookup[workibuf[i]];
-    }
-    idx_data->indexBuffer->writeData(0, idx_data->indexBuffer->getSizeInBytes(), workibuf);
-    delete[] workibuf;
-}
-
-void reorderVertexBuffer(Ogre::HardwareVertexBufferSharedPtr vert_buf, const Ogre::VertexElement* vert_elem, std::vector<int> const& new_index_lookup)
-{
-    char* workbuf_src = new char[vert_buf->getSizeInBytes()];
-    char* workbuf_dst = new char[vert_buf->getSizeInBytes()];
-    vert_buf->readData(0, vert_buf->getSizeInBytes(), workbuf_src);
-    for (size_t i = 0; i < vert_buf->getNumVertices(); i++)
-    {
-        void* src = workbuf_src + (i * vert_elem->getSize());
-        void* dst = workbuf_dst + (new_index_lookup[i] * vert_elem->getSize());
-        std::memcpy(dst, src, vert_elem->getSize());
-    }
-    vert_buf->writeData(0, vert_buf->getSizeInBytes(), workbuf_dst);
-    delete[] workbuf_src;
-    delete[] workbuf_dst;
-}
-
-void FlexBody::defragmentFlexbodyMesh()
-{
-    // Analysis
-    NodeNum_t forset_max = std::numeric_limits<NodeNum_t>::min();
-    NodeNum_t forset_min = std::numeric_limits<NodeNum_t>::max();
-    for (NodeNum_t n : this->getForsetNodes())
-    {
-        if (n > forset_max) { forset_max = n; }
-        if (n < forset_min) { forset_min = n; }
-    }
-
-    std::vector<int> new_index_lookup(m_vertex_count);
-    for (int i = 0; i < (int)m_vertex_count; i++)
-    {
-        new_index_lookup[i] = i;
-    }
-
-    Locator_t prev_loc;
-    // edge values to start with
-    prev_loc.ref =  forset_min;
-    prev_loc.nx =  forset_min;
-    prev_loc.ny =  forset_min;
-
-    // SELECTION SORT (https://www.geeksforgeeks.org/selection-sort/)
-    for (int i = 0; i < m_vertex_count; i++)
-    {
-        // Find the next locator closest in memory
-        int closest_loc = i;
-        int closest_loc_penalty = INT_MAX;
-        for (int j = i; j < m_vertex_count; j++)
-        {
-            int penalty = evalMemoryDistance(prev_loc, m_locators[j]);
-            if (penalty < closest_loc_penalty)
-            {
-                closest_loc_penalty = penalty;
-                closest_loc = j;
-            }
-        }
-
-        // Swap locators+normals in memory, update lookup
-        Locator_t loc_tmp = m_locators[closest_loc];
-        Ogre::Vector3 norm_tmp = m_src_normals[closest_loc];
-        int idx_tmp = new_index_lookup[closest_loc];
-
-        m_locators[closest_loc] = m_locators[i];
-        m_src_normals[closest_loc] = m_src_normals[i];
-        new_index_lookup[closest_loc] = new_index_lookup[i];
-
-        m_locators[i] = loc_tmp;
-        m_src_normals[i] = norm_tmp;
-        new_index_lookup[i] = idx_tmp;    
-
-        // Go next
-        prev_loc = m_locators[i];
-    }
-
-    if (App::flexbody_defrag_invert_lookup->getBool())
-    {
-        std::vector<int> inverted_lookup(m_vertex_count);
-        for (int i = 0; i < (int)m_vertex_count; i++)
-        {
-            inverted_lookup[new_index_lookup[i]] = i;
-        }
-        for (int i = 0; i < (int)m_vertex_count; i++)
-        {
-            new_index_lookup[i] = inverted_lookup[i];
-        }
-    }
-
-    // REORDERING VERTICES
-    // * positions/normals are calculated, no action needed.
-    // * texcoords (aka UV-coords) must be fixed.
-    if (App::flexbody_defrag_reorder_texcoords->getBool())
-    {
-        Ogre::VertexData* vert_data = nullptr;
-        if (m_scene_entity->getMesh()->sharedVertexData)
-        {
-            vert_data = m_scene_entity->getMesh()->sharedVertexData;
-        }
-        else
-        {
-            // for simplicity we only support single submesh
-            vert_data = m_scene_entity->getMesh()->getSubMesh(0)->vertexData;
-        }
-        const Ogre::VertexElement* uv_elem = vert_data->vertexDeclaration->findElementBySemantic(Ogre::VES_TEXTURE_COORDINATES);
-        Ogre::HardwareVertexBufferSharedPtr uv_buf = vert_data->vertexBufferBinding->getBuffer(uv_elem->getSource());
-        reorderVertexBuffer(uv_buf, uv_elem, new_index_lookup);
-    }
-
-    // REORDERING INDICES
-    if (App::flexbody_defrag_reorder_indices->getBool())
-    {
-        Ogre::IndexData* idx_data = m_scene_entity->getMesh()->getSubMesh(0)->indexData;
-        // Index can be 16-bit or 32-bit!
-        if (idx_data->indexBuffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
-        {
-            reorderIndexBuffer<uint16_t>(idx_data, new_index_lookup);
-        }
-        else
-        {
-            reorderIndexBuffer<uint32_t>(idx_data, new_index_lookup);
         }
     }
 }

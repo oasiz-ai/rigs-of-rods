@@ -1452,6 +1452,7 @@ RoR::Render::ValidationResult BuildOgre14JoinedVertexRanges(
 RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     Ogre::Entity* entity,
     RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
+    RoR::GfxActorCaptureLifecycle actor_lifecycle,
     const std::vector<Ogre::Vector3>& joined_positions,
     const std::vector<Ogre::Vector3>& joined_normals,
     const std::vector<Ogre::Vector2>& joined_texcoords0,
@@ -1520,6 +1521,11 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     const RoR::Render::Matrix4x4 render_from_object =
         ToRendererBoundaryMatrix(static_cast<const Ogre::Matrix4&>(
             entity->_getParentNodeFullTransform()));
+    Ogre::SceneNode* const parent_scene_node =
+        entity->getParentSceneNode();
+    const bool parent_in_scene_graph =
+        parent_scene_node != nullptr &&
+        parent_scene_node->isInSceneGraph();
     for (std::size_t section_index = 0U;
          section_index < entity->getNumSubEntities(); ++section_index)
     {
@@ -1573,7 +1579,9 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
         section.exact_entity_name = entity->getName();
         section.render_from_object = render_from_object;
         section.visibility_mask = entity->getVisibilityFlags();
-        section.visible = entity->getVisible() && sub_entity->isVisible();
+        section.visible = RoR::IsGfxActorCaptureEffectivelyVisible(
+            actor_lifecycle, parent_in_scene_graph,
+            entity->getVisible(), sub_entity->isVisible());
         section.casts_shadows = entity->getCastShadows();
         section.visible_in_reflections = true;
         section.has_dynamic_vertex_colors = has_dynamic_vertex_colors;
@@ -2019,10 +2027,8 @@ void GfxScene::ClearScene()
     m_dustpools.clear();
 
     // Delete game elements
-    m_all_gfx_actors.clear();
     m_live_gfx_actors.clear();
-    m_gfx_actor_inventory.clear();
-    m_destroyed_gfx_actor_ids.clear();
+    m_gfx_actor_inventory.Clear();
     m_all_gfx_characters.clear();
 
     // Wipe scene manager
@@ -2076,7 +2082,7 @@ void GfxScene::UpdateScene(float dt)
     if (App::gfx_particles_mode->getInt() == 1)
     {
         // Generate particles as needed
-        for (GfxActor* gfx_actor: m_all_gfx_actors)
+        for (GfxActor* gfx_actor: m_gfx_actor_inventory.Active())
         {
             float dt_actor = (!gfx_actor->GetSimDataBuffer().simbuf_physics_paused) ? dt : 0.f;
             gfx_actor->UpdateParticles(dt_actor);
@@ -2158,7 +2164,7 @@ void GfxScene::UpdateScene(float dt)
     }
 
     // HUD - network labels (always update)
-    for (GfxActor* gfx_actor: m_all_gfx_actors)
+    for (GfxActor* gfx_actor: m_gfx_actor_inventory.Active())
     {
         gfx_actor->UpdateNetLabels(dt);
     }
@@ -2170,7 +2176,7 @@ void GfxScene::UpdateScene(float dt)
     }
 
     // Actors - update misc visuals
-    for (GfxActor* gfx_actor: m_all_gfx_actors)
+    for (GfxActor* gfx_actor: m_gfx_actor_inventory.Active())
     {
         float dt_actor = (!gfx_actor->GetSimDataBuffer().simbuf_physics_paused) ? dt : 0.f;
         if (gfx_actor->IsActorLive())
@@ -2248,71 +2254,47 @@ DustPool* GfxScene::GetDustPool(const char* name)
     }
 }
 
-void GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
+bool GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
 {
     if (gfx_actor == nullptr || gfx_actor->GetActorId() < 0)
     {
         LOG("GfxScene: rejected GfxActor registration without a stable ID");
-        return;
+        return false;
     }
     const std::int64_t actor_id = gfx_actor->GetActorId();
-    if (m_destroyed_gfx_actor_ids.find(actor_id) !=
-        m_destroyed_gfx_actor_ids.end())
+    const GfxActorCaptureMutation mutation =
+        m_gfx_actor_inventory.Register(actor_id, gfx_actor);
+    if (mutation != GfxActorCaptureMutation::APPLIED)
     {
         LOG(fmt::format(
-            "GfxScene: rejected resurrection of destroyed GfxActor {}",
-            actor_id));
-        return;
+            "GfxScene: rejected GfxActor registration {} ({})",
+            actor_id, static_cast<unsigned int>(mutation)));
+        return false;
     }
-    auto existing = m_gfx_actor_inventory.find(actor_id);
-    if (existing != m_gfx_actor_inventory.end())
-    {
-        if (existing->second.actor != gfx_actor || !existing->second.hidden)
-        {
-            LOG(fmt::format(
-                "GfxScene: rejected duplicate GfxActor registration {}",
-                actor_id));
-            return;
-        }
-        existing->second.hidden = false;
-    }
-    else
-    {
-        m_gfx_actor_inventory.emplace(
-            actor_id, GfxActorInventoryRecord{gfx_actor, false});
-    }
-    if (std::find(m_all_gfx_actors.begin(), m_all_gfx_actors.end(),
-                  gfx_actor) != m_all_gfx_actors.end())
-    {
-        return;
-    }
-    m_all_gfx_actors.push_back(gfx_actor);
+    return true;
 }
 
-void GfxScene::HideGfxActor(RoR::GfxActor* gfx_actor)
+bool GfxScene::HideGfxActor(RoR::GfxActor* gfx_actor)
 {
     if (gfx_actor == nullptr)
-        return;
-    const auto record = m_gfx_actor_inventory.find(gfx_actor->GetActorId());
-    if (record == m_gfx_actor_inventory.end() ||
-        record->second.actor != gfx_actor || record->second.hidden)
+        return false;
+    const GfxActorCaptureMutation mutation = m_gfx_actor_inventory.Hide(
+        gfx_actor->GetActorId(), gfx_actor);
+    if (mutation != GfxActorCaptureMutation::APPLIED)
     {
         LOG("GfxScene: rejected hide of an unknown or hidden GfxActor");
-        return;
+        return false;
     }
-    record->second.hidden = true;
-    const auto erase_actor = [gfx_actor](std::vector<GfxActor*>& actors)
-    {
-        actors.erase(std::remove(actors.begin(), actors.end(), gfx_actor),
-                     actors.end());
-    };
-    erase_actor(m_all_gfx_actors);
-    erase_actor(m_live_gfx_actors);
+    m_live_gfx_actors.erase(
+        std::remove(m_live_gfx_actors.begin(), m_live_gfx_actors.end(),
+                    gfx_actor),
+        m_live_gfx_actors.end());
+    return true;
 }
 
-void GfxScene::UnhideGfxActor(RoR::GfxActor* gfx_actor)
+bool GfxScene::UnhideGfxActor(RoR::GfxActor* gfx_actor)
 {
-    RegisterGfxActor(gfx_actor);
+    return RegisterGfxActor(gfx_actor);
 }
 
 void GfxScene::BufferSimulationData()
@@ -2352,7 +2334,7 @@ void GfxScene::BufferSimulationData()
     m_simbuf.simbuf_dir_arrow_visible = App::GetGameContext()->GetRaceSystem().IsDirArrowVisible();
 
     m_live_gfx_actors.clear();
-    for (GfxActor* a: m_all_gfx_actors)
+    for (GfxActor* a: m_gfx_actor_inventory.Active())
     {
         if (a->IsActorLive() || !a->IsActorInitialized())
         {
@@ -2404,9 +2386,21 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
 {
     std::vector<Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>
         sections;
-    for (const auto& actor_record : m_gfx_actor_inventory)
+    for (const auto& actor_record : m_gfx_actor_inventory.Records())
     {
-        GfxActor* const actor = actor_record.second.actor;
+        GfxActor* const actor = actor_record.second.owner;
+        if (actor_record.second.lifecycle ==
+            GfxActorCaptureLifecycle::DESTROYED)
+        {
+            if (actor != nullptr)
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::REVISION_MISMATCH,
+                    "dynamic_meshes.actor_lifecycle",
+                    "destroyed actor identity retained a live owner");
+            }
+            continue;
+        }
         if (actor == nullptr || actor->GetActorId() < 0)
         {
             return Render::ValidationResult::Failure(
@@ -2444,6 +2438,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             Render::ValidationResult validation =
                 CaptureOgre14DynamicEntitySections(
                     actor->m_cab_entity, identity,
+                    actor_record.second.lifecycle,
                     positions, normals, texcoords0,
                     actor->m_cab_mesh->getCpuTopologySections(), false,
                     mesh_cache, sections);
@@ -2489,6 +2484,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             Render::ValidationResult validation =
                 CaptureOgre14DynamicEntitySections(
                     flexbody->getEntity(), identity,
+                    actor_record.second.lifecycle,
                     positions, normals, texcoords0,
                     flexbody->getCpuTopologySections(),
                     flexbody->hasDynamicTextureBlend(), mesh_cache, sections);
@@ -2557,7 +2553,8 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
             identity.component_id = static_cast<std::uint32_t>(wheel_id);
             Render::ValidationResult validation =
                 CaptureOgre14DynamicEntitySections(
-                    entity, identity, positions, normals, texcoords0,
+                    entity, identity, actor_record.second.lifecycle,
+                    positions, normals, texcoords0,
                     *topology,
                     false, mesh_cache, sections);
             if (!validation)
@@ -2764,27 +2761,21 @@ void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
     m_ogre14_pending_capture.reset();
 }
 
-void GfxScene::DestroyGfxActor(RoR::GfxActor* remove_me)
+void GfxScene::DestroyGfxActor(RoR::GfxActor* remove_me) noexcept
 {
     if (remove_me == nullptr)
         return;
-    const std::int64_t actor_id = remove_me->GetActorId();
-    const auto record = m_gfx_actor_inventory.find(actor_id);
-    if (record == m_gfx_actor_inventory.end() ||
-        record->second.actor != remove_me)
+    const GfxActorCaptureMutation mutation =
+        m_gfx_actor_inventory.Destroy(remove_me->GetActorId(), remove_me);
+    if (mutation != GfxActorCaptureMutation::APPLIED &&
+        mutation != GfxActorCaptureMutation::ALREADY_DESTROYED)
     {
-        LOG("GfxScene: rejected destruction of an unknown GfxActor");
         return;
     }
-    m_gfx_actor_inventory.erase(record);
-    m_destroyed_gfx_actor_ids.insert(actor_id);
-    const auto erase_actor = [remove_me](std::vector<GfxActor*>& actors)
-    {
-        actors.erase(std::remove(actors.begin(), actors.end(), remove_me),
-                     actors.end());
-    };
-    erase_actor(m_all_gfx_actors);
-    erase_actor(m_live_gfx_actors);
+    m_live_gfx_actors.erase(
+        std::remove(m_live_gfx_actors.begin(), m_live_gfx_actors.end(),
+                    remove_me),
+        m_live_gfx_actors.end());
 }
 
 void GfxScene::ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor)

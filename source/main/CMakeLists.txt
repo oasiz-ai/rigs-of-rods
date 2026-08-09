@@ -35,6 +35,7 @@ set(SOURCE_FILES
         gfx/GfxActor.{h,cpp}
         gfx/GfxData.{h,cpp}
         gfx/GfxScene.{h,cpp}
+        gfx/GfxActorCaptureInventory.h
         gfx/PostProcessPolicy.{h,cpp}
         gfx/PostProcessRuntime.{h,cpp}
         gfx/PostProcessRuntimeContract.{h,cpp}
@@ -228,6 +229,7 @@ set(SOURCE_FILES
         physics/collision/PointColDetector.{h,cpp}
         physics/collision/Triangle.h
         physics/flex/Flexable.h
+        physics/flex/FlexMeshTopology.h
         physics/flex/FlexAirfoil.{h,cpp}
         physics/flex/FlexBody.{h,cpp}
         physics/flex/FlexFactory.{h,cpp}

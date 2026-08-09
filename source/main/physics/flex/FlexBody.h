@@ -34,6 +34,16 @@
 
 namespace RoR {
 
+/// CPU-owned source streams captured before any flexbody renderer resource is
+/// created. Their ordering matches the joined shared/non-shared vertex layout.
+struct FlexBodyInitialVertexStreams
+{
+    std::vector<Ogre::Vector3> positions;
+    std::vector<Ogre::Vector3> normals;
+    std::vector<Ogre::Vector2> texcoords0;
+    bool has_complete_texcoords0 = false;
+};
+
 /// @addtogroup Gfx
 /// @{
 
@@ -54,9 +64,11 @@ class FlexBody
         NodeNum_t nx, 
         NodeNum_t ny,
         Ogre::Vector3 offset,
-        Ogre::Quaternion const & rot, 
+        Ogre::Quaternion const & rot,
         std::vector<unsigned int>& node_indices,
-        std::vector<ForvertTempData>& forvert_data
+        std::vector<ForvertTempData>& forvert_data,
+        FlexBodyInitialVertexStreams initial_vertex_streams,
+        std::vector<FlexMeshTopologySection> cpu_topology
     );
 
 public:
@@ -77,7 +89,7 @@ public:
     /// @}
 
     FlexBody(PlaceholderType, FlexbodyID_t id, const std::string& orig_meshname);
-    ~FlexBody();
+    ~FlexBody() noexcept;
 
     void reset();
     void updateBlend();
@@ -118,12 +130,9 @@ public:
 
     FlexbodyID_t getID() const { return m_id; }
     PlaceholderType getPlaceholderType() const { return m_placeholder_type; }
-    void destroyOgreObjects();
+    void destroyOgreObjects() noexcept;
 
 private:
-
-    void defragmentFlexbodyMesh();
-    bool captureCpuTopology();
 
     RoR::GfxActor*    m_gfx_actor = nullptr;
     size_t            m_vertex_count = 0;
