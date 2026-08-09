@@ -1,0 +1,165 @@
+--- a/OgreMain/include/OgreResourceGroupManager.h
++++ b/OgreMain/include/OgreResourceGroupManager.h
+@@ -217,4 +217,42 @@ namespace Ogre {
+           */
+         virtual bool resourceCollision(Resource *resource, ResourceManager *resourceManager) { return true; }
++
++        /** Return true to opt in to the exact pre-open seam. The default
++            avoids metadata I/O and preserves legacy listener behavior.
++        */
++        virtual bool resourceStreamOpeningEnabled() const
++        {
++            return false;
++        }
++
++        /** This event is called after OGRE has selected the exact archive and,
++            when available, its exact file record, but before that archive is
++            opened.
++
++            selectedArchive and fileInfo are borrowed and valid only for the
++            duration of this call. Do not retain either pointer or reentrantly
++            unload/remove the selected resource location during this callback.
++            The authoritative member name is path + basename; filename may be
++            basename-only when OGRE_RESOURCEMANAGER_STRICT is disabled.
++
++            Set handled to true to make the returned stream authoritative.
++            A null stream with handled set is an intentional rejection and
++            OGRE will not fall back to opening the selected archive. When
++            handled remains false, the returned stream is ignored and normal
++            archive opening continues. The default preserves legacy behavior.
++        */
++        virtual DataStreamPtr resourceStreamOpening(
++            const String &name,
++            const String &group,
++            Resource *resource,
++            const Archive *selectedArchive,
++            const FileInfo *fileInfo,
++            bool &handled)
++        {
++            (void)name; (void)group; (void)resource;
++            (void)selectedArchive; (void)fileInfo;
++            handled = false;
++            return DataStreamPtr();
++        }
+     };
+ 
+--- a/OgreMain/src/OgreResourceGroupManager.cpp
++++ b/OgreMain/src/OgreResourceGroupManager.cpp
+@@ -546,8 +546,89 @@ namespace Ogre {
+ 
+         if (pArch)
+         {
+-            DataStreamPtr stream = pArch->open(resourceName);
+-            if (mLoadingListener)
++            const bool preopenEnabled = mLoadingListener &&
++                mLoadingListener->resourceStreamOpeningEnabled();
++            FileInfo selectedFileInfo;
++            const FileInfo* selectedFileInfoPtr = 0;
++            if (preopenEnabled)
++            {
++                // Resolve the selected archive's own exact member record. A
++                // listener that requires exact attribution can reject a null
++                // record; legacy listeners retain the old open behavior.
++                try
++                {
++                    FileInfoListPtr candidates =
++                        pArch->findFileInfo(resourceName, true, false);
++                    if (candidates && candidates->size() == 1 &&
++                        candidates->front().archive == pArch &&
++                        candidates->front().path +
++                            candidates->front().basename == resourceName)
++                    {
++                        selectedFileInfo = candidates->front();
++                        selectedFileInfoPtr = &selectedFileInfo;
++                    }
++                    else
++                    {
++                        // Sloppy ZipArchive::findFileInfo cannot match a
++                        // qualified request because FileInfo::filename is a
++                        // basename. Resolve only an exact path + basename
++                        // from the selected archive's own complete listing.
++                        FileInfoListPtr listed =
++                            pArch->listFileInfo(true, false);
++                        const FileInfo* exactCandidate = 0;
++                        bool validListing = listed != 0;
++                        if (listed)
++                        {
++                            for (const FileInfo& entry : *listed)
++                            {
++                                if (entry.archive != pArch)
++                                {
++                                    validListing = false;
++                                    break;
++                                }
++                                if (entry.path + entry.basename ==
++                                    resourceName)
++                                {
++                                    if (exactCandidate)
++                                    {
++                                        validListing = false;
++                                        break;
++                                    }
++                                    exactCandidate = &entry;
++                                }
++                            }
++                        }
++                        if (validListing && exactCandidate)
++                        {
++                            selectedFileInfo = *exactCandidate;
++                            selectedFileInfoPtr = &selectedFileInfo;
++                        }
++                    }
++                }
++                catch (...)
++                {
++                    // Finding metadata is an additive attribution seam. An
++                    // archive which cannot supply it remains compatible, but
++                    // exact-attribution listeners receive a null FileInfo.
++                }
++            }
++
++            bool handled = false;
++            DataStreamPtr stream;
++            if (preopenEnabled)
++            {
++                stream = mLoadingListener->resourceStreamOpening(
++                    resourceName, groupName, resourceBeingLoaded, pArch,
++                    selectedFileInfoPtr, handled);
++            }
++            if (!handled)
++            {
++                const String exactMember = selectedFileInfoPtr
++                    ? selectedFileInfo.path + selectedFileInfo.basename
++                    : resourceName;
++                stream = pArch->open(exactMember);
++            }
++            if (mLoadingListener && stream)
+                 mLoadingListener->resourceStreamOpened(resourceName, groupName, resourceBeingLoaded, stream);
+             return stream;
+         }
+@@ -820,8 +901,23 @@ namespace Ogre {
+                 {
+                     LogManager::getSingleton().logMessage(
+                         "Parsing script " + fii.filename);
+-                    DataStreamPtr stream = fii.archive->open(fii.filename);
+-                    if (stream)
++                    bool handled = false;
++                    DataStreamPtr stream;
++                    const bool preopenEnabled = mLoadingListener &&
++                        mLoadingListener->resourceStreamOpeningEnabled();
++                    if (preopenEnabled)
++                    {
++                        stream = mLoadingListener->resourceStreamOpening(
++                            fii.filename, grp->name, 0, fii.archive, &fii,
++                            handled);
++                    }
++                    if (!handled)
++                    {
++                        // filename is basename-only for sloppy ZIP archives.
++                        // path + basename identifies the enumerated member.
++                        stream = fii.archive->open(fii.path + fii.basename);
++                    }
++                    if (stream)
+                     {
+                         if (mLoadingListener)
+                             mLoadingListener->resourceStreamOpened(fii.filename, grp->name, 0, stream);
