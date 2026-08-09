@@ -21,6 +21,10 @@ CPP_TEST = (
     REPOSITORY_ROOT
     / "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
 )
+ROAD_CPP_TEST = (
+    REPOSITORY_ROOT
+    / "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
+)
 README = RENDER / "README.md"
 PRODUCER_DOC = (
     REPOSITORY_ROOT / "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
@@ -39,6 +43,7 @@ class Ogre14RoadMaterialTransactionContractTests(unittest.TestCase):
         cls.translator_header = TRANSLATOR_HEADER.read_text(encoding="utf-8")
         cls.translator_source = TRANSLATOR_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
+        cls.road_cpp_test = ROAD_CPP_TEST.read_text(encoding="utf-8")
 
     def test_detached_closure_carries_rederivable_exact_identity(self) -> None:
         for token in (
@@ -121,6 +126,58 @@ class Ogre14RoadMaterialTransactionContractTests(unittest.TestCase):
             self.translator_header,
         )
         self.assertIn("return EquivalentAudit(lhs, rhs)", self.translator_source)
+
+    def test_road_payload_cache_keys_exact_admitted_winding(self) -> None:
+        for token in (
+            "kOgre14ProceduralRoadWindingProofVersion = 1U",
+            "struct Ogre14ProceduralRoadWindingProof",
+            "bool reverse_winding = false",
+            "bool complete = false",
+            "Ogre14ProceduralRoadWindingProof exact_winding_proof",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.road_header)
+        for token in (
+            "ValidateStandaloneWindingProof",
+            "ValidateWindingProofForCapture",
+            "ValidateCachedPayloadWinding",
+            "previous->exact_winding_proof.reverse_winding ==",
+            "winding_proof.reverse_winding",
+            "section.mesh_identity.reverse_winding = winding_proof.reverse_winding",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.road_source)
+
+        transaction = self.road_source[
+            self.road_source.index(
+                "ValidationResult Ogre14ProceduralRoadInventoryTransaction::Build"
+            ) : self.road_source.index(
+                "ValidationResult BuildOgre14ProceduralRoadInventory("
+            )
+        ]
+        exact_admission = transaction.index("ValidateExactRoadMaterialCapture")
+        proof_completion = transaction.index("winding_proof.complete = true")
+        cache_resolution = transaction.index(
+            "ResolveOgre14ProceduralRoadCacheEntry("
+        )
+        self.assertLess(exact_admission, proof_completion)
+        self.assertLess(proof_completion, cache_resolution)
+
+        for token in (
+            "same-geometry cull flip reused oppositely wound payload bytes",
+            "NONE-to-CLOCKWISE proof update replaced identical payload bytes",
+            "forged cache proof/payload mismatch was reused or published",
+            "winding-only replacement double-counted the payload or lifetime cap",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.road_cpp_test)
+        for token in (
+            "TestExactWindingCacheReplacementAndRollback",
+            "same-geometry exact cull flip reused the old owner or exceeded caps",
+            "forged admitted cull mismatch mutated cache or published output",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.cpp_test)
 
     def test_hostile_cpp_acceptance_matrix_and_provenance_are_registered(self) -> None:
         for token in (

@@ -27,6 +27,7 @@ namespace RoR::Render {
 class Ogre14ProceduralRoadInventoryTransaction;
 
 constexpr std::uint32_t kOgre14ProceduralRoadCaptureVersion = 1U;
+constexpr std::uint32_t kOgre14ProceduralRoadWindingProofVersion = 1U;
 constexpr std::size_t kOgre14ProceduralRoadMaximumVertices = 50000U;
 constexpr std::size_t kOgre14ProceduralRoadMaximumIndices = 150000U;
 
@@ -62,6 +63,19 @@ struct Ogre14ProceduralRoadCapture {
   bool finalized = false;
 };
 
+/// Complete material-admission result used to select the portable CCW mesh
+/// upload. Exact translated admission sources `reverse_winding` from the
+/// immutable material closure; the legacy factor-only path sources it from
+/// the already validated native cull mode. Keeping the captured cull alongside
+/// the decision makes an absent or internally inconsistent proof rejectable.
+struct Ogre14ProceduralRoadWindingProof {
+  std::uint32_t version = kOgre14ProceduralRoadWindingProofVersion;
+  Ogre14GraphicsSceneMaterialCull exact_native_cull =
+      Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+  bool reverse_winding = false;
+  bool complete = false;
+};
+
 enum class Ogre14ProceduralRoadIdentityLifecycle : std::uint8_t {
   NEVER_REGISTERED = 0U,
   RESERVED = 1U,
@@ -75,10 +89,10 @@ enum class Ogre14ProceduralRoadIdentityLifecycle : std::uint8_t {
 class Ogre14ProceduralRoadIdentityState final {
 public:
   Ogre14ProceduralRoadIdentityState() = default;
-  Ogre14ProceduralRoadIdentityState(
-      const Ogre14ProceduralRoadIdentityState &) = default;
-  Ogre14ProceduralRoadIdentityState &operator=(
-      const Ogre14ProceduralRoadIdentityState &) = default;
+  Ogre14ProceduralRoadIdentityState(const Ogre14ProceduralRoadIdentityState &) =
+      default;
+  Ogre14ProceduralRoadIdentityState &
+  operator=(const Ogre14ProceduralRoadIdentityState &) = default;
 
   [[nodiscard]] std::uint64_t stable_graphics_id() const noexcept {
     return stable_graphics_id_;
@@ -86,8 +100,8 @@ public:
   [[nodiscard]] std::uint64_t topology_revision() const noexcept {
     return topology_revision_;
   }
-  [[nodiscard]] Ogre14ProceduralRoadIdentityLifecycle lifecycle() const
-      noexcept {
+  [[nodiscard]] Ogre14ProceduralRoadIdentityLifecycle
+  lifecycle() const noexcept {
     return lifecycle_;
   }
   [[nodiscard]] const std::string &exact_geometry_state_key() const noexcept {
@@ -114,13 +128,13 @@ public:
       std::uint64_t maximum_id =
           (std::numeric_limits<std::uint64_t>::max)()) noexcept;
 
-  [[nodiscard]] ValidationResult Reserve(
-      Ogre14ProceduralRoadIdentityState &state);
-  [[nodiscard]] ValidationResult FinalizeGeometry(
-      Ogre14ProceduralRoadIdentityState &state,
-      std::string exact_geometry_state_key) const;
-  [[nodiscard]] ValidationResult Tombstone(
-      Ogre14ProceduralRoadIdentityState &state) const;
+  [[nodiscard]] ValidationResult
+  Reserve(Ogre14ProceduralRoadIdentityState &state);
+  [[nodiscard]] ValidationResult
+  FinalizeGeometry(Ogre14ProceduralRoadIdentityState &state,
+                   std::string exact_geometry_state_key) const;
+  [[nodiscard]] ValidationResult
+  Tombstone(Ogre14ProceduralRoadIdentityState &state) const;
 
   [[nodiscard]] std::uint64_t next_id_for_diagnostics() const noexcept {
     return next_id_;
@@ -128,25 +142,25 @@ public:
 
 private:
   std::uint64_t next_id_ = 1U;
-  std::uint64_t maximum_id_ =
-      (std::numeric_limits<std::uint64_t>::max)();
+  std::uint64_t maximum_id_ = (std::numeric_limits<std::uint64_t>::max)();
 };
 
 /// Immutable per-road mesh cache. The binary state key carries every source
-/// stream byte, while topology_revision cross-checks manager lineage.
+/// stream byte and remains geometry-only for topology lineage. Payload-owner
+/// reuse additionally requires the exact winding proof to select identical
+/// portable index bytes.
 struct Ogre14ProceduralRoadCacheEntry {
   std::string exact_geometry_state_key;
   std::uint64_t topology_revision = 0U;
+  Ogre14ProceduralRoadWindingProof exact_winding_proof;
   std::shared_ptr<const RenderAssetPayload> mesh_payload;
 };
 
 struct Ogre14ProceduralRoadInventoryConfiguration {
   std::size_t maximum_live_roads = 4096U;
   std::size_t maximum_lifetime_roads = 65536U;
-  std::size_t maximum_vertices_per_road =
-      kOgre14ProceduralRoadMaximumVertices;
-  std::size_t maximum_indices_per_road =
-      kOgre14ProceduralRoadMaximumIndices;
+  std::size_t maximum_vertices_per_road = kOgre14ProceduralRoadMaximumVertices;
+  std::size_t maximum_indices_per_road = kOgre14ProceduralRoadMaximumIndices;
   std::uint64_t maximum_payload_bytes = 256U * 1024U * 1024U;
 };
 
@@ -159,8 +173,9 @@ public:
   explicit Ogre14ProceduralRoadInventory(
       Ogre14ProceduralRoadInventoryConfiguration configuration = {});
 
-  [[nodiscard]] ValidationResult RegisterDerivedIdentityForAudit(
-      std::uint64_t manager_graphics_id, std::uint64_t derived_object_id);
+  [[nodiscard]] ValidationResult
+  RegisterDerivedIdentityForAudit(std::uint64_t manager_graphics_id,
+                                  std::uint64_t derived_object_id);
 
   [[nodiscard]] std::size_t known_identity_count() const noexcept {
     return known_manager_ids_.size();
@@ -180,8 +195,7 @@ private:
       std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &);
   friend ValidationResult BuildOgre14ProceduralRoadInventory(
       const std::vector<Ogre14ProceduralRoadCapture> &,
-      const Ogre14LegacyTranslatedFrame &,
-      Ogre14ProceduralRoadInventory &,
+      const Ogre14LegacyTranslatedFrame &, Ogre14ProceduralRoadInventory &,
       std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &);
 
   Ogre14ProceduralRoadInventoryConfiguration configuration_;
@@ -189,14 +203,14 @@ private:
   std::map<std::uint64_t, std::uint64_t> manager_id_by_derived_id_;
   std::set<std::uint64_t> known_manager_ids_;
   std::set<std::uint64_t> live_manager_ids_;
-  std::map<std::uint64_t, Ogre14ProceduralRoadCacheEntry>
-      cache_by_manager_id_;
+  std::map<std::uint64_t, Ogre14ProceduralRoadCacheEntry> cache_by_manager_id_;
 };
 
 /// Domain-separated deterministic identity for one manager-owned road. The
 /// inventory registers the exact manager-id/derived-id bijection before use.
-[[nodiscard]] ValidationResult DeriveOgre14ProceduralRoadObjectId(
-    std::uint64_t manager_graphics_id, std::uint64_t &derived_object_id);
+[[nodiscard]] ValidationResult
+DeriveOgre14ProceduralRoadObjectId(std::uint64_t manager_graphics_id,
+                                   std::uint64_t &derived_object_id);
 
 /// Builds a collision-free binary key from exact finalized geometry bytes.
 /// Identity, transform, visibility and material state are deliberately
@@ -204,17 +218,22 @@ private:
 [[nodiscard]] ValidationResult BuildOgre14ProceduralRoadGeometryStateKey(
     const Ogre14ProceduralRoadCapture &capture, std::string &key);
 
-/// Validates exact streams, source-width promotion, normals and winding, then
-/// creates one immutable tight-bounds payload. Failure leaves `payload`
-/// untouched.
+/// Validates exact streams, source-width promotion, normals, and the complete
+/// admitted winding proof, then creates one immutable tight-bounds payload.
+/// Failure leaves `payload` untouched.
 [[nodiscard]] ValidationResult BuildOgre14ProceduralRoadMeshPayload(
     const Ogre14ProceduralRoadCapture &capture,
+    const Ogre14ProceduralRoadWindingProof &winding_proof,
     std::shared_ptr<const RenderAssetPayload> &payload);
 
-/// Reuses the prior immutable owner only for byte-identical geometry with the
-/// same revision. Changed geometry requires exactly revision+1.
+/// Reuses the prior immutable owner only for byte-identical geometry, the same
+/// geometry revision, and equivalent reverse-winding proof. A winding-only
+/// change rebuilds at the same topology revision; changed geometry requires
+/// exactly revision+1. Missing, inconsistent, or payload-disagreeing proof
+/// fails without changing `entry`.
 [[nodiscard]] ValidationResult ResolveOgre14ProceduralRoadCacheEntry(
     const Ogre14ProceduralRoadCapture &capture,
+    const Ogre14ProceduralRoadWindingProof &winding_proof,
     const Ogre14ProceduralRoadCacheEntry *previous,
     Ogre14ProceduralRoadCacheEntry &entry);
 
