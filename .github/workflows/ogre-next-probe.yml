@@ -21,6 +21,7 @@ on:
       - cmake/RendererLauncherPackageConfig.cmake
       - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
       - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+      - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -34,6 +35,7 @@ on:
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/gfx/ogre14/Ogre14TerrainComposite*
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
@@ -99,6 +101,7 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
       - tests/resources/TerrainBundleArchiveVerifierTests.cpp
       - tests/tools/assert_ogre_recipe_graph.py
       - tests/gfx/render/**
@@ -124,6 +127,7 @@ on:
       - cmake/RendererLauncherPackageConfig.cmake
       - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
       - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+      - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -137,6 +141,7 @@ on:
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/gfx/ogre14/Ogre14TerrainComposite*
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
@@ -202,6 +207,7 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
       - tests/resources/TerrainBundleArchiveVerifierTests.cpp
       - tests/tools/assert_ogre_recipe_graph.py
       - tests/gfx/render/**
@@ -358,6 +364,7 @@ jobs:
           python tests/tools/test_ogre_next_metal_n4_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
+          python tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
@@ -378,6 +385,7 @@ jobs:
           python -O tests/tools/test_ogre_next_metal_n4_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
+          python -O tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only

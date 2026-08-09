@@ -33,6 +33,7 @@ set(_ror_n2_relevant_source_paths
     doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
     doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
     doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+    doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
     source/main/GameContext.cpp
     source/main/gfx/GfxActorCaptureInventory.h
     source/main/gfx/RendererBackendPolicy.cpp
@@ -128,6 +129,9 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
+    source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
+    source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
+    source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
     tests/gfx/GfxActorCaptureInventoryTests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
     tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
@@ -136,6 +140,8 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
     tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+    tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp
+    tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp
     tests/resources/TerrainBundleArchiveVerifierTests.cpp
     tests/tools/assert_ogre_recipe_graph.py
     tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py
@@ -189,6 +195,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
     tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
     tests/tools/test_ogre14_terrain_composite_recipe_contract.py
+    tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
@@ -251,6 +258,7 @@ list(APPEND _ror_n2_relevant_source_files
     "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
     "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
     "doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md"
+    "doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md"
     "source/main/GameContext.cpp"
     "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
@@ -345,6 +353,9 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
@@ -353,6 +364,8 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
     "tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
     "tests/tools/assert_ogre_recipe_graph.py"
     "tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py"
@@ -406,6 +419,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
     "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
     "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
+    "tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
