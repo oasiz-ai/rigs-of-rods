@@ -1566,10 +1566,31 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
         resolved_entries.push_back(resolved_entry);
     }
 
+    bool authenticated_mount_published = false;
     const auto abandon_target_group =
-        [&](const std::string& failure)
+        [&](const char* failure, const char* detail = nullptr) noexcept
         {
-            out_error = failure;
+            const auto record_failure = [&]() noexcept
+            {
+                try
+                {
+                    out_error = failure != nullptr ? failure : "";
+                    if (detail != nullptr && detail[0] != '\0')
+                    {
+                        out_error += ": ";
+                        out_error += detail;
+                    }
+                }
+                catch (...)
+                {
+                    out_error.clear();
+                }
+            };
+#if OGRE_VERSION_MAJOR >= 14
+            App::GetContentManager()->AbortAuthenticatedMaterialScriptGroup(
+                resource_group);
+#endif
+            bool resource_group_destroyed = false;
             try
             {
                 if (resource_manager.resourceGroupExists(resource_group))
@@ -1578,26 +1599,53 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
                 }
                 if (resource_manager.resourceGroupExists(resource_group))
                 {
-                    out_error +=
-                        "; target resource group still exists after destroy";
+                    if (TerrainBundleDependencyTeardownMustFailStop(
+                            authenticated_mount_published, false, false))
+                    {
+                        std::terminate();
+                    }
+                    record_failure();
                     return;
                 }
-            }
-            catch (const std::exception& destroy_error)
-            {
-                out_error += fmt::format(
-                    "; failed to destroy target resource group: {}",
-                    destroy_error.what());
-                return;
+                resource_group_destroyed = true;
             }
             catch (...)
             {
-                out_error +=
-                    "; failed to destroy target resource group";
+                if (TerrainBundleDependencyTeardownMustFailStop(
+                        authenticated_mount_published, false, false))
+                {
+                    std::terminate();
+                }
+                record_failure();
                 return;
             }
-            App::GetContentManager()->UnregisterPackageResourceGroup(
-                resource_group);
+            bool authenticated_archive_unregistered = false;
+            try
+            {
+                App::GetContentManager()->UnregisterPackageResourceGroup(
+                    resource_group);
+                authenticated_archive_unregistered = true;
+            }
+            catch (...)
+            {
+                if (TerrainBundleDependencyTeardownMustFailStop(
+                        authenticated_mount_published,
+                        resource_group_destroyed,
+                        false))
+                {
+                    std::terminate();
+                }
+                record_failure();
+                return;
+            }
+            if (TerrainBundleDependencyTeardownMustFailStop(
+                    authenticated_mount_published,
+                    resource_group_destroyed,
+                    authenticated_archive_unregistered))
+            {
+                std::terminate();
+            }
+            authenticated_mount_published = false;
             for (CacheEntryPtr& entry: m_entries)
             {
                 if (entry->resource_group == resource_group)
@@ -1609,9 +1657,9 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
                     entry->resource_group.clear();
                 }
             }
+            record_failure();
         };
 
-    bool added_any = false;
     try
     {
         for (std::size_t index = 0U;
@@ -1645,16 +1693,16 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
                         dependency.expected_archive_sha256,
                         observed_sha256);
                 }
-                abandon_target_group(failure);
+                abandon_target_group(failure.c_str());
                 return false;
             }
             App::GetContentManager()->MountAuthenticatedPackageResourceLocation(
                 resource_group,
                 archive_snapshot);
-            added_any = true;
+            authenticated_mount_published = true;
         }
 
-        if (added_any)
+        if (authenticated_mount_published)
         {
             resource_manager.clearResourceGroup(resource_group);
             resource_manager.initialiseResourceGroup(resource_group);
@@ -1662,9 +1710,9 @@ bool CacheSystem::LoadTerrainResourceBundleDependencies(
     }
     catch (const std::exception& error)
     {
-        abandon_target_group(fmt::format(
-            "failed to mount terrain resource bundle dependencies: {}",
-            error.what()));
+        abandon_target_group(
+            "failed to mount terrain resource bundle dependencies",
+            error.what());
         return false;
     }
     catch (...)

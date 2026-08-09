@@ -398,6 +398,9 @@ if (ROR_OGRE14)
     # The renderer-neutral boundary above continues to build in standalone
     # tests and with either renderer dependency graph.
     list(APPEND SOURCE_FILES
+        gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
+        gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.{h,cpp}
+        gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
         gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
