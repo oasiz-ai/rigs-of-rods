@@ -607,6 +607,22 @@ the lifetime cap without copying mip bytes or mutating state. `Translate`
 remains the authoritative full-payload validation and publication path and
 rechecks the same admission after the bounded copies exist.
 
+`gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding` is the immutable join
+between that pending material transaction and the renderer-neutral static and
+dynamic section inventories. It preflights the fixed section caps before any
+section copy, validates and indexes every private prepared-material owner once,
+and rejects duplicate keys, detached closure lineage, reboxed audit owners,
+caller-supplied closures, and native-cull/winding disagreement. Each referenced
+exact key receives the canonical closure control block retained by the prepared
+frame; an absent key may continue only through the unchanged factor-only
+fallback gate, so a textured section can never silently become an inferred
+material. Static and dynamic closures are revalidated as one common frame
+before the binding publishes a shared immutable state. Allocation failure,
+length overflow, arbitrary exceptions, and the borrowed hostile-test fault
+points leave an existing binding byte- and owner-equivalent. The binding also
+retains the exact prepared-frame identity which the coordinator requires at
+the final accepted-exposure commit.
+
 This coordinator is the pure-data admission boundary, not the finished native
 scene tap. `GfxScene` must still collect one authoritative post-update material
 inventory, capture each material using the registry-provided native

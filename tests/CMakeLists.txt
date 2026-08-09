@@ -1058,6 +1058,17 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
 add_executable(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+)
+target_include_directories(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
     ror_ogre14_authenticated_texture_receipt_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
@@ -1225,6 +1236,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_source_texture_decoder_tests
     ror_ogre14_material_semantic_catalog_v2_tests
     ror_ogre14_live_material_coordinator_tests
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
     ror_ogre14_authenticated_texture_receipt_tests
     ror_render_hdr_reference_tests
     ror_input_event_transport_tests
@@ -2516,6 +2528,11 @@ add_test(
 add_test(
     NAME ogre14_live_material_coordinator
     COMMAND ror_ogre14_live_material_coordinator_tests
+)
+
+add_test(
+    NAME ogre14_graphics_scene_prepared_material_binding
+    COMMAND ror_ogre14_graphics_scene_prepared_material_binding_tests
 )
 
 add_test(

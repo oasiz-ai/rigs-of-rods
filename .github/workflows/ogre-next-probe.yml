@@ -31,6 +31,7 @@ on:
       - tools/compile_ogre14_material_semantic_catalog_v2.py
       - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
@@ -95,6 +96,7 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
       - tests/resources/TerrainBundleArchiveVerifierTests.cpp
       - tests/tools/assert_ogre_recipe_graph.py
@@ -131,6 +133,7 @@ on:
       - tools/compile_ogre14_material_semantic_catalog_v2.py
       - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
@@ -195,6 +198,7 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
       - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
       - tests/resources/TerrainBundleArchiveVerifierTests.cpp
       - tests/tools/assert_ogre_recipe_graph.py
@@ -494,6 +498,7 @@ jobs:
           ror_ogre14_source_texture_decoder_tests
           ror_ogre14_material_semantic_catalog_v2_tests
           ror_ogre14_live_material_coordinator_tests
+          ror_ogre14_graphics_scene_prepared_material_binding_tests
           ror_ogre14_authenticated_texture_receipt_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
@@ -546,6 +551,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_live_material_coordinator$'
+
+      - name: Prove immutable prepared-material scene binding on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_graphics_scene_prepared_material_binding$'
 
       - name: Prove authenticated source-texture receipts on the host ABI
         run: >-
