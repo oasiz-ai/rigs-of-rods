@@ -301,9 +301,14 @@ Additional passes or authored texture/shader content fail closed rather than
 being silently dropped. Terrain layer/sampler names and world scales, blend
 textures, global-colour maps, lightmaps, composite maps, and generated material
 state are audited before meshing; any authored texture state remains an exact
-publication blocker until portable texture transport is implemented. The same
-rule intentionally keeps the textured legacy `road2` material blocked until an
-exact texture/sampler translator is connected; no factor-only road material is
+publication blocker until portable texture transport is implemented. The
+original overload still keeps textured legacy `road2` blocked and never
+coerces it through this fallback. The separately activation-gated overload now
+accepts an exact road2 material closure only when it is resolved from one
+authoritative translated full snapshot and the road capture supplies a
+bit-exact native pipeline audit. That closure carries rederivable exact keys,
+immutable texture/sampler/material owners, producer-owned bindings, and the
+common source/catalog epoch; no factor-only road material or PBR semantic is
 guessed. OGRE 14
 Terrain has no hole API, and the renderer-neutral builder rejects a claimed
 hole rather than silently filling it. Procedural roads, characters or other
@@ -416,6 +421,17 @@ the caller's closure untouched, so no partially allocated dependency list can
 enter a joined graphics transaction. A borrowed test-only fault seam exercises
 both pre-index allocation failure and an unexpected exception after partial
 local dependency assembly; production callers leave it null.
+
+Each detached closure also retains one exact key per dependency and the exact
+immutable translated pipeline audit. Static-section admission rederives every
+texture, sampler, and material ID from those keys, rechecks canonical debug
+identity and sampler derivation, and requires every resolved section in one
+inventory to carry the same source/catalog epoch. The merged asset collision
+audit covers mesh, texture, sampler, and material IDs and compares all material
+bindings as well as payloads. Dependency conflicts, forged keys, mixed epochs,
+missing authored mesh streams required by producer-owned bindings,
+mesh/material winding disagreement, and allocation or arbitrary exceptions
+after partial candidate assembly leave lifecycle state and outputs untouched.
 
 The asset payload pins the registry, mesh, texture, material, and sampler
 descriptor versions. It carries registry/base/target sequence lineage, the

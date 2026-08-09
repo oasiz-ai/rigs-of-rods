@@ -245,10 +245,16 @@ Implemented source-side behavior is:
    tombstones a road. A focused combined-static contract now verifies that
    road candidates and terrain/native candidates share one collision audit,
    stable ordering, and immutable payload-owner reuse without advancing the
-   durable road inventory before commit. Textured `road2` remains a precise
-   `road.material.texture_units` blocker until an exact legacy
-   texture/sampler translator is connected. Joined `GfxScene` collection and
-   two-phase source wiring remain the next isolated step.
+   durable road inventory before commit. The legacy overload continues to
+   return the precise `road.material.texture_units` blocker for textured
+   `road2`. A separate exact overload resolves an exact road2 material closure
+   from one authoritative translated full snapshot and activates only when the
+   road also owns a bit-exact native pipeline audit. The closure retains exact
+   dependency keys, immutable owners, bindings, winding, and source/catalog
+   lineage; static admission rederives every ID, audits collisions across all
+   asset kinds, and rejects mixed epochs or payload/binding conflicts
+   transactionally. Joined `GfxScene` collection and two-phase source wiring
+   remain the next isolated step.
 9. `GfxScene` enumerates the authoritative managed `Ogre::MOT_LIGHT` registry
    at the joined boundary (not backend render queues or scene-node traversal),
    verifies each registry key equals the exact unique Light name, and hashes
@@ -269,9 +275,9 @@ Implemented source-side behavior is:
    publishes the exact empty inventory rather than inferring probes from the
    vehicle-local environment-map implementation.
 
-Remaining source-side work is portable texture/sampler extraction for legacy
-material units, terrain layers, and `road2`; joined procedural-road collection;
-plus explicit adapters for paged vegetation and animated/deformable geometry.
+Remaining source-side work is native population of the exact road pipeline
+audit and joined procedural-road collection, portable translation for terrain
+layers, plus explicit adapters for paged vegetation and animated geometry.
 `GfxScene::ClearScene()`
 must also deliver the final authoritative empty inventory before the producer
 is destroyed so a new terrain receives a fresh registry lifetime. Until those

@@ -942,6 +942,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_ogre14_procedural_road_source$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_road_material_transaction$'", self.workflow
+        )
+        self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
         )
@@ -1132,6 +1135,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn(
                 "ror_ogre14_procedural_road_source_tests", cmake
             )
+            self.assertIn(
+                "Ogre14RoadMaterialTransactionTests.cpp", cmake
+            )
+            self.assertIn(
+                "ror_ogre14_road_material_transaction_tests", cmake
+            )
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :
             probe_cmake.index(")", probe_cmake.index(
@@ -1147,6 +1156,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertEqual(
             package_dependencies.count(
                 "ror_ogre14_procedural_road_source_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_road_material_transaction_tests"
             ),
             1,
         )

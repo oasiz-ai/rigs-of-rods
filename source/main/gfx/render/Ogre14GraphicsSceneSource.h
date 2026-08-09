@@ -12,6 +12,7 @@
 #pragma once
 
 #include "GraphicsSceneSnapshotProducer.h"
+#include "Ogre14LegacyMaterialClosure.h"
 
 #include <cstdint>
 #include <functional>
@@ -25,6 +26,8 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kOgre14GraphicsSceneSourceVersion = 2U;
+constexpr std::size_t kMaximumOgre14GraphicsSceneStaticSections = 65536U;
+constexpr std::size_t kMaximumOgre14GraphicsSceneStaticAssets = 65536U;
 
 /// Every bit names state which must come from the same completed
 /// GfxScene::BufferSimulationData() boundary. An adapter may expose a partial
@@ -247,6 +250,10 @@ struct Ogre14GraphicsSceneStaticSectionCaptureInput {
   Ogre14GraphicsSceneMeshAssetIdentity mesh_identity;
   std::shared_ptr<const RenderAssetPayload> mesh_payload;
   Ogre14GraphicsSceneMaterialCaptureInput material;
+  /// Optional exact translated material transaction. When absent, the
+  /// original factor-only compatibility path is used unchanged. When present,
+  /// no factor fallback or semantic coercion is permitted.
+  std::shared_ptr<const Ogre14LegacyMaterialClosure> resolved_material;
   Matrix4x4 render_from_object;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   bool visible = true;
@@ -480,6 +487,8 @@ struct Ogre14GraphicsSceneUnsupportedGeometry {
   bool animated = false;
 };
 
+class IOgre14GraphicsSceneStaticInventoryFaultInjector;
+
 /// Collision-audited source identity and lifecycle state for all static assets
 /// and section instances. A complete successful inventory commits atomically;
 /// omission tombstones an identity, and later resurrection fails closed.
@@ -507,14 +516,15 @@ private:
       const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &,
       Ogre14GraphicsSceneStaticIdentityRegistry &,
       std::vector<GraphicsSceneAssetInput> &,
-      std::vector<GraphicsSceneStaticMeshInput> &);
+      std::vector<GraphicsSceneStaticMeshInput> &,
+      IOgre14GraphicsSceneStaticInventoryFaultInjector *);
 
   std::map<std::uint64_t, std::string> asset_names_by_id_;
   std::map<std::string, std::uint64_t, std::less<>> asset_ids_by_name_;
   std::map<std::uint64_t, std::string> object_names_by_id_;
   std::map<std::string, std::uint64_t, std::less<>> object_ids_by_name_;
-  std::map<std::string, std::shared_ptr<const RenderAssetPayload>, std::less<>>
-      canonical_payloads_by_asset_key_;
+  std::map<std::string, GraphicsSceneAssetInput, std::less<>>
+      canonical_assets_by_asset_key_;
   std::set<std::string, std::less<>> known_asset_keys_;
   std::set<std::string, std::less<>> live_asset_keys_;
   std::set<std::string, std::less<>> known_object_keys_;
@@ -524,6 +534,18 @@ private:
       terrain_page_ids_by_name_;
   std::set<std::string, std::less<>> known_terrain_page_keys_;
   std::set<std::string, std::less<>> live_terrain_page_keys_;
+};
+
+enum class Ogre14GraphicsSceneStaticInventoryFaultPoint : std::uint8_t {
+  AFTER_FIRST_RESOLVED_DEPENDENCY = 0U,
+};
+
+/// Borrowed test-only exception seam. Production callers leave this null.
+class IOgre14GraphicsSceneStaticInventoryFaultInjector {
+public:
+  virtual ~IOgre14GraphicsSceneStaticInventoryFaultInjector() = default;
+  virtual void AtFaultPoint(
+      Ogre14GraphicsSceneStaticInventoryFaultPoint point) = 0;
 };
 
 [[nodiscard]] ValidationResult ValidateOgre14GraphicsSceneStaticCoverage(
@@ -609,7 +631,9 @@ ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
     const std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> &inputs,
     Ogre14GraphicsSceneStaticIdentityRegistry &identity_registry,
     std::vector<GraphicsSceneAssetInput> &assets,
-    std::vector<GraphicsSceneStaticMeshInput> &static_meshes);
+    std::vector<GraphicsSceneStaticMeshInput> &static_meshes,
+    IOgre14GraphicsSceneStaticInventoryFaultInjector *fault_injector =
+        nullptr);
 
 /// OGRE 14's ambient scene color is already consumed as a renderer-linear
 /// multiplier. The bridge defines one native ambient unit as one canonical
