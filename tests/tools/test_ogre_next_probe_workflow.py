@@ -677,12 +677,14 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp",
             "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h",
             "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp",
+            "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
             "tests/tools/test_ogre14_particle_capture_contract.py",
             "tests/tools/test_ogre14_dynamic_material_closure_contract.py",
             "tests/tools/test_ogre14_legacy_asset_translator_contract.py",
             "tests/tools/test_ogre14_legacy_material_closure_contract.py",
             "tests/tools/test_ogre14_material_semantic_registry_contract.py",
+            "tests/tools/test_ogre14_source_texture_decoder_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
             *DEFORMABLE_CAPTURE_PROVENANCE_PATHS,
         ):
@@ -1165,6 +1167,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "-R '^ror_ogre14_material_semantic_registry$'", self.workflow
         )
         self.assertIn(
+            "-R '^ror_ogre14_source_texture_decoder$'", self.workflow
+        )
+        self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,
         )
@@ -1483,6 +1488,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn(
                 "ror_ogre14_material_semantic_registry_tests", cmake
             )
+            self.assertIn("Ogre14SourceTextureDecoder.cpp", cmake)
+            self.assertIn("Ogre14SourceTextureDecoderTests.cpp", cmake)
+            self.assertIn(
+                "ror_ogre14_source_texture_decoder_tests", cmake
+            )
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :
             probe_cmake.index(")", probe_cmake.index(
@@ -1522,6 +1532,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertEqual(
             package_dependencies.count(
                 "ror_ogre14_material_semantic_registry_tests"
+            ),
+            1,
+        )
+        self.assertEqual(
+            package_dependencies.count(
+                "ror_ogre14_source_texture_decoder_tests"
             ),
             1,
         )

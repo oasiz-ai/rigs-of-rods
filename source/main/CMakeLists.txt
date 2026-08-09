@@ -49,6 +49,7 @@ set(SOURCE_FILES
         gfx/render/Ogre14LegacyMaterialClosure.{h,cpp}
         gfx/render/Ogre14ParticleCaptureSource.{h,cpp}
         gfx/render/Ogre14ProceduralRoadSource.{h,cpp}
+        gfx/render/Ogre14SourceTextureDecoder.{h,cpp}
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
@@ -415,6 +416,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/Ogre14LegacyMaterialClosure.cpp
         gfx/render/Ogre14ParticleCaptureSource.cpp
         gfx/render/Ogre14ProceduralRoadSource.cpp
+        gfx/render/Ogre14SourceTextureDecoder.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp

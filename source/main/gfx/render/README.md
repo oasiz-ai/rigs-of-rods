@@ -886,3 +886,23 @@ native bits as authoritative history. The native frontend separately proves an
 exact current-to-old copy, creates the RoR-owned UI-free workspace in code, and
 uses a visible-overlay negative control plus staged same-object reinitialization
 to keep the compositor and lifecycle claims fail-closed.
+
+`Ogre14SourceTextureDecoder` is the renderer-neutral legacy DDS normalization
+boundary. It reads every integer explicitly as little-endian bytes and decodes
+the complete declared 2D mip chain to tightly packed RGBA8_UNORM. The admitted
+legacy formats are DXT1/BC1 (explicit opaque or one-bit-alpha interpretation),
+DXT3/BC2, DXT5/BC3, unsigned ATI1/BC4, unsigned ATI2/BC5, and the four exact
+32-bit RGBA/RGBX/BGRA/BGRX mask layouts. Block interpolation is integer-only
+and partial edge blocks are clipped to each mip's virtual dimensions.
+
+The DDS container is not semantic authority. Callers must supply sRGB-color or
+linear-data meaning separately, and DXT1 transparency is likewise explicit.
+The decoder rejects DX10 extensions/arrays, cube maps, volumes, signed or
+unknown formats, ambiguous masks, inconsistent pitches, impossible mip chains,
+overflow, truncation, and trailing bytes. It validates the complete encoded
+layout before allocation and commits one local candidate only after every mip
+has decoded, so validation failures, allocation failures, and arbitrary
+exceptions preserve the prior output. This module has no Ogre types, GPU
+readback, host-structure casts, floating-point interpolation, or third-party
+decoder dependency. It normalizes authenticated source bytes; it does not yet
+connect content archives to the live material transaction.
