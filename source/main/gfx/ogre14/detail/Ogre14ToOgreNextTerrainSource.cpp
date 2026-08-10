@@ -682,21 +682,27 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
                      "terrain page requires one immutable generic mesh",
                      index);
     }
-    const Render::MeshResourceDescriptor &mesh =
+    const Render::MeshResourceDescriptor &captured_mesh =
         std::get<Render::MeshResourceDescriptor>(*page.mesh_payload);
-    Render::ValidationResult validation =
-        Render::ValidateMeshResourceDescriptor(mesh);
-    if (!validation) {
-      validation.field = "ogre_next_demo.terrain.mesh." + validation.field;
-      validation.element_index = index;
-      return validation;
-    }
-    if (mesh.dynamic || mesh.texture_coordinates_0.size() !=
-                            mesh.positions.size()) {
+    if (captured_mesh.dynamic ||
+        captured_mesh.texture_coordinates_0.size() !=
+            captured_mesh.positions.size()) {
       return Failure(Render::ValidationCode::MISSING_REFERENCE,
                      "ogre_next_demo.terrain.mesh.uv0",
                      "display-domain terrain requires a static mesh with complete authored UV0",
                      index);
+    }
+    // Terrain remains unlit and shadow-free in this disposable lowering, so
+    // only its authored position/UV geometry is authoritative. Sanitize a
+    // private candidate before the full descriptor/material checks and never
+    // replace the cached OGRE14 CPU payload on failure.
+    Render::MeshResourceDescriptor mesh = captured_mesh;
+    Render::ValidationResult validation =
+        NormalizeOgreNextDemoMatteMesh(mesh);
+    if (!validation) {
+      validation.field = "ogre_next_demo.terrain.mesh." + validation.field;
+      validation.element_index = index;
+      return validation;
     }
 
     NativePageReadback native;
@@ -779,7 +785,8 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     owner.assets.reserve(4U);
     Render::GraphicsSceneAssetInput mesh_asset;
     mesh_asset.source_asset_id = mesh_id;
-    mesh_asset.payload = page.mesh_payload;
+    mesh_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
+        std::move(mesh));
     owner.assets.push_back(std::move(mesh_asset));
     Render::GraphicsSceneAssetInput texture_asset;
     texture_asset.source_asset_id = texture_id;

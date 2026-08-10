@@ -895,6 +895,25 @@ add_dependencies(
     ror_renderer_public_bridge_fake_game
     ror_renderer_public_bridge_fake_presentation
 )
+if (APPLE)
+    # Compile the admitted bridge fixture with the same private Finder-launch
+    # behavior as the disposable macOS demo. Existing cases all supply an
+    # explicit suffix, so they simultaneously prove that the argc=1 default
+    # does not alter caller-owned arguments.
+    target_compile_definitions(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART=1
+    )
+    foreach (public_bridge_fake_target IN ITEMS
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation
+    )
+        target_compile_definitions(
+            ${public_bridge_fake_target}
+            PRIVATE ROR_RENDERER_BRIDGE_FAKE_ALLOW_MACOS_DEMO_AUTOSTART=1
+        )
+    endforeach ()
+endif ()
 if (WIN32)
     set_target_properties(
         ror_renderer_public_bridge_entrypoint
@@ -2561,7 +2580,7 @@ set_tests_properties(
     PROPERTIES TIMEOUT 10
 )
 
-foreach (public_bridge_case IN ITEMS
+set(_ror_renderer_public_bridge_cases
     default-prefer
     explicit-require
     presentation-first
@@ -2570,6 +2589,10 @@ foreach (public_bridge_case IN ITEMS
     post-ready-terminal
     native-require-terminal
 )
+if (APPLE)
+    list(APPEND _ror_renderer_public_bridge_cases macos-demo-autostart)
+endif ()
+foreach (public_bridge_case IN LISTS _ror_renderer_public_bridge_cases)
     add_test(
         NAME "renderer_public_bridge_${public_bridge_case}"
         COMMAND
@@ -2584,6 +2607,7 @@ foreach (public_bridge_case IN ITEMS
         PROPERTIES TIMEOUT 20
     )
 endforeach ()
+unset(_ror_renderer_public_bridge_cases)
 
 add_test(
     NAME graphics_scene_snapshot_producer

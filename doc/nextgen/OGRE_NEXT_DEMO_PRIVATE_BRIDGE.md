@@ -12,6 +12,14 @@ The intended demo launch is:
 -checkcache -map CityWorld.terrn2 -truck AlexisSaber.truck -enter
 ```
 
+On macOS, a package configured with `ROR_OGRE_NEXT_DEMO_ADMISSION=ON`
+applies that exact launch only when Finder supplies no arguments. It also
+requires OgreNext with PSSM, so the demo cannot silently reopen the legacy
+renderer. Any explicit command-line argument preserves the ordinary launcher
+contract unchanged. The staged app is visibly named `Rigs of Rods OgreNext
+Demo` and uses a distinct bundle identifier so it cannot be confused with an
+installed legacy `RoR.app` by LaunchServices.
+
 ## Deliberate lowering
 
 - Each loaded terrain page keeps the existing CPU geometry extraction. Its
@@ -33,9 +41,12 @@ The intended demo launch is:
   texture-blend colors are dropped. Its authored zero-alpha, no-depth-write
   `invisible` cab section is omitted instead of being made visible.
 - Every private non-terrain mesh is normalized to RT4's position, normal,
-  tangent, UV0 layout. Missing UV0 becomes zero, tangents are deterministically
-  rebuilt from the current normal (including every dynamic update), and color,
-  UV1, and velocity streams with no demo consumer are dropped.
+  tangent, UV0 layout. Missing UV0 becomes zero; finite nonzero normals are
+  normalized while absent, zero, or non-finite normals become deterministic
+  +Y; tangents are rebuilt from that sanitized direction (including every
+  dynamic update). Color, UV1, and velocity streams with no demo consumer are
+  dropped. Terrain uses the same private basis sanitation on a copied payload
+  while retaining its authored positions and complete UV0.
 - CityWorld's six `topeQr.mesh` instances with exact derived scale
   `(1, 0.5, 0.5)` are explicitly omitted because the current RT4/PSSM tier
   rejects non-uniform instance transforms. This omission is bounded and logged

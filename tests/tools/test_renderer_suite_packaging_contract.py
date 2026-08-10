@@ -263,6 +263,28 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
                 self.assertIn(contract, facts)
         self.assertNotIn("getenv", facts.lower())
 
+        for contract in (
+            "if (APPLE AND ROR_OGRE_NEXT_DEMO_ADMISSION)",
+            "PRIVATE ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART=1",
+            "if (ROR_OGRE_NEXT_DEMO_ADMISSION)",
+            '"-DROR_BUNDLE_DISPLAY_NAME=Rigs of Rods OgreNext Demo"',
+            '"-DROR_BUNDLE_IDENTIFIER=org.rigsofrods.RoR.OgreNextDemo"',
+        ):
+            with self.subTest(autostart_build_contract=contract):
+                self.assertIn(contract, self.source_cmake)
+        for contract in (
+            "#if defined(ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART)",
+            "if (argc == 1)",
+            'kCheckCache[] = "-checkcache"',
+            'kMap[] = "CityWorld.terrn2"',
+            'kTruck[] = "AlexisSaber.truck"',
+            'kEnter[] = "-enter"',
+            "RendererFrontendPreference::OGRE_NEXT_REQUIRE",
+            "DirectionalShadowPreference::PSSM",
+        ):
+            with self.subTest(autostart_source_contract=contract):
+                self.assertIn(contract, self.public_launcher)
+
     def test_generated_package_metadata_requests_ogrenext_by_default(self) -> None:
         for contract in (
             'set(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND "OGRE_NEXT_PREFER")',

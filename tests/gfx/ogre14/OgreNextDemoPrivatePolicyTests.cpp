@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -233,7 +234,10 @@ void CheckMatteMeshNormalization() {
   mesh.positions = {{-1.0F, 0.0F, 0.0F},
                     {1.0F, 0.0F, 0.0F},
                     {0.0F, 1.0F, 0.0F}};
-  mesh.normals.assign(3U, {0.0F, 0.0F, 1.0F});
+  mesh.normals = {
+      {0.0F, 0.0F, 2.0F},
+      {0.0F, 0.0F, 0.0F},
+      {(std::numeric_limits<float>::quiet_NaN)(), 0.0F, 0.0F}};
   mesh.velocities.assign(3U, {2.0F, 3.0F, 4.0F});
   mesh.texture_coordinates_1.assign(3U, {0.25F, 0.75F});
   mesh.colors.assign(3U, {0.2F, 0.4F, 0.6F, 0.8F});
@@ -248,34 +252,68 @@ void CheckMatteMeshNormalization() {
                             return uv.x == 0.0F && uv.y == 0.0F;
                           }),
           "missing matte UV0 was not deterministically synthesized");
+  Require(mesh.normals.size() == 3U &&
+              mesh.normals[0U] == Float3{0.0F, 0.0F, 1.0F} &&
+              mesh.normals[1U] == Float3{0.0F, 1.0F, 0.0F} &&
+              mesh.normals[2U] == Float3{0.0F, 1.0F, 0.0F},
+          "matte normals were not normalized/fallback-sanitized");
   Require(mesh.tangents.size() == 3U &&
-              std::all_of(mesh.tangents.begin(), mesh.tangents.end(),
-                          [](const Float4 &tangent) {
-                            return tangent.x == 1.0F && tangent.y == 0.0F &&
-                                   tangent.z == 0.0F && tangent.w == 1.0F;
-                          }),
-          "matte tangent basis changed");
+              mesh.tangents[0U] == Float4{1.0F, 0.0F, 0.0F, 1.0F} &&
+              mesh.tangents[1U] == Float4{-1.0F, 0.0F, 0.0F, 1.0F} &&
+              mesh.tangents[2U] == Float4{-1.0F, 0.0F, 0.0F, 1.0F},
+          "matte tangent basis was not rebuilt from sanitized normals");
   Require(mesh.velocities.empty() &&
               mesh.texture_coordinates_1.empty() && mesh.colors.empty() &&
               ValidateMeshResourceDescriptor(mesh).ok(),
           "matte normalization retained an unsupported RT4 stream");
 
+  std::vector<Float3> dynamic_normals{
+      {0.0F, 3.0F, 0.0F},
+      {(std::numeric_limits<float>::infinity)(), 1.0F, 0.0F},
+      {0.0F, 0.0F, 0.0F}};
   std::vector<Float4> dynamic_tangents{{9.0F, 9.0F, 9.0F, 9.0F}};
   Require(BuildOgreNextDemoMatteTangents(
-              std::vector<Float3>{{0.0F, 1.0F, 0.0F}},
-              dynamic_tangents)
+              3U, dynamic_normals, dynamic_tangents)
               .ok() &&
-              dynamic_tangents.size() == 1U &&
-              dynamic_tangents[0U].x == -1.0F &&
-              dynamic_tangents[0U].y == 0.0F &&
-              dynamic_tangents[0U].z == 0.0F &&
-              dynamic_tangents[0U].w == 1.0F,
-          "joined dynamic matte tangent was not rebuilt from its live normal");
-  const std::vector<Float4> before = dynamic_tangents;
+              dynamic_normals ==
+                  std::vector<Float3>(3U, {0.0F, 1.0F, 0.0F}) &&
+              dynamic_tangents ==
+                  std::vector<Float4>(3U, {-1.0F, 0.0F, 0.0F, 1.0F}),
+          "joined dynamic normals/tangents were not sanitized deterministically");
+
+  std::vector<Float3> missing_normals;
+  std::vector<Float4> missing_tangents{{7.0F, 7.0F, 7.0F, 7.0F}};
+  Require(BuildOgreNextDemoMatteTangents(
+              2U, missing_normals, missing_tangents)
+              .ok() &&
+              missing_normals ==
+                  std::vector<Float3>(2U, {0.0F, 1.0F, 0.0F}) &&
+              missing_tangents ==
+                  std::vector<Float4>(2U, {-1.0F, 0.0F, 0.0F, 1.0F}),
+          "absent demo normal stream did not receive the fixed fallback");
+
+  std::vector<Float3> wrong_size_normals{{0.0F, 2.0F, 0.0F}};
+  std::vector<Float4> wrong_size_tangents{{9.0F, 9.0F, 9.0F, 9.0F}};
+  const std::vector<Float3> normals_before = wrong_size_normals;
+  const std::vector<Float4> tangents_before = wrong_size_tangents;
   const ValidationResult invalid = BuildOgreNextDemoMatteTangents(
-      std::vector<Float3>{{0.0F, 0.0F, 0.0F}}, dynamic_tangents);
-  Require(!invalid.ok() && dynamic_tangents == before,
-          "failed dynamic tangent synthesis changed its output");
+      2U, wrong_size_normals, wrong_size_tangents);
+  Require(!invalid.ok() && wrong_size_normals == normals_before &&
+              wrong_size_tangents == tangents_before,
+          "failed dynamic normal sanitization changed either output stream");
+
+  MeshResourceDescriptor rollback = mesh;
+  rollback.normals[0U] = {0.0F, 4.0F, 0.0F};
+  rollback.texture_coordinates_0.pop_back();
+  const std::vector<Float3> rollback_normals = rollback.normals;
+  const std::vector<Float4> rollback_tangents = rollback.tangents;
+  const ValidationResult rollback_result =
+      NormalizeOgreNextDemoMatteMesh(rollback);
+  Require(!rollback_result.ok() &&
+              rollback.normals == rollback_normals &&
+              rollback.tangents == rollback_tangents &&
+              rollback.texture_coordinates_0.size() == 2U,
+          "post-validation failure partially committed sanitized mesh streams");
 }
 
 } // namespace

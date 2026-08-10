@@ -947,27 +947,34 @@ RoR::Render::ValidationResult ExtractOgre14CpuMeshSection(
             "assets.mesh.index.format",
             "OGRE index buffer has an unknown format");
     }
-    validation = RoR::Render::BuildOgre14GraphicsSceneStaticMeshPayload(
-        input, payload);
+    // Sanitize the local extraction before the ordinary builder performs its
+    // canonical descriptor validation. The private input and candidate
+    // payload are not published until every post-normalization check passes.
+    validation = RoR::Gfx::Detail::BuildOgreNextDemoMatteTangents(
+        input.positions.size(), input.normals, input.tangents);
     if (!validation)
         return validation;
-    if (payload == nullptr ||
-        !std::holds_alternative<RoR::Render::MeshResourceDescriptor>(
-            *payload))
+    if (input.texture_coordinates_0.empty())
     {
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::WRONG_ASSET_KIND,
-            "ogre_next_demo.matte_mesh.payload",
-            "static mesh builder did not return a generic mesh payload");
+        input.texture_coordinates_0.assign(input.positions.size(), {});
     }
-    RoR::Render::MeshResourceDescriptor normalized =
-        std::get<RoR::Render::MeshResourceDescriptor>(*payload);
-    validation = RoR::Gfx::Detail::NormalizeOgreNextDemoMatteMesh(
-        normalized);
+    input.texture_coordinates_1.clear();
+    input.colors.clear();
+    std::shared_ptr<const RoR::Render::RenderAssetPayload> candidate_payload;
+    validation = RoR::Render::BuildOgre14GraphicsSceneStaticMeshPayload(
+        input, candidate_payload);
     if (!validation)
         return validation;
-    payload = std::make_shared<const RoR::Render::RenderAssetPayload>(
-        std::move(normalized));
+    RoR::Render::MeshResourceDescriptor candidate_mesh =
+        std::get<RoR::Render::MeshResourceDescriptor>(*candidate_payload);
+    validation = RoR::Gfx::Detail::NormalizeOgreNextDemoMatteMesh(
+        candidate_mesh);
+    if (!validation)
+        return validation;
+    candidate_payload =
+        std::make_shared<const RoR::Render::RenderAssetPayload>(
+            std::move(candidate_mesh));
+    payload = std::move(candidate_payload);
     return RoR::Render::ValidationResult::Success();
 }
 
@@ -1801,33 +1808,38 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                 }
                 base.topology_revision = prior + 1U;
             }
-            validation =
-                RoR::Render::BuildOgre14GraphicsSceneDynamicMeshPayload(
-                    base, section.mesh_payload);
-            if (!validation)
-                return validation;
             // RT4 uses one cross-renderer vertex layout for every object,
             // including the small factor-only subset. Normalize all private
             // non-terrain meshes, not only sections whose material was matted.
-            if (section.mesh_payload == nullptr ||
-                !std::holds_alternative<
-                    RoR::Render::MeshResourceDescriptor>(
-                        *section.mesh_payload))
-            {
-                return NativeStaticFailure(
-                    RoR::Render::ValidationCode::WRONG_ASSET_KIND,
-                    "ogre_next_demo.matte_mesh.payload",
-                    "dynamic mesh builder did not return a generic mesh payload");
-            }
-            RoR::Render::MeshResourceDescriptor normalized =
-                std::get<RoR::Render::MeshResourceDescriptor>(
-                    *section.mesh_payload);
-            validation = RoR::Gfx::Detail::
-                NormalizeOgreNextDemoMatteMesh(normalized);
+            // Sanitize the local joined state before the ordinary dynamic
+            // builder validates it, then retain the full private post-check.
+            validation = RoR::Gfx::Detail::BuildOgreNextDemoMatteTangents(
+                base.positions.size(), base.normals, base.tangents);
             if (!validation)
                 return validation;
-            section.mesh_payload = std::make_shared<const
-                RoR::Render::RenderAssetPayload>(std::move(normalized));
+            if (base.texture_coordinates_0.empty())
+            {
+                base.texture_coordinates_0.assign(base.positions.size(), {});
+            }
+            base.texture_coordinates_1.clear();
+            base.colors.clear();
+            std::shared_ptr<const RoR::Render::RenderAssetPayload>
+                candidate_payload;
+            validation =
+                RoR::Render::BuildOgre14GraphicsSceneDynamicMeshPayload(
+                    base, candidate_payload);
+            if (!validation)
+                return validation;
+            RoR::Render::MeshResourceDescriptor candidate_mesh =
+                std::get<RoR::Render::MeshResourceDescriptor>(
+                    *candidate_payload);
+            validation = RoR::Gfx::Detail::
+                NormalizeOgreNextDemoMatteMesh(candidate_mesh);
+            if (!validation)
+                return validation;
+            candidate_payload = std::make_shared<const
+                RoR::Render::RenderAssetPayload>(std::move(candidate_mesh));
+            section.mesh_payload = std::move(candidate_payload);
             RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry entry;
             entry.native_mesh_handle = native_mesh_handle;
             entry.native_state_count = native_state_count;
@@ -1854,7 +1866,7 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
         state->positions = std::move(base.positions);
         state->normals = std::move(base.normals);
         validation = RoR::Gfx::Detail::BuildOgreNextDemoMatteTangents(
-            state->normals, state->tangents);
+            state->positions.size(), state->normals, state->tangents);
         if (!validation)
             return validation;
         state->updated_local_bounds.minimum = state->positions.front();

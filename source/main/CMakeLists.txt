@@ -653,6 +653,14 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
     add_executable(
         ror_renderer_launcher
         ${_ror_renderer_launcher_sources})
+    if (APPLE AND ROR_OGRE_NEXT_DEMO_ADMISSION)
+        # This disposable package has no transported menu/HUD yet. Make a
+        # Finder double-click launch the one reviewed CityWorld demo and
+        # require OgreNext so it can never masquerade as the legacy renderer.
+        target_compile_definitions(
+            ror_renderer_launcher
+            PRIVATE ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART=1)
+    endif ()
     add_dependencies(ror_renderer_launcher ${BINNAME})
     if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
         # The launcher is never emitted ahead of the authenticated real-child
@@ -1178,6 +1186,16 @@ if (APPLE AND ROR_OGRE14)
     if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
         list(APPEND _ror_macos_bundle_arguments
             "-DROR_OGRE_NEXT_PRODUCT_ROOT=${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}")
+    endif ()
+
+    if (ROR_OGRE_NEXT_DEMO_ADMISSION)
+        # Keep LaunchServices, AppKit restoration, and human-visible app names
+        # distinct from an installed legacy RoR.app during this disposable
+        # product demo. The bundle filename and signed Mach-O entrypoint stay
+        # on the normal packaging contract.
+        list(APPEND _ror_macos_bundle_arguments
+            "-DROR_BUNDLE_DISPLAY_NAME=Rigs of Rods OgreNext Demo"
+            "-DROR_BUNDLE_IDENTIFIER=org.rigsofrods.RoR.OgreNextDemo")
     endif ()
 
     if (ROR_CREATE_CONTENT_FOLDER)

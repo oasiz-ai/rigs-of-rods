@@ -88,9 +88,28 @@ bool StartsWith(const NativeString &value,
          value.compare(0U, expected.size(), expected) == 0;
 }
 
+bool HasExpectedMacOSDemoLauncherArguments(
+    const std::vector<NativeString> &arguments) {
+#if defined(ROR_RENDERER_BRIDGE_FAKE_ALLOW_MACOS_DEMO_AUTOSTART)
+  return arguments.size() == 7U && !arguments[0U].empty() &&
+         Equals(arguments[1U], ROR_NATIVE_TEXT("-checkcache")) &&
+         Equals(arguments[2U], ROR_NATIVE_TEXT("-map")) &&
+         Equals(arguments[3U], ROR_NATIVE_TEXT("CityWorld.terrn2")) &&
+         Equals(arguments[4U], ROR_NATIVE_TEXT("-truck")) &&
+         Equals(arguments[5U], ROR_NATIVE_TEXT("AlexisSaber.truck")) &&
+         Equals(arguments[6U], ROR_NATIVE_TEXT("-enter"));
+#else
+  (void)arguments;
+  return false;
+#endif
+}
+
 bool HasExpectedPublicLauncherArguments(
     const std::vector<NativeString> &arguments) {
 #if defined(ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS)
+  if (HasExpectedMacOSDemoLauncherArguments(arguments)) {
+    return true;
+  }
   if (arguments.size() != 6U || arguments[0U].empty() ||
       !Equals(arguments[1U],
               ROR_NATIVE_TEXT("--bridge-test-public-argv")) ||
@@ -547,7 +566,20 @@ int Run(int argc, const RoR::RendererChildLauncherChar *const argv[]) {
   const RoR::RendererBridgeEndpointArgvParseResult parsed =
       RoR::ParseRendererBridgeEndpoint(static_cast<int>(pointers.size()),
                                        pointers.data());
-  return parsed.accepted ? RunPresentation(parsed) : kContractFailureExit + 7;
+  if (!parsed.accepted) {
+    return kContractFailureExit + 7;
+  }
+  if (HasExpectedMacOSDemoLauncherArguments(parsed.forwarded_arguments) &&
+      (renderer.startup.frontend !=
+           RoR::RendererFrontendPreference::OGRE_NEXT_REQUIRE ||
+       renderer.startup.directional_shadows !=
+           RoR::DirectionalShadowPreference::PSSM ||
+       renderer.startup.host_platform != RoR::HostRenderPlatform::MACOS ||
+       renderer.declared_native_backend !=
+           RoR::NativeRayTracingBackend::NONE)) {
+    return kContractFailureExit + 12;
+  }
+  return RunPresentation(parsed);
 #else
 #error "One fake render-bridge child role must be selected"
 #endif

@@ -278,6 +278,8 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
     "source/main/system/detail/OgreNextDemoFrameNormalization.h",
+    "source/main/physics/Savegame.cpp",
+    "tests/tools/test_renderer_suite_packaging_contract.py",
     "source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h",
     "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp",
     "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h",

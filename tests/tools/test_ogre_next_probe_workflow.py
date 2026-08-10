@@ -78,6 +78,8 @@ OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
     "source/main/system/detail/OgreNextDemoFrameNormalization.h",
+    "source/main/physics/Savegame.cpp",
+    "tests/tools/test_renderer_suite_packaging_contract.py",
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
     "tests/tools/test_ogre_next_probe_contract.py",
 )
@@ -86,7 +88,9 @@ OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
     "source/main/gfx/ogre14/detail/OgreNextDemo*",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*",
     "source/main/system/detail/OgreNextDemo*",
+    "source/main/physics/Savegame.cpp",
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+    "tests/tools/test_renderer_suite_packaging_contract.py",
 )
 
 
@@ -307,6 +311,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/detail/OgreNextDemo* text eol=lf",
             "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp text eol=lf",
             "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md text eol=lf",
+            "source/main/physics/Savegame.cpp text eol=lf",
+            "tests/tools/test_renderer_suite_packaging_contract.py text eol=lf",
         ):
             self.assertIn(token, attributes)
 

@@ -30,6 +30,8 @@ on:
       - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
       - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
       - doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+      - source/main/physics/Savegame.cpp
+      - tests/tools/test_renderer_suite_packaging_contract.py
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -167,6 +169,8 @@ on:
       - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
       - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
       - doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+      - source/main/physics/Savegame.cpp
+      - tests/tools/test_renderer_suite_packaging_contract.py
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*

@@ -11,7 +11,12 @@ endif ()
 set(_ror_public_bridge_owned_options)
 set(_ror_public_bridge_mode "--bridge-test-game-exit=0")
 set(_ror_public_bridge_expected_exit 0)
-if (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "default-prefer")
+set(_ror_public_bridge_no_arguments FALSE)
+if (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "macos-demo-autostart")
+    # Exercise the exact Finder-style argc=1 entrypoint. The launcher owns all
+    # demo defaults; even a test-only marker here would suppress the behavior.
+    set(_ror_public_bridge_no_arguments TRUE)
+elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "default-prefer")
     # No launcher-owned flags: OGRE_NEXT_PREFER is the public default.
 elseif (ROR_RENDERER_PUBLIC_BRIDGE_CASE STREQUAL "explicit-require")
     list(APPEND _ror_public_bridge_owned_options
@@ -46,17 +51,24 @@ else ()
         "${ROR_RENDERER_PUBLIC_BRIDGE_CASE}")
 endif ()
 
-execute_process(
-    COMMAND
-        "${ROR_RENDERER_PUBLIC_BRIDGE_LAUNCHER}"
-        ${_ror_public_bridge_owned_options}
-        "--bridge-test-public-argv"
-        "-map"
-        "City World"
-        "space and unicode Ω"
-        "${_ror_public_bridge_mode}"
-    RESULT_VARIABLE _ror_public_bridge_result
-    TIMEOUT 15)
+if (_ror_public_bridge_no_arguments)
+    execute_process(
+        COMMAND "${ROR_RENDERER_PUBLIC_BRIDGE_LAUNCHER}"
+        RESULT_VARIABLE _ror_public_bridge_result
+        TIMEOUT 15)
+else ()
+    execute_process(
+        COMMAND
+            "${ROR_RENDERER_PUBLIC_BRIDGE_LAUNCHER}"
+            ${_ror_public_bridge_owned_options}
+            "--bridge-test-public-argv"
+            "-map"
+            "City World"
+            "space and unicode Ω"
+            "${_ror_public_bridge_mode}"
+        RESULT_VARIABLE _ror_public_bridge_result
+        TIMEOUT 15)
+endif ()
 if (NOT "${_ror_public_bridge_result}" STREQUAL
         "${_ror_public_bridge_expected_exit}")
     message(FATAL_ERROR

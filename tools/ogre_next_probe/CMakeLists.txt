@@ -253,6 +253,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp"
     "source/main/system/detail/OgreNextDemoFrameNormalization.h"
+    "source/main/physics/Savegame.cpp"
+    "tests/tools/test_renderer_suite_packaging_contract.py"
     "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
@@ -2577,6 +2579,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h
             source/main/system/detail/OgreNextDemoFrameNormalization.cpp
             source/main/system/detail/OgreNextDemoFrameNormalization.h
+            source/main/physics/Savegame.cpp
+            tests/tools/test_renderer_suite_packaging_contract.py
             tests/gfx/GfxActorCaptureInventoryTests.cpp
             tests/system/ApplicationFatalShutdownContractTests.cpp
             tests/tools/test_ogre14_native_workflow_contract.py

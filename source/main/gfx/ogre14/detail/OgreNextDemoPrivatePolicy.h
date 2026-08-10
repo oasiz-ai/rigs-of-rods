@@ -54,15 +54,18 @@ struct OgreNextDemoSamplingObservation final {
 
 /// Canonicalizes an untextured demo-matte mesh to the exact RT4 vertex
 /// layout. Authored UV0 is retained, absent UV0 becomes deterministic zero,
-/// tangent directions are rebuilt from the current normals, and streams with
-/// no matte consumer are removed. The input is unchanged on failure.
+/// finite nonzero normals are normalized, unusable or absent normals become
+/// deterministic +Y, tangent directions are rebuilt, and streams with no
+/// matte consumer are removed. The input is unchanged on failure.
 [[nodiscard]] Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
     Render::MeshResourceDescriptor &mesh);
 
-/// Rebuilds the same matte-only tangent basis for a joined dynamic update.
-/// The output is unchanged when a normal is non-finite or non-unit.
+/// Sanitizes the complete normal stream and rebuilds the same matte-only
+/// tangent basis for a joined dynamic update. Finite nonzero directions are
+/// normalized; absent, zero, or non-finite directions become +Y. Both output
+/// streams are unchanged on structural failure.
 [[nodiscard]] Render::ValidationResult BuildOgreNextDemoMatteTangents(
-    const std::vector<Render::Float3> &normals,
+    std::size_t vertex_count, std::vector<Render::Float3> &normals,
     std::vector<Render::Float4> &tangents);
 
 /// Bidirectional collision audit. Transactions copy this private registry,

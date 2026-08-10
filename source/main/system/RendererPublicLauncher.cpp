@@ -380,7 +380,7 @@ bool ShouldFallbackRendererBridgeToOgre14(
 
 int RunRendererPublicLauncher(
     int argc, const RendererChildLauncherChar *const argv[]) noexcept {
-  const RendererPublicLauncherArguments arguments =
+  RendererPublicLauncherArguments arguments =
       ParseRendererPublicLauncherArguments(argc, argv);
   if (!arguments.accepted) {
     WriteArgumentFailure(arguments.status);
@@ -389,6 +389,39 @@ int RunRendererPublicLauncher(
                ? kRendererPublicLauncherInternalExitCode
                : kRendererPublicLauncherUsageExitCode;
   }
+
+#if defined(ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART)
+  // The admitted macOS demo intentionally has no transported menu or HUD.
+  // A Finder launch supplies only argv[0], so turn exactly that case into the
+  // reviewed CityWorld/Alexis demonstration. Any explicit caller argument is
+  // preserved byte-for-byte and retains the ordinary launcher contract.
+  if (argc == 1) {
+    static const RendererChildLauncherChar kCheckCache[] = "-checkcache";
+    static const RendererChildLauncherChar kMapOption[] = "-map";
+    static const RendererChildLauncherChar kMap[] = "CityWorld.terrn2";
+    static const RendererChildLauncherChar kTruckOption[] = "-truck";
+    static const RendererChildLauncherChar kTruck[] = "AlexisSaber.truck";
+    static const RendererChildLauncherChar kEnter[] = "-enter";
+    try {
+      arguments.forwarded_arguments.reserve(7U);
+      arguments.forwarded_arguments.push_back(kCheckCache);
+      arguments.forwarded_arguments.push_back(kMapOption);
+      arguments.forwarded_arguments.push_back(kMap);
+      arguments.forwarded_arguments.push_back(kTruckOption);
+      arguments.forwarded_arguments.push_back(kTruck);
+      arguments.forwarded_arguments.push_back(kEnter);
+    } catch (...) {
+      WriteArgumentFailure(
+          RendererPublicLauncherArgumentStatus::FAILED_INTERNAL);
+      return kRendererPublicLauncherInternalExitCode;
+    }
+    arguments.intent.frontend = RendererFrontendPreference::OGRE_NEXT_REQUIRE;
+    arguments.intent.directional_shadows =
+        DirectionalShadowPreference::PSSM;
+    arguments.intent.frontend_was_explicit = true;
+    arguments.intent.directional_shadows_were_explicit = true;
+  }
+#endif
 
   const RendererStartupPackageAvailability declared_availability =
       RendererPublicLauncherPackageAvailability();

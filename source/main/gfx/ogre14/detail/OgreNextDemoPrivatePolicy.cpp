@@ -225,21 +225,46 @@ Render::ValidationResult DeriveOgreNextDemoSourceId(
 }
 
 Render::ValidationResult BuildOgreNextDemoMatteTangents(
-    const std::vector<Render::Float3> &normals,
+    std::size_t vertex_count, std::vector<Render::Float3> &normals,
     std::vector<Render::Float4> &tangents) {
-  std::vector<Render::Float4> candidate;
-  candidate.reserve(normals.size());
-  for (std::size_t index = 0U; index < normals.size(); ++index) {
-    const Render::Float3 &normal = normals[index];
+  if (vertex_count == 0U) {
+    return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                   "ogre_next_demo.matte_mesh.normals",
+                   "demo normal sanitization requires at least one vertex");
+  }
+  if (!normals.empty() && normals.size() != vertex_count) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.matte_mesh.normals",
+                   "demo normal stream must be absent or complete");
+  }
+
+  constexpr Render::Float3 kFallbackNormal{0.0F, 1.0F, 0.0F};
+  std::vector<Render::Float3> candidate_normals = normals;
+  if (candidate_normals.empty()) {
+    candidate_normals.assign(vertex_count, kFallbackNormal);
+  }
+  std::vector<Render::Float4> candidate_tangents;
+  candidate_tangents.reserve(vertex_count);
+  for (std::size_t index = 0U; index < vertex_count; ++index) {
+    Render::Float3 &normal = candidate_normals[index];
     const float normal_length_squared = normal.x * normal.x +
                                         normal.y * normal.y +
                                         normal.z * normal.z;
-    if (!std::isfinite(normal_length_squared) ||
-        std::fabs(normal_length_squared - 1.0F) > 1.0e-3F) {
-      return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
-                     "ogre_next_demo.matte_mesh.normals",
-                     "matte tangent synthesis requires finite unit normals",
-                     index);
+    if (std::isfinite(normal.x) && std::isfinite(normal.y) &&
+        std::isfinite(normal.z) && std::isfinite(normal_length_squared) &&
+        normal_length_squared > 0.0F) {
+      const float inverse_length = 1.0F / std::sqrt(normal_length_squared);
+      normal = {normal.x * inverse_length, normal.y * inverse_length,
+                normal.z * inverse_length};
+      const float sanitized_length_squared = normal.x * normal.x +
+                                             normal.y * normal.y +
+                                             normal.z * normal.z;
+      if (!std::isfinite(sanitized_length_squared) ||
+          std::fabs(sanitized_length_squared - 1.0F) > 1.0e-3F) {
+        normal = kFallbackNormal;
+      }
+    } else {
+      normal = kFallbackNormal;
     }
     // Cross the normal with the least-parallel fixed axis. The tangent has no
     // material-space consumer in the matte path; it only provides the exact,
@@ -262,28 +287,17 @@ Render::ValidationResult BuildOgreNextDemoMatteTangents(
                      index);
     }
     const float inverse_length = 1.0F / std::sqrt(length_squared);
-    candidate.push_back(
+    candidate_tangents.push_back(
         {crossed.x * inverse_length, crossed.y * inverse_length,
          crossed.z * inverse_length, 1.0F});
   }
-  tangents = std::move(candidate);
+  normals = std::move(candidate_normals);
+  tangents = std::move(candidate_tangents);
   return Render::ValidationResult::Success();
 }
 
 Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
     Render::MeshResourceDescriptor &mesh) {
-  Render::ValidationResult validation =
-      Render::ValidateMeshResourceDescriptor(mesh);
-  if (!validation) {
-    validation.field = "ogre_next_demo.matte_mesh." + validation.field;
-    return validation;
-  }
-  if (mesh.normals.size() != mesh.positions.size()) {
-    return Failure(Render::ValidationCode::MISSING_REFERENCE,
-                   "ogre_next_demo.matte_mesh.normals",
-                   "demo matte normalization requires one authored normal per vertex");
-  }
-
   Render::MeshResourceDescriptor candidate = mesh;
   if (candidate.texture_coordinates_0.empty()) {
     candidate.texture_coordinates_0.assign(candidate.positions.size(), {});
@@ -291,8 +305,8 @@ Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
   candidate.texture_coordinates_1.clear();
   candidate.colors.clear();
   candidate.velocities.clear();
-  validation =
-      BuildOgreNextDemoMatteTangents(candidate.normals, candidate.tangents);
+  Render::ValidationResult validation = BuildOgreNextDemoMatteTangents(
+      candidate.positions.size(), candidate.normals, candidate.tangents);
   if (!validation) {
     return validation;
   }
