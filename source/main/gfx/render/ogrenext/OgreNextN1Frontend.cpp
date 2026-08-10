@@ -5580,8 +5580,25 @@ RenderOperationResult OgreNextN1Frontend::Render(
         if (!NearlyEqual(mesh_local, expected_local) ||
             !NearlyEqual(item_local, expected_local) ||
             !NearlyEqual(item_world, expected_world)) {
-          throw std::runtime_error("Ogre-Next PSSM Mesh/Item local or world "
-                                   "AABB failed native readback");
+          std::ostringstream detail;
+          detail << "Ogre-Next PSSM AABB failed native readback for instance "
+                 << instance.instance_id << " (mesh-local="
+                 << NearlyEqual(mesh_local, expected_local)
+                 << ", item-local="
+                 << NearlyEqual(item_local, expected_local)
+                 << ", item-world="
+                 << NearlyEqual(item_world, expected_world)
+                 << ", expected-world-center=" << expected_world.mCenter.x
+                 << ',' << expected_world.mCenter.y << ','
+                 << expected_world.mCenter.z << ", observed-world-center="
+                 << item_world.mCenter.x << ',' << item_world.mCenter.y << ','
+                 << item_world.mCenter.z << ", expected-world-half="
+                 << expected_world.mHalfSize.x << ','
+                 << expected_world.mHalfSize.y << ','
+                 << expected_world.mHalfSize.z << ", observed-world-half="
+                 << item_world.mHalfSize.x << ',' << item_world.mHalfSize.y
+                 << ',' << item_world.mHalfSize.z << ')';
+          throw std::runtime_error(detail.str());
         }
         OgreNextPssmNativeBoundsObservation observation;
         observation.instance_id = instance.instance_id;
