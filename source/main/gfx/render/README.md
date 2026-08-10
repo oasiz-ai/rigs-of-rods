@@ -850,8 +850,8 @@ session with the pinned SHA-256 domain
 therefore agree on the registry without a new handshake. It shares one sequence
 state across both typed decoders, synchronizes every accepted asset delta before
 dependent scene submission, validates scene references against that exact
-catalog, and uses the scene envelope sequence as the strictly increasing
-frontend frame ID.
+catalog, retains the mixed envelope sequence for transport acknowledgements,
+and assigns only actually rendered scenes contiguous frontend frame IDs.
 
 Presentation is an explicit caller policy. A presented scene selects the sole
 transported camera, exact active surface revision, and current drawable extent.

@@ -424,8 +424,15 @@ RendererFrontendTransportDispatcher::DispatchScene(
     return result;
   }
 
+  if (last_frontend_frame_id_ ==
+      (std::numeric_limits<std::uint64_t>::max)()) {
+    return Fail(RendererFrontendTransportDispatchStatus::FAILED_INTERNAL,
+                &frame, RenderTransportStatus::OK,
+                ValidationCode::VALUE_OUT_OF_RANGE,
+                RenderOperationCode::INVALID_ARGUMENT);
+  }
   RenderFrameRequest request;
-  request.frame_id = decoded.message->sequence();
+  request.frame_id = last_frontend_frame_id_ + 1U;
   request.scene_snapshot = decoded.message->scene_snapshot();
   request.views.push_back(camera);
   request.requested_outputs = presentation_policy.requested_outputs;
@@ -527,6 +534,7 @@ RendererFrontendTransportDispatcher::DispatchScene(
   RendererFrontendTransportDispatchResult result = Success(
       RendererFrontendTransportDispatchStatus::SCENE_FRAME_COMPLETED, frame,
       cleanup.released);
+  last_frontend_frame_id_ = request.frame_id;
   result.scene_snapshot_id = scene_snapshot_id;
   last_scene_snapshot_id_ = scene_snapshot_id;
   last_scene_asset_sequence_ =

@@ -643,7 +643,7 @@ void TestCompleteMonotonicFramesAndResponses() {
           "live session completion audit changed");
   Require(frontend.asset_calls == 1U && frontend.render_calls == 1U &&
               frontend.wait_calls == 1U && frontend.release_calls == 1U &&
-              frontend.frame_ids == std::vector<std::uint64_t>{2U} &&
+              frontend.frame_ids == std::vector<std::uint64_t>{1U} &&
               frontend.presented == std::vector<bool>{true} &&
               frontend.surface_revisions == std::vector<std::uint64_t>{9U},
           "complete frames did not reach the fake frontend exactly once");
@@ -694,7 +694,7 @@ void TestLiveSceneGenerationBoundaryAdmitsReloadTickZero() {
               session.last_acknowledged_forward_sequence == 4U &&
               frontend.scene_generation_resets == 1U &&
               frontend.render_calls == 2U && frontend.wait_calls == 2U &&
-              frontend.frame_ids == std::vector<std::uint64_t>({2U, 4U}) &&
+              frontend.frame_ids == std::vector<std::uint64_t>({1U, 2U}) &&
               frontend.last_simulation_time_seconds == 0.0,
           "live dispatch did not consume final empty before tick-zero reload");
   Require(poll.observed_forward_sequences ==

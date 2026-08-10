@@ -121,8 +121,9 @@ ToString(RendererFrontendTransportDispatchStatus status) noexcept;
 /// sequence state, so asset and scene messages form one exact lineage.
 ///
 /// Asset transactions are applied and synchronized before a scene may resolve
-/// them. Scene envelope sequence is the frontend frame ID. Every successful
-/// Render is drained with an infinite WaitForFrame before each unique
+/// them. Mixed transport sequence remains the acknowledgement lineage; scenes
+/// that actually reach Render receive a separate contiguous frontend frame ID.
+/// Every successful Render is drained with an infinite WaitForFrame before each unique
 /// transferred attachment handle is released exactly once. Any malformed
 /// payload, wrong direction, lineage mismatch, frontend failure, invalid
 /// output, or release failure permanently poisons this dispatcher. The
@@ -204,6 +205,7 @@ private:
       RendererFrontendTransportDispatchStatus::FAILED_INTERNAL;
   bool terminal_ = false;
   std::uint64_t scene_generation_ = 1U;
+  std::uint64_t last_frontend_frame_id_ = 0U;
   std::uint64_t last_scene_snapshot_id_ = 0U;
   std::uint64_t last_scene_asset_sequence_ = 0U;
   bool last_scene_was_empty_ = false;

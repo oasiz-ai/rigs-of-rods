@@ -802,8 +802,9 @@ void TestRetiredSceneAdvancesLineageWithoutFrontendWork() {
                 "dispatcher did not continue after stale-scene retirement");
   Require(rendered.scene_snapshot_id == 12U && !rendered.terminal &&
               frontend.rendered_requests.size() == 1U &&
+              frontend.rendered_requests.front().frame_id == 1U &&
               dispatcher.next_expected_sequence() == 4U,
-          "post-retirement scene did not render on the same live dispatcher");
+          "post-retirement scene consumed a frontend ID or failed to render");
 }
 
 void TestStalePresentationExtentRetiresAfterDecode() {
@@ -860,15 +861,15 @@ void TestInterleavedAssetsScenesAndPresentation() {
   Require(frontend.rendered_requests.size() == 1U,
           "frontend did not receive exactly one scene");
   const RenderFrameRequest &request1 = frontend.rendered_requests.front();
-  Require(request1.frame_id == 2U && request1.views.size() == 1U,
-          "envelope sequence/camera did not become the frame request");
+  Require(request1.frame_id == 1U && request1.views.size() == 1U,
+          "first rendered scene did not receive frontend frame ID one");
   Require(request1.present && request1.presentation_view_id == 7U &&
               request1.presentation_surface_revision == 9U,
           "caller presentation surface policy was not preserved");
   Require(request1.color_format == PixelFormat::RGBA16_FLOAT &&
               request1.allow_async_compute,
           "caller render policy was not preserved");
-  Require(frontend.waited_frame_ids == std::vector<std::uint64_t>{2U} &&
+  Require(frontend.waited_frame_ids == std::vector<std::uint64_t>{1U} &&
               frontend.waited_timeouts.front() ==
                   kInfiniteRenderTimeoutNanoseconds,
           "scene was not synchronously drained");
@@ -889,7 +890,7 @@ void TestInterleavedAssetsScenesAndPresentation() {
   Require(rendered2.scene_snapshot_id == 2U,
           "offscreen scene did not expose its decoded snapshot identity");
   const RenderFrameRequest &request2 = frontend.rendered_requests.back();
-  Require(request2.frame_id == 4U && !request2.present &&
+  Require(request2.frame_id == 2U && !request2.present &&
               request2.presentation_view_id == 0U &&
               request2.presentation_surface_revision == 0U,
           "UI-free offscreen request acquired presentation identity");
