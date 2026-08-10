@@ -126,6 +126,29 @@ LightDescriptor Directional(std::uint32_t shadow_flags) {
   return light;
 }
 
+void TestNativeTransformReadbackTolerance() {
+  Require(NearlyEqualOgreNextPssmNativeTransformValue(5.04999F, 5.05F) &&
+              NearlyEqualOgreNextPssmNativeTransformValue(0.250001F,
+                                                           0.250002F),
+          "native transformed-AABB roundoff was rejected");
+  Require(!NearlyEqualOgreNextPssmNativeTransformValue(5.049F, 5.05F),
+          "meaningful native transformed-AABB drift was accepted");
+
+  const float epsilon = (std::numeric_limits<float>::epsilon)();
+  Require(NearlyEqualOgreNextPssmNativeTransformValue(
+              1.0F, 1.0F + 32.0F * epsilon) &&
+              !NearlyEqualOgreNextPssmNativeTransformValue(
+                  1.0F, 1.0F + 128.0F * epsilon),
+          "native transformed-AABB tolerance boundary changed");
+  const float nan = (std::numeric_limits<float>::quiet_NaN)();
+  const float infinity = (std::numeric_limits<float>::infinity)();
+  Require(!NearlyEqualOgreNextPssmNativeTransformValue(nan, 1.0F) &&
+              !NearlyEqualOgreNextPssmNativeTransformValue(1.0F, nan) &&
+              !NearlyEqualOgreNextPssmNativeTransformValue(infinity, 1.0F) &&
+              !NearlyEqualOgreNextPssmNativeTransformValue(1.0F, -infinity),
+          "non-finite native transformed-AABB value was accepted");
+}
+
 void TestConstantsAndSplits() {
   Require(kOgreNextPssmCascadeCount == 3U &&
               kOgreNextPssmNearMeters == 0.5F &&
@@ -368,6 +391,7 @@ void TestFailClosedEdges() {
 } // namespace
 
 int main() {
+  TestNativeTransformReadbackTolerance();
   TestConstantsAndSplits();
   TestAdmissionAndMasks();
   TestFailClosedEdges();

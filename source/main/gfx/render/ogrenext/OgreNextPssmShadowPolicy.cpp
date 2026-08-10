@@ -8,6 +8,7 @@
 
 #include "OgreNextPssmShadowPolicy.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -45,6 +46,20 @@ bool NearlyEqual(float lhs, float rhs) noexcept {
 }
 
 } // namespace
+
+bool NearlyEqualOgreNextPssmNativeTransformValue(float expected,
+                                                  float observed) noexcept {
+  // Node::setOrientation normalizes the quaternion and Ogre-Next's NEON/SIMD
+  // world-AABB path evaluates the same admitted TRS with a different/FMA
+  // ordering. Budget 64 binary32 epsilons only for that native readback.
+  constexpr float kRelativeTolerance =
+      64.0F * (std::numeric_limits<float>::epsilon)();
+  return IsFinite(expected) && IsFinite(observed) &&
+         std::fabs(expected - observed) <=
+             kRelativeTolerance *
+                 std::max(1.0F, std::max(std::fabs(expected),
+                                         std::fabs(observed)));
+}
 
 bool IsKnownOgreNextDirectionalShadowMode(
     OgreNextDirectionalShadowMode mode) noexcept {

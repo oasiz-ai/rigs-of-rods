@@ -508,6 +508,22 @@ bool NearlyEqual(const Ogre::Aabb &lhs, const Ogre::Aabb &rhs) noexcept {
          NearlyEqual(lhs.mHalfSize, rhs.mHalfSize);
 }
 
+bool NearlyEqualNativeTransformedAabb(const Ogre::Aabb &expected,
+                                      const Ogre::Aabb &observed) noexcept {
+  return NearlyEqualOgreNextPssmNativeTransformValue(expected.mCenter.x,
+                                                      observed.mCenter.x) &&
+         NearlyEqualOgreNextPssmNativeTransformValue(expected.mCenter.y,
+                                                      observed.mCenter.y) &&
+         NearlyEqualOgreNextPssmNativeTransformValue(expected.mCenter.z,
+                                                      observed.mCenter.z) &&
+         NearlyEqualOgreNextPssmNativeTransformValue(expected.mHalfSize.x,
+                                                      observed.mHalfSize.x) &&
+         NearlyEqualOgreNextPssmNativeTransformValue(expected.mHalfSize.y,
+                                                      observed.mHalfSize.y) &&
+         NearlyEqualOgreNextPssmNativeTransformValue(expected.mHalfSize.z,
+                                                      observed.mHalfSize.z);
+}
+
 OgreNextPssmNativeAabb ObserveNativeAabb(const Ogre::Aabb &aabb) noexcept {
   const Ogre::Vector3 minimum = aabb.getMinimum();
   const Ogre::Vector3 maximum = aabb.getMaximum();
@@ -5577,9 +5593,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
         const Ogre::Aabb mesh_local = render_mesh->mesh->getAabb();
         const Ogre::Aabb item_local = item->getLocalAabb();
         const Ogre::Aabb item_world = item->getWorldAabbUpdated();
+        const bool item_world_matches =
+            NearlyEqualNativeTransformedAabb(expected_world, item_world);
         if (!NearlyEqual(mesh_local, expected_local) ||
             !NearlyEqual(item_local, expected_local) ||
-            !NearlyEqual(item_world, expected_world)) {
+            !item_world_matches) {
           std::ostringstream detail;
           detail << "Ogre-Next PSSM AABB failed native readback for instance "
                  << instance.instance_id << " (mesh-local="
@@ -5587,7 +5605,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
                  << ", item-local="
                  << NearlyEqual(item_local, expected_local)
                  << ", item-world="
-                 << NearlyEqual(item_world, expected_world)
+                 << item_world_matches
                  << ", expected-world-center=" << expected_world.mCenter.x
                  << ',' << expected_world.mCenter.y << ','
                  << expected_world.mCenter.z << ", observed-world-center="
