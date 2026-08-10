@@ -36,10 +36,10 @@ constexpr bool kOgreNextPssmAdmitted =
 constexpr NativeRayTracingBackend kNativeDirectionalShadowBackend =
     NativeRayTracingBackend::@ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND@;
 
-// The production package generator still records Ogre-Next as absent until its
-// independent admission gate succeeds. These invariants also permit a bounded
-// process-contract fixture to compile admitted facts without making any runtime
-// or user-controlled package-fact channel available.
+// Ordinary product builds record Ogre-Next as absent. An explicit demo build
+// may compile admitted facts only after selecting the verified production
+// package. These invariants permit that bounded build-time admission without
+// creating any runtime or user-controlled package-fact channel.
 static_assert(kOgre14ChildPresent,
               "the phase-2 launcher requires the OGRE 14 game child");
 static_assert(kDefaultFrontendPreference ==

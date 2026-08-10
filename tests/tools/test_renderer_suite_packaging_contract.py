@@ -149,6 +149,9 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             "`ROR_OGRE14` | `ON`",
             "`ROR_RENDERER_PUBLIC_LAUNCHER` | `ON`",
             "`ROR_OGRE_NEXT_PRODUCTION_PACKAGE` | `ON`",
+            "`ROR_OGRE_NEXT_DEMO_ADMISSION` | `OFF`",
+            "`-DROR_OGRE_NEXT_DEMO_ADMISSION=ON`",
+            "does not admit native ray",
         ):
             with self.subTest(contract=contract):
                 self.assertIn(contract, guide)
@@ -226,6 +229,39 @@ class RendererSuitePackagingContractTests(unittest.TestCase):
             with self.subTest(contract=contract):
                 self.assertIn(contract, facts)
         self.assertNotIn("CACHE", facts)
+
+    def test_demo_admission_is_explicit_and_build_time_only(self) -> None:
+        for contract in (
+            "option(\n"
+            "    ROR_OGRE_NEXT_DEMO_ADMISSION\n"
+            "    \"Admit the verified OgreNext child and PSSM for an "
+            "explicit demo build\"\n"
+            "    OFF)",
+            "if (ROR_OGRE_NEXT_DEMO_ADMISSION AND\n"
+            "        NOT ROR_OGRE_NEXT_PRODUCTION_PACKAGE)",
+            '"ROR_OGRE_NEXT_DEMO_ADMISSION requires "',
+            '"ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON"',
+        ):
+            with self.subTest(root_contract=contract):
+                self.assertIn(contract, self.root_cmake)
+
+        self.assertIn(
+            '"${ROR_OGRE_NEXT_DEMO_ADMISSION}")', self.source_cmake
+        )
+        facts = self.package_facts
+        for contract in (
+            "admit_ogre_next_demo",
+            'NOT "${admit_ogre_next_demo}" STREQUAL "ON"',
+            'NOT "${admit_ogre_next_demo}" STREQUAL "OFF"',
+            'if ("${admit_ogre_next_demo}" STREQUAL "ON")',
+            'set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "true")',
+            'set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "true")',
+            'set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "true")',
+            'set(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND "NONE")',
+        ):
+            with self.subTest(fact_contract=contract):
+                self.assertIn(contract, facts)
+        self.assertNotIn("getenv", facts.lower())
 
     def test_generated_package_metadata_requests_ogrenext_by_default(self) -> None:
         for contract in (

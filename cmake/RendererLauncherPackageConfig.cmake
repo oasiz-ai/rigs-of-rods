@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # Configure the immutable package facts consumed by the public renderer
-# launcher. The renderer-suite package deliberately admits only the real
-# OGRE 14 game child; changing any Ogre-Next fact requires the independent
-# production-child admission gate.
+# launcher. Ordinary renderer-suite packages admit only the real OGRE 14 game
+# child. A bounded demo package may admit the verified OgreNext/PSSM child with
+# one explicit build-system argument; there is no runtime admission channel.
 function(ror_configure_renderer_launcher_package_facts
-        template_path output_directory output_header_variable)
+        template_path output_directory output_header_variable
+        admit_ogre_next_demo)
     if (NOT IS_ABSOLUTE "${template_path}"
             OR NOT EXISTS "${template_path}"
             OR IS_DIRECTORY "${template_path}")
@@ -17,6 +18,12 @@ function(ror_configure_renderer_launcher_package_facts
         message(FATAL_ERROR
             "Renderer launcher generated include directory must be absolute: "
             "${output_directory}")
+    endif ()
+    if (NOT "${admit_ogre_next_demo}" STREQUAL "ON" AND
+            NOT "${admit_ogre_next_demo}" STREQUAL "OFF")
+        message(FATAL_ERROR
+            "Renderer launcher OgreNext demo admission must be exactly ON or "
+            "OFF, not '${admit_ogre_next_demo}'")
     endif ()
 
     if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -32,11 +39,10 @@ function(ror_configure_renderer_launcher_package_facts
     endif ()
 
     # These are intentionally ordinary function-local values, not cache
-    # settings or caller inputs. The generated header is the package record for
-    # this bounded phase and cannot be changed by an environment/config file.
-    # Default intent is distinct from admission: the public executable always
-    # requests OgreNext first, while the immutable facts below continue to
-    # reject an unadmitted child.
+    # settings or environment/config-file inputs. The generated header is the
+    # package record for this bounded phase. Default intent is distinct from
+    # admission: the public executable always requests OgreNext first, while
+    # the explicit build-system argument controls this demo-only admission.
     set(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND "OGRE_NEXT_PREFER")
     set(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS "PSSM")
     set(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT "true")
@@ -44,6 +50,11 @@ function(ror_configure_renderer_launcher_package_facts
     set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "false")
     set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "false")
     set(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND "NONE")
+    if ("${admit_ogre_next_demo}" STREQUAL "ON")
+        set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "true")
+        set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "true")
+        set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "true")
+    endif ()
 
     file(MAKE_DIRECTORY "${output_directory}")
     set(_ror_renderer_launcher_generated_header

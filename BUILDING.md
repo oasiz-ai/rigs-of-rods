@@ -16,6 +16,12 @@ admission result, not a different build default. An explicit
 `--renderer-frontend=ogre-next-require` request never falls back; use
 `--renderer-frontend=legacy-only` only when diagnosing compatibility.
 
+For a bounded renderer demo, configure a fresh build with
+`-DROR_OGRE_NEXT_DEMO_ADMISSION=ON`. This build-only switch admits the matched,
+verified `RoR-OgreNext` child and its PSSM path in the generated launcher facts.
+It requires `ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON`, does not admit native ray
+tracing, and does not change ordinary product-build defaults.
+
 See [the OgreNext integration checkpoint](doc/nextgen/OGRE_NEXT_INTEGRATION.md)
 for the process boundary and current admission status. The upstream wiki still
 contains useful platform setup background, but its historical dependency graph
@@ -104,18 +110,25 @@ The supported defaults are:
 | `ROR_OGRE14` | `ON` | Build the simulation host and compatibility renderer. |
 | `ROR_RENDERER_PUBLIC_LAUNCHER` | `ON` | Build the OgreNext-first public chooser. |
 | `ROR_OGRE_NEXT_PRODUCTION_PACKAGE` | `ON` | Build and verify the real isolated OgreNext child. |
+| `ROR_OGRE_NEXT_DEMO_ADMISSION` | `OFF` | Admit the matched OgreNext/PSSM package for an explicit demo build. |
 
-These three defaults are independent, explicit `ON` cache initializers. A
-fresh no-flag CMake configuration therefore cannot silently inherit an
-OGRE14-only product topology from option evaluation order. Existing build
-directories retain their previously cached values; use a fresh build directory
-when validating the supported product default.
+The three renderer-suite topology defaults are independent, explicit `ON`
+cache initializers. The separate demo admission is explicitly `OFF`. A fresh
+no-flag CMake configuration therefore cannot silently inherit an OGRE14-only
+product topology or an admitted demo from option evaluation order. Existing
+build directories retain their previously cached values; use a fresh build
+directory when validating either configuration.
 
 `ROR_RENDERER_PUBLIC_LAUNCHER=ON` requires `ROR_OGRE14=ON`, because the current
 two-process OgreNext product uses the OGRE 14 executable as its simulation host
 as well as its bounded pre-readiness fallback. Disabling either dependent
 option is an explicit developer configuration and is not a supported shipping
 package.
+
+`ROR_OGRE_NEXT_DEMO_ADMISSION=ON` additionally requires
+`ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON`. The public launcher depends on the
+verified product-stage target, so a demo launcher is not emitted ahead of its
+matched `RoR-OgreNext` executable and media closure.
 
 The packaged user entrypoint is always the public chooser: `RoR.app` with
 `CFBundleExecutable=RoR` on macOS, `RunRoR` (which executes sibling `RoR`) on

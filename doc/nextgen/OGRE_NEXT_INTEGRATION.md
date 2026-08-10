@@ -161,6 +161,12 @@ closure, signs `RoR-OgreNext`, `RoR-Ogre14`, and then the outer application, and
 requires strict deep signature verification. A local Apple Silicon build proved
 all three executables are arm64 and that the staged Ogre-Next payload is closed;
 this packaging result proves presence and identity, not production admission.
+Ordinary builds therefore continue to publish fail-closed launcher facts. A
+fresh build configured with `ROR_OGRE_NEXT_DEMO_ADMISSION=ON` is the bounded
+exception: it requires that verified production package, admits only the
+OgreNext child and PSSM in immutable generated launcher facts, and continues to
+declare native ray tracing unsupported. This is a demo switch, not completion
+of the production image, performance, or cross-platform admission gates.
 On POSIX, timeout cleanup starts the child in a new session, kills its process
 group, and reaps the direct child. Windows kills and reaps the direct child. A
 separate build gate lexically scans the reviewed, pinned RoR/OGRE source closure

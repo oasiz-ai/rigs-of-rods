@@ -608,7 +608,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
     ror_configure_renderer_launcher_package_facts(
         "${CMAKE_CURRENT_LIST_DIR}/system/RendererLauncherPackageConfig.h.in"
         "${_ror_renderer_launcher_generated_include_dir}"
-        _ror_renderer_launcher_generated_header)
+        _ror_renderer_launcher_generated_header
+        "${ROR_OGRE_NEXT_DEMO_ADMISSION}")
 
     set(_ror_renderer_launcher_source_tree_sources
         system/RendererLauncherMain.cpp
@@ -646,8 +647,8 @@ if (ROR_RENDERER_PUBLIC_LAUNCHER)
     add_dependencies(ror_renderer_launcher ${BINNAME})
     if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
         # The launcher is never emitted ahead of the authenticated real-child
-        # stage. Immutable availability/readiness facts remain fail-closed
-        # until the separate native admission pass promotes them.
+        # stage. Availability/readiness facts remain fail-closed unless this
+        # build explicitly enables the bounded demo admission.
         add_dependencies(
             ror_renderer_launcher
             ${ROR_OGRE_NEXT_PRODUCT_TARGET})

@@ -292,6 +292,9 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         cls.probe_cmake = (
             REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt"
         ).read_text(encoding="utf-8")
+        cls.tests_cmake = (
+            REPOSITORY_ROOT / "tests/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
         cls.mac_stager = (
             REPOSITORY_ROOT / "cmake/macos/StageMacOSBundle.cmake"
         ).read_text(encoding="utf-8")
@@ -363,13 +366,49 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         )
         self.assertLess(nested_sign, outer_sign)
 
-    def test_admission_facts_remain_false_until_second_pass(self) -> None:
+    def test_admission_facts_default_false_and_demo_is_explicit(self) -> None:
+        for token in (
+            "option(\n"
+            "    ROR_OGRE_NEXT_DEMO_ADMISSION\n"
+            "    \"Admit the verified OgreNext child and PSSM for an "
+            "explicit demo build\"\n"
+            "    OFF)",
+            "if (ROR_OGRE_NEXT_DEMO_ADMISSION AND\n"
+            "        NOT ROR_OGRE_NEXT_PRODUCTION_PACKAGE)",
+            '"ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON"',
+        ):
+            self.assertIn(token, self.root_cmake)
         for token in (
             'ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "false"',
             'ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "false"',
             'ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "false"',
         ):
             self.assertIn(token, self.facts)
+        for token in (
+            'if ("${admit_ogre_next_demo}" STREQUAL "ON")',
+            'ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "true"',
+            'ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "true"',
+            'ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "true"',
+            'ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND "NONE"',
+        ):
+            self.assertIn(token, self.facts)
+        self.assertIn(
+            '"${ROR_OGRE_NEXT_DEMO_ADMISSION}")', self.source_cmake
+        )
+        self.assertNotIn(
+            "ROR_OGRE_NEXT_DEMO_ADMISSION", self.tests_cmake
+        )
+        self.assertNotIn(
+            "ROR_OGRE_NEXT_DEMO_ADMISSION", self.probe_cmake
+        )
+        self.assertIn(
+            "_ror_renderer_public_launcher_generated_header\n    OFF)",
+            self.tests_cmake,
+        )
+        self.assertIn(
+            "_ror_renderer_public_launcher_generated_header\n        OFF)",
+            self.probe_cmake,
+        )
 
 
 if __name__ == "__main__":

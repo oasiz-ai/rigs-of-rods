@@ -53,6 +53,10 @@ option(
     ROR_OGRE_NEXT_PRODUCTION_PACKAGE
     "Build and package the verified real OgreNext renderer child"
     ON)
+option(
+    ROR_OGRE_NEXT_DEMO_ADMISSION
+    "Admit the verified OgreNext child and PSSM for an explicit demo build"
+    OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
@@ -65,6 +69,12 @@ if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND
         NOT ROR_RENDERER_PUBLIC_LAUNCHER)
     message(FATAL_ERROR
         "ROR_OGRE_NEXT_PRODUCTION_PACKAGE requires the public renderer launcher")
+endif ()
+if (ROR_OGRE_NEXT_DEMO_ADMISSION AND
+        NOT ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+    message(FATAL_ERROR
+        "ROR_OGRE_NEXT_DEMO_ADMISSION requires "
+        "ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON")
 endif ()
 
 if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)

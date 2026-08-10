@@ -1815,7 +1815,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     ror_configure_renderer_launcher_package_facts(
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
         "${_ror_renderer_public_launcher_generated_include_dir}"
-        _ror_renderer_public_launcher_generated_header)
+        _ror_renderer_public_launcher_generated_header
+        OFF)
 
     # Real public entrypoint plus an exact legacy sibling, isolated from the
     # N1 package tree. This exercises POSIX main or Windows Unicode wWinMain

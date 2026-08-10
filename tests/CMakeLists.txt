@@ -575,7 +575,8 @@ set(_ror_renderer_public_launcher_generated_include_dir
 ror_configure_renderer_launcher_package_facts(
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
     "${_ror_renderer_public_launcher_generated_include_dir}"
-    _ror_renderer_public_launcher_generated_header)
+    _ror_renderer_public_launcher_generated_header
+    OFF)
 
 add_executable(
     ror_renderer_public_launcher_tests
