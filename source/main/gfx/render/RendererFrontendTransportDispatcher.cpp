@@ -8,6 +8,7 @@
 
 #include "RendererFrontendTransportDispatcher.h"
 
+#include <cstdio>
 #include <limits>
 #include <new>
 #include <stdexcept>
@@ -504,6 +505,11 @@ RendererFrontendTransportDispatcher::DispatchScene(
         cleanup.first_failure, cleanup.released);
   }
   if (!rendered) {
+    (void)std::fprintf(
+        stderr,
+        "RoR renderer frontend dispatch: Render failed (code=%u, detail=%s)\n",
+        static_cast<unsigned>(rendered.code), rendered.detail.c_str());
+    (void)std::fflush(stderr);
     return Fail(RendererFrontendTransportDispatchStatus::FAILED_FRONTEND_RENDER,
                 &frame, RenderTransportStatus::OK, ValidationCode::OK,
                 rendered.code, cleanup.released);
