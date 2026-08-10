@@ -116,6 +116,11 @@ void TestInvalidVersionEnumsAndNames() {
               "unknown alpha mode was accepted");
 
   descriptor = {};
+  descriptor.base_color_transfer = static_cast<BaseColorTransfer>(255U);
+  RequireCode(descriptor, ValidationCode::INVALID_ENUM,
+              "unknown base-color transfer ordering was accepted");
+
+  descriptor = {};
   descriptor.debug_name = std::string(256U, 'x');
   RequireCode(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
               "oversized debug name was accepted");

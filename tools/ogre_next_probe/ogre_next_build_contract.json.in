@@ -67,6 +67,15 @@
   "shader_media": {
     "root": "@ROR_OGRE_NEXT_SHADER_MEDIA_ROOT@",
     "license_expression": "@ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_EXPRESSION@",
+    "display_domain_unlit": {
+      "base_color_transfer": "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE",
+      "relative_path": "Hlms/@ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE@",
+      "size": @ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SIZE@,
+      "sha256": "@ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SHA256@",
+      "license_expression": "@ROR_OGRE_NEXT_DISPLAY_DOMAIN_LICENSE_EXPRESSION@",
+      "notice_path": "@ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_PATH@",
+      "notice_sha256": "@ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SHA256@"
+    },
     "third_party_notice": {
       "license_ref": "@ROR_OGRE_NEXT_SHADER_MEDIA_LICENSE_REF@",
       "source_path": "@ROR_OGRE_NEXT_SHADER_MEDIA_SOURCE_PATH@",

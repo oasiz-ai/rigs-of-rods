@@ -21,11 +21,11 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kRenderAssetDeltaTransportPayloadVersion = 1U;
+constexpr std::uint32_t kRenderAssetDeltaTransportPayloadVersion = 2U;
 constexpr std::uint32_t kRenderAssetDeltaTransportRegistryVersion = 1U;
 constexpr std::uint32_t kRenderAssetDeltaTransportMeshVersion = 1U;
 constexpr std::uint32_t kRenderAssetDeltaTransportTextureVersion = 1U;
-constexpr std::uint32_t kRenderAssetDeltaTransportMaterialVersion = 2U;
+constexpr std::uint32_t kRenderAssetDeltaTransportMaterialVersion = 3U;
 constexpr std::uint32_t kRenderAssetDeltaTransportSamplerVersion = 1U;
 
 constexpr std::uint64_t kRenderAssetDeltaTransportMaximumPayloadBytes =
@@ -64,7 +64,7 @@ public:
 
   [[nodiscard]] std::uint64_t sequence() const noexcept { return sequence_; }
   [[nodiscard]] RenderTransportMessageKind kind() const noexcept {
-    return RenderTransportMessageKind::RENDER_ASSET_DELTA_V1;
+    return RenderTransportMessageKind::RENDER_ASSET_DELTA_V2;
   }
   [[nodiscard]] const std::shared_ptr<const RenderAssetDelta> &
   delta() const noexcept {

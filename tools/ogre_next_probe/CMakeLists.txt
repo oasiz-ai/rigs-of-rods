@@ -92,6 +92,9 @@ file(GLOB_RECURSE _ror_relevant_source_files
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${ROR_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_relevant_source_files
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
+    "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
     "CMakeLists.txt"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"
@@ -362,10 +365,39 @@ configure_file(
     @ONLY)
 set(ROR_OGRE_NEXT_MEDIA_ROOT "${ogre_next_SOURCE_DIR}/Samples/Media")
 set(_ror_n1_hlms_root "${ROR_OGRE_NEXT_MEDIA_ROOT}/Hlms")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE
+    "RoR/DisplayDomain/DisplayDomain_piece_ps.any")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/media/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_LICENSE_EXPRESSION
+    "GPL-3.0-or-later")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_PATH
+    "${ROR_OGRE_NEXT_N1_PACKAGE_ROR_LICENSE_RELATIVE}")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE
+    "${ROR_REPOSITORY_ROOT}/COPYING")
+if (NOT EXISTS "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    message(FATAL_ERROR
+        "RoR legacy display-domain HLMS piece is missing or indirect")
+endif ()
+if (NOT EXISTS "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}")
+    message(FATAL_ERROR
+        "RoR legacy display-domain GPL notice is missing or indirect")
+endif ()
+file(SIZE "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+    ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SIZE)
+file(SHA256 "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+    ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SHA256)
+file(SHA256 "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}"
+    ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SHA256)
 file(GLOB_RECURSE _ror_n1_hlms_files
     LIST_DIRECTORIES false
     RELATIVE "${_ror_n1_hlms_root}"
     "${_ror_n1_hlms_root}/*")
+list(APPEND _ror_n1_hlms_files
+    "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+list(REMOVE_DUPLICATES _ror_n1_hlms_files)
 list(SORT _ror_n1_hlms_files)
 if (NOT _ror_n1_hlms_files)
     message(FATAL_ERROR "The pinned Ogre-Next HLMS file manifest is empty")
@@ -373,8 +405,14 @@ endif ()
 set(ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_ENTRIES "")
 set(_ror_n1_media_manifest_serialized "")
 foreach (_ror_n1_hlms_relative IN LISTS _ror_n1_hlms_files)
-    set(_ror_n1_hlms_file
-        "${_ror_n1_hlms_root}/${_ror_n1_hlms_relative}")
+    if (_ror_n1_hlms_relative STREQUAL
+            ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE)
+        set(_ror_n1_hlms_file
+            "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    else ()
+        set(_ror_n1_hlms_file
+            "${_ror_n1_hlms_root}/${_ror_n1_hlms_relative}")
+    endif ()
     if (IS_SYMLINK "${_ror_n1_hlms_file}")
         message(FATAL_ERROR
             "Pinned Ogre-Next HLMS manifest contains a symbolic link: "
@@ -650,15 +688,18 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_config.h"
     @ONLY)
-file(REAL_PATH "${ROR_OGRE_NEXT_MEDIA_ROOT}"
-    _ror_ogre_next_child_media_real)
-file(TO_CMAKE_PATH "${_ror_ogre_next_child_media_real}"
+set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-n1-package")
+set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT
+    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
+    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v11")
+file(TO_CMAKE_PATH "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
     ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT)
 if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT}" OR
-        NOT IS_DIRECTORY "${ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT}" OR
         ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT MATCHES "[;\"]")
     message(FATAL_ERROR
-        "The probe-only Ogre-Next child requires one representable absolute pinned media root")
+        "The probe-only Ogre-Next child requires one representable absolute staged media root")
 endif ()
 set(ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted")
 set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "false")
@@ -850,6 +891,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set(_ror_ogre_next_frontend_n1_sources
         "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.h"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
@@ -2356,6 +2399,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_repository_root
             "${CMAKE_CURRENT_SOURCE_DIR}/../..")
         set(_ror_n2_relevant_source_paths
+            source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+            source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
+            tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
             CMakeLists.txt
             doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
             cmake/OgreNextProductionPackage.cmake
@@ -2697,14 +2743,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             ror_ogre_next_metal_n4_directional_shadow_smoke)
     endif ()
 
-    set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-n1-package")
-    set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE}")
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
-    set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v10")
     set(_ror_n1_package_commands
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -2775,6 +2815,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_OGRE_NEXT_PACKAGE_FREETYPE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_FREETYPE_OVERVIEW_SOURCE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}")
     foreach (_ror_reflection_media_relative IN LISTS
             _ror_reflection_media_files)
@@ -2854,6 +2895,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/Hlms"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/RoR/DisplayDomain"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/Compositors"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/Compositors"
@@ -2873,6 +2922,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         VERBATIM)
     add_custom_target(ror_ogre_next_frontend_n1_package ALL
         DEPENDS "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}")
+    add_dependencies(
+        ror_ogre_next_pssm_shadow_smoke
+        ror_ogre_next_frontend_n1_package)
+    if (TARGET ror_renderer_ogre_next_child_runtime)
+        add_dependencies(
+            ror_renderer_ogre_next_child_runtime
+            ror_ogre_next_frontend_n1_package)
+    endif ()
 
     if (ROR_OGRE_NEXT_PRODUCT_STAGE)
         set(_ror_ogre_next_product_completion
@@ -3192,6 +3249,7 @@ if (TARGET ror_renderer_ogre_next_child_runtime)
         PROPERTIES
             RESOURCE_LOCK ror_ogre_next_n1_native_device
             SKIP_RETURN_CODE 77
+            REQUIRED_FILES "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
             TIMEOUT 120
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
     add_test(
@@ -3494,7 +3552,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
 
     add_test(NAME ror_ogre_next_pssm_shadow_runtime
         COMMAND $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
-                --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
                 --report "${ROR_OGRE_NEXT_PSSM_CTEST_REPORT}"
                 --evidence "${ROR_OGRE_NEXT_PSSM_CTEST_EVIDENCE}"
                 --execution-challenge
@@ -3504,6 +3562,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         PROPERTIES
             RESOURCE_LOCK ror_ogre_next_n1_native_device
             SKIP_RETURN_CODE 77
+            REQUIRED_FILES "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
             TIMEOUT 180
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
     add_custom_target(
@@ -3520,7 +3579,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${CMAKE_CURRENT_SOURCE_DIR}/run_pssm_shadow.py"
             --build-dir "${CMAKE_BINARY_DIR}"
             --executable $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
-            --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
             --build-contract
                 "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
             --report "${ROR_OGRE_NEXT_PSSM_REPORT}"
@@ -3530,6 +3589,8 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             --artifact-manifest "${ROR_OGRE_NEXT_PSSM_ARTIFACT_MANIFEST}"
         DEPENDS
             ror_ogre_next_pssm_shadow_smoke
+            ror_ogre_next_frontend_n1_package
+            "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
             "${CMAKE_CURRENT_SOURCE_DIR}/run_pssm_shadow.py"
         BYPRODUCTS
             "${ROR_OGRE_NEXT_PSSM_REPORT}"

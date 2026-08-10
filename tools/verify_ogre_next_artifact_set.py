@@ -112,6 +112,16 @@ FREETYPE_PACKAGE_LICENSE_CONTRACT = (
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PINNED_LOCK_PATH = REPOSITORY_ROOT / "tools/ogre_next_probe/ogre-next.lock.json"
+DISPLAY_DOMAIN_MEDIA_PATH = (
+    REPOSITORY_ROOT
+    / "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_MEDIA_RELATIVE = (
+    "Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_NOTICE_PATH = "licenses/Rigs-of-Rods-GPL-3.0.txt"
+DISPLAY_DOMAIN_LICENSE_EXPRESSION = "GPL-3.0-or-later"
+DISPLAY_DOMAIN_NOTICE_SOURCE = REPOSITORY_ROOT / "COPYING"
 NORMAL_MAP_SOURCE_LOCK_PATH = (
     REPOSITORY_ROOT
     / "tools/ogre_next_probe/ogre-next-normal-map-source.lock.json"
@@ -242,6 +252,8 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/resources/terrn2_fileformat/TerrainBundleDependency.h",
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp",
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp",
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h",
     "source/main/gfx/render",
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
@@ -341,6 +353,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/tools/test_ogre_next_window_host_contract.py",
     "tests/tools/test_ogre_next_window_presentation_contract.py",
     "tests/tools/test_ogre_next_window_run_loop_contract.py",
+    "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any",
     "tools/ogre_next_probe",
     "tools/ogre14_runtime_audit.py",
     "tools/compile_ogre14_material_semantic_catalog_v2.py",
@@ -676,6 +689,33 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _expected_build_shader_media(lock: dict[str, object]) -> dict[str, object]:
+    source = DISPLAY_DOMAIN_MEDIA_PATH
+    notice = DISPLAY_DOMAIN_NOTICE_SOURCE
+    if source.is_symlink() or not source.is_file():
+        raise ArtifactSetError(
+            "legacy display-domain shader source is missing or indirect"
+        )
+    if notice.is_symlink() or not notice.is_file():
+        raise ArtifactSetError(
+            "legacy display-domain GPL notice is missing or indirect"
+        )
+    locked = lock.get("shader_media")
+    if not isinstance(locked, dict):
+        raise ArtifactSetError("pinned shader-media contract is invalid")
+    expected = dict(locked)
+    expected["display_domain_unlit"] = {
+        "base_color_transfer": "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE",
+        "relative_path": DISPLAY_DOMAIN_MEDIA_RELATIVE,
+        "size": source.stat().st_size,
+        "sha256": sha256_file(source),
+        "license_expression": DISPLAY_DOMAIN_LICENSE_EXPRESSION,
+        "notice_path": DISPLAY_DOMAIN_NOTICE_PATH,
+        "notice_sha256": sha256_file(notice),
+    }
+    return expected
 
 
 def _read_json_object(path: Path, label: str) -> dict[str, object]:
@@ -1053,7 +1093,9 @@ def _read_build_contract(
         "source": _json_exact(ror_source, expected_source),
         "ogre": _json_exact(ogre_source, expected_ogre),
         "dependencies": _json_exact(dependencies, expected_dependencies),
-        "shader_media": _json_exact(shader_media, lock.get("shader_media")),
+        "shader_media": _json_exact(
+            shader_media, _expected_build_shader_media(lock)
+        ),
         "reflection_shader_media": _json_exact(
             reflection_shader_media, lock.get("reflection_shader_media")
         ),
@@ -2302,6 +2344,7 @@ def _verify_rt4_semantics(
             "renderer",
             "adapter",
             "catalog",
+            "display_domain_unlit",
             "texture_allocations",
             "texture_upload_rollback",
             "texture_retirement",
@@ -2329,6 +2372,32 @@ def _verify_rt4_semantics(
         raise ArtifactSetError("RT4 HDR/SDR report metrics are missing")
     if not isinstance(isolation, dict):
         raise ArtifactSetError("RT4 isolation report is missing")
+    display_domain_unlit = report.get("display_domain_unlit")
+    if not isinstance(display_domain_unlit, dict):
+        raise ArtifactSetError("RT4 display-domain Unlit report is missing")
+    _require_exact_keys(
+        display_domain_unlit,
+        {
+            "schema",
+            "base_color_transfer",
+            "upload_format",
+            "mip_policy",
+            "sampler",
+            "shader_precision",
+            "encoded_filtered",
+            "filter_then_eotf",
+            "decode_before_filter",
+            "matching_foreground_pixels",
+            "decode_before_filter_pixels",
+            "complete_unorm_mips_uploaded",
+            "full32_after_filter_shader_executed",
+            "alpha_untouched_opaque",
+            "no_cast_or_receive_shadow_flags",
+            "usage_transition_rollback_exact",
+            "usage_transition_commit_exact",
+        },
+        "RT4 display-domain Unlit report",
+    )
     _verify_hdr_compositor(report.get("hdr_compositor"))
     compositor_slices = _verify_hdr_compositor_visual(
         report, ppm_pixels, compositor_path
@@ -2636,6 +2705,41 @@ def _verify_rt4_semantics(
             report.get("texture_upload_rollback"),
             RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK,
         ),
+        "display_domain_unlit": display_domain_unlit.get("schema")
+        == "ror.ogre_next_rt4_display_domain_unlit.v1"
+        and display_domain_unlit.get("base_color_transfer")
+        == "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE"
+        and display_domain_unlit.get("upload_format") == "RGBA8_UNORM"
+        and display_domain_unlit.get("mip_policy")
+        == "complete_base_to_1x1_nearest_mip"
+        and display_domain_unlit.get("sampler")
+        == "linear_min_mag_clamp_edge"
+        and display_domain_unlit.get("shader_precision") == "PrecisionFull32"
+        and all(
+            isinstance(display_domain_unlit.get(field), list)
+            and len(display_domain_unlit[field]) == 3
+            and all(
+                isinstance(value, (int, float))
+                for value in display_domain_unlit[field]
+            )
+            for field in (
+                "encoded_filtered",
+                "filter_then_eotf",
+                "decode_before_filter",
+            )
+        )
+        and _is_positive_int(
+            display_domain_unlit.get("matching_foreground_pixels")
+        )
+        and display_domain_unlit["matching_foreground_pixels"] >= 512
+        and _json_exact(display_domain_unlit.get("decode_before_filter_pixels"), 0)
+        and display_domain_unlit.get("complete_unorm_mips_uploaded") is True
+        and display_domain_unlit.get("full32_after_filter_shader_executed")
+        is True
+        and display_domain_unlit.get("alpha_untouched_opaque") is True
+        and display_domain_unlit.get("no_cast_or_receive_shadow_flags") is True
+        and display_domain_unlit.get("usage_transition_rollback_exact") is True
+        and display_domain_unlit.get("usage_transition_commit_exact") is True,
         "lifecycle": _json_exact(
             report.get("lifecycle"), RT4_EXPECTED_LIFECYCLE
         ),

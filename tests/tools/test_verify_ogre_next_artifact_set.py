@@ -176,7 +176,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "license_sha256": rapidjson["license_sha256"],
                 }
             },
-            "shader_media": copy.deepcopy(self.lock["shader_media"]),
+            "shader_media": VERIFY._expected_build_shader_media(self.lock),
             "reflection_shader_media": copy.deepcopy(
                 self.lock["reflection_shader_media"]
             ),
@@ -1122,6 +1122,27 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "referenced_sampler_count": 1,
                 "unreferenced_assets_not_uploaded": True,
                 "transactional_replay_after_restart": True,
+            },
+            "display_domain_unlit": {
+                "schema": "ror.ogre_next_rt4_display_domain_unlit.v1",
+                "base_color_transfer": (
+                    "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE"
+                ),
+                "upload_format": "RGBA8_UNORM",
+                "mip_policy": "complete_base_to_1x1_nearest_mip",
+                "sampler": "linear_min_mag_clamp_edge",
+                "shader_precision": "PrecisionFull32",
+                "encoded_filtered": [0.5, 128.0 / 255.0, 128.0 / 255.0],
+                "filter_then_eotf": [0.21404114, 0.21586053, 0.21586053],
+                "decode_before_filter": [0.5, 0.309789, 0.289193],
+                "matching_foreground_pixels": 4096,
+                "decode_before_filter_pixels": 0,
+                "complete_unorm_mips_uploaded": True,
+                "full32_after_filter_shader_executed": True,
+                "alpha_untouched_opaque": True,
+                "no_cast_or_receive_shadow_flags": True,
+                "usage_transition_rollback_exact": True,
+                "usage_transition_commit_exact": True,
             },
             "texture_allocations": copy.deepcopy(
                 VERIFY.RT4_EXPECTED_TEXTURE_ALLOCATIONS

@@ -33,6 +33,14 @@ COMPLETION_RELATIVE = PurePosixPath(".ror-ogre-next-product-complete.json")
 N1_MEDIA_RELATIVE = PurePosixPath(
     "share/rigsofrods/ogre-next/Samples/Media"
 )
+DISPLAY_DOMAIN_MEDIA_RELATIVE = PurePosixPath(
+    "Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_TRANSFER = "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE"
+DISPLAY_DOMAIN_LICENSE_EXPRESSION = "GPL-3.0-or-later"
+DISPLAY_DOMAIN_NOTICE_RELATIVE = PurePosixPath(
+    "licenses/Rigs-of-Rods-GPL-3.0.txt"
+)
 BASE_NOTICES = frozenset(
     {
         "FreeType-GPLv2.txt",
@@ -126,6 +134,55 @@ def _safe_manifest_relative(value: Any) -> PurePosixPath:
     return relative
 
 
+def _assert_display_domain_provenance(
+    contract: dict[str, Any], media_root: Path, notices_root: Path
+) -> None:
+    shader_media = contract.get("shader_media")
+    legacy = (
+        shader_media.get("display_domain_unlit")
+        if isinstance(shader_media, dict)
+        else None
+    )
+    if not isinstance(legacy, dict):
+        raise PackageError(
+            "OgreNext legacy display-domain shader provenance is unavailable"
+        )
+    relative = _safe_manifest_relative(legacy.get("relative_path"))
+    if (
+        relative != DISPLAY_DOMAIN_MEDIA_RELATIVE
+        or legacy.get("base_color_transfer")
+        != DISPLAY_DOMAIN_TRANSFER
+        or legacy.get("license_expression")
+        != DISPLAY_DOMAIN_LICENSE_EXPRESSION
+        or _safe_manifest_relative(legacy.get("notice_path"))
+        != DISPLAY_DOMAIN_NOTICE_RELATIVE
+    ):
+        raise PackageError(
+            "OgreNext legacy display-domain shader semantics changed"
+        )
+    source = media_root / relative
+    _assert_regular(source, "legacy display-domain shader media")
+    expected_size = legacy.get("size")
+    expected_sha256 = legacy.get("sha256")
+    expected_notice_sha256 = legacy.get("notice_sha256")
+    notice = notices_root / DISPLAY_DOMAIN_NOTICE_RELATIVE.name
+    _assert_regular(notice, "legacy display-domain GPL notice")
+    if (
+        type(expected_size) is not int
+        or expected_size < 0
+        or source.stat().st_size != expected_size
+        or not isinstance(expected_sha256, str)
+        or len(expected_sha256) != 64
+        or _sha256(source) != expected_sha256
+        or not isinstance(expected_notice_sha256, str)
+        or len(expected_notice_sha256) != 64
+        or _sha256(notice) != expected_notice_sha256
+    ):
+        raise PackageError(
+            "OgreNext legacy display-domain shader provenance differs from its media bytes"
+        )
+
+
 def _expected_identity(identity: str) -> bytes:
     try:
         encoded = identity.encode("ascii")
@@ -159,6 +216,8 @@ def _product_build_contract(
     *,
     policy: str,
     identity: str,
+    authenticated_media_root: Path,
+    authenticated_notices_root: Path,
     forbidden_prefixes: Iterable[Path],
 ) -> dict[str, Any]:
     contract = _load_json(source, "OgreNext build contract")
@@ -189,6 +248,9 @@ def _product_build_contract(
     shader_media = contract.get("shader_media")
     if not isinstance(shader_media, dict):
         raise PackageError("OgreNext shader-media provenance is unavailable")
+    _assert_display_domain_provenance(
+        contract, authenticated_media_root, authenticated_notices_root
+    )
     shader_media["root"] = "resources/ogrenext/Hlms"
     contract["product_package"] = {
         "schema": MANIFEST_SCHEMA,
@@ -308,6 +370,21 @@ def verify_package(
     for required_path in required_directories:
         if not (root / required_path).is_dir():
             raise PackageError(f"required product directory is absent: {required_path}")
+    product_contract = _load_json(
+        root / BUILD_CONTRACT_RELATIVE, "product build contract"
+    )
+    if (
+        not isinstance(product_contract, dict)
+        or not isinstance(product_contract.get("shader_media"), dict)
+        or product_contract["shader_media"].get("root")
+        != "resources/ogrenext/Hlms"
+    ):
+        raise PackageError("product shader-media provenance root changed")
+    _assert_display_domain_provenance(
+        product_contract,
+        root / "resources" / "ogrenext" / "Hlms",
+        root / "licenses",
+    )
     notice_names = {
         path.name
         for path in (root / "licenses").iterdir()
@@ -363,7 +440,7 @@ def stage_package(
         )
     _assert_identity(child, identity)
     _assert_directory(n1_package, "N1 authenticated package")
-    _assert_regular(n1_package / ".stage-v10", "N1 completion stamp")
+    _assert_regular(n1_package / ".stage-v11", "N1 completion stamp")
     _assert_directory(presentation_root, "presentation media")
     _assert_regular(build_contract, "OgreNext build contract")
     media_root = n1_package / N1_MEDIA_RELATIVE
@@ -421,6 +498,8 @@ def stage_package(
             build_contract,
             policy=policy,
             identity=identity,
+            authenticated_media_root=media_root,
+            authenticated_notices_root=licenses_root,
             forbidden_prefixes=source_roots,
         )
         (temporary / BUILD_CONTRACT_RELATIVE).write_bytes(

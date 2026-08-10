@@ -553,7 +553,7 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         }
         result.last_forward_sequence = frame.sequence;
         if (frame.kind ==
-            Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1) {
+            Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2) {
           if (!AddCounter(1U, result.asset_frames)) {
             return FinishWithClose(
                 result, RendererOgreNextLiveSessionStatus::FAILED_INTERNAL,

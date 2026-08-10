@@ -19,6 +19,7 @@ on:
       - source/main/terrain/Terrain.cpp
       - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
+      - tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
@@ -85,6 +86,8 @@ on:
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
       - source/main/gfx/render/**
       - tests/gfx/GfxActorCaptureInventoryTests.cpp
       - tests/system/ApplicationFatalShutdownContractTests.cpp
@@ -148,6 +151,7 @@ on:
       - source/main/terrain/Terrain.cpp
       - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
+      - tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
@@ -214,6 +218,8 @@ on:
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
       - source/main/system/RendererPublicLauncher.*
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
       - source/main/gfx/render/**
       - tests/gfx/GfxActorCaptureInventoryTests.cpp
       - tests/system/ApplicationFatalShutdownContractTests.cpp

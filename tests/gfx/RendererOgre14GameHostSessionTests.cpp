@@ -791,7 +791,7 @@ void TestTwoEndedAssetSceneInputAckControlAndHalfClose() {
     ok = ok && ReadFrame(fixture.game_outbound.read_handle, stream,
                          asset_frame) &&
               asset_frame.kind ==
-                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V1 &&
+                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V2 &&
               asset_decoder.Accept(asset_frame.bytes).ok() &&
               asset_decoder.registry().registry_id() == registry_id &&
               asset_decoder.registry().sequence() == 1U &&
@@ -1408,7 +1408,7 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
   Require(ReadFrame(fixture.game_outbound.read_handle, stream, asset_frame) &&
               asset_frame.sequence == 1U &&
               asset_frame.kind ==
-                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V1,
+                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V2,
           "product initial asset frame did not preserve forward sequence");
   RenderBridgeAcknowledgement asset_ack;
   asset_ack.registry_id = registry_id;

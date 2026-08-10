@@ -144,6 +144,24 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.frontend = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.cpp"
         ).read_text(encoding="utf-8")
+        cls.display_domain_unlit_header = (
+            RENDER_ROOT
+            / "ogrenext"
+            / "OgreNextDisplayDomainUnlit.h"
+        ).read_text(encoding="utf-8")
+        cls.display_domain_unlit_source = (
+            RENDER_ROOT
+            / "ogrenext"
+            / "OgreNextDisplayDomainUnlit.cpp"
+        ).read_text(encoding="utf-8")
+        cls.display_domain_piece = (
+            PROBE_ROOT
+            / "media"
+            / "Hlms"
+            / "RoR"
+            / "DisplayDomain"
+            / "DisplayDomain_piece_ps.any"
+        ).read_text(encoding="utf-8")
         cls.media_integrity = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1MediaIntegrity.cpp"
         ).read_text(encoding="utf-8")
@@ -286,7 +304,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "digest != expected.sha256",
         ):
             self.assertIn(token, self.entry_cmake + self.media_integrity)
-        self.assertIn(".stage-v10", self.entry_cmake)
+        self.assertIn(".stage-v11", self.entry_cmake)
         self.assertIn(
             '"Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any"',
             self.entry_cmake,
@@ -535,7 +553,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "setRoughness(",
             "setEmissive(",
             "setTwoSidedLighting(descriptor.double_sided, false)",
-            "VerifyPbsMapping(*native.datablock, descriptor)",
+            "VerifyPbsMapping(*native.pbs_datablock, descriptor)",
             "datablock.getBrdf() != Ogre::PbsBrdf::Default",
             "datablock.getWorkflow() != Ogre::HlmsPbsDatablock::MetallicWorkflow",
             "datablock.getDiffuse()",
@@ -591,7 +609,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "ReferencedTextureUsage",
             "existing->second.usage == referenced->second.usage",
             "allocated an unused sampled RGBA texture",
-            "rejects aliases between sampled sRGB and packed linear",
+            "rejects aliases among decode-before-filter sRGB",
             "QueryTextureAllocationAudit",
             "native_allocation_creates",
             "native_allocation_destroys",
@@ -668,6 +686,68 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             destroy_catalog.index("DestroyMaterial"),
             destroy_catalog.index("DestroyTexture"),
         )
+
+    def test_display_domain_unlit_runs_after_filter_in_full32_unorm(self) -> None:
+        for token in (
+            "Ogre::HlmsUnlit(data_folder, library_folders)",
+            "calculateHashForPreCreate",
+            "kOgreNextDisplayDomainDatablockPrefix",
+            "kOgreNextDisplayDomainProperty",
+        ):
+            self.assertIn(
+                token,
+                self.display_domain_unlit_header
+                + self.display_domain_unlit_source,
+            )
+        self.assertNotIn("HLMS_USER0", self.display_domain_unlit_source)
+        for token in (
+            "setPrecisionMode(Ogre::Hlms::PrecisionFull32)",
+            "getSupportedPrecisionMode() != Ogre::Hlms::PrecisionFull32",
+            "UploadedTextureChannel::DISPLAY_DOMAIN_RGBA",
+            "PFG_RGBA8_UNORM",
+            "display_domain_unlit_datablock",
+            "pbs_material && shadow_plan.enabled",
+            "pbs_datablock->clone",
+            "OgreNextN1DisplayDomainUploadAudit",
+            "DisplayDomainUploadAudit() const",
+            "readback.convertFromTexture(",
+            "std::memcmp(downloaded_row, source_row, row_bytes)",
+        ):
+            self.assertIn(token, self.frontend)
+        for token in (
+            "@property( ror_display_domain_unlit )",
+            "@piece( custom_ps_preLights )",
+            "0.04045f",
+            "12.92f",
+            "2.4f",
+        ):
+            self.assertIn(token, self.display_domain_piece)
+        for token in (
+            "RunDisplayDomainUnlitProof",
+            "MakeDisplayDomainUnlitCatalog",
+            "RGBA16_FLOAT",
+            "QuantizeHdrR16Float",
+            "matching_foreground_pixels >= 512U",
+            "decode_before_filter_pixels == 0U",
+            "complete_unorm_mips_uploaded",
+            "QueryDisplayDomainUploadAudit",
+            "native_upload.expected_mip_levels == 2U",
+            "native_upload.verified_mip_levels == 2U",
+            "native_upload.verified_rgba_bytes == 20U",
+            "full32_after_filter_shader_executed",
+            "no_cast_or_receive_shadow_flags",
+            "RunDisplayDomainUsageTransitionProof",
+            "AFTER_ROLE_TRANSITION_CANDIDATE_TEXTURES",
+            "usage_transition_rollback_exact",
+            "usage_transition_commit_exact",
+        ):
+            self.assertIn(token, self.smoke)
+        for token in (
+            "TextureAssetName",
+            "existing->second.usage != entry.second.usage",
+            "replacement->second.usage != entry.second.usage",
+        ):
+            self.assertIn(token, self.frontend)
 
     def test_normal_map_audit_remediation_is_native_and_fail_closed(self) -> None:
         for token in (

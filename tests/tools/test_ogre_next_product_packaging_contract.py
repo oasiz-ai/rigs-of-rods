@@ -51,11 +51,18 @@ class OgreNextProductPackagerTests(unittest.TestCase):
         (media / "Hlms" / "Pbs" / "Main_piece.any").write_text(
             "pinned hlms\n", encoding="utf-8"
         )
+        display_domain_media = (
+            media / PACKAGER.DISPLAY_DOMAIN_MEDIA_RELATIVE
+        )
+        display_domain_media.parent.mkdir(parents=True)
+        display_domain_media.write_text(
+            "reviewed display-domain EOTF\n", encoding="utf-8"
+        )
         (media / "2.0" / "scripts" / "Compositors").mkdir(parents=True)
         (media / "2.0" / "scripts" / "Compositors" / "Hdr.compositor").write_text(
             "pinned compositor\n", encoding="utf-8"
         )
-        (n1 / ".stage-v10").write_bytes(b"")
+        (n1 / ".stage-v11").write_bytes(b"")
         licenses = n1 / "licenses"
         licenses.mkdir()
         for name in PACKAGER.BASE_NOTICES:
@@ -78,7 +85,28 @@ class OgreNextProductPackagerTests(unittest.TestCase):
                         "headless_child_packaged": True,
                         "headless_child_production_admitted": False,
                     },
-                    "shader_media": {"root": str(media)},
+                    "shader_media": {
+                        "root": str(media),
+                        "display_domain_unlit": {
+                            "base_color_transfer": (
+                                PACKAGER.DISPLAY_DOMAIN_TRANSFER
+                            ),
+                            "relative_path": (
+                                PACKAGER.DISPLAY_DOMAIN_MEDIA_RELATIVE.as_posix()
+                            ),
+                            "size": display_domain_media.stat().st_size,
+                            "sha256": PACKAGER._sha256(display_domain_media),
+                            "license_expression": (
+                                PACKAGER.DISPLAY_DOMAIN_LICENSE_EXPRESSION
+                            ),
+                            "notice_path": (
+                                PACKAGER.DISPLAY_DOMAIN_NOTICE_RELATIVE.as_posix()
+                            ),
+                            "notice_sha256": PACKAGER._sha256(
+                                licenses / "Rigs-of-Rods-GPL-3.0.txt"
+                            ),
+                        },
+                    },
                 }
             ),
             encoding="utf-8",
@@ -112,6 +140,18 @@ class OgreNextProductPackagerTests(unittest.TestCase):
                 product_contract["shader_media"]["root"],
                 "resources/ogrenext/Hlms",
             )
+            self.assertEqual(
+                product_contract["shader_media"][
+                    "display_domain_unlit"
+                ]["base_color_transfer"],
+                PACKAGER.DISPLAY_DOMAIN_TRANSFER,
+            )
+            self.assertEqual(
+                product_contract["shader_media"][
+                    "display_domain_unlit"
+                ]["license_expression"],
+                "GPL-3.0-or-later",
+            )
             self.assertNotIn(str(root), json.dumps(product_contract))
             PACKAGER.verify_package(
                 output,
@@ -119,6 +159,30 @@ class OgreNextProductPackagerTests(unittest.TestCase):
                 expected_identity=identity,
                 strict_root=True,
             )
+
+    def test_stage_rejects_display_domain_shader_provenance_drift(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogrenext-display-domain-provenance-"
+        ) as temp:
+            root = Path(temp).resolve()
+            child, n1, presentation, contract, identity = self.make_inputs(root)
+            payload = json.loads(contract.read_text(encoding="utf-8"))
+            payload["shader_media"]["display_domain_unlit"][
+                "base_color_transfer"
+            ] = "SRGB_DECODE_BEFORE_FILTER"
+            contract.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(
+                PACKAGER.PackageError, "shader semantics changed"
+            ):
+                PACKAGER.stage_package(
+                    child=child,
+                    n1_package=n1,
+                    presentation_root=presentation,
+                    build_contract=contract,
+                    output=root / "product",
+                    identity=identity,
+                    policy="macos-arm64-metal",
+                )
 
     def test_probe_binary_cannot_substitute_for_product_child(self) -> None:
         with tempfile.TemporaryDirectory(prefix="ror-ogrenext-probe-substitute-") as temp:

@@ -190,6 +190,7 @@ bool IsKnownRenderTransportMessageKind(
   case RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1:
   case RenderTransportMessageKind::RENDER_BRIDGE_CONTROL_V1:
   case RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1:
+  case RenderTransportMessageKind::RENDER_ASSET_DELTA_V2:
     return true;
   }
   return false;

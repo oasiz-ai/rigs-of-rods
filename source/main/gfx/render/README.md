@@ -133,13 +133,16 @@ of the contract.
 `RenderTransportEnvelope` version 1 is the deterministic, fail-closed wire
 edge shared by isolated render processes. Message kind `1` carries one complete
 `SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
-contract version 2. Message kind `2` carries one complete `RenderAssetDelta`
-version 1. Reverse-direction message kind `3` carries one input-event batch
-version 1 from the renderer/window host to the game process. Reverse kind `4`
-is a cumulative presentation acknowledgement and reverse kind `5` is a
-lifecycle control command. Typed decoders publish immutable owners only after
-the entire candidate passes framing, digest, allocation, semantic, registry,
-and exact-consumption validation.
+contract version 2. Message kind `7` carries `RenderAssetDelta` payload version
+2, whose material subframes are `MaterialDescriptor` version 3. The legacy
+asset message kind `2` remains a reserved framing value but is rejected by the
+typed asset decoder and live dispatcher; no current encoder emits it.
+Reverse-direction message kind `3` carries one input-event batch version 1 from
+the renderer/window host to the game process. Reverse kind `4` is a cumulative
+presentation acknowledgement and reverse kind `5` is a lifecycle control
+command. Typed decoders publish immutable owners only after the entire candidate
+passes framing, digest, allocation, semantic, registry, and exact-consumption
+validation.
 
 Forward kind `6` is the fixed version-one scene-generation boundary. It follows
 the old generation's optional all-tombstone asset delta and authoritative empty
@@ -160,7 +163,7 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` assets, `3` input, `4` ACK, `5` control, `6` scene boundary) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` reserved legacy assets, `3` input, `4` ACK, `5` control, `6` scene boundary, `7` assets v2/material v3) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |
@@ -734,6 +737,12 @@ needed for the current descriptor contract because mesh and texture storage is
 already embedded. Any future resource larger than this atomic message's caps
 requires an explicitly versioned chunking contract rather than an implicit
 reference or partial payload.
+
+Asset payload version 2 pins material version 3 and transports
+`BaseColorTransfer` explicitly. `SRGB_DECODE_BEFORE_FILTER` is the conventional
+hardware sRGB path. `SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE` preserves encoded
+RGBA8 RGB through mip selection and interpolation before a full-binary32 sRGB
+EOTF; it is admitted only by the exact one-texture opaque RT4/V1 Unlit profile.
 
 The input payload has an explicit payload version, SDL2 physical-scancode
 table version, SDL2 standardized-gamepad table version, host clock domain, and

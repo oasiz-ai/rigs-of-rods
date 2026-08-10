@@ -270,6 +270,8 @@ ValidationResult ValidateCanonicalMaterial(
 
   if (material.debug_name != DebugName(parsed_key) ||
       material.model != expected_model || material.alpha_mode != expected_alpha ||
+      material.base_color_transfer !=
+          BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER ||
       material.double_sided != expected_double_sided ||
       !FloatBitsEqual(material.metallic_factor, 0.0F) ||
       !FloatBitsEqual(material.roughness_factor, 1.0F) ||

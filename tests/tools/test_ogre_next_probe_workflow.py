@@ -304,6 +304,13 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ) + ["source/main/gfx/render", "tools/ogre_next_probe"]
 
         expected = set(runner_paths)
+        for required in (
+            "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp",
+            "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h",
+            "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any",
+        ):
+            with self.subTest(display_domain_source=required):
+                self.assertIn(required, expected)
         manifests = {
             "runner": runner_paths,
             "artifact verifier": verifier_paths,

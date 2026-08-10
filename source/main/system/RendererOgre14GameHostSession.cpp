@@ -69,7 +69,7 @@ RendererOgre14GameHostSessionResult MakeResult(
 struct RendererOgre14GameHostSession::Impl final {
   struct ForwardMessage final {
     Render::RenderTransportMessageKind kind =
-        Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1;
+        Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2;
     std::uint64_t sequence = 0U;
     std::uint64_t snapshot_id = 0U;
     std::vector<std::uint8_t> bytes;
@@ -78,7 +78,7 @@ struct RendererOgre14GameHostSession::Impl final {
 
   struct ForwardLineage final {
     Render::RenderTransportMessageKind kind =
-        Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1;
+        Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2;
     std::uint64_t sequence = 0U;
     std::uint64_t snapshot_id = 0U;
   };
@@ -812,7 +812,7 @@ RendererOgre14GameHostSessionResult RendererOgre14GameHostSession::Submit(
   if (!encoded) {
     RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
         RendererOgre14GameHostSessionStatus::FAILED_FORWARD_ENCODING, false);
-    result.kind = Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1;
+    result.kind = Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2;
     result.forward_sequence = sequence;
     result.transport_status = encoded.status;
     return result;
@@ -824,10 +824,10 @@ RendererOgre14GameHostSessionResult RendererOgre14GameHostSession::Submit(
   }
   try {
     impl_->forward_lineage.push_back(
-        {Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1, sequence,
+        {Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2, sequence,
          0U});
     Impl::ForwardMessage queued;
-    queued.kind = Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1;
+    queued.kind = Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2;
     queued.sequence = sequence;
     queued.bytes = std::move(encoded.bytes);
     impl_->forward_queue.push_back(std::move(queued));
@@ -857,7 +857,7 @@ RendererOgre14GameHostSessionResult RendererOgre14GameHostSession::Submit(
   impl_->wake.notify_all();
   RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
       RendererOgre14GameHostSessionStatus::ASSET_DELTA_QUEUED, true);
-  result.kind = Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1;
+  result.kind = Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2;
   result.forward_sequence = sequence;
   return result;
 }

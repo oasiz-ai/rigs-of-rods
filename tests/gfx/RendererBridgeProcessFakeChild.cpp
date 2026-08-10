@@ -400,7 +400,7 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
       0x73U, 0x63U, 0x65U, 0x6eU, 0x65U};
   if (!WriteEnvelope(
           outbound,
-          RoR::Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1,
+          RoR::Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2,
           1U, asset_payload) ||
       !WriteEnvelope(
           outbound,
@@ -482,7 +482,7 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
       0x73U, 0x63U, 0x65U, 0x6eU, 0x65U};
   if (!ReadEnvelope(
           inbound,
-          RoR::Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V1,
+          RoR::Render::RenderTransportMessageKind::RENDER_ASSET_DELTA_V2,
           1U, asset_payload) ||
       !ReadEnvelope(
           inbound,

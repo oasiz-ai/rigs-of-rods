@@ -111,6 +111,7 @@ bool RenderTransportStreamDecoder::InspectCompleteHeader() noexcept {
     message_payload_limit = kRenderTransportStreamSceneMaximumPayloadBytes;
     break;
   case RenderTransportMessageKind::RENDER_ASSET_DELTA_V1:
+  case RenderTransportMessageKind::RENDER_ASSET_DELTA_V2:
     message_payload_limit = kRenderTransportStreamAssetMaximumPayloadBytes;
     break;
   case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:

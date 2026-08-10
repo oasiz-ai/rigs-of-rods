@@ -151,7 +151,7 @@ void TestEveryTwoChunkBoundaryAndOwnership() {
 
 void TestCoalescingAndPendingBackpressure() {
   const std::vector<std::uint8_t> first = MakeFrame(
-      RenderTransportMessageKind::RENDER_ASSET_DELTA_V1, 1U, 3U);
+      RenderTransportMessageKind::RENDER_ASSET_DELTA_V2, 1U, 3U);
   const std::vector<std::uint8_t> second = MakeFrame(
       RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2, 2U, 7U);
   std::vector<std::uint8_t> joined = first;
@@ -171,7 +171,7 @@ void TestCoalescingAndPendingBackpressure() {
   const auto first_taken = decoder.TakeFrame();
   Require(first_taken.ok() && first_taken.sequence == 1U &&
               first_taken.kind ==
-                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V1,
+                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V2,
           "first coalesced frame metadata changed");
   const auto accepted_second = decoder.Accept(
       joined.data() + accepted.bytes_consumed,
@@ -263,7 +263,7 @@ void TestHeaderAndEnvelopeFailuresAreTerminal() {
           "input kind exceeded its lower typed payload cap");
 
   std::vector<std::uint8_t> corrupted = MakeFrame(
-      RenderTransportMessageKind::RENDER_ASSET_DELTA_V1, 5U, 8U);
+      RenderTransportMessageKind::RENDER_ASSET_DELTA_V2, 5U, 8U);
   corrupted.back() ^= 0x01U;
   RenderTransportStreamDecoder digest_decoder(1024U);
   const auto digest =

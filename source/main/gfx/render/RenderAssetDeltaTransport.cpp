@@ -162,6 +162,8 @@ bool WriteMaterial(WireWriter &writer, const MaterialDescriptor &material) {
          WriteString(writer, material.debug_name) &&
          writer.AddByte(static_cast<std::uint8_t>(material.model)) &&
          writer.AddByte(static_cast<std::uint8_t>(material.alpha_mode)) &&
+         writer.AddByte(
+             static_cast<std::uint8_t>(material.base_color_transfer)) &&
          writer.AddBool(material.double_sided) &&
          WriteFloat4(writer, material.base_color_factor) &&
          writer.AddFloatExact(material.metallic_factor) &&
@@ -523,9 +525,12 @@ bool ReadTextureBinding(WireReader &reader, TextureBinding &binding) {
 bool ReadMaterial(WireReader &reader, MaterialDescriptor &material) {
   std::uint8_t model = 0U;
   std::uint8_t alpha_mode = 0U;
+  std::uint8_t base_color_transfer = 0U;
   if (!reader.ReadU32(material.version) ||
       !ReadString(reader, material.debug_name) || !reader.ReadByte(model) ||
-      !reader.ReadByte(alpha_mode) || !reader.ReadBool(material.double_sided) ||
+      !reader.ReadByte(alpha_mode) ||
+      !reader.ReadByte(base_color_transfer) ||
+      !reader.ReadBool(material.double_sided) ||
       !ReadFloat4(reader, material.base_color_factor) ||
       !reader.ReadFloatExact(material.metallic_factor) ||
       !reader.ReadFloatExact(material.roughness_factor) ||
@@ -539,6 +544,8 @@ bool ReadMaterial(WireReader &reader, MaterialDescriptor &material) {
   }
   material.model = static_cast<MaterialModel>(model);
   material.alpha_mode = static_cast<MaterialAlphaMode>(alpha_mode);
+  material.base_color_transfer =
+      static_cast<BaseColorTransfer>(base_color_transfer);
   return ReadTextureBinding(reader, material.base_color_texture) &&
          ReadTextureBinding(reader, material.metallic_roughness_texture) &&
          ReadTextureBinding(reader, material.normal_texture) &&
@@ -764,7 +771,7 @@ RenderAssetDeltaTransportDecodeResult RenderAssetDeltaTransportDecoder::Accept(
   if (envelope_status != RenderTransportStatus::OK) {
     return Failure(envelope_status);
   }
-  if (envelope.kind != RenderTransportMessageKind::RENDER_ASSET_DELTA_V1) {
+  if (envelope.kind != RenderTransportMessageKind::RENDER_ASSET_DELTA_V2) {
     return Failure(RenderTransportStatus::UNKNOWN_MESSAGE_KIND);
   }
   const RenderTransportStatus sequence_status =
@@ -838,7 +845,7 @@ RenderAssetDeltaTransportEncodeResult EncodeRenderAssetDeltaTransportFrame(
       return result;
     }
     return EncodeRenderTransportEnvelope(
-        RenderTransportMessageKind::RENDER_ASSET_DELTA_V1, sequence, payload,
+        RenderTransportMessageKind::RENDER_ASSET_DELTA_V2, sequence, payload,
         kRenderAssetDeltaTransportMaximumPayloadBytes);
   } catch (const std::bad_alloc &) {
     result.status = RenderTransportStatus::ALLOCATION_FAILURE;

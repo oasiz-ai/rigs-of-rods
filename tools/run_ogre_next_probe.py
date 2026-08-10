@@ -29,6 +29,16 @@ NORMAL_MAP_SOURCE_LOCK_PATH = (
 NORMAL_MAP_SOURCE_LOCK_SHA256 = (
     "7d180c54c54e7cc26b0081753c621b7164551d2b631c1127f818fbb22645f682"
 )
+DISPLAY_DOMAIN_MEDIA_PATH = (
+    PROBE_SOURCE
+    / "media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_MEDIA_RELATIVE = (
+    "Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_NOTICE_PATH = "licenses/Rigs-of-Rods-GPL-3.0.txt"
+DISPLAY_DOMAIN_LICENSE_EXPRESSION = "GPL-3.0-or-later"
+DISPLAY_DOMAIN_NOTICE_SOURCE = REPOSITORY_ROOT / "COPYING"
 LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
 )
@@ -220,6 +230,8 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/resources/terrn2_fileformat/TerrainBundleDependency.h",
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp",
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp",
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h",
     "source/main/gfx/render",
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
@@ -319,6 +331,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/tools/test_ogre_next_window_host_contract.py",
     "tests/tools/test_ogre_next_window_presentation_contract.py",
     "tests/tools/test_ogre_next_window_run_loop_contract.py",
+    "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any",
     "tools/ogre_next_probe",
     "tools/ogre14_runtime_audit.py",
     "tools/compile_ogre14_material_semantic_catalog_v2.py",
@@ -339,6 +352,26 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def expected_build_shader_media(lock: dict[str, Any]) -> dict[str, Any]:
+    source = DISPLAY_DOMAIN_MEDIA_PATH
+    notice = DISPLAY_DOMAIN_NOTICE_SOURCE
+    if source.is_symlink() or not source.is_file():
+        raise ProbeError("legacy display-domain shader source is missing or indirect")
+    if notice.is_symlink() or not notice.is_file():
+        raise ProbeError("legacy display-domain GPL notice is missing or indirect")
+    expected = dict(lock["shader_media"])
+    expected["display_domain_unlit"] = {
+        "base_color_transfer": "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE",
+        "relative_path": DISPLAY_DOMAIN_MEDIA_RELATIVE,
+        "size": source.stat().st_size,
+        "sha256": sha256_file(source),
+        "license_expression": DISPLAY_DOMAIN_LICENSE_EXPRESSION,
+        "notice_path": DISPLAY_DOMAIN_NOTICE_PATH,
+        "notice_sha256": sha256_file(notice),
+    }
+    return expected
 
 
 def relevant_source_manifest(
@@ -1430,7 +1463,7 @@ def validate_build_contract(
     compiler = contract.get("compiler", {})
     rapidjson = lock["dependencies"]["rapidjson"]
     freetype = lock["dependencies"]["freetype"]
-    shader_media = lock["shader_media"]
+    shader_media = expected_build_shader_media(lock)
     reflection_shader_media = lock["reflection_shader_media"]
     abi = lock["abi_contract"]
     expected_simd_family = abi["simd"][policy["name"]]
@@ -2470,6 +2503,7 @@ def validate_n1_checkpoint(
     adapter = report.get("adapter", {})
     catalog = report.get("catalog", {})
     dynamic_meshes = report.get("dynamic_meshes", {})
+    display_domain_unlit = report.get("display_domain_unlit", {})
     texture_allocations = report.get("texture_allocations", {})
     texture_upload_rollback = report.get("texture_upload_rollback", {})
     texture_retirement = report.get("texture_retirement", {})
@@ -2643,6 +2677,48 @@ def validate_n1_checkpoint(
                 "rt4_srgb": adapter.get("base_color_upload")
                 == "RGBA8_UNORM_SRGB"
                 and adapter.get("emissive_upload") == "RGBA8_UNORM_SRGB",
+                "rt4_display_domain_unlit": display_domain_unlit.get("schema")
+                == "ror.ogre_next_rt4_display_domain_unlit.v1"
+                and display_domain_unlit.get("base_color_transfer")
+                == "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE"
+                and display_domain_unlit.get("upload_format") == "RGBA8_UNORM"
+                and display_domain_unlit.get("mip_policy")
+                == "complete_base_to_1x1_nearest_mip"
+                and display_domain_unlit.get("sampler")
+                == "linear_min_mag_clamp_edge"
+                and display_domain_unlit.get("shader_precision")
+                == "PrecisionFull32"
+                and all(
+                    isinstance(display_domain_unlit.get(field), list)
+                    and len(display_domain_unlit[field]) == 3
+                    and all(
+                        isinstance(value, (int, float))
+                        for value in display_domain_unlit[field]
+                    )
+                    for field in (
+                        "encoded_filtered",
+                        "filter_then_eotf",
+                        "decode_before_filter",
+                    )
+                )
+                and isinstance(
+                    display_domain_unlit.get("matching_foreground_pixels"), int
+                )
+                and display_domain_unlit["matching_foreground_pixels"] >= 512
+                and display_domain_unlit.get("decode_before_filter_pixels") == 0
+                and display_domain_unlit.get("complete_unorm_mips_uploaded")
+                is True
+                and display_domain_unlit.get(
+                    "full32_after_filter_shader_executed"
+                )
+                is True
+                and display_domain_unlit.get("alpha_untouched_opaque") is True
+                and display_domain_unlit.get("no_cast_or_receive_shadow_flags")
+                is True
+                and display_domain_unlit.get("usage_transition_rollback_exact")
+                is True
+                and display_domain_unlit.get("usage_transition_commit_exact")
+                is True,
                 "rt4_orm": adapter.get("metallic_roughness_upload")
                 == "linear_G_to_R8_roughness_B_to_R8_metallic",
                 "rt4_sampler": adapter.get(

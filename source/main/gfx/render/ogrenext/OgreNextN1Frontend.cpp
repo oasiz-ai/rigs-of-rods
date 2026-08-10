@@ -8,6 +8,7 @@
 
 #include "OgreNextN1Frontend.h"
 
+#include "OgreNextDisplayDomainUnlit.h"
 #include "OgreNextN1MediaIntegrity.h"
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
@@ -398,6 +399,7 @@ bool UsesMetalDirectionalHardShadow(
 
 enum class UploadedTextureChannel : std::uint8_t {
   RGBA,
+  DISPLAY_DOMAIN_RGBA,
   GREEN,
   BLUE,
   NORMAL_RG,
@@ -405,17 +407,21 @@ enum class UploadedTextureChannel : std::uint8_t {
 
 struct NativeTextureUsage final {
   bool sampled_rgba = false;
+  bool display_domain_rgba = false;
   bool roughness_g = false;
   bool metallic_b = false;
   bool normal_rg = false;
 
   [[nodiscard]] bool empty() const noexcept {
-    return !sampled_rgba && !roughness_g && !metallic_b && !normal_rg;
+    return !sampled_rgba && !display_domain_rgba && !roughness_g &&
+           !metallic_b && !normal_rg;
   }
 
   friend bool operator==(const NativeTextureUsage &lhs,
                          const NativeTextureUsage &rhs) noexcept {
     return lhs.sampled_rgba == rhs.sampled_rgba &&
+           lhs.display_domain_rgba ==
+               rhs.display_domain_rgba &&
            lhs.roughness_g == rhs.roughness_g &&
            lhs.metallic_b == rhs.metallic_b &&
            lhs.normal_rg == rhs.normal_rg;
@@ -447,6 +453,19 @@ std::string AssetName(const char *prefix,
   std::ostringstream name;
   name << prefix << '_' << std::hex << asset.id.high() << '_'
        << asset.id.low() << std::dec << "_r" << asset.revision;
+  return name.str();
+}
+
+std::string TextureAssetName(const RenderAssetReference &asset,
+                             const NativeTextureUsage &usage) {
+  const unsigned int usage_key =
+      (usage.sampled_rgba ? 1U : 0U) |
+      (usage.display_domain_rgba ? 2U : 0U) |
+      (usage.roughness_g ? 4U : 0U) | (usage.metallic_b ? 8U : 0U) |
+      (usage.normal_rg ? 16U : 0U);
+  std::ostringstream name;
+  name << AssetName("RoRRT4Texture", asset) << "_usage" << std::hex
+       << usage_key;
   return name.str();
 }
 
@@ -602,6 +621,42 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
   }
 }
 
+void VerifyDisplayDomainUnlitMapping(
+    const Ogre::HlmsUnlitDatablock &datablock,
+    const Ogre::HlmsUnlit &expected_creator, Ogre::TextureGpu *texture,
+    const Ogre::HlmsSamplerblock &sampler) {
+  const Ogre::String *name = datablock.getNameStr();
+  const Ogre::ColourValue colour = datablock.getColour();
+  const Ogre::HlmsMacroblock default_macroblock;
+  const Ogre::HlmsBlendblock default_blendblock;
+  if (datablock.getCreator() != &expected_creator || name == nullptr ||
+      name->compare(
+          0U, sizeof(kOgreNextDisplayDomainDatablockPrefix) - 1U,
+          kOgreNextDisplayDomainDatablockPrefix) != 0 ||
+      !datablock.hasColour() || colour != Ogre::ColourValue::White ||
+      datablock.getTexture(0U) != texture ||
+      datablock.getTextureUvSource(0U) != 0U ||
+      datablock.getSamplerblock(0U) == nullptr ||
+      *datablock.getSamplerblock(0U) != sampler ||
+      datablock.getMacroblock() == nullptr ||
+      *datablock.getMacroblock() != default_macroblock ||
+      datablock.getBlendblock() == nullptr ||
+      *datablock.getBlendblock() != default_blendblock) {
+    throw std::runtime_error(
+        "Ogre-Next RT4/V1 display-domain Unlit datablock differs from the reviewed one-texture mapping");
+  }
+  for (Ogre::uint8 slot = 0U; slot < Ogre::NUM_UNLIT_TEXTURE_TYPES; ++slot) {
+    if ((slot != 0U && datablock.getTexture(slot) != nullptr) ||
+        datablock.getTextureUvSource(slot) != 0U ||
+        datablock.getBlendMode(slot) != Ogre::UNLIT_BLEND_NORMAL_NON_PREMUL ||
+        datablock.getEnableAnimationMatrix(slot) ||
+        datablock.getEnablePlanarReflection(slot)) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 display-domain Unlit enabled an unreviewed texture-layer feature");
+    }
+  }
+}
+
 bool DecomposeTrs(const Matrix4x4 &source, Ogre::Vector3 &position,
                   Ogre::Vector3 &scale, Ogre::Quaternion &orientation,
                   Ogre::Matrix4 &reconstructed) {
@@ -682,6 +737,7 @@ RenderOperationResult ValidateShaderArchives(
   Ogre::String unlit_data;
   Ogre::StringVector unlit_libraries;
   Ogre::HlmsUnlit::getDefaultPaths(unlit_data, unlit_libraries);
+  unlit_libraries.emplace_back(kOgreNextDisplayDomainMediaPath);
   if (!require_paths(std::move(pbs_data), std::move(pbs_libraries)) ||
       !require_paths(std::move(unlit_data), std::move(unlit_libraries))) {
     return RenderOperationResult::Failure(
@@ -715,6 +771,7 @@ Ogre::HlmsUnlit *RegisterUnlit(Ogre::Root &root,
   Ogre::String data_path;
   Ogre::StringVector library_paths;
   Ogre::HlmsUnlit::getDefaultPaths(data_path, library_paths);
+  library_paths.emplace_back(kOgreNextDisplayDomainMediaPath);
   const Ogre::String media_root = Ogre::String(resolved_media_root) + "/";
   Ogre::ArchiveManager &archives = Ogre::ArchiveManager::getSingleton();
   Ogre::Archive *data =
@@ -724,8 +781,20 @@ Ogre::HlmsUnlit *RegisterUnlit(Ogre::Root &root,
     libraries.push_back(
         archives.load(media_root + library_path, "FileSystem", true));
   }
-  Ogre::HlmsUnlit *unlit = OGRE_NEW Ogre::HlmsUnlit(data, &libraries);
+  Ogre::HlmsUnlit *unlit = OGRE_NEW OgreNextDisplayDomainUnlit(
+      data, &libraries);
+  unlit->setPrecisionMode(Ogre::Hlms::PrecisionFull32);
+  if (unlit->getPrecisionMode() != Ogre::Hlms::PrecisionFull32) {
+    OGRE_DELETE unlit;
+    throw std::runtime_error(
+        "Ogre-Next rejected full32 precision before Unlit registration");
+  }
   root.getHlmsManager()->registerHlms(unlit);
+  if (unlit->getPrecisionMode() != Ogre::Hlms::PrecisionFull32 ||
+      unlit->getSupportedPrecisionMode() != Ogre::Hlms::PrecisionFull32) {
+    throw std::runtime_error(
+        "Ogre-Next display-domain Unlit did not retain supported full32 precision");
+  }
   return unlit;
 }
 
@@ -1345,9 +1414,23 @@ public:
   };
 
   struct NativeMaterial {
+    enum class Kind : std::uint8_t {
+      PBS,
+      DISPLAY_DOMAIN_UNLIT,
+    };
+
     RenderAssetReference asset;
-    Ogre::HlmsPbsDatablock *datablock = nullptr;
+    Kind kind = Kind::PBS;
+    Ogre::HlmsPbsDatablock *pbs_datablock = nullptr;
+    Ogre::HlmsUnlitDatablock *display_domain_unlit_datablock = nullptr;
     std::string name;
+
+    [[nodiscard]] Ogre::HlmsDatablock *Datablock() const noexcept {
+      return kind == Kind::PBS
+                 ? static_cast<Ogre::HlmsDatablock *>(pbs_datablock)
+                 : static_cast<Ogre::HlmsDatablock *>(
+                       display_domain_unlit_datablock);
+    }
   };
 
   struct NativeTexture {
@@ -1387,7 +1470,9 @@ public:
       audit.normal_rg8_allocations += texture.normal != nullptr ? 1U : 0U;
       audit.exact_usage =
           audit.exact_usage && !texture.usage.empty() &&
-          (texture.sampled != nullptr) == texture.usage.sampled_rgba &&
+          (texture.sampled != nullptr) ==
+              (texture.usage.sampled_rgba ||
+               texture.usage.display_domain_rgba) &&
           (texture.roughness != nullptr) == texture.usage.roughness_g &&
           (texture.metallic != nullptr) == texture.usage.metallic_b &&
           (texture.normal != nullptr) == texture.usage.normal_rg;
@@ -1429,6 +1514,80 @@ public:
             (std::numeric_limits<std::uint64_t>::max)() / 2U &&
         audit.verified_rg_bytes == audit.verified_texels * 2U &&
         audit.verified_padded_source_rows <= audit.verified_rows;
+    return audit;
+  }
+
+  OgreNextN1DisplayDomainUploadAudit DisplayDomainUploadAudit() const {
+    OgreNextN1DisplayDomainUploadAudit audit;
+    if (!initialized || faulted || registry == nullptr) {
+      return audit;
+    }
+    for (const auto &entry : textures) {
+      const NativeTexture &native = entry.second;
+      if (!native.usage.display_domain_rgba) {
+        continue;
+      }
+      ++audit.source_textures;
+      const TextureResourceDescriptor *descriptor =
+          registry->ResolveTexture(native.asset);
+      if (descriptor == nullptr || native.sampled == nullptr ||
+          native.sampled->getPixelFormat() != Ogre::PFG_RGBA8_UNORM ||
+          descriptor->mip_levels.empty()) {
+        return audit;
+      }
+      audit.expected_mip_levels += descriptor->mip_levels.size();
+
+      Ogre::Image2 readback;
+      readback.convertFromTexture(
+          native.sampled, 0U,
+          static_cast<Ogre::uint8>(descriptor->mip_levels.size() - 1U));
+      if (readback.getPixelFormat() != Ogre::PFG_RGBA8_UNORM ||
+          readback.getWidth() != descriptor->width ||
+          readback.getHeight() != descriptor->height) {
+        return audit;
+      }
+      ++audit.native_readbacks;
+
+      for (std::size_t mip_index = 0U;
+           mip_index < descriptor->mip_levels.size(); ++mip_index) {
+        const TextureMipLevelDescriptor &source =
+            descriptor->mip_levels[mip_index];
+        const Ogre::TextureBox downloaded =
+            readback.getData(static_cast<Ogre::uint8>(mip_index));
+        if (downloaded.data == nullptr || downloaded.width != source.width ||
+            downloaded.height != source.height ||
+            downloaded.bytesPerPixel != 4U ||
+            downloaded.bytesPerRow <
+                static_cast<std::size_t>(source.width) * 4U) {
+          return audit;
+        }
+        for (std::uint32_t row = 0U; row < source.height; ++row) {
+          const std::uint8_t *source_row =
+              source.bytes.data() + static_cast<std::size_t>(row) *
+                                        source.row_pitch_bytes;
+          const auto *downloaded_row = static_cast<const std::uint8_t *>(
+              downloaded.at(0U, row, 0U));
+          const std::size_t row_bytes =
+              static_cast<std::size_t>(source.width) * 4U;
+          if (std::memcmp(downloaded_row, source_row, row_bytes) != 0) {
+            return audit;
+          }
+          ++audit.verified_rows;
+          audit.verified_texels += source.width;
+          audit.verified_rgba_bytes += row_bytes;
+        }
+        ++audit.verified_mip_levels;
+      }
+    }
+    audit.exact_source_rgba_to_native_texture =
+        audit.source_textures > 0U &&
+        audit.native_readbacks == audit.source_textures &&
+        audit.verified_mip_levels == audit.expected_mip_levels &&
+        audit.verified_rows >= audit.verified_mip_levels &&
+        audit.verified_texels > 0U &&
+        audit.verified_texels <=
+            (std::numeric_limits<std::uint64_t>::max)() / 4U &&
+        audit.verified_rgba_bytes == audit.verified_texels * 4U;
     return audit;
   }
 #endif
@@ -1727,10 +1886,15 @@ public:
   Ogre::TextureGpu *CreateUploadedTexture(
       const TextureResourceDescriptor &descriptor, const std::string &name,
       UploadedTextureChannel channel) {
-    const bool rgba = channel == UploadedTextureChannel::RGBA;
+    const bool display_domain_rgba =
+        channel == UploadedTextureChannel::DISPLAY_DOMAIN_RGBA;
+    const bool rgba = channel == UploadedTextureChannel::RGBA ||
+                      display_domain_rgba;
     const bool normal_rg = channel == UploadedTextureChannel::NORMAL_RG;
     const Ogre::PixelFormatGpu pixel_format =
-        rgba ? (descriptor.color_space == TextureColorSpace::SRGB
+        rgba ? (display_domain_rgba
+                    ? Ogre::PFG_RGBA8_UNORM
+                    : descriptor.color_space == TextureColorSpace::SRGB
                     ? Ogre::PFG_RGBA8_UNORM_SRGB
                     : Ogre::PFG_RGBA8_UNORM)
              : normal_rg ? Ogre::PFG_RG8_UNORM : Ogre::PFG_R8_UNORM;
@@ -1884,27 +2048,38 @@ public:
     NativeTexture native;
     native.asset = asset;
     native.usage = usage;
-    native.sampled_name = AssetName("RoRRT4Texture", asset);
-    native.roughness_name = native.sampled_name + "_roughness_g";
-    native.metallic_name = native.sampled_name + "_metallic_b";
-    native.normal_name = native.sampled_name + "_normal_rg";
+    const bool aliases_display_domain =
+        usage.display_domain_rgba &&
+        (usage.sampled_rgba || usage.roughness_g || usage.metallic_b ||
+         usage.normal_rg);
     const bool aliases_normal_role =
         usage.normal_rg &&
-        (usage.sampled_rgba || usage.roughness_g || usage.metallic_b);
+        (usage.sampled_rgba || usage.display_domain_rgba ||
+         usage.roughness_g || usage.metallic_b);
     if (usage.empty() ||
         (usage.sampled_rgba && (usage.roughness_g || usage.metallic_b)) ||
+        aliases_display_domain ||
         aliases_normal_role ||
-        (usage.sampled_rgba &&
+        ((usage.sampled_rgba || usage.display_domain_rgba) &&
          descriptor.color_space != TextureColorSpace::SRGB) ||
         ((usage.roughness_g || usage.metallic_b || usage.normal_rg) &&
          descriptor.color_space != TextureColorSpace::LINEAR)) {
       throw std::logic_error(
           "RT4/V1 texture alias or usage is incompatible with its sampled color-space role");
     }
+    native.sampled_name = TextureAssetName(asset, usage);
+    native.roughness_name = native.sampled_name + "_roughness_g";
+    native.metallic_name = native.sampled_name + "_metallic_b";
+    native.normal_name = native.sampled_name + "_normal_rg";
     try {
       if (usage.sampled_rgba) {
         native.sampled = CreateUploadedTexture(
             descriptor, native.sampled_name, UploadedTextureChannel::RGBA);
+      }
+      if (usage.display_domain_rgba) {
+        native.sampled = CreateUploadedTexture(
+            descriptor, native.sampled_name,
+            UploadedTextureChannel::DISPLAY_DOMAIN_RGBA);
       }
       if (usage.roughness_g) {
         native.roughness = CreateUploadedTexture(
@@ -1950,6 +2125,8 @@ public:
     }
     if (expected_usage.sampled_rgba) {
       verify_one(native.sampled, Ogre::PFG_RGBA8_UNORM_SRGB);
+    } else if (expected_usage.display_domain_rgba) {
+      verify_one(native.sampled, Ogre::PFG_RGBA8_UNORM);
     } else if (native.sampled != nullptr) {
       throw std::runtime_error(
           "Ogre-Next RT4/V1 allocated an unused sampled RGBA texture");
@@ -1981,26 +2158,69 @@ public:
                                     &candidate_textures) {
     NativeMaterial native;
     native.asset = asset;
+    if (descriptor.model == MaterialModel::UNLIT) {
+      native.kind = NativeMaterial::Kind::DISPLAY_DOMAIN_UNLIT;
+      native.name = AssetName("RoRDisplayDomainUnlit", asset);
+      try {
+        native.display_domain_unlit_datablock =
+            static_cast<Ogre::HlmsUnlitDatablock *>(unlit->createDatablock(
+                native.name, native.name, Ogre::HlmsMacroblock(),
+                Ogre::HlmsBlendblock(), Ogre::HlmsParamVec()));
+        const auto found =
+            candidate_textures.find(descriptor.base_color_texture.texture.id);
+        const SamplerResourceDescriptor *sampler_descriptor =
+            candidate_registry.ResolveSampler(
+                descriptor.base_color_texture.sampler);
+        if (found == candidate_textures.end() ||
+            found->second.asset != descriptor.base_color_texture.texture ||
+            sampler_descriptor == nullptr || found->second.sampled == nullptr ||
+            !found->second.usage.display_domain_rgba ||
+            found->second.usage.sampled_rgba ||
+            found->second.usage.roughness_g ||
+            found->second.usage.metallic_b || found->second.usage.normal_rg) {
+          throw std::logic_error(
+              "validated RT4/V1 display-domain Unlit dependency disappeared before native binding");
+        }
+        const Ogre::HlmsSamplerblock sampler =
+            ToOgreSampler(*sampler_descriptor);
+        native.display_domain_unlit_datablock->setUseColour(true);
+        native.display_domain_unlit_datablock->setColour(
+            Ogre::ColourValue::White);
+        native.display_domain_unlit_datablock->setTexture(
+            0U, found->second.sampled, &sampler);
+        native.display_domain_unlit_datablock->setTextureUvSource(0U,
+                                                                         0U);
+        VerifyDisplayDomainUnlitMapping(
+            *native.display_domain_unlit_datablock, *unlit,
+            found->second.sampled, sampler);
+        return native;
+      } catch (...) {
+        if (!DestroyMaterial(native)) {
+          faulted = true;
+        }
+        throw;
+      }
+    }
     native.name = AssetName("RoRN1Material", asset);
     Ogre::HlmsMacroblock macroblock;
     if (descriptor.double_sided) {
       macroblock.mCullMode = Ogre::CULL_NONE;
     }
     try {
-      native.datablock = static_cast<Ogre::HlmsPbsDatablock *>(
+      native.pbs_datablock = static_cast<Ogre::HlmsPbsDatablock *>(
           pbs->createDatablock(native.name, native.name, macroblock,
                                Ogre::HlmsBlendblock(), Ogre::HlmsParamVec()));
-      native.datablock->setBrdf(Ogre::PbsBrdf::Default);
-      native.datablock->setWorkflow(
+      native.pbs_datablock->setBrdf(Ogre::PbsBrdf::Default);
+      native.pbs_datablock->setWorkflow(
           Ogre::HlmsPbsDatablock::MetallicWorkflow);
-      native.datablock->setDiffuse(
+      native.pbs_datablock->setDiffuse(
           Ogre::Vector3(descriptor.base_color_factor.x,
                         descriptor.base_color_factor.y,
                         descriptor.base_color_factor.z));
-      native.datablock->setSpecular(Ogre::Vector3::UNIT_SCALE);
-      native.datablock->setMetalness(descriptor.metallic_factor);
-      native.datablock->setRoughness(descriptor.roughness_factor);
-      native.datablock->setEmissive(
+      native.pbs_datablock->setSpecular(Ogre::Vector3::UNIT_SCALE);
+      native.pbs_datablock->setMetalness(descriptor.metallic_factor);
+      native.pbs_datablock->setRoughness(descriptor.roughness_factor);
+      native.pbs_datablock->setEmissive(
           Ogre::Vector3(descriptor.emissive_factor.x,
                         descriptor.emissive_factor.y,
                         descriptor.emissive_factor.z) *
@@ -2008,13 +2228,13 @@ public:
       // Pinned Ogre applies this value as a lerp from (0, 0, 1), not as the
       // glTF x/y normal scale. The admission policy therefore requires the
       // exact identity value and we write/read it explicitly here.
-      native.datablock->setNormalMapWeight(1.0F);
-      native.datablock->setTwoSidedLighting(descriptor.double_sided, false);
+      native.pbs_datablock->setNormalMapWeight(1.0F);
+      native.pbs_datablock->setTwoSidedLighting(descriptor.double_sided, false);
       if (directional_shadow_mode ==
           OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
         // Do not inherit an upstream default implicitly: this bias is part of
         // the reviewed checkpoint and is read back again before submission.
-        native.datablock->mShadowConstantBias =
+        native.pbs_datablock->mShadowConstantBias =
             kOgreNextPssmMaterialConstantBias;
       }
       const auto bind_texture =
@@ -2040,12 +2260,12 @@ public:
             const Ogre::HlmsSamplerblock sampler =
                 ToOgreSampler(*sampler_descriptor);
             const auto slot_index = static_cast<Ogre::uint8>(slot);
-            native.datablock->setTexture(slot_index, texture, &sampler);
-            native.datablock->setTextureUvSource(slot, 0U);
+            native.pbs_datablock->setTexture(slot_index, texture, &sampler);
+            native.pbs_datablock->setTextureUvSource(slot, 0U);
             const Ogre::HlmsSamplerblock *actual_sampler =
-                native.datablock->getSamplerblock(slot_index);
-            if (native.datablock->getTexture(slot_index) != texture ||
-                native.datablock->getTextureUvSource(slot) != 0U ||
+                native.pbs_datablock->getSamplerblock(slot_index);
+            if (native.pbs_datablock->getTexture(slot_index) != texture ||
+                native.pbs_datablock->getTextureUvSource(slot) != 0U ||
                 actual_sampler == nullptr) {
               throw std::runtime_error(
                   "Ogre-Next RT4/V1 live PBS texture binding differs from the reviewed mapping");
@@ -2065,7 +2285,7 @@ public:
         bind_texture(descriptor.emissive_texture, Ogre::PBSM_EMISSIVE,
                      &NativeTexture::sampled);
       }
-      VerifyPbsMapping(*native.datablock, descriptor);
+      VerifyPbsMapping(*native.pbs_datablock, descriptor);
       return native;
     } catch (...) {
       if (!DestroyMaterial(native)) {
@@ -2105,18 +2325,39 @@ public:
   }
 
   [[nodiscard]] bool DestroyMaterial(NativeMaterial &native) noexcept {
-    if (native.datablock == nullptr) {
+    if (native.pbs_datablock == nullptr &&
+        native.display_domain_unlit_datablock == nullptr) {
       return true;
     }
-    bool clean = pbs != nullptr;
-    if (pbs != nullptr) {
+    bool clean = !(native.pbs_datablock != nullptr &&
+                   native.display_domain_unlit_datablock != nullptr);
+    if (native.pbs_datablock != nullptr) {
+      clean = pbs != nullptr && clean;
       try {
-        pbs->destroyDatablock(Ogre::IdString(native.name));
+        if (pbs != nullptr) {
+          pbs->destroyDatablock(Ogre::IdString(native.name));
+          clean = pbs->getDatablock(Ogre::IdString(native.name)) == nullptr &&
+                  clean;
+        }
       } catch (...) {
         clean = false;
       }
     }
-    native.datablock = nullptr;
+    if (native.display_domain_unlit_datablock != nullptr) {
+      clean = unlit != nullptr && clean;
+      try {
+        if (unlit != nullptr) {
+          unlit->destroyDatablock(Ogre::IdString(native.name));
+          clean =
+              unlit->getDatablock(Ogre::IdString(native.name)) == nullptr &&
+              clean;
+        }
+      } catch (...) {
+        clean = false;
+      }
+    }
+    native.pbs_datablock = nullptr;
+    native.display_domain_unlit_datablock = nullptr;
     return clean;
   }
 
@@ -2808,7 +3049,8 @@ public:
     for (auto &entry : candidate_textures) {
       const auto existing = textures.find(entry.first);
       if (existing == textures.end() ||
-          existing->second.asset != entry.second.asset) {
+          existing->second.asset != entry.second.asset ||
+          existing->second.usage != entry.second.usage) {
         clean = DestroyTexture(entry.second) && clean;
       }
     }
@@ -3563,6 +3805,11 @@ OgreNextN1Frontend::QueryNormalUploadAudit() const noexcept {
   return impl_->NormalUploadAudit();
 }
 
+OgreNextN1DisplayDomainUploadAudit
+OgreNextN1Frontend::QueryDisplayDomainUploadAudit() const {
+  return impl_->DisplayDomainUploadAudit();
+}
+
 OgreNextReflectionProbeCaptureEvidence
 OgreNextN1Frontend::QueryReflectionProbeCaptureEvidence() const {
   return impl_->reflection_probe_runtime
@@ -4159,6 +4406,9 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     std::map<RenderAssetId, Impl::NativeMesh> candidate_meshes;
     std::map<RenderAssetId, Impl::NativeMaterial> candidate_materials;
     std::map<RenderAssetId, Impl::NativeTexture> candidate_textures;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    bool has_texture_role_transition = false;
+#endif
     try {
       std::map<RenderAssetId, ReferencedTextureUsage> referenced_textures;
       ValidationResult visit = candidate->VisitRecords(
@@ -4174,12 +4424,19 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
               const TextureBinding *binding;
               NativeTextureUsage usage;
             };
+            const bool display_domain_base =
+                material->base_color_transfer ==
+                BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
             const BindingUsage bindings[] = {
-                {&material->base_color_texture, {true, false, false, false}},
+                {&material->base_color_texture,
+                 {!display_domain_base, display_domain_base, false, false,
+                  false}},
                 {&material->metallic_roughness_texture,
-                 {false, true, true, false}},
-                {&material->normal_texture, {false, false, false, true}},
-                {&material->emissive_texture, {true, false, false, false}},
+                 {false, false, true, true, false}},
+                {&material->normal_texture,
+                 {false, false, false, false, true}},
+                {&material->emissive_texture,
+                 {true, false, false, false, false}},
             };
             for (const BindingUsage &binding_usage : bindings) {
               const TextureBinding &binding = *binding_usage.binding;
@@ -4201,6 +4458,9 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                 existing.usage.sampled_rgba =
                     existing.usage.sampled_rgba ||
                     binding_usage.usage.sampled_rgba;
+                existing.usage.display_domain_rgba =
+                    existing.usage.display_domain_rgba ||
+                    binding_usage.usage.display_domain_rgba;
                 existing.usage.roughness_g =
                     existing.usage.roughness_g ||
                     binding_usage.usage.roughness_g;
@@ -4211,16 +4471,21 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                     existing.usage.normal_rg ||
                     binding_usage.usage.normal_rg;
                 if ((existing.usage.sampled_rgba &&
-                     (existing.usage.roughness_g ||
-                      existing.usage.metallic_b)) ||
-                    (existing.usage.normal_rg &&
-                     (existing.usage.sampled_rgba ||
+                     (existing.usage.display_domain_rgba ||
                       existing.usage.roughness_g ||
+                      existing.usage.metallic_b ||
+                      existing.usage.normal_rg)) ||
+                    (existing.usage.display_domain_rgba &&
+                     (existing.usage.roughness_g ||
+                      existing.usage.metallic_b ||
+                      existing.usage.normal_rg)) ||
+                    (existing.usage.normal_rg &&
+                     (existing.usage.roughness_g ||
                       existing.usage.metallic_b))) {
                   return ValidationResult::Failure(
                       ValidationCode::UNSUPPORTED_FEATURE,
                       "assets.material.texture_binding",
-                      "RT4/V1 rejects aliases between sampled sRGB and packed linear texture roles, and aliases canonical normal textures with either role");
+                      "RT4/V1 rejects aliases among decode-before-filter sRGB, display-domain UNORM, packed linear, and canonical normal texture roles");
                 }
               }
             }
@@ -4243,6 +4508,13 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
             existing->second.usage == referenced->second.usage) {
           candidate_textures.emplace(record.asset.id, existing->second);
         } else {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+          has_texture_role_transition =
+              has_texture_role_transition ||
+              (existing != impl_->textures.end() &&
+               existing->second.asset == record.asset &&
+               existing->second.usage != referenced->second.usage);
+#endif
           PendingTextureAllocation created{
               impl_.get(),
               impl_->CreateTexture(
@@ -4277,6 +4549,13 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
         impl_->VerifyTexture(entry.second, *descriptor,
                              usage->second.usage);
       }
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      if (has_texture_role_transition) {
+        impl_->MaybeInjectTextureUploadFailure(
+            OgreNextN1TextureUploadFailureStage::
+                AFTER_ROLE_TRANSITION_CANDIDATE_TEXTURES);
+      }
+#endif
 
       visit = candidate->VisitRecords([&](const RenderAssetRecord &record) {
         if (!record.live() || record.asset.kind != RenderAssetKind::MESH) {
@@ -4373,7 +4652,8 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     for (auto &entry : impl_->textures) {
       const auto replacement = candidate_textures.find(entry.first);
       if (replacement == candidate_textures.end() ||
-          replacement->second.asset != entry.second.asset) {
+          replacement->second.asset != entry.second.asset ||
+          replacement->second.usage != entry.second.usage) {
         retired_cleanly =
             impl_->DestroyTexture(entry.second) && retired_cleanly;
       }
@@ -5156,11 +5436,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
       items.emplace_back(item, nullptr);
       const std::uint32_t authored_instance_visibility =
           instance.visibility_mask & native_authored_visibility_mask;
-      Ogre::HlmsPbsDatablock *instance_datablock =
-          material->second.datablock;
+      const bool pbs_material =
+          material->second.kind == Impl::NativeMaterial::Kind::PBS;
+      Ogre::HlmsPbsDatablock *pbs_datablock =
+          material->second.pbs_datablock;
+      Ogre::HlmsUnlitDatablock *unlit_datablock =
+          material->second.display_domain_unlit_datablock;
+      if ((pbs_material &&
+           (pbs_datablock == nullptr || unlit_datablock != nullptr)) ||
+          (!pbs_material &&
+           (pbs_datablock != nullptr || unlit_datablock == nullptr))) {
+        throw std::logic_error(
+            "Ogre-Next native material lifetime lost its exact HLMS type");
+      }
       const bool receives_shadow =
           (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
-      if (shadow_plan.enabled && !receives_shadow) {
+      const bool authored_casts_shadow =
+          (instance.flags & MESH_INSTANCE_CASTS_SHADOW) != 0U;
+      if (!pbs_material && (receives_shadow || authored_casts_shadow)) {
+        throw std::logic_error(
+            "Ogre-Next display-domain Unlit reached submission with shadow flags");
+      }
+      Ogre::HlmsDatablock *instance_datablock =
+          material->second.Datablock();
+      Ogre::HlmsPbsDatablock *instance_pbs_datablock = pbs_datablock;
+      if (pbs_material && shadow_plan.enabled && !receives_shadow) {
         const std::string receiver_name =
             "RoRPssmReceiver_f" + std::to_string(request.frame_id) + "_i" +
             std::to_string(instance.instance_id);
@@ -5168,7 +5468,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
         bool creation_counted = false;
         bool tracked = false;
         try {
-          cloned = material->second.datablock->clone(receiver_name);
+          cloned = pbs_datablock->clone(receiver_name);
           ++impl_->shadow_audit.receiver_datablock_creates;
           creation_counted = true;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -5181,14 +5481,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 "injected PSSM receiver datablock rollback failure");
           }
 #endif
-          instance_datablock =
+          Ogre::HlmsPbsDatablock *receiver_datablock =
               dynamic_cast<Ogre::HlmsPbsDatablock *>(cloned);
-          if (instance_datablock == nullptr) {
+          if (receiver_datablock == nullptr) {
             throw std::runtime_error(
                 "Ogre-Next PSSM receiver clone changed HLMS type");
           }
+          instance_datablock = receiver_datablock;
+          instance_pbs_datablock = receiver_datablock;
           receiver_datablocks.push_back(
-              ReceiverDatablock{instance_datablock->getName()});
+              ReceiverDatablock{receiver_datablock->getName()});
           tracked = true;
         } catch (...) {
           const std::exception_ptr failure = std::current_exception();
@@ -5223,11 +5525,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
           }
           std::rethrow_exception(failure);
         }
-        instance_datablock->setReceiveShadows(false);
+        instance_pbs_datablock->setReceiveShadows(false);
       }
-      if (shadow_plan.enabled &&
-          (instance_datablock->getReceiveShadows() != receives_shadow ||
-           material->second.datablock->mShadowConstantBias !=
+      if (pbs_material && shadow_plan.enabled &&
+          (instance_pbs_datablock->getReceiveShadows() != receives_shadow ||
+           pbs_datablock->mShadowConstantBias !=
                kOgreNextPssmMaterialConstantBias)) {
         throw std::runtime_error(
             "Ogre-Next PSSM receiver or material bias failed native readback");
@@ -5235,9 +5537,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
       item->setDatablock(instance_datablock);
       item->setVisibilityFlags(authored_instance_visibility);
       const bool casts_shadow =
-          shadow_plan.enabled && MeshInstanceCastsShadowForLight(
-                                     snapshot.lights().front(), instance,
-                                     *base_mesh);
+          pbs_material && shadow_plan.enabled &&
+          MeshInstanceCastsShadowForLight(snapshot.lights().front(), instance,
+                                          *base_mesh);
       item->setCastShadows(casts_shadow);
       if (item->getCastShadows() != casts_shadow ||
           item->getVisibilityFlags() != authored_instance_visibility) {

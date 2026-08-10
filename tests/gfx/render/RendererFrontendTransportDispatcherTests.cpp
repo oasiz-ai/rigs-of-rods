@@ -141,6 +141,25 @@ RenderTransportStreamFrameResult AssetFrame(std::uint64_t envelope_sequence,
 }
 
 RenderTransportStreamFrameResult
+ReservedAssetV1Frame(std::uint64_t envelope_sequence,
+                     const RenderAssetDelta &delta) {
+  RenderAssetDeltaTransportEncodeResult encoded =
+      EncodeRenderAssetDeltaTransportFrame(envelope_sequence, delta);
+  Require(encoded.ok(), "reserved asset V1 fixture must encode as V2 first");
+  Require(encoded.bytes.size() >= kRenderTransportEnvelopeHeaderBytes,
+          "reserved asset V1 fixture must contain a complete envelope");
+  encoded.bytes[12U] = static_cast<std::uint8_t>(
+      static_cast<std::uint16_t>(
+          RenderTransportMessageKind::RENDER_ASSET_DELTA_V1) &
+      0xFFU);
+  encoded.bytes[13U] = static_cast<std::uint8_t>(
+      static_cast<std::uint16_t>(
+          RenderTransportMessageKind::RENDER_ASSET_DELTA_V1) >>
+      8U);
+  return CompleteFrame(encoded.bytes);
+}
+
+RenderTransportStreamFrameResult
 SceneFrame(std::uint64_t envelope_sequence,
            const std::shared_ptr<const SceneSnapshot> &scene,
            const CameraViewRequest &camera = Camera()) {
@@ -1171,6 +1190,44 @@ void TestForgedCompleteFrameMetadataFailsClosed() {
           "forged metadata did not fail after typed envelope verification");
 }
 
+void TestReservedAssetV1KindFailsWithoutMutation() {
+  FakeFrontend frontend;
+  RendererFrontendTransportDispatcher dispatcher(frontend, Session(101U));
+  const RenderAssetDelta delta =
+      AssetDelta(dispatcher.registry_id(), 1U, true);
+
+  const RendererFrontendTransportDispatchResult rejected =
+      dispatcher.Dispatch(ReservedAssetV1Frame(1U, delta), OffscreenPolicy());
+  RequireStatus(rejected.status,
+                RendererFrontendTransportDispatchStatus::FAILED_INTERNAL,
+                "reserved asset V1 kind was accepted");
+  Require(rejected.transport_status ==
+              RenderTransportStatus::UNKNOWN_MESSAGE_KIND &&
+              rejected.kind ==
+                  RenderTransportMessageKind::RENDER_ASSET_DELTA_V1 &&
+              rejected.sequence == 1U && rejected.terminal &&
+              dispatcher.terminal(),
+          "reserved asset V1 kind did not terminal-fail as an unsupported kind");
+  Require(dispatcher.next_expected_sequence() == 1U &&
+              dispatcher.last_accepted_sequence() == 0U &&
+              dispatcher.asset_registry().sequence() == 0U &&
+              dispatcher.asset_registry().record_count() == 0U &&
+              dispatcher.asset_registry().live_count() == 0U &&
+              frontend.calls.empty(),
+          "reserved asset V1 kind mutated sequence, catalog, or frontend");
+
+  const RendererFrontendTransportDispatchResult after_terminal =
+      dispatcher.Dispatch(AssetFrame(1U, delta), OffscreenPolicy());
+  RequireStatus(after_terminal.status,
+                RendererFrontendTransportDispatchStatus::REJECTED_TERMINAL,
+                "dispatcher accepted V2 after terminal V1 rejection");
+  Require(dispatcher.next_expected_sequence() == 1U &&
+              dispatcher.last_accepted_sequence() == 0U &&
+              dispatcher.asset_registry().sequence() == 0U &&
+              frontend.calls.empty(),
+          "post-terminal dispatch mutated sequence, catalog, or frontend");
+}
+
 } // namespace
 
 int main() {
@@ -1189,6 +1246,7 @@ int main() {
   TestReleaseFailureContinuesCleanupAndPoisons();
   TestReverseInputInvalidPolicyAndInvalidSession();
   TestForgedCompleteFrameMetadataFailsClosed();
+  TestReservedAssetV1KindFailsWithoutMutation();
   std::cout << "frontend transport dispatcher tests passed\n";
   return EXIT_SUCCESS;
 }

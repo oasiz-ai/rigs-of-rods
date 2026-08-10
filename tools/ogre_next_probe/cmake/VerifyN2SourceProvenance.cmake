@@ -8,6 +8,9 @@ if (NOT DEFINED N2_REPOSITORY_ROOT OR
 endif ()
 
 set(_ror_n2_relevant_source_paths
+    source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+    source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
+    tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
     CMakeLists.txt
     doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
     cmake/OgreNextProductionPackage.cmake
@@ -260,6 +263,9 @@ file(GLOB_RECURSE _ror_n2_relevant_source_files
     "${N2_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${N2_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_n2_relevant_source_files
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
+    "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
     "CMakeLists.txt"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"

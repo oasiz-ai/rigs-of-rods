@@ -32,6 +32,7 @@ enum class RenderTransportMessageKind : std::uint16_t {
   RENDER_BRIDGE_ACKNOWLEDGEMENT_V1 = 4U,
   RENDER_BRIDGE_CONTROL_V1 = 5U,
   SCENE_GENERATION_BOUNDARY_V1 = 6U,
+  RENDER_ASSET_DELTA_V2 = 7U,
 };
 
 enum class RenderTransportStatus : std::uint8_t {

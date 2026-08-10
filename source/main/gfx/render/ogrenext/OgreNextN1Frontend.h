@@ -132,6 +132,9 @@ enum class OgreNextN1TextureUploadFailureStage : std::uint8_t {
   AFTER_SET_MIPMAPS,
   AFTER_SET_PIXEL_FORMAT,
   AFTER_SCHEDULE_TRANSITION,
+  /// Fires after a replacement texture with a changed sampling role has been
+  /// uploaded and verified, while the previous-role allocation is still live.
+  AFTER_ROLE_TRANSITION_CANDIDATE_TEXTURES,
 };
 
 /// Native Image2 staging proof exposed only by the standalone smoke seam.
@@ -146,6 +149,21 @@ struct OgreNextN1NormalUploadAudit final {
   std::uint64_t verified_rg_bytes = 0U;
   std::uint64_t verified_padded_source_rows = 0U;
   bool exact_source_rg_to_native_image = false;
+};
+
+/// Probe-only GPU readback proof for the exact display-domain texture role.
+/// The audit compares every authored RGBA byte in every mip against a native
+/// TextureGpu download after residency and after the asset transaction commits.
+struct OgreNextN1DisplayDomainUploadAudit final {
+  std::uint32_t version = 1U;
+  std::uint64_t source_textures = 0U;
+  std::uint64_t native_readbacks = 0U;
+  std::uint64_t expected_mip_levels = 0U;
+  std::uint64_t verified_mip_levels = 0U;
+  std::uint64_t verified_rows = 0U;
+  std::uint64_t verified_texels = 0U;
+  std::uint64_t verified_rgba_bytes = 0U;
+  bool exact_source_rgba_to_native_texture = false;
 };
 
 /// PSSM-only transactional fault seam for the standalone native smoke.
@@ -351,6 +369,8 @@ public:
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   [[nodiscard]] OgreNextN1NormalUploadAudit
   QueryNormalUploadAudit() const noexcept;
+  [[nodiscard]] OgreNextN1DisplayDomainUploadAudit
+  QueryDisplayDomainUploadAudit() const;
   [[nodiscard]] OgreNextReflectionProbeCaptureEvidence
   QueryReflectionProbeCaptureEvidence() const;
   [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence

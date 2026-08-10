@@ -402,7 +402,10 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                 self.assertNotIn(prohibited, runtime_target)
 
         package = self.cmake[
-            self.cmake.index("set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT") :
+            self.cmake.index(
+                'add_custom_command(\n'
+                '        OUTPUT "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"'
+            ) :
             self.cmake.index(
                 "add_custom_target(ror_ogre_next_frontend_n1_package ALL"
             )
@@ -844,12 +847,21 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, self.build_contract)
         self.assertIn(
-            "file(REAL_PATH \"${ROR_OGRE_NEXT_MEDIA_ROOT}\"",
+            'file(TO_CMAKE_PATH "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"',
             self.cmake,
         )
         self.assertIn(
             "The probe-only Ogre-Next child requires one representable "
-            "absolute pinned media root",
+            "absolute staged media root",
+            self.cmake,
+        )
+        self.assertIn(
+            "ror_renderer_ogre_next_child_runtime\n"
+            "            ror_ogre_next_frontend_n1_package",
+            self.cmake,
+        )
+        self.assertIn(
+            'REQUIRED_FILES "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"',
             self.cmake,
         )
 
