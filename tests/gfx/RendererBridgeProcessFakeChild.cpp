@@ -88,6 +88,8 @@ bool StartsWith(const NativeString &value,
          value.compare(0U, expected.size(), expected) == 0;
 }
 
+#if defined(ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS) ||              \
+    defined(ROR_RENDERER_BRIDGE_FAKE_PRESENTATION)
 bool HasExpectedMacOSDemoLauncherArguments(
     const std::vector<NativeString> &arguments) {
 #if defined(ROR_RENDERER_BRIDGE_FAKE_ALLOW_MACOS_DEMO_AUTOSTART)
@@ -103,6 +105,7 @@ bool HasExpectedMacOSDemoLauncherArguments(
   return false;
 #endif
 }
+#endif
 
 bool HasExpectedPublicLauncherArguments(
     const std::vector<NativeString> &arguments) {
