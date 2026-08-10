@@ -8,6 +8,7 @@
 
 #include "RendererOgre14GameHostSession.h"
 #include "RendererOgre14ProductSession.h"
+#include "detail/OgreNextDemoFrameNormalization.h"
 
 #include "RenderBridgeSessionIdentity.h"
 #include "RenderTransportStream.h"
@@ -16,6 +17,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -450,6 +452,60 @@ CameraViewRequest Camera(std::uint32_t width = 1280U,
   return camera;
 }
 
+void TestOgreNextDemoFrameNormalizationUsesDrawablePixels() {
+  GraphicsSceneCameraInput camera;
+  camera.view_id = 1U;
+  camera.width = 2560U;
+  camera.height = 1664U;
+  camera.near_plane = 0.5F;
+  camera.far_plane = 59994.0F;
+  camera.clip_from_view = Perspective(camera.near_plane, camera.far_plane);
+  camera.clip_from_view.elements[5U] = 1.75F;
+  camera.clip_from_view.elements[0U] =
+      camera.clip_from_view.elements[5U] / (2560.0F / 1664.0F);
+  camera.clip_from_view.elements[8U] = 0.125F;
+  camera.clip_from_view.elements[9U] = -0.0625F;
+
+  const ValidationResult normalized =
+      RoR::Detail::NormalizeOgreNextDemoCamera(camera, 2560U, 1440U);
+  const float expected_m00 = 1.75F / (2560.0F / 1440.0F);
+  const float expected_m22 = 350.0F / (0.5F - 350.0F);
+  Require(normalized.ok() && camera.width == 2560U &&
+              camera.height == 1440U && camera.near_plane == 0.5F &&
+              camera.far_plane == 350.0F &&
+              std::fabs(camera.clip_from_view.elements[0U] - expected_m00) <
+                  1.0e-6F &&
+              camera.clip_from_view.elements[5U] == 1.75F &&
+              camera.clip_from_view.elements[8U] == 0.125F &&
+              camera.clip_from_view.elements[9U] == -0.0625F &&
+              camera.clip_from_view.elements[10U] == expected_m22 &&
+              camera.clip_from_view.elements[14U] == 0.5F * expected_m22 &&
+              IsCanonicalProjection(camera.clip_from_view, camera.near_plane,
+                                    camera.far_plane),
+          "demo camera did not preserve vertical FOV/center while matching "
+          "the Retina child drawable and fixed PSSM clip range");
+
+  GraphicsSceneCameraInput orthographic = camera;
+  orthographic.clip_from_view.elements.fill(0.0F);
+  orthographic.clip_from_view.elements[0U] = 1.0F;
+  orthographic.clip_from_view.elements[5U] = 1.0F;
+  orthographic.clip_from_view.elements[10U] =
+      1.0F / (orthographic.near_plane - orthographic.far_plane);
+  orthographic.clip_from_view.elements[14U] =
+      orthographic.near_plane * orthographic.clip_from_view.elements[10U];
+  orthographic.clip_from_view.elements[15U] = 1.0F;
+  const GraphicsSceneCameraInput before = orthographic;
+  const ValidationResult rejected =
+      RoR::Detail::NormalizeOgreNextDemoCamera(orthographic, 1920U, 1080U);
+  Require(!rejected.ok() && orthographic.width == before.width &&
+              orthographic.height == before.height &&
+              orthographic.near_plane == before.near_plane &&
+              orthographic.far_plane == before.far_plane &&
+              orthographic.clip_from_view.elements ==
+                  before.clip_from_view.elements,
+          "unsupported projection rejection mutated the captured camera");
+}
+
 RenderBridgeSurfaceState ActiveSurface(std::uint64_t revision,
                                        std::uint32_t logical_width,
                                        std::uint32_t logical_height,
@@ -560,6 +616,10 @@ public:
     object.material_source_asset_id = 20U;
     object.state = std::move(state);
     frame.dynamic_meshes.push_back(std::move(object));
+
+    GraphicsSceneLightInput sun;
+    sun.source_light_id = 7U;
+    frame.lights.push_back(sun);
 
     frame.camera.view_id = 1U;
     frame.camera.width = 1600U;
@@ -1357,23 +1417,27 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
           "product did not apply decoded renderer input exactly once");
 
   ProductSceneSource source;
+  const GraphicsSceneLightInput demo_sun = source.frame.lights.front();
+  source.frame.lights.clear();
+  const RendererOgre14ProductSessionResult missing_sun =
+      product.PostUpdatedScene(source);
+  Require(missing_sun.status ==
+                  RendererOgre14ProductSessionStatus::CAPTURE_REJECTED &&
+              !missing_sun.validation.ok() && source.captures == 1U &&
+              source.commits == 0U && source.discards == 1U &&
+              !product.has_pending_frame(),
+          "missing demo shadow sun did not discard source candidate state");
+
+  source.frame.lights.push_back(demo_sun);
   source.frame.camera.width = 1599U;
-  const RendererOgre14ProductSessionResult wrong_extent =
+  const RendererOgre14ProductSessionResult normalized =
       product.PostUpdatedScene(source);
-  Require(wrong_extent.status == RendererOgre14ProductSessionStatus::
-                                     WAITING_FOR_CAMERA_EXTENT &&
-              source.captures == 1U && source.commits == 0U &&
-              source.discards == 1U && !product.has_pending_frame(),
-          "camera-extent rejection did not discard source candidate state");
-  source.frame.camera.width = 1600U;
-  const RendererOgre14ProductSessionResult first =
-      product.PostUpdatedScene(source);
-  Require(first.status ==
+  Require(normalized.status ==
                   RendererOgre14ProductSessionStatus::PENDING_BACKPRESSURE &&
-              first.pending_frame && source.captures == 2U &&
+              normalized.pending_frame && source.captures == 2U &&
               source.commits == 1U && source.discards == 1U &&
               product.has_pending_frame(),
-          "asset-first bounded lineage did not retain the produced scene");
+          "surface-normalized asset-first lineage did not retain the scene");
   for (int retry = 0; retry < 3; ++retry) {
     const RendererOgre14ProductSessionResult pending =
         product.PostUpdatedScene(source);
@@ -1443,15 +1507,25 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
   SceneSnapshotTransportDecoder scene_decoder(2U);
   const SceneSnapshotTransportDecodeResult decoded_scene =
       scene_decoder.Accept(scene_frame.bytes);
+  const float expected_m00 = 1.0F / (1600.0F / 1200.0F);
   Require(decoded_scene.ok() &&
+              decoded_scene.message->camera().width == 1600U &&
+              decoded_scene.message->camera().height == 1200U &&
+              decoded_scene.message->camera().near_plane == 0.5F &&
+              decoded_scene.message->camera().far_plane == 350.0F &&
+              std::fabs(decoded_scene.message->camera()
+                            .clip_from_view.elements[0U] -
+                        expected_m00) < 1.0e-6F &&
+              decoded_scene.message->camera()
+                      .clip_from_view.elements[5U] == 1.0F &&
               decoded_scene.message->scene_snapshot()
                       ->dynamic_mesh_updates().size() == 1U &&
               decoded_scene.message->scene_snapshot()
                       ->dynamic_mesh_updates().front().update_sequence == 1U &&
               decoded_scene.message->scene_snapshot()
                       ->dynamic_mesh_updates().front().instance_id == 150U,
-          "backpressure/resize changed or dropped the immutable deformable "
-          "update");
+          "backpressure/resize changed normalized camera or immutable "
+          "deformable update");
 
   RenderBridgeAcknowledgement scene_ack;
   scene_ack.registry_id = registry_id;
@@ -1782,6 +1856,7 @@ int main() {
   TestAcknowledgedSceneCanBePresentedByALaterAck();
   TestSurfaceReadinessSuspendResumeAndStaleRevision();
   TestQueuedSceneRetiresAcrossSurfaceBarrier();
+  TestOgreNextDemoFrameNormalizationUsesDrawablePixels();
   TestProductStartFailsClosedBeforeInputAuthority();
   TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize();
   TestProductSceneGenerationResetPreservesTransportAndRetiresIds();

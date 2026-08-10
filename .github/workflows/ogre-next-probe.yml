@@ -29,6 +29,7 @@ on:
       - doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
       - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
       - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
+      - doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -44,6 +45,8 @@ on:
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
       - source/main/gfx/ogre14/Ogre14TerrainComposite*
+      - source/main/gfx/ogre14/detail/OgreNextDemo*
+      - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
       - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
@@ -74,6 +77,7 @@ on:
       - source/main/system/RendererOgre14InputAdapter.*
       - source/main/system/RendererOgre14InputEngineTarget.*
       - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/detail/OgreNextDemo*
       - source/main/system/RendererOgre14RuntimeOwnership.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererPackagedMediaPath.*
@@ -123,6 +127,7 @@ on:
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
+      - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
@@ -161,6 +166,7 @@ on:
       - doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
       - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
       - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
+      - doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
@@ -176,6 +182,8 @@ on:
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
       - source/main/gfx/ogre14/Ogre14TerrainComposite*
+      - source/main/gfx/ogre14/detail/OgreNextDemo*
+      - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
       - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
@@ -206,6 +214,7 @@ on:
       - source/main/system/RendererOgre14InputAdapter.*
       - source/main/system/RendererOgre14InputEngineTarget.*
       - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/detail/OgreNextDemo*
       - source/main/system/RendererOgre14RuntimeOwnership.*
       - source/main/system/RendererSiblingPath.*
       - source/main/system/RendererPackagedMediaPath.*
@@ -255,6 +264,7 @@ on:
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
+      - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp

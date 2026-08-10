@@ -70,6 +70,24 @@ DEFORMABLE_CAPTURE_WORKFLOW_PATHS = (
     "tests/physics/**",
     "tests/tools/test_ogre14_*.py",
 )
+OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
+    "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h",
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
+    "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
+    "source/main/system/detail/OgreNextDemoFrameNormalization.h",
+    "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+    "tests/tools/test_ogre_next_probe_contract.py",
+)
+OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
+    "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
+    "source/main/gfx/ogre14/detail/OgreNextDemo*",
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*",
+    "source/main/system/detail/OgreNextDemo*",
+    "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+)
 
 
 class OgreNextProbeWorkflowTests(unittest.TestCase):
@@ -156,6 +174,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/RendererStartupPlanTests.cpp",
             "tests/gfx/render/**",
             *DEFORMABLE_CAPTURE_WORKFLOW_PATHS,
+            *OGRE_NEXT_DEMO_WORKFLOW_PATHS,
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.workflow.count(f"- {path}"), 2)
@@ -171,6 +190,125 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 omitted = self.workflow.replace(f"      - {path}\n", "")
                 with self.assertRaises(AssertionError):
                     require_exact_filters(omitted)
+
+    def test_private_demo_bridge_is_built_hashed_and_fail_closed(self) -> None:
+        for path in OGRE_NEXT_DEMO_WORKFLOW_PATHS:
+            with self.subTest(workflow_path=path):
+                self.assertEqual(self.workflow.count(f"- {path}"), 2)
+
+        inventory_paths = (
+            REPOSITORY_ROOT / "tools" / "ogre_next_probe" / "CMakeLists.txt",
+            REPOSITORY_ROOT
+            / "tools"
+            / "ogre_next_probe"
+            / "cmake"
+            / "VerifyN2SourceProvenance.cmake",
+            REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py",
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py",
+        )
+        for inventory_path in inventory_paths:
+            inventory = inventory_path.read_text(encoding="utf-8")
+            for path in OGRE_NEXT_DEMO_PROVENANCE_PATHS:
+                with self.subTest(inventory=inventory_path.name, path=path):
+                    self.assertIn(path, inventory)
+
+        cmake = inventory_paths[0].read_text(encoding="utf-8")
+        for token in (
+            "ror_ogre_next_demo_private_policy_tests",
+            "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+            "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
+            "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
+            "add_test(NAME ror_ogre_next_demo_private_policy",
+        ):
+            self.assertIn(token, cmake)
+
+        product_target = cmake[
+            cmake.index(
+                "add_executable(\n"
+                "        ror_renderer_ogre14_game_host_session_tests"
+            ) : cmake.index(
+                "target_include_directories(\n"
+                "        ror_renderer_ogre14_game_host_session_tests"
+            )
+        ]
+        self.assertIn(
+            "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
+            product_target,
+        )
+
+        product_cmake = (
+            REPOSITORY_ROOT / "source/main/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        strict_fp = product_cmake[
+            product_cmake.index("set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES") :
+            product_cmake.index("if (ROR_OGRE14)", product_cmake.index(
+                "set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES"
+            ))
+        ]
+        for strict_source in (
+            "gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
+            "system/detail/OgreNextDemoFrameNormalization.cpp",
+        ):
+            with self.subTest(strict_fp_source=strict_source):
+                self.assertIn(strict_source, strict_fp)
+        ogre14_strict_fp = product_cmake[
+            product_cmake.index("if (ROR_OGRE14)", product_cmake.index(
+                "set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES"
+            )) : product_cmake.index("if (MSVC)", product_cmake.index(
+                "set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES"
+            ))
+        ]
+        self.assertIn(
+            "gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
+            ogre14_strict_fp,
+        )
+
+        terrain_source = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp"
+        ).read_text(encoding="utf-8")
+        gfx_scene = (REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp").read_text(
+            encoding="utf-8"
+        )
+        native_page = terrain_source[
+            terrain_source.index("Render::ValidationResult CaptureNativePage(") :
+        ]
+        self.assertLess(
+            native_page.index("waitForDerivedProcesses()"),
+            native_page.index("isDerivedDataUpdateInProgress()"),
+        )
+        self.assertEqual(
+            terrain_source.count("blitToMemory(destination)"), 1
+        )
+        self.assertIn("const NativeMip &native_base = mips.front();",
+                      terrain_source)
+        self.assertNotIn("native_mip.buffer->blitToMemory", terrain_source)
+        private_policy = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("texture.mip_levels.size() != 1U", private_policy)
+        terrain_pages = gfx_scene[
+            gfx_scene.index("CaptureOgre14TerrainPages(") :
+        ]
+        self.assertLess(
+            terrain_pages.index("waitForDerivedProcesses()"),
+            terrain_pages.index("isDerivedDataUpdateInProgress()"),
+        )
+        self.assertIn("NormalizeOgreNextDemoMatteMesh", gfx_scene)
+        self.assertIn("BuildOgreNextDemoMatteTangents", gfx_scene)
+
+        attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
+            encoding="utf-8"
+        )
+        for token in (
+            "source/main/gfx/ogre14/detail/OgreNextDemo* text eol=lf",
+            "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.* text eol=lf",
+            "source/main/system/detail/OgreNextDemo* text eol=lf",
+            "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp text eol=lf",
+            "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md text eol=lf",
+        ):
+            self.assertIn(token, attributes)
 
     def test_product_session_and_deformable_gates_are_linked_and_built(self) -> None:
         def require_once(block: str, token: str) -> None:
@@ -191,6 +329,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for source in (
             "source/main/system/RendererOgre14InputAdapter.cpp",
             "source/main/system/RendererOgre14ProductSession.cpp",
+            "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
         ):
             with self.subTest(product_source=source):
                 require_once(product_target, source)
@@ -1310,7 +1449,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertLess(main.index(scene_update_call), main.index(producer_call))
         self.assertLess(main.index(producer_call), main.index("renderOneFrame()"))
         self.assertIn("if (renderer_game_bridge.active())", main)
-        self.assertIn("EnableOgre14GraphicsSceneCapture();", main)
+        self.assertIn("EnableOgreNextDemoCapture();", main)
 
         main_compact = "".join(main.split())
         self.assertIn(
@@ -1397,7 +1536,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
 
         self.assertIn(
             "bool                               "
-            "m_ogre14_scene_capture_enabled = false;",
+            "m_ogre_next_demo_capture_enabled = false;",
             gfx_header,
         )
         buffer_body = gfx_source[
@@ -1405,10 +1544,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             gfx_source.index("Render::ValidationResult "
                              "GfxScene::CaptureOgre14GraphicsScene")
         ]
-        self.assertIn("if (!m_ogre14_scene_capture_enabled)", buffer_body)
+        self.assertIn("if (!m_ogre_next_demo_capture_enabled)", buffer_body)
         self.assertLess(
             buffer_body.index("a->BufferSimulationData();"),
-            buffer_body.index("if (!m_ogre14_scene_capture_enabled)"),
+            buffer_body.index("if (!m_ogre_next_demo_capture_enabled)"),
         )
 
         capture_body = gfx_source[
@@ -1436,7 +1575,17 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn(
             "getMovableObjects(Ogre::MOT_LIGHT)", gfx_source
         )
-        self.assertIn("input.visible = light->getVisible();", gfx_source)
+        demo_light = gfx_source[
+            gfx_source.index(
+                "CaptureOgreNextDemoMainShadowLight("
+            ) : gfx_source.index("NativeStaticFailure(")
+        ]
+        self.assertIn("light->getVisible()", demo_light)
+        self.assertIn("light->getCastShadows()", demo_light)
+        self.assertIn("candidate_count != 1U", demo_light)
+        self.assertIn("candidate != terrain_main_light", demo_light)
+        self.assertIn("input.visible = true;", demo_light)
+        self.assertIn("input.casts_shadows = true;", demo_light)
         self.assertNotIn("light->isVisible()", gfx_source)
         self.assertIn("BuildOgre14GraphicsSceneLights(", gfx_source)
         self.assertIn("CaptureOgre14StaticMeshObjects(", gfx_source)
@@ -1448,9 +1597,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "terrain->getHighestLodPrepared()",
             "terrain->getHighestLodLoaded()",
             "terrain->getTargetLodLevel()",
-            "ValidateOgre14GraphicsSceneTerrainMaterialCapture(",
             "ResolveOgre14GraphicsSceneTerrainPageCacheEntry(",
-            "BuildOgre14GraphicsSceneTerrainSection(",
+            "OgreNextDemoTerrainCapture terrain_capture",
+            "m_ogre_next_demo_terrain_source.Capture(",
         ):
             with self.subTest(terrain_tap=terrain_tap):
                 self.assertIn(terrain_tap, gfx_source)

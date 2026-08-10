@@ -590,6 +590,9 @@ class OgreNextProbeContractTests(unittest.TestCase):
         contract["reflection_shader_media"] = copy.deepcopy(
             self.lock["reflection_shader_media"]
         )
+        contract["shader_media"] = PROBE.expected_build_shader_media(
+            self.lock
+        )
         PROBE.validate_build_contract(contract, self.lock, self.policy)
         current_contract = copy.deepcopy(contract)
         current_contract["schema_version"] = 4
@@ -1121,6 +1124,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        self.assertEqual(build_contract["shader_media"], shader_media)
         runtime_report = json.loads(
             (REPOSITORY_ROOT / provenance["runtime_report_path"]).read_text(
                 encoding="utf-8"
@@ -1137,9 +1141,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
         build_contract["reflection_shader_media"] = copy.deepcopy(
             self.lock["reflection_shader_media"]
         )
+        build_contract["shader_media"] = PROBE.expected_build_shader_media(
+            self.lock
+        )
         PROBE.validate_build_contract(build_contract, self.lock, self.policy)
         PROBE.validate_report(runtime_report, self.lock, self.policy)
-        self.assertEqual(build_contract["shader_media"], shader_media)
         self.assertEqual(
             evidence["abi"]["cookie"], runtime_report["build"]["abi_cookie"]
         )

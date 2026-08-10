@@ -154,6 +154,13 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
     source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
+    doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+    source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
+    source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h
+    source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
+    source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h
+    source/main/system/detail/OgreNextDemoFrameNormalization.cpp
+    source/main/system/detail/OgreNextDemoFrameNormalization.h
     tests/gfx/GfxActorCaptureInventoryTests.cpp
     tests/system/ApplicationFatalShutdownContractTests.cpp
     tests/tools/test_ogre14_native_workflow_contract.py
@@ -166,6 +173,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
     tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp
     tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp
+    tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
@@ -227,6 +235,7 @@ set(_ror_n2_relevant_source_paths
     tests/tools/test_ogre14_terrain_composite_recipe_contract.py
     tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
     tests/tools/test_ogre_next_product_packaging_contract.py
+    tests/tools/test_ogre_next_probe_contract.py
     tests/tools/test_ogre_next_probe_workflow.py
     tests/tools/test_ogre_next_window_host_contract.py
     tests/tools/test_ogre_next_window_presentation_contract.py
@@ -408,6 +417,13 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
+    "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md"
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp"
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
+    "source/main/system/detail/OgreNextDemoFrameNormalization.cpp"
+    "source/main/system/detail/OgreNextDemoFrameNormalization.h"
     "tests/gfx/GfxActorCaptureInventoryTests.cpp"
     "tests/system/ApplicationFatalShutdownContractTests.cpp"
     "tests/tools/test_ogre14_native_workflow_contract.py"
@@ -420,6 +436,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
+    "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
@@ -481,6 +498,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
     "tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
+    "tests/tools/test_ogre_next_probe_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"

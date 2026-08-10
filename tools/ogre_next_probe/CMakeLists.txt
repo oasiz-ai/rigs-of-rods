@@ -246,8 +246,16 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
+    "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md"
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp"
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
+    "source/main/system/detail/OgreNextDemoFrameNormalization.cpp"
+    "source/main/system/detail/OgreNextDemoFrameNormalization.h"
     "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
+    "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
     "doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md"
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
@@ -312,6 +320,7 @@ list(APPEND _ror_relevant_source_files
     "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
     "tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py"
     "tests/tools/test_ogre_next_product_packaging_contract.py"
+    "tests/tools/test_ogre_next_probe_contract.py"
     "tests/tools/test_ogre_next_probe_workflow.py"
     "tests/tools/test_ogre_next_window_host_contract.py"
     "tests/tools/test_ogre_next_window_presentation_contract.py"
@@ -1147,7 +1156,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp")
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoFrameNormalization.cpp")
     target_include_directories(
         ror_renderer_ogre14_game_host_session_tests
         PRIVATE
@@ -1316,6 +1326,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_ogre14_dynamic_material_closure_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre_next_demo_private_policy_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp")
+    target_include_directories(
+        ror_ogre_next_demo_private_policy_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_link_libraries(
+        ror_ogre_next_demo_private_policy_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre_next_demo_private_policy_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -2119,6 +2143,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_procedural_road_source_tests
         ror_ogre14_road_material_transaction_tests
         ror_ogre14_dynamic_material_closure_tests
+        ror_ogre_next_demo_private_policy_tests
         ror_ogre14_material_semantic_registry_tests
         ror_ogre14_source_texture_decoder_tests
         ror_ogre14_material_semantic_catalog_v2_tests
@@ -2545,6 +2570,13 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
             source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
             source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
+            doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+            source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
+            source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h
+            source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
+            source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h
+            source/main/system/detail/OgreNextDemoFrameNormalization.cpp
+            source/main/system/detail/OgreNextDemoFrameNormalization.h
             tests/gfx/GfxActorCaptureInventoryTests.cpp
             tests/system/ApplicationFatalShutdownContractTests.cpp
             tests/tools/test_ogre14_native_workflow_contract.py
@@ -2557,6 +2589,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
             tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp
             tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp
+            tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
             doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
             tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
             tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
@@ -2619,6 +2652,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/tools/test_ogre14_terrain_composite_recipe_contract.py
             tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
             tests/tools/test_ogre_next_product_packaging_contract.py
+            tests/tools/test_ogre_next_probe_contract.py
             tests/tools/test_ogre_next_probe_workflow.py
             tests/tools/test_ogre_next_window_host_contract.py
             tests/tools/test_ogre_next_window_presentation_contract.py
@@ -2803,6 +2837,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_procedural_road_source_tests
         ror_ogre14_road_material_transaction_tests
         ror_ogre14_dynamic_material_closure_tests
+        ror_ogre_next_demo_private_policy_tests
         ror_ogre14_material_semantic_registry_tests
         ror_ogre14_source_texture_decoder_tests
         ror_ogre14_live_material_coordinator_tests
@@ -3165,6 +3200,10 @@ endif ()
 if (TARGET ror_ogre14_dynamic_material_closure_tests)
     add_test(NAME ror_ogre14_dynamic_material_closure
         COMMAND $<TARGET_FILE:ror_ogre14_dynamic_material_closure_tests>)
+endif ()
+if (TARGET ror_ogre_next_demo_private_policy_tests)
+    add_test(NAME ror_ogre_next_demo_private_policy
+        COMMAND $<TARGET_FILE:ror_ogre_next_demo_private_policy_tests>)
 endif ()
 if (TARGET ror_ogre14_material_semantic_registry_tests)
     add_test(NAME ror_ogre14_material_semantic_registry

@@ -595,8 +595,7 @@ int main(int argc, char *argv[])
                 renderer_bridge_scene_source =
                     std::make_unique<Render::Ogre14GraphicsSceneSource>(
                         *App::GetGfxScene());
-                App::GetGfxScene()->
-                    EnableOgre14GraphicsSceneCapture();
+                App::GetGfxScene()->EnableOgreNextDemoCapture();
             }
             catch (...)
             {

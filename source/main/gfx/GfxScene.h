@@ -30,6 +30,7 @@
 #include "EnvironmentMap.h" // RoR::GfxEnvmap
 #include "GfxActorCaptureInventory.h"
 #include "GfxData.h"
+#include "ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
 #include "render/Ogre14GraphicsSceneSource.h"
 #include "SimBuffers.h"
 #include "Skidmark.h"
@@ -89,8 +90,11 @@ public:
     void           RegisterGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           RemoveGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           BufferSimulationData(); //!< Run this when simulation is halted
-    void           EnableOgre14GraphicsSceneCapture() noexcept
-                   { m_ogre14_scene_capture_enabled = true; }
+    /// Enables the disposable actual-game OgreNext demo source. The OGRE 14
+    /// scene remains a private migration input; it is not a public renderer
+    /// compatibility mode or a generalized material API.
+    void           EnableOgreNextDemoCapture() noexcept
+                   { m_ogre_next_demo_capture_enabled = true; }
     /// Reads only the completed simulation buffer and graphics-owned OGRE 14
     /// state. Incomplete renderer-neutral inventories are identified through
     /// available_fields rather than populated with guessed defaults.
@@ -143,7 +147,9 @@ private:
     double                             m_ogre14_simulation_time_seconds = 0.0;
     bool                               m_ogre14_joined_buffer_ready = false;
     bool                               m_ogre14_joined_buffer_atomic = false;
-    bool                               m_ogre14_scene_capture_enabled = false;
+    bool                               m_ogre_next_demo_capture_enabled = false;
+    Gfx::Detail::Ogre14ToOgreNextTerrainSource
+                                       m_ogre_next_demo_terrain_source;
     // Map-generation identities reset only at ClearScene(), after the product
     // session has sequenced the preceding authoritative empty scene.
     Render::Ogre14GraphicsSceneLightIdentityRegistry

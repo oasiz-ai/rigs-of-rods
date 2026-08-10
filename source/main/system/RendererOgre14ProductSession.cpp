@@ -6,6 +6,7 @@
 */
 
 #include "RendererOgre14ProductSession.h"
+#include "detail/OgreNextDemoFrameNormalization.h"
 
 #include <chrono>
 #include <new>
@@ -282,10 +283,16 @@ RendererOgre14ProductSession::PostUpdatedScene(
     return result;
   }
   JoinedCaptureGuard capture_guard(source);
-  if (frame.camera.width != surface.drawable_width ||
-      frame.camera.height != surface.drawable_height) {
+  Render::ValidationResult normalized =
+      Detail::NormalizeOgreNextDemoCamera(
+          frame.camera, surface.drawable_width, surface.drawable_height);
+  if (normalized) {
+    normalized = Detail::ValidateOgreNextDemoShadowLights(frame.lights);
+  }
+  if (!normalized) {
     RendererOgre14ProductSessionResult result = MakeResult(
-        RendererOgre14ProductSessionStatus::WAITING_FOR_CAMERA_EXTENT, true);
+        RendererOgre14ProductSessionStatus::CAPTURE_REJECTED, false);
+    result.validation = std::move(normalized);
     result.surface_revision = surface.surface_revision;
     return result;
   }

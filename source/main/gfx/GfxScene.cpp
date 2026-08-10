@@ -20,6 +20,7 @@
 */
 
 #include "GfxScene.h"
+#include "gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
 
 #include "AppContext.h"
 #include "Actor.h"
@@ -62,6 +63,29 @@ using namespace RoR;
 
 namespace
 {
+
+class OgreNextDemoTerrainPendingGuard final
+{
+public:
+    explicit OgreNextDemoTerrainPendingGuard(
+        RoR::Gfx::Detail::Ogre14ToOgreNextTerrainSource& source) noexcept:
+        m_source(source)
+    {
+    }
+
+    ~OgreNextDemoTerrainPendingGuard()
+    {
+        if (m_armed)
+            m_source.Discard();
+    }
+
+    void Arm() noexcept { m_armed = true; }
+    void Release() noexcept { m_armed = false; }
+
+private:
+    RoR::Gfx::Detail::Ogre14ToOgreNextTerrainSource& m_source;
+    bool m_armed = false;
+};
 
 RoR::Render::Matrix4x4 ToRendererBoundaryMatrix(
     const Ogre::Matrix4& matrix)
@@ -133,19 +157,27 @@ bool CaptureOgre14MainCamera(
     return RoR::Render::BuildOgre14GraphicsSceneCamera(input, output).ok();
 }
 
-RoR::Render::ValidationResult CaptureOgre14ManagedLights(
+RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
     Ogre::SceneManager& scene_manager,
+    Ogre::Light* terrain_main_light,
     RoR::Render::Ogre14GraphicsSceneLightIdentityRegistry& identity_registry,
     std::vector<RoR::Render::GraphicsSceneLightInput>& output)
 {
-    std::vector<RoR::Render::Ogre14GraphicsSceneLightCaptureInput> inputs;
+    if (terrain_main_light == nullptr)
+    {
+        return RoR::Render::ValidationResult::Failure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "ogre_next_demo.lights.terrain_main",
+            "loaded demo terrain has no authoritative main light");
+    }
+
     // SceneManager documents this registry view as unsafe during concurrent
     // creation/destruction. Capture runs only on the joined main-thread
     // boundary after BufferSimulationData(), where scene mutation is quiescent.
     const Ogre::SceneManager::MovableObjectMap& managed_lights =
         scene_manager.getMovableObjects(Ogre::MOT_LIGHT);
-    inputs.reserve(managed_lights.size());
-
+    Ogre::Light* candidate = nullptr;
+    std::size_t candidate_count = 0U;
     for (const auto& managed_entry : managed_lights)
     {
         Ogre::MovableObject* const object = managed_entry.second;
@@ -164,93 +196,67 @@ RoR::Render::ValidationResult CaptureOgre14ManagedLights(
                 "lights.exact_name",
                 "OGRE managed-light key does not equal the exact Light name");
         }
-
-        RoR::Render::Ogre14GraphicsSceneLightCaptureInput input;
-        input.exact_name = light->getName();
-        switch (light->getType())
+        if (light->getType() == Ogre::Light::LT_DIRECTIONAL &&
+            light->getVisible() && light->getCastShadows() &&
+            light->getVisibilityFlags() != 0U && light->getLightMask() != 0U)
         {
-        case Ogre::Light::LT_POINT:
-            input.kind =
-                RoR::Render::Ogre14GraphicsSceneLightKind::POINT;
-            break;
-        case Ogre::Light::LT_DIRECTIONAL:
-            input.kind =
-                RoR::Render::Ogre14GraphicsSceneLightKind::DIRECTIONAL;
-            break;
-        case Ogre::Light::LT_SPOTLIGHT:
-            input.kind = RoR::Render::Ogre14GraphicsSceneLightKind::SPOT;
-            break;
-        case Ogre::Light::LT_RECTLIGHT:
-            input.kind =
-                RoR::Render::Ogre14GraphicsSceneLightKind::RECTANGLE;
-            break;
-        default:
-            return RoR::Render::ValidationResult::Failure(
-                RoR::Render::ValidationCode::INVALID_ENUM, "lights.type",
-                "OGRE managed-light inventory contains an unknown type");
+            candidate = light;
+            ++candidate_count;
         }
-
-#ifndef OGRE_NODELESS_POSITIONING
-        if (!light->isAttached())
-        {
-            return RoR::Render::ValidationResult::Failure(
-                RoR::Render::ValidationCode::MISSING_REFERENCE,
-                "lights.parent_scene_node",
-                "this OGRE build requires managed lights to be attached");
-        }
-#endif
-
-        const Ogre::ColourValue diffuse = light->getDiffuseColour();
-        const Ogre::ColourValue specular = light->getSpecularColour();
-        input.diffuse_linear = {
-            static_cast<float>(diffuse.r),
-            static_cast<float>(diffuse.g),
-            static_cast<float>(diffuse.b)};
-        input.specular_linear = {
-            static_cast<float>(specular.r),
-            static_cast<float>(specular.g),
-            static_cast<float>(specular.b)};
-        input.power_scale = static_cast<float>(light->getPowerScale());
-        // getVisible() is the stable authored enable bit. isVisible() also
-        // depends on per-camera masks and mutable render-frame state.
-        input.visible = light->getVisible();
-        input.visibility_flags = light->getVisibilityFlags();
-        input.light_mask = light->getLightMask();
-        input.attenuation_range = light->getAttenuationRange();
-        input.attenuation_constant = light->getAttenuationConstant();
-        input.attenuation_linear = light->getAttenuationLinear();
-        input.attenuation_quadratic = light->getAttenuationQuadric();
-        input.inner_cone_radians =
-            static_cast<float>(light->getSpotlightInnerAngle().valueRadians());
-        input.outer_cone_radians =
-            static_cast<float>(light->getSpotlightOuterAngle().valueRadians());
-        input.spot_falloff =
-            static_cast<float>(light->getSpotlightFalloff());
-        input.casts_shadows = light->getCastShadows();
-
-        if (input.kind ==
-                RoR::Render::Ogre14GraphicsSceneLightKind::POINT ||
-            input.kind == RoR::Render::Ogre14GraphicsSceneLightKind::SPOT)
-        {
-            const Ogre::Vector3 position = light->getDerivedPosition(false);
-            input.derived_position = {
-                static_cast<float>(position.x),
-                static_cast<float>(position.y),
-                static_cast<float>(position.z)};
-        }
-        if (input.kind ==
-                RoR::Render::Ogre14GraphicsSceneLightKind::DIRECTIONAL ||
-            input.kind == RoR::Render::Ogre14GraphicsSceneLightKind::SPOT)
-        {
-            const Ogre::Vector3 direction = light->getDerivedDirection();
-            input.derived_direction = {
-                static_cast<float>(direction.x),
-                static_cast<float>(direction.y),
-                static_cast<float>(direction.z)};
-        }
-        inputs.push_back(std::move(input));
+    }
+    if (candidate_count != 1U || candidate != terrain_main_light)
+    {
+        return RoR::Render::ValidationResult::Failure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "ogre_next_demo.lights.main_shadow",
+            "demo capture requires exactly the terrain main light as its one visible directional shadow caster");
     }
 
+#ifndef OGRE_NODELESS_POSITIONING
+    if (!candidate->isAttached())
+    {
+        return RoR::Render::ValidationResult::Failure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "ogre_next_demo.lights.parent_scene_node",
+            "this OGRE build requires the terrain main light to be attached");
+    }
+#endif
+
+    RoR::Render::Ogre14GraphicsSceneLightCaptureInput input;
+    input.exact_name = candidate->getName();
+    input.kind = RoR::Render::Ogre14GraphicsSceneLightKind::DIRECTIONAL;
+    const Ogre::ColourValue diffuse = candidate->getDiffuseColour();
+    const Ogre::ColourValue specular = candidate->getSpecularColour();
+    input.diffuse_linear = {
+        static_cast<float>(diffuse.r),
+        static_cast<float>(diffuse.g),
+        static_cast<float>(diffuse.b)};
+    input.specular_linear = {
+        static_cast<float>(specular.r),
+        static_cast<float>(specular.g),
+        static_cast<float>(specular.b)};
+    input.power_scale = static_cast<float>(candidate->getPowerScale());
+    input.visible = true;
+    input.visibility_flags = candidate->getVisibilityFlags();
+    input.light_mask = candidate->getLightMask();
+    input.attenuation_range = candidate->getAttenuationRange();
+    input.attenuation_constant = candidate->getAttenuationConstant();
+    input.attenuation_linear = candidate->getAttenuationLinear();
+    input.attenuation_quadratic = candidate->getAttenuationQuadric();
+    input.inner_cone_radians = static_cast<float>(
+        candidate->getSpotlightInnerAngle().valueRadians());
+    input.outer_cone_radians = static_cast<float>(
+        candidate->getSpotlightOuterAngle().valueRadians());
+    input.spot_falloff = static_cast<float>(candidate->getSpotlightFalloff());
+    input.casts_shadows = true;
+    const Ogre::Vector3 direction = candidate->getDerivedDirection();
+    input.derived_direction = {
+        static_cast<float>(direction.x),
+        static_cast<float>(direction.y),
+        static_cast<float>(direction.z)};
+
+    std::vector<RoR::Render::Ogre14GraphicsSceneLightCaptureInput> inputs;
+    inputs.push_back(std::move(input));
     return RoR::Render::BuildOgre14GraphicsSceneLights(
         inputs, identity_registry, output);
 }
@@ -500,6 +506,97 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
     output = std::move(candidate);
     reverse_winding = reference.reverse_winding;
     return RoR::Render::ValidationResult::Success();
+}
+
+// Disposable demo-only policy. Authored textures/programs are not translated
+// by the first playable build, but they must not erase real mesh geometry or
+// live simulation deformation. Such sections receive one canonical neutral
+// opaque matte while retaining the exact native cull/winding convention.
+RoR::Render::ValidationResult CaptureOgreNextDemoMaterialInput(
+    const Ogre::MaterialPtr& material,
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& output,
+    bool& reverse_winding,
+    bool& used_matte)
+{
+    Ogre14ResolvedMaterialFirstPass resolved;
+    RoR::Render::ValidationResult validation =
+        ResolveOgre14MaterialFirstPass(material, resolved);
+    if (!validation)
+        return validation;
+
+    const bool has_authored_program =
+        resolved.pass->hasVertexProgram() ||
+        resolved.pass->hasFragmentProgram() ||
+        resolved.pass->hasGeometryProgram() ||
+        resolved.pass->hasTessellationHullProgram() ||
+        resolved.pass->hasTessellationDomainProgram() ||
+        resolved.pass->hasComputeProgram();
+    const bool needs_demo_matte =
+        RoR::Gfx::Detail::OgreNextDemoRequiresMatte(
+            resolved.pass->getNumTextureUnitStates(), has_authored_program);
+    if (!needs_demo_matte)
+    {
+        used_matte = false;
+        return CaptureOgre14MaterialFallbackInput(
+            material, output, reverse_winding);
+    }
+
+    Ogre14MaterialSectionReference reference;
+    validation = CaptureOgre14MaterialSectionReference(resolved, reference);
+    if (!validation)
+        return validation;
+
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput candidate;
+    candidate.exact_resource_group = "RoR/OgreNextDemo";
+    switch (reference.cull)
+    {
+    case RoR::Render::Ogre14GraphicsSceneMaterialCull::NONE:
+        candidate.exact_name = "MatteNeutral/CullNone/v1";
+        break;
+    case RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE:
+        candidate.exact_name = "MatteNeutral/CullClockwise/v1";
+        break;
+    case RoR::Render::Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE:
+        candidate.exact_name = "MatteNeutral/CullAnticlockwise/v1";
+        break;
+    }
+    candidate.pass_count = 1U;
+    candidate.texture_unit_count = 0U;
+    candidate.has_vertex_program = false;
+    candidate.has_fragment_program = false;
+    candidate.lighting_enabled = true;
+    candidate.diffuse_linear = {0.64F, 0.67F, 0.70F, 1.0F};
+    candidate.ambient_linear = {1.0F, 1.0F, 1.0F};
+    candidate.specular_linear = {};
+    candidate.emissive_linear = {};
+    candidate.shininess = 0.0F;
+    candidate.blend =
+        RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE;
+    candidate.cull = reference.cull;
+    candidate.alpha_reject = RoR::Render::
+        Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+    candidate.alpha_reject_value = 0U;
+
+    RoR::Render::MaterialDescriptor portable_matte;
+    validation = RoR::Render::BuildOgre14GraphicsSceneMaterialFallback(
+        candidate, portable_matte);
+    if (!validation)
+        return validation;
+    output = std::move(candidate);
+    reverse_winding = reference.reverse_winding;
+    used_matte = true;
+    return RoR::Render::ValidationResult::Success();
+}
+
+bool IsOgreNextDemoInvisibleCabMaterial(const Ogre::MaterialPtr& material)
+{
+    Ogre14ResolvedMaterialFirstPass resolved;
+    if (!ResolveOgre14MaterialFirstPass(material, resolved))
+        return false;
+    const Ogre::ColourValue& diffuse = resolved.pass->getDiffuse();
+    return RoR::Gfx::Detail::OgreNextDemoOmitsInvisibleCab(
+        material->getName(), static_cast<float>(diffuse.a),
+        resolved.pass->getDepthWriteEnabled());
 }
 
 RoR::Render::ValidationResult ValidateOgre14StaticVertexDeclaration(
@@ -850,8 +947,28 @@ RoR::Render::ValidationResult ExtractOgre14CpuMeshSection(
             "assets.mesh.index.format",
             "OGRE index buffer has an unknown format");
     }
-    return RoR::Render::BuildOgre14GraphicsSceneStaticMeshPayload(
+    validation = RoR::Render::BuildOgre14GraphicsSceneStaticMeshPayload(
         input, payload);
+    if (!validation)
+        return validation;
+    if (payload == nullptr ||
+        !std::holds_alternative<RoR::Render::MeshResourceDescriptor>(
+            *payload))
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::WRONG_ASSET_KIND,
+            "ogre_next_demo.matte_mesh.payload",
+            "static mesh builder did not return a generic mesh payload");
+    }
+    RoR::Render::MeshResourceDescriptor normalized =
+        std::get<RoR::Render::MeshResourceDescriptor>(*payload);
+    validation = RoR::Gfx::Detail::NormalizeOgreNextDemoMatteMesh(
+        normalized);
+    if (!validation)
+        return validation;
+    payload = std::make_shared<const RoR::Render::RenderAssetPayload>(
+        std::move(normalized));
+    return RoR::Render::ValidationResult::Success();
 }
 
 std::string BuildNativeTerrainPageCacheKey(
@@ -914,30 +1031,59 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
              std::less<>>& captured_cache,
-    std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
-        captured_sections)
+    std::vector<RoR::Gfx::Detail::OgreNextDemoTerrainPageMesh>&
+        captured_pages)
 {
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
              std::less<>> candidate_cache;
-    std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
-        candidate_sections;
+    std::vector<RoR::Gfx::Detail::OgreNextDemoTerrainPageMesh>
+        candidate_pages;
     if (geometry_manager == nullptr ||
         geometry_manager->getTerrainGroup() == nullptr)
     {
         captured_cache = std::move(candidate_cache);
-        captured_sections = std::move(candidate_sections);
+        captured_pages = std::move(candidate_pages);
         return RoR::Render::ValidationResult::Success();
     }
 
     Ogre::TerrainGroup* const group = geometry_manager->getTerrainGroup();
+    if (group->getNumTerrainPrepareRequests() != 0U)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.native_update",
+            "TerrainGroup has background preparation work");
+    }
+
+    // The product bridge deliberately skips the legacy render traversal, so
+    // OGRE's WorkQueue main-thread completion pump is not otherwise reached.
+    // Join every resident page here before copying CPU geometry; this is the
+    // private demo boundary that prevents SkyX hourly light-map updates from
+    // starving the first (and later) captures forever.
+    try
+    {
+        for (const auto& slot_entry : group->getTerrainSlots())
+        {
+            Ogre::TerrainGroup::TerrainSlot* const slot = slot_entry.second;
+            if (slot != nullptr && slot->instance != nullptr)
+                slot->instance->waitForDerivedProcesses();
+        }
+    }
+    catch (...)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.derived_join",
+            "OGRE failed while joining private demo terrain work");
+    }
     if (group->getNumTerrainPrepareRequests() != 0U ||
         group->isDerivedDataUpdateInProgress())
     {
         return NativeStaticFailure(
             RoR::Render::ValidationCode::REVISION_MISMATCH,
             "terrain.pages.native_update",
-            "TerrainGroup has background preparation or derived-data work");
+            "TerrainGroup still has work after the private demo join");
     }
 
     RoR::Render::Ogre14GraphicsSceneTerrainAlignment group_alignment;
@@ -953,16 +1099,6 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
     page_inputs.reserve(slots.size());
     std::vector<std::pair<std::uint32_t, const Ogre::Terrain*>> native_pages;
     native_pages.reserve(slots.size());
-    Ogre::TerrainGlobalOptions* const terrain_options =
-        Ogre::TerrainGlobalOptions::getSingletonPtr();
-    if (!slots.empty() && terrain_options == nullptr)
-    {
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::MISSING_REFERENCE,
-            "terrain.pages.global_options",
-            "loaded OGRE terrain has no TerrainGlobalOptions singleton");
-    }
-
     for (const auto& slot_entry : slots)
     {
         const Ogre::TerrainGroup::TerrainSlot* const slot =
@@ -1103,99 +1239,16 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
         // OGRE 14 Terrain exposes no hole/cut topology in this component.
         input.has_holes = false;
 
-        const Ogre::TerrainLayerDeclaration& layer_declaration =
-            terrain->getLayerDeclaration();
-        if (layer_declaration.size() >
-                (std::numeric_limits<std::uint8_t>::max)() ||
-            terrain->getBlendTextures().size() >
-                (std::numeric_limits<std::uint32_t>::max)())
-        {
-            return NativeStaticFailure(
-                RoR::Render::ValidationCode::SIZE_MISMATCH,
-                "terrain.pages.material.audit",
-                "terrain sampler or blend texture inventory exceeds portable bounds");
-        }
-        input.material_audit.layer_count = terrain->getLayerCount();
-        input.material_audit.sampler_count =
-            static_cast<std::uint32_t>(layer_declaration.size());
-        input.material_audit.layer_world_sizes.reserve(
-            input.material_audit.layer_count);
-        input.material_audit.layer_texture_names.reserve(
-            static_cast<std::size_t>(input.material_audit.layer_count) *
-            input.material_audit.sampler_count);
-        for (std::uint32_t layer = 0U;
-             layer < input.material_audit.layer_count; ++layer)
-        {
-            input.material_audit.layer_world_sizes.push_back(
-                static_cast<float>(terrain->getLayerWorldSize(
-                    static_cast<std::uint8_t>(layer))));
-            for (std::uint32_t sampler = 0U;
-                 sampler < input.material_audit.sampler_count; ++sampler)
-            {
-                input.material_audit.layer_texture_names.push_back(
-                    terrain->getLayerTextureName(
-                        static_cast<std::uint8_t>(layer),
-                        static_cast<std::uint8_t>(sampler)));
-            }
-        }
-        const std::vector<Ogre::TexturePtr>& blend_textures =
-            terrain->getBlendTextures();
-        input.material_audit.blend_texture_count =
-            static_cast<std::uint32_t>(blend_textures.size());
-        input.material_audit.blend_texture_names.reserve(
-            blend_textures.size());
-        for (const Ogre::TexturePtr& texture : blend_textures)
-        {
-            input.material_audit.blend_texture_names.push_back(
-                texture ? texture->getName() : std::string{});
-        }
-        const Ogre::TexturePtr& global_colour_map =
-            terrain->getGlobalColourMap();
-        input.material_audit.global_colour_map_enabled =
-            terrain->getGlobalColourMapEnabled();
-        if (global_colour_map)
-            input.material_audit.exact_global_colour_map_name =
-                global_colour_map->getName();
-        const Ogre::TexturePtr& lightmap = terrain->getLightmap();
-        input.material_audit.has_lightmap = static_cast<bool>(lightmap);
-        if (lightmap)
-            input.material_audit.exact_lightmap_name = lightmap->getName();
-        const Ogre::TexturePtr& composite_map = terrain->getCompositeMap();
-        input.material_audit.has_composite_map =
-            static_cast<bool>(composite_map);
-        if (composite_map)
-            input.material_audit.exact_composite_map_name =
-                composite_map->getName();
-
-        // This is the render-thread material accessor used by OGRE itself. It
-        // may finish lazy material generation, but it does not prepare LODs or
-        // mutate height/normal/delta data.
-        const Ogre::MaterialPtr material = terrain->getMaterial();
-        bool reverse_winding = false;
-        validation = CaptureOgre14MaterialFallbackInput(
-            material, input.material, reverse_winding);
-        if (!validation)
-            return validation;
-        if (reverse_winding !=
-            (input.material.cull == RoR::Render::
-                 Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE))
-        {
-            return NativeStaticFailure(
-                RoR::Render::ValidationCode::REVISION_MISMATCH,
-                "terrain.pages.material.winding",
-                "terrain material culling and native winding conversion disagree");
-        }
+        // Material authority is captured independently by the private
+        // OgreNextDemo composite source. The CPU geometry path retains only
+        // its canonical clockwise-front topology convention.
+        input.material.cull =
+            RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
         input.visibility_mask = terrain->getVisibilityFlags();
         input.visible = true;
-        input.casts_shadows = terrain_options->getCastsDynamicShadows();
-        input.receives_shadows = material->getReceiveShadows();
+        input.casts_shadows = false;
+        input.receives_shadows = false;
         input.visible_in_reflections = true;
-
-        validation = RoR::Render::
-            ValidateOgre14GraphicsSceneTerrainMaterialCapture(
-                input.material_audit, input.material);
-        if (!validation)
-            return validation;
 
         const std::size_t sample_count =
             static_cast<std::size_t>(size) * size;
@@ -1227,12 +1280,7 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
                 return first.identity.slot_y < second.identity.slot_y;
             return first.identity.slot_x < second.identity.slot_x;
         });
-    validation =
-        RoR::Render::ValidateOgre14GraphicsSceneTerrainPageSet(page_inputs);
-    if (!validation)
-        return validation;
-
-    candidate_sections.reserve(page_inputs.size());
+    candidate_pages.reserve(page_inputs.size());
     for (const auto& input : page_inputs)
     {
         const std::string cache_key =
@@ -1247,11 +1295,14 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
         if (!validation)
             return validation;
 
-        RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput section;
-        validation = RoR::Render::BuildOgre14GraphicsSceneTerrainSection(
-            input, cache_entry.mesh_payload, section);
-        if (!validation)
-            return validation;
+        RoR::Gfx::Detail::OgreNextDemoTerrainPageMesh page;
+        page.slot_x = input.identity.slot_x;
+        page.slot_y = input.identity.slot_y;
+        page.exact_page_key = cache_key;
+        page.mesh_payload = cache_entry.mesh_payload;
+        page.page_world_position = input.page_world_position;
+        page.visibility_mask = input.visibility_mask;
+        page.visible = input.visible;
         const auto inserted = candidate_cache.emplace(
             cache_key, std::move(cache_entry));
         if (!inserted.second)
@@ -1261,7 +1312,7 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
                 "terrain.pages.cache_key",
                 "distinct terrain pages produced one exact native cache key");
         }
-        candidate_sections.push_back(std::move(section));
+        candidate_pages.push_back(std::move(page));
     }
 
     if (group->getNumTerrainPrepareRequests() != 0U ||
@@ -1290,7 +1341,7 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
     }
 
     captured_cache = std::move(candidate_cache);
-    captured_sections = std::move(candidate_sections);
+    captured_pages = std::move(candidate_pages);
     return RoR::Render::ValidationResult::Success();
 }
 
@@ -1305,7 +1356,8 @@ std::string BuildNativeDynamicMeshCacheKey(
 }
 
 RoR::Render::ValidationResult ValidateOgre14DynamicVertexDeclaration(
-    const Ogre::VertexData& vertex_data)
+    const Ogre::VertexData& vertex_data,
+    bool allow_ogre_next_demo_color_drop)
 {
     if (vertex_data.vertexDeclaration == nullptr ||
         vertex_data.vertexBufferBinding == nullptr)
@@ -1318,6 +1370,7 @@ RoR::Render::ValidationResult ValidateOgre14DynamicVertexDeclaration(
     std::uint32_t positions = 0U;
     std::uint32_t normals = 0U;
     bool uv0 = false;
+    bool ignored_demo_color = false;
     for (const Ogre::VertexElement& element :
          vertex_data.vertexDeclaration->getElements())
     {
@@ -1351,6 +1404,15 @@ RoR::Render::ValidationResult ValidateOgre14DynamicVertexDeclaration(
             uv0 = true;
             break;
         case Ogre::VES_COLOUR:
+            if (allow_ogre_next_demo_color_drop && !ignored_demo_color)
+            {
+                // Alexis FlexBody blend colors exist only to modulate its
+                // authored textured material. The private demo substitutes an
+                // untextured matte, so carrying this frame-varying stream
+                // would have no visual consumer.
+                ignored_demo_color = true;
+                break;
+            }
             return NativeStaticFailure(
                 RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
                 "dynamic_meshes.dynamic_vertex_colors",
@@ -1564,14 +1626,6 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             "dynamic_meshes.joined_staging",
             "deformable staging or rendering-distance state is incomplete");
     }
-    if (has_dynamic_vertex_colors)
-    {
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
-            "dynamic_meshes.dynamic_vertex_colors",
-            "FlexBody texture blending needs a frame-varying color stream");
-    }
-
     std::map<const Ogre::VertexData*, JoinedVertexRange> vertex_ranges;
     RoR::Render::ValidationResult validation =
         BuildOgre14JoinedVertexRanges(
@@ -1600,6 +1654,15 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                 "dynamic_meshes.native_submesh",
                 "deformable SubEntity no longer maps to its Mesh section");
         }
+        if (identity.component_kind == RoR::Render::
+                Ogre14GraphicsSceneDynamicComponentKind::CAB &&
+            IsOgreNextDemoInvisibleCabMaterial(sub_entity->getMaterial()))
+        {
+            // Alexis's globals cab section is intentionally invisible (zero
+            // alpha and no depth write). Matting it would create geometry the
+            // authored game never displays, so the demo omits it exactly.
+            continue;
+        }
         Ogre::RenderOperation operation;
         sub_entity->getSubMesh()->_getRenderOperation(operation, 0U);
         if (operation.vertexData == nullptr ||
@@ -1618,8 +1681,10 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                 "dynamic_meshes.native_draw_range",
                 "deformable draw range is absent or exceeds uint32");
         }
-        validation =
-            ValidateOgre14DynamicVertexDeclaration(*operation.vertexData);
+        validation = ValidateOgre14DynamicVertexDeclaration(
+            *operation.vertexData,
+            RoR::Gfx::Detail::OgreNextDemoDropsDynamicBlendColors(
+                has_dynamic_vertex_colors));
         if (!validation)
             return validation;
         const auto range = vertex_ranges.find(operation.vertexData);
@@ -1645,13 +1710,16 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             entity->getVisible(), sub_entity->isVisible());
         section.casts_shadows = entity->getCastShadows();
         section.visible_in_reflections = true;
-        section.has_dynamic_vertex_colors = has_dynamic_vertex_colors;
+        section.has_dynamic_vertex_colors = false;
 
         bool reverse_winding = false;
-        validation = CaptureOgre14MaterialFallbackInput(
-            sub_entity->getMaterial(), section.material, reverse_winding);
+        bool used_demo_matte = false;
+        validation = CaptureOgreNextDemoMaterialInput(
+            sub_entity->getMaterial(), section.material, reverse_winding,
+            used_demo_matte);
         if (!validation)
             return validation;
+        (void)used_demo_matte;
         section.mesh_reverse_winding = reverse_winding;
         section.receives_shadows =
             sub_entity->getMaterial()->getReceiveShadows();
@@ -1685,8 +1753,8 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                     static_cast<float>(uv.x), static_cast<float>(uv.y)});
             }
         }
-        const std::string cache_key =
-            BuildNativeDynamicMeshCacheKey(identity);
+        std::string cache_key = BuildNativeDynamicMeshCacheKey(identity);
+        cache_key.append("/OgreNextDemoRT4/v1");
         auto cached = mesh_cache.find(cache_key);
         const std::size_t native_state_count = mesh->getStateCount();
         const std::uint64_t native_mesh_handle =
@@ -1738,6 +1806,28 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                     base, section.mesh_payload);
             if (!validation)
                 return validation;
+            // RT4 uses one cross-renderer vertex layout for every object,
+            // including the small factor-only subset. Normalize all private
+            // non-terrain meshes, not only sections whose material was matted.
+            if (section.mesh_payload == nullptr ||
+                !std::holds_alternative<
+                    RoR::Render::MeshResourceDescriptor>(
+                        *section.mesh_payload))
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::WRONG_ASSET_KIND,
+                    "ogre_next_demo.matte_mesh.payload",
+                    "dynamic mesh builder did not return a generic mesh payload");
+            }
+            RoR::Render::MeshResourceDescriptor normalized =
+                std::get<RoR::Render::MeshResourceDescriptor>(
+                    *section.mesh_payload);
+            validation = RoR::Gfx::Detail::
+                NormalizeOgreNextDemoMatteMesh(normalized);
+            if (!validation)
+                return validation;
+            section.mesh_payload = std::make_shared<const
+                RoR::Render::RenderAssetPayload>(std::move(normalized));
             RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry entry;
             entry.native_mesh_handle = native_mesh_handle;
             entry.native_state_count = native_state_count;
@@ -1763,6 +1853,10 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                 *section.mesh_payload).topology_revision;
         state->positions = std::move(base.positions);
         state->normals = std::move(base.normals);
+        validation = RoR::Gfx::Detail::BuildOgreNextDemoMatteTangents(
+            state->normals, state->tangents);
+        if (!validation)
+            return validation;
         state->updated_local_bounds.minimum = state->positions.front();
         state->updated_local_bounds.maximum = state->positions.front();
         for (const RoR::Render::Float3& position : state->positions)
@@ -1788,9 +1882,6 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
 
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
-    const std::vector<
-        RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
-        terrain_sections,
     RoR::Render::Ogre14GraphicsSceneStaticIdentityRegistry& identity_registry,
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
@@ -1814,7 +1905,8 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
              RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
              std::less<>> candidate_cache = mesh_cache;
     std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
-        sections = terrain_sections;
+        sections;
+    std::size_t omitted_demo_speed_bumps = 0U;
     if (object_manager != nullptr)
     {
         for (const RoR::TerrainObjectManager::StaticGraphicsObject& record :
@@ -1863,6 +1955,31 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
                     "Entity and Mesh submesh inventories do not match");
             }
 
+            Ogre::SceneNode* const parent_scene_node =
+                entity->getParentSceneNode();
+            if (parent_scene_node == nullptr)
+            {
+                return NativeStaticFailure(
+                    RoR::Render::ValidationCode::MISSING_REFERENCE,
+                    "static_meshes.native_parent",
+                    "attached terrain Entity has no parent SceneNode");
+            }
+            const Ogre::Vector3& derived_scale =
+                parent_scene_node->_getDerivedScale();
+            if (RoR::Gfx::Detail::OgreNextDemoOmitsNonUniformSpeedBump(
+                    mesh->getName(),
+                    {static_cast<float>(derived_scale.x),
+                     static_cast<float>(derived_scale.y),
+                     static_cast<float>(derived_scale.z)}))
+            {
+                // CityWorld contains six minor speed-bump instances with an
+                // authored (1,.5,.5) transform. RT4 deliberately admits only
+                // uniform instance scale; the disposable demo omits exactly
+                // these objects instead of broadening the renderer contract.
+                ++omitted_demo_speed_bumps;
+                continue;
+            }
+
             const RoR::Render::Matrix4x4 render_from_object =
                 ToRendererBoundaryMatrix(
                     static_cast<const Ogre::Matrix4&>(
@@ -1895,11 +2012,13 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
                 section.visible_in_reflections = true;
 
                 bool reverse_winding = false;
-                validation = CaptureOgre14MaterialFallbackInput(
+                bool used_demo_matte = false;
+                validation = CaptureOgreNextDemoMaterialInput(
                     sub_entity->getMaterial(), section.material,
-                    reverse_winding);
+                    reverse_winding, used_demo_matte);
                 if (!validation)
                     return validation;
+                (void)used_demo_matte;
                 section.receives_shadows =
                     sub_entity->getMaterial()->getReceiveShadows();
 
@@ -1932,8 +2051,9 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
                     operation.indexData->indexCount;
                 section.mesh_identity.reverse_winding = reverse_winding;
 
-                const std::string cache_key =
+                std::string cache_key =
                     BuildNativeStaticMeshCacheKey(section.mesh_identity);
+                cache_key.append("/OgreNextDemoRT4/v1");
                 auto cached = candidate_cache.find(cache_key);
                 const std::size_t native_state_count = mesh->getStateCount();
                 if (cached != candidate_cache.end() &&
@@ -1984,6 +2104,18 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
         }
     }
 
+    if (omitted_demo_speed_bumps != 0U)
+    {
+        static bool reported_speed_bump_omission = false;
+        if (!reported_speed_bump_omission)
+        {
+            LOG(fmt::format(
+                "OgreNextDemo: omitted {} non-uniform topeQr.mesh instances",
+                omitted_demo_speed_bumps));
+            reported_speed_bump_omission = true;
+        }
+    }
+
     validation = RoR::Render::BuildOgre14GraphicsSceneStaticInventory(
         sections, identity_registry, assets, static_meshes);
     if (!validation)
@@ -2030,6 +2162,7 @@ void GfxScene::ClearScene()
 void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
 {
     DiscardOgre14GraphicsSceneCapture();
+    m_ogre_next_demo_terrain_source.Reset();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -2234,7 +2367,7 @@ void GfxScene::UpdateScene(float dt)
     // Publish the epoch only after every asynchronous FlexBody/Flexable task
     // has joined and flexitFinal()/updateFlexbodyVertexBuffers() has completed.
     // Capture rejects any BufferSimulationData()/UpdateScene mismatch.
-    if (m_ogre14_scene_capture_enabled &&
+    if (m_ogre_next_demo_capture_enabled &&
         m_ogre14_joined_buffer_ready && m_ogre14_joined_buffer_atomic)
     {
         m_ogre14_post_update_scene_epoch = m_ogre14_joined_buffer_epoch;
@@ -2310,7 +2443,7 @@ void GfxScene::BufferSimulationData()
     ActorManager* actor_manager = nullptr;
     std::uint64_t simulation_tick_before = 0U;
     float simulation_time_before = 0.0F;
-    if (m_ogre14_scene_capture_enabled)
+    if (m_ogre_next_demo_capture_enabled)
     {
         m_ogre14_joined_buffer_ready = false;
         m_ogre14_joined_buffer_atomic = false;
@@ -2357,7 +2490,7 @@ void GfxScene::BufferSimulationData()
         a->BufferSimulationData();
     }
 
-    if (!m_ogre14_scene_capture_enabled)
+    if (!m_ogre_next_demo_capture_enabled)
     {
         return;
     }
@@ -2585,6 +2718,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             "the preceding OGRE 14 capture must be committed or discarded");
     }
     auto pending = std::make_unique<Ogre14PendingCaptureState>();
+    OgreNextDemoTerrainPendingGuard terrain_pending_guard(
+        m_ogre_next_demo_terrain_source);
     pending->light_registry = m_ogre14_light_identity_registry;
     pending->terrain_page_cache = m_ogre14_terrain_page_cache;
     pending->static_registry = m_ogre14_static_identity_registry;
@@ -2656,21 +2791,29 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 terrain != nullptr ? terrain->getObjectManager() : nullptr;
             TerrainGeometryManager* const geometry_manager =
                 terrain != nullptr ? terrain->getGeometryManager() : nullptr;
-            std::vector<
-                Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
-                terrain_sections;
+            std::vector<Gfx::Detail::OgreNextDemoTerrainPageMesh>
+                terrain_pages;
             Render::ValidationResult static_validation =
                 CaptureOgre14TerrainPages(
                     geometry_manager, m_ogre14_terrain_page_cache,
-                    pending->terrain_page_cache, terrain_sections);
+                    pending->terrain_page_cache, terrain_pages);
             if (!static_validation)
             {
                 return static_validation;
             }
+            Gfx::Detail::OgreNextDemoTerrainCapture terrain_capture;
+            static_validation = m_ogre_next_demo_terrain_source.Capture(
+                geometry_manager != nullptr
+                    ? geometry_manager->getTerrainGroup()
+                    : nullptr,
+                terrain_pages, terrain_capture);
+            if (!static_validation)
+                return static_validation;
+            terrain_pending_guard.Arm();
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
             static_validation =
                 CaptureOgre14StaticMeshObjects(
-                    object_manager, terrain_sections,
+                    object_manager,
                     pending->static_registry,
                     pending->static_mesh_cache,
                     static_assets,
@@ -2696,9 +2839,52 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             if (!dynamic_validation)
                 return dynamic_validation;
             dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
-                static_assets, dynamic_assets, {}, candidate.frame.assets);
+                static_assets, dynamic_assets, terrain_capture.assets,
+                candidate.frame.assets);
             if (!dynamic_validation)
                 return dynamic_validation;
+
+            std::set<std::uint64_t> object_ids;
+            for (const Render::GraphicsSceneStaticMeshInput& instance :
+                 candidate.frame.static_meshes)
+            {
+                if (!object_ids.insert(instance.source_object_id).second)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                        "ogre_next_demo.static_meshes.source_object_id",
+                        "static object source IDs collide before terrain merge");
+                }
+            }
+            for (const Render::GraphicsSceneDynamicMeshInput& instance :
+                 candidate.frame.dynamic_meshes)
+            {
+                if (!object_ids.insert(instance.source_object_id).second)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                        "ogre_next_demo.dynamic_meshes.source_object_id",
+                        "static and deformable object source IDs collide");
+                }
+            }
+            for (const Render::GraphicsSceneStaticMeshInput& instance :
+                 terrain_capture.static_meshes)
+            {
+                if (!object_ids.insert(instance.source_object_id).second)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                        "ogre_next_demo.terrain.source_object_id",
+                        "terrain object source ID collides with another scene domain");
+                }
+                candidate.frame.static_meshes.push_back(instance);
+            }
+            std::sort(candidate.frame.static_meshes.begin(),
+                      candidate.frame.static_meshes.end(),
+                [](const auto& first, const auto& second)
+                {
+                    return first.source_object_id < second.source_object_id;
+                });
 
             // These bits stage together only after coverage, native CPU
             // extraction, material translation, identity/lifecycle auditing,
@@ -2715,8 +2901,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     Render::Ogre14GraphicsSceneCaptureField::DYNAMIC_MESHES);
 
             Render::ValidationResult light_validation =
-                CaptureOgre14ManagedLights(
-                    *m_scene_manager, pending->light_registry,
+                CaptureOgreNextDemoMainShadowLight(
+                    *m_scene_manager,
+                    terrain != nullptr ? terrain->getMainLight() : nullptr,
+                    pending->light_registry,
                     candidate.frame.lights);
             if (!light_validation)
             {
@@ -2746,6 +2934,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     }
 
     m_ogre14_pending_capture = std::move(pending);
+    terrain_pending_guard.Release();
     capture = std::move(candidate);
     return Render::ValidationResult::Success();
 }
@@ -2767,11 +2956,13 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->dynamic_registry);
     swap(m_ogre14_dynamic_mesh_cache,
          m_ogre14_pending_capture->dynamic_mesh_cache);
+    m_ogre_next_demo_terrain_source.Commit();
     m_ogre14_pending_capture.reset();
 }
 
 void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
 {
+    m_ogre_next_demo_terrain_source.Discard();
     m_ogre14_pending_capture.reset();
 }
 

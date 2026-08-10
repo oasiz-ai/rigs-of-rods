@@ -294,6 +294,7 @@ set(SOURCE_FILES
         system/RendererOgre14InputAdapter.{h,cpp}
         system/RendererOgre14InputEngineTarget.{h,cpp}
         system/RendererOgre14ProductSession.{h,cpp}
+        system/detail/OgreNextDemoFrameNormalization.{h,cpp}
         system/RendererOgre14RuntimeOwnership.{h,cpp}
         system/RendererPackageRuntimeProbe.{h,cpp}
         system/RendererOgreNextLiveSession.{h,cpp}
@@ -404,6 +405,8 @@ if (ROR_OGRE14)
         gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
+        gfx/ogre14/detail/OgreNextDemoPrivatePolicy.{h,cpp}
+        gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.{h,cpp}
         gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.{h,cpp}
         gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
         gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
@@ -421,6 +424,7 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 # PCH. Validation also relies on IEEE NaN/Inf classification in release builds,
 # where the game otherwise enables fast math globally.
 set(ROR_RENDER_CONTRACT_SOURCES
+        gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
         gfx/render/Ogre14LegacyAssetTranslator.cpp
@@ -450,6 +454,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
+        system/detail/OgreNextDemoFrameNormalization.cpp
         )
 set_source_files_properties(
         ${ROR_RENDER_CONTRACT_SOURCES}
@@ -457,6 +462,7 @@ set_source_files_properties(
         SKIP_PRECOMPILE_HEADERS ON
         )
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+        gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
         gfx/render/GraphicsSceneSnapshotProducer.cpp
         gfx/render/Ogre14GraphicsSceneSource.cpp
         gfx/render/Ogre14LegacyAssetTranslator.cpp
@@ -484,6 +490,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
+        system/detail/OgreNextDemoFrameNormalization.cpp
         )
 if (ROR_OGRE14)
     # Native declaration/capture authentication writes exact IEEE-754 bits and
@@ -491,10 +498,12 @@ if (ROR_OGRE14)
     # global fast math. Keep these owner-thread edges precise in production,
     # not only in their focused test executables.
     list(APPEND ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+            gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
             gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
             )
     set_source_files_properties(
+            gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
             gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
             gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
             PROPERTIES
