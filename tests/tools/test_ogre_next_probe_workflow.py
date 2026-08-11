@@ -1571,13 +1571,30 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
 
         buffer_call = "App::GetGfxScene()->BufferSimulationData();"
         scene_update_call = "App::GetGfxScene()->UpdateScene(dt_sim);"
-        producer_call = "PostUpdatedScene("
+        direct_producer_call = (
+            "renderer_combined_session->PostUpdatedScene("
+        )
+        bridge_producer_call = (
+            "renderer_bridge_product_session->PostUpdatedScene("
+        )
         self.assertEqual(main.count(buffer_call), 1)
         self.assertEqual(main.count(scene_update_call), 1)
-        self.assertEqual(main.count(producer_call), 1)
+        self.assertEqual(main.count(direct_producer_call), 1)
+        self.assertEqual(main.count(bridge_producer_call), 1)
+        self.assertEqual(main.count("PostUpdatedScene("), 2)
         self.assertLess(main.index(buffer_call), main.index(scene_update_call))
-        self.assertLess(main.index(scene_update_call), main.index(producer_call))
-        self.assertLess(main.index(producer_call), main.index("renderOneFrame()"))
+        self.assertLess(
+            main.index(scene_update_call), main.index(direct_producer_call)
+        )
+        self.assertLess(
+            main.index(scene_update_call), main.index(bridge_producer_call)
+        )
+        self.assertLess(
+            main.index(direct_producer_call), main.index("renderOneFrame()")
+        )
+        self.assertLess(
+            main.index(bridge_producer_call), main.index("renderOneFrame()")
+        )
         self.assertIn("if (renderer_game_bridge.active())", main)
         self.assertIn("EnableOgreNextDemoCapture();", main)
 
