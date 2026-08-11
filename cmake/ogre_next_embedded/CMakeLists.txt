@@ -208,6 +208,103 @@ if (NOT ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "macos-arm64-metal" OR
     message(FATAL_ERROR "The embedded provider platform/SDL policy changed")
 endif ()
 
+# The root Conan toolchain intentionally prefers config packages. On the
+# reviewed case-insensitive macOS filesystem, Ogre-Next's find_package(
+# Rapidjson) therefore resolves the root RapidJSONConfig.cmake, which exports
+# RapidJSON_INCLUDE_DIRS while upstream Ogre-Next consumes
+# Rapidjson_INCLUDE_DIRS. Keep that case mismatch out of the target graph:
+# attach the already pinned/extracted header closure directly and privately to
+# the three targets which compile Ogre's JSON implementation. Do not link the
+# root Conan `rapidjson` facade or export these headers to RoR/OGRE14 consumers.
+set(ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR
+    "${rapidjson_SOURCE_DIR}/include")
+set(ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER
+    "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}/rapidjson/document.h")
+set(ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SIZE 113794)
+set(ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256
+    "da02371e1747e869c56fbe0a66d66630aefbefee6d615740f2895342c924fc8c")
+if (NOT rapidjson_SOURCE_DIR OR
+        NOT IS_ABSOLUTE "${rapidjson_SOURCE_DIR}" OR
+        NOT IS_DIRECTORY "${rapidjson_SOURCE_DIR}" OR
+        IS_SYMLINK "${rapidjson_SOURCE_DIR}" OR
+        NOT IS_DIRECTORY "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}" OR
+        NOT EXISTS "${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}" OR
+        IS_DIRECTORY "${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}")
+    message(FATAL_ERROR
+        "The pinned RapidJSON private header closure is unavailable or indirect")
+endif ()
+file(SIZE "${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}"
+    _ror_ogre_next_rapidjson_document_header_size)
+file(SHA256 "${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}"
+    _ror_ogre_next_rapidjson_document_header_sha256)
+if (NOT _ror_ogre_next_rapidjson_document_header_size EQUAL
+            ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SIZE OR
+        NOT _ror_ogre_next_rapidjson_document_header_sha256 STREQUAL
+            ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256)
+    message(FATAL_ERROR
+        "The pinned RapidJSON document header bytes changed")
+endif ()
+
+set(ROR_OGRE_NEXT_RAPIDJSON_PRIVATE_CONSUMERS
+    OgreNextMain
+    OgreNextHlmsPbs
+    OgreNextHlmsUnlit)
+foreach (_ror_rapidjson_consumer IN LISTS
+        ROR_OGRE_NEXT_RAPIDJSON_PRIVATE_CONSUMERS)
+    if (NOT TARGET ${_ror_rapidjson_consumer})
+        message(FATAL_ERROR
+            "Missing RapidJSON consumer target: ${_ror_rapidjson_consumer}")
+    endif ()
+    get_target_property(_ror_rapidjson_consumer_type
+        ${_ror_rapidjson_consumer} TYPE)
+    if (NOT _ror_rapidjson_consumer_type STREQUAL "STATIC_LIBRARY")
+        message(FATAL_ERROR
+            "RapidJSON consumer is not the reviewed static closure: ${_ror_rapidjson_consumer}")
+    endif ()
+    target_include_directories(${_ror_rapidjson_consumer}
+        SYSTEM PRIVATE "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}")
+    get_target_property(_ror_rapidjson_private_usage
+        ${_ror_rapidjson_consumer} INCLUDE_DIRECTORIES)
+    set(_ror_rapidjson_private_usage_count 0)
+    foreach (_ror_rapidjson_usage IN LISTS _ror_rapidjson_private_usage)
+        if (_ror_rapidjson_usage STREQUAL
+                ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR)
+            math(EXPR _ror_rapidjson_private_usage_count
+                "${_ror_rapidjson_private_usage_count} + 1")
+        endif ()
+    endforeach ()
+    get_target_property(_ror_rapidjson_interface_usage
+        ${_ror_rapidjson_consumer} INTERFACE_INCLUDE_DIRECTORIES)
+    if (NOT _ror_rapidjson_private_usage_count EQUAL 1 OR
+            ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR IN_LIST
+                _ror_rapidjson_interface_usage)
+        message(FATAL_ERROR
+            "RapidJSON must appear exactly once in private-only usage for ${_ror_rapidjson_consumer}")
+    endif ()
+endforeach ()
+
+set(_ror_rapidjson_verify_script
+    "${CMAKE_CURRENT_SOURCE_DIR}/VerifyRapidJsonPrivateClosure.cmake")
+add_custom_target(ror_ogre_next_rapidjson_private_closure_verify
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINCLUDE_DIR=${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}"
+        "-DDOCUMENT_HEADER=${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}"
+        "-DEXPECTED_SIZE=${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SIZE}"
+        "-DEXPECTED_SHA256=${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256}"
+        -P "${_ror_rapidjson_verify_script}"
+    DEPENDS
+        "${ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER}"
+        "${_ror_rapidjson_verify_script}"
+    COMMENT "Rehashing the private OgreNext RapidJSON header closure"
+    VERBATIM)
+foreach (_ror_rapidjson_consumer IN LISTS
+        ROR_OGRE_NEXT_RAPIDJSON_PRIVATE_CONSUMERS)
+    add_dependencies(${_ror_rapidjson_consumer}
+        ror_ogre_next_rapidjson_private_closure_verify)
+endforeach ()
+
 set(_ror_render_root "${CMAKE_SOURCE_DIR}/source/main/gfx/render")
 set(_ror_system_root "${CMAKE_SOURCE_DIR}/source/main/system")
 set(_ror_generated_root "${CMAKE_CURRENT_BINARY_DIR}/generated")

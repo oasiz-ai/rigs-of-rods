@@ -107,6 +107,36 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn("--isolated-consumer-source", PROVIDER)
         self.assertIn("--isolated-consumer-target-name RoR-Combined", PROVIDER)
 
+    def test_rapidjson_is_authenticated_private_target_usage(self) -> None:
+        private_closure = block(
+            PROVIDER,
+            "# The root Conan toolchain intentionally prefers config packages.",
+            'set(_ror_render_root "${CMAKE_SOURCE_DIR}/source/main/gfx/render")',
+        )
+        for target in (
+            "OgreNextMain",
+            "OgreNextHlmsPbs",
+            "OgreNextHlmsUnlit",
+        ):
+            self.assertIn(target, private_closure)
+        for token in (
+            "${rapidjson_SOURCE_DIR}/include",
+            "rapidjson/document.h",
+            "SYSTEM PRIVATE",
+            "INTERFACE_INCLUDE_DIRECTORIES",
+            "_ror_rapidjson_private_usage_count EQUAL 1",
+            "ror_ogre_next_rapidjson_private_closure_verify",
+            "ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256",
+        ):
+            self.assertIn(token, private_closure)
+        self.assertNotIn("target_link_libraries", private_closure)
+        self.assertIn('"rapidjson_interface_exported": false', PROVIDER_CONTRACT)
+        self.assertIn(
+            '"rapidjson_private_consumers": ["OgreNextMain", '
+            '"OgreNextHlmsPbs", "OgreNextHlmsUnlit"]',
+            PROVIDER_CONTRACT,
+        )
+
     def test_direct_provider_owns_neutral_sources_exactly_once(self) -> None:
         owned = block(
             PROVIDER,
