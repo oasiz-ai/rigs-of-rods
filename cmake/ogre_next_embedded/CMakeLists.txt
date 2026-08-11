@@ -604,8 +604,7 @@ file(MAKE_DIRECTORY
     "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/CommonCopy/GLSL"
     "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/CommonCopy/HLSL"
     "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/CommonCopy/Metal")
-set(ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES "")
-set(_ror_presentation_media_manifest_serialized "")
+set(_ror_presentation_staged_files "")
 math(EXPR _ror_presentation_copy_last
     "${_ror_presentation_copy_file_count} - 1")
 foreach (_ror_presentation_index RANGE 0 ${_ror_presentation_copy_last})
@@ -652,6 +651,20 @@ foreach (_ror_presentation_index RANGE 0 ${_ror_presentation_copy_last})
         "${_ror_presentation_source}"
         "${_ror_presentation_authenticated}"
         COPYONLY)
+    list(APPEND _ror_presentation_staged_files
+        "${_ror_presentation_relative}")
+endforeach ()
+
+# VerifyMediaManifest() compares its bytewise-sorted runtime path inventory
+# directly with this generated array. The source lock is intentionally grouped
+# by authored root files and backend family, so canonicalize the manifest here
+# instead of weakening the runtime integrity comparison.
+list(SORT _ror_presentation_staged_files)
+set(ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES "")
+set(_ror_presentation_media_manifest_serialized "")
+foreach (_ror_presentation_relative IN LISTS _ror_presentation_staged_files)
+    set(_ror_presentation_authenticated
+        "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/${_ror_presentation_relative}")
     _ror_record_media_file(
         "${_ror_presentation_authenticated}"
         "${_ror_presentation_relative}"

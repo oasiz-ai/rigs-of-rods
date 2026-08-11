@@ -188,6 +188,54 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn('"raw_build_tree_demo": true', PROVIDER_CONTRACT)
         self.assertIn('"app_bundle_staged": false', PROVIDER_CONTRACT)
 
+    def test_presentation_manifest_matches_runtime_bytewise_order(self) -> None:
+        presentation = block(
+            PROVIDER,
+            'set(_ror_presentation_staged_files "")',
+            "set(ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_COUNT",
+        )
+        append_index = presentation.index(
+            "list(APPEND _ror_presentation_staged_files"
+        )
+        sort_index = presentation.index(
+            "list(SORT _ror_presentation_staged_files)"
+        )
+        manifest_index = presentation.index(
+            'set(ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES "")'
+        )
+        record_index = presentation.index("_ror_record_media_file(")
+        self.assertLess(append_index, sort_index)
+        self.assertLess(sort_index, manifest_index)
+        self.assertLess(manifest_index, record_index)
+
+        lock = json.loads(
+            (
+                ROOT
+                / "tools/ogre_next_probe/ogre-next-presentation-copy-v1.lock.json"
+            ).read_text(encoding="utf-8")
+        )
+        relative_paths = []
+        for entry in lock["files"]:
+            path = entry["path"]
+            if path.startswith("tools/ogre_next_probe/presentation_media/"):
+                relative_paths.append(
+                    path.removeprefix(
+                        "tools/ogre_next_probe/presentation_media/"
+                    )
+                )
+            else:
+                relative_paths.append(
+                    "CommonCopy/"
+                    + path.removeprefix(
+                        "Samples/Media/2.0/scripts/materials/Common/"
+                    )
+                )
+        self.assertNotEqual(relative_paths, sorted(relative_paths))
+        self.assertEqual(
+            sorted(relative_paths)[0],
+            "CommonCopy/GLSL/Copyback_4xFP32_ps.glsl",
+        )
+
     def test_prefix_media_names_have_one_canonical_stage_order(self) -> None:
         stage_script = ROOT / "tools/stage_ogre_next_combined_resources.py"
         with tempfile.TemporaryDirectory() as temporary:
