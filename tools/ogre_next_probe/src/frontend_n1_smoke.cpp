@@ -2523,7 +2523,7 @@ RunDisplayDomainUsageTransitionProof(const std::string &media_root) {
       [](const OgreNextN1TextureAllocationAudit &audit,
          std::uint64_t creates, std::uint64_t destroys,
          std::uint64_t live, const char *label) {
-        Require(audit.version == 1U && audit.live_source_textures == 1U &&
+        Require(audit.version == 2U && audit.live_source_textures == 1U &&
                     audit.sampled_rgba_allocations == 1U &&
                     audit.roughness_r8_allocations == 0U &&
                     audit.metallic_r8_allocations == 0U &&
@@ -2584,7 +2584,7 @@ RunDisplayDomainUsageTransitionProof(const std::string &media_root) {
                  "display-domain usage-transition Shutdown");
   const OgreNextN1TextureAllocationAudit after_shutdown =
       frontend.QueryTextureAllocationAudit();
-  Require(after_shutdown.version == 1U &&
+  Require(after_shutdown.version == 2U &&
               after_shutdown.native_allocation_creates == 4U &&
               after_shutdown.native_allocation_destroys == 4U &&
               after_shutdown.live_native_allocations == 0U &&
@@ -2608,7 +2608,7 @@ RunDisplayDomainUnlitProof(const std::string &media_root) {
       frontend.QueryDisplayDomainUploadAudit();
   SmokeResult::DisplayDomainUnlitEvidence evidence;
   evidence.complete_unorm_mips_uploaded =
-      allocations.version == 1U && allocations.live_source_textures == 1U &&
+      allocations.version == 2U && allocations.live_source_textures == 1U &&
       allocations.sampled_rgba_allocations == 1U &&
       allocations.roughness_r8_allocations == 0U &&
       allocations.metallic_r8_allocations == 0U &&
@@ -2872,7 +2872,8 @@ void RequireRetirementAudit(const OgreNextN1TextureAllocationAudit &audit,
                             std::uint64_t live,
                             const std::string &label,
                             bool require_exact_usage = true) {
-  Require(audit.version == 1U && audit.live_source_textures == (live > 0U ? 1U : 0U) &&
+  Require(audit.version == 2U &&
+              audit.live_source_textures == (live > 0U ? 1U : 0U) &&
               audit.sampled_rgba_allocations == 0U &&
               audit.roughness_r8_allocations == 0U &&
               audit.metallic_r8_allocations == 0U &&
@@ -3566,7 +3567,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   InitializeAndSync(frontend, catalog);
   if (modern_pbr) {
     result.texture_allocations = frontend.QueryTextureAllocationAudit();
-    Require(result.texture_allocations.version == 1U &&
+    Require(result.texture_allocations.version == 2U &&
                 result.texture_allocations.live_source_textures == 4U &&
                 result.texture_allocations.sampled_rgba_allocations == 2U &&
                 result.texture_allocations.roughness_r8_allocations == 1U &&
@@ -3733,7 +3734,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                      std::string("SynchronizeAssets(") + spec.name + ')');
       const OgreNextN1TextureAllocationAudit audit =
           frontend.QueryTextureAllocationAudit();
-      Require(audit.version == 1U && audit.live_source_textures == 4U &&
+      Require(audit.version == 2U && audit.live_source_textures == 4U &&
                   audit.sampled_rgba_allocations == 2U &&
                   audit.roughness_r8_allocations == 1U &&
                   audit.metallic_r8_allocations == 1U &&

@@ -689,6 +689,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "getNormalMapWeight() != 1.0F",
         ):
             self.assertIn(token, self.frontend)
+        self.assertIn("allocations.version == 2U", self.smoke)
+        self.assertIn("result.texture_allocations.version == 2U", self.smoke)
+        self.assertNotIn("allocations.version == 1U", self.smoke)
+        self.assertNotIn("result.texture_allocations.version == 1U", self.smoke)
+        self.assertNotIn("audit.version == 1U", self.smoke)
         for token in (
             "kOgreNextRt4NormalDecodedQuantizationTolerance",
             "within exactly 1/255 decoded units",
