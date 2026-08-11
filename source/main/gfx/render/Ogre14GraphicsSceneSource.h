@@ -188,19 +188,21 @@ struct Ogre14CameraCaptureInput {
 };
 
 /// Compatibility fallback, not a claim that fixed-function OGRE materials
-/// have physically authored metallic/roughness values. Version one preserves
+/// have physically authored metallic/roughness values. Version two preserves
 /// the first authored pass's renderer-linear diffuse/emissive factors,
-/// straight-alpha or alpha-test mode, lighting enable, and culling. Legacy
+/// the exact true/legacy alpha blend tuple, independent GREATER/GREATER_EQUAL
+/// test and cutoff, depth-write state, lighting enable, and culling. Legacy
 /// texture units, shader programs, and additional passes fail closed because
 /// publishing factor data alone would silently discard authored visuals.
 /// Ambient/specular lobes remain audited native metadata but intentionally
 /// acquire no guessed portable PBR contribution.
-constexpr std::uint32_t kOgre14StaticMaterialFallbackVersion = 1U;
+constexpr std::uint32_t kOgre14StaticMaterialFallbackVersion = 2U;
 constexpr std::uint32_t kOgre14TerrainCpuCaptureVersion = 1U;
 
 enum class Ogre14GraphicsSceneMaterialBlend : std::uint8_t {
   REPLACE = 0U,
-  STRAIGHT_ALPHA = 1U,
+  STRAIGHT_SOURCE_OVER = 1U,
+  LEGACY_STRAIGHT_ALPHA = 2U,
 };
 
 enum class Ogre14GraphicsSceneMaterialCull : std::uint8_t {
@@ -211,7 +213,8 @@ enum class Ogre14GraphicsSceneMaterialCull : std::uint8_t {
 
 enum class Ogre14GraphicsSceneMaterialAlphaReject : std::uint8_t {
   ALWAYS_PASS = 0U,
-  GREATER_EQUAL = 1U,
+  GREATER = 1U,
+  GREATER_EQUAL = 2U,
 };
 
 /// Renderer-neutral copy of the fixed-function state used by the portable
@@ -238,6 +241,7 @@ struct Ogre14GraphicsSceneMaterialCaptureInput {
   Ogre14GraphicsSceneMaterialAlphaReject alpha_reject =
       Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
   std::uint8_t alpha_reject_value = 0U;
+  bool depth_write = true;
 };
 
 /// Exact identity of one effective OGRE submesh draw range. A single OGRE

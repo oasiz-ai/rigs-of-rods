@@ -227,7 +227,7 @@ FindAsset(const RoR::Render::Ogre14LegacyTranslatedFrame &frame,
 
 void TestByteExactFormatsEndiannessAndSrgbRole() {
   using namespace RoR::Render;
-  static_assert(kOgre14LegacyAssetTranslatorVersion == 1U,
+  static_assert(kOgre14LegacyAssetTranslatorVersion == 2U,
                 "fixture requires explicit translator migration");
   const std::vector<std::uint8_t> rgba{17U, 34U, 51U, 68U};
   const std::vector<
@@ -406,7 +406,9 @@ void TestExactSamplerMaterialAndPipelineTranslation() {
   Require(portable_material.model == MaterialModel::PBR_METALLIC_ROUGHNESS &&
               portable_material.metallic_factor == 0.0F &&
               portable_material.roughness_factor == 1.0F &&
-              portable_material.alpha_mode == MaterialAlphaMode::MASK &&
+              portable_material.blend_mode == MaterialBlendMode::REPLACE &&
+              portable_material.alpha_test_mode ==
+                  MaterialAlphaTestMode::GREATER_EQUAL &&
               portable_material.alpha_cutoff == 127.0F / 255.0F &&
               !portable_material.double_sided &&
               material_asset.material_audit != nullptr &&

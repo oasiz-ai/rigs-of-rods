@@ -161,13 +161,18 @@ bool WriteMaterial(WireWriter &writer, const MaterialDescriptor &material) {
   return writer.AddU32(material.version) &&
          WriteString(writer, material.debug_name) &&
          writer.AddByte(static_cast<std::uint8_t>(material.model)) &&
-         writer.AddByte(static_cast<std::uint8_t>(material.alpha_mode)) &&
+         writer.AddByte(static_cast<std::uint8_t>(material.pbr_workflow)) &&
+         writer.AddByte(static_cast<std::uint8_t>(material.blend_mode)) &&
+         writer.AddByte(
+             static_cast<std::uint8_t>(material.alpha_test_mode)) &&
          writer.AddByte(
              static_cast<std::uint8_t>(material.base_color_transfer)) &&
          writer.AddBool(material.double_sided) &&
+         writer.AddBool(material.depth_write) &&
          WriteFloat4(writer, material.base_color_factor) &&
          writer.AddFloatExact(material.metallic_factor) &&
          writer.AddFloatExact(material.roughness_factor) &&
+         WriteFloat3(writer, material.specular_factor) &&
          writer.AddFloatExact(material.normal_scale) &&
          writer.AddFloatExact(material.occlusion_strength) &&
          WriteFloat3(writer, material.emissive_factor) &&
@@ -178,7 +183,8 @@ bool WriteMaterial(WireWriter &writer, const MaterialDescriptor &material) {
          WriteTextureBinding(writer, material.metallic_roughness_texture) &&
          WriteTextureBinding(writer, material.normal_texture) &&
          WriteTextureBinding(writer, material.occlusion_texture) &&
-         WriteTextureBinding(writer, material.emissive_texture);
+         WriteTextureBinding(writer, material.emissive_texture) &&
+         WriteTextureBinding(writer, material.specular_texture);
 }
 
 bool WriteSampler(WireWriter &writer,
@@ -524,16 +530,22 @@ bool ReadTextureBinding(WireReader &reader, TextureBinding &binding) {
 
 bool ReadMaterial(WireReader &reader, MaterialDescriptor &material) {
   std::uint8_t model = 0U;
-  std::uint8_t alpha_mode = 0U;
+  std::uint8_t pbr_workflow = 0U;
+  std::uint8_t blend_mode = 0U;
+  std::uint8_t alpha_test_mode = 0U;
   std::uint8_t base_color_transfer = 0U;
   if (!reader.ReadU32(material.version) ||
       !ReadString(reader, material.debug_name) || !reader.ReadByte(model) ||
-      !reader.ReadByte(alpha_mode) ||
+      !reader.ReadByte(pbr_workflow) ||
+      !reader.ReadByte(blend_mode) ||
+      !reader.ReadByte(alpha_test_mode) ||
       !reader.ReadByte(base_color_transfer) ||
       !reader.ReadBool(material.double_sided) ||
+      !reader.ReadBool(material.depth_write) ||
       !ReadFloat4(reader, material.base_color_factor) ||
       !reader.ReadFloatExact(material.metallic_factor) ||
       !reader.ReadFloatExact(material.roughness_factor) ||
+      !ReadFloat3(reader, material.specular_factor) ||
       !reader.ReadFloatExact(material.normal_scale) ||
       !reader.ReadFloatExact(material.occlusion_strength) ||
       !ReadFloat3(reader, material.emissive_factor) ||
@@ -543,14 +555,18 @@ bool ReadMaterial(WireReader &reader, MaterialDescriptor &material) {
     return false;
   }
   material.model = static_cast<MaterialModel>(model);
-  material.alpha_mode = static_cast<MaterialAlphaMode>(alpha_mode);
+  material.pbr_workflow = static_cast<MaterialPbrWorkflow>(pbr_workflow);
+  material.blend_mode = static_cast<MaterialBlendMode>(blend_mode);
+  material.alpha_test_mode =
+      static_cast<MaterialAlphaTestMode>(alpha_test_mode);
   material.base_color_transfer =
       static_cast<BaseColorTransfer>(base_color_transfer);
   return ReadTextureBinding(reader, material.base_color_texture) &&
          ReadTextureBinding(reader, material.metallic_roughness_texture) &&
          ReadTextureBinding(reader, material.normal_texture) &&
          ReadTextureBinding(reader, material.occlusion_texture) &&
-         ReadTextureBinding(reader, material.emissive_texture);
+         ReadTextureBinding(reader, material.emissive_texture) &&
+         ReadTextureBinding(reader, material.specular_texture);
 }
 
 bool ReadSampler(WireReader &reader, SamplerResourceDescriptor &sampler) {

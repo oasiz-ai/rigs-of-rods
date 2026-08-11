@@ -326,6 +326,16 @@ bool IsStraightSourceOver(
              Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
 }
 
+bool IsLegacyStraightAlpha(
+    const Ogre14LegacyPipelineStateInput &state) noexcept {
+  return state.source_color == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+         state.destination_color ==
+             Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA &&
+         state.source_alpha == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+         state.destination_alpha ==
+             Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+}
+
 ValidationResult
 ValidatePipelineState(const Ogre14LegacyPipelineStateInput &state) {
   if (!IsKnownBlendFactor(state.source_color) ||
@@ -350,12 +360,14 @@ ValidatePipelineState(const Ogre14LegacyPipelineStateInput &state) {
   }
   const bool replace = IsReplaceBlend(state);
   const bool source_over = IsStraightSourceOver(state);
-  if ((!replace && !source_over) ||
+  const bool legacy_straight_alpha = IsLegacyStraightAlpha(state);
+  if ((!replace && !source_over && !legacy_straight_alpha) ||
       state.color_operation != Ogre14LegacyBlendOperation::ADD ||
       state.alpha_operation != Ogre14LegacyBlendOperation::ADD) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.blend",
-        "v1 accepts only replace or exact straight-alpha source-over blending");
+        "v2 accepts only replace, true straight source-over, or the exact "
+        "legacy squared-alpha tuple");
   }
   if (state.color_write_mask != 0x0FU || !state.depth_check_enabled ||
       state.depth_compare != Ogre14LegacyCompareOperation::LESS_EQUAL ||
@@ -366,21 +378,23 @@ ValidatePipelineState(const Ogre14LegacyPipelineStateInput &state) {
       state.alpha_to_coverage || !state.solid_fill ||
       state.pass_iteration_count != 1U ||
       (replace && !state.depth_write_enabled) ||
-      (source_over && state.depth_write_enabled)) {
+      ((source_over || legacy_straight_alpha) &&
+       state.depth_write_enabled)) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.depth_raster",
         "color mask, depth, cull, fill, coverage, or iteration state is "
-        "outside the exact v1 subset");
+        "outside the exact v2 subset");
   }
   const bool alpha_pass =
       state.alpha_reject == Ogre14LegacyCompareOperation::ALWAYS_PASS;
   const bool alpha_mask =
-      state.alpha_reject == Ogre14LegacyCompareOperation::GREATER_EQUAL;
-  if ((!alpha_pass && !alpha_mask) || (source_over && alpha_mask)) {
+      state.alpha_reject == Ogre14LegacyCompareOperation::GREATER_EQUAL ||
+      state.alpha_reject == Ogre14LegacyCompareOperation::GREATER;
+  if (!alpha_pass && !alpha_mask) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.pipeline.alpha_reject",
-        "v1 accepts always-pass or >= alpha rejection and never combines "
-        "rejection with blending");
+        "v2 accepts always-pass, >, or >= alpha rejection independently of "
+        "replace or straight-source-over blending");
   }
   return ValidationResult::Success();
 }
@@ -406,7 +420,7 @@ ValidationResult ValidateSamplerInput(const Ogre14LegacySamplerInput &sampler) {
       sampler.mip == Ogre14LegacyFilter::ANISOTROPIC) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.sampler.filter",
-        "v1 cannot represent this legacy filter combination exactly");
+        "v2 cannot represent this legacy filter combination exactly");
   }
   if (!IsFinite(sampler.mip_lod_bias) || !IsFinite(sampler.minimum_lod) ||
       !IsFinite(sampler.maximum_lod) || !IsFinite(sampler.border_color)) {
@@ -763,7 +777,7 @@ ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input) {
   if (input.type != Ogre14LegacyTextureType::TEXTURE_2D) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "texture.type",
-        "v1 accepts only ordinary 2D legacy textures");
+        "v2 accepts only ordinary 2D legacy textures");
   }
   if (!IsKnownPixelEncoding(input.pixel_encoding)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
@@ -788,7 +802,7 @@ ValidateOgre14LegacyTextureInput(const Ogre14LegacyTextureInput &input) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "texture.source_kind",
         "compressed, render-target, generated, or procedural textures are not "
-        "representable in v1");
+        "representable in v2");
   }
   if (input.width == 0U || input.height == 0U ||
       input.width > kMaximumTextureResourceDimension ||
@@ -939,7 +953,7 @@ ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input) {
   if (input.technique_count != 1U || input.pass_count != 1U) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.pass_structure",
-        "v1 requires exactly one technique containing exactly one pass");
+        "v2 requires exactly one technique containing exactly one pass");
   }
   if (input.generated_rtss_program || input.has_vertex_program ||
       input.has_fragment_program || input.has_geometry_program ||
@@ -977,13 +991,13 @@ ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input) {
       input.emissive_linear != Float3{} || input.shininess != 0.0F) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.fixed_function_lobes",
-        "v1 rejects ambient, specular, emissive, and shininess instead of "
+        "v2 rejects ambient, specular, emissive, and shininess instead of "
         "guessing PBR roles");
   }
   if (input.texture_units.size() > 1U) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "material.texture_units",
-        "v1 accepts at most one base-color texture unit");
+        "v2 accepts at most one base-color texture unit");
   }
 
   const Ogre14LegacyPipelineStateInput &state = input.pipeline;
@@ -1009,7 +1023,7 @@ ValidateOgre14LegacyMaterialInput(const Ogre14LegacyMaterialInput &input) {
         ValidationCode::UNSUPPORTED_FEATURE, "material.texture_unit",
         "animated, procedural, projective, cube, compositor, render-target, "
         "transformed, or non-modulate texture units are not representable in "
-        "v1");
+        "v2");
   }
   if (unit.texture_coordinate_set > 1U) {
     return ValidationResult::Failure(
@@ -1672,7 +1686,7 @@ ValidationResult Ogre14LegacyAssetTranslator::PreflightLifetimeAdmission(
       return ValidationResult::Failure(
           ValidationCode::UNSUPPORTED_FEATURE,
           "identity_frame.material_texture_units",
-          "v1 lifetime admission accepts at most one derived sampler per "
+          "v2 lifetime admission accepts at most one derived sampler per "
           "material",
           index);
     }
@@ -2075,7 +2089,7 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
           return ValidationResult::Failure(
               ValidationCode::UNSUPPORTED_FEATURE,
               "material.texture_color_role",
-              "v1 base-color binding requires an explicit sRGB role", index);
+              "v2 base-color binding requires an explicit sRGB role", index);
         }
         const float exact_maximum_lod =
             unit.sampler.mip == Ogre14LegacyFilter::NONE
@@ -2134,21 +2148,33 @@ Ogre14LegacyAssetTranslator::Translate(const Ogre14LegacyAssetFrameInput &input,
                                Ogre14LegacyBaseColorSemantic::UNLIT
                            ? MaterialModel::UNLIT
                            : MaterialModel::PBR_METALLIC_ROUGHNESS;
-      material.alpha_mode = IsStraightSourceOver(material_input.pipeline)
-                                ? MaterialAlphaMode::BLEND
-                            : material_input.pipeline.alpha_reject ==
-                                    Ogre14LegacyCompareOperation::GREATER_EQUAL
-                                ? MaterialAlphaMode::MASK
-                                : MaterialAlphaMode::OPAQUE;
+      material.blend_mode =
+          IsStraightSourceOver(material_input.pipeline)
+              ? MaterialBlendMode::STRAIGHT_SOURCE_OVER
+              : IsLegacyStraightAlpha(material_input.pipeline)
+                    ? MaterialBlendMode::LEGACY_STRAIGHT_ALPHA
+                    : MaterialBlendMode::REPLACE;
+      material.alpha_test_mode =
+          material_input.pipeline.alpha_reject ==
+                  Ogre14LegacyCompareOperation::GREATER
+              ? MaterialAlphaTestMode::GREATER
+              : material_input.pipeline.alpha_reject ==
+                        Ogre14LegacyCompareOperation::GREATER_EQUAL
+                    ? MaterialAlphaTestMode::GREATER_EQUAL
+                    : MaterialAlphaTestMode::DISABLED;
       material.double_sided =
           material_input.pipeline.cull == Ogre14LegacyCullMode::NONE;
+      material.depth_write = material_input.pipeline.depth_write_enabled;
       material.base_color_factor = material_input.diffuse_linear;
       material.metallic_factor = 0.0F;
       material.roughness_factor = 1.0F;
       material.emissive_factor = {};
       material.alpha_cutoff =
-          static_cast<float>(material_input.pipeline.alpha_reject_value) /
-          255.0F;
+          material.alpha_test_mode == MaterialAlphaTestMode::DISABLED
+              ? 0.5F
+              : static_cast<float>(
+                    material_input.pipeline.alpha_reject_value) /
+                    255.0F;
       if (!material_input.texture_units.empty()) {
         material.base_color_texture.texture_coordinate_set =
             material_input.texture_units.front().texture_coordinate_set;

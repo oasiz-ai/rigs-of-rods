@@ -98,7 +98,11 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "projected_keys={};matte_only_keys={};active_texture_states={};"
         "authored_mips={};generated_mips={};output_mips={};native_mips={};"
         "tus_gamma_nonunit={};texture_gamma_nonunit={};tus_hw_gamma_off={};"
-        "texture_hw_gamma_off={};automipmap={};reasons={}",
+        "texture_hw_gamma_off={};automipmap={};blend_replace={};"
+        "blend_source_over={};blend_legacy_alpha={};alpha_disabled={};"
+        "alpha_greater={};alpha_greater_equal={};workflow_mr={};"
+        "workflow_specular={};anisotropic={};normalized_textures={};"
+        "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};reasons={}",
         active_projections, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.distinct_eligible_texture_keys,
@@ -114,7 +118,142 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         counters.active_legacy_texture_unit_hardware_gamma_off_observations,
         counters.active_legacy_hardware_gamma_off_observations,
         counters.active_legacy_automipmap_observations,
+        counters.active_replace_material_projections,
+        counters.active_straight_source_over_material_projections,
+        counters.active_legacy_straight_alpha_material_projections,
+        counters.active_alpha_test_disabled_material_projections,
+        counters.active_alpha_test_greater_material_projections,
+        counters.active_alpha_test_greater_equal_material_projections,
+        counters.active_metallic_roughness_workflow_projections,
+        counters.active_specular_workflow_projections,
+        counters.active_anisotropic_sampler_projections,
+        counters.active_normalized_texture_observations,
+        counters.active_opaque_texture_normalizations,
+        counters.active_straight_alpha_texture_normalizations,
+        counters.active_linear_specular_texture_normalizations,
         FormatOgreNextDemoMaterialExclusions(counters));
+}
+
+std::string FormatOgreNextDemoMaterialCounters(
+    const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters)
+{
+    std::string result = fmt::format(
+        "new_frozen_material_decisions={} candidate_sections={} "
+        "projected_sections={} matte_excluded_sections={} projections={} "
+        "distinct_eligible_texture_keys={} distinct_projected_texture_keys={} "
+        "distinct_matte_only_texture_keys={} "
+        "active_replace_material_projections={} "
+        "active_straight_source_over_material_projections={} "
+        "active_legacy_straight_alpha_material_projections={} "
+        "active_alpha_test_disabled_material_projections={} "
+        "active_alpha_test_greater_material_projections={} "
+        "active_alpha_test_greater_equal_material_projections={} "
+        "active_metallic_roughness_workflow_projections={} "
+        "active_specular_workflow_projections={} "
+        "active_anisotropic_sampler_projections={} ",
+        counters.new_frozen_material_decisions, counters.candidate_sections,
+        counters.projected_sections, counters.matte_excluded_sections,
+        counters.projections, counters.distinct_eligible_texture_keys,
+        counters.distinct_projected_texture_keys,
+        counters.distinct_matte_only_texture_keys,
+        counters.active_replace_material_projections,
+        counters.active_straight_source_over_material_projections,
+        counters.active_legacy_straight_alpha_material_projections,
+        counters.active_alpha_test_disabled_material_projections,
+        counters.active_alpha_test_greater_material_projections,
+        counters.active_alpha_test_greater_equal_material_projections,
+        counters.active_metallic_roughness_workflow_projections,
+        counters.active_specular_workflow_projections,
+        counters.active_anisotropic_sampler_projections);
+    result += fmt::format(
+        "active_texture_state_observations={} "
+        "active_normalized_texture_observations={} "
+        "active_opaque_texture_normalizations={} "
+        "active_straight_alpha_texture_normalizations={} "
+        "active_linear_specular_texture_normalizations={} "
+        "active_authored_mip_prefix_levels={} "
+        "active_generated_mip_tail_levels={} "
+        "active_normalized_output_mip_levels={} "
+        "active_legacy_native_additional_mip_levels={} "
+        "active_legacy_texture_unit_gamma_nonunit_observations={} "
+        "active_legacy_texture_gamma_nonunit_observations={} "
+        "active_legacy_texture_unit_hardware_gamma_off_observations={} "
+        "active_legacy_hardware_gamma_off_observations={} "
+        "active_legacy_automipmap_observations={} ",
+        counters.active_texture_state_observations,
+        counters.active_normalized_texture_observations,
+        counters.active_opaque_texture_normalizations,
+        counters.active_straight_alpha_texture_normalizations,
+        counters.active_linear_specular_texture_normalizations,
+        counters.active_authored_mip_prefix_levels,
+        counters.active_generated_mip_tail_levels,
+        counters.active_normalized_output_mip_levels,
+        counters.active_legacy_native_additional_mip_levels,
+        counters.active_legacy_texture_unit_gamma_nonunit_observations,
+        counters.active_legacy_texture_gamma_nonunit_observations,
+        counters.active_legacy_texture_unit_hardware_gamma_off_observations,
+        counters.active_legacy_hardware_gamma_off_observations,
+        counters.active_legacy_automipmap_observations);
+    result += fmt::format(
+        "authenticated_archive_source_decodes={} "
+        "authenticated_generated_source_decodes={} "
+        "authenticated_source_decodes={} ordinary_observed_source_decodes={} "
+        "source_cache_hits={} source_decode_rejections={} "
+        "source_exclusions={} modern_source_normalizations={} "
+        "opaque_source_normalizations={} "
+        "straight_alpha_source_normalizations={} "
+        "authored_specular_source_decodes={} "
+        "linear_specular_source_normalizations={} "
+        "authored_specular_mip_prefix_levels={} "
+        "generated_specular_mip_tail_levels={} "
+        "normalized_specular_output_mip_levels={} "
+        "alpha_test_material_projections={} "
+        "straight_source_over_material_projections={} "
+        "legacy_straight_alpha_material_projections={} "
+        "specular_workflow_projections={} anisotropic_sampler_projections={} "
+        "authored_mip_prefix_levels={} generated_mip_tail_levels={} "
+        "normalized_output_mip_levels={} "
+        "legacy_native_additional_mip_levels={} "
+        "legacy_texture_unit_gamma_nonunit_observations={} "
+        "legacy_texture_gamma_nonunit_observations={} "
+        "legacy_texture_unit_hardware_gamma_off_observations={} "
+        "legacy_hardware_gamma_off_observations={} "
+        "legacy_automipmap_observations={} "
+        "lossy_material_normalizations={} gpu_readbacks={} "
+        "authenticated_gpu_readbacks={} unauthenticated_gpu_readbacks={} "
+        "matte_by_reason=[{}]",
+        counters.authenticated_archive_source_decodes,
+        counters.authenticated_generated_source_decodes,
+        counters.authenticated_source_decodes,
+        counters.ordinary_observed_source_decodes, counters.source_cache_hits,
+        counters.source_decode_rejections, counters.source_exclusions,
+        counters.modern_source_normalizations,
+        counters.opaque_source_normalizations,
+        counters.straight_alpha_source_normalizations,
+        counters.authored_specular_source_decodes,
+        counters.linear_specular_source_normalizations,
+        counters.authored_specular_mip_prefix_levels,
+        counters.generated_specular_mip_tail_levels,
+        counters.normalized_specular_output_mip_levels,
+        counters.alpha_test_material_projections,
+        counters.straight_source_over_material_projections,
+        counters.legacy_straight_alpha_material_projections,
+        counters.specular_workflow_projections,
+        counters.anisotropic_sampler_projections,
+        counters.authored_mip_prefix_levels,
+        counters.generated_mip_tail_levels,
+        counters.normalized_output_mip_levels,
+        counters.legacy_native_additional_mip_levels,
+        counters.legacy_texture_unit_gamma_nonunit_observations,
+        counters.legacy_texture_gamma_nonunit_observations,
+        counters.legacy_texture_unit_hardware_gamma_off_observations,
+        counters.legacy_hardware_gamma_off_observations,
+        counters.legacy_automipmap_observations,
+        counters.lossy_material_normalizations, counters.gpu_readbacks,
+        counters.authenticated_gpu_readbacks,
+        counters.unauthenticated_gpu_readbacks,
+        FormatOgreNextDemoMaterialExclusions(counters));
+    return result;
 }
 
 class OgreNextDemoTerrainPendingGuard final
@@ -578,18 +717,34 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
         destination == Ogre::SBF_ZERO &&
         source_alpha == Ogre::SBF_ONE &&
         destination_alpha == Ogre::SBF_ZERO;
-    const bool straight_alpha = source == Ogre::SBF_SOURCE_ALPHA &&
+    const bool straight_source_over = source == Ogre::SBF_SOURCE_ALPHA &&
         destination == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
-        ((source_alpha == Ogre::SBF_SOURCE_ALPHA &&
-          destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA) ||
-         (source_alpha == Ogre::SBF_ONE &&
-          destination_alpha == Ogre::SBF_ZERO));
-    if (!replace && !straight_alpha)
+        source_alpha == Ogre::SBF_ONE &&
+        destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    const bool legacy_straight_alpha = source == Ogre::SBF_SOURCE_ALPHA &&
+        destination == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+        source_alpha == Ogre::SBF_SOURCE_ALPHA &&
+        destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    if (!replace && !straight_source_over && !legacy_straight_alpha)
     {
         return NativeStaticFailure(
             RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
             "assets.material.blend",
-            "portable fallback supports replace or straight-alpha blending");
+            "portable fallback supports replace, Porter-Duff straight "
+            "source-over, or exact OGRE legacy straight-alpha blending");
+    }
+    if (!pass->getDepthCheckEnabled() ||
+        pass->getDepthFunction() != Ogre::CMPF_LESS_EQUAL ||
+        pass->getDepthBiasConstant() != 0.0F ||
+        pass->getDepthBiasSlopeScale() != 0.0F ||
+        pass->getIterationDepthBias() != 0.0F ||
+        pass->isAlphaToCoverageEnabled())
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.material.depth_alpha_state",
+            "portable fallback requires depth-test LESS_EQUAL, zero depth "
+            "bias, and disabled alpha-to-coverage");
     }
 
     Ogre14MaterialSectionReference reference;
@@ -604,6 +759,10 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
         alpha_reject = RoR::Render::
             Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
         break;
+    case Ogre::CMPF_GREATER:
+        alpha_reject = RoR::Render::
+            Ogre14GraphicsSceneMaterialAlphaReject::GREATER;
+        break;
     case Ogre::CMPF_GREATER_EQUAL:
         alpha_reject = RoR::Render::
             Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL;
@@ -612,8 +771,8 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
         return NativeStaticFailure(
             RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
             "assets.material.alpha_reject",
-            "portable fallback supports always-pass or greater-equal alpha "
-            "rejection");
+            "portable fallback supports always-pass, greater, or "
+            "greater-equal alpha rejection");
     }
 
     RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput candidate;
@@ -631,12 +790,18 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
     candidate.specular_linear = ToFloat3(pass->getSpecular());
     candidate.emissive_linear = ToFloat3(pass->getSelfIllumination());
     candidate.shininess = static_cast<float>(pass->getShininess());
-    candidate.blend = replace
-        ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
-        : RoR::Render::Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
+    candidate.blend =
+        replace
+            ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
+            : straight_source_over
+                  ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::
+                        STRAIGHT_SOURCE_OVER
+                  : RoR::Render::Ogre14GraphicsSceneMaterialBlend::
+                        LEGACY_STRAIGHT_ALPHA;
     candidate.cull = reference.cull;
     candidate.alpha_reject = alpha_reject;
     candidate.alpha_reject_value = pass->getAlphaRejectValue();
+    candidate.depth_write = pass->getDepthWriteEnabled();
     output = std::move(candidate);
     reverse_winding = reference.reverse_winding;
     return RoR::Render::ValidationResult::Success();
@@ -711,6 +876,7 @@ RoR::Render::ValidationResult CaptureOgreNextDemoMaterialInput(
     candidate.alpha_reject = RoR::Render::
         Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
     candidate.alpha_reject_value = 0U;
+    candidate.depth_write = true;
 
     RoR::Render::MaterialDescriptor portable_matte;
     validation = RoR::Render::BuildOgre14GraphicsSceneMaterialFallback(
@@ -1723,6 +1889,9 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     const std::vector<Ogre::Vector2>& joined_texcoords0,
     const std::vector<RoR::FlexMeshTopologySection>& topology_sections,
     bool has_dynamic_vertex_colors,
+    const RoR::Actor* managed_material_owner,
+    const RoR::Render::ManagedMaterialDeclarationSnapshot*
+        managed_material_snapshot,
     RoR::Gfx::Detail::OgreNextDemoMaterialSource& material_source,
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
@@ -1869,10 +2038,21 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
                     Ogre::VES_TEXTURE_COORDINATES, 0U) != nullptr;
         const std::string material_decision_key =
             "dynamic/" + BuildNativeDynamicMeshCacheKey(identity);
+        RoR::Render::Ogre14ManagedMaterialDeclarationBinding managed_binding;
+        const RoR::Render::Ogre14ManagedMaterialDeclarationBinding*
+            managed_binding_ptr = nullptr;
+        if (managed_material_owner != nullptr &&
+            managed_material_snapshot != nullptr &&
+            managed_material_owner->ResolveManagedMaterialDeclarationBinding(
+                *managed_material_snapshot, sub_entity->getMaterial(),
+                managed_binding))
+        {
+            managed_binding_ptr = &managed_binding;
+        }
         bool projected = false;
         validation = material_source.TryProject(
             material_decision_key, sub_entity->getMaterial(),
-            used_demo_matte, has_authored_uv0,
+            used_demo_matte, has_authored_uv0, managed_binding_ptr,
             section.material, projected);
         if (!validation)
             return validation;
@@ -2800,6 +2980,24 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         }
         Render::Ogre14GraphicsSceneDynamicSectionIdentity identity;
         identity.actor_instance_id = actor->GetActorId();
+        const ActorPtr managed_material_owner = actor->GetActor();
+        if (!managed_material_owner)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "dynamic_meshes.managed_material_owner",
+                "live GfxActor has no managed-material Actor owner");
+        }
+        Render::ManagedMaterialDeclarationSnapshot managed_material_snapshot;
+        Render::ValidationResult managed_snapshot_validation =
+            managed_material_owner->CaptureManagedMaterialDeclarationSnapshot(
+                managed_material_snapshot);
+        if (!managed_snapshot_validation)
+        {
+            managed_snapshot_validation.field =
+                "dynamic_meshes." + managed_snapshot_validation.field;
+            return managed_snapshot_validation;
+        }
         std::vector<Ogre::Vector3> positions;
         std::vector<Ogre::Vector3> normals;
         std::vector<Ogre::Vector2> texcoords0;
@@ -2831,6 +3029,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     actor_record.second.lifecycle,
                     positions, normals, texcoords0,
                     actor->m_cab_mesh->getCpuTopologySections(), false,
+                    managed_material_owner.GetRef(), &managed_material_snapshot,
                     m_ogre_next_demo_material_source, mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -2878,6 +3077,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     positions, normals, texcoords0,
                     flexbody->getCpuTopologySections(),
                     flexbody->hasDynamicTextureBlend(),
+                    managed_material_owner.GetRef(), &managed_material_snapshot,
                     m_ogre_next_demo_material_source, mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -2947,10 +3147,21 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     entity, identity, actor_record.second.lifecycle,
                     positions, normals, texcoords0,
                     *topology,
-                    false, m_ogre_next_demo_material_source,
+                    false, managed_material_owner.GetRef(),
+                    &managed_material_snapshot,
+                    m_ogre_next_demo_material_source,
                     mesh_cache, sections);
             if (!validation)
                 return validation;
+        }
+        if (!managed_material_owner->IsManagedMaterialDeclarationSnapshotCurrent(
+                managed_material_snapshot))
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "dynamic_meshes.managed_material_snapshot",
+                "managed-material declaration or source authority changed "
+                "during actor capture");
         }
     }
 
@@ -3277,7 +3488,14 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         capture_counters.authenticated_archive_source_decodes != 0U ||
         capture_counters.authenticated_generated_source_decodes != 0U ||
         capture_counters.ordinary_observed_source_decodes != 0U ||
-        capture_counters.modern_source_normalizations != 0U;
+        capture_counters.modern_source_normalizations != 0U ||
+        capture_counters.authored_specular_source_decodes != 0U ||
+        capture_counters.linear_specular_source_normalizations != 0U ||
+        capture_counters.alpha_test_material_projections != 0U ||
+        capture_counters.straight_source_over_material_projections != 0U ||
+        capture_counters.legacy_straight_alpha_material_projections != 0U ||
+        capture_counters.specular_workflow_projections != 0U ||
+        capture_counters.anisotropic_sampler_projections != 0U;
     if (activity_event ||
         coverage_snapshot !=
             m_ogre_next_demo_material_coverage_log_snapshot)
@@ -3292,6 +3510,14 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         LOG(fmt::format(
             "[RoR|OgreNextDemo|MaterialSource] "
             "modern_policy=srgb_opaque_authored_prefix_linear_tail_v2 "
+            "straight_alpha_policy="
+            "srgb_straight_alpha_authored_prefix_premultiplied_linear_tail_v1 "
+            "linear_specular_policy=linear_specular_authored_prefix_box_tail_v1 "
+            "managed_specular_lowering="
+            "linear_rgb_specular_workflow_dielectric_ior1p5_f0p04_"
+            "no_metallic_synthesis_v1 "
+            "managed_specular_scope=alexis_opaque_4_of_7_v1 "
+            "capture_v4=[{}] lifetime_v4=[{}] "
             "committed_new_projections={} active_projections={} capture "
             "new_frozen_material_decisions={} candidate_sections={} "
             "projected_sections={} matte_excluded_sections={} "
@@ -3357,6 +3583,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             "lossy_material_normalizations={} gpu_readbacks={} "
             "unauthenticated_gpu_readbacks={} projections={} "
             "matte_by_reason=[{}]",
+            FormatOgreNextDemoMaterialCounters(capture_counters),
+            FormatOgreNextDemoMaterialCounters(lifetime_counters),
             m_ogre14_pending_capture->new_material_projection_count,
             m_ogre14_pending_capture->active_material_projection_count,
             capture_counters.new_frozen_material_decisions,

@@ -157,6 +157,35 @@ RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
   return delta;
 }
 
+RenderAssetDelta MakeSpecularCatalogDelta(std::uint64_t registry_id,
+                                          float specular_anisotropy = 8.0F) {
+  RenderAssetDelta delta = MakeModernCatalogDelta(registry_id);
+  MaterialDescriptor &material =
+      std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+  material.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  material.metallic_factor = 0.0F;
+  material.metallic_roughness_texture = {};
+  material.specular_factor = {0.72F, 0.65F, 0.51F};
+  material.specular_texture.texture = Ref(RenderAssetKind::TEXTURE, 8U);
+  material.specular_texture.sampler = Ref(RenderAssetKind::SAMPLER, 9U);
+
+  RenderAssetMutation texture_mutation;
+  texture_mutation.asset = Ref(RenderAssetKind::TEXTURE, 8U);
+  texture_mutation.payload =
+      MakeRgba8Texture(TextureColorSpace::LINEAR, 96U, 128U, 224U);
+  delta.mutations.push_back(std::move(texture_mutation));
+
+  SamplerResourceDescriptor specular_sampler;
+  specular_sampler.debug_name = "RT4/V1 authored specular anisotropic sampler";
+  specular_sampler.anisotropy_enabled = true;
+  specular_sampler.maximum_anisotropy = specular_anisotropy;
+  RenderAssetMutation sampler_mutation;
+  sampler_mutation.asset = Ref(RenderAssetKind::SAMPLER, 9U);
+  sampler_mutation.payload = std::move(specular_sampler);
+  delta.mutations.push_back(std::move(sampler_mutation));
+  return delta;
+}
+
 RenderAssetDelta
 MakeDisplayDomainUnlitCatalogDelta(std::uint64_t registry_id) {
   MaterialDescriptor material;
@@ -728,6 +757,105 @@ void TestModernPbrAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
           "valid RT4/V1 texture, sampler, tangent, and UV0 catalog was rejected");
 
+  RenderAssetRegistry specular_registry(kRegistryId + 100U);
+  Require(specular_registry
+              .Apply(MakeSpecularCatalogDelta(kRegistryId + 100U))
+              .ok(),
+          "authored specular RT4/V1 fixture is not registry valid");
+  Require(ValidateOgreNextN1AssetCatalog(specular_registry, false, kModern)
+              .ok(),
+          "authored linear-specular workflow and texture were rejected");
+  Require(ValidateOgreNextN1SamplerDeviceLimits(specular_registry, 8.0F,
+                                                 kModern)
+              .ok(),
+          "exact specular anisotropy equal to the device limit was rejected");
+  const ValidationResult over_limit_specular =
+      ValidateOgreNextN1SamplerDeviceLimits(specular_registry, 4.0F, kModern);
+  Require(over_limit_specular.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              over_limit_specular.field ==
+                  "assets.sampler.maximum_anisotropy",
+          "SPECULAR-slot anisotropy above the device limit escaped admission");
+
+  const auto alpha_catalog = [&](std::uint64_t registry_id,
+                                 MaterialBlendMode blend,
+                                 MaterialAlphaTestMode alpha_test,
+                                 float cutoff) {
+    RenderAssetDelta delta = MakeModernCatalogDelta(registry_id);
+    MaterialDescriptor &material =
+        std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+    material.blend_mode = blend;
+    material.alpha_test_mode = alpha_test;
+    material.alpha_cutoff = cutoff;
+    material.depth_write = false;
+    std::get<TextureResourceDescriptor>(delta.mutations[2U].payload)
+        .mip_levels.front()
+        .bytes[3U] = 128U;
+    return delta;
+  };
+  RenderAssetRegistry source_over_registry(kRegistryId + 101U);
+  Require(source_over_registry
+              .Apply(alpha_catalog(kRegistryId + 101U,
+                                   MaterialBlendMode::STRAIGHT_SOURCE_OVER,
+                                   MaterialAlphaTestMode::DISABLED, 0.5F))
+              .ok() &&
+              ValidateOgreNextN1AssetCatalog(source_over_registry, false,
+                                              kModern)
+                  .ok(),
+          "exact true source-over RT4/V1 material was rejected");
+  RenderAssetRegistry legacy_alpha_registry(kRegistryId + 102U);
+  Require(legacy_alpha_registry
+              .Apply(alpha_catalog(kRegistryId + 102U,
+                                   MaterialBlendMode::LEGACY_STRAIGHT_ALPHA,
+                                   MaterialAlphaTestMode::GREATER,
+                                   2.0F / 255.0F))
+              .ok() &&
+              ValidateOgreNextN1AssetCatalog(legacy_alpha_registry, false,
+                                              kModern)
+                  .ok(),
+          "combined legacy-alpha/GREATER/depth-write-off RT4/V1 material was rejected");
+
+  RenderAssetDelta missing_alpha_texture = alpha_catalog(
+      kRegistryId + 103U, MaterialBlendMode::STRAIGHT_SOURCE_OVER,
+      MaterialAlphaTestMode::DISABLED, 0.5F);
+  std::get<MaterialDescriptor>(missing_alpha_texture.mutations[1U].payload)
+      .base_color_texture = {};
+  RenderAssetRegistry missing_alpha_registry(kRegistryId + 103U);
+  Require(missing_alpha_registry.Apply(missing_alpha_texture).ok() &&
+              ValidateOgreNextN1AssetCatalog(missing_alpha_registry, false,
+                                              kModern)
+                      .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "alpha blending without authored texture coverage escaped admission");
+
+  RenderAssetDelta modulated_alpha_blend = alpha_catalog(
+      kRegistryId + 105U, MaterialBlendMode::STRAIGHT_SOURCE_OVER,
+      MaterialAlphaTestMode::DISABLED, 0.5F);
+  std::get<MaterialDescriptor>(modulated_alpha_blend.mutations[1U].payload)
+      .base_color_factor.w = 0.5F;
+  RenderAssetRegistry modulated_alpha_blend_registry(kRegistryId + 105U);
+  Require(modulated_alpha_blend_registry.Apply(modulated_alpha_blend).ok(),
+          "nonunit alpha-blend factor fixture is not registry valid");
+  const ValidationResult modulated_alpha_blend_result =
+      ValidateOgreNextN1AssetCatalog(modulated_alpha_blend_registry, false,
+                                     kModern);
+  Require(modulated_alpha_blend_result.code ==
+              ValidationCode::UNSUPPORTED_FEATURE &&
+              modulated_alpha_blend_result.field ==
+                  "assets.material.base_color_factor",
+          "alpha blend with double-attenuating nonunit factor escaped exact "
+          "pinned-PBS policy");
+
+  RenderAssetDelta modulated_alpha_test = alpha_catalog(
+      kRegistryId + 104U, MaterialBlendMode::REPLACE,
+      MaterialAlphaTestMode::GREATER, 2.0F / 255.0F);
+  std::get<MaterialDescriptor>(modulated_alpha_test.mutations[1U].payload)
+      .base_color_factor.w = 0.5F;
+  RenderAssetRegistry modulated_alpha_registry(kRegistryId + 104U);
+  Require(modulated_alpha_registry.Apply(modulated_alpha_test).ok() &&
+              ValidateOgreNextN1AssetCatalog(modulated_alpha_registry, false,
+                                              kModern)
+                      .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "alpha test with nonunit factor escaped exact pinned-PBS policy");
+
   const auto make_lit_scene = [&](std::vector<LightDescriptor> lights,
                                   Matrix4x4 transform = Matrix4x4{}) {
     SceneSnapshotDescriptor descriptor;
@@ -1026,10 +1154,10 @@ void TestDisplayDomainUnlitPolicy() {
     std::function<void(RenderAssetDelta &)> mutate;
   };
   const std::vector<HostileProfileMutation> hostile_profile_mutations{
-      {"display-domain Unlit accepted MASK alpha mode",
+      {"display-domain Unlit accepted alpha testing",
        [](RenderAssetDelta &delta) {
-         std::get<MaterialDescriptor>(delta.mutations[1U].payload).alpha_mode =
-             MaterialAlphaMode::MASK;
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .alpha_test_mode = MaterialAlphaTestMode::GREATER;
        }},
       {"display-domain Unlit accepted double-sided state",
        [](RenderAssetDelta &delta) {

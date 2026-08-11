@@ -1528,6 +1528,7 @@ if (ROR_OGRE14 AND TARGET RoR)
         "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     )

@@ -137,6 +137,12 @@ jobs:
             --output-on-failure \
             --no-tests=error \
             -R '^ogre14_authenticated_material_script_native_integration$'
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre_next_n1_policy$'
 
       - name: Stage application bundle
         run: >-

@@ -6,6 +6,7 @@
 */
 
 #include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+#include "gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
 #include "gfx/ogre14/Ogre14SelectedTextureSource.h"
 #include "gfx/ogre14/detail/OgreNextDemoMaterialSource.h"
 
@@ -80,6 +81,11 @@ constexpr char kGroup[] = "MaterialSourceNative";
 constexpr char kTextureName[] = "road.png";
 constexpr char kMaterialName[] = "RoadMaterial";
 constexpr char kSectionKey[] = "static/road/section-0";
+constexpr char kAlexisGroup[] = "{bundle USER:/mods/AlexisSaber.zip}";
+constexpr char kAlexisMaterialName[] =
+    "SaberChassis (AlexisSaber.truck [Instance ID 17])";
+constexpr char kAlexisDiffuseName[] = "AlexisSaberChassis.png";
+constexpr char kAlexisSpecularName[] = "AlexisSaberChassisSpec.png";
 
 void Require(bool condition, const char *message) {
   if (!condition) {
@@ -168,7 +174,8 @@ public:
   static std::size_t destruction_count;
 
   TestTexture(std::string name, Ogre::ResourceHandle handle, std::string group,
-              std::shared_ptr<std::size_t> readback_calls)
+              std::shared_ptr<std::size_t> readback_calls,
+              Ogre::TextureType texture_type = Ogre::TEX_TYPE_2D)
       : Ogre::Texture(nullptr, std::move(name), handle, std::move(group), false,
                       nullptr) {
     mWidth = 2U;
@@ -177,7 +184,7 @@ public:
     mSrcWidth = 2U;
     mSrcHeight = 2U;
     mSrcDepth = 1U;
-    mTextureType = Ogre::TEX_TYPE_2D;
+    mTextureType = texture_type;
     mNumRequestedMipmaps = 0U;
     mNumMipmaps = 0U;
     mFormat = Ogre::PF_BYTE_RGBA;
@@ -300,8 +307,12 @@ public:
 struct NativeMaterial final {
   explicit NativeMaterial(const Ogre::TexturePtr &texture,
                           Ogre::ResourceHandle handle = 101U)
-      : material(std::make_shared<Ogre::Material>(nullptr, kMaterialName,
-                                                  handle, kGroup)) {
+      : NativeMaterial(texture, handle, kMaterialName, kGroup) {}
+
+  NativeMaterial(const Ogre::TexturePtr &texture, Ogre::ResourceHandle handle,
+                 std::string name, std::string group)
+      : material(std::make_shared<Ogre::Material>(
+            nullptr, std::move(name), handle, std::move(group))) {
     Ogre::Technique *const technique = material->createTechnique();
     pass = technique->createPass();
     unit = pass->createTextureUnitState();
@@ -321,6 +332,51 @@ struct NativeMaterial final {
   Ogre::Pass *pass = nullptr;
   Ogre::TextureUnitState *unit = nullptr;
   Ogre::SamplerPtr sampler;
+};
+
+struct AlexisNativeMaterial final {
+  AlexisNativeMaterial(const Ogre::TexturePtr &diffuse_texture,
+                       const Ogre::TexturePtr &specular_texture,
+                       const Ogre::TexturePtr &environment_texture)
+      : base(diffuse_texture, 111U, kAlexisMaterialName, kAlexisGroup) {
+    Ogre::Technique *const technique = base.material->getTechnique(0U);
+    base.pass->setName("BaseRender");
+    base.unit->setName("Diffuse_Map");
+
+    specular_pass = technique->createPass();
+    specular_pass->setName("SpecularMapping1");
+    specular_pass->setSceneBlending(Ogre::SBF_ONE, Ogre::SBF_ONE);
+    specular_unit = specular_pass->createTextureUnitState();
+    specular_unit->setName("SpecularMapping1_Tex");
+    specular_unit->setColourOperationEx(
+        Ogre::LBX_SOURCE2, Ogre::LBS_TEXTURE, Ogre::LBS_TEXTURE);
+    specular_unit->setAlphaOperation(
+        Ogre::LBX_SOURCE1, Ogre::LBS_TEXTURE, Ogre::LBS_TEXTURE);
+    specular_sampler = std::make_shared<Ogre::Sampler>();
+    specular_sampler->setFiltering(Ogre::FO_ANISOTROPIC,
+                                   Ogre::FO_ANISOTROPIC,
+                                   Ogre::FO_LINEAR);
+    specular_sampler->setAddressingMode(Ogre::TAM_CLAMP);
+    specular_sampler->setMipmapBias(0.0F);
+    specular_sampler->setAnisotropy(8U);
+    specular_sampler->setCompareEnabled(false);
+    specular_sampler->setCompareFunction(Ogre::CMPF_ALWAYS_PASS);
+    specular_sampler->setBorderColour(Ogre::ColourValue::Black);
+    specular_unit->setSampler(specular_sampler);
+    specular_unit->setTexture(specular_texture);
+
+    Ogre::TextureUnitState *const environment =
+        specular_pass->createTextureUnitState();
+    environment->setName("envmap");
+    environment->setTexture(environment_texture);
+    environment->setEnvironmentMap(
+        true, Ogre::TextureUnitState::ENV_REFLECTION);
+  }
+
+  NativeMaterial base;
+  Ogre::Pass *specular_pass = nullptr;
+  Ogre::TextureUnitState *specular_unit = nullptr;
+  Ogre::SamplerPtr specular_sampler;
 };
 
 Ogre14SelectedTextureSourceReceipt
@@ -354,10 +410,88 @@ BuildReceipt(Ogre::Texture &texture, std::uint64_t generation,
   return receipt;
 }
 
+ManagedMaterialTextureBindingInput ManagedTextureBinding(
+    ManagedMaterialTextureSlot slot,
+    const ManagedMaterialTextureSourceReceipt &receipt) {
+  const ManagedMaterialTextureSourceIdentity *const identity =
+      receipt.identity();
+  Require(identity != nullptr, "managed source receipt identity is absent");
+  ManagedMaterialTextureBindingInput binding;
+  binding.slot = slot;
+  binding.configured = true;
+  binding.declared_texture_name = identity->exact_resource_name;
+  binding.resolved_texture_name = identity->exact_resource_name;
+  binding.effective_texture_name = identity->exact_resource_name;
+  binding.requested_resource_group = identity->effective_resource_group;
+  binding.effective_resource_group = identity->effective_resource_group;
+  binding.source_receipt = receipt;
+  return binding;
+}
+
+ManagedMaterialDeclaration BuildManagedSpecularDeclaration(
+    const ManagedMaterialTextureSourceReceipt &diffuse,
+    const ManagedMaterialTextureSourceReceipt &specular,
+    std::string exact_material_name = kAlexisMaterialName,
+    ManagedMaterialSemanticType semantic_type =
+        ManagedMaterialSemanticType::MESH_STANDARD,
+    const ManagedMaterialTextureSourceReceipt *damaged = nullptr) {
+  ManagedMaterialDeclarationInput input;
+  input.actor_generation = 9U;
+  input.definition_generation = 3U;
+  input.exact_material_name = std::move(exact_material_name);
+  input.declared_type = semantic_type;
+  input.resolved_type = semantic_type;
+  input.textures[0U] =
+      ManagedTextureBinding(ManagedMaterialTextureSlot::DIFFUSE, diffuse);
+  input.textures[1U] =
+      ManagedTextureBinding(ManagedMaterialTextureSlot::SPECULAR, specular);
+  input.textures[2U] =
+      damaged != nullptr
+          ? ManagedTextureBinding(ManagedMaterialTextureSlot::DAMAGED_DIFFUSE,
+                                  *damaged)
+          : ManagedMaterialTextureBindingInput{};
+  input.textures[2U].slot = ManagedMaterialTextureSlot::DAMAGED_DIFFUSE;
+  ManagedMaterialDeclaration declaration;
+  RequireOk(BuildManagedMaterialDeclaration(
+                ManagedMaterialDeclarationRegistryConfiguration{}, input,
+                declaration),
+            "build native managed specular declaration");
+  return declaration;
+}
+
+ManagedMaterialDeclaration BuildManagedDiffuseDeclaration(
+    const ManagedMaterialTextureSourceReceipt &diffuse,
+    std::string exact_material_name = kMaterialName) {
+  ManagedMaterialDeclarationInput input;
+  input.actor_generation = 9U;
+  input.definition_generation = 3U;
+  input.exact_material_name = std::move(exact_material_name);
+  input.declared_type = ManagedMaterialSemanticType::MESH_STANDARD;
+  input.resolved_type = ManagedMaterialSemanticType::MESH_STANDARD;
+  input.textures[0U] =
+      ManagedTextureBinding(ManagedMaterialTextureSlot::DIFFUSE, diffuse);
+  input.textures[1U].slot = ManagedMaterialTextureSlot::SPECULAR;
+  input.textures[2U].slot = ManagedMaterialTextureSlot::DAMAGED_DIFFUSE;
+  ManagedMaterialDeclaration declaration;
+  RequireOk(BuildManagedMaterialDeclaration(
+                ManagedMaterialDeclarationRegistryConfiguration{}, input,
+                declaration),
+            "build native managed diffuse-only declaration");
+  return declaration;
+}
+
 Ogre14GraphicsSceneMaterialCaptureInput CaptureInput() {
   Ogre14GraphicsSceneMaterialCaptureInput input;
   input.exact_resource_group = kGroup;
   input.exact_name = kMaterialName;
+  input.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+  return input;
+}
+
+Ogre14GraphicsSceneMaterialCaptureInput AlexisCaptureInput() {
+  Ogre14GraphicsSceneMaterialCaptureInput input;
+  input.exact_resource_group = kAlexisGroup;
+  input.exact_name = kAlexisMaterialName;
   input.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
   return input;
 }
@@ -377,7 +511,8 @@ bool SameCaptureInput(const Ogre14GraphicsSceneMaterialCaptureInput &left,
          left.emissive_linear == right.emissive_linear &&
          left.shininess == right.shininess && left.blend == right.blend &&
          left.cull == right.cull && left.alpha_reject == right.alpha_reject &&
-         left.alpha_reject_value == right.alpha_reject_value;
+         left.alpha_reject_value == right.alpha_reject_value &&
+         left.depth_write == right.depth_write;
 }
 
 std::vector<GraphicsSceneAssetInput>
@@ -394,6 +529,39 @@ BuildPlaceholderAssets(const Ogre14GraphicsSceneMaterialCaptureInput &input) {
   asset.payload =
       std::make_shared<const RenderAssetPayload>(std::move(placeholder));
   return {std::move(asset)};
+}
+
+const GraphicsSceneAssetInput *FindProjectedMaterial(
+    const std::vector<GraphicsSceneAssetInput> &assets) {
+  for (const GraphicsSceneAssetInput &asset : assets) {
+    if (asset.payload != nullptr &&
+        std::get_if<MaterialDescriptor>(asset.payload.get()) != nullptr) {
+      return &asset;
+    }
+  }
+  return nullptr;
+}
+
+const TextureResourceDescriptor *FindTextureBySourceId(
+    const std::vector<GraphicsSceneAssetInput> &assets,
+    std::uint64_t source_id) {
+  for (const GraphicsSceneAssetInput &asset : assets) {
+    if (asset.source_asset_id == source_id && asset.payload != nullptr) {
+      return std::get_if<TextureResourceDescriptor>(asset.payload.get());
+    }
+  }
+  return nullptr;
+}
+
+const SamplerResourceDescriptor *FindSamplerBySourceId(
+    const std::vector<GraphicsSceneAssetInput> &assets,
+    std::uint64_t source_id) {
+  for (const GraphicsSceneAssetInput &asset : assets) {
+    if (asset.source_asset_id == source_id && asset.payload != nullptr) {
+      return std::get_if<SamplerResourceDescriptor>(asset.payload.get());
+    }
+  }
+  return nullptr;
 }
 
 bool SameAssetOwners(const std::vector<GraphicsSceneAssetInput> &left,
@@ -451,21 +619,25 @@ void CaptureAndCommit(OgreNextDemoMaterialSource &source,
           "native projected section lost distinct texture partition");
   Require(counters.active_texture_state_observations == 1U,
           "native projected section lost active texture observation");
-  if (counters.active_authored_mip_prefix_levels != 1U ||
-      counters.active_generated_mip_tail_levels != 1U ||
-      counters.active_normalized_output_mip_levels != 2U) {
-    std::cerr << "active mip buckets authored="
-              << counters.active_authored_mip_prefix_levels
-              << " generated=" << counters.active_generated_mip_tail_levels
-              << " output=" << counters.active_normalized_output_mip_levels
-              << " decode_authored=" << counters.authored_mip_prefix_levels
-              << " decode_generated=" << counters.generated_mip_tail_levels
-              << '\n';
-  }
   Require(counters.active_authored_mip_prefix_levels == 1U &&
               counters.active_generated_mip_tail_levels == 1U &&
-              counters.active_normalized_output_mip_levels == 2U,
+              counters.active_normalized_output_mip_levels == 2U &&
+              counters.active_normalized_texture_observations == 1U &&
+              counters.active_opaque_texture_normalizations == 1U &&
+              counters.active_straight_alpha_texture_normalizations == 0U &&
+              counters.active_linear_specular_texture_normalizations == 0U,
           "native projected section lost active mip normalization buckets");
+  Require(counters.projections == 1U &&
+              counters.active_replace_material_projections == 1U &&
+              counters.active_straight_source_over_material_projections ==
+                  0U &&
+              counters.active_legacy_straight_alpha_material_projections ==
+                  0U &&
+              counters.active_alpha_test_disabled_material_projections == 1U &&
+              counters.active_alpha_test_greater_material_projections == 0U &&
+              counters.active_metallic_roughness_workflow_projections == 1U &&
+              counters.active_specular_workflow_projections == 0U,
+          "native projection escaped exact blend/test/workflow partitions");
   Require(counters.lossy_material_normalizations == 1U,
           "native projected section hid lossy material normalization");
   RequireZeroReadback(source, *readbacks);
@@ -562,6 +734,456 @@ void RequireFrozenProjectionFailure(OgreNextDemoMaterialSource &source,
   source.Discard();
 }
 
+void TestManagedSpecularProjectionAndRollback() {
+  const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize managed-specular authenticated authority");
+  OrdinaryTrustResolver trust_resolver;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &trust_resolver;
+
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({},
+                                                           selected_registry),
+            "initialize managed-specular selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kAlexisGroup, 1U, selected_registry),
+            "activate managed-specular group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+
+  Ogre::TexturePtr diffuse_texture =
+      std::make_shared<TestTexture>(kAlexisDiffuseName, 81U, kAlexisGroup,
+                                    readbacks);
+  Ogre::TexturePtr specular_texture = std::make_shared<TestTexture>(
+      kAlexisSpecularName, 82U, kAlexisGroup, readbacks);
+  Ogre::TexturePtr environment_texture = std::make_shared<TestTexture>(
+      "EnvironmentTexture", 83U, kAlexisGroup, readbacks,
+      Ogre::TEX_TYPE_CUBE_MAP);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*diffuse_texture, 1U, 0U, 0x5100U, bytes),
+                selected_registry),
+            "commit managed diffuse receipt");
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*specular_texture, 1U, 0U, 0x5200U, bytes),
+                selected_registry),
+            "commit managed specular receipt");
+  diffuse_texture->load();
+  specular_texture->load();
+  environment_texture->load();
+  AlexisNativeMaterial native(diffuse_texture, specular_texture,
+                              environment_texture);
+
+  Ogre14SelectedTextureSourceResolution diffuse_resolution;
+  Ogre14SelectedTextureSourceResolution specular_resolution;
+  RequireOk(selected_resolver.ResolveSelectedTextureSource(
+                *diffuse_texture, diffuse_resolution),
+            "resolve managed diffuse authority");
+  RequireOk(selected_resolver.ResolveSelectedTextureSource(
+                *specular_texture, specular_resolution),
+            "resolve managed specular authority");
+  ManagedMaterialTextureSourceReceipt diffuse_receipt;
+  ManagedMaterialTextureSourceReceipt specular_receipt;
+  Ogre14ManagedMaterialSourceAuthorityBinding diffuse_binding;
+  Ogre14ManagedMaterialSourceAuthorityBinding specular_binding;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                diffuse_texture, trust_resolver, selected_resolver,
+                diffuse_resolution, {}, diffuse_receipt, diffuse_binding),
+            "adapt managed diffuse selected source");
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                specular_texture, trust_resolver, selected_resolver,
+                specular_resolution, {}, specular_receipt, specular_binding),
+            "adapt managed linear specular selected source");
+  const ManagedMaterialDeclaration declaration =
+      BuildManagedSpecularDeclaration(diffuse_receipt, specular_receipt);
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      source_bindings{};
+  source_bindings[0U] = diffuse_binding;
+  source_bindings[1U] = specular_binding;
+  Ogre14ManagedMaterialDeclarationBinding material_binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                native.base.material, declaration, source_bindings,
+                trust_resolver, selected_resolver, material_binding),
+            "bind managed declaration to exact native material");
+
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(trust_resolver,
+                                                   authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver),
+          "bind managed-specular MaterialSource authorities");
+
+  const auto require_managed_semantic_matte =
+      [&](const ManagedMaterialDeclaration &hostile_declaration,
+          std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+                     kManagedMaterialTextureSlotCount>
+              hostile_bindings,
+          const char *message) {
+        Ogre14ManagedMaterialDeclarationBinding hostile_binding;
+        RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                      native.base.material, hostile_declaration,
+                      hostile_bindings, trust_resolver, selected_resolver,
+                      hostile_binding),
+                  "bind hostile managed declaration");
+        Require(source.BeginCapture(), "begin hostile managed semantic gate");
+        Ogre14GraphicsSceneMaterialCaptureInput hostile_input =
+            AlexisCaptureInput();
+        bool hostile_projected = true;
+        RequireOk(source.TryProject(kSectionKey, native.base.material, true,
+                                    true, &hostile_binding, hostile_input,
+                                    hostile_projected),
+                  "evaluate hostile managed semantic gate");
+        const OgreNextDemoMaterialSourceCounters hostile_counters =
+            source.CurrentCaptureCounters();
+        Require(!hostile_projected &&
+                    hostile_counters.matte_excluded_sections == 1U &&
+                    hostile_counters.exclusions_by_reason[static_cast<
+                        std::size_t>(OgreNextDemoTextureProjectionExclusion::
+                                        MANAGED_MATERIAL_SEMANTIC_UNSUPPORTED)] ==
+                        1U,
+                message);
+        RequireZeroReadback(source, *readbacks);
+        source.Discard();
+      };
+
+  auto damaged_bindings = source_bindings;
+  damaged_bindings[2U] = diffuse_binding;
+  require_managed_semantic_matte(
+      BuildManagedSpecularDeclaration(diffuse_receipt, specular_receipt,
+                                      kAlexisMaterialName,
+                                      ManagedMaterialSemanticType::FLEXMESH_STANDARD,
+                                      &diffuse_receipt),
+      damaged_bindings,
+      "configured damaged diffuse was silently dropped by managed lowering");
+  require_managed_semantic_matte(
+      BuildManagedSpecularDeclaration(
+          diffuse_receipt, specular_receipt, kAlexisMaterialName,
+          ManagedMaterialSemanticType::MESH_TRANSPARENT),
+      source_bindings,
+      "transparent managed declaration was accepted with opaque native state");
+
+  Require(source.BeginCapture(), "begin managed-specular projection");
+  Ogre14GraphicsSceneMaterialCaptureInput input = AlexisCaptureInput();
+  bool projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.base.material, true, true,
+                              &material_binding, input, projected),
+            "project managed diffuse/specular declaration");
+  Require(projected, "managed authored specular material remained matte");
+  std::vector<GraphicsSceneAssetInput> assets = BuildPlaceholderAssets(input);
+  RequireOk(source.Apply(assets), "apply managed authored specular projection");
+  const GraphicsSceneAssetInput *const material_asset =
+      FindProjectedMaterial(assets);
+  Require(material_asset != nullptr && assets.size() == 5U,
+          "managed projection did not publish material/base/specular and two independent samplers");
+  const MaterialDescriptor *const material =
+      std::get_if<MaterialDescriptor>(material_asset->payload.get());
+  const GraphicsSceneAssetBinding &specular_asset_binding =
+      material_asset->material_bindings[static_cast<std::size_t>(
+          MaterialTextureSlot::SPECULAR)];
+  const TextureResourceDescriptor *const specular_descriptor =
+      FindTextureBySourceId(assets,
+                            specular_asset_binding.texture_source_asset_id);
+  const SamplerResourceDescriptor *const specular_sampler =
+      FindSamplerBySourceId(assets,
+                            specular_asset_binding.sampler_source_asset_id);
+  const GraphicsSceneAssetBinding &base_asset_binding =
+      material_asset->material_bindings[static_cast<std::size_t>(
+          MaterialTextureSlot::BASE_COLOR)];
+  Require(material != nullptr &&
+              material->pbr_workflow == MaterialPbrWorkflow::SPECULAR &&
+              material->metallic_factor == 0.0F &&
+              material->specular_factor == Float3{1.0F, 1.0F, 1.0F} &&
+              specular_asset_binding.texture_source_asset_id != 0U &&
+              specular_asset_binding.sampler_source_asset_id != 0U &&
+              specular_asset_binding.sampler_source_asset_id !=
+                  base_asset_binding.sampler_source_asset_id &&
+              specular_descriptor != nullptr &&
+              specular_descriptor->color_space == TextureColorSpace::LINEAR &&
+              specular_descriptor->mip_levels.size() == 2U &&
+              specular_sampler != nullptr &&
+              specular_sampler->minification_filter == SamplerFilter::LINEAR &&
+              specular_sampler->magnification_filter ==
+                  SamplerFilter::LINEAR &&
+              specular_sampler->mip_filter == SamplerFilter::LINEAR &&
+              specular_sampler->address_u ==
+                  SamplerAddressMode::CLAMP_TO_EDGE &&
+              specular_sampler->anisotropy_enabled &&
+              specular_sampler->maximum_anisotropy == 8.0F,
+          "managed specular source was collapsed, gamma-relabelled, or given "
+          "invented metallic state");
+  const OgreNextDemoMaterialSourceCounters counters =
+      source.CurrentCaptureCounters();
+  Require(counters.authored_specular_source_decodes == 1U &&
+              counters.linear_specular_source_normalizations == 1U &&
+              counters.authored_specular_mip_prefix_levels == 1U &&
+              counters.generated_specular_mip_tail_levels == 1U &&
+              counters.normalized_specular_output_mip_levels == 2U &&
+              counters.modern_source_normalizations == 2U &&
+              counters.authored_mip_prefix_levels == 2U &&
+              counters.generated_mip_tail_levels == 2U &&
+              counters.normalized_output_mip_levels == 4U &&
+              counters.specular_workflow_projections == 1U &&
+              counters.projections == 1U &&
+              counters.active_specular_workflow_projections == 1U &&
+              counters.active_metallic_roughness_workflow_projections == 0U &&
+              counters.active_normalized_texture_observations == 2U &&
+              counters.active_opaque_texture_normalizations == 1U &&
+              counters.active_linear_specular_texture_normalizations == 1U &&
+              counters.active_anisotropic_sampler_projections == 1U &&
+              counters.anisotropic_sampler_projections == 1U,
+          "managed specular projection escaped exact decode/workflow/policy "
+          "accounting");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  const Ogre::ColourValue specular_pass_ambient_before =
+      native.specular_pass->getAmbient();
+  native.specular_pass->setAmbient(
+      Ogre::ColourValue(0.5F, 1.0F, 1.0F, 1.0F));
+  Require(source.BeginCapture(),
+          "begin managed-specular pass-state mutation gate");
+  input = AlexisCaptureInput();
+  projected = false;
+  const ValidationResult specular_pass_mutation = source.TryProject(
+      kSectionKey, native.base.material, true, true, &material_binding, input,
+      projected);
+  Require(!specular_pass_mutation &&
+              specular_pass_mutation.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              !projected,
+          "noncanonical managed specular-pass lighting escaped frozen state");
+  RequireZeroReadback(source, *readbacks);
+  source.Discard();
+  native.specular_pass->setAmbient(specular_pass_ambient_before);
+
+  Require(source.BeginCapture(),
+          "begin managed-specular sampler rollback");
+  input = AlexisCaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.base.material, true, true,
+                              &material_binding, input, projected),
+            "reuse managed projection before specular sampler mutation");
+  Require(projected,
+          "managed projection cache did not revalidate specular sampler");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> sampler_before = assets;
+  native.specular_sampler->setAnisotropy(16U);
+  const ValidationResult sampler_failed_apply = source.Apply(assets);
+  Require(!sampler_failed_apply &&
+              sampler_failed_apply.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, sampler_before),
+          "managed specular sampler mutation partially published output");
+  native.specular_sampler->setAnisotropy(8U);
+  RequireZeroReadback(source, *readbacks);
+  source.Discard();
+
+  const Ogre14SelectedTextureSourceReceiptRegistry stable_registry =
+      selected_registry;
+  Require(source.BeginCapture(),
+          "begin managed-specular final-authority rollback");
+  input = AlexisCaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.base.material, true, true,
+                              &material_binding, input, projected),
+            "reuse managed projection before authority mutation");
+  Require(projected, "managed projection cache did not revalidate before use");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> before = assets;
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*specular_texture, 1U, 0U, 0x5201U, bytes),
+                selected_registry),
+            "mutate managed specular immutable receipt before Apply");
+  const ValidationResult failed_apply = source.Apply(assets);
+  Require(!failed_apply &&
+              failed_apply.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, before) &&
+              !material_binding.Revalidate(trust_resolver, selected_resolver),
+          "managed specular authority mutation partially published output");
+  RequireZeroReadback(source, *readbacks);
+  source.Discard();
+  selected_registry = stable_registry;
+
+  Require(source.BeginCapture(), "begin managed-specular cache reuse");
+  input = AlexisCaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.base.material, true, true,
+                              &material_binding, input, projected),
+            "revalidate managed-specular cache after rollback");
+  assets = BuildPlaceholderAssets(input);
+  Require(projected, "managed projection did not survive atomic rollback");
+  RequireOk(source.Apply(assets), "apply managed-specular cache reuse");
+  const OgreNextDemoMaterialSourceCounters reuse =
+      source.CurrentCaptureCounters();
+  Require(reuse.authored_specular_source_decodes == 0U &&
+              reuse.active_specular_workflow_projections == 1U &&
+              reuse.active_linear_specular_texture_normalizations == 1U,
+          "managed cache reuse re-decoded or lost active specular authority");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+}
+
+void TestAlphaStateAndAnisotropicProjection() {
+  const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize alpha authenticated authority");
+  OrdinaryTrustResolver trust_resolver;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &trust_resolver;
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({},
+                                                           selected_registry),
+            "initialize alpha selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, selected_registry),
+            "activate alpha selected group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+  Ogre::TexturePtr texture =
+      std::make_shared<TestTexture>(kTextureName, 83U, kGroup, readbacks);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*texture, 1U, 0U, 0x5300U, bytes),
+                selected_registry),
+            "commit alpha source receipt");
+  texture->load();
+  NativeMaterial native(texture, 112U);
+  native.sampler->setFiltering(Ogre::FO_ANISOTROPIC,
+                               Ogre::FO_ANISOTROPIC,
+                               Ogre::FO_LINEAR);
+  native.sampler->setAnisotropy(8U);
+  native.pass->setSeparateSceneBlending(
+      Ogre::SBF_SOURCE_ALPHA, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA,
+      Ogre::SBF_ONE, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA);
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_GREATER, 2U);
+  native.pass->setDepthWriteEnabled(false);
+
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(trust_resolver,
+                                                   authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver),
+          "bind alpha MaterialSource authorities");
+  Require(source.BeginCapture(), "begin true source-over alpha capture");
+  Ogre14GraphicsSceneMaterialCaptureInput input = CaptureInput();
+  bool projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "project true source-over plus GREATER alpha state");
+  Require(projected, "exact alpha state remained matte");
+  std::vector<GraphicsSceneAssetInput> assets = BuildPlaceholderAssets(input);
+  RequireOk(source.Apply(assets), "apply true source-over alpha projection");
+  const GraphicsSceneAssetInput *material_asset = FindProjectedMaterial(assets);
+  const MaterialDescriptor *material =
+      material_asset != nullptr
+          ? std::get_if<MaterialDescriptor>(material_asset->payload.get())
+          : nullptr;
+  const OgreNextDemoMaterialSourceCounters true_alpha =
+      source.CurrentCaptureCounters();
+  Require(material != nullptr &&
+              material->blend_mode ==
+                  MaterialBlendMode::STRAIGHT_SOURCE_OVER &&
+              material->alpha_test_mode == MaterialAlphaTestMode::GREATER &&
+              material->alpha_cutoff == 2.0F / 255.0F &&
+              !material->depth_write &&
+              true_alpha.projections == 1U &&
+              true_alpha.active_straight_source_over_material_projections ==
+                  1U &&
+              true_alpha.active_alpha_test_greater_material_projections == 1U &&
+              true_alpha.active_anisotropic_sampler_projections == 1U &&
+              true_alpha.active_straight_alpha_texture_normalizations == 1U &&
+              true_alpha.straight_source_over_material_projections == 1U &&
+              true_alpha.alpha_test_material_projections == 1U &&
+              true_alpha.anisotropic_sampler_projections == 1U,
+          "true source-over/GREATER/depth/anisotropy state was collapsed or "
+          "lost exact accounting");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  Require(source.BeginCapture(), "begin alpha Apply rollback capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "reuse alpha projection before comparator mutation");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> before = assets;
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_GREATER_EQUAL, 2U);
+  const ValidationResult failed_apply = source.Apply(assets);
+  Require(!failed_apply &&
+              failed_apply.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, before),
+          "alpha comparator mutation partially published projected assets");
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_GREATER, 2U);
+  source.Discard();
+
+  source.Reset();
+  native.pass->setSeparateSceneBlending(
+      Ogre::SBF_SOURCE_ALPHA, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA,
+      Ogre::SBF_SOURCE_ALPHA, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA);
+  Require(source.BeginCapture(), "begin legacy straight-alpha capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "project exact legacy squared-alpha tuple");
+  assets = BuildPlaceholderAssets(input);
+  Require(projected, "legacy squared-alpha tuple remained matte");
+  RequireOk(source.Apply(assets), "apply legacy squared-alpha projection");
+  material_asset = FindProjectedMaterial(assets);
+  material = material_asset != nullptr
+                 ? std::get_if<MaterialDescriptor>(
+                       material_asset->payload.get())
+                 : nullptr;
+  const OgreNextDemoMaterialSourceCounters legacy =
+      source.CurrentCaptureCounters();
+  Require(material != nullptr &&
+              material->blend_mode ==
+                  MaterialBlendMode::LEGACY_STRAIGHT_ALPHA &&
+              material->alpha_test_mode == MaterialAlphaTestMode::GREATER &&
+              !material->depth_write &&
+              legacy.active_legacy_straight_alpha_material_projections == 1U &&
+              legacy.active_straight_source_over_material_projections == 0U,
+          "legacy squared-alpha tuple was relabelled as true source-over");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  source.Reset();
+  native.pass->setSeparateSceneBlending(
+      Ogre::SBF_SOURCE_ALPHA, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA,
+      Ogre::SBF_ONE, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA);
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_ALWAYS_PASS, 0U);
+  Ogre::ColourValue nonunit_alpha = native.pass->getDiffuse();
+  nonunit_alpha.a = 0.5F;
+  native.pass->setDiffuse(nonunit_alpha);
+  Require(source.BeginCapture(),
+          "begin nonunit factor-alpha blend exclusion capture");
+  input = CaptureInput();
+  projected = true;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "classify nonunit factor-alpha blended pass");
+  const OgreNextDemoMaterialSourceCounters nonunit_alpha_counters =
+      source.CurrentCaptureCounters();
+  Require(!projected && nonunit_alpha_counters.candidate_sections == 1U &&
+              nonunit_alpha_counters.matte_excluded_sections == 1U &&
+              nonunit_alpha_counters.exclusions_by_reason[static_cast<
+                  std::size_t>(OgreNextDemoTextureProjectionExclusion::
+                                  MATERIAL_STATE_UNSUPPORTED)] == 1U,
+          "double-attenuating nonunit factor-alpha blend escaped source "
+          "classification");
+  source.Discard();
+}
+
 void TestNativeMaterialSourceLifecycle() {
   TestTexture::destruction_count = 0U;
   const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
@@ -612,6 +1234,107 @@ void TestNativeMaterialSourceLifecycle() {
   Require(source.LifetimeCounters().ordinary_observed_source_decodes == 1U &&
               authority_provider.capture_calls == 0U,
           "ordinary frame probed authenticated authority or lost accounting");
+
+  // A diffuse-only managed declaration is output-equivalent to opaque v2.
+  // Adopt its authority in the pending COW cache without changing the exact
+  // material asset ID/name, then prove the committed cache no longer permits
+  // an unbound caller to bypass that declaration.
+  {
+  Require(source.BeginCapture(), "begin opaque-v2 identity baseline");
+  Ogre14GraphicsSceneMaterialCaptureInput v2_input = CaptureInput();
+  bool v2_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              v2_input, v2_projected),
+            "project opaque-v2 identity baseline");
+  std::vector<GraphicsSceneAssetInput> v2_assets =
+      BuildPlaceholderAssets(v2_input);
+  Require(v2_projected && v2_input.exact_name.rfind("OpaqueTUS0/", 0U) == 0U,
+          "opaque baseline lost its v2 material name");
+  RequireOk(source.Apply(v2_assets), "apply opaque-v2 identity baseline");
+  const GraphicsSceneAssetInput *const v2_material =
+      FindProjectedMaterial(v2_assets);
+  Require(v2_material != nullptr, "opaque-v2 material asset is absent");
+  const std::uint64_t v2_material_id = v2_material->source_asset_id;
+  const std::string v2_material_name = v2_input.exact_name;
+  source.Commit();
+
+  Ogre14SelectedTextureSourceResolution managed_resolution;
+  RequireOk(selected_resolver.ResolveSelectedTextureSource(
+                *texture, managed_resolution),
+            "resolve diffuse-only managed source authority");
+  ManagedMaterialTextureSourceReceipt managed_diffuse_receipt;
+  Ogre14ManagedMaterialSourceAuthorityBinding managed_diffuse_authority;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                texture, trust_resolver, selected_resolver,
+                managed_resolution, {}, managed_diffuse_receipt,
+                managed_diffuse_authority),
+            "adapt diffuse-only managed source");
+  const ManagedMaterialDeclaration managed_diffuse_declaration =
+      BuildManagedDiffuseDeclaration(managed_diffuse_receipt);
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      managed_diffuse_bindings{};
+  managed_diffuse_bindings[0U] = managed_diffuse_authority;
+  Ogre14ManagedMaterialDeclarationBinding managed_diffuse_binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                native->material, managed_diffuse_declaration,
+                managed_diffuse_bindings, trust_resolver, selected_resolver,
+                managed_diffuse_binding),
+            "bind diffuse-only managed declaration");
+
+  Require(source.BeginCapture(),
+          "begin discarded opaque-v2 managed cache promotion");
+  Ogre14GraphicsSceneMaterialCaptureInput discarded_promotion_input =
+      CaptureInput();
+  bool discarded_promotion_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              &managed_diffuse_binding,
+                              discarded_promotion_input,
+                              discarded_promotion_projected),
+            "stage discarded opaque-v2 managed cache promotion");
+  Require(discarded_promotion_projected,
+          "discarded managed promotion fixture remained matte");
+  source.Discard();
+
+  Require(source.BeginCapture(),
+          "begin unbound reuse after discarded managed promotion");
+  Ogre14GraphicsSceneMaterialCaptureInput unbound_after_discard_input =
+      CaptureInput();
+  bool unbound_after_discard_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              unbound_after_discard_input,
+                              unbound_after_discard_projected),
+            "reuse committed unbound cache after discarded promotion");
+  Require(unbound_after_discard_projected &&
+              unbound_after_discard_input.exact_name == v2_material_name,
+          "discarded managed promotion mutated the committed opaque-v2 cache");
+  source.Discard();
+
+  Require(source.BeginCapture(), "begin opaque-v2 managed cache promotion");
+  Ogre14GraphicsSceneMaterialCaptureInput promoted_input = CaptureInput();
+  bool promoted = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              &managed_diffuse_binding, promoted_input,
+                              promoted),
+            "promote opaque-v2 cache to managed authority");
+  std::vector<GraphicsSceneAssetInput> promoted_assets =
+      BuildPlaceholderAssets(promoted_input);
+  RequireOk(source.Apply(promoted_assets),
+            "apply managed opaque-v2 cache promotion");
+  const GraphicsSceneAssetInput *const promoted_material =
+      FindProjectedMaterial(promoted_assets);
+  Require(promoted && promoted_material != nullptr &&
+              promoted_material->source_asset_id == v2_material_id &&
+              promoted_input.exact_name == v2_material_name,
+          "diffuse-only managed authority churned opaque-v2 asset identity");
+  source.Commit();
+
+  RequireFrozenProjectionFailure(
+      source, *native,
+      "committed managed cache permitted an unbound authority bypass");
+  source.Reset();
+  CaptureAndCommit(source, *native, readbacks);
+  }
 
   // A same-state receipt retry is a different immutable publication. It must
   // invalidate the frozen projection without changing its input or cache.
@@ -910,6 +1633,8 @@ int main() {
   log_manager.createLog("MaterialSourceNativeTests", true, false, true);
   Ogre::Root root("", "", "");
   TestRetryableOrdinaryAbsencePromotion();
+  TestManagedSpecularProjectionAndRollback();
+  TestAlphaStateAndAnisotropicProjection();
   TestNativeMaterialSourceLifecycle();
   std::cout << "OgreNext demo MaterialSource native lifecycle tests passed\n";
   return EXIT_SUCCESS;

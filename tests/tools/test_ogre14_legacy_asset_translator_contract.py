@@ -70,12 +70,12 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
 
     def test_pure_contract_is_versioned_and_native_type_free(self) -> None:
         for token in (
-            "kOgre14LegacyAssetTranslatorVersion = 1U",
+            "kOgre14LegacyAssetTranslatorVersion = 2U",
             "kOgre14LegacyTextureInputVersion = 1U",
-            "kOgre14LegacyMaterialInputVersion = 1U",
+            "kOgre14LegacyMaterialInputVersion = 2U",
             "kOgre14LegacyAssetIdentityFrameViewVersion = 1U",
-            "kOgre14LegacyPipelineAuditVersion = 1U",
-            "kOgre14LegacyTranslatedFrameVersion = 1U",
+            "kOgre14LegacyPipelineAuditVersion = 2U",
+            "kOgre14LegacyTranslatedFrameVersion = 2U",
             "kOgre14LegacyAssetTranslatorConfigurationVersion = 1U",
             "kOgre14LegacyAssetTranslatorTransactionConfigurationVersion = 1U",
             "maximum_lifetime_asset_records",
@@ -506,7 +506,7 @@ class Ogre14LegacyAssetTranslatorContractTests(unittest.TestCase):
 
     def test_docs_and_provenance_cover_the_new_contract(self) -> None:
         for token in (
-            "Exact OGRE 14 legacy asset translator v1",
+            "Exact OGRE 14 legacy asset translator v2",
             "not wired into",
             "dependency-ordered",
             "permanent tombstones",

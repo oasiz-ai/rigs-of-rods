@@ -225,6 +225,7 @@ ValidationResult ValidateProducerBoundMaterialMeshCompatibility(
           &material.normal_texture,
           &material.occlusion_texture,
           &material.emissive_texture,
+          &material.specular_texture,
       }};
   for (std::size_t slot = 0U; slot < descriptor_bindings.size(); ++slot) {
     const GraphicsSceneAssetBinding &binding =
@@ -786,7 +787,8 @@ bool IsKnownMaterialBlend(
     Ogre14GraphicsSceneMaterialBlend blend) noexcept {
   switch (blend) {
   case Ogre14GraphicsSceneMaterialBlend::REPLACE:
-  case Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA:
+  case Ogre14GraphicsSceneMaterialBlend::STRAIGHT_SOURCE_OVER:
+  case Ogre14GraphicsSceneMaterialBlend::LEGACY_STRAIGHT_ALPHA:
     return true;
   }
   return false;
@@ -806,6 +808,7 @@ bool IsKnownMaterialAlphaReject(
     Ogre14GraphicsSceneMaterialAlphaReject alpha_reject) noexcept {
   switch (alpha_reject) {
   case Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS:
+  case Ogre14GraphicsSceneMaterialAlphaReject::GREATER:
   case Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL:
     return true;
   }
@@ -2573,14 +2576,6 @@ ValidationResult BuildOgre14GraphicsSceneMaterialFallback(
         ValidationCode::VALUE_OUT_OF_RANGE, "material.native_state",
         "OGRE 14 material factors are outside the portable fallback range");
   }
-  if (input.blend == Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA &&
-      input.alpha_reject !=
-          Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS) {
-    return ValidationResult::Failure(
-        ValidationCode::UNSUPPORTED_FEATURE, "material.alpha_mode",
-        "portable fallback cannot combine legacy alpha blending and rejection");
-  }
-
   MaterialDescriptor candidate;
   candidate.debug_name = input.exact_resource_group.empty()
                              ? input.exact_name
@@ -2589,16 +2584,27 @@ ValidationResult BuildOgre14GraphicsSceneMaterialFallback(
   candidate.model = input.lighting_enabled
                         ? MaterialModel::PBR_METALLIC_ROUGHNESS
                         : MaterialModel::UNLIT;
-  if (input.blend == Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA) {
-    candidate.alpha_mode = MaterialAlphaMode::BLEND;
-  } else if (input.alpha_reject ==
-             Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL) {
-    candidate.alpha_mode = MaterialAlphaMode::MASK;
-  } else {
-    candidate.alpha_mode = MaterialAlphaMode::OPAQUE;
+  candidate.blend_mode =
+      input.blend == Ogre14GraphicsSceneMaterialBlend::STRAIGHT_SOURCE_OVER
+          ? MaterialBlendMode::STRAIGHT_SOURCE_OVER
+          : input.blend ==
+                    Ogre14GraphicsSceneMaterialBlend::LEGACY_STRAIGHT_ALPHA
+                ? MaterialBlendMode::LEGACY_STRAIGHT_ALPHA
+                : MaterialBlendMode::REPLACE;
+  switch (input.alpha_reject) {
+  case Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS:
+    candidate.alpha_test_mode = MaterialAlphaTestMode::DISABLED;
+    break;
+  case Ogre14GraphicsSceneMaterialAlphaReject::GREATER:
+    candidate.alpha_test_mode = MaterialAlphaTestMode::GREATER;
+    break;
+  case Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL:
+    candidate.alpha_test_mode = MaterialAlphaTestMode::GREATER_EQUAL;
+    break;
   }
   candidate.double_sided =
       input.cull == Ogre14GraphicsSceneMaterialCull::NONE;
+  candidate.depth_write = input.depth_write;
   candidate.base_color_factor = input.diffuse_linear;
   candidate.metallic_factor = 0.0F;
   candidate.roughness_factor = input.lighting_enabled
@@ -2609,7 +2615,9 @@ ValidationResult BuildOgre14GraphicsSceneMaterialFallback(
       input.lighting_enabled ? input.emissive_linear : Float3{};
   candidate.emissive_strength = 1.0F;
   candidate.alpha_cutoff =
-      static_cast<float>(input.alpha_reject_value) / 255.0F;
+      candidate.alpha_test_mode == MaterialAlphaTestMode::DISABLED
+          ? 0.5F
+          : static_cast<float>(input.alpha_reject_value) / 255.0F;
 
   const ValidationResult validation = ValidateMaterialDescriptor(candidate);
   if (!validation) {

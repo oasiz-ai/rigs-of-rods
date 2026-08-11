@@ -324,15 +324,17 @@ struct OgreNextPssmShadowRuntimeAudit final {
 
 /// Runtime audit of the native RT4/V1 texture variants owned by one frontend.
 ///
-/// A source texture may require one sampled RGBA allocation (base colour or
-/// emissive), the two R8 derivatives used by a packed metallic-roughness
-/// binding, or one RG8 derivative for an admitted positive-Z normal map.
+/// A source texture may require one sampled sRGB RGBA allocation (base colour
+/// or emissive), one linear RGBA allocation for authored specular RGB, the two
+/// R8 derivatives used by a packed metallic-roughness binding, or one RG8
+/// derivative for an admitted positive-Z normal map.
 /// `exact_usage` is false unless every live native allocation exactly matches
 /// the roles discovered from the currently published material graph.
 struct OgreNextN1TextureAllocationAudit final {
-  std::uint32_t version = 1U;
+  std::uint32_t version = 2U;
   std::uint32_t live_source_textures = 0U;
   std::uint32_t sampled_rgba_allocations = 0U;
+  std::uint32_t linear_rgba_allocations = 0U;
   std::uint32_t roughness_r8_allocations = 0U;
   std::uint32_t metallic_r8_allocations = 0U;
   std::uint32_t normal_rg8_allocations = 0U;

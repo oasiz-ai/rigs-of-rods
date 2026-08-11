@@ -126,12 +126,16 @@ bool EqualBinding(const TextureBinding &lhs,
 bool EqualMaterial(const MaterialDescriptor &lhs,
                    const MaterialDescriptor &rhs) noexcept {
   return lhs.version == rhs.version && lhs.debug_name == rhs.debug_name &&
-         lhs.model == rhs.model && lhs.alpha_mode == rhs.alpha_mode &&
+         lhs.model == rhs.model && lhs.blend_mode == rhs.blend_mode &&
+         lhs.alpha_test_mode == rhs.alpha_test_mode &&
+         lhs.pbr_workflow == rhs.pbr_workflow &&
          lhs.base_color_transfer == rhs.base_color_transfer &&
          lhs.double_sided == rhs.double_sided &&
+         lhs.depth_write == rhs.depth_write &&
          EqualFloat4Bits(lhs.base_color_factor, rhs.base_color_factor) &&
          EqualFloatBits(lhs.metallic_factor, rhs.metallic_factor) &&
          EqualFloatBits(lhs.roughness_factor, rhs.roughness_factor) &&
+         EqualFloat3Bits(lhs.specular_factor, rhs.specular_factor) &&
          EqualFloatBits(lhs.normal_scale, rhs.normal_scale) &&
          EqualFloatBits(lhs.occlusion_strength, rhs.occlusion_strength) &&
          EqualFloat3Bits(lhs.emissive_factor, rhs.emissive_factor) &&
@@ -143,7 +147,8 @@ bool EqualMaterial(const MaterialDescriptor &lhs,
                       rhs.metallic_roughness_texture) &&
          EqualBinding(lhs.normal_texture, rhs.normal_texture) &&
          EqualBinding(lhs.occlusion_texture, rhs.occlusion_texture) &&
-         EqualBinding(lhs.emissive_texture, rhs.emissive_texture);
+         EqualBinding(lhs.emissive_texture, rhs.emissive_texture) &&
+         EqualBinding(lhs.specular_texture, rhs.specular_texture);
 }
 
 ValidationResult ValidatePayload(const RenderAssetMutation &mutation,
@@ -203,21 +208,23 @@ ValidationResult ValidatePayload(const RenderAssetMutation &mutation,
   return validation;
 }
 
-std::array<const TextureBinding *, 5U>
+std::array<const TextureBinding *, 6U>
 MaterialBindings(const MaterialDescriptor &material) noexcept {
   return {{&material.base_color_texture,
            &material.metallic_roughness_texture,
            &material.normal_texture,
            &material.occlusion_texture,
-           &material.emissive_texture}};
+           &material.emissive_texture,
+           &material.specular_texture}};
 }
 
-const std::array<MaterialTextureSlot, 5U> kMaterialSlots{{
+const std::array<MaterialTextureSlot, 6U> kMaterialSlots{{
     MaterialTextureSlot::BASE_COLOR,
     MaterialTextureSlot::METALLIC_ROUGHNESS,
     MaterialTextureSlot::NORMAL,
     MaterialTextureSlot::OCCLUSION,
     MaterialTextureSlot::EMISSIVE,
+    MaterialTextureSlot::SPECULAR,
 }};
 
 RenderAssetRecord MakeRecord(const RenderAssetMutation &mutation) {

@@ -67,12 +67,12 @@ private:
     const Ogre14LegacyCatalogIdentityReceipt &lhs,
     const Ogre14LegacyCatalogIdentityReceipt &rhs) noexcept;
 
-constexpr std::uint32_t kOgre14LegacyAssetTranslatorVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyAssetTranslatorVersion = 2U;
 constexpr std::uint32_t kOgre14LegacyTextureInputVersion = 1U;
-constexpr std::uint32_t kOgre14LegacyMaterialInputVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyMaterialInputVersion = 2U;
 constexpr std::uint32_t kOgre14LegacyAssetIdentityFrameViewVersion = 1U;
-constexpr std::uint32_t kOgre14LegacyPipelineAuditVersion = 1U;
-constexpr std::uint32_t kOgre14LegacyTranslatedFrameVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyPipelineAuditVersion = 2U;
+constexpr std::uint32_t kOgre14LegacyTranslatedFrameVersion = 2U;
 constexpr std::uint32_t kOgre14LegacyAssetTranslatorConfigurationVersion = 1U;
 constexpr std::uint32_t
     kOgre14LegacyAssetTranslatorTransactionConfigurationVersion = 1U;
@@ -154,7 +154,7 @@ enum class Ogre14LegacyTextureType : std::uint8_t {
 /// Color interpretation is authored input, never inferred from a filename.
 /// BASE_COLOR_SRGB stores the original encoded bytes and marks the portable
 /// texture sRGB exactly once. LINEAR_DATA is retained for future roles but may
-/// not bind a v1 base-color material.
+/// not bind a v2 base-color material.
 enum class Ogre14LegacyTextureColorRole : std::uint8_t {
   BASE_COLOR_SRGB = 0U,
   LINEAR_DATA = 1U,
@@ -326,10 +326,10 @@ struct Ogre14LegacyTextureUnitInput {
   bool environment_mapping = false;
   bool compositor = false;
   bool render_target = false;
-  /// v1 accepts only OGRE's default texture*current color and alpha combine.
+  /// v2 accepts only OGRE's default texture*current color and alpha combine.
   bool canonical_color_modulate = true;
   bool canonical_alpha_modulate = true;
-  /// v1 accepts only the identity UV matrix. The explicit flag is produced by
+  /// v2 accepts only the identity UV matrix. The explicit flag is produced by
   /// the native extractor after exact matrix comparison.
   bool identity_texture_transform = true;
 };
@@ -350,7 +350,7 @@ struct Ogre14LegacyMaterialInput {
       Ogre14LegacyBaseColorSemantic::UNLIT;
   bool lighting_enabled = false;
   Float4 diffuse_linear{1.0F, 1.0F, 1.0F, 1.0F};
-  /// Non-base-color fixed-function lobes must be absent; v1 never guesses a
+  /// Non-base-color fixed-function lobes must be absent; v2 never guesses a
   /// metallic, roughness, normal, occlusion, or emissive role from them.
   Float3 ambient_linear{};
   Float3 specular_linear{};

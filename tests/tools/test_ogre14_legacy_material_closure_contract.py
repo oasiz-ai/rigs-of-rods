@@ -49,7 +49,7 @@ class Ogre14LegacyMaterialClosureContractTests(unittest.TestCase):
 
     def test_contract_is_versioned_bounded_and_renderer_neutral(self) -> None:
         for token in (
-            "kOgre14LegacyMaterialClosureVersion = 1U",
+            "kOgre14LegacyMaterialClosureVersion = 2U",
             "kMaximumOgre14LegacyMaterialClosureLiveAssets",
             "kMaximumOgre14LegacyMaterialClosureMutations",
             "kMaximumOgre14LegacyMaterialClosurePayloadBytes",

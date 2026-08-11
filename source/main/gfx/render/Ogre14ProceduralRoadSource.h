@@ -26,7 +26,7 @@ namespace RoR::Render {
 
 class Ogre14ProceduralRoadInventoryTransaction;
 
-constexpr std::uint32_t kOgre14ProceduralRoadCaptureVersion = 1U;
+constexpr std::uint32_t kOgre14ProceduralRoadCaptureVersion = 2U;
 constexpr std::uint32_t kOgre14ProceduralRoadWindingProofVersion = 1U;
 constexpr std::size_t kOgre14ProceduralRoadMaximumVertices = 50000U;
 constexpr std::size_t kOgre14ProceduralRoadMaximumIndices = 150000U;

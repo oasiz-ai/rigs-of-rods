@@ -134,7 +134,11 @@ of the contract.
 edge shared by isolated render processes. Message kind `1` carries one complete
 `SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
 contract version 2. Message kind `7` carries `RenderAssetDelta` payload version
-2, whose material subframes are `MaterialDescriptor` version 3. The legacy
+2, whose material subframes are `MaterialDescriptor` version 4. Version 4 keeps
+blending and alpha testing independent, distinguishes true source-over from
+OGRE's legacy squared-alpha preset, and adds an explicit metallic-roughness or
+linear-RGB specular workflow. Version-3 material subframes are rejected rather
+than reinterpreted. The legacy
 asset message kind `2` remains a reserved framing value but is rejected by the
 typed asset decoder and live dispatcher; no current encoder emits it.
 Reverse-direction message kind `3` carries one input-event batch version 1 from
@@ -163,7 +167,7 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` reserved legacy assets, `3` input, `4` ACK, `5` control, `6` scene boundary, `7` assets v2/material v3) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` reserved legacy assets, `3` input, `4` ACK, `5` control, `6` scene boundary, `7` assets v2/material v4) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |
@@ -300,7 +304,7 @@ revision. The candidate terrain cache and combined terrain/`MeshObject`
 inventory commit only after all pages and sections succeed. Capture never
 mutates LOD, normal, delta, or derived-data state.
 
-Procedural-road capture version 1 now starts at the graphics owner rather than
+Procedural-road capture version 2 now starts at the graphics owner rather than
 recovering data from collision triangles or GPU buffers. `ProceduralRoad`
 retains an owning post-`createMesh()` copy of the exact uploaded positions,
 normalized render normals, UV0 values, and safely promoted uint16 indices; its
@@ -389,9 +393,11 @@ particles may update or age out, but the complete snapshot may not introduce a
 new particle identity until emission resumes. `DESTROY` remains the permanent
 identity boundary.
 
-Compatibility-material fallback version 1 is intentionally factor-only. It
+Compatibility-material fallback version 2 is intentionally factor-only. It
 preserves first-pass diffuse/emissive factors, lighting, shininess-derived
-roughness, supported culling, straight alpha, and alpha rejection while
+roughness, supported culling, the exact true or legacy straight-alpha blend
+tuple, independent GREATER/GREATER_EQUAL rejection and cutoff, and depth-write
+state while
 requiring exactly one pass, zero texture units, and no vertex/fragment program.
 Additional passes or authored texture/shader content fail closed rather than
 being silently dropped. Terrain layer/sampler names and world scales, blend
@@ -417,7 +423,7 @@ only after a complete supported inventory; terrain textures and joined
 procedural-road collection remain required before ordinary maps can publish
 end to end.
 
-### Exact OGRE 14 legacy asset translator v1
+### Exact OGRE 14 legacy asset translator v2
 
 `Ogre14LegacyAssetTranslator` is the replacement path for textured legacy
 assets. It is deliberately a pure-data catalog; the native capture and live
@@ -450,9 +456,9 @@ dependency-ordered `source_asset_id` and immutable payload owner into
 `GraphicsSceneAssetInput`. For a material, it must use the two IDs in
 `Ogre14LegacyMaterialPipelineAudit` as the base-color binding and reverse mesh
 winding when `requires_reverse_winding` is true. It may publish nothing unless
-the companion audit is present and version 1.
+the companion audit is present and version 2.
 
-The v1 acceptance set is exact and intentionally narrow:
+The v2 acceptance set is exact and intentionally narrow:
 
 - one loaded material technique containing one pass, with no authored or
   RTSS-generated GPU program, custom shadow material, hardware vendor/device
@@ -470,10 +476,11 @@ The v1 acceptance set is exact and intentionally narrow:
   are canonical tightly packed RGBA8;
 - exact wrap/mirror/clamp/border, min/mag/mip filtering, anisotropy, LOD bias,
   effective LOD range, comparison, and border-color state;
-- replace or true straight-alpha source-over blending, full color writes,
+- replace, true straight-alpha source-over, or OGRE's exact legacy
+  squared-alpha preset, full color writes,
   canonical depth checking/writing, default manual culling, solid fill, one
-  pass iteration, no bias or alpha-to-coverage, and always-pass or `>=` alpha
-  rejection. Clockwise, anticlockwise, and disabled hardware culling remain in
+  pass iteration, no bias or alpha-to-coverage, and always-pass, `>`, or `>=`
+  alpha rejection. Clockwise, anticlockwise, and disabled hardware culling remain in
   the immutable audit; anticlockwise culling requires mesh winding reversal;
 - canonical Gouraud shading and scene-controlled fog, conditional transparent
   sorting, default line/point rasterization, the default all-light mask/range,
@@ -482,7 +489,7 @@ The v1 acceptance set is exact and intentionally narrow:
 - an explicit unlit or rough-dielectric PBR base-color declaration. The latter
   fixes metallic to zero and roughness to one by contract, not by inspecting
   a filename or shininess. Ambient, specular, emissive, and shininess lobes
-  reject because v1 has no exact role for them.
+  reject because v2 has no exact role for them.
 
 Multipass or multi-technique materials; compressed or unsupported formats;
 cubemap, array, 3D, multisample, external, compositor, render-target, manual,
@@ -738,8 +745,10 @@ already embedded. Any future resource larger than this atomic message's caps
 requires an explicitly versioned chunking contract rather than an implicit
 reference or partial payload.
 
-Asset payload version 2 pins material version 3 and transports
-`BaseColorTransfer` explicitly. `SRGB_DECODE_BEFORE_FILTER` is the conventional
+Asset payload version 2 pins material version 4 and transports
+`BaseColorTransfer`, independent blend/alpha/depth state, `MaterialPbrWorkflow`,
+linear-RGB `specular_factor`, and the authored `SPECULAR` texture binding
+explicitly. `SRGB_DECODE_BEFORE_FILTER` is the conventional
 hardware sRGB path. `SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE` preserves encoded
 RGBA8 RGB through mip selection and interpolation before a full-binary32 sRGB
 EOTF; it is admitted only by the exact one-texture opaque RT4/V1 Unlit profile.

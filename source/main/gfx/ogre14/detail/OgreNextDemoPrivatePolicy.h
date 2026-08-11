@@ -19,6 +19,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace RoR::Gfx::Detail {
@@ -29,7 +30,19 @@ enum class OgreNextDemoTextureSourceMode : std::uint8_t {
   ORDINARY_OBSERVED_SOURCE_BYTES = 2U,
 };
 
-/// Bounded reasons why an opaque TUS0 remains on the deterministic matte path.
+/// Versioned alpha interpretation for decoded conventional sRGB base colour.
+/// PRESERVE_STRAIGHT keeps every authored alpha byte and generates only a
+/// missing tail by filtering in premultiplied linear light, then robustly
+/// unpremultiplying back to straight RGBA8. Alpha testing uses this same byte
+/// policy; it deliberately performs no coverage remapping and retains one
+/// fixed cutoff at every level.
+enum class OgreNextDemoTextureAlphaPolicy : std::uint8_t {
+  FORCE_OPAQUE = 0U,
+  PRESERVE_STRAIGHT = 1U,
+};
+
+/// Bounded reasons why an automatic TUS0 remains on the deterministic matte
+/// path.
 /// These are policy outcomes, not permission to inspect GPU storage.
 enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   NONE = 0U,
@@ -53,7 +66,12 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   TEXTURE_UNIT_SEMANTIC_UNSUPPORTED = 18U,
   SAMPLER_STATE_UNSUPPORTED = 19U,
   ALEXIS_APPROXIMATION_UNSAFE = 20U,
-  COUNT = 21U,
+  TEXTURE_ALPHA_COMBINE_UNSUPPORTED = 21U,
+  ALPHA_STATE_UNSUPPORTED = 22U,
+  MANAGED_MATERIAL_AUTHORITY_UNAVAILABLE = 23U,
+  MANAGED_MATERIAL_SEMANTIC_UNSUPPORTED = 24U,
+  AMBIGUOUS_BC1_ALPHA_SEMANTIC = 25U,
+  COUNT = 26U,
 };
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
@@ -115,6 +133,40 @@ struct OgreNextDemoTextureSourceCounters final {
   /// deliberately normalized, not translated, by the current versioned PBR
   /// policy. This count prevents that loss from being presented as parity.
   std::size_t lossy_material_normalizations = 0U;
+  std::size_t opaque_source_normalizations = 0U;
+  std::size_t straight_alpha_source_normalizations = 0U;
+  std::size_t alpha_test_material_projections = 0U;
+  std::size_t straight_source_over_material_projections = 0U;
+  std::size_t legacy_straight_alpha_material_projections = 0U;
+  std::size_t specular_workflow_projections = 0U;
+  std::size_t authored_specular_source_decodes = 0U;
+  /// New managed linear-specular decode activity. These buckets are also
+  /// included in the common modern normalization/mip totals above; the
+  /// explicit fields make the authored specular contribution auditable.
+  std::size_t linear_specular_source_normalizations = 0U;
+  std::size_t authored_specular_mip_prefix_levels = 0U;
+  std::size_t generated_specular_mip_tail_levels = 0U;
+  std::size_t normalized_specular_output_mip_levels = 0U;
+  std::size_t anisotropic_sampler_projections = 0U;
+  /// Exact active-projection partitions. `projections` is the common
+  /// denominator: every reachable projection belongs to exactly one member
+  /// of each blend, alpha-test, and PBR-workflow partition. Lifetime values
+  /// are sums of these per-capture active inventories.
+  std::size_t active_replace_material_projections = 0U;
+  std::size_t active_straight_source_over_material_projections = 0U;
+  std::size_t active_legacy_straight_alpha_material_projections = 0U;
+  std::size_t active_alpha_test_disabled_material_projections = 0U;
+  std::size_t active_alpha_test_greater_material_projections = 0U;
+  std::size_t active_alpha_test_greater_equal_material_projections = 0U;
+  std::size_t active_metallic_roughness_workflow_projections = 0U;
+  std::size_t active_specular_workflow_projections = 0U;
+  std::size_t active_anisotropic_sampler_projections = 0U;
+  /// Exact active normalized-texture partition, including a distinct managed
+  /// specular texture only once even when several projections share it.
+  std::size_t active_normalized_texture_observations = 0U;
+  std::size_t active_opaque_texture_normalizations = 0U;
+  std::size_t active_straight_alpha_texture_normalizations = 0U;
+  std::size_t active_linear_specular_texture_normalizations = 0U;
 };
 
 [[nodiscard]] bool IsOgreNextDemoAuthenticatedTextureSourceMode(
@@ -168,7 +220,8 @@ ClassifyOgreNextDemoTextureProjectionEligibility(
 enum class OgreNextDemoObservedSamplerFilter : std::uint8_t {
   POINT = 0U,
   LINEAR = 1U,
-  UNSUPPORTED = 2U,
+  ANISOTROPIC = 2U,
+  UNSUPPORTED = 3U,
 };
 
 enum class OgreNextDemoObservedSamplerAddressMode : std::uint8_t {
@@ -204,9 +257,11 @@ struct OgreNextDemoExactSamplerObservation final {
     const OgreNextDemoExactSamplerObservation &left,
     const OgreNextDemoExactSamplerObservation &right) noexcept;
 
-/// Admits only POINT/LINEAR filtering, WRAP/MIRROR/CLAMP addressing, zero LOD
-/// bias, unit anisotropy, and disabled comparison. The exact border color is
-/// retained in the portable descriptor, but border addressing is unsupported.
+/// Admits POINT/LINEAR filtering or the exact all-three-filter ANISOTROPIC
+/// state, WRAP/MIRROR/CLAMP addressing, zero LOD bias, and disabled comparison.
+/// Anisotropy retains the exact authored maximum in (1, 16]. The exact border
+/// color is retained in the portable descriptor, but border addressing is
+/// unsupported.
 [[nodiscard]] Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
     const OgreNextDemoExactSamplerObservation &observation,
     std::size_t mip_count, std::string_view debug_token,
@@ -377,6 +432,12 @@ RevalidateOgreNextDemoSampling(const OgreNextDemoSamplingObservation &before,
 CompleteOgreNextDemoOpaqueMipChain(Render::TextureResourceDescriptor &texture);
 
 struct OgreNextDemoTextureNormalizationObservation final {
+  enum class Policy : std::uint8_t {
+    SRGB_OPAQUE_V2 = 0U,
+    SRGB_STRAIGHT_ALPHA_V1 = 1U,
+    LINEAR_SPECULAR_V1 = 2U,
+  };
+  Policy policy = Policy::SRGB_OPAQUE_V2;
   std::uint32_t policy_version = 0U;
   std::size_t authored_mip_prefix_levels = 0U;
   std::size_t generated_mip_tail_levels = 0U;
@@ -384,6 +445,28 @@ struct OgreNextDemoTextureNormalizationObservation final {
 
 inline constexpr std::uint32_t
     kOgreNextDemoModernSourceNormalizationPolicyVersion = 2U;
+inline constexpr std::string_view
+    kOgreNextDemoModernSourceNormalizationPolicy =
+        "srgb_opaque_authored_prefix_linear_tail_v2";
+inline constexpr std::uint32_t
+    kOgreNextDemoStraightAlphaNormalizationPolicyVersion = 1U;
+inline constexpr std::string_view
+    kOgreNextDemoStraightAlphaNormalizationPolicy =
+        "srgb_straight_alpha_authored_prefix_premultiplied_linear_tail_v1";
+inline constexpr std::uint32_t
+    kOgreNextDemoLinearSpecularNormalizationPolicyVersion = 1U;
+inline constexpr std::string_view
+    kOgreNextDemoLinearSpecularNormalizationPolicy =
+        "linear_specular_authored_prefix_box_tail_v1";
+
+/// Chooses BC1 alpha decoding only from explicit authority. A blend/test pass
+/// is never evidence that legacy DXT1 uses the one-bit BC1 interpretation.
+/// The current automatic source path has no such authority and therefore
+/// rejects PRESERVE_STRAIGHT DXT1 instead of corrupting an opaque texture.
+[[nodiscard]] Render::ValidationResult ResolveOgreNextDemoBc1AlphaMode(
+    bool legacy_dxt1, OgreNextDemoTextureAlphaPolicy alpha_policy,
+    bool authoritative_one_bit_alpha,
+    Render::Ogre14SourceTextureBc1AlphaMode &output) noexcept;
 
 /// Completes a canonical tight RGBA8 authored mip prefix for a conventional
 /// sRGB PBR base-color texture. Authored RGB bytes at every supplied level are
@@ -394,13 +477,45 @@ inline constexpr std::uint32_t
 /// failure.
 [[nodiscard]] Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
     Render::TextureResourceDescriptor &texture,
+    OgreNextDemoTextureAlphaPolicy alpha_policy,
     OgreNextDemoTextureNormalizationObservation *observation = nullptr);
+
+[[nodiscard]] inline Render::ValidationResult
+CompleteOgreNextDemoSrgbPbrMipChain(
+    Render::TextureResourceDescriptor &texture,
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr) {
+  return CompleteOgreNextDemoSrgbPbrMipChain(
+      texture, OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE, observation);
+}
 
 /// Validates and preserves the complete renderer-neutral decoded authored mip
 /// prefix, then generates only the missing modern tail. `output` and optional
 /// observation are unchanged on failure.
 [[nodiscard]] Render::ValidationResult
 BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+    Render::Ogre14DecodedSourceTexture decoded,
+    std::uint32_t expected_native_width, std::uint32_t expected_native_height,
+    std::string_view debug_name, OgreNextDemoTextureAlphaPolicy alpha_policy,
+    Render::TextureResourceDescriptor &output,
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr);
+
+[[nodiscard]] inline Render::ValidationResult
+BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+    Render::Ogre14DecodedSourceTexture decoded,
+    std::uint32_t expected_native_width, std::uint32_t expected_native_height,
+    std::string_view debug_name, Render::TextureResourceDescriptor &output,
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr) {
+  return BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+      std::move(decoded), expected_native_width, expected_native_height,
+      debug_name, OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE, output,
+      observation);
+}
+
+/// Authored linear RGBA8 specular RGB remains byte-exact for every supplied
+/// level; alpha is canonicalized opaque because PBSM_SPECULAR consumes RGB.
+/// Only a missing tail is generated with exact half-up byte-domain averaging.
+[[nodiscard]] Render::ValidationResult
+BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
     Render::Ogre14DecodedSourceTexture decoded,
     std::uint32_t expected_native_width, std::uint32_t expected_native_height,
     std::string_view debug_name, Render::TextureResourceDescriptor &output,
@@ -468,9 +583,12 @@ OgreNextDemoOmitsInvisibleCab(std::string_view exact_material_name,
     std::string_view exact_mesh_name,
     const Render::Float3 &derived_scale) noexcept;
 
-/// Exact content-scoped exception for the first macOS demo. These opaque
-/// Alexis materials may project only TUS0 while explicitly discarding their
-/// legacy specular/program layers. No other material receives that shortcut.
+/// Exact content-scoped exception for the first macOS demo. Only the four
+/// reviewed opaque Alexis bases (Chassis, ChassisM, Wheels, Grilles) may lower
+/// their authenticated two-pass declaration to diffuse plus authored linear
+/// specular PBS inputs. Lens, Winds, and Winds_int remain excluded, so this is
+/// deliberately reported as 4/7 authored Alexis specular declarations rather
+/// than full bundle coverage. No other material receives this shortcut.
 [[nodiscard]] bool OgreNextDemoAllowsAlexisTUS0Approximation(
     std::string_view exact_resource_group,
     std::string_view exact_material_name) noexcept;

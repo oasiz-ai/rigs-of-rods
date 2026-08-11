@@ -548,21 +548,54 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         for token in (
             "setBrdf(Ogre::PbsBrdf::Default)",
             "Ogre::HlmsPbsDatablock::MetallicWorkflow",
+            "Ogre::HlmsPbsDatablock::SpecularWorkflow",
+            "MaterialPbrWorkflow::SPECULAR",
             "setDiffuse(",
+            "setSpecular(",
             "setMetalness(",
             "setRoughness(",
             "setEmissive(",
+            "setIndexOfRefraction(",
+            "getFresnel().x",
+            "hasSeparateFresnel()",
             "setTwoSidedLighting(descriptor.double_sided, false)",
+            "BuildPbsMacroblock(descriptor)",
+            "BuildPbsBlendblock(descriptor)",
+            "MaterialBlendMode::STRAIGHT_SOURCE_OVER",
+            "MaterialBlendMode::LEGACY_STRAIGHT_ALPHA",
+            "MaterialAlphaTestMode::GREATER",
+            "Ogre::CMPF_GREATER_EQUAL",
             "VerifyPbsMapping(*native.pbs_datablock, descriptor)",
             "datablock.getBrdf() != Ogre::PbsBrdf::Default",
-            "datablock.getWorkflow() != Ogre::HlmsPbsDatablock::MetallicWorkflow",
+            "datablock.getWorkflow() !=",
             "datablock.getDiffuse()",
+            "datablock.getSpecular()",
             "datablock.getMetalness()",
             "datablock.getRoughness()",
             "datablock.getEmissive()",
             "datablock.getTwoSidedLighting()",
+            "datablock.getAlphaTest()",
+            "datablock.getMacroblock()",
+            "datablock.getBlendblock()",
+            "Ogre::PBSM_SPECULAR",
         ):
             self.assertIn(token, self.frontend)
+
+    def test_specular_sampler_participates_in_exact_device_limit_gate(self) -> None:
+        policy = (RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.cpp").read_text(
+            encoding="utf-8"
+        )
+        for token in (
+            "ValidateOgreNextN1SamplerDeviceLimits(",
+            "&material->specular_texture",
+            "sampler->maximum_anisotropy > maximum_anisotropy",
+            "instead of permitting backend clamping",
+        ):
+            self.assertIn(token, policy)
+        self.assertIn(
+            "ValidateOgreNextN1SamplerDeviceLimits(", self.frontend
+        )
+        self.assertIn("ToOgreFilter(descriptor.mip_filter, false)", self.frontend)
 
     def test_submission_and_cleanup_state_are_lifetime_exact_and_fault_latched(self) -> None:
         self.assertIn("std::map<std::uint64_t", self.policy_header)

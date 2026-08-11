@@ -938,7 +938,7 @@ void TestStaticMeshPayloadPreservesBasisUvAndTightBounds() {
 
 void TestStaticMaterialFallbackIsExplicitAndTransactional() {
   using namespace RoR::Render;
-  static_assert(kOgre14StaticMaterialFallbackVersion == 1U,
+  static_assert(kOgre14StaticMaterialFallbackVersion == 2U,
                 "material compatibility fixture needs an explicit migration");
   Ogre14GraphicsSceneMaterialCaptureInput input =
       MakeStaticMaterial("City/Glass");
@@ -952,7 +952,9 @@ void TestStaticMaterialFallbackIsExplicitAndTransactional() {
       BuildOgre14GraphicsSceneMaterialFallback(input, material);
   Require(result.ok() &&
               material.model == MaterialModel::PBR_METALLIC_ROUGHNESS &&
-              material.alpha_mode == MaterialAlphaMode::MASK &&
+              material.blend_mode == MaterialBlendMode::REPLACE &&
+              material.alpha_test_mode ==
+                  MaterialAlphaTestMode::GREATER_EQUAL &&
               material.double_sided &&
               material.base_color_factor == input.diffuse_linear &&
               material.emissive_factor == input.emissive_linear &&
@@ -985,24 +987,33 @@ void TestStaticMaterialFallbackIsExplicitAndTransactional() {
 
   input = MakeStaticMaterial("City/Glass");
   input.lighting_enabled = false;
-  input.blend = Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
+  input.blend =
+      Ogre14GraphicsSceneMaterialBlend::LEGACY_STRAIGHT_ALPHA;
   input.alpha_reject =
       Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
   result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
   Require(result.ok() && material.model == MaterialModel::UNLIT &&
-              material.alpha_mode == MaterialAlphaMode::BLEND &&
+              material.blend_mode ==
+                  MaterialBlendMode::LEGACY_STRAIGHT_ALPHA &&
+              material.alpha_test_mode ==
+                  MaterialAlphaTestMode::DISABLED &&
               material.emissive_factor == Float3{} &&
               material.roughness_factor == 1.0F,
           "unlit straight-alpha fallback changed");
 
-  const MaterialDescriptor accepted = material;
   input.alpha_reject =
-      Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL;
+      Ogre14GraphicsSceneMaterialAlphaReject::GREATER;
+  input.alpha_reject_value = 2U;
+  input.depth_write = false;
   result = BuildOgre14GraphicsSceneMaterialFallback(input, material);
-  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
-              material.debug_name == accepted.debug_name &&
-              material.alpha_mode == accepted.alpha_mode,
-          "unrepresentable blend/test combination modified output");
+  Require(result.ok() &&
+              material.blend_mode ==
+                  MaterialBlendMode::LEGACY_STRAIGHT_ALPHA &&
+              material.alpha_test_mode == MaterialAlphaTestMode::GREATER &&
+              material.alpha_cutoff == 2.0F / 255.0F &&
+              !material.depth_write,
+          "independent legacy blend, GREATER alpha test, and depth-write "
+          "state changed");
 
   input = MakeStaticMaterial();
   input.shininess = std::numeric_limits<float>::infinity();

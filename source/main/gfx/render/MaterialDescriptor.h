@@ -24,8 +24,10 @@ struct MeshResourceDescriptor;
 struct SamplerResourceDescriptor;
 struct TextureResourceDescriptor;
 
-// Version 3 makes the base-color transfer/filter ordering explicit.
-constexpr std::uint32_t kMaterialDescriptorVersion = 3U;
+// Version 4 adds an explicit PBR workflow and authored linear-RGB specular
+// texture/factor. Version 3 payloads are rejected rather than silently
+// reinterpreted as either workflow.
+constexpr std::uint32_t kMaterialDescriptorVersion = 4U;
 constexpr std::size_t kMaximumMaterialDebugNameBytes = 255U;
 
 enum class MaterialModel : std::uint8_t {
@@ -33,10 +35,30 @@ enum class MaterialModel : std::uint8_t {
   UNLIT = 1,
 };
 
-enum class MaterialAlphaMode : std::uint8_t {
-  OPAQUE = 0,
-  MASK = 1,
-  BLEND = 2,
+enum class MaterialBlendMode : std::uint8_t {
+  REPLACE = 0,
+  /// RGB is SRC_ALPHA / ONE_MINUS_SRC_ALPHA while alpha is ONE /
+  /// ONE_MINUS_SRC_ALPHA (Porter-Duff straight source-over).
+  STRAIGHT_SOURCE_OVER = 1,
+  /// OGRE's historical `scene_blend alpha_blend`: SRC_ALPHA /
+  /// ONE_MINUS_SRC_ALPHA for both RGB and alpha. This intentionally preserves
+  /// the legacy squared-alpha destination equation and is not source-over.
+  LEGACY_STRAIGHT_ALPHA = 2,
+};
+
+enum class MaterialAlphaTestMode : std::uint8_t {
+  DISABLED = 0,
+  /// Keep fragments whose resolved straight alpha is strictly greater than
+  /// alpha_cutoff.
+  GREATER = 1,
+  /// Keep fragments whose resolved straight alpha is greater than or equal to
+  /// alpha_cutoff.
+  GREATER_EQUAL = 2,
+};
+
+enum class MaterialPbrWorkflow : std::uint8_t {
+  METALLIC_ROUGHNESS = 0,
+  SPECULAR = 1,
 };
 
 /// Transfer ordering for an sRGB base-color texture.
@@ -57,6 +79,7 @@ enum class MaterialTextureSlot : std::uint8_t {
   NORMAL = 2,
   OCCLUSION = 3,
   EMISSIVE = 4,
+  SPECULAR = 5,
 };
 
 struct TextureBinding {
@@ -70,20 +93,30 @@ struct TextureBinding {
   float rotation_radians = 0.0F;
 };
 
-/// Canonical glTF-style material interpretation:
+/// Canonical renderer-neutral material interpretation:
 ///
 /// - base-color texture RGB is sRGB, A is linear; the factor is linear RGBA;
 ///   final base RGBA is component-wise factor * sampled base texture * linear
-///   vertex color (or white when absent), including vertex alpha before MASK
-///   testing or straight-alpha BLEND;
+///   vertex color (or white when absent), including vertex alpha before alpha
+///   testing or blending;
 /// - metallic/roughness is linear with roughness in G and metallic in B;
 /// - tangent-space normal RGB is linear, decoded as `2 * texel - 1`, with +Y
 ///   aligned to the mesh bitangent convention from MeshResourceDescriptor;
 /// - occlusion is linear R; emissive texture RGB is sRGB and factors are
 /// linear;
+/// - METALLIC_ROUGHNESS uses roughness G and metallic B exactly as above;
+/// - SPECULAR uses linear authored RGB from specular_texture multiplied by
+///   specular_factor. Roughness remains the explicit scalar
+///   roughness_factor. Metallic state is never synthesized in this workflow;
 /// - alpha is base texture A times factor A times vertex-color A (white when
-///   absent), is never premultiplied, and BLEND uses straight-alpha source-over
-///   compositing;
+///   absent) and is never premultiplied. STRAIGHT_SOURCE_OVER uses
+///   SRC_ALPHA/ONE_MINUS_SRC_ALPHA for RGB and ONE/ONE_MINUS_SRC_ALPHA for
+///   alpha; LEGACY_STRAIGHT_ALPHA uses SRC_ALPHA/ONE_MINUS_SRC_ALPHA for both;
+/// - alpha testing is independent of blending. GREATER rejects equality while
+///   GREATER_EQUAL keeps equality; depth testing is always enabled with
+///   LESS_EQUAL while depth_write is explicit. This represents blended cutout
+///   layers without silently collapsing them into one mutually exclusive alpha
+///   mode;
 /// - texture transforms apply `offset + rotate(rotation, scale * uv)` about
 ///   UV origin (0, 0). With +V downward, positive rotation is clockwise.
 ///
@@ -93,14 +126,19 @@ struct MaterialDescriptor {
   std::uint32_t version = kMaterialDescriptorVersion;
   std::string debug_name;
   MaterialModel model = MaterialModel::PBR_METALLIC_ROUGHNESS;
-  MaterialAlphaMode alpha_mode = MaterialAlphaMode::OPAQUE;
+  MaterialPbrWorkflow pbr_workflow =
+      MaterialPbrWorkflow::METALLIC_ROUGHNESS;
+  MaterialBlendMode blend_mode = MaterialBlendMode::REPLACE;
+  MaterialAlphaTestMode alpha_test_mode = MaterialAlphaTestMode::DISABLED;
   BaseColorTransfer base_color_transfer =
       BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER;
   bool double_sided = false;
+  bool depth_write = true;
 
   Float4 base_color_factor{1.0F, 1.0F, 1.0F, 1.0F};
   float metallic_factor = 0.0F;
   float roughness_factor = 1.0F;
+  Float3 specular_factor{1.0F, 1.0F, 1.0F};
   float normal_scale = 1.0F;
   float occlusion_strength = 1.0F;
   Float3 emissive_factor{};
@@ -113,10 +151,15 @@ struct MaterialDescriptor {
   TextureBinding normal_texture;
   TextureBinding occlusion_texture;
   TextureBinding emissive_texture;
+  TextureBinding specular_texture;
 };
 
 [[nodiscard]] bool IsKnownMaterialModel(MaterialModel model) noexcept;
-[[nodiscard]] bool IsKnownMaterialAlphaMode(MaterialAlphaMode mode) noexcept;
+[[nodiscard]] bool
+IsKnownMaterialPbrWorkflow(MaterialPbrWorkflow workflow) noexcept;
+[[nodiscard]] bool IsKnownMaterialBlendMode(MaterialBlendMode mode) noexcept;
+[[nodiscard]] bool
+IsKnownMaterialAlphaTestMode(MaterialAlphaTestMode mode) noexcept;
 [[nodiscard]] bool
 IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept;
 [[nodiscard]] ValidationResult

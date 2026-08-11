@@ -24,8 +24,8 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 4U;
-constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 5U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 5U;
+constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 6U;
 
 /// Source identities belong to the joined graphics scene, not a renderer.
 /// Zero is the canonical absent identity. A nonzero identity is never reused

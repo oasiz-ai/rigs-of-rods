@@ -18,6 +18,9 @@
 
 namespace {
 
+static_assert(RoR::Render::kOgre14ProceduralRoadCaptureVersion == 2U,
+              "alpha/depth-complete road capture must remain version two");
+
 void Require(bool condition, const char *message) {
   if (!condition) {
     std::cerr << "OGRE 14 procedural-road source test failed: " << message

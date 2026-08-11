@@ -84,11 +84,30 @@ bool IsKnownMaterialModel(MaterialModel model) noexcept {
   return false;
 }
 
-bool IsKnownMaterialAlphaMode(MaterialAlphaMode mode) noexcept {
+bool IsKnownMaterialPbrWorkflow(MaterialPbrWorkflow workflow) noexcept {
+  switch (workflow) {
+  case MaterialPbrWorkflow::METALLIC_ROUGHNESS:
+  case MaterialPbrWorkflow::SPECULAR:
+    return true;
+  }
+  return false;
+}
+
+bool IsKnownMaterialBlendMode(MaterialBlendMode mode) noexcept {
   switch (mode) {
-  case MaterialAlphaMode::OPAQUE:
-  case MaterialAlphaMode::MASK:
-  case MaterialAlphaMode::BLEND:
+  case MaterialBlendMode::REPLACE:
+  case MaterialBlendMode::STRAIGHT_SOURCE_OVER:
+  case MaterialBlendMode::LEGACY_STRAIGHT_ALPHA:
+    return true;
+  }
+  return false;
+}
+
+bool IsKnownMaterialAlphaTestMode(MaterialAlphaTestMode mode) noexcept {
+  switch (mode) {
+  case MaterialAlphaTestMode::DISABLED:
+  case MaterialAlphaTestMode::GREATER:
+  case MaterialAlphaTestMode::GREATER_EQUAL:
     return true;
   }
   return false;
@@ -120,9 +139,19 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM, "model",
                                      "unknown material model");
   }
-  if (!IsKnownMaterialAlphaMode(descriptor.alpha_mode)) {
-    return ValidationResult::Failure(ValidationCode::INVALID_ENUM, "alpha_mode",
-                                     "unknown alpha mode");
+  if (!IsKnownMaterialPbrWorkflow(descriptor.pbr_workflow)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "pbr_workflow",
+                                     "unknown PBR workflow");
+  }
+  if (!IsKnownMaterialBlendMode(descriptor.blend_mode)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "blend_mode", "unknown blend mode");
+  }
+  if (!IsKnownMaterialAlphaTestMode(descriptor.alpha_test_mode)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "alpha_test_mode",
+                                     "unknown alpha-test mode");
   }
   if (!IsKnownBaseColorTransfer(descriptor.base_color_transfer)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
@@ -135,6 +164,21 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
                                          : ValidationCode::NON_FINITE_VALUE,
                                      "base_color_factor",
                                      "base color must be finite and in [0, 1]");
+  }
+  const bool normalized_specular =
+      IsFinite(descriptor.specular_factor) &&
+      descriptor.specular_factor.x >= 0.0F &&
+      descriptor.specular_factor.x <= 1.0F &&
+      descriptor.specular_factor.y >= 0.0F &&
+      descriptor.specular_factor.y <= 1.0F &&
+      descriptor.specular_factor.z >= 0.0F &&
+      descriptor.specular_factor.z <= 1.0F;
+  if (!normalized_specular) {
+    return ValidationResult::Failure(IsFinite(descriptor.specular_factor)
+                                         ? ValidationCode::VALUE_OUT_OF_RANGE
+                                         : ValidationCode::NON_FINITE_VALUE,
+                                     "specular_factor",
+                                     "specular factor must be finite and in [0, 1]");
   }
 
   const std::array<std::pair<float, const char *>, 4U> unit_values{{
@@ -183,7 +227,7 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
                                      "index of refraction must be in [1, 3]");
   }
 
-  const std::array<std::pair<const TextureBinding *, const char *>, 5U>
+  const std::array<std::pair<const TextureBinding *, const char *>, 6U>
       texture_bindings{{
           {&descriptor.base_color_texture, "base_color_texture"},
           {&descriptor.metallic_roughness_texture,
@@ -191,6 +235,7 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
           {&descriptor.normal_texture, "normal_texture"},
           {&descriptor.occlusion_texture, "occlusion_texture"},
           {&descriptor.emissive_texture, "emissive_texture"},
+          {&descriptor.specular_texture, "specular_texture"},
       }};
   for (const auto &binding : texture_bindings) {
     const ValidationResult validation =
@@ -198,6 +243,33 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
     if (!validation) {
       return validation;
     }
+  }
+
+  const bool metallic_roughness_absent =
+      IsAbsentRenderAssetReference(
+          descriptor.metallic_roughness_texture.texture) &&
+      IsAbsentRenderAssetReference(
+          descriptor.metallic_roughness_texture.sampler);
+  const bool specular_absent =
+      IsAbsentRenderAssetReference(descriptor.specular_texture.texture) &&
+      IsAbsentRenderAssetReference(descriptor.specular_texture.sampler);
+  if (descriptor.model != MaterialModel::PBR_METALLIC_ROUGHNESS &&
+      descriptor.pbr_workflow != MaterialPbrWorkflow::METALLIC_ROUGHNESS) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "pbr_workflow",
+        "non-PBR materials require the canonical metallic-roughness workflow token");
+  }
+  if (descriptor.pbr_workflow == MaterialPbrWorkflow::METALLIC_ROUGHNESS) {
+    if (!specular_absent ||
+        descriptor.specular_factor != Float3{1.0F, 1.0F, 1.0F}) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "specular_texture",
+          "metallic-roughness workflow requires canonical unused specular fields");
+    }
+  } else if (!metallic_roughness_absent || descriptor.metallic_factor != 0.0F) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "metallic_roughness_texture",
+        "specular workflow forbids metallic input or synthesis");
   }
 
   return ValidationResult::Success();
@@ -231,12 +303,13 @@ ValidationResult Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
         "PBR materials require authored per-vertex normals");
   }
 
-  const std::array<const TextureBinding *, 5U> bindings{{
+  const std::array<const TextureBinding *, 6U> bindings{{
       &material.base_color_texture,
       &material.metallic_roughness_texture,
       &material.normal_texture,
       &material.occlusion_texture,
       &material.emissive_texture,
+      &material.specular_texture,
   }};
   for (const TextureBinding *binding : bindings) {
     if (!binding->texture.valid()) {
@@ -301,10 +374,11 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
     break;
   case MaterialTextureSlot::METALLIC_ROUGHNESS:
   case MaterialTextureSlot::NORMAL:
+  case MaterialTextureSlot::SPECULAR:
     if (!rgba_storage || texture.color_space != TextureColorSpace::LINEAR) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
-          "metallic-roughness and normal slots require linear RGBA storage");
+          "metallic-roughness, normal, and specular slots require linear RGBA storage");
     }
     break;
   case MaterialTextureSlot::OCCLUSION:

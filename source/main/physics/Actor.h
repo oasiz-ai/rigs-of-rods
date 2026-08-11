@@ -375,6 +375,13 @@ public:
         const Render::ManagedMaterialDeclarationSnapshot& snapshot,
         const Ogre::MaterialPtr& exact_material,
         Render::ManagedMaterialDeclaration& output) const noexcept;
+    /// Retains the opaque live authority edge needed by the renderer. The
+    /// returned binding still requires final resolver revalidation immediately
+    /// before publication.
+    [[nodiscard]] bool ResolveManagedMaterialDeclarationBinding(
+        const Render::ManagedMaterialDeclarationSnapshot& snapshot,
+        const Ogre::MaterialPtr& exact_material,
+        Render::Ogre14ManagedMaterialDeclarationBinding& output) const noexcept;
 #endif
     void              RequestUpdateHudFeatures()        { m_hud_features_ok = false; }
     Ogre::Real        getMinimalCameraRadius();

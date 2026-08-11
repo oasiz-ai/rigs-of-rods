@@ -86,8 +86,22 @@ void TestValidPbrAndUnlitMaterials() {
   Require(ValidateMaterialDescriptor(descriptor).ok(),
           "valid PBR material was rejected");
 
+  MaterialDescriptor specular;
+  specular.debug_name = "authored-linear-specular";
+  specular.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  specular.specular_factor = {0.25F, 0.5F, 0.75F};
+  specular.specular_texture.texture = Asset(RenderAssetKind::TEXTURE, 5U);
+  specular.specular_texture.sampler = Asset(RenderAssetKind::SAMPLER, 6U);
+  specular.blend_mode = MaterialBlendMode::STRAIGHT_SOURCE_OVER;
+  specular.alpha_test_mode = MaterialAlphaTestMode::GREATER;
+  specular.alpha_cutoff = 2.0F / 255.0F;
+  specular.depth_write = false;
+  Require(ValidateMaterialDescriptor(specular).ok(),
+          "independent true source-over, GREATER test, and specular workflow "
+          "were rejected");
+
   descriptor.model = MaterialModel::UNLIT;
-  descriptor.alpha_mode = MaterialAlphaMode::BLEND;
+  descriptor.blend_mode = MaterialBlendMode::LEGACY_STRAIGHT_ALPHA;
   Require(ValidateMaterialDescriptor(descriptor).ok(),
           "valid unlit material was rejected");
 }
@@ -106,14 +120,29 @@ void TestInvalidVersionEnumsAndNames() {
               "unknown material version was accepted");
 
   descriptor = {};
+  descriptor.version = 3U;
+  RequireCode(descriptor, ValidationCode::UNSUPPORTED_VERSION,
+              "v3 material payload was silently reinterpreted as v4");
+
+  descriptor = {};
   descriptor.model = static_cast<MaterialModel>(255U);
   RequireCode(descriptor, ValidationCode::INVALID_ENUM,
               "unknown material model was accepted");
 
   descriptor = {};
-  descriptor.alpha_mode = static_cast<MaterialAlphaMode>(255U);
+  descriptor.pbr_workflow = static_cast<MaterialPbrWorkflow>(255U);
   RequireCode(descriptor, ValidationCode::INVALID_ENUM,
-              "unknown alpha mode was accepted");
+              "unknown PBR workflow was accepted");
+
+  descriptor = {};
+  descriptor.blend_mode = static_cast<MaterialBlendMode>(255U);
+  RequireCode(descriptor, ValidationCode::INVALID_ENUM,
+              "unknown blend mode was accepted");
+
+  descriptor = {};
+  descriptor.alpha_test_mode = static_cast<MaterialAlphaTestMode>(255U);
+  RequireCode(descriptor, ValidationCode::INVALID_ENUM,
+              "unknown alpha-test mode was accepted");
 
   descriptor = {};
   descriptor.base_color_transfer = static_cast<BaseColorTransfer>(255U);
@@ -147,6 +176,28 @@ void TestInvalidPhysicalValues() {
   descriptor.metallic_factor = std::numeric_limits<float>::quiet_NaN();
   RequireCode(descriptor, ValidationCode::NON_FINITE_VALUE,
               "NaN metallic value was accepted");
+
+  descriptor = {};
+  descriptor.specular_factor.y = std::numeric_limits<float>::quiet_NaN();
+  RequireCode(descriptor, ValidationCode::NON_FINITE_VALUE,
+              "NaN specular factor was accepted");
+
+  descriptor = {};
+  descriptor.specular_factor.z = 1.01F;
+  RequireCode(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+              "specular factor above one was accepted");
+
+  descriptor = {};
+  descriptor.specular_texture.texture = Asset(RenderAssetKind::TEXTURE, 7U);
+  descriptor.specular_texture.sampler = Asset(RenderAssetKind::SAMPLER, 8U);
+  RequireCode(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+              "metallic-roughness workflow accepted a specular texture");
+
+  descriptor = {};
+  descriptor.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  descriptor.metallic_factor = 0.1F;
+  RequireCode(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+              "specular workflow synthesized metallic state");
 
   descriptor = {};
   descriptor.emissive_factor.z = -1.0F;
@@ -292,6 +343,16 @@ void TestMaterialTextureCompatibility() {
                                                texture, sampler)
               .ok(),
           "valid linear RGBA normal texture was rejected");
+  Require(ValidateMaterialTextureCompatibility(MaterialTextureSlot::SPECULAR,
+                                               texture, sampler)
+              .ok(),
+          "valid linear RGBA specular texture was rejected");
+
+  texture.color_space = TextureColorSpace::SRGB;
+  Require(ValidateMaterialTextureCompatibility(MaterialTextureSlot::SPECULAR,
+                                               texture, sampler)
+                  .code == ValidationCode::VALUE_OUT_OF_RANGE,
+          "sRGB specular texture was accepted as linear authored data");
 
   texture = MakeOnePixelTexture(TextureResourceFormat::RG8_UNORM,
                                 TextureColorSpace::LINEAR);

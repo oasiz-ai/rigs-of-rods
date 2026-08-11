@@ -273,6 +273,12 @@ jobs:
             --output-on-failure \
             --no-tests=error \
             -R '^ogre14_authenticated_material_script_native_integration$'
+          ctest \
+            --test-dir "build-ogre14-${{ matrix.platform }}" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre_next_n1_policy$'
 
       - name: Prove storefront outputs from two artifact-free roots
         if: matrix.platform == 'linux-x86_64'

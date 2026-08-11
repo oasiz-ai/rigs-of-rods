@@ -26,6 +26,7 @@ static_assert(
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::NORMAL) == 2U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::OCCLUSION) == 3U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::EMISSIVE) == 4U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::SPECULAR) == 5U);
 
 ValidationResult Failure(ValidationCode code, const char *field,
                          const char *detail,
@@ -46,7 +47,8 @@ MaterialBindings(MaterialDescriptor &material) noexcept {
            &material.metallic_roughness_texture,
            &material.normal_texture,
            &material.occlusion_texture,
-           &material.emissive_texture}};
+           &material.emissive_texture,
+           &material.specular_texture}};
 }
 
 std::array<const TextureBinding *, kGraphicsSceneMaterialTextureSlotCount>
@@ -55,7 +57,8 @@ MaterialBindings(const MaterialDescriptor &material) noexcept {
            &material.metallic_roughness_texture,
            &material.normal_texture,
            &material.occlusion_texture,
-           &material.emissive_texture}};
+           &material.emissive_texture,
+           &material.specular_texture}};
 }
 
 bool BindingIsAbsent(const GraphicsSceneAssetBinding &binding) noexcept {

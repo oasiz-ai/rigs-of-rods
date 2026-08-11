@@ -111,6 +111,13 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
                                bool allow_dynamic_meshes = false,
                                OgreNextRasterFeatureTier raster_feature_tier =
                                    OgreNextRasterFeatureTier::STATIC_PBR_N1);
+/// Validates every sampler reachable from an admitted RT4/V1 material against
+/// the exact active-device anisotropy limit. In particular, the authored
+/// SPECULAR slot participates; no backend clamping is permitted.
+[[nodiscard]] ValidationResult ValidateOgreNextN1SamplerDeviceLimits(
+    const RenderAssetRegistry &registry, float maximum_anisotropy,
+    OgreNextRasterFeatureTier raster_feature_tier =
+        OgreNextRasterFeatureTier::STATIC_PBR_N1);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Scene(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
     bool allow_dynamic_meshes = false,

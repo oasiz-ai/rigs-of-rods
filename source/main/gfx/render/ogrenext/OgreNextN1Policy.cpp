@@ -31,6 +31,7 @@ bool IsTextureFree(const MaterialDescriptor &material) noexcept {
       &material.normal_texture,
       &material.occlusion_texture,
       &material.emissive_texture,
+      &material.specular_texture,
   };
   for (const TextureBinding *binding : bindings) {
     if (!IsAbsentRenderAssetReference(binding->texture) ||
@@ -362,8 +363,10 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
   if (display_domain_unlit) {
     if (raster_feature_tier !=
             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
-        material.alpha_mode != MaterialAlphaMode::OPAQUE ||
+        material.blend_mode != MaterialBlendMode::REPLACE ||
+        material.alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
         material.double_sided ||
+        !material.depth_write ||
         material.base_color_factor != Float4{1.0F, 1.0F, 1.0F, 1.0F} ||
         !material.base_color_texture.texture.valid() ||
         !material.base_color_texture.sampler.valid() ||
@@ -372,8 +375,12 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         !IsCanonicalAbsentBinding(material.normal_texture) ||
         !IsCanonicalAbsentBinding(material.occlusion_texture) ||
         !IsCanonicalAbsentBinding(material.emissive_texture) ||
+        !IsCanonicalAbsentBinding(material.specular_texture) ||
+        material.pbr_workflow !=
+            MaterialPbrWorkflow::METALLIC_ROUGHNESS ||
         material.metallic_factor != 0.0F ||
         material.roughness_factor != 1.0F || material.normal_scale != 1.0F ||
+        material.specular_factor != Float3{1.0F, 1.0F, 1.0F} ||
         material.occlusion_strength != 1.0F ||
         material.emissive_factor != Float3{} ||
         material.emissive_strength != 1.0F ||
@@ -387,12 +394,20 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
     return ValidationResult::Success();
   }
   if (material.model != MaterialModel::PBR_METALLIC_ROUGHNESS ||
-      material.alpha_mode != MaterialAlphaMode::OPAQUE ||
       material.base_color_transfer !=
           BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER) {
     return Unsupported(
         "assets.material.model",
-        "N1 accepts conventional opaque metallic-roughness PBR or the exact RT4/V1 display-domain Unlit profile only",
+        "N1 accepts conventional PBR with an explicit metallic-roughness or specular workflow, or the exact RT4/V1 display-domain Unlit profile",
+        index);
+  }
+  if (raster_feature_tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
+      (material.blend_mode != MaterialBlendMode::REPLACE ||
+       material.alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
+       !material.depth_write)) {
+    return Unsupported(
+        "assets.material.alpha_depth_state",
+        "the texture-free N1 tier admits replace, disabled alpha test, and depth writes only; alpha layers require RT4/V1",
         index);
   }
   if (raster_feature_tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
@@ -400,15 +415,50 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
     return Unsupported("assets.material.textures",
                        "N1 materials must be completely texture free", index);
   }
-  if (material.base_color_factor.w != 1.0F) {
+  const bool alpha_blend =
+      material.blend_mode != MaterialBlendMode::REPLACE;
+  const bool alpha_test =
+      material.alpha_test_mode != MaterialAlphaTestMode::DISABLED;
+  if (!alpha_blend && !alpha_test &&
+      material.base_color_factor.w != 1.0F) {
     return Unsupported("assets.material.base_color_factor",
                        "N1 opaque output requires an alpha factor of one",
                        index);
   }
+  if (alpha_test &&
+      (material.base_color_factor.w != 1.0F ||
+       !material.base_color_texture.texture.valid())) {
+    return Unsupported(
+        "assets.material.alpha_test_mode",
+        "RT4/V1 alpha testing requires authored base-texture coverage and unit alpha modulation because pinned PBS alpha-test does not multiply factor alpha",
+        index);
+  }
+  if (alpha_blend && material.base_color_factor.w != 1.0F) {
+    return Unsupported(
+        "assets.material.base_color_factor",
+        "RT4/V1 alpha blending requires unit factor alpha because pinned PBS attenuates metallic specular by material alpha before fixed-function blending",
+        index);
+  }
+  if (alpha_blend &&
+      !material.base_color_texture.texture.valid()) {
+    return Unsupported(
+        "assets.material.blend_mode",
+        "RT4/V1 alpha blending requires authored base-texture alpha",
+        index);
+  }
+  if (!alpha_test &&
+      material.alpha_cutoff != 0.5F) {
+    return Unsupported(
+        "assets.material.alpha_cutoff",
+        "RT4/V1 requires the canonical 0.5 cutoff when alpha testing is disabled so ignored state cannot silently change",
+        index);
+  }
   if (std::fabs(material.index_of_refraction - 1.5F) > 1.0e-6F) {
     return Unsupported(
         "assets.material.index_of_refraction",
-        "the pinned Ogre metallic workflow fixes dielectric F0 at IOR 1.5",
+        material.pbr_workflow == MaterialPbrWorkflow::SPECULAR
+            ? "RT4/V1 specular workflow freezes dielectric IOR 1.5 and lowers it to one shared RGB F0 of 0.04"
+            : "RT4/V1 metallic-roughness workflow requires canonical unused IOR 1.5",
         index);
   }
   if (material.roughness_factor < 1.0e-4F) {
@@ -437,6 +487,7 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         &material.metallic_roughness_texture,
         &material.normal_texture,
         &material.emissive_texture,
+        &material.specular_texture,
     };
     for (const TextureBinding *binding : supported_bindings) {
       if (binding->texture.valid() && !IsIdentityTextureTransform(*binding)) {
@@ -819,6 +870,7 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
             &material->metallic_roughness_texture,
             &material->normal_texture,
             &material->emissive_texture,
+            &material->specular_texture,
         };
         for (const TextureBinding *binding : supported_bindings) {
           if (!binding->texture.valid()) {
@@ -841,6 +893,9 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
             return binding_validation;
           }
           if (binding == &material->base_color_texture &&
+              material->blend_mode == MaterialBlendMode::REPLACE &&
+              material->alpha_test_mode ==
+                  MaterialAlphaTestMode::DISABLED &&
               !HasOpaqueRgba8Alpha(*texture)) {
             return Unsupported(
                 "assets.material.base_color_texture.alpha",
@@ -895,6 +950,57 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     return Unsupported("assets.kind",
                        "N1 catalog accepts only live meshes and PBR materials unless RT4/V1 is explicitly selected",
                        record_index);
+  });
+}
+
+ValidationResult ValidateOgreNextN1SamplerDeviceLimits(
+    const RenderAssetRegistry &registry, float maximum_anisotropy,
+    OgreNextRasterFeatureTier raster_feature_tier) {
+  if (!std::isfinite(maximum_anisotropy) || maximum_anisotropy < 1.0F) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "assets.sampler.device_maximum_anisotropy",
+        "active device anisotropy limit must be finite and at least one");
+  }
+  if (raster_feature_tier !=
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+    return ValidationResult::Success();
+  }
+  return registry.VisitRecords([&](const RenderAssetRecord &record) {
+    const auto *material =
+        record.payload == nullptr
+            ? nullptr
+            : std::get_if<MaterialDescriptor>(record.payload.get());
+    if (!record.live() || material == nullptr) {
+      return ValidationResult::Success();
+    }
+    const TextureBinding *bindings[] = {
+        &material->base_color_texture,
+        &material->metallic_roughness_texture,
+        &material->normal_texture,
+        &material->emissive_texture,
+        &material->specular_texture,
+    };
+    for (const TextureBinding *binding : bindings) {
+      if (!binding->texture.valid()) {
+        continue;
+      }
+      const SamplerResourceDescriptor *sampler =
+          registry.ResolveSampler(binding->sampler);
+      if (sampler == nullptr) {
+        return ValidationResult::Failure(
+            ValidationCode::MISSING_REFERENCE,
+            "assets.material.texture_binding",
+            "RT4/V1 sampler disappeared before device validation");
+      }
+      if (sampler->anisotropy_enabled &&
+          sampler->maximum_anisotropy > maximum_anisotropy) {
+        return Unsupported(
+            "assets.sampler.maximum_anisotropy",
+            "RT4/V1 rejects anisotropy above the active device limit instead of permitting backend clamping");
+      }
+    }
+    return ValidationResult::Success();
   });
 }
 

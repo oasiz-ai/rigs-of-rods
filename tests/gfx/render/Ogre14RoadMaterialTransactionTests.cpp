@@ -56,7 +56,8 @@ MakeTexture(std::string name = "Road/Asphalt") {
 
 RoR::Render::Ogre14LegacyMaterialInput
 MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture,
-                 bool reverse_winding = false) {
+                 bool reverse_winding = false,
+                 bool legacy_alpha_greater = false) {
   using namespace RoR::Render;
   Ogre14LegacyMaterialInput material;
   material.key.exact_resource_group = "General";
@@ -67,6 +68,17 @@ MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture,
   material.lighting_enabled = false;
   material.pipeline.cull = reverse_winding ? Ogre14LegacyCullMode::ANTICLOCKWISE
                                            : Ogre14LegacyCullMode::CLOCKWISE;
+  if (legacy_alpha_greater) {
+    material.pipeline.source_color = Ogre14LegacyBlendFactor::SOURCE_ALPHA;
+    material.pipeline.destination_color =
+        Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+    material.pipeline.source_alpha = Ogre14LegacyBlendFactor::SOURCE_ALPHA;
+    material.pipeline.destination_alpha =
+        Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+    material.pipeline.alpha_reject = Ogre14LegacyCompareOperation::GREATER;
+    material.pipeline.alpha_reject_value = 2U;
+    material.pipeline.depth_write_enabled = false;
+  }
   Ogre14LegacyTextureUnitInput unit;
   unit.texture_key = texture.key;
   unit.sampler.source_revision = 1U;
@@ -76,13 +88,15 @@ MakeRoadMaterial(const RoR::Render::Ogre14LegacyTextureInput &texture,
 }
 
 RoR::Render::Ogre14LegacyTranslatedFrame
-MakeMaterialFrame(bool reverse_winding = false) {
+MakeMaterialFrame(bool reverse_winding = false,
+                  bool legacy_alpha_greater = false) {
   using namespace RoR::Render;
   Ogre14LegacyAssetFrameInput input;
   input.source_sequence = 1U;
   input.textures.push_back(MakeTexture());
   input.materials.push_back(
-      MakeRoadMaterial(input.textures.front(), reverse_winding));
+      MakeRoadMaterial(input.textures.front(), reverse_winding,
+                       legacy_alpha_greater));
   Ogre14LegacyAssetTranslator translator;
   Ogre14LegacyTranslatedFrame frame;
   Require(translator.Translate(input, frame).ok() && frame.full_snapshot,
@@ -156,10 +170,35 @@ MakeRoad(const RoR::Render::Ogre14LegacyTranslatedFrame &frame,
     capture.material.cull = Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE;
     break;
   }
-  capture.material.blend = Ogre14GraphicsSceneMaterialBlend::REPLACE;
+  const bool true_source_over =
+      audit.pipeline.source_color == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+      audit.pipeline.destination_color ==
+          Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA &&
+      audit.pipeline.source_alpha == Ogre14LegacyBlendFactor::ONE &&
+      audit.pipeline.destination_alpha ==
+          Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+  const bool legacy_alpha =
+      audit.pipeline.source_color == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+      audit.pipeline.destination_color ==
+          Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA &&
+      audit.pipeline.source_alpha == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+      audit.pipeline.destination_alpha ==
+          Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+  capture.material.blend =
+      true_source_over
+          ? Ogre14GraphicsSceneMaterialBlend::STRAIGHT_SOURCE_OVER
+          : legacy_alpha
+                ? Ogre14GraphicsSceneMaterialBlend::LEGACY_STRAIGHT_ALPHA
+                : Ogre14GraphicsSceneMaterialBlend::REPLACE;
   capture.material.alpha_reject =
-      Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+      audit.pipeline.alpha_reject == Ogre14LegacyCompareOperation::GREATER
+          ? Ogre14GraphicsSceneMaterialAlphaReject::GREATER
+          : audit.pipeline.alpha_reject ==
+                    Ogre14LegacyCompareOperation::GREATER_EQUAL
+                ? Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL
+                : Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
   capture.material.alpha_reject_value = audit.pipeline.alpha_reject_value;
+  capture.material.depth_write = audit.pipeline.depth_write_enabled;
   capture.native_material_audit_complete = true;
   capture.exact_native_material_audit =
       std::make_shared<const Ogre14LegacyMaterialPipelineAudit>(audit);
@@ -447,6 +486,49 @@ void TestDetachedClosureHostileMutations() {
   require_invalid(
       std::move(forged),
       "foreign valid-shaped texture payload was accepted under the road key");
+
+  forged = valid;
+  MaterialDescriptor workflow_mutation =
+      std::get<MaterialDescriptor>(*valid.assets.back().payload);
+  workflow_mutation.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  workflow_mutation.metallic_factor = 0.0F;
+  workflow_mutation.specular_factor = {0.5F, 0.5F, 0.5F};
+  forged.assets.back().payload =
+      std::make_shared<const RenderAssetPayload>(workflow_mutation);
+  require_invalid(std::move(forged),
+                  "forged PBR workflow/specular factor escaped closure");
+
+  forged = valid;
+  MaterialDescriptor specular_binding_mutation =
+      std::get<MaterialDescriptor>(*valid.assets.back().payload);
+  specular_binding_mutation.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  specular_binding_mutation.metallic_factor = 0.0F;
+  specular_binding_mutation.specular_texture =
+      specular_binding_mutation.base_color_texture;
+  forged.assets.back().payload =
+      std::make_shared<const RenderAssetPayload>(specular_binding_mutation);
+  require_invalid(std::move(forged),
+                  "forged SPECULAR binding escaped closure provenance");
+}
+
+void TestExactLegacyAlphaGreaterRoadTuple() {
+  using namespace RoR::Render;
+  const Ogre14LegacyTranslatedFrame frame = MakeMaterialFrame(false, true);
+  const Ogre14ProceduralRoadCapture road = MakeRoad(frame);
+  Ogre14ProceduralRoadInventory inventory;
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> sections;
+  const ValidationResult result = BuildOgre14ProceduralRoadInventory(
+      {road}, frame, inventory, sections);
+  Require(result.ok() && sections.size() == 1U &&
+              sections.front().resolved_material != nullptr,
+          "exact legacy-alpha/GREATER/depth-write-off road was rejected");
+  const MaterialDescriptor &material = std::get<MaterialDescriptor>(
+      *sections.front().resolved_material->assets.back().payload);
+  Require(material.blend_mode == MaterialBlendMode::LEGACY_STRAIGHT_ALPHA &&
+              material.alpha_test_mode == MaterialAlphaTestMode::GREATER &&
+              material.alpha_cutoff == 2.0F / 255.0F &&
+              !material.depth_write,
+          "legacy-alpha/GREATER/depth tuple changed during road translation");
 }
 
 void TestStaticHostileTransactionsAndLineage() {
@@ -648,6 +730,7 @@ int main() {
   TestExactWindingCacheReplacementAndRollback();
   TestActivationGateAndNativeAuditEquality();
   TestDetachedClosureHostileMutations();
+  TestExactLegacyAlphaGreaterRoadTuple();
   TestStaticHostileTransactionsAndLineage();
   TestStaticExceptionRollback();
   return EXIT_SUCCESS;

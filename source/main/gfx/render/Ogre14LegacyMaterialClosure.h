@@ -21,7 +21,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kOgre14LegacyMaterialClosureVersion = 1U;
+constexpr std::uint32_t kOgre14LegacyMaterialClosureVersion = 2U;
 constexpr std::uint32_t kOgre14LegacyMaterialClosureRequestVersion = 1U;
 constexpr std::uint32_t kOgre14LegacyMaterialClosureBatchVersion = 1U;
 /// A resolver accepts no inventory larger than the translator can produce.

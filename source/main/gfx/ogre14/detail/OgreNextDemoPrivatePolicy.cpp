@@ -152,6 +152,18 @@ constexpr std::array<std::uint32_t, 255U> kSrgbEncodeBoundaryQ32 = {
     4124560329U, 4162080991U, 4199800006U, 4237717672U, 4275834288U,
 };
 
+std::uint8_t EncodeSrgbQ32(std::uint32_t linear) noexcept {
+  std::uint8_t best = 0U;
+  for (std::size_t index = 0U; index < kSrgbEncodeBoundaryQ32.size(); ++index) {
+    if (linear >= kSrgbEncodeBoundaryQ32[index]) {
+      best = static_cast<std::uint8_t>(index + 1U);
+    } else {
+      break;
+    }
+  }
+  return best;
+}
+
 std::uint8_t EncodeSrgbQ32Average(std::uint64_t linear_sum) noexcept {
   std::uint8_t best = 0U;
   for (std::size_t index = 0U; index < kSrgbEncodeBoundaryQ32.size(); ++index) {
@@ -183,13 +195,49 @@ bool HasConsistentMaterialDenominators(
   for (std::size_t count : counters.exclusions_by_reason) {
     exclusions = SaturatingAdd(exclusions, count);
   }
+  const std::size_t blend_partition = SaturatingAdd(
+      counters.active_replace_material_projections,
+      SaturatingAdd(counters.active_straight_source_over_material_projections,
+                    counters
+                        .active_legacy_straight_alpha_material_projections));
+  const std::size_t alpha_test_partition = SaturatingAdd(
+      counters.active_alpha_test_disabled_material_projections,
+      SaturatingAdd(counters.active_alpha_test_greater_material_projections,
+                    counters
+                        .active_alpha_test_greater_equal_material_projections));
+  const std::size_t workflow_partition = SaturatingAdd(
+      counters.active_metallic_roughness_workflow_projections,
+      counters.active_specular_workflow_projections);
+  const std::size_t normalization_partition = SaturatingAdd(
+      counters.active_opaque_texture_normalizations,
+      SaturatingAdd(counters.active_straight_alpha_texture_normalizations,
+                    counters.active_linear_specular_texture_normalizations));
+  const std::size_t decode_normalization_partition = SaturatingAdd(
+      counters.opaque_source_normalizations,
+      SaturatingAdd(counters.straight_alpha_source_normalizations,
+                    counters.linear_specular_source_normalizations));
   return exclusions == counters.source_exclusions &&
          exclusions == counters.matte_excluded_sections &&
          counters.candidate_sections ==
              SaturatingAdd(counters.projected_sections, exclusions) &&
          counters.distinct_eligible_texture_keys ==
              SaturatingAdd(counters.distinct_projected_texture_keys,
-                           counters.distinct_matte_only_texture_keys);
+                           counters.distinct_matte_only_texture_keys) &&
+         counters.projections == blend_partition &&
+         counters.projections == alpha_test_partition &&
+         counters.projections == workflow_partition &&
+         counters.active_anisotropic_sampler_projections <=
+             counters.projections &&
+         counters.active_normalized_texture_observations ==
+             normalization_partition &&
+         counters.modern_source_normalizations ==
+             decode_normalization_partition &&
+         counters.normalized_output_mip_levels ==
+             SaturatingAdd(counters.authored_mip_prefix_levels,
+                           counters.generated_mip_tail_levels) &&
+         counters.normalized_specular_output_mip_levels ==
+             SaturatingAdd(counters.authored_specular_mip_prefix_levels,
+                           counters.generated_specular_mip_tail_levels);
 }
 
 } // namespace
@@ -306,7 +354,12 @@ std::string_view OgreNextDemoTextureProjectionExclusionName(
                "texture_unit_structure_unsupported",
                "texture_unit_semantic_unsupported",
                "sampler_state_unsupported",
-               "alexis_approximation_unsafe"};
+               "alexis_approximation_unsafe",
+               "texture_alpha_combine_unsupported",
+               "alpha_state_unsupported",
+               "managed_material_authority_unavailable",
+               "managed_material_semantic_unsupported",
+               "ambiguous_bc1_alpha_semantic"};
   const std::size_t index = static_cast<std::size_t>(exclusion);
   return index < names.size() ? names[index] : std::string_view{"invalid"};
 }
@@ -436,6 +489,82 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.lossy_material_normalizations =
       SaturatingAdd(candidate.lossy_material_normalizations,
                     increment.lossy_material_normalizations);
+  candidate.opaque_source_normalizations =
+      SaturatingAdd(candidate.opaque_source_normalizations,
+                    increment.opaque_source_normalizations);
+  candidate.straight_alpha_source_normalizations =
+      SaturatingAdd(candidate.straight_alpha_source_normalizations,
+                    increment.straight_alpha_source_normalizations);
+  candidate.alpha_test_material_projections =
+      SaturatingAdd(candidate.alpha_test_material_projections,
+                    increment.alpha_test_material_projections);
+  candidate.straight_source_over_material_projections = SaturatingAdd(
+      candidate.straight_source_over_material_projections,
+      increment.straight_source_over_material_projections);
+  candidate.legacy_straight_alpha_material_projections = SaturatingAdd(
+      candidate.legacy_straight_alpha_material_projections,
+      increment.legacy_straight_alpha_material_projections);
+  candidate.specular_workflow_projections =
+      SaturatingAdd(candidate.specular_workflow_projections,
+                    increment.specular_workflow_projections);
+  candidate.authored_specular_source_decodes =
+      SaturatingAdd(candidate.authored_specular_source_decodes,
+                    increment.authored_specular_source_decodes);
+  candidate.linear_specular_source_normalizations = SaturatingAdd(
+      candidate.linear_specular_source_normalizations,
+      increment.linear_specular_source_normalizations);
+  candidate.authored_specular_mip_prefix_levels = SaturatingAdd(
+      candidate.authored_specular_mip_prefix_levels,
+      increment.authored_specular_mip_prefix_levels);
+  candidate.generated_specular_mip_tail_levels = SaturatingAdd(
+      candidate.generated_specular_mip_tail_levels,
+      increment.generated_specular_mip_tail_levels);
+  candidate.normalized_specular_output_mip_levels = SaturatingAdd(
+      candidate.normalized_specular_output_mip_levels,
+      increment.normalized_specular_output_mip_levels);
+  candidate.anisotropic_sampler_projections =
+      SaturatingAdd(candidate.anisotropic_sampler_projections,
+                    increment.anisotropic_sampler_projections);
+  candidate.active_replace_material_projections = SaturatingAdd(
+      candidate.active_replace_material_projections,
+      increment.active_replace_material_projections);
+  candidate.active_straight_source_over_material_projections = SaturatingAdd(
+      candidate.active_straight_source_over_material_projections,
+      increment.active_straight_source_over_material_projections);
+  candidate.active_legacy_straight_alpha_material_projections = SaturatingAdd(
+      candidate.active_legacy_straight_alpha_material_projections,
+      increment.active_legacy_straight_alpha_material_projections);
+  candidate.active_alpha_test_disabled_material_projections = SaturatingAdd(
+      candidate.active_alpha_test_disabled_material_projections,
+      increment.active_alpha_test_disabled_material_projections);
+  candidate.active_alpha_test_greater_material_projections = SaturatingAdd(
+      candidate.active_alpha_test_greater_material_projections,
+      increment.active_alpha_test_greater_material_projections);
+  candidate.active_alpha_test_greater_equal_material_projections =
+      SaturatingAdd(
+          candidate.active_alpha_test_greater_equal_material_projections,
+          increment.active_alpha_test_greater_equal_material_projections);
+  candidate.active_metallic_roughness_workflow_projections = SaturatingAdd(
+      candidate.active_metallic_roughness_workflow_projections,
+      increment.active_metallic_roughness_workflow_projections);
+  candidate.active_specular_workflow_projections = SaturatingAdd(
+      candidate.active_specular_workflow_projections,
+      increment.active_specular_workflow_projections);
+  candidate.active_anisotropic_sampler_projections = SaturatingAdd(
+      candidate.active_anisotropic_sampler_projections,
+      increment.active_anisotropic_sampler_projections);
+  candidate.active_normalized_texture_observations = SaturatingAdd(
+      candidate.active_normalized_texture_observations,
+      increment.active_normalized_texture_observations);
+  candidate.active_opaque_texture_normalizations = SaturatingAdd(
+      candidate.active_opaque_texture_normalizations,
+      increment.active_opaque_texture_normalizations);
+  candidate.active_straight_alpha_texture_normalizations = SaturatingAdd(
+      candidate.active_straight_alpha_texture_normalizations,
+      increment.active_straight_alpha_texture_normalizations);
+  candidate.active_linear_specular_texture_normalizations = SaturatingAdd(
+      candidate.active_linear_specular_texture_normalizations,
+      increment.active_linear_specular_texture_normalizations);
   if (!HasConsistentMaterialDenominators(candidate)) {
     return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                    "ogre_next_demo.material.source_accounting.denominator",
@@ -566,6 +695,9 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
     case OgreNextDemoObservedSamplerFilter::LINEAR:
       destination = Render::SamplerFilter::LINEAR;
       return true;
+    case OgreNextDemoObservedSamplerFilter::ANISOTROPIC:
+      destination = Render::SamplerFilter::LINEAR;
+      return true;
     default:
       return false;
     }
@@ -590,6 +722,23 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
 
   Render::SamplerResourceDescriptor candidate;
   candidate.debug_name = "OgreNextDemoPbrSampler/" + std::string(debug_token);
+  const bool min_anisotropic = observation.minification_filter ==
+                               OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
+  const bool mag_anisotropic = observation.magnification_filter ==
+                               OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
+  const bool mip_anisotropic = observation.mip_filter ==
+                               OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
+  const bool any_anisotropic =
+      min_anisotropic || mag_anisotropic || mip_anisotropic;
+  const bool canonical_anisotropic =
+      min_anisotropic && mag_anisotropic &&
+      observation.mip_filter == OgreNextDemoObservedSamplerFilter::LINEAR;
+  if (any_anisotropic && !canonical_anisotropic) {
+    return Failure(
+        Render::ValidationCode::UNSUPPORTED_FEATURE,
+        "ogre_next_demo.material.sampler.anisotropic_filters",
+        "the pinned TFO_ANISOTROPIC tuple is min/mag ANISOTROPIC with mip LINEAR");
+  }
   if (!map_filter(observation.minification_filter,
                   candidate.minification_filter) ||
       !map_filter(observation.magnification_filter,
@@ -597,7 +746,7 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
       !map_filter(observation.mip_filter, candidate.mip_filter)) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.material.sampler.filter",
-                   "TUS0 sampler requires exact POINT or LINEAR filtering");
+                   "TUS0 sampler requires POINT, LINEAR, or the pinned min/mag ANISOTROPIC plus mip LINEAR tuple");
   }
   if (!map_address(observation.address_u, candidate.address_u) ||
       !map_address(observation.address_v, candidate.address_v) ||
@@ -611,10 +760,13 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
                    "ogre_next_demo.material.sampler.mip_lod_bias",
                    "TUS0 sampler requires zero mip LOD bias");
   }
-  if (observation.maximum_anisotropy != 1U) {
+  if ((!canonical_anisotropic && observation.maximum_anisotropy != 1U) ||
+      (canonical_anisotropic &&
+       (observation.maximum_anisotropy <= 1U ||
+        observation.maximum_anisotropy > 16U))) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.material.sampler.anisotropy",
-                   "TUS0 sampler requires unit anisotropy");
+                   "TUS0 anisotropy must be 1 when disabled or in (1, 16] when enabled");
   }
   if (observation.compare_enabled) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
@@ -624,8 +776,9 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
   candidate.mip_lod_bias = 0.0F;
   candidate.minimum_lod = 0.0F;
   candidate.maximum_lod = static_cast<float>(mip_count - 1U);
-  candidate.anisotropy_enabled = false;
-  candidate.maximum_anisotropy = 1.0F;
+  candidate.anisotropy_enabled = canonical_anisotropic;
+  candidate.maximum_anisotropy =
+      static_cast<float>(observation.maximum_anisotropy);
   candidate.compare_enabled = false;
   candidate.compare_operation = Render::SamplerCompareOperation::ALWAYS;
   candidate.border_color = {
@@ -1106,8 +1259,37 @@ CompleteOgreNextDemoOpaqueMipChain(Render::TextureResourceDescriptor &texture) {
   return Render::ValidationResult::Success();
 }
 
+Render::ValidationResult ResolveOgreNextDemoBc1AlphaMode(
+    bool legacy_dxt1, OgreNextDemoTextureAlphaPolicy alpha_policy,
+    bool authoritative_one_bit_alpha,
+    Render::Ogre14SourceTextureBc1AlphaMode &output) noexcept {
+  if (alpha_policy != OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.bc1_alpha.alpha_policy",
+                   "texture alpha normalization policy is invalid");
+  }
+  Render::Ogre14SourceTextureBc1AlphaMode candidate =
+      Render::Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
+  if (legacy_dxt1) {
+    if (alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT &&
+        !authoritative_one_bit_alpha) {
+      return Failure(
+          Render::ValidationCode::MISSING_REFERENCE,
+          "ogre_next_demo.material.bc1_alpha.authority",
+          "legacy DXT1 needs explicit opaque-versus-one-bit alpha authority");
+    }
+    candidate = alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
+                    ? Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE
+                    : Render::Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA;
+  }
+  output = candidate;
+  return Render::ValidationResult::Success();
+}
+
 Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
     Render::TextureResourceDescriptor &texture,
+    OgreNextDemoTextureAlphaPolicy alpha_policy,
     OgreNextDemoTextureNormalizationObservation *observation) {
   if (texture.type != Render::TextureResourceType::TEXTURE_2D ||
       texture.format != Render::TextureResourceFormat::RGBA8_UNORM ||
@@ -1120,6 +1302,12 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
                    "ogre_next_demo.material.texture.full_mip_chain",
                    "sRGB PBR lowering requires a canonical nonempty authored "
                    "SRGB RGBA8 2D mip prefix");
+  }
+  if (alpha_policy != OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.texture.alpha_policy",
+                   "sRGB PBR alpha normalization policy is invalid");
   }
 
   std::uint32_t expected_width = texture.width;
@@ -1156,9 +1344,11 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
   // Work on a complete candidate so every validation failure leaves every
   // authored source level byte-for-byte unchanged.
   Render::TextureResourceDescriptor candidate = texture;
-  for (Render::TextureMipLevelDescriptor &mip : candidate.mip_levels) {
-    for (std::size_t alpha = 3U; alpha < mip.bytes.size(); alpha += 4U) {
-      mip.bytes[alpha] = 255U;
+  if (alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE) {
+    for (Render::TextureMipLevelDescriptor &mip : candidate.mip_levels) {
+      for (std::size_t alpha = 3U; alpha < mip.bytes.size(); alpha += 4U) {
+        mip.bytes[alpha] = 255U;
+      }
     }
   }
 
@@ -1203,20 +1393,49 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
         const std::size_t output =
             static_cast<std::size_t>(y) * destination.row_pitch_bytes +
             static_cast<std::size_t>(x) * 4U;
-        for (std::size_t channel = 0U; channel < 3U; ++channel) {
-          const std::uint64_t linear_sum =
-              static_cast<std::uint64_t>(
-                  kSrgbLinearQ32[source.bytes[offsets[0U] + channel]]) +
-              static_cast<std::uint64_t>(
-                  kSrgbLinearQ32[source.bytes[offsets[1U] + channel]]) +
-              static_cast<std::uint64_t>(
-                  kSrgbLinearQ32[source.bytes[offsets[2U] + channel]]) +
-              static_cast<std::uint64_t>(
-                  kSrgbLinearQ32[source.bytes[offsets[3U] + channel]]);
-          destination.bytes[output + channel] =
-              EncodeSrgbQ32Average(linear_sum);
+        std::uint32_t alpha_sum = 0U;
+        for (const std::size_t offset : offsets) {
+          alpha_sum += source.bytes[offset + 3U];
         }
-        destination.bytes[output + 3U] = 255U;
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+          if (alpha_policy ==
+              OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE) {
+            const std::uint64_t linear_sum =
+                static_cast<std::uint64_t>(
+                    kSrgbLinearQ32[source.bytes[offsets[0U] + channel]]) +
+                static_cast<std::uint64_t>(
+                    kSrgbLinearQ32[source.bytes[offsets[1U] + channel]]) +
+                static_cast<std::uint64_t>(
+                    kSrgbLinearQ32[source.bytes[offsets[2U] + channel]]) +
+                static_cast<std::uint64_t>(
+                    kSrgbLinearQ32[source.bytes[offsets[3U] + channel]]);
+            destination.bytes[output + channel] =
+                EncodeSrgbQ32Average(linear_sum);
+          } else if (alpha_sum == 0U) {
+            // Transparent colour is unobservable. Canonical black prevents
+            // arbitrary hidden RGB from being amplified by unpremultiply.
+            destination.bytes[output + channel] = 0U;
+          } else {
+            std::uint64_t premultiplied_linear_sum = 0U;
+            for (const std::size_t offset : offsets) {
+              premultiplied_linear_sum +=
+                  static_cast<std::uint64_t>(
+                      kSrgbLinearQ32[source.bytes[offset + channel]]) *
+                  source.bytes[offset + 3U];
+            }
+            const std::uint64_t straight_linear =
+                (premultiplied_linear_sum + alpha_sum / 2U) / alpha_sum;
+            destination.bytes[output + channel] = EncodeSrgbQ32(
+                static_cast<std::uint32_t>((std::min)(
+                    straight_linear,
+                    static_cast<std::uint64_t>(
+                        (std::numeric_limits<std::uint32_t>::max)()))));
+          }
+        }
+        destination.bytes[output + 3U] =
+            alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
+                ? 255U
+                : static_cast<std::uint8_t>((alpha_sum + 2U) / 4U);
       }
     }
     candidate.mip_levels.push_back(std::move(destination));
@@ -1229,8 +1448,16 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
     return validation;
   }
   OgreNextDemoTextureNormalizationObservation candidate_observation;
+  candidate_observation.policy =
+      alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
+          ? OgreNextDemoTextureNormalizationObservation::Policy::
+                SRGB_OPAQUE_V2
+          : OgreNextDemoTextureNormalizationObservation::Policy::
+                SRGB_STRAIGHT_ALPHA_V1;
   candidate_observation.policy_version =
-      kOgreNextDemoModernSourceNormalizationPolicyVersion;
+      alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
+          ? kOgreNextDemoModernSourceNormalizationPolicyVersion
+          : kOgreNextDemoStraightAlphaNormalizationPolicyVersion;
   candidate_observation.authored_mip_prefix_levels = authored_mip_count;
   candidate_observation.generated_mip_tail_levels =
       candidate.mip_levels.size() - authored_mip_count;
@@ -1244,8 +1471,15 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
 Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
     Render::Ogre14DecodedSourceTexture decoded,
     std::uint32_t expected_native_width, std::uint32_t expected_native_height,
-    std::string_view debug_name, Render::TextureResourceDescriptor &output,
+    std::string_view debug_name, OgreNextDemoTextureAlphaPolicy alpha_policy,
+    Render::TextureResourceDescriptor &output,
     OgreNextDemoTextureNormalizationObservation *observation) {
+  if (alpha_policy != OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
+      alpha_policy != OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.authenticated.alpha_policy",
+                   "decoded sRGB alpha normalization policy is invalid");
+  }
   if (decoded.version != Render::kOgre14DecodedSourceTextureVersion ||
       decoded.width == 0U || decoded.height == 0U ||
       decoded.width != expected_native_width ||
@@ -1260,15 +1494,18 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
                    "decoded source schema, dimensions, semantic, or mip count "
                    "disagrees with the loaded texture");
   }
+  const Render::Ogre14SourceTextureBc1AlphaMode expected_bc1_alpha =
+      alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT
+          ? Render::Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA
+          : Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE;
   if ((decoded.source_format == Render::Ogre14SourceTextureFormat::BC1_UNORM &&
-       decoded.bc1_alpha_mode !=
-           Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE) ||
+       decoded.bc1_alpha_mode != expected_bc1_alpha) ||
       (decoded.source_format != Render::Ogre14SourceTextureFormat::BC1_UNORM &&
        decoded.bc1_alpha_mode !=
            Render::Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE)) {
     return Failure(Render::ValidationCode::INVALID_ENUM,
                    "ogre_next_demo.material.authenticated.bc1_alpha_mode",
-                   "opaque product projection requires the frozen BC1 opaque "
+                   "product projection requires the frozen alpha-policy BC1 "
                    "interpretation only for BC1 sources");
   }
 
@@ -1318,7 +1555,8 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
 
   OgreNextDemoTextureNormalizationObservation candidate_observation;
   Render::ValidationResult validation =
-      CompleteOgreNextDemoSrgbPbrMipChain(candidate, &candidate_observation);
+      CompleteOgreNextDemoSrgbPbrMipChain(candidate, alpha_policy,
+                                          &candidate_observation);
   if (!validation) {
     return validation;
   }
@@ -1328,6 +1566,164 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
         "ogre_next_demo.material.authenticated.texture." + validation.field;
     return validation;
   }
+  output = std::move(candidate);
+  if (observation != nullptr) {
+    *observation = candidate_observation;
+  }
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult
+BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
+    Render::Ogre14DecodedSourceTexture decoded,
+    std::uint32_t expected_native_width, std::uint32_t expected_native_height,
+    std::string_view debug_name, Render::TextureResourceDescriptor &output,
+    OgreNextDemoTextureNormalizationObservation *observation) {
+  if (decoded.version != Render::kOgre14DecodedSourceTextureVersion ||
+      decoded.width == 0U || decoded.height == 0U ||
+      decoded.width != expected_native_width ||
+      decoded.height != expected_native_height || debug_name.empty() ||
+      decoded.color_semantic !=
+          Render::Ogre14SourceTextureColorSemantic::LINEAR_DATA ||
+      decoded.mip_levels.empty() ||
+      decoded.mip_levels.size() >
+          CompleteMipCount(decoded.width, decoded.height)) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.material.specular.decoded_identity",
+        "decoded specular schema, dimensions, linear semantic, or mip count disagrees with the loaded source");
+  }
+  if ((decoded.source_format == Render::Ogre14SourceTextureFormat::BC1_UNORM &&
+       decoded.bc1_alpha_mode !=
+           Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE) ||
+      (decoded.source_format != Render::Ogre14SourceTextureFormat::BC1_UNORM &&
+       decoded.bc1_alpha_mode !=
+           Render::Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE)) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.specular.bc1_alpha_mode",
+                   "linear specular projection requires opaque BC1 interpretation only for BC1 sources");
+  }
+
+  Render::TextureResourceDescriptor candidate;
+  candidate.debug_name.assign(debug_name.data(), debug_name.size());
+  candidate.type = Render::TextureResourceType::TEXTURE_2D;
+  candidate.format = Render::TextureResourceFormat::RGBA8_UNORM;
+  candidate.color_space = Render::TextureColorSpace::LINEAR;
+  candidate.width = decoded.width;
+  candidate.height = decoded.height;
+  candidate.array_layers = 1U;
+  candidate.mip_levels.reserve(
+      CompleteMipCount(candidate.width, candidate.height));
+
+  std::uint32_t mip_width = decoded.width;
+  std::uint32_t mip_height = decoded.height;
+  for (std::size_t level = 0U; level < decoded.mip_levels.size(); ++level) {
+    Render::Ogre14DecodedSourceTextureMip &decoded_mip =
+        decoded.mip_levels[level];
+    const std::uint64_t row_bytes =
+        static_cast<std::uint64_t>(mip_width) * 4U;
+    const std::uint64_t slice_bytes = row_bytes * mip_height;
+    if (decoded_mip.version !=
+            Render::kOgre14DecodedSourceTextureMipVersion ||
+        decoded_mip.width != mip_width ||
+        decoded_mip.height != mip_height ||
+        decoded_mip.row_pitch_bytes != row_bytes ||
+        decoded_mip.slice_pitch_bytes != slice_bytes ||
+        slice_bytes > static_cast<std::uint64_t>(
+                          (std::numeric_limits<std::size_t>::max)()) ||
+        decoded_mip.rgba8_unorm.size() !=
+            static_cast<std::size_t>(slice_bytes)) {
+      return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                     "ogre_next_demo.material.specular.decoded_mip",
+                     "decoded linear specular mip prefix is not canonical tight RGBA8 geometry",
+                     level);
+    }
+    Render::TextureMipLevelDescriptor mip;
+    mip.width = mip_width;
+    mip.height = mip_height;
+    mip.row_pitch_bytes = row_bytes;
+    mip.layer_pitch_bytes = slice_bytes;
+    mip.bytes = std::move(decoded_mip.rgba8_unorm);
+    for (std::size_t alpha = 3U; alpha < mip.bytes.size(); alpha += 4U) {
+      mip.bytes[alpha] = 255U;
+    }
+    candidate.mip_levels.push_back(std::move(mip));
+    mip_width = (std::max)(1U, mip_width / 2U);
+    mip_height = (std::max)(1U, mip_height / 2U);
+  }
+  const std::size_t authored_mip_count = candidate.mip_levels.size();
+
+  while (candidate.mip_levels.size() <
+         CompleteMipCount(candidate.width, candidate.height)) {
+    const Render::TextureMipLevelDescriptor &source =
+        candidate.mip_levels.back();
+    Render::TextureMipLevelDescriptor destination;
+    destination.width = (std::max)(1U, source.width / 2U);
+    destination.height = (std::max)(1U, source.height / 2U);
+    destination.row_pitch_bytes =
+        static_cast<std::uint64_t>(destination.width) * 4U;
+    destination.layer_pitch_bytes =
+        destination.row_pitch_bytes * destination.height;
+    if (destination.layer_pitch_bytes > static_cast<std::uint64_t>(
+                                            (std::numeric_limits<std::size_t>::max)())) {
+      return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                     "ogre_next_demo.material.specular.generated_mip",
+                     "generated linear specular mip exceeds host address space");
+    }
+    destination.bytes.resize(
+        static_cast<std::size_t>(destination.layer_pitch_bytes));
+    for (std::uint32_t y = 0U; y < destination.height; ++y) {
+      const std::uint32_t source_y0 = y * 2U;
+      const std::uint32_t source_y1 =
+          (std::min)(source_y0 + 1U, source.height - 1U);
+      for (std::uint32_t x = 0U; x < destination.width; ++x) {
+        const std::uint32_t source_x0 = x * 2U;
+        const std::uint32_t source_x1 =
+            (std::min)(source_x0 + 1U, source.width - 1U);
+        const std::size_t offsets[4U] = {
+            static_cast<std::size_t>(source_y0) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x0) * 4U,
+            static_cast<std::size_t>(source_y0) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x1) * 4U,
+            static_cast<std::size_t>(source_y1) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x0) * 4U,
+            static_cast<std::size_t>(source_y1) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x1) * 4U,
+        };
+        const std::size_t output_offset =
+            static_cast<std::size_t>(y) * destination.row_pitch_bytes +
+            static_cast<std::size_t>(x) * 4U;
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+          const std::uint32_t sum =
+              static_cast<std::uint32_t>(source.bytes[offsets[0U] + channel]) +
+              static_cast<std::uint32_t>(source.bytes[offsets[1U] + channel]) +
+              static_cast<std::uint32_t>(source.bytes[offsets[2U] + channel]) +
+              static_cast<std::uint32_t>(source.bytes[offsets[3U] + channel]);
+          destination.bytes[output_offset + channel] =
+              static_cast<std::uint8_t>((sum + 2U) / 4U);
+        }
+        destination.bytes[output_offset + 3U] = 255U;
+      }
+    }
+    candidate.mip_levels.push_back(std::move(destination));
+  }
+
+  Render::ValidationResult validation =
+      Render::ValidateTextureResourceDescriptor(candidate);
+  if (!validation) {
+    validation.field =
+        "ogre_next_demo.material.specular.texture." + validation.field;
+    return validation;
+  }
+  OgreNextDemoTextureNormalizationObservation candidate_observation;
+  candidate_observation.policy =
+      OgreNextDemoTextureNormalizationObservation::Policy::
+          LINEAR_SPECULAR_V1;
+  candidate_observation.policy_version =
+      kOgreNextDemoLinearSpecularNormalizationPolicyVersion;
+  candidate_observation.authored_mip_prefix_levels = authored_mip_count;
+  candidate_observation.generated_mip_tail_levels =
+      candidate.mip_levels.size() - authored_mip_count;
   output = std::move(candidate);
   if (observation != nullptr) {
     *observation = candidate_observation;

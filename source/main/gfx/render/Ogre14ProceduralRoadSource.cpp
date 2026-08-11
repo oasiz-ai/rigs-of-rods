@@ -154,14 +154,26 @@ ValidateExactRoadMaterialCapture(const Ogre14ProceduralRoadCapture &capture,
   const bool expected_lighting =
       audit.base_color_semantic ==
       Ogre14LegacyBaseColorSemantic::ROUGH_DIELECTRIC_PBR;
+  const bool legacy_straight_alpha =
+      audit.pipeline.source_color == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+      audit.pipeline.destination_color ==
+          Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA &&
+      audit.pipeline.source_alpha == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+      audit.pipeline.destination_alpha ==
+          Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
   const Ogre14GraphicsSceneMaterialBlend expected_blend =
       IsStraightSourceOver(audit.pipeline)
-          ? Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA
-          : Ogre14GraphicsSceneMaterialBlend::REPLACE;
+          ? Ogre14GraphicsSceneMaterialBlend::STRAIGHT_SOURCE_OVER
+          : legacy_straight_alpha
+                ? Ogre14GraphicsSceneMaterialBlend::LEGACY_STRAIGHT_ALPHA
+                : Ogre14GraphicsSceneMaterialBlend::REPLACE;
   const Ogre14GraphicsSceneMaterialAlphaReject expected_reject =
-      audit.pipeline.alpha_reject == Ogre14LegacyCompareOperation::GREATER_EQUAL
-          ? Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL
-          : Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+      audit.pipeline.alpha_reject == Ogre14LegacyCompareOperation::GREATER
+          ? Ogre14GraphicsSceneMaterialAlphaReject::GREATER
+          : audit.pipeline.alpha_reject ==
+                    Ogre14LegacyCompareOperation::GREATER_EQUAL
+                ? Ogre14GraphicsSceneMaterialAlphaReject::GREATER_EQUAL
+                : Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
   if (capture.material.pass_count != 1U ||
       capture.material.texture_unit_count != (textured ? 1U : 0U) ||
       capture.material.has_vertex_program ||
@@ -171,6 +183,7 @@ ValidateExactRoadMaterialCapture(const Ogre14ProceduralRoadCapture &capture,
       capture.material.alpha_reject != expected_reject ||
       capture.material.alpha_reject_value !=
           audit.pipeline.alpha_reject_value ||
+      capture.material.depth_write != audit.pipeline.depth_write_enabled ||
       !CapturedCullEqualsTranslated(capture.material.cull,
                                     audit.pipeline.cull) ||
       !Float4BitsEqual(capture.material.diffuse_linear,
@@ -206,7 +219,7 @@ ValidationResult ValidateGeometry(const Ogre14ProceduralRoadCapture &capture,
   if (capture.source_index_width_bits != 16U) {
     return Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "road.source_index_width_bits",
-        "procedural-road v1 requires the exact native uint16 stream");
+        "procedural-road v2 requires the exact native uint16 stream");
   }
   const std::size_t vertex_count = capture.positions.size();
   const std::size_t index_count = capture.indices.size();
@@ -803,7 +816,7 @@ ValidationResult Ogre14ProceduralRoadInventoryTransaction::Build(
     if (capture.material.exact_name != "road2") {
       return Failure(ValidationCode::REVISION_MISMATCH,
                      "road.material.exact_name",
-                     "procedural-road v1 requires exact legacy material road2",
+                     "procedural-road v2 requires exact legacy material road2",
                      ordered_index);
     }
     std::shared_ptr<const Ogre14LegacyMaterialClosure> resolved_road_material;

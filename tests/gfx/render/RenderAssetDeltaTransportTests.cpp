@@ -154,13 +154,17 @@ SamplerResourceDescriptor MakeSampler(std::string debug_name = "rich samp") {
 MaterialDescriptor MakeMaterial(std::uint64_t revision = 1U) {
   MaterialDescriptor material;
   material.debug_name = "rich material";
-  material.alpha_mode = MaterialAlphaMode::MASK;
+  material.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  material.blend_mode = MaterialBlendMode::STRAIGHT_SOURCE_OVER;
+  material.alpha_test_mode = MaterialAlphaTestMode::GREATER;
+  material.depth_write = false;
   material.base_color_transfer =
       BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
   material.double_sided = true;
   material.base_color_factor = {0.8F, 0.7F, 0.6F, 0.5F};
   material.metallic_factor = -0.0F;
   material.roughness_factor = 0.35F;
+  material.specular_factor = {0.2F, 0.4F, 0.8F};
   material.normal_scale = 1.25F;
   material.occlusion_strength = 0.75F;
   material.emissive_factor = {0.1F, 0.2F, 0.3F};
@@ -175,6 +179,12 @@ MaterialDescriptor MakeMaterial(std::uint64_t revision = 1U) {
   material.base_color_texture.scale = {0.5F, 0.75F};
   material.base_color_texture.offset = {0.125F, -0.25F};
   material.base_color_texture.rotation_radians = -0.125F;
+  material.specular_texture.texture =
+      Ref(RenderAssetKind::TEXTURE, 6U, revision);
+  material.specular_texture.sampler =
+      Ref(RenderAssetKind::SAMPLER, 3U, revision);
+  material.specular_texture.texture_coordinate_set = 1U;
+  material.specular_texture.scale = {0.75F, 0.5F};
   material.metallic_roughness_texture.scale = {-1.0F, 1.0F};
   material.normal_texture.offset = {0.25F, 0.5F};
   material.occlusion_texture.rotation_radians = 0.25F;
@@ -199,8 +209,16 @@ RenderAssetDelta MakeRichDelta() {
       Upsert(Ref(RenderAssetKind::MATERIAL, 4U), MakeMaterial()));
   delta.mutations.push_back(
       Destroy(Ref(RenderAssetKind::TEXTURE, 5U, 2U)));
-  Require(ValidateRenderAssetDelta(delta).ok(),
-          "rich delta fixture must be structurally valid");
+  TextureResourceDescriptor specular = MakeTexture("linear specular");
+  specular.color_space = TextureColorSpace::LINEAR;
+  delta.mutations.push_back(
+      Upsert(Ref(RenderAssetKind::TEXTURE, 6U), std::move(specular)));
+  const ValidationResult validation = ValidateRenderAssetDelta(delta);
+  if (!validation) {
+    std::cerr << "rich delta validation: " << validation.field << ": "
+              << validation.detail << '\n';
+  }
+  Require(validation.ok(), "rich delta fixture must be structurally valid");
   RenderAssetRegistry registry(delta.registry_id);
   Require(registry.Apply(delta).ok(),
           "rich delta fixture must be registry-applicable");
@@ -325,7 +343,7 @@ void TestGoldenRichDeltaAndRoundTrip() {
                   first.bytes.size() - kRenderTransportEnvelopeHeaderBytes,
           "asset envelope header is not canonical little-endian v1");
 
-  static const std::string kGoldenHex =
+  static const std::string kV3GoldenHex =
       "524f5253434e303101004000070000000100000000000000a104000000000000ad9a17dfb49acb5a7d92153b3a6e5464"
       "522fcba79d54d6415b849e23fbc20fc4020000000100000001000000010000000300000001000000000000004d000000"
       "000000000000000000000000020000000000000001050000000001455353415f524f5201000000000000000100000000"
@@ -353,8 +371,15 @@ void TestGoldenRichDeltaAndRoundTrip() {
       "0000000000000000000000000000000000000000000000000000000000000000000000000000000000010000803f0000"
       "803f0000000000000000000000000102455353415f524f52050000000000000002000000000000000000000000000000"
       "00";
-  Require(ToHex(first.bytes) == kGoldenHex,
-          "rich asset frame no longer matches golden bytes");
+  const std::vector<std::uint8_t> payload_digest(
+      first.bytes.begin() + 32U, first.bytes.begin() + 64U);
+  const std::string payload_digest_hex = ToHex(payload_digest);
+  Require(ToHex(first.bytes) != kV3GoldenHex,
+          "v4 material wire payload silently reused the v3 golden");
+  Require(first.bytes.size() == 1494U &&
+              payload_digest_hex ==
+                  "c94d0faa957ad22d8d4cbc4778eda61d31cccafefc1279976f7dfed3e5a41ac7",
+          "v4 rich asset frame no longer matches compact size/digest golden");
 
   RenderAssetDeltaTransportDecoder decoder(delta.registry_id);
   const RenderAssetDeltaTransportDecodeResult decoded =
@@ -365,8 +390,8 @@ void TestGoldenRichDeltaAndRoundTrip() {
           "rich delta did not decode");
   RequireEquivalentDelta(*decoded.message->delta(), delta);
   Require(decoder.registry().sequence() == 2U &&
-              decoder.registry().record_count() == 5U &&
-              decoder.registry().live_count() == 4U &&
+              decoder.registry().record_count() == 6U &&
+              decoder.registry().live_count() == 5U &&
               decoder.registry().Find(Id(5U)) != nullptr &&
               !decoder.registry().Find(Id(5U))->live(),
           "decoded registry lost catalog or tombstone state");
@@ -386,7 +411,17 @@ void TestGoldenRichDeltaAndRoundTrip() {
           decoded.message->delta()->mutations[3U].payload);
   Require(FloatBits(mesh.positions.front().x) == 0x80000000U &&
               FloatBits(sampler.mip_lod_bias) == 0x80000000U &&
-              FloatBits(material.metallic_factor) == 0x80000000U,
+              FloatBits(material.metallic_factor) == 0x80000000U &&
+              material.pbr_workflow == MaterialPbrWorkflow::SPECULAR &&
+              material.blend_mode ==
+                  MaterialBlendMode::STRAIGHT_SOURCE_OVER &&
+              material.alpha_test_mode == MaterialAlphaTestMode::GREATER &&
+              !material.depth_write &&
+              material.specular_factor == Float3{0.2F, 0.4F, 0.8F} &&
+              material.specular_texture.texture ==
+                  Ref(RenderAssetKind::TEXTURE, 6U) &&
+              material.specular_texture.sampler ==
+                  Ref(RenderAssetKind::SAMPLER, 3U),
           "asset signed-zero revision identity was canonicalized or lost");
 }
 
@@ -394,6 +429,15 @@ void TestFramingCountsLengthsAndCorruption() {
   const RenderAssetDelta delta = MakeRichDelta();
   const auto encoded = EncodeRenderAssetDeltaTransportFrame(1U, delta);
   Require(encoded.ok(), "framing fixture was not encoded");
+
+  RenderAssetDelta v3_material = delta;
+  std::get<MaterialDescriptor>(v3_material.mutations[3U].payload).version = 3U;
+  const auto rejected_v3 =
+      EncodeRenderAssetDeltaTransportFrame(1U, v3_material);
+  Require(!rejected_v3 && rejected_v3.bytes.empty() &&
+              rejected_v3.status ==
+                  RenderTransportStatus::PAYLOAD_VALIDATION_FAILED,
+          "v3 material payload was silently reinterpreted by v4 transport");
 
   for (std::size_t size = 0U; size < encoded.bytes.size(); ++size) {
     const auto size_offset =

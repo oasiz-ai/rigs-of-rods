@@ -917,7 +917,8 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     Render::MaterialDescriptor material;
     material.debug_name = PageDebugName(page.slot_x, page.slot_y, "Material");
     material.model = Render::MaterialModel::UNLIT;
-    material.alpha_mode = Render::MaterialAlphaMode::OPAQUE;
+    material.blend_mode = Render::MaterialBlendMode::REPLACE;
+    material.alpha_test_mode = Render::MaterialAlphaTestMode::DISABLED;
     material.base_color_transfer =
         Render::BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
     material.double_sided = false;

@@ -214,6 +214,46 @@ bool Actor::ResolveManagedMaterialDeclaration(
     return false;
 }
 
+bool Actor::ResolveManagedMaterialDeclarationBinding(
+    const Render::ManagedMaterialDeclarationSnapshot& snapshot,
+    const Ogre::MaterialPtr& exact_material,
+    Render::Ogre14ManagedMaterialDeclarationBinding& output) const noexcept
+{
+    try
+    {
+        if (!this->IsManagedMaterialDeclarationSnapshotCurrent(snapshot))
+        {
+            return false;
+        }
+        for (const Render::Ogre14ManagedMaterialDeclarationBinding& binding:
+             m_managed_material_declaration_bindings)
+        {
+            if (!binding.MatchesExactMaterial(exact_material))
+            {
+                continue;
+            }
+            const Render::ManagedMaterialDeclaration* declaration =
+                binding.declaration();
+            const Render::ManagedMaterialDeclarationMetadata* metadata =
+                declaration != nullptr ? declaration->metadata() : nullptr;
+            const Render::ManagedMaterialDeclaration* published =
+                metadata != nullptr ? snapshot.Find(metadata->exact_material_name)
+                                    : nullptr;
+            if (published == nullptr ||
+                !published->SharesImmutableStateWith(*declaration))
+            {
+                return false;
+            }
+            output = binding;
+            return true;
+        }
+    }
+    catch (...)
+    {
+    }
+    return false;
+}
+
 bool Actor::FindReusableManagedMaterialSourceReceipt(
     const std::string& exact_resource_group,
     const std::string& exact_resource_name,

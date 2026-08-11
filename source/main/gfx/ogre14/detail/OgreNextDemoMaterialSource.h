@@ -26,6 +26,7 @@ namespace RoR::Render {
 class IOgre14AuthenticatedTextureResolver;
 class IOgre14AuthenticatedTextureAuthorityProvider;
 class IOgre14SelectedTextureSourceResolver;
+class Ogre14ManagedMaterialDeclarationBinding;
 } // namespace RoR::Render
 
 namespace RoR::Gfx::Detail {
@@ -87,6 +88,15 @@ public:
              Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
              bool &projected) noexcept;
 
+  [[nodiscard]] Render::ValidationResult
+  TryProject(std::string_view exact_section_key,
+             const Ogre::MaterialPtr &native_material,
+             bool projection_candidate, bool has_authored_uv0,
+             const Render::Ogre14ManagedMaterialDeclarationBinding
+                 *managed_binding,
+             Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
+             bool &projected) noexcept;
+
   /// Replaces matching synthetic matte material assets and appends their
   /// immutable texture/sampler owners. Input is unchanged on failure.
   [[nodiscard]] Render::ValidationResult
@@ -108,6 +118,7 @@ private:
 
   [[nodiscard]] bool TryProjectCurrent(
       const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
+      const Render::Ogre14ManagedMaterialDeclarationBinding *managed_binding,
       Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
       std::string &selected_projection_key, bool allow_new_projection,
       OgreNextDemoTextureProjectionExclusion &exclusion,

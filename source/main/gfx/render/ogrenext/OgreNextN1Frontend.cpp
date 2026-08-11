@@ -400,6 +400,7 @@ bool UsesMetalDirectionalHardShadow(
 enum class UploadedTextureChannel : std::uint8_t {
   RGBA,
   DISPLAY_DOMAIN_RGBA,
+  LINEAR_RGBA,
   GREEN,
   BLUE,
   NORMAL_RG,
@@ -408,13 +409,14 @@ enum class UploadedTextureChannel : std::uint8_t {
 struct NativeTextureUsage final {
   bool sampled_rgba = false;
   bool display_domain_rgba = false;
+  bool linear_rgba = false;
   bool roughness_g = false;
   bool metallic_b = false;
   bool normal_rg = false;
 
   [[nodiscard]] bool empty() const noexcept {
-    return !sampled_rgba && !display_domain_rgba && !roughness_g &&
-           !metallic_b && !normal_rg;
+    return !sampled_rgba && !display_domain_rgba && !linear_rgba &&
+           !roughness_g && !metallic_b && !normal_rg;
   }
 
   friend bool operator==(const NativeTextureUsage &lhs,
@@ -422,6 +424,7 @@ struct NativeTextureUsage final {
     return lhs.sampled_rgba == rhs.sampled_rgba &&
            lhs.display_domain_rgba ==
                rhs.display_domain_rgba &&
+           lhs.linear_rgba == rhs.linear_rgba &&
            lhs.roughness_g == rhs.roughness_g &&
            lhs.metallic_b == rhs.metallic_b &&
            lhs.normal_rg == rhs.normal_rg;
@@ -462,7 +465,7 @@ std::string TextureAssetName(const RenderAssetReference &asset,
       (usage.sampled_rgba ? 1U : 0U) |
       (usage.display_domain_rgba ? 2U : 0U) |
       (usage.roughness_g ? 4U : 0U) | (usage.metallic_b ? 8U : 0U) |
-      (usage.normal_rg ? 16U : 0U);
+      (usage.normal_rg ? 16U : 0U) | (usage.linear_rgba ? 32U : 0U);
   std::ostringstream name;
   name << AssetName("RoRRT4Texture", asset) << "_usage" << std::hex
        << usage_key;
@@ -602,7 +605,7 @@ ToOgreSampler(const SamplerResourceDescriptor &descriptor) {
   sampler.mMagFilter = ToOgreFilter(descriptor.magnification_filter,
                                     descriptor.anisotropy_enabled);
   sampler.mMipFilter =
-      ToOgreFilter(descriptor.mip_filter, descriptor.anisotropy_enabled);
+      ToOgreFilter(descriptor.mip_filter, false);
   sampler.mU = ToOgreAddressMode(descriptor.address_u);
   sampler.mV = ToOgreAddressMode(descriptor.address_v);
   sampler.mW = ToOgreAddressMode(descriptor.address_w);
@@ -628,6 +631,35 @@ void VerifySamplerMapping(const Ogre::HlmsSamplerblock &actual,
   }
 }
 
+Ogre::HlmsMacroblock
+BuildPbsMacroblock(const MaterialDescriptor &descriptor) {
+  Ogre::HlmsMacroblock macroblock;
+  macroblock.mCullMode = descriptor.double_sided ? Ogre::CULL_NONE
+                                                  : Ogre::CULL_CLOCKWISE;
+  macroblock.mDepthWrite = descriptor.depth_write;
+  return macroblock;
+}
+
+Ogre::HlmsBlendblock
+BuildPbsBlendblock(const MaterialDescriptor &descriptor) {
+  Ogre::HlmsBlendblock blendblock;
+  if (descriptor.blend_mode == MaterialBlendMode::STRAIGHT_SOURCE_OVER) {
+    blendblock.mSourceBlendFactor = Ogre::SBF_SOURCE_ALPHA;
+    blendblock.mDestBlendFactor = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mSourceBlendFactorAlpha = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactorAlpha = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mBlendOperation = Ogre::SBO_ADD;
+    blendblock.mBlendOperationAlpha = Ogre::SBO_ADD;
+    blendblock.calculateSeparateBlendMode();
+  } else if (descriptor.blend_mode ==
+             MaterialBlendMode::LEGACY_STRAIGHT_ALPHA) {
+    // Exact OGRE `scene_blend alpha_blend`, including its squared-alpha
+    // destination equation.
+    blendblock.setBlendType(Ogre::SBT_TRANSPARENT_ALPHA);
+  }
+  return blendblock;
+}
+
 void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
                       const MaterialDescriptor &descriptor) {
   const Ogre::Vector3 expected_base_color(
@@ -637,16 +669,73 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       descriptor.emissive_factor.x * descriptor.emissive_strength,
       descriptor.emissive_factor.y * descriptor.emissive_strength,
       descriptor.emissive_factor.z * descriptor.emissive_strength);
+  const bool specular_workflow =
+      descriptor.pbr_workflow == MaterialPbrWorkflow::SPECULAR;
+  const Ogre::Vector3 expected_specular =
+      specular_workflow
+          ? Ogre::Vector3(descriptor.specular_factor.x,
+                          descriptor.specular_factor.y,
+                          descriptor.specular_factor.z)
+          : Ogre::Vector3::UNIT_SCALE;
+  const Ogre::HlmsMacroblock expected_macroblock =
+      BuildPbsMacroblock(descriptor);
+  const Ogre::HlmsBlendblock expected_blendblock =
+      BuildPbsBlendblock(descriptor);
+  // Pinned PBS compares the threshold on the left and sampled alpha on the
+  // right. These are therefore the inverse discard comparisons needed to keep
+  // the descriptor's fragments exactly.
+  const Ogre::CompareFunction expected_alpha_test =
+      descriptor.alpha_test_mode == MaterialAlphaTestMode::GREATER
+          ? Ogre::CMPF_GREATER_EQUAL
+          : descriptor.alpha_test_mode ==
+                    MaterialAlphaTestMode::GREATER_EQUAL
+                ? Ogre::CMPF_GREATER
+                : Ogre::CMPF_ALWAYS_PASS;
+  const Ogre::HlmsPbsDatablock::TransparencyModes expected_transparency =
+      descriptor.blend_mode != MaterialBlendMode::REPLACE
+          ? Ogre::HlmsPbsDatablock::Fade
+          : Ogre::HlmsPbsDatablock::None;
+  const float expected_transparency_value =
+      descriptor.blend_mode != MaterialBlendMode::REPLACE
+          ? descriptor.base_color_factor.w
+          : 1.0F;
+  const float ior_ratio =
+      (1.0F - descriptor.index_of_refraction) /
+      (1.0F + descriptor.index_of_refraction);
+  const float expected_fresnel = ior_ratio * ior_ratio;
   if (datablock.getBrdf() != Ogre::PbsBrdf::Default ||
-      datablock.getWorkflow() != Ogre::HlmsPbsDatablock::MetallicWorkflow ||
+      datablock.getWorkflow() !=
+          (specular_workflow
+               ? Ogre::HlmsPbsDatablock::SpecularWorkflow
+               : Ogre::HlmsPbsDatablock::MetallicWorkflow) ||
       datablock.getTwoSidedLighting() != descriptor.double_sided ||
       !NearlyEqual(datablock.getDiffuse(), expected_base_color) ||
-      !NearlyEqual(datablock.getMetalness(), descriptor.metallic_factor) ||
+      !NearlyEqual(datablock.getSpecular(), expected_specular) ||
+      (specular_workflow &&
+       (!NearlyEqual(datablock.getFresnel().x, expected_fresnel) ||
+        datablock.hasSeparateFresnel())) ||
+      (!specular_workflow &&
+       !NearlyEqual(datablock.getMetalness(), descriptor.metallic_factor)) ||
       !NearlyEqual(datablock.getRoughness(), descriptor.roughness_factor) ||
       !NearlyEqual(datablock.getEmissive(), expected_emissive) ||
-      datablock.getNormalMapWeight() != 1.0F) {
+      datablock.getNormalMapWeight() != 1.0F ||
+      datablock.getMacroblock() == nullptr ||
+      *datablock.getMacroblock() != expected_macroblock ||
+      datablock.getBlendblock() == nullptr ||
+      *datablock.getBlendblock() != expected_blendblock ||
+      datablock.getBlendblock()->isAutoTransparent() !=
+          (descriptor.blend_mode != MaterialBlendMode::REPLACE) ||
+      datablock.getBlendblock()->isForcedTransparent() ||
+      datablock.getAlphaTest() != expected_alpha_test ||
+      datablock.getAlphaTestShadowCasterOnly() ||
+      !NearlyEqual(datablock.getAlphaTestThreshold(),
+                   descriptor.alpha_cutoff) ||
+      datablock.getTransparencyMode() != expected_transparency ||
+      !NearlyEqual(datablock.getTransparency(),
+                   expected_transparency_value) ||
+      !datablock.getUseAlphaFromTextures()) {
     throw std::runtime_error(
-        "Ogre-Next N1 live PBS datablock differs from the reviewed height-correlated metallic mapping");
+        "Ogre-Next RT4/V1 live PBS datablock differs from the reviewed workflow, alpha, depth, cull, or blend mapping");
   }
 }
 
@@ -1466,10 +1555,12 @@ public:
     RenderAssetReference asset;
     NativeTextureUsage usage;
     Ogre::TextureGpu *sampled = nullptr;
+    Ogre::TextureGpu *linear = nullptr;
     Ogre::TextureGpu *roughness = nullptr;
     Ogre::TextureGpu *metallic = nullptr;
     Ogre::TextureGpu *normal = nullptr;
     std::string sampled_name;
+    std::string linear_name;
     std::string roughness_name;
     std::string metallic_name;
     std::string normal_name;
@@ -1493,6 +1584,7 @@ public:
     for (const auto &entry : textures) {
       const NativeTexture &texture = entry.second;
       audit.sampled_rgba_allocations += texture.sampled != nullptr ? 1U : 0U;
+      audit.linear_rgba_allocations += texture.linear != nullptr ? 1U : 0U;
       audit.roughness_r8_allocations +=
           texture.roughness != nullptr ? 1U : 0U;
       audit.metallic_r8_allocations += texture.metallic != nullptr ? 1U : 0U;
@@ -1502,12 +1594,14 @@ public:
           (texture.sampled != nullptr) ==
               (texture.usage.sampled_rgba ||
                texture.usage.display_domain_rgba) &&
+          (texture.linear != nullptr) == texture.usage.linear_rgba &&
           (texture.roughness != nullptr) == texture.usage.roughness_g &&
           (texture.metallic != nullptr) == texture.usage.metallic_b &&
           (texture.normal != nullptr) == texture.usage.normal_rg;
     }
     audit.live_native_allocations =
         static_cast<std::uint64_t>(audit.sampled_rgba_allocations) +
+        static_cast<std::uint64_t>(audit.linear_rgba_allocations) +
         static_cast<std::uint64_t>(audit.roughness_r8_allocations) +
         static_cast<std::uint64_t>(audit.metallic_r8_allocations) +
         static_cast<std::uint64_t>(audit.normal_rg8_allocations);
@@ -1637,47 +1731,9 @@ public:
 
   RenderOperationResult ValidateSamplerDeviceLimits(
       const RenderAssetRegistry &candidate_registry) const {
-    if (raster_feature_tier !=
-        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
-      return RenderOperationResult::Success();
-    }
-    const ValidationResult visit = candidate_registry.VisitRecords(
-        [&](const RenderAssetRecord &record) {
-          const auto *material =
-              std::get_if<MaterialDescriptor>(record.payload.get());
-          if (!record.live() || material == nullptr) {
-            return ValidationResult::Success();
-          }
-          const TextureBinding *bindings[] = {
-              &material->base_color_texture,
-              &material->metallic_roughness_texture,
-              &material->normal_texture,
-              &material->emissive_texture,
-          };
-          for (const TextureBinding *binding : bindings) {
-            if (!binding->texture.valid()) {
-              continue;
-            }
-            const SamplerResourceDescriptor *sampler =
-                candidate_registry.ResolveSampler(binding->sampler);
-            if (sampler == nullptr) {
-              return ValidationResult::Failure(
-                  ValidationCode::MISSING_REFERENCE,
-                  "assets.material.texture_binding",
-                  "RT4/V1 sampler disappeared before device validation");
-            }
-            if (sampler->anisotropy_enabled &&
-                sampler->maximum_anisotropy > maximum_anisotropy) {
-              return ValidationResult::Failure(
-                  ValidationCode::UNSUPPORTED_FEATURE,
-                  "assets.sampler.maximum_anisotropy",
-                  "RT4/V1 rejects anisotropy above the active device limit instead of permitting backend clamping");
-            }
-          }
-          return ValidationResult::Success();
-        });
-    return visit ? RenderOperationResult::Success()
-                 : OgreNextN1OperationFromValidation(visit);
+    return OgreNextN1OperationFromValidation(
+        ValidateOgreNextN1SamplerDeviceLimits(
+            candidate_registry, maximum_anisotropy, raster_feature_tier));
   }
 
   NativeMesh CreateMesh(const RenderAssetReference &asset,
@@ -1917,11 +1973,13 @@ public:
       UploadedTextureChannel channel) {
     const bool display_domain_rgba =
         channel == UploadedTextureChannel::DISPLAY_DOMAIN_RGBA;
+    const bool linear_rgba =
+        channel == UploadedTextureChannel::LINEAR_RGBA;
     const bool rgba = channel == UploadedTextureChannel::RGBA ||
-                      display_domain_rgba;
+                      display_domain_rgba || linear_rgba;
     const bool normal_rg = channel == UploadedTextureChannel::NORMAL_RG;
     const Ogre::PixelFormatGpu pixel_format =
-        rgba ? (display_domain_rgba
+        rgba ? (display_domain_rgba || linear_rgba
                     ? Ogre::PFG_RGBA8_UNORM
                     : descriptor.color_space == TextureColorSpace::SRGB
                     ? Ogre::PFG_RGBA8_UNORM_SRGB
@@ -2079,24 +2137,32 @@ public:
     native.usage = usage;
     const bool aliases_display_domain =
         usage.display_domain_rgba &&
-        (usage.sampled_rgba || usage.roughness_g || usage.metallic_b ||
-         usage.normal_rg);
+        (usage.sampled_rgba || usage.linear_rgba || usage.roughness_g ||
+         usage.metallic_b || usage.normal_rg);
+    const bool aliases_linear_role =
+        usage.linear_rgba &&
+        (usage.sampled_rgba || usage.display_domain_rgba ||
+         usage.roughness_g || usage.metallic_b || usage.normal_rg);
     const bool aliases_normal_role =
         usage.normal_rg &&
         (usage.sampled_rgba || usage.display_domain_rgba ||
+         usage.linear_rgba ||
          usage.roughness_g || usage.metallic_b);
     if (usage.empty() ||
         (usage.sampled_rgba && (usage.roughness_g || usage.metallic_b)) ||
         aliases_display_domain ||
+        aliases_linear_role ||
         aliases_normal_role ||
         ((usage.sampled_rgba || usage.display_domain_rgba) &&
          descriptor.color_space != TextureColorSpace::SRGB) ||
-        ((usage.roughness_g || usage.metallic_b || usage.normal_rg) &&
+        ((usage.linear_rgba || usage.roughness_g || usage.metallic_b ||
+          usage.normal_rg) &&
          descriptor.color_space != TextureColorSpace::LINEAR)) {
       throw std::logic_error(
           "RT4/V1 texture alias or usage is incompatible with its sampled color-space role");
     }
     native.sampled_name = TextureAssetName(asset, usage);
+    native.linear_name = native.sampled_name + "_linear_rgba";
     native.roughness_name = native.sampled_name + "_roughness_g";
     native.metallic_name = native.sampled_name + "_metallic_b";
     native.normal_name = native.sampled_name + "_normal_rg";
@@ -2109,6 +2175,11 @@ public:
         native.sampled = CreateUploadedTexture(
             descriptor, native.sampled_name,
             UploadedTextureChannel::DISPLAY_DOMAIN_RGBA);
+      }
+      if (usage.linear_rgba) {
+        native.linear = CreateUploadedTexture(
+            descriptor, native.linear_name,
+            UploadedTextureChannel::LINEAR_RGBA);
       }
       if (usage.roughness_g) {
         native.roughness = CreateUploadedTexture(
@@ -2160,6 +2231,12 @@ public:
       throw std::runtime_error(
           "Ogre-Next RT4/V1 allocated an unused sampled RGBA texture");
     }
+    if (expected_usage.linear_rgba) {
+      verify_one(native.linear, Ogre::PFG_RGBA8_UNORM);
+    } else if (native.linear != nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next RT4/V1 allocated an unused linear RGBA texture");
+    }
     if (expected_usage.roughness_g) {
       verify_one(native.roughness, Ogre::PFG_R8_UNORM);
     } else if (native.roughness != nullptr) {
@@ -2205,6 +2282,7 @@ public:
             sampler_descriptor == nullptr || found->second.sampled == nullptr ||
             !found->second.usage.display_domain_rgba ||
             found->second.usage.sampled_rgba ||
+            found->second.usage.linear_rgba ||
             found->second.usage.roughness_g ||
             found->second.usage.metallic_b || found->second.usage.normal_rg) {
           throw std::logic_error(
@@ -2231,23 +2309,40 @@ public:
       }
     }
     native.name = AssetName("RoRN1Material", asset);
-    Ogre::HlmsMacroblock macroblock;
-    if (descriptor.double_sided) {
-      macroblock.mCullMode = Ogre::CULL_NONE;
-    }
+    const Ogre::HlmsMacroblock macroblock = BuildPbsMacroblock(descriptor);
+    const Ogre::HlmsBlendblock blendblock = BuildPbsBlendblock(descriptor);
     try {
       native.pbs_datablock = static_cast<Ogre::HlmsPbsDatablock *>(
           pbs->createDatablock(native.name, native.name, macroblock,
-                               Ogre::HlmsBlendblock(), Ogre::HlmsParamVec()));
+                               blendblock, Ogre::HlmsParamVec()));
       native.pbs_datablock->setBrdf(Ogre::PbsBrdf::Default);
+      const bool specular_workflow =
+          descriptor.pbr_workflow == MaterialPbrWorkflow::SPECULAR;
       native.pbs_datablock->setWorkflow(
-          Ogre::HlmsPbsDatablock::MetallicWorkflow);
+          specular_workflow ? Ogre::HlmsPbsDatablock::SpecularWorkflow
+                            : Ogre::HlmsPbsDatablock::MetallicWorkflow);
+      if (specular_workflow) {
+        // The pinned PBS constructor leaves F0 at 0.818 and changing workflow
+        // does not reset it. The portable descriptor's reviewed dielectric
+        // IOR is the authority; one scalar IOR deliberately produces one
+        // shared RGB Fresnel term (IOR 1.5 -> F0 0.04).
+        native.pbs_datablock->setIndexOfRefraction(
+            Ogre::Vector3(descriptor.index_of_refraction), false);
+      }
       native.pbs_datablock->setDiffuse(
           Ogre::Vector3(descriptor.base_color_factor.x,
                         descriptor.base_color_factor.y,
                         descriptor.base_color_factor.z));
-      native.pbs_datablock->setSpecular(Ogre::Vector3::UNIT_SCALE);
-      native.pbs_datablock->setMetalness(descriptor.metallic_factor);
+      native.pbs_datablock->setSpecular(
+          specular_workflow
+              ? Ogre::Vector3(descriptor.specular_factor.x,
+                              descriptor.specular_factor.y,
+                              descriptor.specular_factor.z)
+              : Ogre::Vector3::UNIT_SCALE);
+      if (!specular_workflow) {
+        // Pinned PBS explicitly forbids setMetalness in SpecularWorkflow.
+        native.pbs_datablock->setMetalness(descriptor.metallic_factor);
+      }
       native.pbs_datablock->setRoughness(descriptor.roughness_factor);
       native.pbs_datablock->setEmissive(
           Ogre::Vector3(descriptor.emissive_factor.x,
@@ -2259,6 +2354,23 @@ public:
       // exact identity value and we write/read it explicitly here.
       native.pbs_datablock->setNormalMapWeight(1.0F);
       native.pbs_datablock->setTwoSidedLighting(descriptor.double_sided, false);
+      native.pbs_datablock->setTransparency(
+          descriptor.blend_mode != MaterialBlendMode::REPLACE
+              ? descriptor.base_color_factor.w
+              : 1.0F,
+          descriptor.blend_mode != MaterialBlendMode::REPLACE
+              ? Ogre::HlmsPbsDatablock::Fade
+              : Ogre::HlmsPbsDatablock::None,
+          true, false);
+      native.pbs_datablock->setAlphaTest(
+          descriptor.alpha_test_mode == MaterialAlphaTestMode::GREATER
+              ? Ogre::CMPF_GREATER_EQUAL
+              : descriptor.alpha_test_mode ==
+                        MaterialAlphaTestMode::GREATER_EQUAL
+                    ? Ogre::CMPF_GREATER
+                    : Ogre::CMPF_ALWAYS_PASS,
+          false, true);
+      native.pbs_datablock->setAlphaTestThreshold(descriptor.alpha_cutoff);
       if (directional_shadow_mode ==
           OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
         // Do not inherit an upstream default implicitly: this bias is part of
@@ -2313,6 +2425,8 @@ public:
                      &NativeTexture::normal);
         bind_texture(descriptor.emissive_texture, Ogre::PBSM_EMISSIVE,
                      &NativeTexture::sampled);
+        bind_texture(descriptor.specular_texture, Ogre::PBSM_SPECULAR,
+                     &NativeTexture::linear);
       }
       VerifyPbsMapping(*native.pbs_datablock, descriptor);
       return native;
@@ -2349,6 +2463,7 @@ public:
     destroy_one(native.normal, native.normal_name);
     destroy_one(native.metallic, native.metallic_name);
     destroy_one(native.roughness, native.roughness_name);
+    destroy_one(native.linear, native.linear_name);
     destroy_one(native.sampled, native.sampled_name);
     return clean;
   }
@@ -4461,13 +4576,15 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
             const BindingUsage bindings[] = {
                 {&material->base_color_texture,
                  {!display_domain_base, display_domain_base, false, false,
-                  false}},
+                  false, false}},
                 {&material->metallic_roughness_texture,
-                 {false, false, true, true, false}},
+                 {false, false, false, true, true, false}},
                 {&material->normal_texture,
-                 {false, false, false, false, true}},
+                 {false, false, false, false, false, true}},
                 {&material->emissive_texture,
-                 {true, false, false, false, false}},
+                 {true, false, false, false, false, false}},
+                {&material->specular_texture,
+                 {false, false, true, false, false, false}},
             };
             for (const BindingUsage &binding_usage : bindings) {
               const TextureBinding &binding = *binding_usage.binding;
@@ -4492,6 +4609,9 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                 existing.usage.display_domain_rgba =
                     existing.usage.display_domain_rgba ||
                     binding_usage.usage.display_domain_rgba;
+                existing.usage.linear_rgba =
+                    existing.usage.linear_rgba ||
+                    binding_usage.usage.linear_rgba;
                 existing.usage.roughness_g =
                     existing.usage.roughness_g ||
                     binding_usage.usage.roughness_g;
@@ -4503,10 +4623,16 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                     binding_usage.usage.normal_rg;
                 if ((existing.usage.sampled_rgba &&
                      (existing.usage.display_domain_rgba ||
+                      existing.usage.linear_rgba ||
                       existing.usage.roughness_g ||
                       existing.usage.metallic_b ||
                       existing.usage.normal_rg)) ||
                     (existing.usage.display_domain_rgba &&
+                     (existing.usage.linear_rgba ||
+                      existing.usage.roughness_g ||
+                      existing.usage.metallic_b ||
+                      existing.usage.normal_rg)) ||
+                    (existing.usage.linear_rgba &&
                      (existing.usage.roughness_g ||
                       existing.usage.metallic_b ||
                       existing.usage.normal_rg)) ||
@@ -4516,7 +4642,7 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                   return ValidationResult::Failure(
                       ValidationCode::UNSUPPORTED_FEATURE,
                       "assets.material.texture_binding",
-                      "RT4/V1 rejects aliases among decode-before-filter sRGB, display-domain UNORM, packed linear, and canonical normal texture roles");
+                      "RT4/V1 rejects aliases among decode-before-filter sRGB, display-domain UNORM, authored linear RGBA, packed linear, and canonical normal texture roles");
                 }
               }
             }

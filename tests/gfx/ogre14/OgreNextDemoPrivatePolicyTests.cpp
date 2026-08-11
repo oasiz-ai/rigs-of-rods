@@ -157,8 +157,14 @@ void CheckConventionalSrgbPbrMipChain() {
               texture.mip_levels.back().width == 1U &&
               texture.mip_levels.back().height == 1U,
           "conventional sRGB PBR base was not completed through 1x1");
-  Require(normalization.policy_version ==
+  Require(normalization.policy ==
+                  OgreNextDemoTextureNormalizationObservation::Policy::
+                      SRGB_OPAQUE_V2 &&
+              normalization.policy_version ==
                   kOgreNextDemoModernSourceNormalizationPolicyVersion &&
+              kOgreNextDemoModernSourceNormalizationPolicyVersion == 2U &&
+              kOgreNextDemoModernSourceNormalizationPolicy ==
+                  "srgb_opaque_authored_prefix_linear_tail_v2" &&
               normalization.authored_mip_prefix_levels == 1U &&
               normalization.generated_mip_tail_levels == 1U,
           "modern normalization version or mip provenance changed");
@@ -225,6 +231,213 @@ void CheckConventionalSrgbPbrRollback() {
                                    : extra_before.mip_levels[1U].bytes[offset]),
             "authored nonzero mip RGB changed or alpha was not normalized");
   }
+}
+
+void CheckStraightAlphaPremultipliedMipChain() {
+  TextureResourceDescriptor texture;
+  texture.debug_name = "OgreNextDemo/TestStraightAlpha";
+  texture.type = TextureResourceType::TEXTURE_2D;
+  texture.format = TextureResourceFormat::RGBA8_UNORM;
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 2U;
+  texture.height = 2U;
+  texture.array_layers = 1U;
+  texture.mip_levels.push_back(MakeMip(
+      2U, 2U,
+      {// One opaque red texel surrounded by fully transparent hidden blue.
+       // Straight averaging would create a purple fringe; premultiplied-linear
+       // filtering followed by robust unpremultiply must remain red.
+       255U, 0U, 0U, 255U, 0U, 0U, 255U, 0U,
+       0U, 0U, 255U, 0U,   0U, 0U, 255U, 0U}));
+  const std::vector<std::uint8_t> authored = texture.mip_levels[0U].bytes;
+  OgreNextDemoTextureNormalizationObservation normalization;
+  Require(CompleteOgreNextDemoSrgbPbrMipChain(
+              texture, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT,
+              &normalization)
+              .ok() &&
+              texture.mip_levels.size() == 2U &&
+              texture.mip_levels[0U].bytes == authored &&
+              texture.mip_levels[1U].bytes ==
+                  std::vector<std::uint8_t>({255U, 0U, 0U, 64U}) &&
+              normalization.policy ==
+                  OgreNextDemoTextureNormalizationObservation::Policy::
+                      SRGB_STRAIGHT_ALPHA_V1 &&
+              normalization.policy_version ==
+                  kOgreNextDemoStraightAlphaNormalizationPolicyVersion &&
+              normalization.authored_mip_prefix_levels == 1U &&
+              normalization.generated_mip_tail_levels == 1U,
+          "straight-alpha premultiplied-linear mip filtering or fixed "
+          "coverage behavior changed");
+
+  TextureResourceDescriptor transparent = texture;
+  transparent.debug_name = "OgreNextDemo/TestTransparentCanonicalBlack";
+  transparent.mip_levels.resize(1U);
+  transparent.mip_levels[0U] = MakeMip(
+      2U, 2U, {255U, 0U, 0U, 0U, 0U, 255U, 0U, 0U,
+               0U, 0U, 255U, 0U, 255U, 255U, 255U, 0U});
+  Require(CompleteOgreNextDemoSrgbPbrMipChain(
+              transparent,
+              OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT)
+              .ok() &&
+              transparent.mip_levels[1U].bytes ==
+                  std::vector<std::uint8_t>({0U, 0U, 0U, 0U}),
+          "zero-coverage straight-alpha mip amplified hidden RGB");
+
+  TextureResourceDescriptor authored_prefix = NativeBaseLevel();
+  authored_prefix.debug_name = "OgreNextDemo/TestStraightAlphaPrefix";
+  const std::vector<std::uint8_t> authored_lower{
+      1U, 2U, 3U, 0U, 4U, 5U, 6U, 64U,
+      7U, 8U, 9U, 128U, 10U, 11U, 12U, 255U};
+  authored_prefix.mip_levels.push_back(
+      MakeMip(2U, 2U, authored_lower));
+  OgreNextDemoTextureNormalizationObservation prefix_observation;
+  Require(CompleteOgreNextDemoSrgbPbrMipChain(
+              authored_prefix,
+              OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT,
+              &prefix_observation)
+              .ok() &&
+              authored_prefix.mip_levels.size() == 3U &&
+              authored_prefix.mip_levels[1U].bytes == authored_lower &&
+              prefix_observation.authored_mip_prefix_levels == 2U &&
+              prefix_observation.generated_mip_tail_levels == 1U,
+          "straight-alpha authored mip prefix was rewritten or discarded");
+
+  TextureResourceDescriptor malformed_prefix = authored_prefix;
+  malformed_prefix.debug_name = "straight-alpha-sentinel";
+  malformed_prefix.mip_levels.resize(2U);
+  malformed_prefix.mip_levels[1U].width = 3U;
+  const TextureResourceDescriptor malformed_before = malformed_prefix;
+  const ValidationResult malformed_result =
+      CompleteOgreNextDemoSrgbPbrMipChain(
+          malformed_prefix,
+          OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT);
+  Require(!malformed_result &&
+              malformed_prefix.debug_name == malformed_before.debug_name &&
+              malformed_prefix.mip_levels.size() ==
+                  malformed_before.mip_levels.size() &&
+              malformed_prefix.mip_levels[0U].bytes ==
+                  malformed_before.mip_levels[0U].bytes &&
+              malformed_prefix.mip_levels[1U].bytes ==
+                  malformed_before.mip_levels[1U].bytes &&
+              malformed_prefix.mip_levels[1U].width == 3U,
+          "malformed straight-alpha authored prefix partially published");
+}
+
+void CheckBc1AlphaAuthority() {
+  Ogre14SourceTextureBc1AlphaMode mode =
+      Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA;
+  Require(ResolveOgreNextDemoBc1AlphaMode(
+              true, OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE, false, mode)
+                  .ok() &&
+              mode == Ogre14SourceTextureBc1AlphaMode::OPAQUE,
+          "explicit opaque BC1 policy was not selected");
+  mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+  const ValidationResult ambiguous = ResolveOgreNextDemoBc1AlphaMode(
+      true, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT, false, mode);
+  Require(!ambiguous && ambiguous.code == ValidationCode::MISSING_REFERENCE &&
+              ambiguous.field ==
+                  "ogre_next_demo.material.bc1_alpha.authority" &&
+              mode == Ogre14SourceTextureBc1AlphaMode::OPAQUE,
+          "blend/test state inferred one-bit alpha for ambiguous legacy DXT1");
+  Require(ResolveOgreNextDemoBc1AlphaMode(
+              true, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT, true,
+              mode)
+                  .ok() &&
+              mode == Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA,
+          "explicit one-bit BC1 authority was ignored");
+  Require(ResolveOgreNextDemoBc1AlphaMode(
+              false, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT, false,
+              mode)
+                  .ok() &&
+              mode == Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE,
+          "non-BC1 source was assigned a BC1 alpha interpretation");
+}
+
+void CheckLinearSpecularMipChain() {
+  Ogre14DecodedSourceTexture decoded;
+  decoded.width = 2U;
+  decoded.height = 2U;
+  decoded.source_format = Ogre14SourceTextureFormat::RGBA8_UNORM;
+  decoded.color_semantic = Ogre14SourceTextureColorSemantic::LINEAR_DATA;
+  decoded.bc1_alpha_mode =
+      Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
+  decoded.source_has_alpha = true;
+  decoded.mip_levels.push_back(MakeDecodedMip(
+      2U, 2U, {0U, 4U, 252U, 1U, 1U, 5U, 253U, 2U,
+               2U, 6U, 254U, 3U, 3U, 7U, 255U, 4U}));
+  const std::vector<std::uint8_t> authored =
+      decoded.mip_levels[0U].rgba8_unorm;
+  TextureResourceDescriptor output;
+  OgreNextDemoTextureNormalizationObservation normalization;
+  Require(BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
+              std::move(decoded), 2U, 2U, "decoded/linear-specular", output,
+              &normalization)
+              .ok() &&
+              output.color_space == TextureColorSpace::LINEAR &&
+              output.mip_levels.size() == 2U &&
+              output.mip_levels[1U].bytes ==
+                  std::vector<std::uint8_t>({2U, 6U, 254U, 255U}) &&
+              normalization.policy ==
+                  OgreNextDemoTextureNormalizationObservation::Policy::
+                      LINEAR_SPECULAR_V1 &&
+              normalization.policy_version ==
+                  kOgreNextDemoLinearSpecularNormalizationPolicyVersion,
+          "linear authored specular mip normalization changed");
+  for (std::size_t offset = 0U; offset < authored.size(); ++offset) {
+    Require(output.mip_levels[0U].bytes[offset] ==
+                (offset % 4U == 3U ? 255U : authored[offset]),
+            "authored linear specular RGB changed or alpha stayed noncanonical");
+  }
+
+
+  Ogre14DecodedSourceTexture prefix;
+  prefix.width = 4U;
+  prefix.height = 4U;
+  prefix.source_format = Ogre14SourceTextureFormat::RGBA8_UNORM;
+  prefix.color_semantic = Ogre14SourceTextureColorSemantic::LINEAR_DATA;
+  prefix.bc1_alpha_mode =
+      Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
+  prefix.source_has_alpha = true;
+  std::vector<std::uint8_t> specular_base(4U * 4U * 4U, 17U);
+  std::vector<std::uint8_t> specular_lower{
+      1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U,
+      9U, 10U, 11U, 12U, 13U, 14U, 15U, 16U};
+  prefix.mip_levels.push_back(
+      MakeDecodedMip(4U, 4U, specular_base));
+  prefix.mip_levels.push_back(
+      MakeDecodedMip(2U, 2U, specular_lower));
+  TextureResourceDescriptor prefix_output;
+  OgreNextDemoTextureNormalizationObservation prefix_observation;
+  Require(BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
+              Ogre14DecodedSourceTexture(prefix), 4U, 4U,
+              "decoded/linear-specular-prefix", prefix_output,
+              &prefix_observation)
+              .ok() &&
+              prefix_output.mip_levels.size() == 3U &&
+              prefix_observation.authored_mip_prefix_levels == 2U &&
+              prefix_observation.generated_mip_tail_levels == 1U,
+          "linear-specular authored mip prefix was not completed through 1x1");
+  for (std::size_t offset = 0U; offset < specular_lower.size(); ++offset) {
+    Require(prefix_output.mip_levels[1U].bytes[offset] ==
+                (offset % 4U == 3U ? 255U : specular_lower[offset]),
+            "authored linear-specular lower mip RGB changed");
+  }
+
+  Ogre14DecodedSourceTexture malformed = prefix;
+  malformed.mip_levels[1U].width = 3U;
+  TextureResourceDescriptor sentinel = NativeBaseLevel();
+  sentinel.debug_name = "linear-specular-sentinel";
+  const TextureResourceDescriptor sentinel_before = sentinel;
+  const ValidationResult malformed_result =
+      BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
+          std::move(malformed), 4U, 4U, "decoded/malformed-specular",
+          sentinel);
+  Require(!malformed_result &&
+              sentinel.debug_name == sentinel_before.debug_name &&
+              sentinel.mip_levels.size() == sentinel_before.mip_levels.size() &&
+              sentinel.mip_levels.front().bytes ==
+                  sentinel_before.mip_levels.front().bytes,
+          "malformed linear-specular lower mip partially published output");
 }
 
 Ogre14DecodedSourceTexture DecodedSrgbMipPrefix() {
@@ -641,6 +854,23 @@ void CheckSourceAccountingAndEligibility() {
   require_exclusion(
       mutation, OgreNextDemoTextureProjectionExclusion::NON_UNIT_FACE_COUNT);
 
+  counters.candidate_sections += 3U;
+  counters.projected_sections = 3U;
+  counters.projections = 3U;
+  counters.active_replace_material_projections = 1U;
+  counters.active_straight_source_over_material_projections = 1U;
+  counters.active_legacy_straight_alpha_material_projections = 1U;
+  counters.active_alpha_test_disabled_material_projections = 1U;
+  counters.active_alpha_test_greater_material_projections = 1U;
+  counters.active_alpha_test_greater_equal_material_projections = 1U;
+  counters.active_metallic_roughness_workflow_projections = 2U;
+  counters.active_specular_workflow_projections = 1U;
+  counters.active_anisotropic_sampler_projections = 2U;
+  counters.active_normalized_texture_observations = 3U;
+  counters.active_opaque_texture_normalizations = 1U;
+  counters.active_straight_alpha_texture_normalizations = 1U;
+  counters.active_linear_specular_texture_normalizations = 1U;
+
   OgreNextDemoTextureSourceCounters committed;
   Require(
       AccumulateOgreNextDemoTextureSourceCounters(counters, committed).ok() &&
@@ -672,6 +902,19 @@ void CheckSourceAccountingAndEligibility() {
               committed.matte_excluded_sections ==
                   denominator_before.matte_excluded_sections,
           "corrupt candidate/projected/matte equation partially committed");
+
+  OgreNextDemoTextureSourceCounters broken_blend_partition = counters;
+  ++broken_blend_partition.active_replace_material_projections;
+  Require(!AccumulateOgreNextDemoTextureSourceCounters(
+               broken_blend_partition, committed)
+               .ok(),
+          "corrupt active blend denominator was accepted");
+  OgreNextDemoTextureSourceCounters broken_normalization_partition = counters;
+  --broken_normalization_partition.active_linear_specular_texture_normalizations;
+  Require(!AccumulateOgreNextDemoTextureSourceCounters(
+               broken_normalization_partition, committed)
+               .ok(),
+          "normalized texture disappeared from the exact policy partition");
 }
 
 void CheckExactSamplerMappingAndFingerprint() {
@@ -704,6 +947,31 @@ void CheckExactSamplerMappingAndFingerprint() {
       "exact supported sampler did not map without approximation");
   Require(MatchOgreNextDemoExactSamplerObservation(observation, observation),
           "identical exact sampler observations did not fingerprint equally");
+
+  OgreNextDemoExactSamplerObservation anisotropic = observation;
+  anisotropic.minification_filter =
+      OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
+  anisotropic.magnification_filter =
+      OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
+  anisotropic.mip_filter = OgreNextDemoObservedSamplerFilter::LINEAR;
+  anisotropic.maximum_anisotropy = 8U;
+  SamplerResourceDescriptor anisotropic_descriptor;
+  Require(BuildOgreNextDemoSamplerDescriptor(anisotropic, 4U, "anisotropic",
+                                              anisotropic_descriptor)
+                  .ok() &&
+              anisotropic_descriptor.minification_filter ==
+                  SamplerFilter::LINEAR &&
+              anisotropic_descriptor.magnification_filter ==
+                  SamplerFilter::LINEAR &&
+              anisotropic_descriptor.mip_filter == SamplerFilter::LINEAR &&
+              anisotropic_descriptor.anisotropy_enabled &&
+              anisotropic_descriptor.maximum_anisotropy == 8.0F,
+          "exact authored anisotropic sampler was excluded or approximated");
+  OgreNextDemoExactSamplerObservation anisotropic_mutation = anisotropic;
+  anisotropic_mutation.maximum_anisotropy = 16U;
+  Require(!MatchOgreNextDemoExactSamplerObservation(anisotropic,
+                                                    anisotropic_mutation),
+          "anisotropy mutation escaped exact sampler fingerprint");
 
   const auto reject = [&observation](
                           OgreNextDemoExactSamplerObservation mutation,
@@ -1327,6 +1595,9 @@ int main() {
   CheckMalformedMipRollback();
   CheckConventionalSrgbPbrMipChain();
   CheckConventionalSrgbPbrRollback();
+  CheckStraightAlphaPremultipliedMipChain();
+  CheckBc1AlphaAuthority();
+  CheckLinearSpecularMipChain();
   CheckDecodedSourcePreservesAuthoredMipPrefix();
   CheckDecodedSourceFailureRollback();
   CheckTextureSourceSelectionContract();

@@ -25,7 +25,7 @@ constexpr std::uint32_t kRenderAssetDeltaTransportPayloadVersion = 2U;
 constexpr std::uint32_t kRenderAssetDeltaTransportRegistryVersion = 1U;
 constexpr std::uint32_t kRenderAssetDeltaTransportMeshVersion = 1U;
 constexpr std::uint32_t kRenderAssetDeltaTransportTextureVersion = 1U;
-constexpr std::uint32_t kRenderAssetDeltaTransportMaterialVersion = 3U;
+constexpr std::uint32_t kRenderAssetDeltaTransportMaterialVersion = 4U;
 constexpr std::uint32_t kRenderAssetDeltaTransportSamplerVersion = 1U;
 
 constexpr std::uint64_t kRenderAssetDeltaTransportMaximumPayloadBytes =

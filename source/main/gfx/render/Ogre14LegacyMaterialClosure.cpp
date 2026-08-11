@@ -233,6 +233,16 @@ bool IsStraightSourceOver(
              Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
 }
 
+bool IsLegacyStraightAlpha(
+    const Ogre14LegacyPipelineStateInput &state) noexcept {
+  return state.source_color == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+         state.destination_color ==
+             Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA &&
+         state.source_alpha == Ogre14LegacyBlendFactor::SOURCE_ALPHA &&
+         state.destination_alpha ==
+             Ogre14LegacyBlendFactor::ONE_MINUS_SOURCE_ALPHA;
+}
+
 ValidationResult ValidateCanonicalMaterial(
     const Ogre14LegacyTranslatedAsset &asset,
     const Ogre14LegacyAssetKey &parsed_key) {
@@ -256,25 +266,39 @@ ValidationResult ValidateCanonicalMaterial(
       audit.base_color_semantic == Ogre14LegacyBaseColorSemantic::UNLIT
           ? MaterialModel::UNLIT
           : MaterialModel::PBR_METALLIC_ROUGHNESS;
-  const MaterialAlphaMode expected_alpha =
+  const MaterialBlendMode expected_blend =
       IsStraightSourceOver(audit.pipeline)
-          ? MaterialAlphaMode::BLEND
+          ? MaterialBlendMode::STRAIGHT_SOURCE_OVER
+          : IsLegacyStraightAlpha(audit.pipeline)
+                ? MaterialBlendMode::LEGACY_STRAIGHT_ALPHA
+                : MaterialBlendMode::REPLACE;
+  const MaterialAlphaTestMode expected_alpha_test =
+      audit.pipeline.alpha_reject == Ogre14LegacyCompareOperation::GREATER
+          ? MaterialAlphaTestMode::GREATER
           : audit.pipeline.alpha_reject ==
                     Ogre14LegacyCompareOperation::GREATER_EQUAL
-                ? MaterialAlphaMode::MASK
-                : MaterialAlphaMode::OPAQUE;
+                ? MaterialAlphaTestMode::GREATER_EQUAL
+                : MaterialAlphaTestMode::DISABLED;
   const bool expected_double_sided =
       audit.pipeline.cull == Ogre14LegacyCullMode::NONE;
   const float expected_alpha_cutoff =
-      static_cast<float>(audit.pipeline.alpha_reject_value) / 255.0F;
+      expected_alpha_test == MaterialAlphaTestMode::DISABLED
+          ? 0.5F
+          : static_cast<float>(audit.pipeline.alpha_reject_value) / 255.0F;
 
   if (material.debug_name != DebugName(parsed_key) ||
-      material.model != expected_model || material.alpha_mode != expected_alpha ||
+      material.model != expected_model ||
+      material.pbr_workflow != MaterialPbrWorkflow::METALLIC_ROUGHNESS ||
+      material.blend_mode != expected_blend ||
+      material.alpha_test_mode != expected_alpha_test ||
       material.base_color_transfer !=
           BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER ||
       material.double_sided != expected_double_sided ||
+      material.depth_write != audit.pipeline.depth_write_enabled ||
       !FloatBitsEqual(material.metallic_factor, 0.0F) ||
       !FloatBitsEqual(material.roughness_factor, 1.0F) ||
+      !Float3BitsEqual(material.specular_factor,
+                       Float3{1.0F, 1.0F, 1.0F}) ||
       !FloatBitsEqual(material.normal_scale, 1.0F) ||
       !FloatBitsEqual(material.occlusion_strength, 1.0F) ||
       !Float3BitsEqual(material.emissive_factor, Float3{}) ||
@@ -292,7 +316,8 @@ ValidationResult ValidateCanonicalMaterial(
       !ExactAbsentBinding(material.metallic_roughness_texture) ||
       !ExactAbsentBinding(material.normal_texture) ||
       !ExactAbsentBinding(material.occlusion_texture) ||
-      !ExactAbsentBinding(material.emissive_texture)) {
+      !ExactAbsentBinding(material.emissive_texture) ||
+      !ExactAbsentBinding(material.specular_texture)) {
     return Failure(ValidationCode::INVALID_ASSET_REFERENCE,
                    "material.texture_bindings",
                    "translated material must retain only canonical "

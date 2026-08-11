@@ -147,19 +147,37 @@ bool CaptureRoadMaterial(
         destination == Ogre::SBF_ZERO &&
         source_alpha == Ogre::SBF_ONE &&
         destination_alpha == Ogre::SBF_ZERO;
-    const bool straight_alpha = source == Ogre::SBF_SOURCE_ALPHA &&
+    const bool straight_source_over = source == Ogre::SBF_SOURCE_ALPHA &&
         destination == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
-        ((source_alpha == Ogre::SBF_SOURCE_ALPHA &&
-          destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA) ||
-         (source_alpha == Ogre::SBF_ONE &&
-          destination_alpha == Ogre::SBF_ZERO));
-    if (!replace && !straight_alpha)
+        source_alpha == Ogre::SBF_ONE &&
+        destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    const bool legacy_straight_alpha = source == Ogre::SBF_SOURCE_ALPHA &&
+        destination == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+        source_alpha == Ogre::SBF_SOURCE_ALPHA &&
+        destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    if (!replace && !straight_source_over && !legacy_straight_alpha)
     {
         return false;
     }
-    candidate.blend = replace
-        ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
-        : RoR::Render::Ogre14GraphicsSceneMaterialBlend::STRAIGHT_ALPHA;
+    candidate.blend =
+        replace
+            ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::REPLACE
+            : straight_source_over
+                  ? RoR::Render::Ogre14GraphicsSceneMaterialBlend::
+                        STRAIGHT_SOURCE_OVER
+                  : RoR::Render::Ogre14GraphicsSceneMaterialBlend::
+                        LEGACY_STRAIGHT_ALPHA;
+
+    if (!pass->getDepthCheckEnabled() ||
+        pass->getDepthFunction() != Ogre::CMPF_LESS_EQUAL ||
+        pass->getDepthBiasConstant() != 0.0F ||
+        pass->getDepthBiasSlopeScale() != 0.0F ||
+        pass->getIterationDepthBias() != 0.0F ||
+        pass->isAlphaToCoverageEnabled())
+    {
+        return false;
+    }
+    candidate.depth_write = pass->getDepthWriteEnabled();
 
     switch (pass->getCullingMode())
     {
@@ -184,6 +202,10 @@ bool CaptureRoadMaterial(
     case Ogre::CMPF_ALWAYS_PASS:
         candidate.alpha_reject = RoR::Render::
             Ogre14GraphicsSceneMaterialAlphaReject::ALWAYS_PASS;
+        break;
+    case Ogre::CMPF_GREATER:
+        candidate.alpha_reject = RoR::Render::
+            Ogre14GraphicsSceneMaterialAlphaReject::GREATER;
         break;
     case Ogre::CMPF_GREATER_EQUAL:
         candidate.alpha_reject = RoR::Render::
