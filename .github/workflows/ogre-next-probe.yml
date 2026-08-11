@@ -25,6 +25,9 @@ on:
       - source/main/terrain/Terrain.cpp
       - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
+      - doc/nextgen/RENDERER_VISUAL_PARITY_ORACLE.md
+      - tools/compare_renderer_visual_parity.py
+      - tests/tools/test_compare_renderer_visual_parity.py
       - tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -186,6 +189,9 @@ on:
       - source/main/terrain/Terrain.cpp
       - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
+      - doc/nextgen/RENDERER_VISUAL_PARITY_ORACLE.md
+      - tools/compare_renderer_visual_parity.py
+      - tests/tools/test_compare_renderer_visual_parity.py
       - tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
@@ -455,6 +461,7 @@ jobs:
       - name: Run fail-closed offline contracts
         shell: bash
         run: |
+          python tests/tools/test_compare_renderer_visual_parity.py
           python tests/tools/test_ogre_next_probe_contract.py
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
@@ -480,6 +487,7 @@ jobs:
           python tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
           python tests/tools/test_ogre14_source_texture_decoder_contract.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
+          python -O tests/tools/test_compare_renderer_visual_parity.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py

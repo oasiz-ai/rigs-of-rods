@@ -110,6 +110,11 @@ OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
     "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp",
     "tests/tools/test_renderer_suite_packaging_contract.py",
 )
+VISUAL_PARITY_ORACLE_PATHS = (
+    "doc/nextgen/RENDERER_VISUAL_PARITY_ORACLE.md",
+    "tools/compare_renderer_visual_parity.py",
+    "tests/tools/test_compare_renderer_visual_parity.py",
+)
 
 
 class OgreNextProbeWorkflowTests(unittest.TestCase):
@@ -197,9 +202,38 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/render/**",
             *DEFORMABLE_CAPTURE_WORKFLOW_PATHS,
             *OGRE_NEXT_DEMO_WORKFLOW_PATHS,
+            *VISUAL_PARITY_ORACLE_PATHS,
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.workflow.count(f"- {path}"), 2)
+
+    def test_visual_parity_oracle_is_filtered_and_run_normal_and_optimized(self) -> None:
+        for path in VISUAL_PARITY_ORACLE_PATHS:
+            with self.subTest(path=path):
+                self.assertEqual(self.workflow.count(f"- {path}"), 2)
+        self.assertEqual(
+            self.workflow.count(
+                "          python tests/tools/test_compare_renderer_visual_parity.py\n"
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.workflow.count(
+                "          python -O tests/tools/test_compare_renderer_visual_parity.py\n"
+            ),
+            1,
+        )
+        tests_cmake = (REPOSITORY_ROOT / "tests/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        for token in (
+            "NAME renderer_visual_parity_oracle",
+            "NAME renderer_visual_parity_oracle_optimized",
+            "tests/tools/test_compare_renderer_visual_parity.py",
+            'LABELS "gfx;visual-parity;python"',
+        ):
+            with self.subTest(cmake_token=token):
+                self.assertIn(token, tests_cmake)
 
     def test_deformable_capture_path_filter_omission_fails_contract(self) -> None:
         def require_exact_filters(workflow: str) -> None:
@@ -1232,6 +1266,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/tools/test_ogre14_terrain_composite_recipe_contract.py",
             "tests/tools/test_ogre_next_child_runtime_contract.py",
             *DEFORMABLE_CAPTURE_PROVENANCE_PATHS,
+            *VISUAL_PARITY_ORACLE_PATHS,
         ):
             with self.subTest(provenance_path=path):
                 self.assertEqual(cmake_manifest.count(f'"{path}"'), 1)

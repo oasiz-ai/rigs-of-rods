@@ -30,6 +30,27 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_renderer_combined_game_wiring_contract.py"
 )
 
+add_test(
+    NAME renderer_visual_parity_oracle
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_compare_renderer_visual_parity.py"
+)
+add_test(
+    NAME renderer_visual_parity_oracle_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_compare_renderer_visual_parity.py"
+)
+set_tests_properties(
+    renderer_visual_parity_oracle
+    renderer_visual_parity_oracle_optimized
+    PROPERTIES
+        LABELS "gfx;visual-parity;python"
+        TIMEOUT 60
+)
+
 set(ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE
     "${CMAKE_CURRENT_BINARY_DIR}/generated/material-semantic-catalog-v2.synthetic.rormat2")
 add_custom_command(

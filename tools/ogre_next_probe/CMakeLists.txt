@@ -321,6 +321,9 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md"
     "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md"
+    "doc/nextgen/RENDERER_VISUAL_PARITY_ORACLE.md"
+    "tools/compare_renderer_visual_parity.py"
+    "tests/tools/test_compare_renderer_visual_parity.py"
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
     "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
@@ -3246,6 +3249,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
             doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
             doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md
+            doc/nextgen/RENDERER_VISUAL_PARITY_ORACLE.md
+            tools/compare_renderer_visual_parity.py
+            tests/tools/test_compare_renderer_visual_parity.py
             source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
             source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h
             source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp
