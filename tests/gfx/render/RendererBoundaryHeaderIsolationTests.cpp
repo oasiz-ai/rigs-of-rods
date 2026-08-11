@@ -31,8 +31,8 @@ static_assert(
     std::is_trivially_copyable_v<RoR::Render::ParallaxProbeReferenceResult>);
 static_assert(std::is_trivially_copyable_v<
               RoR::Render::ReflectionProbeRuntimeDescriptor>);
-static_assert(std::is_trivially_copyable_v<
-              RoR::Render::ReflectionProbeUpdateRequest>);
+static_assert(
+    std::is_trivially_copyable_v<RoR::Render::ReflectionProbeUpdateRequest>);
 static_assert(
     std::is_trivially_copyable_v<RoR::Render::HdrAnalyticAutoExposureInput>);
 static_assert(
@@ -50,10 +50,32 @@ static_assert(
 static_assert(std::is_trivially_copyable_v<RoR::Render::HdrR16Float>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::ResourceHandle>);
 static_assert(std::is_trivially_copyable_v<RoR::Render::RenderAssetId>);
+static_assert(!std::is_copy_constructible_v<
+              RoR::Render::DecodedSceneSnapshotTransportMessage>);
+static_assert(!std::is_move_assignable_v<
+              RoR::Render::DecodedSceneSnapshotTransportMessage>);
+static_assert(!std::is_copy_constructible_v<
+              RoR::Render::DecodedRenderAssetDeltaTransportMessage>);
+static_assert(!std::is_move_assignable_v<
+              RoR::Render::DecodedRenderAssetDeltaTransportMessage>);
+static_assert(!std::is_copy_constructible_v<
+              RoR::Render::DecodedInputEventTransportMessage>);
+static_assert(
+    !std::is_move_assignable_v<RoR::Render::DecodedInputEventTransportMessage>);
+static_assert(!std::is_copy_constructible_v<
+              RoR::Render::RendererFrontendTransportDispatcher>);
+static_assert(!std::is_move_assignable_v<
+              RoR::Render::RendererFrontendTransportDispatcher>);
 static_assert(std::is_standard_layout_v<RoR::Render::NativeObjectToken>);
 static_assert(
     std::is_abstract_v<RoR::Render::IJoinedGraphicsSceneSource>,
     "the joined graphics adapter must remain a narrow source interface");
+static_assert(std::is_trivially_copyable_v<RoR::Render::Ogre14ParticleState>,
+              "realized particle values must remain portable pure data");
+static_assert(std::is_trivially_copyable_v<
+              RoR::Render::Ogre14ParticleMaterialClosureReceipt>);
+static_assert(
+    std::is_abstract_v<RoR::Render::IOgre14ParticleCaptureFaultInjector>);
 static_assert(
     std::is_same_v<decltype(RoR::Render::NativeObjectToken{}.value),
                    std::uint64_t>,

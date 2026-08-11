@@ -330,6 +330,13 @@ survive parsing intact.
 
 ## CityWorld intercity overlay gates
 
+`tests/tools/test_audit_ogre14_material_scripts.py` exercises the bounded,
+read-only legacy material inventory under normal and optimized Python. It locks
+archive path safety, hash admission, definition/directive caps, duplicate-name
+reporting, exact authored texture aliases, deterministic output, and the rule
+that the audit never invents texture roles. The private archive is optional;
+synthetic scripts cover the portable gate.
+
 `tests/tools/test_cityworld_neoq_intercity_bridge.py` locks the exact
 NeoQueretaro and NeoQ2.0 distributor placements, all six endpoint resources,
 and the line-378 `autopistaQr` mesh/ODEF pair. It locks zero overlap at both

@@ -7,40 +7,280 @@ on:
       - .gitattributes
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
+      - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+      - conanfile.py
+      - cmake/conan/**
       - source/main/CMakeLists.txt
+      - source/main/Application.cpp
+      - source/main/GameContext.cpp
+      - source/main/GameContext.h
+      - source/main/main.cpp
+      - source/main/system/ApplicationFatalError.h
+      - source/main/terrain/Terrain.cpp
+      - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
+      - tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
+      - cmake/RendererLauncherPackageConfig.cmake
+      - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
+      - doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
+      - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+      - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
+      - doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+      - source/main/physics/Savegame.cpp
+      - tests/tools/test_renderer_suite_packaging_contract.py
+      - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/GfxScene.*
+      - source/main/utils/MeshObject.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
+      - tools/compile_ogre14_material_semantic_catalog_v2.py
+      - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
+      - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/gfx/ogre14/Ogre14TerrainComposite*
+      - source/main/gfx/ogre14/detail/OgreNextDemo*
+      - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
+      - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
+      - source/main/resources/ContentManager.*
+      - source/main/resources/CacheSystem.cpp
+      - source/main/resources/LegacyMaterialScriptSanitizer.cpp
+      - source/main/resources/LegacyMaterialScriptSanitizer.h
+      - source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
+      - source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
+      - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
+      - source/main/physics/Actor.cpp
+      - source/main/physics/ActorManager.*
+      - source/main/physics/ActorSpawner.*
+      - source/main/physics/ActorSpawnerFlow.cpp
+      - source/main/physics/collision/Collisions.cpp
+      - source/main/physics/flex/**
+      - source/main/terrain/ProceduralManager.*
+      - source/main/terrain/ProceduralRoad.*
+      - source/main/terrain/TerrainObjectManager.*
+      - source/main/system/RendererBridge*
+      - source/main/system/RendererBridgeEndpoint.*
+      - source/main/system/RendererBridgeLaunchPlan.*
+      - source/main/system/RendererBridgeProcessSupervisor.*
+      - source/main/system/RendererChildIntent.*
+      - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererOgre14GameBridge.*
+      - source/main/system/RendererOgre14GameHostSession.*
+      - source/main/system/RendererOgre14InputAdapter.*
+      - source/main/system/RendererOgre14InputEngineTarget.*
+      - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/detail/OgreNextDemo*
+      - source/main/system/RendererOgre14RuntimeOwnership.*
+      - source/main/system/RendererSiblingPath.*
+      - source/main/system/RendererPackagedMediaPath.*
+      - source/main/system/RendererPackageRuntimeProbe.*
+      - source/main/system/RendererOgreNextChild.*
+      - source/main/system/RendererOgreNextLiveSession.*
+      - source/main/system/RendererOgreNextProductionSession.*
+      - source/main/system/RendererOgreNextSdlWindowRuntime*
+      - source/main/system/RendererOgreNextWindowHost.*
+      - source/main/system/RendererLauncherMain.cpp
+      - source/main/system/RendererLauncherPackageConfig.h.in
+      - source/main/system/RendererPublicLauncher.*
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
       - source/main/gfx/render/**
+      - tests/gfx/GfxActorCaptureInventoryTests.cpp
+      - tests/system/ApplicationFatalShutdownContractTests.cpp
+      - tests/tools/test_ogre14_native_workflow_contract.py
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererBridgeEndpointTests.cpp
+      - tests/gfx/RendererBridgeLaunchPlanTests.cpp
+      - tests/gfx/RendererBridgeProcessFakeChild.cpp
+      - tests/gfx/RendererBridgeProcessSupervisorTests.cpp
+      - tests/gfx/RendererChildIntentTests.cpp
+      - tests/gfx/RendererChildLauncherFakeChild.cpp
+      - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererBridge*Tests.cpp
+      - tests/gfx/RendererOgre14GameBridgeTests.cpp
+      - tests/gfx/RendererOgre14GameHostSessionTests.cpp
+      - tests/gfx/RendererOgre14InputAdapterTests.cpp
+      - tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp
+      - tests/gfx/RendererSiblingPathTests.cpp
+      - tests/gfx/RendererPackageRuntimeProbeTests.cpp
+      - tests/gfx/RendererOgreNextChildTests.cpp
+      - tests/gfx/RendererOgreNextLiveSessionTests.cpp
+      - tests/gfx/RendererOgreNextWindowHostTests.cpp
+      - tests/gfx/RendererPublicLauncherLegacyChild.cpp
+      - tests/gfx/RendererPublicLauncherTests.cpp
+      - tests/cmake/VerifyRendererPublicBridgeExit.cmake
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+      - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
+      - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
+      - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
+      - tests/resources/LegacyMaterialScriptSanitizerTests.cpp
+      - tests/resources/TerrainBundleDependencyTests.cpp
+      - tests/resources/TerrainBundleArchiveVerifierTests.cpp
+      - tests/tools/assert_ogre_recipe_graph.py
       - tests/gfx/render/**
+      - tests/physics/**
+      - tests/tools/test_ogre14_*.py
       - tests/tools/test_ogre_next_*.py
   pull_request:
     paths:
       - .gitattributes
       - .github/workflows/ogre-next-probe.yml
       - CMakeLists.txt
+      - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+      - conanfile.py
+      - cmake/conan/**
       - source/main/CMakeLists.txt
+      - source/main/Application.cpp
+      - source/main/GameContext.cpp
+      - source/main/GameContext.h
+      - source/main/main.cpp
+      - source/main/system/ApplicationFatalError.h
+      - source/main/terrain/Terrain.cpp
+      - source/main/terrain/Terrain.h
       - tests/CMakeLists.txt
+      - tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
       - tools/ogre_next_probe/**
       - tools/run_ogre_next_probe.py
       - tools/validate_ogre_next_frame_probe.py
       - tools/verify_ogre_next_artifact_set.py
+      - cmake/RendererLauncherPackageConfig.cmake
+      - doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
+      - doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
+      - doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+      - doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
+      - doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+      - source/main/physics/Savegame.cpp
+      - tests/tools/test_renderer_suite_packaging_contract.py
+      - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
+      - source/main/gfx/GfxScene.*
+      - source/main/utils/MeshObject.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
+      - source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.*
+      - source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.*
+      - tools/compile_ogre14_material_semantic_catalog_v2.py
+      - tools/schemas/ogre14-material-semantic-catalog-v2.schema.json
+      - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
+      - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/gfx/ogre14/Ogre14TerrainComposite*
+      - source/main/gfx/ogre14/detail/OgreNextDemo*
+      - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.*
+      - source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
+      - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
+      - source/main/resources/ContentManager.*
+      - source/main/resources/CacheSystem.cpp
+      - source/main/resources/LegacyMaterialScriptSanitizer.cpp
+      - source/main/resources/LegacyMaterialScriptSanitizer.h
+      - source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
+      - source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
+      - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
+      - source/main/physics/Actor.cpp
+      - source/main/physics/ActorManager.*
+      - source/main/physics/ActorSpawner.*
+      - source/main/physics/ActorSpawnerFlow.cpp
+      - source/main/physics/collision/Collisions.cpp
+      - source/main/physics/flex/**
+      - source/main/terrain/ProceduralManager.*
+      - source/main/terrain/ProceduralRoad.*
+      - source/main/terrain/TerrainObjectManager.*
+      - source/main/system/RendererBridge*
+      - source/main/system/RendererBridgeEndpoint.*
+      - source/main/system/RendererBridgeLaunchPlan.*
+      - source/main/system/RendererBridgeProcessSupervisor.*
+      - source/main/system/RendererChildIntent.*
+      - source/main/system/RendererChildLauncher.*
+      - source/main/system/RendererOgre14GameBridge.*
+      - source/main/system/RendererOgre14GameHostSession.*
+      - source/main/system/RendererOgre14InputAdapter.*
+      - source/main/system/RendererOgre14InputEngineTarget.*
+      - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/detail/OgreNextDemo*
+      - source/main/system/RendererOgre14RuntimeOwnership.*
+      - source/main/system/RendererSiblingPath.*
+      - source/main/system/RendererPackagedMediaPath.*
+      - source/main/system/RendererPackageRuntimeProbe.*
+      - source/main/system/RendererOgreNextChild.*
+      - source/main/system/RendererOgreNextLiveSession.*
+      - source/main/system/RendererOgreNextProductionSession.*
+      - source/main/system/RendererOgreNextSdlWindowRuntime*
+      - source/main/system/RendererOgreNextWindowHost.*
+      - source/main/system/RendererLauncherMain.cpp
+      - source/main/system/RendererLauncherPackageConfig.h.in
+      - source/main/system/RendererPublicLauncher.*
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+      - source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
       - source/main/gfx/render/**
+      - tests/gfx/GfxActorCaptureInventoryTests.cpp
+      - tests/system/ApplicationFatalShutdownContractTests.cpp
+      - tests/tools/test_ogre14_native_workflow_contract.py
       - tests/gfx/RendererBackendPolicyTests.cpp
+      - tests/gfx/RendererBridgeEndpointTests.cpp
+      - tests/gfx/RendererBridgeLaunchPlanTests.cpp
+      - tests/gfx/RendererBridgeProcessFakeChild.cpp
+      - tests/gfx/RendererBridgeProcessSupervisorTests.cpp
+      - tests/gfx/RendererChildIntentTests.cpp
+      - tests/gfx/RendererChildLauncherFakeChild.cpp
+      - tests/gfx/RendererChildLauncherTests.cpp
+      - tests/gfx/RendererBridge*Tests.cpp
+      - tests/gfx/RendererOgre14GameBridgeTests.cpp
+      - tests/gfx/RendererOgre14GameHostSessionTests.cpp
+      - tests/gfx/RendererOgre14InputAdapterTests.cpp
+      - tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp
+      - tests/gfx/RendererSiblingPathTests.cpp
+      - tests/gfx/RendererPackageRuntimeProbeTests.cpp
+      - tests/gfx/RendererOgreNextChildTests.cpp
+      - tests/gfx/RendererOgreNextLiveSessionTests.cpp
+      - tests/gfx/RendererOgreNextWindowHostTests.cpp
+      - tests/gfx/RendererPublicLauncherLegacyChild.cpp
+      - tests/gfx/RendererPublicLauncherTests.cpp
+      - tests/cmake/VerifyRendererPublicBridgeExit.cmake
       - tests/gfx/RendererStartupHandoffTests.cpp
       - tests/gfx/RendererStartupPlanTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
+      - tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+      - tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
+      - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+      - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
+      - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
+      - tests/resources/LegacyMaterialScriptSanitizerTests.cpp
+      - tests/resources/TerrainBundleDependencyTests.cpp
+      - tests/resources/TerrainBundleArchiveVerifierTests.cpp
+      - tests/tools/assert_ogre_recipe_graph.py
       - tests/gfx/render/**
+      - tests/physics/**
+      - tests/tools/test_ogre14_*.py
       - tests/tools/test_ogre_next_*.py
   workflow_dispatch:
 
@@ -70,7 +310,7 @@ jobs:
             runner: windows-2022
             platform: windows-x64-d3d11
             jobs: 4
-          - name: Linux x86_64 Vulkan null-window
+          - name: Linux x86_64 Vulkan null bootstrap plus XCB window-host
             runner: ubuntu-24.04
             platform: linux-x86_64-vulkan
             jobs: 4
@@ -102,11 +342,17 @@ jobs:
           sudo apt-get install --yes --no-install-recommends \
             libvulkan-dev \
             libx11-dev \
+            libx11-xcb-dev \
+            libxrandr-dev \
+            libxcb1-dev \
+            libxcb-randr0-dev \
             libxt-dev \
             libxaw7-dev \
             mesa-vulkan-drivers \
             ninja-build \
-            vulkan-tools
+            vulkan-tools \
+            xauth \
+            xvfb
           lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
           test -n "$lvp_icd"
           echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
@@ -171,6 +417,11 @@ jobs:
           python tests/tools/test_ogre_next_frame_probe.py
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python tests/tools/test_ogre_next_child_runtime_contract.py
+          python tests/tools/test_ogre_next_product_packaging_contract.py
+          python tests/tools/test_ogre_next_window_host_contract.py
+          python tests/tools/test_ogre_next_window_presentation_contract.py
+          python tests/tools/test_ogre_next_window_run_loop_contract.py
           python tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python tests/tools/test_ogre_next_metal_n2_contract.py
           python tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -180,11 +431,19 @@ jobs:
           python tests/tools/test_ogre_next_metal_n3_contract.py
           python tests/tools/test_ogre_next_metal_n4_contract.py
           python tests/tools/test_ogre_next_probe_workflow.py
+          python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
+          python tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
+          python tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
+          python -O tests/tools/test_ogre_next_child_runtime_contract.py
+          python -O tests/tools/test_ogre_next_product_packaging_contract.py
+          python -O tests/tools/test_ogre_next_window_host_contract.py
+          python -O tests/tools/test_ogre_next_window_presentation_contract.py
+          python -O tests/tools/test_ogre_next_window_run_loop_contract.py
           python -O tests/tools/test_ogre_next_native_directional_shadow_contract.py
           python -O tests/tools/test_ogre_next_metal_n2_contract.py
           python -O tests/tools/test_ogre_next_vulkan_rt5_contract.py
@@ -194,6 +453,9 @@ jobs:
           python -O tests/tools/test_ogre_next_metal_n3_contract.py
           python -O tests/tools/test_ogre_next_metal_n4_contract.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
+          python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
+          python -O tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
+          python -O tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only
@@ -263,6 +525,258 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre_next_frontend_(n1_|rt4_)'
+
+      - name: Prove game-to-frontend transport dispatch on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_frontend_transport_dispatcher$'
+
+      - name: Prove the OGRE 14 joined-scene adapter on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_graphics_scene_source$'
+
+      - name: Prove continuous particle capture transactions on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_particle_capture_source$'
+
+      - name: Prove procedural-road capture and lifecycle on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_procedural_road_source$'
+
+      - name: Prove exact translated road materials on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_road_material_transaction$'
+
+      - name: Build deformable capture and product-session gates
+        run: >-
+          cmake
+          --build "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --target
+          ror_graphics_scene_snapshot_producer_tests
+          ror_flex_mesh_topology_tests
+          ror_ogre14_metal_flex_shadow_read_contract_tests
+          ror_gfx_actor_capture_inventory_tests
+          ror_application_fatal_shutdown_contract_tests
+          ror_ogre14_dynamic_material_closure_tests
+          ror_ogre14_material_semantic_registry_tests
+          ror_ogre14_source_texture_decoder_tests
+          ror_ogre14_material_semantic_catalog_v2_tests
+          ror_ogre14_live_material_coordinator_tests
+          ror_ogre14_graphics_scene_prepared_material_binding_tests
+          ror_ogre14_authenticated_texture_receipt_tests
+          ror_renderer_ogre14_game_host_session_tests
+          --config Release
+          --parallel ${{ matrix.jobs }}
+
+      - name: Prove deformable capture transactions on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^(ror_graphics_scene_snapshot_producer|ror_flex_mesh_topology|ror_ogre14_metal_flex_shadow_read_contract|ror_gfx_actor_capture_inventory|ror_application_fatal_shutdown_contract)$'
+
+      - name: Prove exact translated deformable materials on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_dynamic_material_closure$'
+
+      - name: Prove explicit material semantics on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_material_semantic_registry$'
+
+      - name: Prove compiled material semantic catalogs on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_material_semantic_catalog_v2$'
+
+      - name: Prove deterministic legacy DDS source decoding on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_source_texture_decoder$'
+
+      - name: Prove exclusive live material preparation on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_live_material_coordinator$'
+
+      - name: Prove immutable prepared-material scene binding on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_graphics_scene_prepared_material_binding$'
+
+      - name: Prove authenticated source-texture receipts on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_authenticated_texture_receipt$'
+
+      - name: Prove the game-host stream and native pipe half-close contract
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^(ror_render_bridge_control_transport|ror_renderer_bridge_channel|ror_renderer_ogre14_game_host_session)$'
+
+      - name: Run the non-admitted real Ogre-Next child bootstrap
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_ogre_next_child_runtime(_receipt)?$'
+
+      - name: Resolve and revalidate the upload-bound Ogre-Next child evidence
+        id: ogre_next_child_runtime_evidence
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          receipt="$build_root/ror-ogre-next-child-runtime-execution-receipt.json"
+          child="$build_root/renderer-ogre-next-child-runtime/Release/RoR-OgreNext"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            child="${child}.exe"
+          fi
+          python tools/ogre_next_probe/validate_child_runtime_receipt.py \
+            --build-dir "$build_root" \
+            --require-pass-or-skip
+          test -f "$receipt"
+          test -f "$child"
+          printf 'receipt=%s\n' "$receipt" >> "$GITHUB_OUTPUT"
+          printf 'child=%s\n' "$child" >> "$GITHUB_OUTPUT"
+
+      - name: Cryptographically attest the Ogre-Next child receipt and binary
+        id: attest_ogre_next_child_runtime
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        with:
+          subject-path: |
+            ${{ steps.ogre_next_child_runtime_evidence.outputs.receipt }}
+            ${{ steps.ogre_next_child_runtime_evidence.outputs.child }}
+
+      - name: Stage and verify the GitHub-signed Ogre-Next child evidence
+        if: success() && github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          receipt="${{ steps.ogre_next_child_runtime_evidence.outputs.receipt }}"
+          child="${{ steps.ogre_next_child_runtime_evidence.outputs.child }}"
+          source_bundle="${{ steps.attest_ogre_next_child_runtime.outputs.bundle-path }}"
+          bundle="$build_root/ror-ogre-next-child-runtime-execution-receipt.sigstore.jsonl"
+          test -f "$receipt"
+          test -f "$child"
+          test -f "$source_bundle"
+          cp "$source_bundle" "$bundle"
+          for subject in "$receipt" "$child"; do
+            gh attestation verify \
+              "$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --bundle "$bundle" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ogre-next-probe.yml" \
+              --source-ref "$GITHUB_REF" \
+              --source-digest "$GITHUB_SHA" \
+              --deny-self-hosted-runners
+          done
+
+      - name: Run the non-admitted SDL window-host contract
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_ogre_next_window_host$'
+
+      - name: Require one-frame native Ogre-Next presentation
+        if: runner.os != 'Linux'
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre_next_window_present_smoke$'
+
+      - name: Require 1,000-frame production Ogre-Next run loop
+        if: runner.os == 'macOS'
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre_next_window_run_loop_smoke$'
+
+      - name: Require one-frame Vulkan X11 presentation under Xvfb
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          smoke="$build_root/bin/ror_ogre_next_window_present_smoke"
+          test -x "$smoke"
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            "$smoke" \
+              --media-root "$build_root/ror-ogre-next-n1-package/share/ror/ogre-next/media" \
+              --output "$build_root/ogre-next-window-present.ppm" \
+              --report "$build_root/ogre-next-window-present.json"
+
+      - name: Run the non-admitted hidden SDL native-window smoke
+        if: runner.os != 'Linux'
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_renderer_ogre_next_window_host_smoke$'
+
+      - name: Require the hidden SDL X11 window host under Xvfb
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          build_root="${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          smoke="$build_root/bin/ror_renderer_ogre_next_window_host_smoke"
+          test -x "$smoke"
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            "$smoke"
 
       - name: Build and validate the independent Apple Metal N2 proof
         if: runner.os == 'macOS'
@@ -560,6 +1074,10 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-probe-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frame-probe.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-present.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-present.ppm
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-run-loop.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ogre-next-window-run-loop.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1-report.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-n1.ppm
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-frontend-rt4-pbr-v1-report.json
@@ -575,6 +1093,11 @@ jobs:
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-attestation.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-artifact-manifest.json
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-pssm-shadow-execution-receipt.sigstore.jsonl
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime-execution-receipt.json
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime.stdout.log
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime.stderr.log
+            ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-child-runtime-execution-receipt.sigstore.jsonl
+            ${{ steps.ogre_next_child_runtime_evidence.outputs.child }}
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/bin/ror_ogre_next_pssm_shadow_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/bin/ror_ogre_next_frontend_n1_smoke*
             ${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}/ror-ogre-next-n1-package/share/

@@ -241,6 +241,47 @@ RoR::Render::GraphicsSceneAssetInput MeshAsset() {
   return input;
 }
 
+RoR::Render::GraphicsSceneAssetInput DynamicMeshAsset(
+    std::uint64_t source_asset_id = 50U) {
+  using namespace RoR::Render;
+  GraphicsSceneAssetInput input;
+  input.source_asset_id = source_asset_id;
+  MeshResourceDescriptor mesh = MakeMesh();
+  mesh.debug_name = "joined deformable triangle";
+  mesh.dynamic = true;
+  input.payload =
+      std::make_shared<const RenderAssetPayload>(std::move(mesh));
+  return input;
+}
+
+std::shared_ptr<const RoR::Render::GraphicsSceneDynamicMeshState>
+DynamicState(std::uint64_t deformation_revision, float x_offset = 0.0F) {
+  using namespace RoR::Render;
+  auto state = std::make_shared<GraphicsSceneDynamicMeshState>();
+  state->deformation_revision = deformation_revision;
+  state->positions = {
+      {x_offset, 0.0F, 0.0F},
+      {1.0F + x_offset, 0.0F, 0.0F},
+      {x_offset, 1.0F, 0.0F},
+  };
+  state->normals.assign(3U, Float3{0.0F, 0.0F, 1.0F});
+  state->updated_local_bounds.minimum = {x_offset, 0.0F, 0.0F};
+  state->updated_local_bounds.maximum = {1.0F + x_offset, 1.0F, 0.0F};
+  return state;
+}
+
+RoR::Render::GraphicsSceneDynamicMeshInput DynamicObject(
+    std::uint64_t source_object_id,
+    std::shared_ptr<const RoR::Render::GraphicsSceneDynamicMeshState> state) {
+  RoR::Render::GraphicsSceneDynamicMeshInput input;
+  input.source_object_id = source_object_id;
+  input.mesh_source_asset_id = 50U;
+  input.material_source_asset_id = 20U;
+  input.render_from_object = Translation(3.0F);
+  input.state = std::move(state);
+  return input;
+}
+
 RoR::Render::GraphicsSceneAssetInput MaterialAsset() {
   using namespace RoR::Render;
   GraphicsSceneAssetInput input;
@@ -385,10 +426,14 @@ public:
     output = frame;
     return RoR::Render::ValidationResult::Success();
   }
+  void CommitJoinedGraphicsFrame() noexcept override { ++commit_count; }
+  void DiscardJoinedGraphicsFrame() noexcept override { ++discard_count; }
 
   RoR::Render::GraphicsSceneFrameInput frame = MakeFrame();
   RoR::Render::ValidationResult capture_validation;
   std::uint32_t capture_count = 0U;
+  std::uint32_t commit_count = 0U;
+  std::uint32_t discard_count = 0U;
 };
 
 void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
@@ -402,6 +447,8 @@ void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
       producer.ProduceJoinedFrame(source);
   Require(produced.ok(), "valid joined source frame was rejected");
   Require(source.capture_count == 1U, "joined source was not captured once");
+  Require(source.commit_count == 1U && source.discard_count == 0U,
+          "successful producer output did not commit its source transaction");
   Require(produced.production.asset_delta.has_value(),
           "first production omitted its full asset snapshot");
   const RenderAssetDelta &delta = *produced.production.asset_delta;
@@ -463,6 +510,29 @@ void TestJoinedSourceInitialSnapshotAndCanonicalOrder() {
   source.frame.static_meshes.front().render_from_object = Translation(99.0F);
   Require(scene.mesh_instances()[1U].render_from_object.elements[12U] == 5.0F,
           "immutable scene retained mutable joined-source storage");
+}
+
+void TestJoinedSourceProducerRejectionDiscardsAndRetries() {
+  using namespace RoR::Render;
+  GraphicsSceneSnapshotProducer producer = MakeProducer();
+  FixtureJoinedSource source;
+  source.frame.version = kGraphicsSceneSnapshotProducerVersion + 1U;
+
+  const GraphicsSceneSnapshotProduceResult rejected =
+      producer.ProduceJoinedFrame(source);
+  Require(!rejected &&
+              rejected.validation.code == ValidationCode::UNSUPPORTED_VERSION &&
+              source.capture_count == 1U && source.commit_count == 0U &&
+              source.discard_count == 1U,
+          "producer rejection did not discard the prepared source frame");
+
+  source.frame.version = kGraphicsSceneSnapshotProducerVersion;
+  const GraphicsSceneSnapshotProduceResult accepted =
+      producer.ProduceJoinedFrame(source);
+  Require(accepted && source.capture_count == 2U &&
+              source.commit_count == 1U && source.discard_count == 1U &&
+              accepted.production.scene_snapshot->snapshot_id() == 1U,
+          "discarded source frame advanced producer lineage or blocked retry");
 }
 
 void TestLegacyProducerVersionsRequireExplicitMigration() {
@@ -1498,6 +1568,172 @@ void TestStableCatalogAllocationCountDoesNotScalePerElement() {
           "stable frame exceeded the fixed allocation budget");
 }
 
+void TestDynamicMeshLineageOwnershipAndTombstones() {
+  using namespace RoR::Render;
+  GraphicsSceneSnapshotProducer producer = MakeProducer(701U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  frame.assets.push_back(DynamicMeshAsset());
+  const auto first_state = DynamicState(2U);
+  frame.dynamic_meshes.push_back(DynamicObject(150U, first_state));
+
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  Require(first.ok() && first.production.scene_snapshot->mesh_instances().size() ==
+                            3U &&
+              first.production.scene_snapshot->mesh_instances()[1U]
+                      .instance_id == 150U &&
+              first.production.scene_snapshot->dynamic_mesh_updates().size() ==
+                  1U,
+          "initial deformable object was not published in canonical order");
+  const DynamicMeshUpdateDescriptor &first_update =
+      first.production.scene_snapshot->dynamic_mesh_updates().front();
+  Require(first_update.update_sequence == 1U &&
+              first_update.deformation_revision == 2U &&
+              first_update.positions == first_state->positions &&
+              first_update.updated_local_bounds.minimum ==
+                  first_state->updated_local_bounds.minimum &&
+              first_update.updated_local_bounds.maximum ==
+                  first_state->updated_local_bounds.maximum,
+          "initial full deformation update lost revision, data, or bounds");
+
+  frame.simulation_tick = 42U;
+  frame.simulation_time_seconds = 2.0;
+  const GraphicsSceneSnapshotProduceResult stable = producer.Produce(frame);
+  Require(stable.ok() && !stable.production.asset_delta.has_value() &&
+              stable.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .update_sequence == 2U &&
+              stable.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .deformation_revision == 2U,
+          "stable deformable state was not replayed with ordered frame lineage");
+
+  frame.simulation_tick = 43U;
+  frame.simulation_time_seconds = 3.0;
+  frame.dynamic_meshes[0U].state = DynamicState(2U);
+  const GraphicsSceneSnapshotProduceResult equivalent = producer.Produce(frame);
+  Require(equivalent.ok() &&
+              equivalent.production.scene_snapshot->dynamic_mesh_updates()
+                      .front()
+                      .update_sequence == 3U,
+          "equivalent immutable deformation owner was not canonicalized");
+
+  const std::shared_ptr<const SceneSnapshot> before_rejection =
+      producer.LoadPublishedSnapshot();
+  frame.simulation_tick = 44U;
+  frame.simulation_time_seconds = 4.0;
+  frame.dynamic_meshes[0U].state = DynamicState(2U, 0.25F);
+  const GraphicsSceneSnapshotProduceResult stale_revision =
+      producer.Produce(frame);
+  Require(stale_revision.validation.code == ValidationCode::REVISION_MISMATCH &&
+              SameSharedOwner(before_rejection,
+                              producer.LoadPublishedSnapshot()),
+          "changed deformation without the next revision mutated publication");
+
+  frame.dynamic_meshes[0U].state = DynamicState(3U, 0.25F);
+  const GraphicsSceneSnapshotProduceResult revised = producer.Produce(frame);
+  Require(revised.ok() &&
+              revised.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .update_sequence == 4U &&
+              revised.production.scene_snapshot->dynamic_mesh_updates().front()
+                      .deformation_revision == 3U,
+          "rejected frame consumed update sequence or blocked exact retry");
+
+  frame.simulation_tick = 45U;
+  frame.simulation_time_seconds = 5.0;
+  auto loose_state =
+      std::make_shared<GraphicsSceneDynamicMeshState>(
+          *DynamicState(3U, 0.25F));
+  loose_state->updated_local_bounds.maximum.x += 1.0F;
+  frame.dynamic_meshes[0U].state = loose_state;
+  Require(producer.Produce(frame).validation.code ==
+                  ValidationCode::INVALID_BOUNDS &&
+              SameSharedOwner(revised.production.scene_snapshot,
+                              producer.LoadPublishedSnapshot()),
+          "non-tight deformation bounds were accepted or published");
+
+  frame.dynamic_meshes[0U].state = DynamicState(3U, 0.25F);
+  frame.dynamic_meshes.clear();
+  const GraphicsSceneSnapshotProduceResult removed = producer.Produce(frame);
+  Require(removed.ok() &&
+              removed.production.scene_snapshot->dynamic_mesh_updates().empty(),
+          "authoritative deformable removal was rejected");
+  frame.simulation_tick = 46U;
+  frame.simulation_time_seconds = 6.0;
+  frame.dynamic_meshes.push_back(
+      DynamicObject(150U, DynamicState(4U, 0.5F)));
+  Require(producer.Produce(frame).validation.code ==
+              ValidationCode::REVISION_MISMATCH,
+          "destroyed deformable identity was resurrected");
+
+  GraphicsSceneSnapshotProducerConfiguration stream_config;
+  stream_config.registry_id = 704U;
+  stream_config.maximum_dynamic_vertex_count = 3U;
+  stream_config.maximum_dynamic_payload_bytes =
+      3U * sizeof(Float3) + 3U * sizeof(Float3);
+  GraphicsSceneSnapshotProducer stream_bounded(stream_config);
+  GraphicsSceneFrameInput stream_frame = MakeFrame();
+  stream_frame.assets.push_back(DynamicMeshAsset());
+  stream_frame.dynamic_meshes.push_back(
+      DynamicObject(350U, DynamicState(2U)));
+  const GraphicsSceneSnapshotProduceResult exact_stream_bound =
+      stream_bounded.Produce(stream_frame);
+  Require(exact_stream_bound.ok(),
+          "exact aggregate dynamic vertex/byte bound was rejected");
+  const std::shared_ptr<const SceneSnapshot> exact_stream_snapshot =
+      stream_bounded.LoadPublishedSnapshot();
+  stream_frame.simulation_tick = 42U;
+  stream_frame.simulation_time_seconds = 2.0;
+  auto oversized_state =
+      std::make_shared<GraphicsSceneDynamicMeshState>(*DynamicState(3U, 0.5F));
+  oversized_state->velocities.assign(3U, Float3{});
+  stream_frame.dynamic_meshes[0U].state = oversized_state;
+  Require(stream_bounded.Produce(stream_frame).validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              SameSharedOwner(exact_stream_snapshot,
+                              stream_bounded.LoadPublishedSnapshot()),
+          "over-bound dynamic stream bytes were accepted or published");
+
+  GraphicsSceneSnapshotProducerConfiguration vertex_config;
+  vertex_config.registry_id = 705U;
+  vertex_config.maximum_dynamic_vertex_count = 2U;
+  GraphicsSceneSnapshotProducer vertex_bounded(vertex_config);
+  Require(vertex_bounded.Produce(stream_frame).validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              vertex_bounded.LoadPublishedSnapshot() == nullptr,
+          "over-bound aggregate dynamic vertices initialized publication");
+
+  GraphicsSceneSnapshotProducer collision_producer = MakeProducer(702U);
+  GraphicsSceneFrameInput collision = MakeFrame();
+  collision.assets.push_back(DynamicMeshAsset());
+  collision.dynamic_meshes.push_back(
+      DynamicObject(collision.static_meshes.front().source_object_id,
+                    DynamicState(2U)));
+  Require(collision_producer.Produce(collision).validation.code ==
+              ValidationCode::DUPLICATE_IDENTIFIER,
+          "static and dynamic objects did not share one identity namespace");
+
+  GraphicsSceneSnapshotProducerConfiguration bounded_config;
+  bounded_config.registry_id = 703U;
+  bounded_config.maximum_dynamic_mesh_objects = 1U;
+  GraphicsSceneSnapshotProducer bounded(bounded_config);
+  GraphicsSceneFrameInput bounded_frame = MakeFrame();
+  bounded_frame.assets.push_back(DynamicMeshAsset());
+  bounded_frame.dynamic_meshes.push_back(
+      DynamicObject(300U, DynamicState(2U)));
+  Require(bounded.Produce(bounded_frame).ok(),
+          "last configured dynamic object record was unavailable");
+  bounded_frame.simulation_tick = 42U;
+  bounded_frame.simulation_time_seconds = 2.0;
+  bounded_frame.dynamic_meshes.clear();
+  Require(bounded.Produce(bounded_frame).ok(),
+          "bounded deformable retirement was rejected");
+  bounded_frame.simulation_tick = 43U;
+  bounded_frame.simulation_time_seconds = 3.0;
+  bounded_frame.dynamic_meshes.push_back(
+      DynamicObject(301U, DynamicState(2U)));
+  Require(bounded.Produce(bounded_frame).validation.code ==
+              ValidationCode::VALUE_OUT_OF_RANGE,
+          "dynamic lifetime bound ignored a tombstoned identity");
+}
+
 void TestExhaustionAndBoundsFailClosed() {
   using namespace RoR::Render;
   GraphicsSceneSnapshotProducerConfiguration snapshot_config;
@@ -1679,10 +1915,147 @@ void TestDeterministicAcrossAdapterTraversalOrders() {
           "adapter traversal order changed reflection-probe state or digest");
 }
 
+void TestSceneGenerationFinalizationAndTickReset() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(0x47454E4552415445ULL);
+  const GraphicsSceneSnapshotProduceResult before_first =
+      producer.FinalizeSceneGeneration();
+  Require(!before_first &&
+              before_first.validation.code ==
+                  ValidationCode::MISSING_REFERENCE &&
+              producer.LoadPublishedSnapshot() == nullptr &&
+              !producer.has_open_scene_generation() &&
+              producer.asset_sequence() == 0U,
+          "pre-publication scene finalization changed producer state");
+
+  GraphicsSceneFrameInput first_frame = MakeFrame();
+  const GraphicsSceneSnapshotProduceResult first =
+      producer.Produce(first_frame);
+  Require(first.ok() && producer.has_open_scene_generation() &&
+              first.production.asset_delta.has_value(),
+          "first map generation was not published");
+  const RenderAssetReference first_mesh =
+      first.production.scene_snapshot->mesh_instances().front().mesh;
+  const std::uint64_t first_asset_sequence = producer.asset_sequence();
+
+  const GraphicsSceneSnapshotProduceResult finalized =
+      producer.FinalizeSceneGeneration();
+  Require(finalized.ok() &&
+              finalized.production.scene_snapshot->snapshot_id() == 2U &&
+              finalized.production.scene_snapshot->simulation_tick() ==
+                  first_frame.simulation_tick &&
+              finalized.production.scene_snapshot->mesh_instances().empty() &&
+              finalized.production.scene_snapshot->lights().empty() &&
+              finalized.production.asset_delta.has_value() &&
+              finalized.production.asset_delta->base_sequence ==
+                  first_asset_sequence &&
+              finalized.production.asset_delta->mutations.size() ==
+                  first_frame.assets.size() &&
+              !producer.has_open_scene_generation(),
+          "scene generation did not finalize as one empty tombstone transaction");
+  for (const RenderAssetMutation &mutation :
+       finalized.production.asset_delta->mutations) {
+    Require(mutation.type == RenderAssetMutationType::DESTROY,
+            "scene finalization retained a live old-generation asset");
+  }
+
+  GraphicsSceneFrameInput reloaded = MakeFrame();
+  reloaded.simulation_tick = 0U;
+  reloaded.simulation_time_seconds = 0.0;
+  const GraphicsSceneSnapshotProduceResult second = producer.Produce(reloaded);
+  Require(second.ok() && second.production.scene_snapshot->snapshot_id() == 3U &&
+              second.production.scene_snapshot->simulation_tick() == 0U &&
+              second.production.asset_delta.has_value() &&
+              !second.production.asset_delta->full_snapshot &&
+              second.production.scene_snapshot->mesh_instances().front().mesh !=
+                  first_mesh &&
+              second.production.scene_snapshot->mesh_instances().front()
+                      .mesh.id.low() > first_mesh.id.low(),
+          "reload tick zero reused retired renderer identity or regressed global lineage");
+  const GraphicsSceneAssetRecoveryResult recovery =
+      producer.BuildRecoveryAssetSnapshot();
+  Require(recovery.ok() &&
+              recovery.full_snapshot.mutations.size() ==
+                  first_frame.assets.size() * 2U,
+          "generation reset recovery omitted retired tombstones or new assets");
+
+  GraphicsSceneSnapshotProducerConfiguration lifetime_config;
+  lifetime_config.registry_id = 0x4C49464554494D45ULL;
+  lifetime_config.maximum_asset_records = first_frame.assets.size();
+  GraphicsSceneSnapshotProducer lifetime_bounded(lifetime_config);
+  Require(lifetime_bounded.Produce(MakeFrame()).ok() &&
+              lifetime_bounded.FinalizeSceneGeneration().ok(),
+          "lifetime-cap fixture could not close its first generation");
+  const std::shared_ptr<const SceneSnapshot> lifetime_sentinel =
+      lifetime_bounded.LoadPublishedSnapshot();
+  const std::uint64_t lifetime_sequence =
+      lifetime_bounded.asset_sequence();
+  GraphicsSceneFrameInput lifetime_reload = MakeFrame();
+  lifetime_reload.simulation_tick = 0U;
+  lifetime_reload.simulation_time_seconds = 0.0;
+  const GraphicsSceneSnapshotProduceResult lifetime_rejected =
+      lifetime_bounded.Produce(lifetime_reload);
+  Require(!lifetime_rejected &&
+              lifetime_rejected.validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              lifetime_rejected.validation.field == "assets" &&
+              SameSharedOwner(lifetime_sentinel,
+                              lifetime_bounded.LoadPublishedSnapshot()) &&
+              lifetime_bounded.asset_sequence() == lifetime_sequence &&
+              !lifetime_bounded.has_open_scene_generation(),
+          "generation-scoped source IDs bypassed the process-global lifetime "
+          "asset-record cap or changed the final sentinel");
+
+  GraphicsSceneSnapshotProducer empty_producer = MakeProducer(0x454D50545947454EULL);
+  GraphicsSceneFrameInput empty_frame;
+  empty_frame.simulation_tick = 9U;
+  empty_frame.simulation_time_seconds = 0.5;
+  empty_frame.camera.view_id = 1U;
+  empty_frame.camera.width = 1280U;
+  empty_frame.camera.height = 720U;
+  empty_frame.camera.clip_from_view = Perspective();
+  empty_frame.camera.far_plane = 1000.0F;
+  const GraphicsSceneSnapshotProduceResult empty_first =
+      empty_producer.Produce(empty_frame);
+  const GraphicsSceneSnapshotProduceResult empty_final =
+      empty_producer.FinalizeSceneGeneration();
+  empty_frame.simulation_tick = 0U;
+  empty_frame.simulation_time_seconds = 0.0;
+  const GraphicsSceneSnapshotProduceResult empty_reload =
+      empty_producer.Produce(empty_frame);
+  Require(empty_first.ok(), "initially empty scene was rejected");
+  Require(empty_final.ok(), "initially empty scene could not be finalized");
+  Require(!empty_final.production.asset_delta.has_value(),
+          "empty finalization emitted a spurious asset delta");
+  Require(empty_reload.ok(), "empty reload tick zero was rejected");
+  Require(empty_reload.production.scene_snapshot->snapshot_id() == 3U,
+          "empty reload did not preserve global snapshot identity");
+
+  GraphicsSceneSnapshotProducerConfiguration exhausted_config;
+  exhausted_config.registry_id = 0x4641494C47454E31ULL;
+  exhausted_config.first_snapshot_id =
+      (std::numeric_limits<std::uint64_t>::max)();
+  GraphicsSceneSnapshotProducer exhausted(exhausted_config);
+  const GraphicsSceneSnapshotProduceResult last = exhausted.Produce(MakeFrame());
+  const std::shared_ptr<const SceneSnapshot> sentinel =
+      exhausted.LoadPublishedSnapshot();
+  const std::uint64_t sentinel_sequence = exhausted.asset_sequence();
+  const GraphicsSceneSnapshotProduceResult rejected =
+      exhausted.FinalizeSceneGeneration();
+  Require(last.ok() && !rejected &&
+              rejected.validation.field == "snapshot_id" &&
+              SameSharedOwner(sentinel, exhausted.LoadPublishedSnapshot()) &&
+              exhausted.asset_sequence() == sentinel_sequence &&
+              exhausted.has_open_scene_generation(),
+          "failed generation finalization changed the published sentinel");
+}
+
 } // namespace
 
 int main() {
   TestJoinedSourceInitialSnapshotAndCanonicalOrder();
+  TestJoinedSourceProducerRejectionDiscardsAndRetries();
   TestLegacyProducerVersionsRequireExplicitMigration();
   TestReflectionProbeLineageAndCanonicalOrder();
   TestTransformCameraHistoryAndOriginRebase();
@@ -1694,7 +2067,9 @@ int main() {
   TestCanonicalSortingPreservesOriginalFailureIndices();
   TestStableFrameAvoidsLargePayloadCopiesAndComparisons();
   TestStableCatalogAllocationCountDoesNotScalePerElement();
+  TestDynamicMeshLineageOwnershipAndTombstones();
   TestExhaustionAndBoundsFailClosed();
   TestDeterministicAcrossAdapterTraversalOrders();
+  TestSceneGenerationFinalizationAndTickReset();
   return EXIT_SUCCESS;
 }

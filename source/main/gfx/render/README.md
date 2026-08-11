@@ -101,18 +101,22 @@ identity, simulation time, capture generations, and the float render origin.
 That separation lets origin rebasing preserve static probe lineage while the
 native plan still binds the exact derived render-relative transform.
 
-`GraphicsSceneSnapshotProducer` version 3 accepts those lights and absolute-world
+`GraphicsSceneSnapshotProducer` version 4 accepts those lights and absolute-world
 reflection probes in arbitrary
 source traversal order, canonicalizes them, rebases local-light history, and
-enforces permanent identity/type/revision tombstones. Once the entire asset, scene,
-lighting, environment, and camera transaction commits, it release-publishes the
-exact immutable owner returned to the caller. Concurrent consumers acquire-load
-either the previous complete scene or the next complete scene; a failed
-production publishes nothing. The atomic observer pointer does not replace the
-ordered production result: renderer submission still carries that scene's asset
-delta and camera together. Calls into a producer, including observer loads, must
-quiesce before producer destruction starts; immutable snapshot owners already
-acquired by readers remain valid independently.
+enforces permanent identity/type/revision tombstones. It also accepts complete
+dynamic section states under independent limits of 65,536 objects, 16 Mi
+vertices, and 512 MiB of copied position/normal/tangent/velocity storage per
+candidate. These aggregate limits are checked without integer wrap before any
+producer state commits. Once the entire asset, scene, lighting, environment,
+camera, and dynamic-inventory transaction commits, it release-publishes the exact
+immutable owner returned to the caller. Concurrent consumers acquire-load either
+the previous complete scene or the next complete scene; a failed production
+publishes nothing. The atomic observer pointer does not replace the ordered
+production result: renderer submission still carries that scene's asset delta and
+camera together. Calls into a producer, including observer loads, must quiesce
+before producer destruction starts; immutable snapshot owners already acquired by
+readers remain valid independently.
 
 There is no implicit lighting/schema migration. Scene snapshot versions 1, 2, and 3
 and joined-producer input versions 1 and 2 are rejected with `UNSUPPORTED_VERSION`.
@@ -123,6 +127,801 @@ explicit (possibly empty) reflection-probe set, and submit producer version 3.
 Old lighting hash values are not comparable with the current version-2 digest
 because the scene schema, registry identity, and calibrated photometry are part
 of the contract.
+
+## Cross-process scene, asset, and input transport
+
+`RenderTransportEnvelope` version 1 is the deterministic, fail-closed wire
+edge shared by isolated render processes. Message kind `1` carries one complete
+`SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
+contract version 2. Message kind `7` carries `RenderAssetDelta` payload version
+2, whose material subframes are `MaterialDescriptor` version 3. The legacy
+asset message kind `2` remains a reserved framing value but is rejected by the
+typed asset decoder and live dispatcher; no current encoder emits it.
+Reverse-direction message kind `3` carries one input-event batch version 1 from
+the renderer/window host to the game process. Reverse kind `4` is a cumulative
+presentation acknowledgement and reverse kind `5` is a lifecycle control
+command. Typed decoders publish immutable owners only after the entire candidate
+passes framing, digest, allocation, semantic, registry, and exact-consumption
+validation.
+
+Forward kind `6` is the fixed version-one scene-generation boundary. It follows
+the old generation's optional all-tombstone asset delta and authoritative empty
+scene in the same authenticated sequence, and binds their exact registry,
+asset sequence, final snapshot ID, completed generation, and next generation.
+The dispatcher applies it only after that empty scene and zero-live-asset state,
+then resets frontend HDR temporal and reflection-probe scheduling state. A
+missing, forged, replayed, reordered, or mismatched marker poisons dispatch;
+simulation time moving backward without this boundary remains rejected. Source
+keys are generation-scoped, while renderer asset IDs, the registry catalog,
+snapshot/update/frame IDs, and the producer's lifetime asset-record limit stay
+process-global and monotonic.
+
+The fixed 64-byte header is independent of host structure packing:
+
+| Offset | Bytes | Encoding | Meaning |
+| ---: | ---: | --- | --- |
+| 0 | 8 | bytes | ASCII `RORSCN01` magic |
+| 8 | 2 | little-endian `u16` | transport version (`1`) |
+| 10 | 2 | little-endian `u16` | header size (`64`) |
+| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` reserved legacy assets, `3` input, `4` ACK, `5` control, `6` scene boundary, `7` assets v2/material v3) |
+| 14 | 2 | little-endian `u16` | reserved flags (`0`) |
+| 16 | 8 | little-endian `u64` | strictly ordered sequence |
+| 24 | 8 | little-endian `u64` | exact payload byte count |
+| 32 | 32 | bytes | SHA-256 of the exact payload |
+
+`RenderTransportStreamDecoder` version 1 reconstructs these atomic envelopes
+from pipes or other arbitrary byte streams without assuming read boundaries.
+It validates the complete fixed header before reserving the declared payload,
+enforces the lower of an immutable caller cap and the typed 128-byte control,
+4 MiB input, 64 MiB scene, or 640 MiB asset cap, consumes no bytes from a
+coalesced following frame, and exposes at most one validated frame at a time.
+Callers must take that frame before continuing. Invalid framing, corruption,
+allocation failure, or EOF inside a frame permanently poisons the decoder;
+there is deliberately no magic-byte resynchronization that could conceal lost
+state or break the shared scene/asset sequence lineage.
+
+The scene payload carries every current scene field: identities and simulation
+time, absolute origin, environment and analytic sky, mesh instances, current
+and previous lights, reflection probes, full dynamic-mesh updates, particle
+events, and camera history/jitter/exposure. Scene collections retain their
+validated strictly increasing identity order, so no map or backend traversal
+can reorder them.
+
+The live OGRE 14 adapter samples only after
+`GfxScene::BufferSimulationData()` has copied simulation state and
+`GfxScene::UpdateScene()` has consumed those copies and joined flex/wheel work.
+Source version 2 requires a nonzero post-update epoch exactly equal to the joined
+buffer epoch; a capture attempted between those boundaries fails with a sequence
+mismatch before identity, lifecycle, or cache state can change. `FlexBody`,
+`FlexObj`, `FlexMesh`, and `FlexMeshWheel` expose copies of their private,
+fully joined CPU graphics staging only. Capture never reads `Actor`, `NodeSB`,
+solver, or hardware-buffer vertex state. Its constant ambient conversion is
+an explicit numeric compatibility calibration: one renderer-linear OGRE 14
+ambient unit equals one scene-radiance unit, with identity intensity and
+exposure and no invented compatible linear-float equirectangular environment
+texture. Cubemap/procedural sky presentation remains part of the pending
+static asset/instance inventory; this ambient field does not claim to replace
+it. OGRE 14 has no authored
+reflection-probe registry, so its complete authored probe set is exactly empty;
+the vehicle-local dynamic `GfxEnvmap` is not promoted to a world-space probe.
+The complete managed `Ogre::MOT_LIGHT` registry is captured at that same joined
+boundary, including authored-invisible lights. Exact case-sensitive OGRE names
+are domain-separated FNV-1a-64 identities; empty names, duplicate names, hash
+collisions, type changes, malformed native values, and unsupported rectangle
+lights fail the whole light transaction. Authored visibility maps to zero
+intensity and zero shadow classes without removing the record, so enable/disable
+changes do not churn identity. Directional position/range/cones are canonical
+zero, point direction
+is canonical, local positions and range are retained, OGRE full spot cones are
+halved into portable half-angles, and the OGRE shadow enable maps to both static
+and dynamic shadow classes.
+
+Legacy OGRE lighting is not measured photometry. Calibration version 1 maps one
+renderer-linear Rec.709 luminance unit of OGRE `diffuse * powerScale` to exactly
+1024 canonical lux for directional lights or candela for local lights. RT4/V1's
+documented `1/1024` native scale therefore reconstructs the legacy diffuse RGB
+term numerically before attenuation. This compatibility claim intentionally
+does not cover OGRE's constant/linear/quadratic attenuation coefficients,
+spotlight falloff exponent, separate specular color, visibility/light masks, or
+material response because scene schema v4 cannot represent those values.
+RT4/V1 also still admits only one directional light and rejects point/spot
+lights; full native local-light rendering remains a downstream milestone.
+
+Every supported actor cab, flexbody, flex-mesh wheel, and mesh-wheel tire is
+split by effective OGRE `SubEntity`, preserving its exact topology draw range,
+material binding, affine transform, visibility mask, reflection visibility, and
+shadow participation. Stable domain-separated identities use actor creation ID,
+component kind, component creation ID, and section ordinal; they never use vector
+position, display name, or a native address. The immutable base asset owns UV0,
+indices, material, and topology, while each scene owns a full post-physics
+position/normal update and exact tight bounds. Semantic deformation revisions
+advance only when copied contents change, unchanged frames reuse the prior
+immutable owner, removed object identities become permanent tombstones, and base
+assets remain retained so actor removal cannot invalidate in-flight snapshots.
+The actor topology cache retains only copied numeric OGRE resource handles, never
+native pointers, and is cleared when the graphics scene is destroyed.
+
+The actor-deformation adapter deliberately fails closed when a vertex declaration
+requires an update stream it cannot reproduce exactly. Current exclusions include
+frame-varying FlexBody blend colors, dynamic tangents, skinning, extra texture
+coordinate sets, and any other unsupported dynamic declaration. As with static
+objects, the compatibility material fallback rejects texture units, shader
+programs, or multipass state. The renderer-neutral dynamic input can instead own
+the same immutable exact translated material closure used by static sections. In
+that mode it rederives the exact group/name key and translator ID, validates the
+closure version and source/catalog lineage, preserves dependency order and shared
+payload owners, compares complete producer-owned bindings, validates authored UV
+availability, and derives required topology winding from the translated audit.
+The factor-only path is not consulted. Full-asset canonicalization and collision
+rules are intentionally shared with the static path, including payload plus all
+material bindings. Mirrored dynamic transforms and identity resurrection also
+fail closed.
+
+Before a joined caller merges independently built static and dynamic asset
+vectors, it must call
+`ValidateOgre14GraphicsSceneResolvedMaterialFrameLineage()` over both candidate
+input sets. That transaction revalidates every detached closure and proves a
+single source/catalog epoch across both domains; equivalent payloads from
+different epochs are not interchangeable. The live `GfxScene` tap does not yet
+populate `resolved_material` or its `mesh_reverse_winding` proof, so textured
+vehicles remain fail-closed end to end until that native wiring lands.
+
+The adapter now publishes an authored `MeshObject` static subset only when its
+whole geometry domain is representable. `TerrainObjectManager` supplies
+monotonic never-reused object IDs; every `SubEntity` becomes one exact
+mesh/material section; CPU extraction honors OGRE vertex/index draw ranges,
+16/32-bit indices, authored basis/UV/color streams, material culling, and tight
+bounds. Domain-separated exact-resource IDs are collision-audited, omitted
+identities are permanent tombstones, and an immutable payload cache makes
+stable frames reuse the same owners. Entity and section visibility plus
+shadow/reflection flags are preserved.
+
+The same authoritative transaction now includes every defined OGRE 14
+`TerrainGroup` slot. Every page must be loaded, retain complete CPU LOD0 height
+data (`highest_lod_prepared == 0`), have no pending group preparation or
+derived-data work, and agree with its packed signed slot, group layout, and
+translation-only render node. Capture copies all row-major heights and a
+one-cell `getPointFromSelfOrNeighbour` halo. It emits one camera-independent
+full-LOD0 mesh per page, converts OGRE's alternating strip to canonical
+triangles, retains all four page-perimeter skirts, and reproduces alignment,
+eight-face normals, tangent handedness, upper-left UVs, winding, and tight
+bounds. Because the canonical page is one draw topology, there are no internal
+quadtree LOD boundaries needing camera-selected skirts or morph deltas.
+`highest_lod_loaded` and target LOD are range-audited native GPU/draw metadata
+but do not enter the exact geometry key or affect the payload. Adjacent loaded
+pages must agree along shared world edges.
+
+Terrain page identities include the exact resource group, filename convention,
+resolved slot filename, and signed coordinates. Their derived IDs are
+collision-audited and omissions are permanent tombstones. An exact byte cache
+key contains every topology scalar, height, halo point, and winding byte;
+unchanged pages reuse immutable owners while changed pages advance their
+revision. The candidate terrain cache and combined terrain/`MeshObject`
+inventory commit only after all pages and sections succeed. Capture never
+mutates LOD, normal, delta, or derived-data state.
+
+Procedural-road capture version 1 now starts at the graphics owner rather than
+recovering data from collision triangles or GPU buffers. `ProceduralRoad`
+retains an owning post-`createMesh()` copy of the exact uploaded positions,
+normalized render normals, UV0 values, and safely promoted uint16 indices; its
+post-`finish()` snapshot adds exact native mesh/entity/material identity,
+derived node transform, visibility, and shadow state. `ProceduralManager`
+allocates monotonic nonzero identities independent of vector position and road
+name. Duplicate registration, identity exhaustion, and re-adding a removed
+object fail closed. Rebuilds preserve identity and advance topology revision
+exactly once only when the finalized geometry byte key changes; the previous
+native road remains live until its replacement validates.
+
+`Ogre14ProceduralRoadSource` is the renderer-neutral transaction for that
+snapshot. It audits native bounds, finite unit normals, triangle winding,
+uint16 promotion, exact `road2` identity, transforms, collision-separated
+identity derivation, live/lifetime/payload limits, permanent removal
+tombstones, stable ordering, and revision lineage. Byte-identical roads reuse
+the same immutable mesh owner only when their complete admitted winding proof
+selects the same index bytes. Geometry remains the topology-revision identity:
+an exact material cull flip rebuilds the wound payload without advancing that
+revision, while `NONE` and `CLOCKWISE` proof updates reuse the same unreversed
+owner. Missing, inconsistent, or cached-payload-disagreeing proof fails before
+the inventory publishes. The source currently produces static-section
+candidates which can be combined with terrain/native static sections before
+the generic collision-audited static-inventory transaction. The focused
+combined-static contract proves collision rejection, stable ordering, and
+immutable owner reuse without mutating durable road state before commit.
+
+### Continuous OGRE 14 particle capture v1
+
+`SceneSnapshot::ParticleEvent` remains the compact contract for discrete burst
+emissions. It cannot represent a continuously retained particle, its exact
+material, direction, rotation, age, or explicit system stop/destruction. It is
+therefore incorrect to flatten the native smoke, exhaust, dust, fire, or water
+systems into a fresh burst on every frame. `Ogre14ParticleCaptureSource` adds a
+version-one, wire-adjacent continuous-state delta without changing the
+established scene-snapshot-v4 transport layout. Transport and frontend
+consumption are still a downstream milestone, so this source is not yet wired
+into `GfxScene` or advertised as shipping particle support.
+
+The future native tap supplies a complete value-only inventory after the
+copied simulation buffer and graphics update epochs have joined. It must issue
+monotonic never-reused system, per-system particle, and transition-event IDs;
+copy realized render-space position, unit direction, velocity, linear color,
+width/height, rotation, age, and lifetime; and preserve the frame's absolute
+world origin. Input traversal order is irrelevant. The source sorts systems,
+particles, and events by stable identity, derives exactly one `CREATE`,
+`UPDATE`, `STOP`, or `DESTROY` transition for every semantic change, and
+rejects missing, extra, or mismatched producer events. Unchanged frames produce
+an empty delta, exact same-sequence replay reproduces the preceding result, and
+omitted systems or particles leave permanent tombstones that cannot return.
+Effective visibility is the logical AND of system and parent visibility.
+
+There is no guessed smoke shader. Every system carries a versioned material
+closure receipt naming the exact catalog registry, catalog sequence, material
+revision, and successful translator source sequence. Capture also receives a
+borrowed const `RenderAssetRegistry` view for that exact joined boundary and
+resolves the receipt to a live `MaterialDescriptor` before lifecycle state can
+move. The caller must serialize `Apply()` and keep the view quiescent for the
+call; the registry type remains mutable and this is not a thread-safe immutable
+snapshot. A forged, stale, missing, wrong-kind, or cross-catalog receipt rejects
+the whole frame. Version one accepts only already-realized, world-space,
+camera-facing-point billboards. It fails closed if a frontend would need to
+evaluate native emitter or affector definitions, sort particles, animate a
+texture, apply a local-space transform, or reinterpret another billboard mode.
+
+All configured per-system, per-frame, lifetime-identity, event, and logical
+payload-byte limits are nonzero. The logical byte sum is derived from named
+fixed-width terms (including the full closure receipt and vector counts) and
+uses checked arithmetic before candidate allocation. Registry and output
+publication use a candidate copy and non-throwing final moves: malformed
+values, identity collisions, sequence gaps/regressions, cap exhaustion,
+allocation exceptions, and injected pre-commit faults leave both the durable
+registry and caller output unchanged. The remaining native work is to assign
+stable IDs at the owners in `DustPool`, actor exhaust/custom-particle creation,
+terrain particle objects, turboprop/turbojet smoke, and extinguishable fire;
+copy the post-update realized particle arrays without hardware-buffer reads;
+and submit the resulting adjunct transaction alongside the same joined scene
+and catalog snapshot. Signed-zero floating values are folded to canonical
+positive zero before replay comparison and publication.
+
+A system first observed with emission disabled is still created explicitly with
+`CREATE` and a stopped complete state. A previously stopped but not destroyed
+system may resume emission under the same identity; that transition is an
+`UPDATE`, not a second `CREATE`. While a system remains stopped, retained
+particles may update or age out, but the complete snapshot may not introduce a
+new particle identity until emission resumes. `DESTROY` remains the permanent
+identity boundary.
+
+Compatibility-material fallback version 1 is intentionally factor-only. It
+preserves first-pass diffuse/emissive factors, lighting, shininess-derived
+roughness, supported culling, straight alpha, and alpha rejection while
+requiring exactly one pass, zero texture units, and no vertex/fragment program.
+Additional passes or authored texture/shader content fail closed rather than
+being silently dropped. Terrain layer/sampler names and world scales, blend
+textures, global-colour maps, lightmaps, composite maps, and generated material
+state are audited before meshing; any authored texture state remains an exact
+publication blocker until portable texture transport is implemented. The
+original overload still keeps textured legacy `road2` blocked and never
+coerces it through this fallback. The separately activation-gated overload now
+accepts an exact road2 material closure only when it is resolved from one
+authoritative translated full snapshot and the road capture supplies a
+bit-exact native pipeline audit. That closure carries rederivable exact keys,
+immutable texture/sampler/material owners, producer-owned bindings, and the
+common source/catalog epoch; no factor-only road material or PBR semantic is
+guessed. OGRE 14
+Terrain has no hole API, and the renderer-neutral builder rejects a claimed
+hole rather than silently filling it. Procedural roads, characters or other
+unimplemented deformable geometry, paged vegetation, animated terrain objects,
+unsupported vertex declarations, and unsupported material states likewise
+return exact diagnostics. Mirrored instance transforms also fail closed until
+reflection can be baked into the canonical mesh basis and winding. Consequently
+`ASSETS`, `STATIC_MESHES`, and `DYNAMIC_MESHES` are advertised together
+only after a complete supported inventory; terrain textures and joined
+procedural-road collection remain required before ordinary maps can publish
+end to end.
+
+### Exact OGRE 14 legacy asset translator v1
+
+`Ogre14LegacyAssetTranslator` is the replacement path for textured legacy
+assets. It is deliberately a pure-data catalog; the native capture and live
+scene assembly path is not wired into `GfxScene` yet.
+`gfx/ogre14/Ogre14LegacyNativeAssetExtractor` is the native
+integration adapter and deliberately lives outside this renderer-neutral
+boundary; the native application and its focused compile test pin that edge to
+OGRE 14.5.2. `DeriveOgre14LegacyMaterialPipelineAudit` is the one public pure
+value derivation shared by this edge and `Translate`; it allocates or
+authenticates no owner. Only `CaptureOgre14LegacyNativeMaterial` can construct a
+nonempty version-2 `Ogre14LegacyNativeMaterialAuditReceipt`. It mints a fresh
+immutable audit owner and a version-1 `RORNMD1` canonical native-declaration
+SHA-256 directly from the complete admitted Material, Technique, Pass, texture
+unit, combine, environment, shadow-policy, sampler, and pipeline structure
+before publishing the transactional native capture. A direct pre-readback
+serialization and two stable direct post-readback serializations must agree;
+the caller holds the serialized OGRE owner thread and excludes graph mutation
+for the call. The receipt authenticates both the exact object pointer and its control block,
+together with the native declaration digest/version and a
+`RORNCP1` projection of every mutable public material, sampler, texture, and
+exact mip-byte field. For the authenticated overload it also retains the exact
+loaded-resource authority: registry and source-receipt control blocks, resolver
+identity, and loaded revision. Thus an altered digest, reboxed audit value,
+caller-mutated capture, fresh capture, or translated closure owner cannot
+impersonate the native observation. Authored catalog/scene semantics and source
+archive/script bytes retain their independent authorities.
+The eventual static/terrain adapter
+must submit a complete post-buffer inventory to the translator, then map each
+dependency-ordered `source_asset_id` and immutable payload owner into
+`GraphicsSceneAssetInput`. For a material, it must use the two IDs in
+`Ogre14LegacyMaterialPipelineAudit` as the base-color binding and reverse mesh
+winding when `requires_reverse_winding` is true. It may publish nothing unless
+the companion audit is present and version 1.
+
+The v1 acceptance set is exact and intentionally narrow:
+
+- one loaded material technique containing one pass, with no authored or
+  RTSS-generated GPU program, custom shadow material, hardware vendor/device
+  rule, nondefault shadow policy, or nondefault technique scheme/LOD;
+- zero or one ordinary named, loaded, non-manual 2D base-color texture, one
+  frame, identity UV transform, and OGRE's texture-times-current color and
+  alpha combine;
+- explicit `BASE_COLOR_SRGB` or `LINEAR_DATA` intent supplied by versioned
+  content metadata, with hardware-gamma state required to agree. The decoder
+  never applies a transfer curve: native `PF_BYTE_RGBA` or the pure contract's
+  byte-order-specific formats are channel-normalized to RGBA8 and the sRGB bit
+  is attached exactly once;
+- a contiguous base-to-smallest-provided mip prefix with exact halved
+  dimensions, byte pitches, padding, and slice sizes. Output rows and slices
+  are canonical tightly packed RGBA8;
+- exact wrap/mirror/clamp/border, min/mag/mip filtering, anisotropy, LOD bias,
+  effective LOD range, comparison, and border-color state;
+- replace or true straight-alpha source-over blending, full color writes,
+  canonical depth checking/writing, default manual culling, solid fill, one
+  pass iteration, no bias or alpha-to-coverage, and always-pass or `>=` alpha
+  rejection. Clockwise, anticlockwise, and disabled hardware culling remain in
+  the immutable audit; anticlockwise culling requires mesh winding reversal;
+- canonical Gouraud shading and scene-controlled fog, conditional transparent
+  sorting, default line/point rasterization, the default all-light mask/range,
+  no per-light iteration, vertex-colour tracking, light scissoring/clipping,
+  manual illumination staging, or unordered-access texture mip;
+- an explicit unlit or rough-dielectric PBR base-color declaration. The latter
+  fixes metallic to zero and roughness to one by contract, not by inspecting
+  a filename or shininess. Ambient, specular, emissive, and shininess lobes
+  reject because v1 has no exact role for them.
+
+Multipass or multi-technique materials; compressed or unsupported formats;
+cubemap, array, 3D, multisample, external, compositor, render-target, manual,
+generated, animated, procedural, projective, or environment texture content;
+nonidentity gamma/UV/color transforms; comparison base-color sampling; and
+every other blend/depth/raster state fail closed. A later version must add an
+explicit portable semantic before accepting any of those cases.
+
+Each accepted source frame starts at sequence one and advances exactly once.
+Exact length-prefixed resource-group/name keys produce domain-separated stable
+64-bit IDs. Semantic byte changes require a higher native source revision and
+advance one translated revision; owner replacement and source-only revision
+changes reuse the immutable payload and do not advance it. Transactions emit
+texture/sampler/material UPSERTs in dependency order and material/sampler/
+texture DESTROYs in reverse order. Removed keys become permanent tombstones;
+full snapshots include them. Validation, allocation, native readback, injected
+fault, collision, or lineage failure leaves the catalog, sequence, output
+frame, and previously shared owners untouched.
+
+Every translated frame also carries an opaque catalog-identity receipt. Only a
+translator can mint a nonempty receipt; transaction clones copy the exact
+shared receipt, while every fresh translator receives a distinct identity.
+Consumers compare receipts pointer-exactly in addition to numeric source and
+catalog sequences. A scene reset may therefore restart both numeric sequences
+without allowing the new generation to impersonate an older material frame.
+The receipt is copyable for detached requests and closures but exposes no
+constructor for a nonempty value.
+
+Versioned translator configuration bounds texture inputs, material inputs,
+derived live assets (including material-owned samplers), permanent lifetime
+records (including tombstones), canonical decoded bytes per texture, and
+aggregate canonical decoded bytes per source frame. Every limit is nonzero.
+The default 65,536-record and 512 MiB payload ceilings match the joined
+`GraphicsSceneSnapshotProducer` defaults; a native capture declaration must use
+the same configuration as its consuming translator. Counts and decoded-byte
+sums use checked arithmetic, and a cap failure is transactional: no source or
+catalog sequence, output frame, lifetime identity, or immutable payload owner
+is changed. Native readback applies the per-texture cap before allocating mip
+storage, while the pure translator rechecks both the per-texture and aggregate
+frame budgets before decode.
+
+Before copying those mip payloads, a whole-scene adapter may submit a version 1
+`Ogre14LegacyAssetIdentityFrameView` to `PreflightLifetimeAdmission`. Its two
+ranges borrow arrays of canonical nonnull texture and material pointers; the
+translator reads only their versions and exact identity-bearing keys, derives
+material-owned sampler keys, and copies no mip bytes. The const preflight
+enforces input and derived-live counts, rejects duplicate or missing borrowed
+identities, detects both prospective and persistent source-ID collisions, and
+counts only genuinely new stable keys against the permanent lifetime-record
+cap. An exact key already present in the live catalog or its tombstones reuses
+that one lifetime slot. Allocation and unexpected exceptions fail
+transactionally without advancing any sequence or replacing an immutable
+owner. This is an early resource-admission proof, not publication: `Translate`
+still repeats every authoritative payload, dependency, revision, collision,
+and tombstone check against the owned frame before it can mutate the catalog.
+
+Whole-scene adapters may stage this catalog with `CloneForTransaction`. A fork
+deep-copies the mutable sequence, revision, registry, identity, and tombstone
+maps but retains the exact shared owners of immutable descriptors and material
+audits. A private immutable lineage identity and the source transaction epoch
+bind each candidate to one exact committed translator; candidates cannot fork,
+ordinary translator move assignment is disabled, and self, forged, foreign,
+consumed, or stale candidates cannot publish. Noexcept move construction
+preserves the exact source/candidate role and lineage rather than laundering a
+candidate into a source. Clone metadata has its own
+versioned logical-byte budget and checked addition, so copying a hostile
+catalog cannot silently amplify its mutable keys beyond the configured cap.
+Those clone and epoch limits live in a separate versioned transaction
+configuration, leaving the legacy translator configuration v1 unchanged. The
+transaction epoch counts committed publications: a direct source `Translate`
+or successful `CommitTransaction` consumes exactly one, candidate translation
+consumes none, and even a no-op candidate commit consumes one so sibling forks
+become stale. Tests use a small nonzero ceiling to exercise exact commit
+exhaustion while production defaults to the full unsigned 64-bit range.
+
+`CommitTransaction` is an allocation-free `noexcept` publication step. It
+rechecks role, lineage, base epoch, and epoch exhaustion before swapping the
+candidate state into the source and invalidating the candidate. A caller may
+instead destroy a candidate to discard it. Allocation failure or an arbitrary
+exception before candidate publication leaves the source and an already
+populated clone output byte- and owner-equivalent; candidate translation,
+discard/retry, and rejected publication likewise leave the committed catalog
+and all previously shared owners unchanged.
+The optional fault injector is borrowed by the source and its candidates; it
+must outlive them, and publication never swaps or detaches the source pointer.
+The private lineage makes candidate configuration externally immutable;
+publication still compares every legacy and transaction configuration field
+and the borrowed injector pointer before the state swap, failing closed on any
+internal incompatibility.
+
+The publication-critical path uses `BeginCommittableTransaction`. It first
+rejects exhausted epochs and every pre-existing fork, then atomically converts
+its isolated clone into the one exclusive RAII lease for that lineage. While
+the lease is active, the source cannot `Translate`, clone, or begin another
+exclusive transaction; only the candidate may translate or build a complete
+snapshot. Clone or candidate-translation failures remain retryable, and lease
+discard or destruction releases exclusivity without changing source or catalog
+sequences. Once downstream acceptance has been exposed,
+`CommitAfterAcceptedExposure` performs only noexcept state/owner moves and is
+infallible for an active lease. Move construction of either the source or the
+lease preserves ownership, a direct legacy commit of the leased candidate is
+rejected, and a consumed lease cannot publish twice. `CloneForTransaction` and
+`CommitTransaction` retain their version-1 nonexclusive sibling/stale behavior
+for existing callers.
+
+`gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator` owns one immutable semantic
+registry and one fresh translator identity for a scene generation. For each
+authoritative material frame it resolves every exact material key from that
+registry, authenticates its opaque declaration receipt, rejects detached or
+conflicting semantic state, canonicalizes shared
+texture captures, and translates the complete inventory under one exclusive
+lease. It then batch-resolves all material closures from that one full frame
+and exposes shared immutable owners to the joined scene transaction. Every raw
+observation's texture bytes are charged before any deduplication. Repeated
+observations of one exact material may collapse only when their complete native
+capture, authenticated audit control block, and exact loaded-texture source
+authority agree. A textured coordinator borrows one scene-lifetime
+`IOgre14AuthenticatedTextureAuthorityProvider` and captures its exact current
+resolver/receipt-registry publication at the start of every frame. Every
+texture resolution, including distinct keys, must authenticate against that
+common snapshot. Thus a lone foreign proof, mixed registries/resolvers,
+unrelated registry publication, resource removal, or group teardown fails
+before any payload copy; a coordinator without a provider admits only
+untextured frames. Every textured observation must also carry one aligned
+registry-minted resolution whose source-receipt owner, resource group/name, and
+load revision agree with the captured texture; the unauthenticated compatibility
+overload is not admitted here. Independently minted resolutions may canonicalize
+only when they retain the same registry snapshot, source-receipt control block,
+resolver identity, and loaded resource state. A shared texture key cannot cross
+those authorities, and one audit control block
+can never authenticate two stable material keys. After translation, the
+coordinator compares the native and closure audits bit-for-bit, rejects any
+shared control block between them, and retains the exact native owner beside the
+separately owned closure in `Ogre14LegacyPreparedMaterial`. A procedural-road
+caller assigns that owner directly to
+`Ogre14ProceduralRoadCapture::exact_native_material_audit`; it never copies or
+reboxes `closure.material_audit`. Only an
+explicit downstream-acceptance call publishes the translator candidate;
+discard, validation failure, allocation failure, or an arbitrary exception
+releases the lease without advancing source/catalog lineage or changing the
+caller's previously populated output. An empty inventory is a real full frame,
+so removal and generation shutdown cannot retain stale material assets.
+
+This authority authenticates the source owner, key, resolver, registry
+publication, and load revision only. It does not seal caller-mutable decoded
+RGBA mip bytes. Live scene admission still requires an extractor-minted
+canonical readback digest/receipt bound to this authority and exact mip layout,
+plus accepted-exposure revalidation; no pixel-authenticity claim is made here.
+If OGRE resource removal has already occurred and receipt-registry removal
+cannot publish, `ContentManager` poisons the current registry through an
+allocation-free `noexcept` primitive before logging. No later frame can obtain
+a current authority snapshot until the owning manager is reconstructed.
+
+Before copying any canonical material or texture payload, and before acquiring
+the exclusive lease, the coordinator passes a versioned borrowed identity view
+to `PreflightLifetimeAdmission`. That const translator gate derives every
+texture, material, and material-owned sampler key and ID, checks duplicate and
+persistent collisions, and proves the prospective permanent-record count fits
+the lifetime cap without copying mip bytes or mutating state. `Translate`
+remains the authoritative full-payload validation and publication path and
+rechecks the same admission after the bounded copies exist.
+
+`gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding` is the immutable join
+between that pending material transaction and the renderer-neutral static and
+dynamic section inventories. It preflights the fixed section caps before any
+section copy, validates and indexes every private prepared-material owner once,
+and rejects duplicate keys, detached closure lineage, reboxed audit owners,
+caller-supplied closures, and native-cull/winding disagreement. Each referenced
+exact key receives the canonical closure control block retained by the prepared
+frame; an absent key may continue only through the unchanged factor-only
+fallback gate, so a textured section can never silently become an inferred
+material. Static and dynamic closures are revalidated as one common frame
+before the binding publishes a shared immutable state. Allocation failure,
+length overflow, arbitrary exceptions, and the borrowed hostile-test fault
+points leave an existing binding byte- and owner-equivalent. The binding also
+retains the exact prepared-frame identity which the coordinator requires at
+the final accepted-exposure commit.
+
+The native `GfxScene` collector keeps exact-material discovery separate from
+factor-fallback admission. Its lean section reference retains the owning OGRE
+`MaterialPtr`, exact group/name, first-pass cull, and the resulting winding
+conversion without applying fallback-only blend, alpha-test, or color-write
+policy. The existing fallback wrapper still runs every one of those gates and
+therefore preserves the current fail-closed output until authenticated catalog
+activation selects an exact declaration. Dynamic sections record the same
+`mesh_reverse_winding` decision used for their CPU payload and cache identity,
+so a later exact closure cannot disagree with the geometry already converted.
+
+This coordinator is the pure-data admission boundary, not the finished native
+scene tap. `GfxScene` must still collect one authoritative post-update material
+inventory, capture each material using the registry-provided native
+declaration, merge its closures with static, dynamic, road, particle, terrain,
+and deformable assets, and call commit only after that entire scene transaction
+has been accepted. It must discard on every earlier return. Scene reset creates
+a new coordinator so the opaque catalog identity changes even when numeric
+sequences restart at one.
+
+`Ogre14LegacyMaterialClosure` closes the last pure-data seam between that
+catalog and `GraphicsSceneSnapshotProducer`. Given an exact material key, it
+accepts only a complete full snapshot with nonzero source/catalog lineage,
+strict texture/sampler/material live order, strict tombstone/UPSERT mutation
+order, and an exact UPSERT for every live immutable owner. It independently
+parses each length-delimited stable key, recomputes its domain-separated ID,
+validates every descriptor and material audit, and applies the translator's
+65,536-record and 512 MiB hard ceilings before resolving anything.
+
+The resolver revalidates every material in the snapshot, not only the selected
+one. A textured material must name an sRGB RGBA8 2D texture and its unique
+material-derived sampler together; orphan samplers, kind mismatches, invalid
+sampler state, linear base color, semantic/model drift, pre-resolved portable
+references, guessed metallic/roughness state, and winding/cull disagreement
+all fail closed. Success preserves the immutable texture and sampler owners,
+then the immutable material owner, and writes the two audited source IDs only
+to the producer-owned base-color `material_bindings` slot. The descriptor's
+portable references remain canonical absent. Any failure or exception leaves
+the caller's closure untouched, so no partially allocated dependency list can
+enter a joined graphics transaction. A borrowed test-only fault seam exercises
+both pre-index allocation failure and an unexpected exception after partial
+local dependency assembly; production callers leave it null.
+
+`ResolveOgre14LegacyMaterialClosureBatch` is the authoritative multi-material
+path. Each request carries the frame's opaque receipt plus exact numeric
+lineage. The batch validates the full frame once, builds one bounded source-ID
+index, rejects duplicate, foreign, stale, missing, or forged stable/dependency
+keys, and resolves the requested set in canonical material-ID order. Resolution
+performs one bounded ordered-index build plus logarithmic indexed lookups, not
+one full-frame scan per material. Texture, sampler, material, and audit owners
+are copied from that one index, so shared dependencies retain pointer-exact
+canonical ownership. The
+batch and all deep sentinel owners remain unchanged on validation failure,
+`bad_alloc`, or an arbitrary exception after partial local assembly.
+
+Each detached closure also retains one exact key per dependency and the exact
+immutable translated pipeline audit. Static-section admission rederives every
+texture, sampler, and material ID from those keys, rechecks canonical debug
+identity and sampler derivation, and requires every resolved section in one
+inventory to carry the same source/catalog epoch. The merged asset collision
+audit covers mesh, texture, sampler, and material IDs and compares all material
+bindings as well as payloads. Dependency conflicts, forged keys, mixed epochs,
+missing authored mesh streams required by producer-owned bindings,
+mesh/material winding disagreement, and allocation or arbitrary exceptions
+after partial candidate assembly leave lifecycle state and outputs untouched.
+
+The asset payload pins the registry, mesh, texture, material, and sampler
+descriptor versions. It carries registry/base/target sequence lineage, the
+full-snapshot marker, sorted UPSERT/DESTROY mutations, every descriptor field,
+mesh stream and index bytes, and every texture-mip byte. Each UPSERT has an
+explicit resource kind and exact `u64` byte length; its nested reader must
+consume that resource subframe exactly. Material texture and sampler
+dependencies remain stable asset references. No separate bulk-data carrier is
+needed for the current descriptor contract because mesh and texture storage is
+already embedded. Any future resource larger than this atomic message's caps
+requires an explicitly versioned chunking contract rather than an implicit
+reference or partial payload.
+
+Asset payload version 2 pins material version 3 and transports
+`BaseColorTransfer` explicitly. `SRGB_DECODE_BEFORE_FILTER` is the conventional
+hardware sRGB path. `SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE` preserves encoded
+RGBA8 RGB through mip selection and interpolation before a full-binary32 sRGB
+EOTF; it is admitted only by the exact one-texture opaque RT4/V1 Unlit profile.
+
+The input payload has an explicit payload version, SDL2 physical-scancode
+table version, SDL2 standardized-gamepad table version, host clock domain, and
+nonzero clock-origin identity. Every event has a strictly increasing nonzero
+`u64` event ID, a nondecreasing `u64` host-monotonic nanosecond timestamp, and
+one exact variant. Version 1 carries physical keyboard key/repeat events,
+pixel mouse position/delta, explicitly numbered mouse buttons, binary32 wheel
+motion/direction, standardized gamepad connect/disconnect/buttons/axes, strict
+UTF-8 text, focus gained/lost, window close, and raw controller
+connect/disconnect/buttons/axes/hats/sliders. Text is layout-resolved input;
+physical scancodes remain layout-independent.
+
+Keyboard, mouse-button, hat, standardized-gamepad button, and standardized-
+gamepad axis numbers are pinned to SDL 2.32.10's
+[`SDL_Scancode`](https://github.com/libsdl-org/SDL/blob/release-2.32.10/include/SDL_scancode.h)
+and
+[`SDL_GameController`](https://github.com/libsdl-org/SDL/blob/release-2.32.10/include/SDL_gamecontroller.h)
+semantics without including an SDL header. Standardized stick samples preserve
+SDL's exact signed-int16
+`[-32768, 32767]` values and triggers preserve `[0, 32767]`; there is no
+backend-dependent float normalization. Raw joysticks, steering wheels, flight
+sticks, and throttles remain distinct from standardized gamepads. Each raw
+connection carries a stable nonzero device ID, increasing nonzero connection
+generation, 16-byte GUID, vendor/product/version, SHA-256 name digest, device
+class, and bounded ordered descriptors for signed axes, deadzones, buttons,
+hats, and two-component sliders. Relative axes are centered at zero; sliders
+are absolute. A device ID cannot change between standardized and raw families,
+and a descriptor cannot change inside one raw connection generation.
+
+Every batch ends with a complete authoritative level-state reconciliation
+through an event-ID/timestamp watermark: focus, latched close request, pressed
+physical keys and mouse buttons, every connected standardized gamepad and its
+exact controls, and every connected raw device with its descriptor and exact
+controls. Focus loss requires all level controls to be neutral, preventing
+stuck keys, buttons, axes, hats, or sliders even if the operating system does
+not deliver releases. Contiguous event IDs must transform the previous
+reconciliation into the new one exactly. A forward gap is permitted only
+because that complete snapshot heals coalesced/dropped events; replay, IDs at
+or below the prior watermark, timestamp regression, clock-origin changes,
+stale connection generations, silent state changes on complete lineage, and a
+cleared close latch fail transactionally.
+
+All payloads use explicit little-endian integers and IEC 559 binary32/binary64
+encoding; none serializes C++ object storage. Scene values canonicalize
+signed zero to positive zero, and the scene decoder rejects negative zero.
+Asset values preserve both signed-zero encodings because asset revision
+identity is bit-exact. Every transported floating-point field rejects NaN and
+infinity. Trailing bytes and unknown envelope, payload, or descriptor versions
+are forbidden.
+
+Before any decoded vector reserves memory, its count is checked against the
+protocol cap, bytes still present, and a cumulative allocation budget. Scene
+payloads are capped at 64 MiB and decoded allocations at 128 MiB. Asset
+payloads are capped at 640 MiB and decoded allocations at 768 MiB, with at most
+65,536 mutations, 512 MiB per resource, 512 MiB per texture blob and across all
+texture blobs, and 16 mip levels per texture. Mesh stream and index counts have
+additional fixed caps. These limits are checked before reserve or blob copy.
+Input payloads are capped at 4 MiB and decoded allocations at 8 MiB, with at
+most 8,192 events, 1 MiB of UTF-8 text, 10 connected devices, 64 device
+generations per batch, and 256 stable device identities retained by a decoder.
+Per-device raw limits match the current RoR controller ABI: 32 axes, 128
+buttons, four hats, and four sliders. Every count and text length is bounded
+before reserve or copy.
+
+An acknowledgement names the endpoint-derived registry and a strictly
+increasing `through_forward_sequence`; it cumulatively retires every forward
+envelope through that value. Its optional scene pair must name one exact scene
+envelope and immutable snapshot ID at or below the cumulative watermark. A
+scene may first become presented after an earlier ACK has already consumed it;
+the game host therefore retains bounded identity lineage for acknowledged but
+not-yet-presented scenes until a newer presentation makes them unreachable. A
+control command names the same registry, has an exact command-ID lineage
+starting at one, and is one of `PEER_READY`, `REQUEST_GRACEFUL_SHUTDOWN`, or
+`HEARTBEAT`; control payload version 2 also admits `SURFACE_CHANGED`. The first
+control command is `PEER_READY`, and it cannot be repeated. Ready and changed
+surface controls carry the committed surface revision plus logical and
+drawable integer extents. Their exact X/Y content scales are the corresponding
+drawable/logical ratios, so no redundant floating value can disagree. An
+active surface has four nonzero bounded extents. A suspended changed surface
+preserves nonzero logical size, explicitly marks suspension, and carries a
+0x0 drawable; a ready surface cannot be suspended. Every changed revision is
+strictly newer. Heartbeat and shutdown carry zero surface fields. ACK payload
+version 1 remains independent. Both payload kinds retain reserved-zero layouts
+and a 128-byte cap.
+
+Standalone typed decoders own a private envelope sequence. A live bridge gives
+the scene and asset decoders one `RenderTransportSequenceState`, producing one
+strictly ordered game-to-renderer stream. The input decoder can likewise join
+the acknowledgement/control decoder on one reverse sequence; the two
+directions still own distinct states, may both validly begin at sequence `1`,
+and cannot advance one another.
+The receiver applies an asset transaction to its private `RenderAssetRegistry`
+before committing the forward envelope sequence; the next scene can then
+validate against that exact asset sequence. Replay, gaps, wrong-kind routing,
+corruption, truncation, semantic failure, dependency failure, tombstone
+resurrection, or input-lineage failure leave the applicable expected sequence,
+registry/state, and previously published immutable owner unchanged. One caller
+serializes operations on each decoder.
+
+`RendererFrontendTransportDispatcher` is the renderer-neutral consumer for one
+complete, already-envelope-validated game-to-presentation frame at a time. It
+derives a nonzero, non-maximum asset-registry identity from the 128-bit bridge
+session with the pinned SHA-256 domain
+`ror.render.asset-registry-id/renderer-bridge-session/v1`; the two processes can
+therefore agree on the registry without a new handshake. It shares one sequence
+state across both typed decoders, synchronizes every accepted asset delta before
+dependent scene submission, validates scene references against that exact
+catalog, retains the mixed envelope sequence for transport acknowledgements,
+and assigns only actually rendered scenes contiguous frontend frame IDs.
+
+Presentation is an explicit caller policy. A presented scene selects the sole
+transported camera, exact active surface revision, and current drawable extent.
+After decoding, the dispatcher retires a camera whose captured extent differs,
+including when an idle poll announced the resize before the scene arrived. An
+offscreen scene names no surface. The dispatcher adds no UI and never copies CPU attachment bytes to
+a window. It invokes the frontend's native presentation path, waits infinitely
+for every successful submission before attempting retirement, and calls
+`ReleaseResource` exactly once for each unique transferred GPU attachment on
+success and failure paths. A failed wait still performs that required frontend-
+owned retirement, which may defer native destruction behind queue work. Any
+decode, reverse-direction input, lineage, capability, synchronization, render,
+wait, correlated-output, or release error permanently poisons the dispatcher.
+This establishes transport consumption and ownership, not visual readiness or
+a shipping Ogre-Next default.
+
+`RendererOgre14GameHostSession` owns the active game-side stream around an
+already initialized `RendererOgre14GameBridge`. `Submit` applies and serializes
+ordered asset deltas; `PostPhysics` accepts only complete scenes against that
+exact catalog and monotonically increasing snapshot/tick lineage. Both calls
+perform no pipe I/O and enqueue only within configured message, byte, and
+unacknowledged-lineage limits. One worker owns both channel halves, drains
+whole forward envelopes in order, incrementally reconstructs reverse frames,
+and exposes input, cumulative ACK, and control messages through zero-wait poll
+methods. Queue saturation returns deterministic `BACKPRESSURE` without
+advancing any sequence. The worker drains immediately available reverse bytes
+before every bounded zero-wait forward write, and it pauses forward progress
+when the delivered reverse queue is full; neither direction can pin the other
+behind a blocking native-pipe write. `Close` therefore remains bounded even if
+an open peer stops reading. Scene publication remains blocked until an active
+`PEER_READY`, while suspended, or when camera pixels differ from the latest
+drawable extent; there is no guessed 1280x720 path. A consumed newer active
+`SURFACE_CHANGED` applies before the next accepted scene.
+
+Surface events are pumped by the presentation process even while no forward
+frame is available. A resize can still race bytes already assigned an exact
+forward sequence; those bytes cannot be removed without creating a sequence
+gap. The presentation side therefore consumes a stale-size or suspended scene
+without rendering or presenting it, sends `SURFACE_CHANGED` first, and then
+sends a cumulative retirement ACK whose presented-scene pair remains at the
+last scene actually presented. Input may interleave between those two reverse
+messages because their shared envelope sequence preserves causality. Once the
+host consumes the surface change it rejects newly produced stale scenes.
+`FinishForward` drains queued envelopes, closes only the outbound half, and
+continues reading final reverse acknowledgements until peer EOF; corruption,
+wrong registry/sequence, stale surface revision, impossible ACK lineage, or
+unexpected peer teardown is terminal and preserves its first cause.
+
+The codecs contain no socket, process-spawn, OS packing, SDL, OIS, OGRE header,
+or third-party serializer dependency, so a byte-stream adapter can choose
+platform IPC without changing scene, asset, or input semantics. Input version
+1 is transport only: it neither polls SDL nor injects `InputEngine` actions.
+Force feedback is deliberately absent and requires a separate versioned
+game-to-host command message rather than overloading input state.
+
+Process isolation is required for the live migration bridge. OGRE 1.14 and
+Ogre-Next expose overlapping global `Ogre::*` C++ symbols and runtime-global
+state; loading both into one executable would make ABI resolution and teardown
+unsafe even when the public renderer boundary itself is neutral. Keeping the
+legacy simulation/game process and modern render process in separate address
+spaces lets each link exactly one OGRE generation. Scene/camera, asset, input,
+ACK, control, bounded host back-pressure, and half-close transactions now have
+versioned contracts. The endpoint-adopted `RoR-Ogre14` role also has a real
+product owner which drains reverse traffic before gameplay, binds reconciled
+input to a transport-only `InputEngine`, retains one post-`UpdateScene`
+production across backpressure, and shuts down in dependency order. Its
+validated ownership plan keeps the legacy resource host hidden and disables
+legacy physical-device ownership and per-loop presentation. This does not admit or package the production
+Ogre-Next child, change standalone OGRE 14 behavior, add UI to the UI-free
+scene stream, or provide force feedback across the bridge.
 
 The native interop and native ray-tracing interfaces are contracts, not an
 implementation or readiness claim. All related capabilities fail closed by
@@ -264,3 +1063,35 @@ native bits as authoritative history. The native frontend separately proves an
 exact current-to-old copy, creates the RoR-owned UI-free workspace in code, and
 uses a visible-overlay negative control plus staged same-object reinitialization
 to keep the compositor and lifecycle claims fail-closed.
+
+`Ogre14SourceTextureDecoder` is the renderer-neutral legacy DDS normalization
+boundary. It reads every integer explicitly as little-endian bytes and decodes
+the complete declared 2D mip chain to tightly packed RGBA8_UNORM. The admitted
+legacy formats are DXT1/BC1 (explicit opaque or one-bit-alpha interpretation),
+DXT3/BC2, DXT5/BC3, unsigned ATI1/BC4, unsigned ATI2/BC5, and the four exact
+32-bit RGBA/RGBX/BGRA/BGRX mask layouts. Block interpolation is integer-only
+and partial edge blocks are clipped to each mip's virtual dimensions.
+
+The DDS container is not semantic authority. Callers must supply sRGB-color or
+linear-data meaning separately, and DXT1 transparency is likewise explicit.
+The decoder rejects DX10 extensions/arrays, cube maps, volumes, signed or
+unknown formats, ambiguous masks, inconsistent pitches, impossible mip chains,
+overflow, truncation, and trailing bytes. It validates the complete encoded
+layout before allocation and commits one local candidate only after every mip
+has decoded, so validation failures, allocation failures, and arbitrary
+exceptions preserve the prior output. This module has no Ogre types, GPU
+readback, host-structure casts, floating-point interpolation, or third-party
+decoder dependency. It normalizes authenticated source bytes; it does not yet
+connect content archives to the live material transaction.
+
+`gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt` is the corresponding
+source-script authority. `ContentManager` consumes the pinned exact pre-open
+archive/FileInfo seam, owns the exact original/effective bytes and reviewed
+repair-plan digest, creates each admitted native Material itself, and publishes
+only one complete resource-group generation after pointer/handle/name/group/
+origin revalidation. Each material retains the conservative ordered closure of
+its authenticated root script and all compiler imports plus a unique primary
+source index. This receipt proves creation/source lineage only; decoded texture
+pixels, semantic declarations, and the final native material-declaration digest
+remain separate mandatory authorities. The full contract is documented in
+`doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md`.

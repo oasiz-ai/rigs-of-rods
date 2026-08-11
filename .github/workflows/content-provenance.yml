@@ -32,6 +32,8 @@ jobs:
           tests/tools/test_content_provenance_workflow_contract.py
           tests/tools/test_postprocess_resources.py
           tests/tools/test_postprocess_runtime_contract.py
+          tests/tools/test_audit_ogre14_material_scripts.py
+          tests/tools/test_classify_cityworld_material_families.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py
@@ -59,6 +61,8 @@ jobs:
           tests/tools/test_content_provenance_workflow_contract.py
           tests/tools/test_postprocess_resources.py
           tests/tools/test_postprocess_runtime_contract.py
+          tests/tools/test_audit_ogre14_material_scripts.py
+          tests/tools/test_classify_cityworld_material_families.py
           tests/tools/test_build_cityworld_local_overlay.py
           tests/tools/test_build_cityworld_next_provenance.py
           tests/tools/test_canonicalize_static_glb.py

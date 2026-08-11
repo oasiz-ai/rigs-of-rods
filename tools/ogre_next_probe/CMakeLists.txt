@@ -4,12 +4,25 @@ project(ror_ogre_next_probe LANGUAGES C CXX)
 
 if (APPLE)
     enable_language(OBJCXX)
+    # SDL's Cocoa backend contains Objective-C (.m) translation units. Enable
+    # OBJC explicitly so CMake does not route them through the Objective-C++
+    # compiler and leak the probe's C++17 flag into plain Objective-C sources.
+    enable_language(OBJC)
 endif ()
 
 option(
     ROR_OGRE_NEXT_PROBE
     "Explicitly opt in to the standalone pinned OGRE-Next dependency probe"
     OFF)
+option(
+    ROR_OGRE_NEXT_PRODUCT_STAGE
+    "Stage the real OgreNext child and its exact relocatable runtime closure"
+    OFF)
+set(
+    ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-product-stage"
+    CACHE PATH
+    "Absolute output root for the verified OgreNext product child")
 if (NOT ROR_OGRE_NEXT_PROBE)
     message(FATAL_ERROR
         "The OGRE-Next probe is opt-in. Reconfigure with "
@@ -27,6 +40,8 @@ endif ()
 set(ROR_OGRE_NEXT_STANDALONE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/PinnedOgreNext.cmake")
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 get_filename_component(ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
@@ -77,16 +92,247 @@ file(GLOB_RECURSE _ror_relevant_source_files
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/*"
     "${ROR_REPOSITORY_ROOT}/tools/ogre_next_probe/*")
 list(APPEND _ror_relevant_source_files
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
+    "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+    "CMakeLists.txt"
+    "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
+    "cmake/OgreNextProductionPackage.cmake"
+    "cmake/RendererLauncherPackageConfig.cmake"
+    "cmake/macos/StageMacOSBundle.cmake"
+    "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock"
+    "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock"
+    "cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock"
+    "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock"
+    "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock"
+    "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock"
+    "cmake/conan/recipes/mygui/conanfile.py"
+    "cmake/conan/recipes/ogre3d/conandata.yml"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch"
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch"
+    "cmake/conan/recipes/ogre3d/README.md"
+    "cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt"
+    "cmake/conan/recipes/ogre3d/test_package/conanfile.py"
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_material_script_preopen_probe.cpp"
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp"
+    "conanfile.py"
+    "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md"
+    "doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md"
+    "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md"
+    "doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md"
+    "source/main/Application.cpp"
+    "source/main/GameContext.cpp"
+    "source/main/GameContext.h"
+    "source/main/gfx/GfxActorCaptureInventory.h"
     "source/main/gfx/RendererBackendPolicy.cpp"
     "source/main/gfx/RendererBackendPolicy.h"
+    "source/main/gfx/GfxScene.cpp"
+    "source/main/gfx/GfxScene.h"
+    "source/main/utils/MeshObject.cpp"
+    "source/main/utils/MeshObject.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
+    "source/main/physics/Actor.cpp"
+    "source/main/physics/ActorManager.cpp"
+    "source/main/physics/ActorManager.h"
+    "source/main/physics/ActorSpawner.cpp"
+    "source/main/physics/ActorSpawner.h"
+    "source/main/physics/ActorSpawnerFlow.cpp"
+    "source/main/physics/collision/Collisions.cpp"
+    "source/main/physics/flex/FlexBody.cpp"
+    "source/main/physics/flex/FlexBody.h"
+    "source/main/physics/flex/FlexFactory.cpp"
+    "source/main/physics/flex/FlexFactory.h"
+    "source/main/physics/flex/FlexMesh.cpp"
+    "source/main/physics/flex/FlexMesh.h"
+    "source/main/physics/flex/FlexMeshTopology.h"
+    "source/main/physics/flex/FlexMeshWheel.cpp"
+    "source/main/physics/flex/FlexMeshWheel.h"
+    "source/main/physics/flex/FlexObj.cpp"
+    "source/main/physics/flex/FlexObj.h"
+    "source/main/physics/flex/Flexable.h"
+    "source/main/terrain/ProceduralManager.cpp"
+    "source/main/terrain/ProceduralManager.h"
+    "source/main/terrain/ProceduralRoad.cpp"
+    "source/main/terrain/ProceduralRoad.h"
+    "source/main/terrain/TerrainObjectManager.cpp"
+    "source/main/terrain/TerrainObjectManager.h"
+    "source/main/terrain/Terrain.cpp"
+    "source/main/terrain/Terrain.h"
+    "source/main/main.cpp"
+    "source/main/system/ApplicationFatalError.h"
+    "source/main/system/RendererBridgeChannel.cpp"
+    "source/main/system/RendererBridgeChannel.h"
+    "source/main/system/RendererBridgeEndpoint.cpp"
+    "source/main/system/RendererBridgeEndpoint.h"
+    "source/main/system/RendererBridgeLaunchPlan.cpp"
+    "source/main/system/RendererBridgeLaunchPlan.h"
+    "source/main/system/RendererBridgeProcessSupervisor.cpp"
+    "source/main/system/RendererBridgeProcessSupervisor.h"
+    "source/main/system/RendererChildIntent.cpp"
+    "source/main/system/RendererChildIntent.h"
+    "source/main/system/RendererChildLauncher.cpp"
+    "source/main/system/RendererChildLauncher.h"
+    "source/main/system/RendererOgre14GameBridge.cpp"
+    "source/main/system/RendererOgre14GameBridge.h"
+    "source/main/system/RendererOgre14GameHostSession.cpp"
+    "source/main/system/RendererOgre14GameHostSession.h"
+    "source/main/system/RendererOgre14InputAdapter.cpp"
+    "source/main/system/RendererOgre14InputAdapter.h"
+    "source/main/system/RendererOgre14ProductSession.cpp"
+    "source/main/system/RendererOgre14ProductSession.h"
+    "source/main/system/RendererSiblingPath.cpp"
+    "source/main/system/RendererSiblingPath.h"
+    "source/main/system/RendererPackagedMediaPath.cpp"
+    "source/main/system/RendererPackagedMediaPath.h"
+    "source/main/system/RendererPackageRuntimeProbe.cpp"
+    "source/main/system/RendererPackageRuntimeProbe.h"
+    "source/main/system/RendererOgreNextChild.cpp"
+    "source/main/system/RendererOgreNextChild.h"
+    "source/main/system/RendererOgreNextChildMain.cpp"
+    "source/main/system/RendererOgreNextLiveSession.cpp"
+    "source/main/system/RendererOgreNextLiveSession.h"
+    "source/main/system/RendererOgreNextProductionSession.cpp"
+    "source/main/system/RendererOgreNextProductionSession.h"
+    "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
+    "source/main/system/RendererOgreNextSdlWindowRuntime.h"
+    "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+    "source/main/system/RendererOgreNextWindowHost.cpp"
+    "source/main/system/RendererOgreNextWindowHost.h"
+    "source/main/system/RendererLauncherMain.cpp"
+    "source/main/system/RendererLauncherPackageConfig.h.in"
+    "source/main/system/RendererPublicLauncher.cpp"
+    "source/main/system/RendererPublicLauncher.h"
+    "source/main/CMakeLists.txt"
+    "source/main/resources/CacheSystem.cpp"
+    "source/main/resources/ContentManager.cpp"
+    "source/main/resources/ContentManager.h"
+    "source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+    "source/main/resources/LegacyMaterialScriptSanitizer.h"
+    "source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp"
+    "source/main/resources/terrn2_fileformat/TerrainBundleDependency.h"
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
+    "source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h"
+    "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
+    "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
+    "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h"
+    "tests/CMakeLists.txt"
+    "tests/gfx/GfxActorCaptureInventoryTests.cpp"
+    "tests/system/ApplicationFatalShutdownContractTests.cpp"
+    "tests/tools/test_ogre14_native_workflow_contract.py"
+    "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+    "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
+    "tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+    "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
+    "tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+    "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
+    "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md"
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h"
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp"
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
+    "source/main/system/detail/OgreNextDemoFrameNormalization.cpp"
+    "source/main/system/detail/OgreNextDemoFrameNormalization.h"
+    "source/main/physics/Savegame.cpp"
+    "tests/tools/test_renderer_suite_packaging_contract.py"
+    "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
+    "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
+    "doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md"
+    "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
+    "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
+    "tests/resources/LegacyMaterialScriptSanitizerTests.cpp"
+    "tests/resources/TerrainBundleDependencyTests.cpp"
+    "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
+    "tests/tools/assert_ogre_recipe_graph.py"
+    "tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py"
     "tests/gfx/RendererBackendPolicyTests.cpp"
+    "tests/gfx/RendererBridgeEndpointTests.cpp"
+    "tests/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "tests/gfx/RendererBridgeChannelTests.cpp"
+    "tests/gfx/RendererBridgeProcessFakeChild.cpp"
+    "tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
+    "tests/gfx/RendererChildIntentTests.cpp"
+    "tests/gfx/RendererChildLauncherFakeChild.cpp"
+    "tests/gfx/RendererChildLauncherTests.cpp"
+    "tests/gfx/RendererOgre14GameBridgeTests.cpp"
+    "tests/gfx/RendererOgre14GameHostSessionTests.cpp"
+    "tests/gfx/RendererSiblingPathTests.cpp"
+    "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
+    "tests/gfx/RendererOgreNextChildTests.cpp"
+    "tests/gfx/RendererOgreNextLiveSessionTests.cpp"
+    "tests/gfx/RendererOgreNextWindowHostTests.cpp"
+    "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
+    "tests/gfx/RendererPublicLauncherTests.cpp"
+    "tests/cmake/VerifyRendererPublicBridgeExit.cmake"
     "tests/gfx/RendererStartupHandoffTests.cpp"
     "tests/gfx/RendererStartupPlanTests.cpp"
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
+    "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
+    "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp"
+    "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+    "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+    "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
+    "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
+    "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
+    "tests/tools/test_ogre14_particle_capture_contract.py"
+    "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
+    "tests/physics/FlexMeshTopologyTests.cpp"
+    "tests/physics/Ogre14FlexShadowLoadTests.cpp"
+    "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
+    "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
+    "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py"
+    "tests/tools/test_ogre14_road_material_transaction_contract.py"
+    "tests/tools/test_ogre_next_metal_n2_contract.py"
+    "tests/tools/test_ogre14_dynamic_material_closure_contract.py"
+    "tests/tools/test_ogre14_material_semantic_registry_contract.py"
+    "tests/tools/test_ogre14_source_texture_decoder_contract.py"
+    "tests/tools/test_ogre14_material_semantic_catalog_v2.py"
+    "tools/compile_ogre14_material_semantic_catalog_v2.py"
+    "tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
+    "tests/tools/test_ogre14_live_material_coordinator_contract.py"
+    "tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py"
+    "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py"
+    "tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py"
+    "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py"
+    "tests/tools/test_ogre14_terrain_composite_recipe_contract.py"
+    "tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py"
+    "tests/tools/test_ogre_next_product_packaging_contract.py"
+    "tests/tools/test_ogre_next_probe_contract.py"
+    "tests/tools/test_ogre_next_probe_workflow.py"
+    "tests/tools/test_ogre_next_window_host_contract.py"
+    "tests/tools/test_ogre_next_window_presentation_contract.py"
+    "tests/tools/test_ogre_next_window_run_loop_contract.py"
     "tools/run_ogre_next_probe.py"
+    "tools/ogre14_runtime_audit.py"
     "tools/validate_ogre_next_frame_probe.py"
     "tools/verify_ogre_next_artifact_set.py")
 list(FILTER _ror_relevant_source_files EXCLUDE REGEX
@@ -134,10 +380,39 @@ configure_file(
     @ONLY)
 set(ROR_OGRE_NEXT_MEDIA_ROOT "${ogre_next_SOURCE_DIR}/Samples/Media")
 set(_ror_n1_hlms_root "${ROR_OGRE_NEXT_MEDIA_ROOT}/Hlms")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE
+    "RoR/DisplayDomain/DisplayDomain_piece_ps.any")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/media/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_LICENSE_EXPRESSION
+    "GPL-3.0-or-later")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_PATH
+    "${ROR_OGRE_NEXT_N1_PACKAGE_ROR_LICENSE_RELATIVE}")
+set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE
+    "${ROR_REPOSITORY_ROOT}/COPYING")
+if (NOT EXISTS "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    message(FATAL_ERROR
+        "RoR legacy display-domain HLMS piece is missing or indirect")
+endif ()
+if (NOT EXISTS "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}")
+    message(FATAL_ERROR
+        "RoR legacy display-domain GPL notice is missing or indirect")
+endif ()
+file(SIZE "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+    ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SIZE)
+file(SHA256 "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+    ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SHA256)
+file(SHA256 "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}"
+    ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SHA256)
 file(GLOB_RECURSE _ror_n1_hlms_files
     LIST_DIRECTORIES false
     RELATIVE "${_ror_n1_hlms_root}"
     "${_ror_n1_hlms_root}/*")
+list(APPEND _ror_n1_hlms_files
+    "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+list(REMOVE_DUPLICATES _ror_n1_hlms_files)
 list(SORT _ror_n1_hlms_files)
 if (NOT _ror_n1_hlms_files)
     message(FATAL_ERROR "The pinned Ogre-Next HLMS file manifest is empty")
@@ -145,8 +420,14 @@ endif ()
 set(ROR_OGRE_NEXT_N1_MEDIA_MANIFEST_ENTRIES "")
 set(_ror_n1_media_manifest_serialized "")
 foreach (_ror_n1_hlms_relative IN LISTS _ror_n1_hlms_files)
-    set(_ror_n1_hlms_file
-        "${_ror_n1_hlms_root}/${_ror_n1_hlms_relative}")
+    if (_ror_n1_hlms_relative STREQUAL
+            ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE)
+        set(_ror_n1_hlms_file
+            "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    else ()
+        set(_ror_n1_hlms_file
+            "${_ror_n1_hlms_root}/${_ror_n1_hlms_relative}")
+    endif ()
     if (IS_SYMLINK "${_ror_n1_hlms_file}")
         message(FATAL_ERROR
             "Pinned Ogre-Next HLMS manifest contains a symbolic link: "
@@ -229,6 +510,120 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_media_manifest.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_media_manifest.h"
     @ONLY)
+
+# Native presentation registers a deliberately smaller resource group than
+# HDR. Authenticate and stage only the fullscreen-quad and 4xFP32 copy closure
+# selected by the reviewed lock; unrelated Common programs must not enter this
+# resource group.
+set(ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK
+    "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next-presentation-copy-v1.lock.json")
+file(SHA256 "${ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK}"
+    ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK_SHA256)
+file(READ "${ROR_OGRE_NEXT_PRESENTATION_COPY_LOCK}"
+    _ror_presentation_copy_lock_json)
+string(JSON _ror_presentation_copy_schema GET
+    "${_ror_presentation_copy_lock_json}" schema)
+string(JSON _ror_presentation_copy_ogre_commit GET
+    "${_ror_presentation_copy_lock_json}" ogre_next_commit)
+string(JSON _ror_presentation_copy_material GET
+    "${_ror_presentation_copy_lock_json}" material)
+string(JSON _ror_presentation_copy_file_count LENGTH
+    "${_ror_presentation_copy_lock_json}" files)
+if (NOT _ror_presentation_copy_schema STREQUAL
+        "ror.ogre_next.presentation_copy_media.v1" OR
+    NOT _ror_presentation_copy_ogre_commit STREQUAL ROR_OGRE_NEXT_COMMIT OR
+    NOT _ror_presentation_copy_material STREQUAL "Ogre/Copy/4xFP32" OR
+    NOT _ror_presentation_copy_file_count EQUAL 8)
+    message(FATAL_ERROR "The Ogre-Next presentation copy lock changed")
+endif ()
+set(ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT
+    "${CMAKE_CURRENT_BINARY_DIR}/presentation-media")
+set(_ror_presentation_copy_stage
+    "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/CommonCopy")
+file(MAKE_DIRECTORY
+    "${_ror_presentation_copy_stage}/GLSL"
+    "${_ror_presentation_copy_stage}/HLSL"
+    "${_ror_presentation_copy_stage}/Metal")
+set(_ror_presentation_staged_files "")
+math(EXPR _ror_presentation_copy_last
+    "${_ror_presentation_copy_file_count} - 1")
+foreach (_ror_presentation_copy_index RANGE 0 ${_ror_presentation_copy_last})
+    string(JSON _ror_presentation_copy_path GET
+        "${_ror_presentation_copy_lock_json}" files
+        ${_ror_presentation_copy_index} path)
+    string(JSON _ror_presentation_copy_size GET
+        "${_ror_presentation_copy_lock_json}" files
+        ${_ror_presentation_copy_index} size)
+    string(JSON _ror_presentation_copy_sha256 GET
+        "${_ror_presentation_copy_lock_json}" files
+        ${_ror_presentation_copy_index} sha256)
+    if (_ror_presentation_copy_path MATCHES
+            "^tools/ogre_next_probe/presentation_media/CommonCopy/([^/]+)$")
+        set(_ror_presentation_copy_source
+            "${ROR_REPOSITORY_ROOT}/${_ror_presentation_copy_path}")
+        set(_ror_presentation_copy_relative
+            "CommonCopy/${CMAKE_MATCH_1}")
+    elseif (_ror_presentation_copy_path MATCHES
+            "^Samples/Media/2\\.0/scripts/materials/Common/(GLSL|HLSL|Metal)/([^/]+)$")
+        set(_ror_presentation_copy_source
+            "${ogre_next_SOURCE_DIR}/${_ror_presentation_copy_path}")
+        set(_ror_presentation_copy_relative
+            "CommonCopy/${CMAKE_MATCH_1}/${CMAKE_MATCH_2}")
+    else ()
+        message(FATAL_ERROR
+            "Presentation copy lock contains an unreviewed path: "
+            "${_ror_presentation_copy_path}")
+    endif ()
+    if (IS_SYMLINK "${_ror_presentation_copy_source}")
+        message(FATAL_ERROR
+            "Presentation copy source is an unreviewed symbolic link: "
+            "${_ror_presentation_copy_path}")
+    endif ()
+    file(SIZE "${_ror_presentation_copy_source}"
+        _ror_presentation_copy_observed_size)
+    file(SHA256 "${_ror_presentation_copy_source}"
+        _ror_presentation_copy_observed_sha256)
+    if (NOT _ror_presentation_copy_observed_size EQUAL
+            _ror_presentation_copy_size OR
+        NOT _ror_presentation_copy_observed_sha256 STREQUAL
+            _ror_presentation_copy_sha256)
+        message(FATAL_ERROR
+            "Presentation copy source bytes changed: "
+            "${_ror_presentation_copy_path}")
+    endif ()
+    set(_ror_presentation_copy_destination
+        "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/${_ror_presentation_copy_relative}")
+    configure_file(
+        "${_ror_presentation_copy_source}"
+        "${_ror_presentation_copy_destination}"
+        COPYONLY)
+    list(APPEND _ror_presentation_staged_files
+        "${_ror_presentation_copy_relative}")
+endforeach ()
+list(SORT _ror_presentation_staged_files)
+set(ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES "")
+set(_ror_presentation_media_manifest_serialized "")
+foreach (_ror_presentation_relative IN LISTS _ror_presentation_staged_files)
+    set(_ror_presentation_file
+        "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}/${_ror_presentation_relative}")
+    file(SIZE "${_ror_presentation_file}" _ror_presentation_size)
+    file(SHA256 "${_ror_presentation_file}" _ror_presentation_sha256)
+    string(APPEND ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES
+        "    {\"${_ror_presentation_relative}\", "
+        "static_cast<std::uint64_t>(${_ror_presentation_size}), "
+        "\"${_ror_presentation_sha256}\"},\n")
+    string(APPEND _ror_presentation_media_manifest_serialized
+        "${_ror_presentation_relative}|${_ror_presentation_size}|"
+        "${_ror_presentation_sha256}\n")
+endforeach ()
+list(LENGTH _ror_presentation_staged_files
+    ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_COUNT)
+string(SHA256 ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_SHA256
+    "${_ror_presentation_media_manifest_serialized}")
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend_presentation_media_manifest.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_presentation_media_manifest.h"
+    @ONLY)
 set(_ror_reflection_media_files
     "2.0/scripts/materials/Common/Any/PccDepthCompressor_ps.any"
     "2.0/scripts/materials/Common/GLSL/PccDepthCompressor_ps.glsl"
@@ -308,6 +703,58 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend_n1_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_n1_config.h"
     @ONLY)
+set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-n1-package")
+set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT
+    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
+    "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v11")
+file(TO_CMAKE_PATH "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+    ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT)
+if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT}" OR
+        ROR_OGRE_NEXT_CHILD_SHADER_MEDIA_ROOT MATCHES "[;\"]")
+    message(FATAL_ERROR
+        "The probe-only Ogre-Next child requires one representable absolute staged media root")
+endif ()
+set(ROR_OGRE_NEXT_CHILD_SCOPE "probe-only-non-admitted")
+set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "false")
+set(_ror_ogre_next_product_identity_source "")
+if (ROR_OGRE_NEXT_PRODUCT_STAGE)
+    if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}" OR
+            ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT MATCHES "[;\"]")
+        message(FATAL_ERROR
+            "The OgreNext product-stage root must be one representable absolute path")
+    endif ()
+    file(REAL_PATH "${CMAKE_BINARY_DIR}" _ror_product_binary_root)
+    file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}" _ror_product_source_root)
+    cmake_path(IS_PREFIX
+        _ror_product_source_root "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}"
+        NORMALIZE _ror_product_stage_in_source)
+    if (_ror_product_stage_in_source)
+        message(FATAL_ERROR
+            "The OgreNext product stage must remain outside the source tree")
+    endif ()
+    set(ROR_OGRE_NEXT_CHILD_SCOPE "production-package-non-admitted")
+    set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "true")
+    string(CONCAT ROR_OGRE_NEXT_PRODUCT_IDENTITY
+        "ror-ogre-next-production-child-v1"
+        "|ror=${ROR_SOURCE_COMMIT}"
+        "|ogre=${ROR_OGRE_NEXT_COMMIT}"
+        "|platform=${ROR_OGRE_NEXT_PLATFORM_POLICY}")
+    set(_ror_ogre_next_product_identity_source
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_ogre_next_product_identity.cpp")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/renderer_ogre_next_product_identity.cpp.in"
+        "${_ror_ogre_next_product_identity_source}"
+        @ONLY)
+    unset(_ror_product_binary_root)
+    unset(_ror_product_source_root)
+    unset(_ror_product_stage_in_source)
+endif ()
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/renderer_ogre_next_child_config.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_ogre_next_child_config.generated.h"
+    @ONLY)
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_rt5_config.h.in"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/ror_ogre_next_vulkan_rt5_config.h"
@@ -320,6 +767,18 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/ogre_next_build_contract.json.in"
     "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
     @ONLY)
+
+add_custom_target(
+    ror_renderer_ogre_next_child_process_closure_verify
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_child_runtime_process_closure.py"
+        --ror-root "${ROR_REPOSITORY_ROOT}"
+        --ogre-root "${ogre_next_SOURCE_DIR}"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_child_runtime_process_closure.py"
+    COMMENT "Proving the probe-only Ogre-Next child has no descendant-process source calls"
+    VERBATIM)
 
 add_custom_target(
     ror_ogre_next_pssm_source_closure_verify
@@ -413,38 +872,59 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${CMAKE_CURRENT_SOURCE_DIR}/../../source/main/gfx/render")
     add_library(
         ror_ogre_next_n1_contract STATIC
+        "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
         "${_ror_render_root}/HdrReference.cpp"
+        "${_ror_render_root}/InputEventTransport.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
+        "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
+        "${_ror_render_root}/Ogre14LegacyAssetTranslator.cpp"
+        "${_ror_render_root}/Ogre14LegacyMaterialClosure.cpp"
+        "${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"
+        "${_ror_render_root}/Ogre14ProceduralRoadSource.cpp"
+        "${_ror_render_root}/Ogre14SourceTextureDecoder.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
         "${_ror_render_root}/ReflectionProbeRuntime.cpp"
+        "${_ror_render_root}/RenderAssetDeltaTransport.cpp"
         "${_ror_render_root}/RenderAssetId.cpp"
         "${_ror_render_root}/RenderAssetRegistry.cpp"
+        "${_ror_render_root}/RenderBridgeControlTransport.cpp"
+        "${_ror_render_root}/SceneGenerationBoundaryTransport.cpp"
+        "${_ror_render_root}/RenderBridgeSessionIdentity.cpp"
         "${_ror_render_root}/RenderFrame.cpp"
         "${_ror_render_root}/RenderResourceDescriptors.cpp"
+        "${_ror_render_root}/RenderTransportEnvelope.cpp"
+        "${_ror_render_root}/RenderTransportStream.cpp"
         "${_ror_render_root}/RendererFrontend.cpp"
+        "${_ror_render_root}/RendererFrontendTransportDispatcher.cpp"
         "${_ror_render_root}/ResourceHandle.cpp"
-        "${_ror_render_root}/SceneSnapshot.cpp")
+        "${_ror_render_root}/SceneSnapshot.cpp"
+        "${_ror_render_root}/SceneSnapshotTransport.cpp")
     target_include_directories(
         ror_ogre_next_n1_contract
         PUBLIC "${_ror_render_root}")
 
-    add_library(
-        ror_ogre_next_frontend_n1 STATIC
+    set(_ror_ogre_next_frontend_n1_sources
         "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.h"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp")
+    add_library(
+        ror_ogre_next_frontend_n1 STATIC
+        ${_ror_ogre_next_frontend_n1_sources})
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
+        set(_ror_ogre_next_frontend_n1_platform_sources
+            "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
+            "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+            "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
         target_sources(
             ror_ogre_next_frontend_n1
-            PRIVATE
-                "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
-                "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
-                "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
+            PRIVATE ${_ror_ogre_next_frontend_n1_platform_sources})
         target_compile_options(
             ror_ogre_next_frontend_n1
             PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
@@ -453,9 +933,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             PRIVATE ROR_OGRE_NEXT_N2_TEST_SEAM=1)
     elseif (WIN32)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_D3D11=1)
+        set(_ror_ogre_next_frontend_n1_platform_sources "")
     else ()
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_VULKAN=1)
+        set(_ror_ogre_next_frontend_n1_platform_sources "")
     endif ()
+
+    # Keep the established fault-injection aggregate and staged N1 smoke
+    # unchanged. The real child links a second build of the exact sources with
+    # neither test seam defined anywhere in its compile closure.
     target_compile_definitions(
         ror_ogre_next_frontend_n1
         PUBLIC ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM=1
@@ -491,6 +977,58 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(
+        ror_ogre_next_frontend_n1
+        ror_ogre_next_pssm_source_closure_verify)
+
+    add_library(
+        ror_ogre_next_frontend_n1_runtime STATIC
+        ${_ror_ogre_next_frontend_n1_sources})
+    if (APPLE)
+        target_sources(
+            ror_ogre_next_frontend_n1_runtime
+            PRIVATE ${_ror_ogre_next_frontend_n1_platform_sources})
+        target_compile_options(
+            ror_ogre_next_frontend_n1_runtime
+            PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    endif ()
+    target_compile_definitions(
+        ror_ogre_next_frontend_n1_runtime
+        PRIVATE ${_ror_n1_renderer_definition})
+    target_include_directories(
+        ror_ogre_next_frontend_n1_runtime
+        PUBLIC "${_ror_render_root}/ogrenext"
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_include_directories(
+        ror_ogre_next_frontend_n1_runtime
+        SYSTEM PRIVATE
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
+            "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include")
+    target_link_libraries(
+        ror_ogre_next_frontend_n1_runtime
+        PUBLIC ror_ogre_next_n1_contract
+        PRIVATE
+            OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
+            ${ROR_OGRE_NEXT_RENDERER_TARGET}
+            OgreNextMain)
+    set_target_properties(
+        ror_ogre_next_frontend_n1_runtime
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(
+        ror_ogre_next_frontend_n1_runtime
+        ror_ogre_next_pssm_source_closure_verify)
 
     add_executable(
         ror_ogre_next_frontend_n1_smoke
@@ -517,10 +1055,6 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     set_target_properties(
         ror_ogre_next_pssm_shadow_smoke
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-    add_dependencies(
-        ror_ogre_next_frontend_n1
-        ror_ogre_next_pssm_source_closure_verify)
-
     add_executable(
         ror_renderer_backend_policy_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBackendPolicyTests.cpp"
@@ -557,14 +1091,1087 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_startup_handoff_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    add_executable(
+        ror_renderer_child_intent_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildIntentTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp")
+    target_include_directories(
+        ror_renderer_child_intent_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_child_intent_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_bridge_channel_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBridgeChannelTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp")
+    target_include_directories(
+        ror_renderer_bridge_channel_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_bridge_channel_tests
+        PRIVATE Threads::Threads)
+    set_target_properties(
+        ror_renderer_bridge_channel_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_ogre14_game_bridge_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgre14GameBridgeTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp")
+    target_include_directories(
+        ror_renderer_ogre14_game_bridge_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre14_game_bridge_tests
+        PRIVATE Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre14_game_bridge_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_ogre14_game_host_session_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgre14GameHostSessionTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoFrameNormalization.cpp")
+    target_include_directories(
+        ror_renderer_ogre14_game_host_session_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${_ror_render_root}"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre14_game_host_session_tests
+        PRIVATE ror_ogre_next_n1_contract Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre14_game_host_session_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_child_launcher_fake_child
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherFakeChild.cpp")
+    set_target_properties(
+        ror_renderer_child_launcher_fake_child
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${CMAKE_BINARY_DIR}/renderer-child-launcher-tests")
+
+    add_executable(
+        ror_renderer_ogre_next_child_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgreNextChildTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_child_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_ogre_next_child_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_ogre_next_live_session_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgreNextLiveSessionTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_live_session_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre_next_live_session_tests
+        PRIVATE ror_ogre_next_n1_contract Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre_next_live_session_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_frontend_transport_dispatcher_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp")
+    target_link_libraries(
+        ror_renderer_frontend_transport_dispatcher_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_renderer_frontend_transport_dispatcher_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_graphics_scene_snapshot_producer_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp")
+    target_link_libraries(
+        ror_graphics_scene_snapshot_producer_tests
+        PRIVATE ror_ogre_next_n1_contract Threads::Threads)
+    set_target_properties(
+        ror_graphics_scene_snapshot_producer_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_flex_mesh_topology_tests
+        "${ROR_REPOSITORY_ROOT}/tests/physics/FlexMeshTopologyTests.cpp")
+    target_include_directories(
+        ror_flex_mesh_topology_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/physics/flex")
+    set_target_properties(
+        ror_flex_mesh_topology_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        "${ROR_REPOSITORY_ROOT}/tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp")
+    set_target_properties(
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_gfx_actor_capture_inventory_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/GfxActorCaptureInventoryTests.cpp")
+    target_include_directories(
+        ror_gfx_actor_capture_inventory_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx")
+    set_target_properties(
+        ror_gfx_actor_capture_inventory_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_application_fatal_shutdown_contract_tests
+        "${ROR_REPOSITORY_ROOT}/tests/system/ApplicationFatalShutdownContractTests.cpp")
+    target_include_directories(
+        ror_application_fatal_shutdown_contract_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_application_fatal_shutdown_contract_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_graphics_scene_source_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp")
+    target_link_libraries(
+        ror_ogre14_graphics_scene_source_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_graphics_scene_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_particle_capture_source_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp")
+    target_link_libraries(
+        ror_ogre14_particle_capture_source_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_particle_capture_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_procedural_road_source_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp")
+    target_link_libraries(
+        ror_ogre14_procedural_road_source_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_procedural_road_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_road_material_transaction_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp")
+    target_link_libraries(
+        ror_ogre14_road_material_transaction_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_road_material_transaction_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_dynamic_material_closure_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp")
+    target_link_libraries(
+        ror_ogre14_dynamic_material_closure_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_dynamic_material_closure_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre_next_demo_private_policy_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp")
+    target_include_directories(
+        ror_ogre_next_demo_private_policy_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_link_libraries(
+        ror_ogre_next_demo_private_policy_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre_next_demo_private_policy_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_material_semantic_registry_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp")
+    target_include_directories(
+        ror_ogre14_material_semantic_registry_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_link_libraries(
+        ror_ogre14_material_semantic_registry_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_material_semantic_registry_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    set(_ror_material_semantic_catalog_v2_fixture
+        "${CMAKE_BINARY_DIR}/generated/material-semantic-catalog-v2.synthetic.rormat2")
+    add_custom_command(
+        OUTPUT "${_ror_material_semantic_catalog_v2_fixture}"
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+            "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+            "${_ror_material_semantic_catalog_v2_fixture}"
+        DEPENDS
+            "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+            "${ROR_REPOSITORY_ROOT}/tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
+            "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+        VERBATIM)
+    add_custom_target(
+        ror_ogre14_material_semantic_catalog_v2_fixture
+        DEPENDS "${_ror_material_semantic_catalog_v2_fixture}")
+    add_executable(
+        ror_ogre14_material_semantic_catalog_v2_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp")
+    add_dependencies(
+        ror_ogre14_material_semantic_catalog_v2_tests
+        ror_ogre14_material_semantic_catalog_v2_fixture)
+    target_include_directories(
+        ror_ogre14_material_semantic_catalog_v2_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_material_semantic_catalog_v2_tests
+        PRIVATE
+            "ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE=\"${_ror_material_semantic_catalog_v2_fixture}\"")
+    target_link_libraries(
+        ror_ogre14_material_semantic_catalog_v2_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_material_semantic_catalog_v2_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_source_texture_decoder_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp")
+    target_link_libraries(
+        ror_ogre14_source_texture_decoder_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_source_texture_decoder_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_live_material_coordinator_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp")
+    target_include_directories(
+        ror_ogre14_live_material_coordinator_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_live_material_coordinator_tests
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1)
+    target_link_libraries(
+        ror_ogre14_live_material_coordinator_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_live_material_coordinator_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp")
+    target_include_directories(
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1)
+    target_link_libraries(
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_authenticated_texture_receipt_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp")
+    target_include_directories(
+        ror_ogre14_authenticated_texture_receipt_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_link_libraries(
+        ror_ogre14_authenticated_texture_receipt_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_authenticated_texture_receipt_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp")
+    target_include_directories(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PRIVATE ROR_OGRE14_TERRAIN_COMPOSITE_CAPTURE_INTERNAL_TESTING=1)
+    target_link_libraries(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre14_authenticated_material_script_receipt_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp")
+    target_include_directories(
+        ror_ogre14_authenticated_material_script_receipt_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_authenticated_material_script_receipt_tests
+        PRIVATE ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1)
+    target_link_libraries(
+        ror_ogre14_authenticated_material_script_receipt_tests
+        PRIVATE ror_ogre_next_n1_contract OpenSSL::Crypto Threads::Threads)
+    set_target_properties(
+        ror_ogre14_authenticated_material_script_receipt_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_render_bridge_control_transport_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/RenderBridgeControlTransportTests.cpp")
+    target_link_libraries(
+        ror_render_bridge_control_transport_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_render_bridge_control_transport_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_renderer_ogre_next_window_host_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgreNextWindowHostTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_window_host_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre_next_window_host_tests
+        PRIVATE Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre_next_window_host_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_library(
+        ror_renderer_ogre_next_sdl_window_runtime STATIC
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntime.cpp")
+    if (APPLE)
+        target_sources(
+            ror_renderer_ogre_next_sdl_window_runtime
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm")
+        target_compile_options(
+            ror_renderer_ogre_next_sdl_window_runtime
+            PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+        target_include_directories(
+            ror_renderer_ogre_next_sdl_window_runtime
+            SYSTEM PRIVATE
+                "${ogre_next_SOURCE_DIR}/OgreMain/include"
+                "${ogre_next_BINARY_DIR}/include"
+                "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+                "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+        target_link_libraries(
+            ror_renderer_ogre_next_sdl_window_runtime
+            PRIVATE ${ROR_OGRE_NEXT_RENDERER_TARGET})
+    endif ()
+    target_include_directories(
+        ror_renderer_ogre_next_sdl_window_runtime
+        PUBLIC "${ROR_REPOSITORY_ROOT}/source/main/system")
+    target_link_libraries(
+        ror_renderer_ogre_next_sdl_window_runtime
+        PUBLIC SDL2::SDL2-static Threads::Threads)
+    set_target_properties(
+        ror_renderer_ogre_next_sdl_window_runtime
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+
+    add_executable(
+        ror_renderer_ogre_next_window_host_smoke
+        src/window_host_smoke.cpp)
+    target_link_libraries(
+        ror_renderer_ogre_next_window_host_smoke
+        PRIVATE ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_renderer_ogre_next_window_host_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    set(ROR_OGRE_NEXT_WINDOW_PRESENT_IMAGE
+        "${CMAKE_BINARY_DIR}/ogre-next-window-present.ppm")
+    set(ROR_OGRE_NEXT_WINDOW_PRESENT_REPORT
+        "${CMAKE_BINARY_DIR}/ogre-next-window-present.json")
+    add_executable(
+        ror_ogre_next_window_present_smoke
+        src/window_present_smoke.cpp)
+    target_include_directories(
+        ror_ogre_next_window_present_smoke
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_ogre_next_window_present_smoke
+        PRIVATE
+            ror_ogre_next_frontend_n1
+            ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_ogre_next_window_present_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    set(ROR_OGRE_NEXT_WINDOW_RUN_LOOP_IMAGE
+        "${CMAKE_BINARY_DIR}/ogre-next-window-run-loop.ppm")
+    set(ROR_OGRE_NEXT_WINDOW_RUN_LOOP_REPORT
+        "${CMAKE_BINARY_DIR}/ogre-next-window-run-loop.json")
+    add_executable(
+        ror_ogre_next_window_run_loop_smoke
+        src/window_run_loop_smoke.cpp)
+    target_include_directories(
+        ror_ogre_next_window_run_loop_smoke
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_ogre_next_window_run_loop_smoke
+        PRIVATE
+            ror_ogre_next_frontend_n1
+            ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_ogre_next_window_run_loop_smoke
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    # Real native entrypoint and frontend bootstrap, still confined to this
+    # probe project. It is intentionally absent from all package/install and
+    # product source/main CMake paths until presentation and the game bridge
+    # pass their separate admission gates.
+    set(_ror_renderer_ogre_next_child_runtime_output
+        "${CMAKE_BINARY_DIR}/renderer-ogre-next-child-runtime")
+    add_executable(
+        ror_renderer_ogre_next_child_runtime
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChildMain.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextProductionSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp")
+    if (ROR_OGRE_NEXT_PRODUCT_STAGE)
+        target_sources(
+            ror_renderer_ogre_next_child_runtime
+            PRIVATE "${_ror_ogre_next_product_identity_source}")
+    endif ()
+    target_include_directories(
+        ror_renderer_ogre_next_child_runtime
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_link_libraries(
+        ror_renderer_ogre_next_child_runtime
+        PRIVATE
+            ror_ogre_next_frontend_n1_runtime
+            ror_renderer_ogre_next_sdl_window_runtime)
+    set_target_properties(
+        ror_renderer_ogre_next_child_runtime
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_ogre_next_child_runtime_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_ogre_next_child_runtime_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_ogre_next_child_runtime_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_ogre_next_child_runtime_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_ogre_next_child_runtime_output}/MinSizeRel")
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_ogre_next_child_runtime
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_ogre_next_child_runtime
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(
+            ror_renderer_ogre_next_child_runtime PRIVATE Shell32)
+    endif ()
+    if (MINGW)
+        target_link_options(
+            ror_renderer_ogre_next_child_runtime PRIVATE -municode)
+    endif ()
+    add_dependencies(
+        ror_renderer_ogre_next_child_runtime
+        ror_renderer_ogre_next_child_process_closure_verify)
+
+    add_executable(
+        ror_renderer_sibling_path_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererSiblingPathTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp")
+    target_include_directories(
+        ror_renderer_sibling_path_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+
+    add_executable(
+        ror_renderer_package_runtime_probe_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererPackageRuntimeProbeTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp")
+    target_include_directories(
+        ror_renderer_package_runtime_probe_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+
+    set(_ror_renderer_bridge_process_test_output
+        "${CMAKE_BINARY_DIR}/renderer-bridge-process-tests")
+    set(_ror_renderer_bridge_process_fake_common_sources
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBridgeProcessFakeChild.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${_ror_render_root}/RenderTransportEnvelope.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp")
+    add_executable(
+        ror_renderer_bridge_process_fake_game
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_bridge_process_fake_game
+        PRIVATE ROR_RENDERER_BRIDGE_FAKE_GAME=1)
+    add_executable(
+        ror_renderer_bridge_process_fake_presentation
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_bridge_process_fake_presentation
+        PRIVATE ROR_RENDERER_BRIDGE_FAKE_PRESENTATION=1)
+    foreach (_ror_bridge_fake_target IN ITEMS
+        ror_renderer_bridge_process_fake_game
+        ror_renderer_bridge_process_fake_presentation)
+        target_include_directories(
+            ${_ror_bridge_fake_target}
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+                "${_ror_render_root}"
+                "${ROR_REPOSITORY_ROOT}/source/main/system")
+    endforeach ()
+    set_target_properties(
+        ror_renderer_bridge_process_fake_game
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_bridge_process_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_bridge_process_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_bridge_process_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_bridge_process_test_output}/MinSizeRel")
+    set_target_properties(
+        ror_renderer_bridge_process_fake_presentation
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_bridge_process_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_bridge_process_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_bridge_process_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_bridge_process_test_output}/MinSizeRel")
+
+    add_executable(
+        ror_renderer_bridge_process_supervisor_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererBridgeProcessSupervisorTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp")
+    target_include_directories(
+        ror_renderer_bridge_process_supervisor_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_bridge_process_supervisor_tests
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_bridge_process_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_bridge_process_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_bridge_process_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_bridge_process_test_output}/MinSizeRel")
+    add_dependencies(
+        ror_renderer_bridge_process_supervisor_tests
+        ror_renderer_bridge_process_fake_game
+        ror_renderer_bridge_process_fake_presentation)
+
+    add_executable(
+        ror_renderer_child_launcher_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererChildLauncherTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp")
+    target_include_directories(
+        ror_renderer_child_launcher_tests
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system")
+    set_target_properties(
+        ror_renderer_child_launcher_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+            "${CMAKE_BINARY_DIR}/renderer-child-launcher-tests")
+    add_dependencies(
+        ror_renderer_child_launcher_tests
+        ror_renderer_child_launcher_fake_child)
+    if (MINGW)
+        target_link_options(
+            ror_renderer_child_launcher_fake_child
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_child_launcher_tests
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_bridge_process_fake_game
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_bridge_process_fake_presentation
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_bridge_process_supervisor_tests
+            PRIVATE -municode)
+    endif ()
+
+    include(
+        "${ROR_REPOSITORY_ROOT}/cmake/RendererLauncherPackageConfig.cmake")
+    set(_ror_renderer_public_launcher_generated_include_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-launcher-generated")
+    ror_configure_renderer_launcher_package_facts(
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
+        "${_ror_renderer_public_launcher_generated_include_dir}"
+        _ror_renderer_public_launcher_generated_header
+        OFF)
+
+    # Real public entrypoint plus an exact legacy sibling, isolated from the
+    # N1 package tree. This exercises POSIX main or Windows Unicode wWinMain
+    # and verifies that the default launcher consumes no game arguments.
+    set(_ror_renderer_public_entrypoint_test_output
+        "${CMAKE_BINARY_DIR}/renderer-public-entrypoint-tests")
+    add_executable(
+        ror_renderer_public_launcher_legacy_child
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererPublicLauncherLegacyChild.cpp")
+    set_target_properties(
+        ror_renderer_public_launcher_legacy_child
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_entrypoint_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_entrypoint_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_entrypoint_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_entrypoint_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_entrypoint_test_output}/MinSizeRel")
+
+    add_executable(
+        ror_renderer_public_launcher_entrypoint
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherMain.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+        "${_ror_renderer_public_launcher_generated_header}")
+    target_include_directories(
+        ror_renderer_public_launcher_entrypoint
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${_ror_renderer_public_launcher_generated_include_dir}")
+    set_target_properties(
+        ror_renderer_public_launcher_entrypoint
+        PROPERTIES
+            OUTPUT_NAME "RoR"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_entrypoint_test_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_entrypoint_test_output}/Debug"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_entrypoint_test_output}/Release"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_entrypoint_test_output}/RelWithDebInfo"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_entrypoint_test_output}/MinSizeRel")
+    add_dependencies(
+        ror_renderer_public_launcher_entrypoint
+        ror_renderer_public_launcher_legacy_child)
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_public_launcher_entrypoint
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_public_launcher_entrypoint
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(
+            ror_renderer_public_launcher_entrypoint
+            PRIVATE Shell32)
+    endif ()
+    if (MINGW)
+        target_link_options(
+            ror_renderer_public_launcher_legacy_child
+            PRIVATE -municode)
+        target_link_options(
+            ror_renderer_public_launcher_entrypoint
+            PRIVATE -municode)
+    endif ()
+
+    # Real two-process public-launcher path with test-only admitted facts. The
+    # production package generator above remains immutable and fail-closed.
+    set(_ror_renderer_public_bridge_generated_include_dir
+        "${CMAKE_BINARY_DIR}/renderer-public-bridge-generated")
+    if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "MACOS")
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "LINUX")
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "WINDOWS")
+    else ()
+        message(FATAL_ERROR
+            "The renderer public bridge fixture has no platform contract")
+    endif ()
+    set(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND "OGRE_NEXT_PREFER")
+    set(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS "PSSM")
+    set(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT "true")
+    set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "true")
+    set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "true")
+    set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "true")
+    set(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND "NONE")
+    file(MAKE_DIRECTORY
+        "${_ror_renderer_public_bridge_generated_include_dir}")
+    set(_ror_renderer_public_bridge_generated_header
+        "${_ror_renderer_public_bridge_generated_include_dir}/RendererLauncherPackageConfig.generated.h")
+    configure_file(
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
+        "${_ror_renderer_public_bridge_generated_header}"
+        @ONLY)
+    unset(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM)
+    unset(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND)
+    unset(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS)
+    unset(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT)
+    unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT)
+    unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY)
+    unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED)
+    unset(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND)
+
+    set(_ror_renderer_public_bridge_test_output
+        "${CMAKE_BINARY_DIR}/renderer-public-bridge-tests")
+    if (APPLE)
+        set(_ror_renderer_public_bridge_runtime_output
+            "${_ror_renderer_public_bridge_test_output}/RoR.app/Contents/MacOS")
+        foreach (_ror_public_bridge_config IN ITEMS
+            DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+            set(
+                _ror_renderer_public_bridge_runtime_output_${_ror_public_bridge_config}
+                "${_ror_renderer_public_bridge_runtime_output}")
+        endforeach ()
+        file(MAKE_DIRECTORY
+            "${_ror_renderer_public_bridge_test_output}/RoR.app/Contents/Resources/ogrenext/Hlms"
+            "${_ror_renderer_public_bridge_test_output}/RoR.app/Contents/Resources/ogrenext/Presentation")
+    else ()
+        set(_ror_renderer_public_bridge_runtime_output
+            "${_ror_renderer_public_bridge_test_output}")
+        foreach (_ror_public_bridge_config IN ITEMS
+            DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+            set(
+                _ror_renderer_public_bridge_runtime_output_${_ror_public_bridge_config}
+                "${_ror_renderer_public_bridge_test_output}/${_ror_public_bridge_config}")
+        endforeach ()
+        foreach (_ror_public_bridge_runtime_root IN ITEMS
+            "${_ror_renderer_public_bridge_runtime_output}"
+            "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+            "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+            "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+            "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}")
+            file(MAKE_DIRECTORY
+                "${_ror_public_bridge_runtime_root}/resources/ogrenext/Hlms"
+                "${_ror_public_bridge_runtime_root}/resources/ogrenext/Presentation")
+        endforeach ()
+    endif ()
+    add_executable(
+        ror_renderer_public_bridge_fake_game
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_public_bridge_fake_game
+        PRIVATE
+            ROR_RENDERER_BRIDGE_FAKE_GAME=1
+            ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1
+            ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1)
+    add_executable(
+        ror_renderer_public_bridge_fake_presentation
+        ${_ror_renderer_bridge_process_fake_common_sources})
+    target_compile_definitions(
+        ror_renderer_public_bridge_fake_presentation
+        PRIVATE
+            ROR_RENDERER_BRIDGE_FAKE_PRESENTATION=1
+            ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1
+            ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1)
+    foreach (_ror_public_bridge_fake_target IN ITEMS
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation)
+        target_include_directories(
+            ${_ror_public_bridge_fake_target}
+            PRIVATE
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+                "${_ror_render_root}"
+                "${ROR_REPOSITORY_ROOT}/source/main/system")
+    endforeach ()
+    set_target_properties(
+        ror_renderer_public_bridge_fake_game
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_bridge_runtime_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}")
+    set_target_properties(
+        ror_renderer_public_bridge_fake_presentation
+        PROPERTIES
+            OUTPUT_NAME "RoR-OgreNext"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_bridge_runtime_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}")
+
+    add_executable(
+        ror_renderer_public_bridge_entrypoint
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherMain.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+        "${_ror_renderer_public_bridge_generated_header}")
+    target_include_directories(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+            "${_ror_renderer_public_bridge_generated_include_dir}")
+    set_target_properties(
+        ror_renderer_public_bridge_entrypoint
+        PROPERTIES
+            OUTPUT_NAME "RoR"
+            RUNTIME_OUTPUT_DIRECTORY
+                "${_ror_renderer_public_bridge_runtime_output}"
+            RUNTIME_OUTPUT_DIRECTORY_DEBUG
+                "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE
+                "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+            RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+                "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+            RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+                "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}")
+    add_dependencies(
+        ror_renderer_public_bridge_entrypoint
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation)
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_public_bridge_entrypoint
+            PROPERTIES WIN32_EXECUTABLE YES)
+        target_compile_definitions(
+            ror_renderer_public_bridge_entrypoint
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(
+            ror_renderer_public_bridge_entrypoint PRIVATE Shell32)
+    endif ()
+    if (MINGW)
+        target_link_options(
+            ror_renderer_public_bridge_fake_game PRIVATE -municode)
+        target_link_options(
+            ror_renderer_public_bridge_fake_presentation PRIVATE -municode)
+        target_link_options(
+            ror_renderer_public_bridge_entrypoint PRIVATE -municode)
+    endif ()
+
     set(_ror_n1_targets
         ror_ogre_next_n1_contract
         ror_ogre_next_frontend_n1
+        ror_ogre_next_frontend_n1_runtime
         ror_ogre_next_frontend_n1_smoke
         ror_ogre_next_pssm_shadow_smoke
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
-        ror_renderer_startup_handoff_tests)
+        ror_renderer_startup_handoff_tests
+        ror_renderer_child_intent_tests
+        ror_renderer_bridge_channel_tests
+        ror_renderer_ogre14_game_bridge_tests
+        ror_renderer_ogre14_game_host_session_tests
+        ror_renderer_sibling_path_tests
+        ror_renderer_package_runtime_probe_tests
+        ror_renderer_bridge_process_fake_game
+        ror_renderer_bridge_process_fake_presentation
+        ror_renderer_bridge_process_supervisor_tests
+        ror_renderer_ogre_next_child_tests
+        ror_renderer_ogre_next_live_session_tests
+        ror_renderer_frontend_transport_dispatcher_tests
+        ror_graphics_scene_snapshot_producer_tests
+        ror_flex_mesh_topology_tests
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        ror_gfx_actor_capture_inventory_tests
+        ror_application_fatal_shutdown_contract_tests
+        ror_ogre14_graphics_scene_source_tests
+        ror_ogre14_particle_capture_source_tests
+        ror_ogre14_procedural_road_source_tests
+        ror_ogre14_road_material_transaction_tests
+        ror_ogre14_dynamic_material_closure_tests
+        ror_ogre_next_demo_private_policy_tests
+        ror_ogre14_material_semantic_registry_tests
+        ror_ogre14_source_texture_decoder_tests
+        ror_ogre14_material_semantic_catalog_v2_tests
+        ror_ogre14_live_material_coordinator_tests
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        ror_ogre14_authenticated_texture_receipt_tests
+        ror_ogre14_terrain_composite_capture_receipt_tests
+        ror_ogre14_authenticated_material_script_receipt_tests
+        ror_render_bridge_control_transport_tests
+        ror_renderer_ogre_next_window_host_tests
+        ror_renderer_ogre_next_sdl_window_runtime
+        ror_renderer_ogre_next_window_host_smoke
+        ror_ogre_next_window_present_smoke
+        ror_ogre_next_window_run_loop_smoke
+        ror_renderer_ogre_next_child_runtime
+        ror_renderer_child_launcher_fake_child
+        ror_renderer_child_launcher_tests
+        ror_renderer_public_launcher_legacy_child
+        ror_renderer_public_launcher_entrypoint
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation
+        ror_renderer_public_bridge_entrypoint)
     if (ROR_OGRE_NEXT_VULKAN_RT5 AND
             ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         add_executable(
@@ -824,20 +2431,251 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_repository_root
             "${CMAKE_CURRENT_SOURCE_DIR}/../..")
         set(_ror_n2_relevant_source_paths
+            source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
+            source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
+            tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
+            CMakeLists.txt
+            doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
+            cmake/OgreNextProductionPackage.cmake
+            cmake/RendererLauncherPackageConfig.cmake
+            cmake/macos/StageMacOSBundle.cmake
+            cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock
+            cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock
+            cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock
+            cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock
+            cmake/conan/locks/ror-ogre14-macos-arm64-release.lock
+            cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock
+            cmake/conan/recipes/mygui/conanfile.py
+            cmake/conan/recipes/ogre3d/conandata.yml
+            cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch
+            cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch
+            cmake/conan/recipes/ogre3d/README.md
+            cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt
+            cmake/conan/recipes/ogre3d/test_package/conanfile.py
+            cmake/conan/recipes/ogre3d/test_package/src/ogre_material_script_preopen_probe.cpp
+            cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp
+            conanfile.py
+            doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md
+            doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md
+            doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md
+            doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md
+            source/main/Application.cpp
+            source/main/GameContext.cpp
+            source/main/GameContext.h
+            source/main/gfx/GfxActorCaptureInventory.h
             source/main/gfx/RendererBackendPolicy.cpp
             source/main/gfx/RendererBackendPolicy.h
+            source/main/gfx/GfxScene.cpp
+            source/main/gfx/GfxScene.h
+            source/main/utils/MeshObject.cpp
+            source/main/utils/MeshObject.h
             source/main/gfx/RendererStartupHandoff.cpp
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
+            source/main/physics/Actor.cpp
+            source/main/physics/ActorManager.cpp
+            source/main/physics/ActorManager.h
+            source/main/physics/ActorSpawner.cpp
+            source/main/physics/ActorSpawner.h
+            source/main/physics/ActorSpawnerFlow.cpp
+            source/main/physics/collision/Collisions.cpp
+            source/main/physics/flex/FlexBody.cpp
+            source/main/physics/flex/FlexBody.h
+            source/main/physics/flex/FlexFactory.cpp
+            source/main/physics/flex/FlexFactory.h
+            source/main/physics/flex/FlexMesh.cpp
+            source/main/physics/flex/FlexMesh.h
+            source/main/physics/flex/FlexMeshTopology.h
+            source/main/physics/flex/FlexMeshWheel.cpp
+            source/main/physics/flex/FlexMeshWheel.h
+            source/main/physics/flex/FlexObj.cpp
+            source/main/physics/flex/FlexObj.h
+            source/main/physics/flex/Flexable.h
+            source/main/terrain/ProceduralManager.cpp
+            source/main/terrain/ProceduralManager.h
+            source/main/terrain/ProceduralRoad.cpp
+            source/main/terrain/ProceduralRoad.h
+            source/main/terrain/TerrainObjectManager.cpp
+            source/main/terrain/TerrainObjectManager.h
+            source/main/terrain/Terrain.cpp
+            source/main/terrain/Terrain.h
+            source/main/main.cpp
+            source/main/system/ApplicationFatalError.h
+            source/main/system/RendererBridgeChannel.cpp
+            source/main/system/RendererBridgeChannel.h
+            source/main/system/RendererBridgeEndpoint.cpp
+            source/main/system/RendererBridgeEndpoint.h
+            source/main/system/RendererBridgeLaunchPlan.cpp
+            source/main/system/RendererBridgeLaunchPlan.h
+            source/main/system/RendererBridgeProcessSupervisor.cpp
+            source/main/system/RendererBridgeProcessSupervisor.h
+            source/main/system/RendererChildIntent.cpp
+            source/main/system/RendererChildIntent.h
+            source/main/system/RendererChildLauncher.cpp
+            source/main/system/RendererChildLauncher.h
+            source/main/system/RendererOgre14GameBridge.cpp
+            source/main/system/RendererOgre14GameBridge.h
+            source/main/system/RendererOgre14GameHostSession.cpp
+            source/main/system/RendererOgre14GameHostSession.h
+            source/main/system/RendererOgre14InputAdapter.cpp
+            source/main/system/RendererOgre14InputAdapter.h
+            source/main/system/RendererOgre14ProductSession.cpp
+            source/main/system/RendererOgre14ProductSession.h
+            source/main/system/RendererSiblingPath.cpp
+            source/main/system/RendererSiblingPath.h
+            source/main/system/RendererPackagedMediaPath.cpp
+            source/main/system/RendererPackagedMediaPath.h
+            source/main/system/RendererPackageRuntimeProbe.cpp
+            source/main/system/RendererPackageRuntimeProbe.h
+            source/main/system/RendererOgreNextChild.cpp
+            source/main/system/RendererOgreNextChild.h
+            source/main/system/RendererOgreNextChildMain.cpp
+            source/main/system/RendererOgreNextLiveSession.cpp
+            source/main/system/RendererOgreNextLiveSession.h
+            source/main/system/RendererOgreNextProductionSession.cpp
+            source/main/system/RendererOgreNextProductionSession.h
+            source/main/system/RendererOgreNextSdlWindowRuntime.cpp
+            source/main/system/RendererOgreNextSdlWindowRuntime.h
+            source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
+            source/main/system/RendererOgreNextWindowHost.cpp
+            source/main/system/RendererOgreNextWindowHost.h
+            source/main/system/RendererLauncherMain.cpp
+            source/main/system/RendererLauncherPackageConfig.h.in
+            source/main/system/RendererPublicLauncher.cpp
+            source/main/system/RendererPublicLauncher.h
+            source/main/CMakeLists.txt
+            source/main/resources/CacheSystem.cpp
+            source/main/resources/ContentManager.cpp
+            source/main/resources/ContentManager.h
+            source/main/resources/LegacyMaterialScriptSanitizer.cpp
+            source/main/resources/LegacyMaterialScriptSanitizer.h
+            source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
+            source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
+            source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp
+            source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h
             source/main/gfx/render
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
+            source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp
+            source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h
+            source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp
+            source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h
+            source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp
+            source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h
+            source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp
+            source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h
+            source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp
+            source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h
+            source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
+            source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
+            tests/CMakeLists.txt
+            source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
+            source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
+            source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
+            source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
+            source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
+            doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+            source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
+            source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h
+            source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp
+            source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h
+            source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
+            source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h
+            source/main/system/detail/OgreNextDemoFrameNormalization.cpp
+            source/main/system/detail/OgreNextDemoFrameNormalization.h
+            source/main/physics/Savegame.cpp
+            tests/tools/test_renderer_suite_packaging_contract.py
+            tests/gfx/GfxActorCaptureInventoryTests.cpp
+            tests/system/ApplicationFatalShutdownContractTests.cpp
+            tests/tools/test_ogre14_native_workflow_contract.py
+            tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp
+            tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp
+            tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp
+            tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json
+            tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
+            tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
+            tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+            tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp
+            tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp
+            tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
+            doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
+            tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
+            tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
+            tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
+            tests/resources/LegacyMaterialScriptSanitizerTests.cpp
+            tests/resources/TerrainBundleDependencyTests.cpp
+            tests/resources/TerrainBundleArchiveVerifierTests.cpp
+            tests/tools/assert_ogre_recipe_graph.py
+            tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py
             tests/gfx/RendererBackendPolicyTests.cpp
+            tests/gfx/RendererBridgeEndpointTests.cpp
+            tests/gfx/RendererBridgeLaunchPlanTests.cpp
+            tests/gfx/RendererBridgeChannelTests.cpp
+            tests/gfx/RendererBridgeProcessFakeChild.cpp
+            tests/gfx/RendererBridgeProcessSupervisorTests.cpp
+            tests/gfx/RendererChildIntentTests.cpp
+            tests/gfx/RendererChildLauncherFakeChild.cpp
+            tests/gfx/RendererChildLauncherTests.cpp
+            tests/gfx/RendererOgre14GameBridgeTests.cpp
+            tests/gfx/RendererOgre14GameHostSessionTests.cpp
+            tests/gfx/RendererSiblingPathTests.cpp
+            tests/gfx/RendererPackageRuntimeProbeTests.cpp
+            tests/gfx/RendererOgreNextChildTests.cpp
+            tests/gfx/RendererOgreNextLiveSessionTests.cpp
+            tests/gfx/RendererOgreNextWindowHostTests.cpp
+            tests/gfx/RendererPublicLauncherLegacyChild.cpp
+            tests/gfx/RendererPublicLauncherTests.cpp
+            tests/cmake/VerifyRendererPublicBridgeExit.cmake
             tests/gfx/RendererStartupHandoffTests.cpp
             tests/gfx/RendererStartupPlanTests.cpp
+            tests/gfx/render/RenderBridgeControlTransportTests.cpp
+            tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp
+            tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp
+            tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp
+            tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp
+            tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
+            tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
+            tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
+            tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
+            tests/tools/test_ogre14_particle_capture_contract.py
+            tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
+            tests/physics/FlexMeshTopologyTests.cpp
+            tests/physics/Ogre14FlexShadowLoadTests.cpp
+            tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp
+            tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp
+            tests/tools/test_ogre_next_child_runtime_contract.py
+            tests/tools/test_ogre14_legacy_asset_translator_contract.py
+            tests/tools/test_ogre14_legacy_material_closure_contract.py
+            tests/tools/test_ogre14_road_material_transaction_contract.py
+            tests/tools/test_ogre_next_metal_n2_contract.py
+            tests/tools/test_ogre14_dynamic_material_closure_contract.py
+            tests/tools/test_ogre14_material_semantic_registry_contract.py
+            tests/tools/test_ogre14_source_texture_decoder_contract.py
+            tests/tools/test_ogre14_material_semantic_catalog_v2.py
+            tests/tools/test_ogre14_live_material_coordinator_contract.py
+            tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py
+            tests/tools/test_ogre14_authenticated_texture_receipt_contract.py
+            tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
+            tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
+            tests/tools/test_ogre14_terrain_composite_recipe_contract.py
+            tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
+            tests/tools/test_ogre_next_product_packaging_contract.py
+            tests/tools/test_ogre_next_probe_contract.py
+            tests/tools/test_ogre_next_probe_workflow.py
+            tests/tools/test_ogre_next_window_host_contract.py
+            tests/tools/test_ogre_next_window_presentation_contract.py
+            tests/tools/test_ogre_next_window_run_loop_contract.py
             tools/ogre_next_probe
+            tools/ogre14_runtime_audit.py
+            tools/compile_ogre14_material_semantic_catalog_v2.py
             tools/run_ogre_next_probe.py
             tools/validate_ogre_next_frame_probe.py
-            tools/verify_ogre_next_artifact_set.py)
+            tools/verify_ogre_next_artifact_set.py
+            tools/schemas/ogre14-material-semantic-catalog-v2.schema.json)
         execute_process(
             COMMAND git status --porcelain=v1 --untracked-files=all --
                     ${_ror_n2_relevant_source_paths}
@@ -952,14 +2790,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             ror_ogre_next_metal_n4_directional_shadow_smoke)
     endif ()
 
-    set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT
-        "${CMAKE_BINARY_DIR}/ror-ogre-next-n1-package")
-    set(ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_RELATIVE}")
     set(ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE
         "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/bin/$<TARGET_FILE_NAME:ror_ogre_next_frontend_n1_smoke>")
-    set(ROR_OGRE_NEXT_N1_PACKAGE_STAMP
-        "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/.stage-v10")
     set(_ror_n1_package_commands
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -1007,12 +2839,31 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_intent_tests
+        ror_renderer_sibling_path_tests
+        ror_renderer_package_runtime_probe_tests
+        ror_renderer_bridge_process_supervisor_tests
+        ror_renderer_ogre_next_child_tests
+        ror_ogre14_graphics_scene_source_tests
+        ror_ogre14_particle_capture_source_tests
+        ror_ogre14_procedural_road_source_tests
+        ror_ogre14_road_material_transaction_tests
+        ror_ogre14_dynamic_material_closure_tests
+        ror_ogre_next_demo_private_policy_tests
+        ror_ogre14_material_semantic_registry_tests
+        ror_ogre14_source_texture_decoder_tests
+        ror_ogre14_live_material_coordinator_tests
+        ror_ogre14_graphics_scene_prepared_material_binding_tests
+        ror_ogre14_authenticated_texture_receipt_tests
+        ror_ogre14_authenticated_material_script_receipt_tests
+        ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
         "${ROR_OGRE_NEXT_PACKAGE_OGRE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_RAPIDJSON_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_FREETYPE_LICENSE_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_FREETYPE_OVERVIEW_SOURCE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
+        "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
         "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}")
     foreach (_ror_reflection_media_relative IN LISTS
             _ror_reflection_media_files)
@@ -1092,6 +2943,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/Hlms"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/RoR/DisplayDomain"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/Compositors"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/Compositors"
@@ -1111,6 +2970,66 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         VERBATIM)
     add_custom_target(ror_ogre_next_frontend_n1_package ALL
         DEPENDS "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}")
+    add_dependencies(
+        ror_ogre_next_pssm_shadow_smoke
+        ror_ogre_next_frontend_n1_package)
+    if (TARGET ror_renderer_ogre_next_child_runtime)
+        add_dependencies(
+            ror_renderer_ogre_next_child_runtime
+            ror_ogre_next_frontend_n1_package)
+    endif ()
+
+    if (ROR_OGRE_NEXT_PRODUCT_STAGE)
+        set(_ror_ogre_next_product_completion
+            "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/.ror-ogre-next-product-complete.json")
+        if (WIN32)
+            set(_ror_ogre_next_product_child_name "RoR-OgreNext.exe")
+        else ()
+            set(_ror_ogre_next_product_child_name "RoR-OgreNext")
+        endif ()
+        add_custom_command(
+            OUTPUT "${_ror_ogre_next_product_completion}"
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
+                stage
+                --child $<TARGET_FILE:ror_renderer_ogre_next_child_runtime>
+                --n1-package "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}"
+                --presentation-root "${ROR_OGRE_NEXT_PRESENTATION_MEDIA_ROOT}"
+                --build-contract
+                    "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+                --output "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}"
+                --identity "${ROR_OGRE_NEXT_PRODUCT_IDENTITY}"
+                --platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
+                verify
+                --root "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}"
+                --platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"
+                --identity "${ROR_OGRE_NEXT_PRODUCT_IDENTITY}"
+                --strict-root
+            DEPENDS
+                ror_renderer_ogre_next_child_runtime
+                ror_ogre_next_frontend_n1_package
+                "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
+                "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+                "${CMAKE_CURRENT_SOURCE_DIR}/package_ogre_next_product.py"
+                "${_ror_ogre_next_product_identity_source}"
+            BYPRODUCTS
+                "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/${_ror_ogre_next_product_child_name}"
+                "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/provenance/ogre-next-product-package.manifest.json"
+            COMMENT
+                "Staging the verified real OgreNext product child and exact media closure"
+            VERBATIM)
+        add_custom_target(ror_ogre_next_product_stage ALL
+            DEPENDS "${_ror_ogre_next_product_completion}")
+        set_property(
+            TARGET ror_ogre_next_product_stage
+            PROPERTY FOLDER "Packaging")
+        unset(_ror_ogre_next_product_completion)
+        unset(_ror_ogre_next_product_child_name)
+    endif ()
 
     foreach (_ror_n1_target IN LISTS _ror_n1_targets)
         set_target_properties(
@@ -1134,6 +3053,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_backend_policy_tests
         ror_renderer_startup_plan_tests
         ror_renderer_startup_handoff_tests
+        ror_renderer_child_intent_tests
+        ror_renderer_sibling_path_tests
+        ror_renderer_package_runtime_probe_tests
+        ror_renderer_ogre_next_child_tests
+        ror_renderer_child_launcher_fake_child
+        ror_renderer_child_launcher_tests
+        ror_renderer_public_launcher_legacy_child
+        ror_renderer_public_launcher_entrypoint
+        ror_renderer_public_bridge_entrypoint
         PROPERTIES
             CXX_STANDARD 11
             CXX_STANDARD_REQUIRED YES
@@ -1151,7 +3079,11 @@ add_custom_target(
     BYPRODUCTS "${ROR_OGRE_NEXT_REPORT}"
     COMMENT "Running fail-closed OGRE-Next capability probe"
     VERBATIM)
-
+if (TARGET ror_renderer_public_launcher_entrypoint)
+    add_dependencies(
+        ror_ogre_next_probe_report
+        ror_renderer_public_launcher_entrypoint)
+endif ()
 set(ROR_OGRE_NEXT_FRAME_IMAGE
     "${CMAKE_BINARY_DIR}/ror-ogre-next-frame-probe.ppm")
 set(ROR_OGRE_NEXT_FRAME_REPORT
@@ -1189,6 +3121,235 @@ endif ()
 if (TARGET ror_renderer_startup_handoff_tests)
     add_test(NAME ror_renderer_startup_handoff
         COMMAND $<TARGET_FILE:ror_renderer_startup_handoff_tests>)
+endif ()
+if (TARGET ror_renderer_child_intent_tests)
+    add_test(NAME ror_renderer_child_intent
+        COMMAND $<TARGET_FILE:ror_renderer_child_intent_tests>)
+endif ()
+if (TARGET ror_renderer_bridge_channel_tests)
+    add_test(NAME ror_renderer_bridge_channel
+        COMMAND $<TARGET_FILE:ror_renderer_bridge_channel_tests>)
+endif ()
+if (TARGET ror_renderer_ogre14_game_bridge_tests)
+    add_test(NAME ror_renderer_ogre14_game_bridge
+        COMMAND $<TARGET_FILE:ror_renderer_ogre14_game_bridge_tests>)
+endif ()
+if (TARGET ror_renderer_ogre14_game_host_session_tests)
+    add_test(NAME ror_renderer_ogre14_game_host_session
+        COMMAND $<TARGET_FILE:ror_renderer_ogre14_game_host_session_tests>)
+endif ()
+if (TARGET ror_renderer_sibling_path_tests)
+    add_test(NAME ror_renderer_sibling_path
+        COMMAND $<TARGET_FILE:ror_renderer_sibling_path_tests>)
+endif ()
+if (TARGET ror_renderer_package_runtime_probe_tests)
+    add_test(NAME ror_renderer_package_runtime_probe
+        COMMAND $<TARGET_FILE:ror_renderer_package_runtime_probe_tests>)
+endif ()
+if (TARGET ror_renderer_bridge_process_supervisor_tests)
+    add_test(NAME ror_renderer_bridge_process_supervisor
+        COMMAND $<TARGET_FILE:ror_renderer_bridge_process_supervisor_tests>)
+    set_tests_properties(
+        ror_renderer_bridge_process_supervisor
+        PROPERTIES TIMEOUT 30)
+endif ()
+if (TARGET ror_renderer_ogre_next_child_tests)
+    add_test(NAME ror_renderer_ogre_next_child
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_child_tests>)
+endif ()
+if (TARGET ror_renderer_ogre_next_live_session_tests)
+    add_test(NAME ror_renderer_ogre_next_live_session
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_live_session_tests>)
+    set_tests_properties(
+        ror_renderer_ogre_next_live_session
+        PROPERTIES TIMEOUT 30)
+endif ()
+if (TARGET ror_renderer_frontend_transport_dispatcher_tests)
+    add_test(NAME ror_renderer_frontend_transport_dispatcher
+        COMMAND $<TARGET_FILE:ror_renderer_frontend_transport_dispatcher_tests>)
+endif ()
+if (TARGET ror_graphics_scene_snapshot_producer_tests)
+    add_test(NAME ror_graphics_scene_snapshot_producer
+        COMMAND $<TARGET_FILE:ror_graphics_scene_snapshot_producer_tests>)
+endif ()
+if (TARGET ror_flex_mesh_topology_tests)
+    add_test(NAME ror_flex_mesh_topology
+        COMMAND $<TARGET_FILE:ror_flex_mesh_topology_tests>)
+endif ()
+if (TARGET ror_ogre14_metal_flex_shadow_read_contract_tests)
+    add_test(NAME ror_ogre14_metal_flex_shadow_read_contract
+        COMMAND $<TARGET_FILE:ror_ogre14_metal_flex_shadow_read_contract_tests>
+            "${ROR_REPOSITORY_ROOT}/source/main/physics/flex/FlexFactory.cpp"
+            "${ROR_REPOSITORY_ROOT}/source/main/physics/flex/FlexBody.cpp"
+            "${ROR_REPOSITORY_ROOT}/source/main/physics/ActorSpawner.cpp")
+endif ()
+if (TARGET ror_gfx_actor_capture_inventory_tests)
+    add_test(NAME ror_gfx_actor_capture_inventory
+        COMMAND $<TARGET_FILE:ror_gfx_actor_capture_inventory_tests>
+            "${ROR_REPOSITORY_ROOT}/source/main/main.cpp")
+endif ()
+if (TARGET ror_application_fatal_shutdown_contract_tests)
+    add_test(NAME ror_application_fatal_shutdown_contract
+        COMMAND $<TARGET_FILE:ror_application_fatal_shutdown_contract_tests>
+            "${ROR_REPOSITORY_ROOT}")
+endif ()
+if (TARGET ror_ogre14_graphics_scene_source_tests)
+    add_test(NAME ror_ogre14_graphics_scene_source
+        COMMAND $<TARGET_FILE:ror_ogre14_graphics_scene_source_tests>)
+endif ()
+if (TARGET ror_ogre14_particle_capture_source_tests)
+    add_test(NAME ror_ogre14_particle_capture_source
+        COMMAND $<TARGET_FILE:ror_ogre14_particle_capture_source_tests>)
+endif ()
+if (TARGET ror_ogre14_procedural_road_source_tests)
+    add_test(NAME ror_ogre14_procedural_road_source
+        COMMAND $<TARGET_FILE:ror_ogre14_procedural_road_source_tests>)
+endif ()
+if (TARGET ror_ogre14_road_material_transaction_tests)
+    add_test(NAME ror_ogre14_road_material_transaction
+        COMMAND $<TARGET_FILE:ror_ogre14_road_material_transaction_tests>)
+endif ()
+if (TARGET ror_ogre14_dynamic_material_closure_tests)
+    add_test(NAME ror_ogre14_dynamic_material_closure
+        COMMAND $<TARGET_FILE:ror_ogre14_dynamic_material_closure_tests>)
+endif ()
+if (TARGET ror_ogre_next_demo_private_policy_tests)
+    add_test(NAME ror_ogre_next_demo_private_policy
+        COMMAND $<TARGET_FILE:ror_ogre_next_demo_private_policy_tests>)
+endif ()
+if (TARGET ror_ogre14_material_semantic_registry_tests)
+    add_test(NAME ror_ogre14_material_semantic_registry
+        COMMAND $<TARGET_FILE:ror_ogre14_material_semantic_registry_tests>)
+endif ()
+if (TARGET ror_ogre14_source_texture_decoder_tests)
+    add_test(NAME ror_ogre14_source_texture_decoder
+        COMMAND $<TARGET_FILE:ror_ogre14_source_texture_decoder_tests>)
+endif ()
+if (TARGET ror_ogre14_material_semantic_catalog_v2_tests)
+    add_test(NAME ror_ogre14_material_semantic_catalog_v2
+        COMMAND $<TARGET_FILE:ror_ogre14_material_semantic_catalog_v2_tests>)
+endif ()
+if (TARGET ror_ogre14_live_material_coordinator_tests)
+    add_test(NAME ror_ogre14_live_material_coordinator
+        COMMAND $<TARGET_FILE:ror_ogre14_live_material_coordinator_tests>)
+endif ()
+if (TARGET ror_ogre14_graphics_scene_prepared_material_binding_tests)
+    add_test(NAME ror_ogre14_graphics_scene_prepared_material_binding
+        COMMAND $<TARGET_FILE:ror_ogre14_graphics_scene_prepared_material_binding_tests>)
+endif ()
+if (TARGET ror_ogre14_authenticated_texture_receipt_tests)
+    add_test(NAME ror_ogre14_authenticated_texture_receipt
+        COMMAND $<TARGET_FILE:ror_ogre14_authenticated_texture_receipt_tests>)
+endif ()
+if (TARGET ror_ogre14_authenticated_material_script_receipt_tests)
+    add_test(NAME ror_ogre14_authenticated_material_script_receipt
+        COMMAND $<TARGET_FILE:ror_ogre14_authenticated_material_script_receipt_tests>)
+endif ()
+if (TARGET ror_render_bridge_control_transport_tests)
+    add_test(NAME ror_render_bridge_control_transport
+        COMMAND $<TARGET_FILE:ror_render_bridge_control_transport_tests>)
+endif ()
+if (TARGET ror_renderer_ogre_next_window_host_tests)
+    add_test(NAME ror_renderer_ogre_next_window_host
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_window_host_tests>)
+endif ()
+if (TARGET ror_renderer_ogre_next_window_host_smoke)
+    add_test(NAME ror_renderer_ogre_next_window_host_smoke
+        COMMAND $<TARGET_FILE:ror_renderer_ogre_next_window_host_smoke>)
+    set_tests_properties(
+        ror_renderer_ogre_next_window_host_smoke
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            SKIP_RETURN_CODE 77
+            TIMEOUT 20)
+endif ()
+if (TARGET ror_ogre_next_window_present_smoke)
+    add_test(NAME ror_ogre_next_window_present_smoke
+        COMMAND $<TARGET_FILE:ror_ogre_next_window_present_smoke>
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            --output "${ROR_OGRE_NEXT_WINDOW_PRESENT_IMAGE}"
+            --report "${ROR_OGRE_NEXT_WINDOW_PRESENT_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_window_present_smoke
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            TIMEOUT 60)
+endif ()
+if (APPLE AND TARGET ror_ogre_next_window_run_loop_smoke)
+    add_test(NAME ror_ogre_next_window_run_loop_smoke
+        COMMAND $<TARGET_FILE:ror_ogre_next_window_run_loop_smoke>
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
+            --output "${ROR_OGRE_NEXT_WINDOW_RUN_LOOP_IMAGE}"
+            --report "${ROR_OGRE_NEXT_WINDOW_RUN_LOOP_REPORT}")
+    set_tests_properties(
+        ror_ogre_next_window_run_loop_smoke
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            TIMEOUT 180)
+endif ()
+if (TARGET ror_renderer_ogre_next_child_runtime)
+    add_test(
+        NAME ror_renderer_ogre_next_child_runtime
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_child_runtime_receipt.py"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --child $<TARGET_FILE:ror_renderer_ogre_next_child_runtime>
+            --timeout-seconds 110)
+    set_tests_properties(
+        ror_renderer_ogre_next_child_runtime
+        PROPERTIES
+            RESOURCE_LOCK ror_ogre_next_n1_native_device
+            SKIP_RETURN_CODE 77
+            REQUIRED_FILES "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
+            TIMEOUT 120
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+    add_test(
+        NAME ror_renderer_ogre_next_child_runtime_receipt
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/validate_child_runtime_receipt.py"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --require-pass-or-skip)
+    set_tests_properties(
+        ror_renderer_ogre_next_child_runtime_receipt
+        PROPERTIES
+            DEPENDS ror_renderer_ogre_next_child_runtime
+            TIMEOUT 10
+            WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif ()
+if (TARGET ror_renderer_child_launcher_tests)
+    add_test(NAME ror_renderer_child_launcher
+        COMMAND $<TARGET_FILE:ror_renderer_child_launcher_tests>)
+endif ()
+if (TARGET ror_renderer_public_launcher_entrypoint)
+    add_test(NAME ror_renderer_public_launcher_entrypoint
+        COMMAND $<TARGET_FILE:ror_renderer_public_launcher_entrypoint>)
+    set_tests_properties(
+        ror_renderer_public_launcher_entrypoint
+        PROPERTIES TIMEOUT 10)
+endif ()
+if (TARGET ror_renderer_public_bridge_entrypoint)
+    foreach (_ror_public_bridge_case IN ITEMS
+        default-prefer
+        explicit-require
+        presentation-first
+        pre-ready-fallback
+        pre-ready-require-terminal
+        post-ready-terminal
+        native-require-terminal)
+        add_test(
+            NAME "ror_renderer_public_bridge_${_ror_public_bridge_case}"
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DROR_RENDERER_PUBLIC_BRIDGE_LAUNCHER=$<TARGET_FILE:ror_renderer_public_bridge_entrypoint>"
+                "-DROR_RENDERER_PUBLIC_BRIDGE_CASE=${_ror_public_bridge_case}"
+                -P
+                "${ROR_REPOSITORY_ROOT}/tests/cmake/VerifyRendererPublicBridgeExit.cmake")
+        set_tests_properties(
+            "ror_renderer_public_bridge_${_ror_public_bridge_case}"
+            PROPERTIES TIMEOUT 20)
+    endforeach ()
 endif ()
 add_test(NAME ror_ogre_next_probe_runtime
     COMMAND $<TARGET_FILE:ror_ogre_next_probe>)
@@ -1360,7 +3521,13 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "-DREPEAT_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
             "-DREPEAT_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRt4DeterministicRepeat.cmake"
-        DEPENDS ror_ogre_next_frontend_n1_package
+        DEPENDS
+            ror_ogre_next_frontend_n1_package
+            ror_renderer_ogre_next_child_runtime
+            ror_renderer_ogre_next_window_host_tests
+            ror_renderer_ogre_next_window_host_smoke
+            ror_ogre_next_window_present_smoke
+            ror_ogre_next_window_run_loop_smoke
         BYPRODUCTS
             "${ROR_OGRE_NEXT_N1_IMAGE}"
             "${ROR_OGRE_NEXT_N1_REPORT}"
@@ -1437,7 +3604,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
 
     add_test(NAME ror_ogre_next_pssm_shadow_runtime
         COMMAND $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
-                --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+                --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
                 --report "${ROR_OGRE_NEXT_PSSM_CTEST_REPORT}"
                 --evidence "${ROR_OGRE_NEXT_PSSM_CTEST_EVIDENCE}"
                 --execution-challenge
@@ -1447,6 +3614,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         PROPERTIES
             RESOURCE_LOCK ror_ogre_next_n1_native_device
             SKIP_RETURN_CODE 77
+            REQUIRED_FILES "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
             TIMEOUT 180
             WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
     add_custom_target(
@@ -1463,7 +3631,7 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${CMAKE_CURRENT_SOURCE_DIR}/run_pssm_shadow.py"
             --build-dir "${CMAKE_BINARY_DIR}"
             --executable $<TARGET_FILE:ror_ogre_next_pssm_shadow_smoke>
-            --media-root "${ROR_OGRE_NEXT_MEDIA_ROOT}"
+            --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
             --build-contract
                 "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
             --report "${ROR_OGRE_NEXT_PSSM_REPORT}"
@@ -1473,6 +3641,8 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             --artifact-manifest "${ROR_OGRE_NEXT_PSSM_ARTIFACT_MANIFEST}"
         DEPENDS
             ror_ogre_next_pssm_shadow_smoke
+            ror_ogre_next_frontend_n1_package
+            "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"
             "${CMAKE_CURRENT_SOURCE_DIR}/run_pssm_shadow.py"
         BYPRODUCTS
             "${ROR_OGRE_NEXT_PSSM_REPORT}"

@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <limits>
 
@@ -154,6 +155,75 @@ RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
   sampler_mutation.payload = sampler;
   delta.mutations.push_back(std::move(sampler_mutation));
   return delta;
+}
+
+RenderAssetDelta
+MakeDisplayDomainUnlitCatalogDelta(std::uint64_t registry_id) {
+  MaterialDescriptor material;
+  material.debug_name = "RT4/V1 display-domain Unlit";
+  material.model = MaterialModel::UNLIT;
+  material.base_color_transfer =
+      BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+  material.base_color_texture.texture = Ref(RenderAssetKind::TEXTURE, 3U);
+  material.base_color_texture.sampler = Ref(RenderAssetKind::SAMPLER, 4U);
+
+  RenderAssetDelta delta =
+      MakeCatalogDelta(registry_id, MakeModernMesh(), material);
+  TextureResourceDescriptor texture;
+  texture.debug_name = "RT4/V1 complete display-domain texture";
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 2U;
+  texture.height = 2U;
+  TextureMipLevelDescriptor base;
+  base.width = 2U;
+  base.height = 2U;
+  base.row_pitch_bytes = 8U;
+  base.layer_pitch_bytes = 16U;
+  base.bytes = {0U,   32U,  64U,  255U, 255U, 96U,  64U,  255U,
+                0U,   160U, 192U, 255U, 255U, 224U, 192U, 255U};
+  texture.mip_levels.push_back(std::move(base));
+  TextureMipLevelDescriptor last;
+  last.width = 1U;
+  last.height = 1U;
+  last.row_pitch_bytes = 4U;
+  last.layer_pitch_bytes = 4U;
+  last.bytes = {250U, 7U, 201U, 255U};
+  texture.mip_levels.push_back(std::move(last));
+  RenderAssetMutation texture_mutation;
+  texture_mutation.asset = Ref(RenderAssetKind::TEXTURE, 3U);
+  texture_mutation.payload = std::move(texture);
+  delta.mutations.push_back(std::move(texture_mutation));
+
+  SamplerResourceDescriptor sampler;
+  sampler.debug_name = "RT4/V1 exact display-domain sampler";
+  sampler.mip_filter = SamplerFilter::NEAREST;
+  sampler.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_w = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.maximum_lod = 1.0F;
+  RenderAssetMutation sampler_mutation;
+  sampler_mutation.asset = Ref(RenderAssetKind::SAMPLER, 4U);
+  sampler_mutation.payload = std::move(sampler);
+  delta.mutations.push_back(std::move(sampler_mutation));
+  return delta;
+}
+
+std::shared_ptr<const SceneSnapshot> MakeDisplayDomainUnlitScene(
+    std::uint64_t registry_id, std::uint32_t flags) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = 1U;
+  descriptor.asset_registry_id = registry_id;
+  descriptor.asset_sequence = 1U;
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = Ref(RenderAssetKind::MESH, 1U);
+  instance.material = Ref(RenderAssetKind::MATERIAL, 2U);
+  instance.local_bounds = MakeModernMesh().local_bounds;
+  instance.flags = flags;
+  descriptor.mesh_instances.push_back(instance);
+  SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
+  Require(result.ok(), "display-domain Unlit scene fixture is invalid");
+  return result.snapshot;
 }
 
 Matrix4x4 Projection(float near_plane = 0.1F, float far_plane = 20.0F) {
@@ -387,12 +457,12 @@ void TestCapabilitiesFailClosed() {
   Require(metal.frontend_kind == RendererFrontendKind::OGRE_NEXT &&
               metal.supported_outputs == FrameOutputMask::COLOR &&
               metal.maximum_views == 1U && metal.supports_hdr_output &&
+              metal.supports_dynamic_mesh_updates &&
               metal.maximum_texture_dimension_2d ==
                   kOgreNextN1ConservativeMaximumTextureDimension,
           "N1 did not report its admitted raster surface");
   Require(metal.native_api == NativeGraphicsApi::NONE &&
               !metal.supports_compute && !metal.supports_async_compute &&
-              !metal.supports_dynamic_mesh_updates &&
               !metal.supports_particle_events &&
               !metal.supports_native_interop &&
               !metal.supports_native_ray_tracing_api &&
@@ -589,7 +659,9 @@ void TestAssetPolicy() {
           "dynamic policy fixture is not contract valid");
   Require(ValidateOgreNextN1AssetCatalog(dynamic_registry).code ==
               ValidationCode::UNSUPPORTED_FEATURE,
-          "dynamic geometry escaped N1 admission");
+          "explicit static-only policy admitted dynamic geometry");
+  Require(ValidateOgreNextN1AssetCatalog(dynamic_registry, true).ok(),
+          "admitted full-frame dynamic geometry was rejected");
 
   MaterialDescriptor overflowing_emissive = MakeMaterial();
   overflowing_emissive.emissive_factor =
@@ -888,6 +960,313 @@ void TestModernPbrAssetPolicy() {
           "missing authored tangent stream escaped RT4/V1 admission");
 }
 
+void TestDisplayDomainUnlitPolicy() {
+  constexpr std::uint64_t kRegistryId = 90U;
+  constexpr OgreNextRasterFeatureTier kModern =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  const auto validate_catalog = [&](RenderAssetDelta delta) {
+    RenderAssetRegistry candidate(delta.registry_id);
+    Require(candidate.Apply(delta).ok(),
+            "display-domain Unlit mutation is not structurally valid");
+    return ValidateOgreNextN1AssetCatalog(candidate, false, kModern);
+  };
+
+  RenderAssetRegistry registry(kRegistryId);
+  Require(registry.Apply(MakeDisplayDomainUnlitCatalogDelta(kRegistryId)).ok(),
+          "display-domain Unlit catalog could not be constructed");
+  Require(ValidateOgreNextN1AssetCatalog(registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "legacy N1 silently admitted display-domain Unlit");
+  Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
+          "exact one-texture display-domain Unlit catalog was rejected");
+
+  RenderAssetDelta before_filter =
+      MakeDisplayDomainUnlitCatalogDelta(kRegistryId + 1U);
+  std::get<MaterialDescriptor>(before_filter.mutations[1U].payload)
+      .base_color_transfer = BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER;
+  Require(validate_catalog(std::move(before_filter)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "generic decode-before-filter Unlit escaped exact admission");
+
+  RenderAssetDelta nonwhite =
+      MakeDisplayDomainUnlitCatalogDelta(kRegistryId + 2U);
+  std::get<MaterialDescriptor>(nonwhite.mutations[1U].payload)
+      .base_color_factor.x = 0.5F;
+  Require(validate_catalog(std::move(nonwhite)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "display-domain Unlit accepted nonwhite vertex-independent modulation");
+
+  RenderAssetDelta incomplete =
+      MakeDisplayDomainUnlitCatalogDelta(kRegistryId + 3U);
+  std::get<TextureResourceDescriptor>(incomplete.mutations[2U].payload)
+      .mip_levels.pop_back();
+  Require(validate_catalog(std::move(incomplete)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "display-domain Unlit accepted an incomplete mip chain");
+
+  RenderAssetDelta trilinear =
+      MakeDisplayDomainUnlitCatalogDelta(kRegistryId + 4U);
+  std::get<SamplerResourceDescriptor>(trilinear.mutations[3U].payload)
+      .mip_filter = SamplerFilter::LINEAR;
+  Require(validate_catalog(std::move(trilinear)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "display-domain Unlit accepted cross-mip interpolation");
+
+  RenderAssetDelta transparent =
+      MakeDisplayDomainUnlitCatalogDelta(kRegistryId + 5U);
+  std::get<TextureResourceDescriptor>(transparent.mutations[2U].payload)
+      .mip_levels.back()
+      .bytes[3U] = 254U;
+  Require(validate_catalog(std::move(transparent)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "display-domain Unlit accepted a nonopaque authored mip");
+
+  struct HostileProfileMutation final {
+    const char *label;
+    std::function<void(RenderAssetDelta &)> mutate;
+  };
+  const std::vector<HostileProfileMutation> hostile_profile_mutations{
+      {"display-domain Unlit accepted MASK alpha mode",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload).alpha_mode =
+             MaterialAlphaMode::MASK;
+       }},
+      {"display-domain Unlit accepted double-sided state",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .double_sided = true;
+       }},
+      {"display-domain Unlit accepted a missing base texture",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .base_color_texture = {};
+       }},
+      {"display-domain Unlit accepted UV1",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .base_color_texture.texture_coordinate_set = 1U;
+       }},
+      {"display-domain Unlit accepted base UV scale",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .base_color_texture.scale.x = 0.5F;
+       }},
+      {"display-domain Unlit accepted base UV offset",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .base_color_texture.offset.x = 0.25F;
+       }},
+      {"display-domain Unlit accepted base UV rotation",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .base_color_texture.rotation_radians = 0.25F;
+       }},
+      {"display-domain Unlit accepted a metallic-roughness binding",
+       [](RenderAssetDelta &delta) {
+         MaterialDescriptor &material =
+             std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+         material.metallic_roughness_texture = material.base_color_texture;
+       }},
+      {"display-domain Unlit accepted a normal binding",
+       [](RenderAssetDelta &delta) {
+         MaterialDescriptor &material =
+             std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+         material.normal_texture = material.base_color_texture;
+       }},
+      {"display-domain Unlit accepted an occlusion binding",
+       [](RenderAssetDelta &delta) {
+         MaterialDescriptor &material =
+             std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+         material.occlusion_texture = material.base_color_texture;
+       }},
+      {"display-domain Unlit accepted an emissive binding",
+       [](RenderAssetDelta &delta) {
+         MaterialDescriptor &material =
+             std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+         material.emissive_texture = material.base_color_texture;
+       }},
+      {"display-domain Unlit accepted metallic factor",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .metallic_factor = 0.25F;
+       }},
+      {"display-domain Unlit accepted roughness factor",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .roughness_factor = 0.75F;
+       }},
+      {"display-domain Unlit accepted normal scale",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .normal_scale = 0.5F;
+       }},
+      {"display-domain Unlit accepted occlusion strength",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .occlusion_strength = 0.5F;
+       }},
+      {"display-domain Unlit accepted emissive factor",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .emissive_factor.x = 0.25F;
+       }},
+      {"display-domain Unlit accepted emissive strength",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .emissive_strength = 0.5F;
+       }},
+      {"display-domain Unlit accepted alpha cutoff",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .alpha_cutoff = 0.25F;
+       }},
+      {"display-domain Unlit accepted noncanonical IOR",
+       [](RenderAssetDelta &delta) {
+         std::get<MaterialDescriptor>(delta.mutations[1U].payload)
+             .index_of_refraction = 1.4F;
+       }},
+      {"display-domain Unlit accepted an array texture type",
+       [](RenderAssetDelta &delta) {
+         std::get<TextureResourceDescriptor>(delta.mutations[2U].payload).type =
+             TextureResourceType::TEXTURE_2D_ARRAY;
+       }},
+      {"display-domain Unlit accepted multiple texture layers",
+       [](RenderAssetDelta &delta) {
+         TextureResourceDescriptor &texture =
+             std::get<TextureResourceDescriptor>(delta.mutations[2U].payload);
+         texture.type = TextureResourceType::TEXTURE_2D_ARRAY;
+         texture.array_layers = 2U;
+         for (TextureMipLevelDescriptor &mip : texture.mip_levels) {
+           const std::vector<std::uint8_t> layer = mip.bytes;
+           mip.bytes.insert(mip.bytes.end(), layer.begin(), layer.end());
+         }
+       }},
+      {"display-domain Unlit accepted a non-RGBA8 format",
+       [](RenderAssetDelta &delta) {
+         TextureResourceDescriptor &texture =
+             std::get<TextureResourceDescriptor>(delta.mutations[2U].payload);
+         texture.format = TextureResourceFormat::RGBA16_FLOAT;
+         for (TextureMipLevelDescriptor &mip : texture.mip_levels) {
+           mip.row_pitch_bytes = static_cast<std::uint64_t>(mip.width) * 8U;
+           mip.layer_pitch_bytes =
+               mip.row_pitch_bytes * static_cast<std::uint64_t>(mip.height);
+           mip.bytes.assign(static_cast<std::size_t>(mip.layer_pitch_bytes),
+                            0U);
+         }
+       }},
+      {"display-domain Unlit accepted linear color space",
+       [](RenderAssetDelta &delta) {
+         std::get<TextureResourceDescriptor>(delta.mutations[2U].payload)
+             .color_space = TextureColorSpace::LINEAR;
+       }},
+      {"display-domain Unlit accepted nearest minification",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .minification_filter = SamplerFilter::NEAREST;
+       }},
+      {"display-domain Unlit accepted nearest magnification",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .magnification_filter = SamplerFilter::NEAREST;
+       }},
+      {"display-domain Unlit accepted repeat U addressing",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .address_u = SamplerAddressMode::REPEAT;
+       }},
+      {"display-domain Unlit accepted repeat V addressing",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .address_v = SamplerAddressMode::REPEAT;
+       }},
+      {"display-domain Unlit accepted repeat W addressing",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .address_w = SamplerAddressMode::REPEAT;
+       }},
+      {"display-domain Unlit accepted mip LOD bias",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .mip_lod_bias = 0.25F;
+       }},
+      {"display-domain Unlit accepted nonzero minimum LOD",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .minimum_lod = 0.25F;
+       }},
+      {"display-domain Unlit accepted truncated maximum LOD",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .maximum_lod = 0.5F;
+       }},
+      {"display-domain Unlit accepted anisotropic filtering",
+       [](RenderAssetDelta &delta) {
+         SamplerResourceDescriptor &sampler =
+             std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload);
+         sampler.anisotropy_enabled = true;
+         sampler.maximum_anisotropy = 2.0F;
+       }},
+      {"display-domain Unlit accepted latent anisotropy",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .maximum_anisotropy = 2.0F;
+       }},
+      {"display-domain Unlit accepted comparison sampling",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .compare_enabled = true;
+       }},
+      {"display-domain Unlit accepted latent compare operation",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .compare_operation = SamplerCompareOperation::LESS;
+       }},
+      {"display-domain Unlit accepted a noncanonical border color",
+       [](RenderAssetDelta &delta) {
+         std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload)
+             .border_color.x = 1.0F;
+       }},
+  };
+  for (std::size_t index = 0U; index < hostile_profile_mutations.size();
+       ++index) {
+    RenderAssetDelta hostile = MakeDisplayDomainUnlitCatalogDelta(
+        kRegistryId + 10U + static_cast<std::uint64_t>(index));
+    hostile_profile_mutations[index].mutate(hostile);
+    RenderAssetRegistry candidate(hostile.registry_id);
+    const ValidationResult applied = candidate.Apply(hostile);
+    if (!applied) {
+      // Some exact-profile violations (for example array material textures or
+      // comparison sampling) are already rejected by the shared portable
+      // material/registry contract. They still prove fail-closed admission;
+      // the N1-specific check is exercised for every structurally valid case.
+      continue;
+    }
+    const ValidationResult result =
+        ValidateOgreNextN1AssetCatalog(candidate, false, kModern);
+    Require(result.code == ValidationCode::UNSUPPORTED_FEATURE,
+            hostile_profile_mutations[index].label);
+  }
+
+  Require(ValidateOgreNextN1Scene(
+              *MakeDisplayDomainUnlitScene(
+                  kRegistryId, MESH_INSTANCE_VISIBLE_IN_REFLECTIONS),
+              registry, false, kModern)
+              .ok(),
+          "shadow-free display-domain Unlit scene was rejected");
+  Require(ValidateOgreNextN1Scene(
+              *MakeDisplayDomainUnlitScene(
+                  kRegistryId, MESH_INSTANCE_CASTS_SHADOW),
+              registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "display-domain Unlit instance was allowed to cast shadows");
+  Require(ValidateOgreNextN1Scene(
+              *MakeDisplayDomainUnlitScene(
+                  kRegistryId, MESH_INSTANCE_RECEIVES_SHADOW),
+              registry, false, kModern)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "display-domain Unlit instance was allowed to receive shadows");
+}
+
 void TestFrameAndScenePolicy() {
   constexpr std::uint64_t kRegistryId = 72U;
   RenderAssetRegistry registry(kRegistryId);
@@ -1135,6 +1514,7 @@ int main() {
   TestInitializationPolicy();
   TestAssetPolicy();
   TestModernPbrAssetPolicy();
+  TestDisplayDomainUnlitPolicy();
   TestFrameAndScenePolicy();
   std::cout << "Ogre-Next N1 fail-closed policy tests passed\n";
   return EXIT_SUCCESS;

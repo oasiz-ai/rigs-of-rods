@@ -3,3 +3,7 @@ name = "vcredist-v14-x64"
 
 [[prereqs]]
 name = "dx-june-2010"
+
+[[actions]]
+name = "play"
+path = "RoR.exe"

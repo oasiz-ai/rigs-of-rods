@@ -1,0 +1,70 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+/// @file
+/// @brief Generated, immutable public-launcher package facts.
+
+#pragma once
+
+#include "RendererStartupHandoff.h"
+
+namespace RoR {
+namespace RendererLauncherPackageConfig {
+
+constexpr std::uint32_t kContractVersion =
+    kRendererStartupHandoffContractVersion;
+constexpr HostRenderPlatform kPackagePlatform =
+    HostRenderPlatform::@ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM@;
+constexpr RendererFrontendPreference kDefaultFrontendPreference =
+    RendererFrontendPreference::@ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND@;
+constexpr DirectionalShadowPreference
+    kDefaultDirectionalShadowPreference =
+    DirectionalShadowPreference::@ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS@;
+constexpr bool kOgre14ChildPresent =
+    @ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT@;
+constexpr bool kOgreNextChildPresent =
+    @ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT@;
+constexpr bool kOgreNextChildProductionReady =
+    @ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY@;
+constexpr bool kOgreNextPssmAdmitted =
+    @ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED@;
+constexpr NativeRayTracingBackend kNativeDirectionalShadowBackend =
+    NativeRayTracingBackend::@ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND@;
+
+// Ordinary product builds record Ogre-Next as absent. An explicit demo build
+// may compile admitted facts only after selecting the verified production
+// package. These invariants permit that bounded build-time admission without
+// creating any runtime or user-controlled package-fact channel.
+static_assert(kOgre14ChildPresent,
+              "the phase-2 launcher requires the OGRE 14 game child");
+static_assert(kDefaultFrontendPreference ==
+                  RendererFrontendPreference::OGRE_NEXT_PREFER,
+              "the public package must request OgreNext by default");
+static_assert(kDefaultDirectionalShadowPreference ==
+                  DirectionalShadowPreference::PSSM,
+              "the public package default must retain admitted PSSM");
+static_assert(kOgreNextChildPresent ||
+                  (!kOgreNextChildProductionReady &&
+                   !kOgreNextPssmAdmitted &&
+                   kNativeDirectionalShadowBackend ==
+                       NativeRayTracingBackend::NONE),
+              "an absent Ogre-Next child cannot advertise admitted features");
+static_assert(!kOgreNextChildProductionReady || kOgreNextChildPresent,
+              "Ogre-Next readiness requires a packaged child");
+static_assert(!kOgreNextPssmAdmitted ||
+                  (kOgreNextChildPresent &&
+                   kOgreNextChildProductionReady),
+              "Ogre-Next PSSM admission requires a production-ready child");
+static_assert(kNativeDirectionalShadowBackend ==
+                      NativeRayTracingBackend::NONE ||
+                  (kOgreNextChildPresent &&
+                   kOgreNextChildProductionReady),
+              "a native shadow backend requires a production-ready child");
+
+} // namespace RendererLauncherPackageConfig
+} // namespace RoR

@@ -5,7 +5,7 @@ from conan.tools.cmake import CMakeToolchain, CMakeDeps
 from conan.tools.files import copy
 
 
-OGRE14_RECIPE_REVISION = "b6b0c0cfeda342454587f82182559f20"
+OGRE14_RECIPE_REVISION = "2e5eda6c54bfb7f9ae19831a65d52f74"
 SDL2_RECIPE_REVISION = "19432981a8779c918a13682d4186fa3b"
 SUPPORTED_OGRE14_TARGETS = {
     ("Linux", "x86_64"),
@@ -21,7 +21,9 @@ class RoR(ConanFile):
         "ogre14": [True, False],
     }
     default_options = {
-        "ogre14": False,
+        # The public product is OgreNext-first, while OGRE 14 supplies the
+        # simulation/game host and the bounded compatibility fallback.
+        "ogre14": True,
         "ogre3d*:resourcemanager_strict": "off",
         "ogre3d/1.11.*:profiling": "True",
     }
@@ -33,7 +35,7 @@ class RoR(ConanFile):
         target = (str(self.settings.os), str(self.settings.arch))
         if self.options.ogre14 and target not in SUPPORTED_OGRE14_TARGETS:
             raise ConanInvalidConfiguration(
-                "The opt-in OGRE 14 application graph supports only "
+                "The OgreNext-first product suite supports only "
                 "Linux/x86_64, Macos/armv8, and Windows/x86_64; "
                 f"received {target[0]}/{target[1]}"
             )
@@ -83,7 +85,16 @@ class RoR(ConanFile):
 
     def generate(self):
         tc = CMakeToolchain(self)
-        tc.variables["ROR_OGRE14"] = bool(self.options.ogre14)
+        build_renderer_suite = bool(self.options.ogre14)
+        tc.variables["ROR_OGRE14"] = build_renderer_suite
+        # Keep the supported no-option Conan path on the complete
+        # OgreNext-first suite. The legacy dependency graph is an explicit
+        # developer opt-out and must disable both dependent product targets
+        # rather than relying on CMake's default propagation.
+        tc.variables["ROR_RENDERER_PUBLIC_LAUNCHER"] = build_renderer_suite
+        tc.variables["ROR_OGRE_NEXT_PRODUCTION_PACKAGE"] = (
+            build_renderer_suite
+        )
         tc.generate()
         deps = CMakeDeps(self)
         deps.generate()

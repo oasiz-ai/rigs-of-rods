@@ -28,7 +28,7 @@ namespace RoR::Render {
 /// synchronization. The NativeRenderInterop vtable and all structures carrying
 /// this value are an exact whole-program ABI; version 2 consumers must fail
 /// closed rather than calling a version 3 object.
-constexpr std::uint32_t kRendererFrontendContractVersion = 3U;
+constexpr std::uint32_t kRendererFrontendContractVersion = 4U;
 /// Native image exchange evolves independently from the geometry payload.
 /// Version 2 binds every borrowed image to the exact immutable SceneSnapshot
 /// owner and complete CameraViewRequest that produced it. A caller must reject
@@ -655,6 +655,12 @@ public:
   /// sequence is permitted only when all logical contents are identical.
   virtual RenderOperationResult
   SynchronizeAssets(const RenderAssetDelta &delta) = 0;
+  /// Opens the exact next scene generation after the transport dispatcher has
+  /// consumed and authenticated the preceding generation's final empty scene.
+  /// Renderer-global frame/snapshot/resource identity remains monotonic. The
+  /// frontend resets only map-scoped temporal and reflection-probe history.
+  virtual RenderOperationResult
+  ResetSceneGeneration(std::uint64_t next_generation) = 0;
   /// Releases a frontend-owned output handle transferred in FrameAttachment.
   /// Scene assets are retired only through SynchronizeAssets tombstones.
   virtual RenderOperationResult ReleaseResource(ResourceHandle resource) = 0;

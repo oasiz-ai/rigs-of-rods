@@ -24,6 +24,7 @@
 #include "AirBrake.h"
 #include "Airfoil.h"
 #include "Application.h"
+#include "ApplicationFatalError.h"
 #include "AutoPilot.h"
 #include "SimData.h"
 #include "ActorManager.h"
@@ -2087,7 +2088,9 @@ void Actor::sendStreamData()
     if (m_net_total_buffer_size + sizeof(RoRnet::VehicleState) > RORNET_MAX_MESSAGE_LENGTH)
     {
         ErrorUtils::ShowError(_L("Actor is too big to be sent over the net."), _L("Network error!"));
-        exit(126);
+        throw ApplicationFatalError(
+            126,
+            "actor network state exceeds the protocol message limit");
     }
 
     char send_buffer[RORNET_MAX_MESSAGE_LENGTH] = {0};

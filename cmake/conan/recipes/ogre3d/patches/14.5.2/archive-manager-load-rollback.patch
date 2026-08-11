@@ -1,0 +1,46 @@
+--- a/OgreMain/src/OgreArchiveManager.cpp
++++ b/OgreMain/src/OgreArchiveManager.cpp
+@@ -48,6 +48,7 @@ namespace Ogre
+     Archive* ArchiveManager::load( const String& filename, const String& archiveType, bool readOnly)
+     {
+         ArchiveMap::iterator i = mArchives.find(filename);
++        ArchiveFactory* creatingFactory = 0;
+         Archive* pArch = 0;
+ 
+         if (i == mArchives.end())
+@@ -62,7 +63,32 @@ namespace Ogre
+             }
+ 
+-            pArch = it->second->createInstance(filename, readOnly);
+-            pArch->load();
+-            mArchives[filename] = pArch;
++            creatingFactory = it->second;
++            pArch = creatingFactory->createInstance(filename, readOnly);
++            if (!pArch)
++            {
++                OGRE_EXCEPT(Exception::ERR_INVALID_STATE,
++                            "ArchiveFactory for type '" + archiveType +
++                            "' returned a null archive", "ArchiveManager::load");
++            }
++            try
++            {
++                pArch->load();
++                const auto inserted = mArchives.emplace(filename, pArch);
++                if (!inserted.second)
++                {
++                    OGRE_EXCEPT(Exception::ERR_DUPLICATE_ITEM,
++                                "Archive '" + filename +
++                                "' was inserted concurrently",
++                                "ArchiveManager::load");
++                }
++            }
++            catch (...)
++            {
++                // createInstance succeeded but ownership was not published.
++                // Always return it to the exact factory on load/allocation
++                // failure so EmbeddedZip buffers can be rolled back safely.
++                creatingFactory->destroyInstance(pArch);
++                throw;
++            }
+ 
+         }

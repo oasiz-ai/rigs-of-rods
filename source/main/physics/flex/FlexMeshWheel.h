@@ -48,6 +48,15 @@ public:
     Ogre::Entity* GetTireEntity() { return m_tire_entity; }
 
     Ogre::Vector3 updateVertices();
+    /// Copies only the completed graphics staging arrays. Call only after
+    /// GfxActor::FinishWheelUpdates(); this never exposes NodeSB/solver data.
+    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
+                              std::vector<Ogre::Vector3>& normals,
+                              std::vector<Ogre::Vector2>& texcoords0) const;
+    const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
+    {
+        return m_cpu_topology_sections;
+    }
 
     // Flexable
     bool flexitPrepare();
@@ -108,6 +117,7 @@ private:
     // Indices
     size_t           m_index_count;
     std::vector<unsigned short>  m_indices;
+    std::vector<FlexMeshTopologySection> m_cpu_topology_sections;
 };
 
 /// @} // addtogroup Flex

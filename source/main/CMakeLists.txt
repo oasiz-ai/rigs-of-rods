@@ -35,6 +35,7 @@ set(SOURCE_FILES
         gfx/GfxActor.{h,cpp}
         gfx/GfxData.{h,cpp}
         gfx/GfxScene.{h,cpp}
+        gfx/GfxActorCaptureInventory.h
         gfx/PostProcessPolicy.{h,cpp}
         gfx/PostProcessRuntime.{h,cpp}
         gfx/PostProcessRuntimeContract.{h,cpp}
@@ -43,23 +44,39 @@ set(SOURCE_FILES
         gfx/RendererStartupPlan.{h,cpp}
         gfx/RenderDisplayMetrics.h
         gfx/render/GraphicsSceneSnapshotProducer.{h,cpp}
+        gfx/render/Ogre14GraphicsSceneSource.{h,cpp}
+        gfx/render/Ogre14LegacyAssetTranslator.{h,cpp}
+        gfx/render/Ogre14LegacyMaterialClosure.{h,cpp}
+        gfx/render/Ogre14ParticleCaptureSource.{h,cpp}
+        gfx/render/Ogre14ProceduralRoadSource.{h,cpp}
+        gfx/render/Ogre14SourceTextureDecoder.{h,cpp}
         gfx/render/HdrReference.{h,cpp}
+        gfx/render/InputEventTransport.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
         gfx/render/ParallaxProbeReference.{h,cpp}
         gfx/render/PbrReference.{h,cpp}
         gfx/render/ReflectionProbeCaptureReceipt.{h,cpp}
         gfx/render/ReflectionProbeRuntime.{h,cpp}
+        gfx/render/RenderAssetDeltaTransport.{h,cpp}
         gfx/render/RenderAssetId.{h,cpp}
         gfx/render/RenderAssetRegistry.{h,cpp}
+        gfx/render/RenderBridgeControlTransport.{h,cpp}
+        gfx/render/SceneGenerationBoundaryTransport.{h,cpp}
+        gfx/render/RenderBridgeSessionIdentity.{h,cpp}
         gfx/render/README.md
         gfx/render/RenderContracts.h
         gfx/render/RenderFrame.{h,cpp}
         gfx/render/RenderMath.h
         gfx/render/RenderResourceDescriptors.{h,cpp}
+        gfx/render/RenderTransportDetail.h
+        gfx/render/RenderTransportEnvelope.{h,cpp}
+        gfx/render/RenderTransportStream.{h,cpp}
         gfx/render/RendererFrontend.{h,cpp}
+        gfx/render/RendererFrontendTransportDispatcher.{h,cpp}
         gfx/render/RenderValidation.h
         gfx/render/ResourceHandle.{h,cpp}
         gfx/render/SceneSnapshot.{h,cpp}
+        gfx/render/SceneSnapshotTransport.{h,cpp}
         gfx/HydraxWater.{h,cpp}
         gfx/IGfxWater.h
         gfx/MovableText.{h,cpp}
@@ -214,6 +231,7 @@ set(SOURCE_FILES
         physics/collision/PointColDetector.{h,cpp}
         physics/collision/Triangle.h
         physics/flex/Flexable.h
+        physics/flex/FlexMeshTopology.h
         physics/flex/FlexAirfoil.{h,cpp}
         physics/flex/FlexBody.{h,cpp}
         physics/flex/FlexFactory.{h,cpp}
@@ -259,11 +277,29 @@ set(SOURCE_FILES
         resources/tobj_fileformat/TObjFileFormat.{h,cpp}
         resources/tuneup_fileformat/TuneupFileFormat.{h,cpp}
         system/AppCommandLine.cpp
+        system/ApplicationFatalError.h
         system/CommandLineInfo.{h,cpp}
         system/AppConfig.cpp
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
         system/CVar.{h,cpp}
+        system/RendererBridgeChannel.{h,cpp}
+        system/RendererBridgeEndpoint.{h,cpp}
+        system/RendererBridgeLaunchPlan.{h,cpp}
+        system/RendererBridgeProcessSupervisor.{h,cpp}
+        system/RendererChildIntent.{h,cpp}
+        system/RendererChildLauncher.{h,cpp}
+        system/RendererOgre14GameBridge.{h,cpp}
+        system/RendererOgre14GameHostSession.{h,cpp}
+        system/RendererOgre14InputAdapter.{h,cpp}
+        system/RendererOgre14InputEngineTarget.{h,cpp}
+        system/RendererOgre14ProductSession.{h,cpp}
+        system/detail/OgreNextDemoFrameNormalization.{h,cpp}
+        system/RendererOgre14RuntimeOwnership.{h,cpp}
+        system/RendererPackageRuntimeProbe.{h,cpp}
+        system/RendererOgreNextLiveSession.{h,cpp}
+        system/RendererSiblingPath.{h,cpp}
+        system/RendererPackagedMediaPath.{h,cpp}
         terrain/OgreTerrainPSSMMaterialGenerator.{h,cpp}
         terrain/LocalLightBudget.h
         terrain/ProceduralManager.{h,cpp}
@@ -289,6 +325,7 @@ set(SOURCE_FILES
         utils/SHA1.{h,cpp}
         utils/Utils.{h,cpp}
         utils/Vec3.h
+        utils/WindowsRuntimePath.h
         utils/WriteTextToTexture.{h,cpp}
         utils/memory/RefCountingObject.h
         utils/memory/RefCountingObjectPtr.h
@@ -357,6 +394,28 @@ if (ROR_USE_ANGELSCRIPT)
             )
 endif ()
 
+if (ROR_OGRE14)
+    # Native OGRE types remain confined to the OGRE 14 integration directory.
+    # The renderer-neutral boundary above continues to build in standalone
+    # tests and with either renderer dependency graph.
+    list(APPEND SOURCE_FILES
+        gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
+        gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.{h,cpp}
+        gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
+        gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
+        gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.{h,cpp}
+        gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
+        gfx/ogre14/detail/OgreNextDemoPrivatePolicy.{h,cpp}
+        gfx/ogre14/detail/OgreNextDemoMaterialSource.{h,cpp}
+        gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.{h,cpp}
+        gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.{h,cpp}
+        gfx/ogre14/Ogre14LegacyNativeAssetExtractor.{h,cpp}
+        gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+        gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.{h,cpp}
+        gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.{h,cpp}
+        gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp})
+endif ()
+
 include(SourceFileUtils)
 
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
@@ -366,20 +425,37 @@ expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 # PCH. Validation also relies on IEEE NaN/Inf classification in release builds,
 # where the game otherwise enables fast math globally.
 set(ROR_RENDER_CONTRACT_SOURCES
+        gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
         gfx/render/GraphicsSceneSnapshotProducer.cpp
+        gfx/render/Ogre14GraphicsSceneSource.cpp
+        gfx/render/Ogre14LegacyAssetTranslator.cpp
+        gfx/render/Ogre14LegacyMaterialClosure.cpp
+        gfx/render/Ogre14ParticleCaptureSource.cpp
+        gfx/render/Ogre14ProceduralRoadSource.cpp
+        gfx/render/Ogre14SourceTextureDecoder.cpp
         gfx/render/HdrReference.cpp
+        gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
         gfx/render/ReflectionProbeCaptureReceipt.cpp
         gfx/render/ReflectionProbeRuntime.cpp
+        gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderBridgeControlTransport.cpp
+        gfx/render/SceneGenerationBoundaryTransport.cpp
+        gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RenderTransportEnvelope.cpp
+        gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
+        gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
+        gfx/render/SceneSnapshotTransport.cpp
+        system/detail/OgreNextDemoFrameNormalization.cpp
         )
 set_source_files_properties(
         ${ROR_RENDER_CONTRACT_SOURCES}
@@ -387,20 +463,56 @@ set_source_files_properties(
         SKIP_PRECOMPILE_HEADERS ON
         )
 set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+        gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
         gfx/render/GraphicsSceneSnapshotProducer.cpp
+        gfx/render/Ogre14GraphicsSceneSource.cpp
+        gfx/render/Ogre14LegacyAssetTranslator.cpp
+        gfx/render/Ogre14LegacyMaterialClosure.cpp
+        gfx/render/Ogre14ParticleCaptureSource.cpp
+        gfx/render/Ogre14ProceduralRoadSource.cpp
         gfx/render/HdrReference.cpp
+        gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
         gfx/render/ReflectionProbeCaptureReceipt.cpp
         gfx/render/ReflectionProbeRuntime.cpp
+        gfx/render/RenderAssetDeltaTransport.cpp
         gfx/render/RenderAssetId.cpp
         gfx/render/RenderAssetRegistry.cpp
+        gfx/render/RenderBridgeControlTransport.cpp
+        gfx/render/SceneGenerationBoundaryTransport.cpp
+        gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
         gfx/render/RenderResourceDescriptors.cpp
+        gfx/render/RenderTransportEnvelope.cpp
+        gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
+        gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/SceneSnapshot.cpp
+        gfx/render/SceneSnapshotTransport.cpp
+        system/detail/OgreNextDemoFrameNormalization.cpp
         )
+if (ROR_OGRE14)
+    # Native declaration/capture authentication writes exact IEEE-754 bits and
+    # must reject hostile NaN/Inf even when the game Release target enables
+    # global fast math. Keep these owner-thread edges precise in production,
+    # not only in their focused test executables.
+    list(APPEND ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
+            gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
+            gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp
+            gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            )
+    set_source_files_properties(
+            gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp
+            gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp
+            gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
+            gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp
+            PROPERTIES
+            SKIP_PRECOMPILE_HEADERS ON
+            )
+endif ()
 if (MSVC)
     set_source_files_properties(
             ${ROR_RENDER_CONTRACT_STRICT_FP_SOURCES}
@@ -482,6 +594,146 @@ endif ()
 set(BINNAME "RoR")
 add_executable(${BINNAME} ${SOURCE_FILES})
 
+if (ROR_RENDERER_PUBLIC_LAUNCHER)
+    # Preserve the logical game target so its dependency/resource/test wiring
+    # remains intact, while giving the two process roles exact, non-colliding
+    # sibling names. The public executable carries Ogre-Next-first intent; the
+    # immutable package facts continue to admit only this OGRE 14 child until a
+    # production RoR-OgreNext child clears its independent renderer gates.
+    set_target_properties(
+        ${BINNAME}
+        PROPERTIES
+            OUTPUT_NAME "RoR-Ogre14"
+            PDB_NAME "RoR-Ogre14"
+            DEBUG_POSTFIX "")
+    if (WIN32 AND NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+        target_compile_definitions(
+            ${BINNAME}
+            PRIVATE
+                ROR_RESOURCE_INTERNAL_NAME_STRING=\"RoR-Ogre14\"
+                ROR_RESOURCE_ORIGINAL_FILENAME_STRING=\"RoR-Ogre14.exe\")
+    endif ()
+
+    include(RendererLauncherPackageConfig)
+    set(_ror_renderer_launcher_generated_include_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/renderer-launcher-generated")
+    ror_configure_renderer_launcher_package_facts(
+        "${CMAKE_CURRENT_LIST_DIR}/system/RendererLauncherPackageConfig.h.in"
+        "${_ror_renderer_launcher_generated_include_dir}"
+        _ror_renderer_launcher_generated_header
+        "${ROR_OGRE_NEXT_DEMO_ADMISSION}")
+
+    set(_ror_renderer_launcher_source_tree_sources
+        system/RendererLauncherMain.cpp
+        system/RendererPublicLauncher.cpp
+        system/RendererPublicLauncher.h
+        system/RendererBridgeEndpoint.cpp
+        system/RendererBridgeEndpoint.h
+        system/RendererBridgeLaunchPlan.cpp
+        system/RendererBridgeLaunchPlan.h
+        system/RendererBridgeProcessSupervisor.cpp
+        system/RendererBridgeProcessSupervisor.h
+        system/RendererChildIntent.cpp
+        system/RendererChildIntent.h
+        system/RendererChildLauncher.cpp
+        system/RendererChildLauncher.h
+        system/RendererPackageRuntimeProbe.cpp
+        system/RendererPackageRuntimeProbe.h
+        system/RendererSiblingPath.cpp
+        system/RendererSiblingPath.h
+        system/RendererPackagedMediaPath.cpp
+        system/RendererPackagedMediaPath.h
+        gfx/RendererBackendPolicy.cpp
+        gfx/RendererBackendPolicy.h
+        gfx/RendererStartupPlan.cpp
+        gfx/RendererStartupPlan.h
+        gfx/RendererStartupHandoff.cpp
+        gfx/RendererStartupHandoff.h)
+    set(_ror_renderer_launcher_sources
+        ${_ror_renderer_launcher_source_tree_sources}
+        "${_ror_renderer_launcher_generated_header}")
+
+    add_executable(
+        ror_renderer_launcher
+        ${_ror_renderer_launcher_sources})
+    if (APPLE AND ROR_OGRE_NEXT_DEMO_ADMISSION)
+        # This disposable package has no transported menu/HUD yet. Make a
+        # Finder double-click launch the one reviewed CityWorld demo and
+        # require OgreNext so it can never masquerade as the legacy renderer.
+        target_compile_definitions(
+            ror_renderer_launcher
+            PRIVATE ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART=1)
+    endif ()
+    add_dependencies(ror_renderer_launcher ${BINNAME})
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        # The launcher is never emitted ahead of the authenticated real-child
+        # stage. Availability/readiness facts remain fail-closed unless this
+        # build explicitly enables the bounded demo admission.
+        add_dependencies(
+            ror_renderer_launcher
+            ${ROR_OGRE_NEXT_PRODUCT_TARGET})
+    endif ()
+    target_include_directories(
+        ror_renderer_launcher
+        PRIVATE
+            "${CMAKE_CURRENT_LIST_DIR}/gfx"
+            "${CMAKE_CURRENT_LIST_DIR}/system"
+            "${_ror_renderer_launcher_generated_include_dir}")
+    set_target_properties(
+        ror_renderer_launcher
+        PROPERTIES
+            OUTPUT_NAME "RoR"
+            DEBUG_POSTFIX ""
+            CXX_STANDARD 11
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO)
+    if (MSVC)
+        target_compile_options(
+            ror_renderer_launcher
+            PRIVATE /W4 /WX /fp:strict /permissive-)
+    else ()
+        target_compile_options(
+            ror_renderer_launcher
+            PRIVATE
+                -Wall
+                -Wextra
+                -Werror
+                -pedantic
+                -fno-fast-math
+                -ffp-contract=off)
+    endif ()
+    if (WIN32)
+        set_target_properties(
+            ror_renderer_launcher
+            PROPERTIES WIN32_EXECUTABLE YES)
+        if (NOT (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+            target_sources(ror_renderer_launcher PRIVATE "icon.rc")
+            target_include_directories(
+                ror_renderer_launcher
+                PRIVATE "${CMAKE_BINARY_DIR}/source/version_info")
+            add_dependencies(ror_renderer_launcher generate_version)
+        endif ()
+        target_compile_definitions(
+            ror_renderer_launcher
+            PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE)
+        target_link_libraries(ror_renderer_launcher PRIVATE Shell32)
+        if (MINGW)
+            target_link_options(ror_renderer_launcher PRIVATE -municode)
+        endif ()
+    endif ()
+    set_property(TARGET ror_renderer_launcher PROPERTY FOLDER "Application")
+    source_group(
+        TREE "${CMAKE_CURRENT_LIST_DIR}"
+        FILES ${_ror_renderer_launcher_source_tree_sources})
+    source_group(
+        "Generated"
+        FILES "${_ror_renderer_launcher_generated_header}")
+
+    message(STATUS
+        "Renderer suite packages Ogre-Next-first RoR with admitted "
+        "RoR-Ogre14 fallback")
+endif ()
+
 if (ROR_OGRE14 AND UNIX AND NOT APPLE)
     # Keep both direct dependencies and explicitly loaded OGRE plugins
     # discoverable when the installed tree moves. Dependency libraries and
@@ -512,10 +764,14 @@ endif ()
 
 if (MSVC)
     # set startup project for Visual Studio Builds
+    set(_ror_visual_studio_startup_target ${BINNAME})
+    if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        set(_ror_visual_studio_startup_target ror_renderer_launcher)
+    endif ()
     set_property(
             DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
             PROPERTY
-            VS_STARTUP_PROJECT ${BINNAME}
+            VS_STARTUP_PROJECT ${_ror_visual_studio_startup_target}
     )
     # set Visual Studio working directory to the Configuration directory
     set_target_properties(
@@ -523,6 +779,13 @@ if (MSVC)
             PROPERTIES
             VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_OUTPUT_DIRECTORY}"
     )
+    if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        set_target_properties(
+                ror_renderer_launcher
+                PROPERTIES
+                VS_DEBUGGER_WORKING_DIRECTORY "${RUNTIME_OUTPUT_DIRECTORY}"
+        )
+    endif ()
 endif ()
 
 ####################################################################################################
@@ -877,8 +1140,15 @@ if (APPLE AND ROR_OGRE14)
     # non-linked runtime libraries.
     set(_ror_macos_bundle_path
         "${RUNTIME_OUTPUT_DIRECTORY}/RoR.app")
+    set(_ror_macos_primary_target ${BINNAME})
+    set(_ror_macos_sibling_executables "")
+    if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        set(_ror_macos_primary_target ror_renderer_launcher)
+        set(_ror_macos_sibling_executables "$<TARGET_FILE:${BINNAME}>")
+    endif ()
     set(_ror_macos_bundle_dependencies
         ${BINNAME}
+        ${_ror_macos_primary_target}
         zip_folder_resources
         fast_copy_managed_materials
         fast_copy_fonts
@@ -886,9 +1156,24 @@ if (APPLE AND ROR_OGRE14)
         fast_copy_Main
         fast_copy_RTShaderLib
         fast_copy_Terrain)
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        list(APPEND _ror_macos_sibling_executables
+            "${ROR_OGRE_NEXT_PRODUCT_CHILD}")
+        list(APPEND _ror_macos_bundle_dependencies
+            ${ROR_OGRE_NEXT_PRODUCT_TARGET})
+    endif ()
+    # A CMake list interpolated directly into COMMAND expands into multiple
+    # argv records even when the surrounding -D argument is quoted. Preserve
+    # the semicolon as data so StageMacOSBundle receives the complete sibling
+    # inventory in one cache-definition argument.
+    string(REPLACE ";" "\\;"
+        _ror_macos_sibling_executables_argument
+        "${_ror_macos_sibling_executables}")
     set(_ror_macos_bundle_arguments
         "-DROR_BUNDLE=${_ror_macos_bundle_path}"
-        "-DROR_EXECUTABLE=$<TARGET_FILE:${BINNAME}>"
+        "-DROR_EXECUTABLE=$<TARGET_FILE:${_ror_macos_primary_target}>"
+        "-DROR_BUNDLE_EXECUTABLE_NAME=RoR"
+        "-DROR_SIBLING_EXECUTABLES=${_ror_macos_sibling_executables_argument}"
         "-DROR_RESOURCES=${RUNTIME_OUTPUT_DIRECTORY}/resources"
         "-DROR_LANGUAGES=${RUNTIME_OUTPUT_DIRECTORY}/languages"
         "-DROR_OGRE_PACKAGE_DIR=$<IF:$<CONFIG:Debug>,${_ror_ogre14_package_DEBUG},${_ror_ogre14_package_RELEASE}>"
@@ -900,6 +1185,21 @@ if (APPLE AND ROR_OGRE14)
         "-DROR_BUNDLE_SHORT_VERSION=${CMAKE_PROJECT_VERSION}"
         "-DROR_BUNDLE_BUILD_VERSION=${CMAKE_PROJECT_VERSION_MAJOR}.${CMAKE_PROJECT_VERSION_MINOR}.0"
         "-DROR_MACOS_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        list(APPEND _ror_macos_bundle_arguments
+            "-DROR_OGRE_NEXT_PRODUCT_ROOT=${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}")
+    endif ()
+
+    if (ROR_OGRE_NEXT_DEMO_ADMISSION)
+        # Keep LaunchServices, AppKit restoration, and human-visible app names
+        # distinct from an installed legacy RoR.app during this disposable
+        # product demo. The bundle filename and signed Mach-O entrypoint stay
+        # on the normal packaging contract.
+        list(APPEND _ror_macos_bundle_arguments
+            "-DROR_BUNDLE_DISPLAY_NAME=Rigs of Rods OgreNext Demo"
+            "-DROR_BUNDLE_IDENTIFIER=org.rigsofrods.RoR.OgreNextDemo")
+    endif ()
 
     if (ROR_CREATE_CONTENT_FOLDER)
         list(APPEND _ror_macos_bundle_arguments
@@ -921,6 +1221,9 @@ if (APPLE AND ROR_OGRE14)
     set_property(TARGET ror_macos_bundle PROPERTY FOLDER "Packaging")
 
     unset(_ror_macos_bundle_path)
+    unset(_ror_macos_primary_target)
+    unset(_ror_macos_sibling_executables)
+    unset(_ror_macos_sibling_executables_argument)
     unset(_ror_macos_bundle_dependencies)
     unset(_ror_macos_bundle_arguments)
 endif ()
@@ -933,12 +1236,34 @@ endif ()
 
 #  Install targets
 # -----------------------
-install(TARGETS ${BINNAME} DESTINATION . COMPONENT "Base_Game")
+set(_ror_application_install_targets ${BINNAME})
+if (ROR_RENDERER_PUBLIC_LAUNCHER)
+    list(PREPEND _ror_application_install_targets ror_renderer_launcher)
+endif ()
+install(
+    TARGETS ${_ror_application_install_targets}
+    DESTINATION .
+    COMPONENT "Base_Game")
+unset(_ror_application_install_targets)
 
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/resources/fonts/ DESTINATION languages COMPONENT "Base_Game")
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/languages/ DESTINATION languages COMPONENT "Base_Game" FILES_MATCHING PATTERN "*.mo" )
 install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/resources/ DESTINATION resources COMPONENT "Base_Game")
-install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/content/ DESTINATION content COMPONENT "Base_Content")
+if (ROR_CREATE_CONTENT_FOLDER)
+    install(DIRECTORY ${RUNTIME_OUTPUT_DIRECTORY}/content/ DESTINATION content COMPONENT "Base_Content")
+endif ()
+
+if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND NOT APPLE)
+    # Preserve the verified product-stage layout in Linux/Windows installs and
+    # CPack archives: RoR-OgreNext sits beside RoR and resolves its immutable
+    # media under resources/ogrenext. USE_SOURCE_PERMISSIONS retains the native
+    # execute bit on Unix. A missing stage is a hard install failure.
+    install(
+        DIRECTORY "${ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT}/"
+        DESTINATION .
+        COMPONENT "Base_Game"
+        USE_SOURCE_PERMISSIONS)
+endif ()
 
 if (ROR_OGRE14 AND NOT APPLE)
     # Never install the build-tree config: its PluginFolder deliberately names
@@ -1044,19 +1369,31 @@ else ()
         set(_ror_linux_install_root_code
 [=[set(ROR_LINUX_INSTALL_ROOT "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 ]=])
+        set(_ror_linux_installed_game_executable "RoR")
+        if (ROR_RENDERER_PUBLIC_LAUNCHER)
+            set(_ror_linux_installed_game_executable "RoR-Ogre14")
+        endif ()
+        ror_ogre14_cmakedeps_runtime_search_dirs(
+            _ror_linux_runtime_search_dirs
+            "${CMAKE_BUILD_TYPE}")
+        ror_ogre14_install_set_list_code(
+            _ror_linux_runtime_search_dirs_install_code
+            ROR_LINUX_RUNTIME_SEARCH_DIRS
+            _ror_linux_runtime_search_dirs)
         string(CONCAT
             _ror_linux_runtime_install_code
             "set(ROR_LINUX_BUILD_EXECUTABLE "
                 "\"$<TARGET_FILE:${BINNAME}>\")\n"
             "${_ror_linux_install_root_code}"
+            "set(ROR_LINUX_INSTALLED_EXECUTABLE_NAME "
+                "\"${_ror_linux_installed_game_executable}\")\n"
             "set(ROR_LINUX_PLUGIN_DIR "
                 "\"$<IF:$<CONFIG:Debug>,"
                 "${_ror_ogre14_plugin_dir_DEBUG},"
                 "${_ror_ogre14_plugin_dir_RELEASE}>\")\n"
             "set(ROR_LINUX_PLUGINS_CFG "
                 "\"${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg\")\n"
-            "set(ROR_LINUX_RUNTIME_SEARCH_DIRS "
-                "\"${CONAN_RUNTIME_LIB_DIRS}\")\n"
+            "${_ror_linux_runtime_search_dirs_install_code}"
             "set(ROR_LINUX_INSTALL_PLUGIN_FOLDER "
                 "\"${_ror_ogre14_runtime_INSTALL_PLUGIN_FOLDER}\")\n"
             "set(ROR_LINUX_CONTRACT_MODULE "
@@ -1092,6 +1429,9 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_multi_config)
     unset(_ror_ogre14_build_plugin_folder)
     unset(_ror_linux_install_root_code)
+    unset(_ror_linux_installed_game_executable)
+    unset(_ror_linux_runtime_search_dirs)
+    unset(_ror_linux_runtime_search_dirs_install_code)
     unset(_ror_linux_runtime_install_code)
     unset(_ror_ogre14_runtime_PACKAGE_PLUGIN_SUBDIR)
     unset(_ror_ogre14_runtime_RENDERER_PLUGIN)
@@ -1163,4 +1503,6 @@ else ()
     set(CPACK_GENERATOR ZIP)
 endif ()
 
-include(CPack)
+if (NOT (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER))
+    include(CPack)
+endif ()

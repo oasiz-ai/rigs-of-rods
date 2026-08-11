@@ -127,6 +127,7 @@ bool EqualMaterial(const MaterialDescriptor &lhs,
                    const MaterialDescriptor &rhs) noexcept {
   return lhs.version == rhs.version && lhs.debug_name == rhs.debug_name &&
          lhs.model == rhs.model && lhs.alpha_mode == rhs.alpha_mode &&
+         lhs.base_color_transfer == rhs.base_color_transfer &&
          lhs.double_sided == rhs.double_sided &&
          EqualFloat4Bits(lhs.base_color_factor, rhs.base_color_factor) &&
          EqualFloatBits(lhs.metallic_factor, rhs.metallic_factor) &&

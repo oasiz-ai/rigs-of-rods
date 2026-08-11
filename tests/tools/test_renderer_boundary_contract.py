@@ -42,11 +42,11 @@ class RendererBoundaryContractTests(unittest.TestCase):
             BOUNDARY_ROOT.glob("*.cpp")
         )
         self.assertTrue(code_files)
+        renderer_include = re.compile(
+            r"^\s*#\s*include\s*([<\"])([^>\"]*(?:Ogre|OGRE|Metal|d3d12|vulkan)[^>\"]*)[>\"]",
+            re.MULTILINE,
+        )
         forbidden = {
-            "renderer SDK include": re.compile(
-                r"^\s*#\s*include\s*[<\"][^>\"]*(?:Ogre|OGRE|Metal|d3d12|vulkan)",
-                re.MULTILINE,
-            ),
             "OGRE C++ type": re.compile(r"\bOgre::"),
             "platform graphics pointer": re.compile(
                 r"\b(?:ID3D12\w+|MTL\w+|Vk\w+)\s*\*"
@@ -54,6 +54,15 @@ class RendererBoundaryContractTests(unittest.TestCase):
         }
         for path in code_files:
             text = path.read_text(encoding="utf-8")
+            for match in renderer_include.finditer(text):
+                is_local_header = (
+                    match.group(1) == '"'
+                    and (path.parent / match.group(2)).is_file()
+                )
+                self.assertTrue(
+                    is_local_header,
+                    f"{path}: renderer SDK include: {match.group(2)}",
+                )
             for label, pattern in forbidden.items():
                 self.assertIsNone(pattern.search(text), f"{path}: {label}")
 
@@ -199,8 +208,44 @@ class RendererBoundaryContractTests(unittest.TestCase):
             "/fp:strict",
             "-fno-fast-math",
             "-ffp-contract=off",
+            "crtfastmath.o",
+            "target_link_options",
         ):
             self.assertIn(required, strict_test_block)
+        self.assertIn(
+            "ror_render_strict_fp_environment_tests",
+            _cmake_set(tests_cmake, "ROR_RENDER_CONTRACT_TEST_TARGETS"),
+        )
+        strict_link_targets = _cmake_set(
+            tests_cmake, "ROR_RENDER_CONTRACT_LINK_TARGETS"
+        )
+        for required in (
+            "${ROR_RENDER_CONTRACT_TEST_TARGETS}",
+            "ror_renderer_ogre14_game_host_session_tests",
+            "ror_renderer_ogre_next_live_session_tests",
+        ):
+            self.assertIn(required, strict_link_targets)
+        self.assertRegex(
+            strict_test_block,
+            r"foreach \(render_contract_test IN LISTS "
+            r"ROR_RENDER_CONTRACT_LINK_TARGETS\)\s*"
+            r"target_link_options\(\s*\$\{render_contract_test\}\s*"
+            r"PRIVATE -fno-fast-math\s*\)",
+        )
+        self.assertRegex(
+            tests_cmake,
+            r"add_test\(\s*NAME\s+render_strict_fp_environment\s+"
+            r"COMMAND\s+ror_render_strict_fp_environment_tests\s*\)",
+        )
+        self.assertTrue(
+            (
+                REPOSITORY_ROOT
+                / "tests"
+                / "gfx"
+                / "render"
+                / "StrictFloatingPointEnvironmentTests.cpp"
+            ).is_file()
+        )
 
     def test_reflection_runtime_and_receipt_are_shipping_strict_sources(self) -> None:
         main_cmake = (

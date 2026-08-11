@@ -26,6 +26,8 @@
 
 #include <Ogre.h>
 
+#include <utility>
+
 using namespace Ogre;
 using namespace RoR;
 
@@ -112,6 +114,8 @@ FlexObj::FlexObj(RoR::GfxActor* gfx_actor, node_t* all_nodes, std::vector<CabTex
     bind->setBinding(0, m_hw_vbuf);
 
     // Set parameters of the submeshes
+    m_cpu_topology_sections.reserve(m_submeshes.size());
+    std::size_t cpu_index_offset = 0U;
     for (size_t j=0; j<m_submeshes.size(); j++)
     {
         size_t index_count;
@@ -137,6 +141,18 @@ FlexObj::FlexObj(RoR::GfxActor* gfx_actor, node_t* all_nodes, std::vector<CabTex
         m_submeshes[j]->indexData->indexBuffer = ibuf;
         m_submeshes[j]->indexData->indexCount = index_count;
         m_submeshes[j]->indexData->indexStart = 0;
+
+        FlexMeshTopologySection topology;
+        topology.index_format = FlexMeshTopologySection::IndexFormat::UINT16;
+        topology.vertex_count = static_cast<std::uint32_t>(m_vertex_count);
+        topology.indices.reserve(index_count);
+        for (std::size_t index = 0U; index < index_count; ++index)
+        {
+            topology.indices.push_back(
+                static_cast<std::uint32_t>(m_indices[cpu_index_offset + index]));
+        }
+        cpu_index_offset += index_count;
+        m_cpu_topology_sections.push_back(std::move(topology));
     }
 
     // Set bounding information (for culling)
@@ -232,6 +248,31 @@ Vector3 FlexObj::UpdateFlexObj()
     Ogre::Vector3 center = this->UpdateMesh();
     m_hw_vbuf->writeData(0, m_hw_vbuf->getSizeInBytes(), m_vertices_raw, true);
     return center;
+}
+
+bool FlexObj::copyJoinedCpuStaging(
+    std::vector<Ogre::Vector3>& positions,
+    std::vector<Ogre::Vector3>& normals,
+    std::vector<Ogre::Vector2>& texcoords0) const
+{
+    if (!m_mesh || m_vertex_count == 0U || m_vertices == nullptr)
+        return false;
+    std::vector<Ogre::Vector3> candidate_positions;
+    std::vector<Ogre::Vector3> candidate_normals;
+    std::vector<Ogre::Vector2> candidate_texcoords;
+    candidate_positions.reserve(m_vertex_count);
+    candidate_normals.reserve(m_vertex_count);
+    candidate_texcoords.reserve(m_vertex_count);
+    for (std::size_t index = 0U; index < m_vertex_count; ++index)
+    {
+        candidate_positions.push_back(m_vertices[index].position);
+        candidate_normals.push_back(m_vertices[index].normal);
+        candidate_texcoords.push_back(m_vertices[index].texcoord);
+    }
+    positions = std::move(candidate_positions);
+    normals = std::move(candidate_normals);
+    texcoords0 = std::move(candidate_texcoords);
+    return true;
 }
 
 FlexObj::~FlexObj()

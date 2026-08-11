@@ -122,6 +122,12 @@ script revisions retain their original diagnostics. The measured fixtures,
 bridge corridors, Blender/glTF authoring contract, LOD/collision requirements,
 and visual acceptance gates are tracked in the
 [CityWorld visual-upgrade specification](CITYWORLD_VISUAL_UPGRADE.md).
+The metadata-only
+[material-modernization classifier](CITYWORLD_MATERIAL_MODERNIZATION.md)
+separates exact legacy-equivalence evidence from declared PBR modernization,
+binds every decision to archive/script hashes and raw source spans, and leaves
+malformed records review-blocked without redistributing or silently rewriting
+the package.
 
 The first rights-cleared CityWorld Next content family is now present without
 modifying that archive: Blender-generated 20 m tangent and 15-degree curved
@@ -1070,8 +1076,92 @@ Gate R1:
   authoritative current-process preflight and resolve the startup plan before
   `Ogre::Root`. Cartesian three-platform package-fact tests and child-plan
   consistency tests prove the hard-gate precedence and prevent renderer-ABI
-  crossing. The contracts are complete, but the public launcher executable,
-  child renames, signing, and package assembly remain open.
+  crossing. The dependency-free process launcher core is also complete: it
+  accepts only that validated handoff, resolves only an exact canonical
+  sibling, uses `execv` on POSIX and Unicode `CreateProcessW` plus a
+  kill-on-close Job Object on Windows, preserves forwarded arguments, cwd,
+  environment, and standard streams, and propagates the child exit exactly. It
+  rejects any package-platform/compile-time-host mismatch before basename
+  resolution, including Windows `.exe` versus POSIX naming mismatches.
+  The version-2 two-process supervisor additionally records a presentation
+  child's natural exit semantics. Only reserved exit 73 before `PEER_READY`
+  may relaunch the exact OGRE14 sibling for an Ogre-Next-preferred request, and
+  only after both children are confirmed reaped. Post-ready exit 74, signals,
+  cleanup failures, explicit Ogre-Next requirements, and native-shadow
+  requirements remain fail-closed, preventing a renderer change after a live
+  session begins. POSIX additionally requires the direct peer's wait status to
+  prove the supervisor's exact signal and kills any remaining private
+  process-group members; a signal handler that exits normally retains the game
+  exit and cannot be mistaken for permission to relaunch.
+  Cross-platform-gated fake-child tests exercise empty/quoted/Unicode arguments
+  and prove that cwd, `PATH`, and environment decoys cannot redirect launch.
+  The fake child is test-only and never packaged. OGRE 14 builds now package
+  the public launcher and exact `RoR-Ogre14` sibling with generated
+  immutable facts and an Ogre-Next-preferred/PSSM default. The versioned
+  normalized-intent argv encoder/decoder is complete: it inserts and strips an
+  exact ordered four-record native argv prefix, owns the complete preserved
+  game suffix, binds the decoded request and native backend to the compile-time
+  child host, and rejects unknown, reordered, malformed, legacy, reserved
+  duplicate, null, foreign-platform, or inconsistent handoff inputs before
+  renderer initialization. The versioned codec is now isolated in
+  `RendererChildIntent`, with a standalone cross-platform target that links no
+  OS process-spawning implementation; `RendererChildLauncher` retains only
+  exact-sibling execution and exit propagation. Linux/Windows install and
+  CPack staging plus the signed macOS application bundle retain the launcher
+  and compatibility host and preserve OGRE 14 crash symbols. Flat macOS
+  install/CPack remains
+  disabled so it cannot bypass Mach-O rewriting and nested-code signing. The
+  isolated probe emits a real-output-name, probe-only `RoR-OgreNext` child
+  from a seam-free frontend library. Its native entrypoint consumes synthetic
+  child argv, resolves the authoritative child plan, initializes RT4/PSSM at a
+  headless 64x64 extent with one frame in flight, and shuts down. That probe
+  binary is not installed, staged, bundled, or production-admitted. A separate
+  enabled-by-default isolated product build emits the real production runtime,
+  exact shader/presentation media, notices, provenance, sorted SHA-256 manifest,
+  and atomic completion marker. Linux/Windows install/CPack preserve that
+  verified root; the macOS bundle independently verifies it, closes Mach-O
+  dependencies, and signs both children before the outer app. Presence is
+  therefore proven without conflating it with readiness or PSSM admission. The
+  endpoint-adopted
+  OGRE 14 game-host lifecycle now drains renderer input/control/ACK traffic,
+  opens no physical input devices, keeps its resource host hidden and
+  non-presenting, publishes one post-`UpdateScene` retained joined-scene
+  production across bounded backpressure, retires scenes overtaken by idle
+  resize announcements, and performs ordered half-close/EOF/join shutdown. The
+  production presentation child consumes that bridge, owns the sole visible
+  SDL/Ogre-Next window and physical input, and presents through a GPU-only
+  output path. UI composition, force feedback, full scene/material/deformation
+  coverage, image/performance acceptance, and native Linux/Windows execution
+  remain open, so immutable readiness/admission facts still select the explicit
+  compatibility fallback.
+  Its probe execution is independently retained in a versioned, fail-closed
+  receipt that records pass, exact capability skip, or failure and binds both
+  pinned commits, platform backend, intent argv, child binary hash/size, and
+  captured logs. The wrapper emits failure receipts for nonzero child exits;
+  exact Windows CRLF and Unix LF markers prevent a broad exit-77 skip. CI
+  revalidates and uses pinned `actions/attest` to GitHub-attest the receipt plus
+  exact platform-selected child binary before uploading them. The per-run value
+  is explicitly an OS-CSPRNG
+  `execution_nonce`, not a child challenge, and wall-clock time is omitted.
+  This audit evidence is not a readiness or packaging admission fact.
+  POSIX timeout handling starts a new session, kills the process group, and
+  reaps the direct child; Windows kills and reaps the direct child under a
+  separately checked reviewed-source-closure contract. Any future
+  fork/spawn/exec/process call fails the build and requires real cross-platform
+  descendant containment. This probe constraint is neither a proof over
+  arbitrary injected linked code nor a general process-tree sandbox.
+  Supported builds now default CMake and Conan to this Ogre-Next-first suite.
+  Validation builds `ror_renderer_launcher` plus the isolated product stage and
+  verifies exact `RoR[.exe]`, `RoR-Ogre14[.exe]`, and `RoR-OgreNext[.exe]`
+  siblings in complete package layouts.
+- The Ogre-Next frontend now admits complete dynamic-mesh replacements. It
+  copies positions, normals, tangents, velocities, bounds, topology lineage,
+  and deformation lineage into frame-owned Ogre v2 resources, submits them
+  synchronously, and retires them only after completion; it never aliases live
+  solver memory. A clean native Apple Metal proof changed 1,014 N1 pixels and
+  1,710 RT4/V1 pixels between base and deformation revision 2 and replayed all
+  four attachments byte exactly. Real OGRE 14 vehicle capture into this
+  contract and Windows/Linux native execution remain separate gates.
 - The standalone Metal admission probe and the Ogre-Next N2/N3 interop probes
   have passed on the recorded Apple M5. N2 rastered a renderer-neutral deformed RoR
   scene, exported the exact pooled Ogre v2 position/index slices from that
@@ -1151,8 +1241,9 @@ Gate R1:
   initializes its frontend and then emits explicit unsupported evidence when
   backend admission fails. A pure pre-initialization plan now chooses native,
   Ogre-Next PSSM, OGRE14 PSSM, or rejection without loading either renderer
-  ABI. The package-level executable handoff contract is implemented; the
-  production launcher and child binaries remain open. The Metal
+  ABI. The package-level executable handoff, production launcher, verified
+  Ogre-Next child, and two-process live session are implemented; production
+  admission remains open. The Metal
   N4 implementation now passes on a
   physical Apple M5 with 5,712 visible receiver pixels, 432 pixels blocked by
   the distinct occluder, zero primary misses, exact R16 visibility, exact R32
@@ -1167,8 +1258,8 @@ Gate R1:
   semantics and exact visibility/lineage/hybrid readbacks (typed DXR UAVs;
   packed Vulkan SSBO encodings). They explicitly do
   not claim an exact Ogre RGBA16 source, an Ogre image composite, or full native
-  V1 readiness. Linux/Windows hardware execution, soft/area-light shadows,
-  the production launcher, and image/performance gates remain open.
+  V1 readiness. Linux/Windows hardware execution, soft/area-light shadows, full
+  production content coverage, and image/performance gates remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,
@@ -1228,6 +1319,21 @@ schema: albedo, normal, packed occlusion/roughness/metalness, emissive, alpha
 mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
+
+The OGRE 14 source-texture edge now has the authenticated prerequisite for that
+conversion. Versioned immutable receipts retain the selected archive/member,
+group generation, resource identity, exact bytes/SHA-256, DDS/DX10 facts, and
+generated-fallback rule. Authenticated texture loads hand OGRE a replacement
+memory stream over those identical captured bytes and never reopen by name or
+`AUTODETECT`; bounded lifecycle/reset/reload semantics are specified in
+[OGRE 14 authenticated source-texture receipts](OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md).
+The registry now also privately mints a non-forgeable resolution for the exact
+already-loaded Texture at checked pre-load state plus one. ContentManager
+validates TextureManager ownership and indices, and the native extractor
+retains that exact receipt/registry owner and revalidates the reacquired TUS
+TexturePtr immediately before publication. This closes source identity through
+authenticated native capture, not live Ogre-Next scene-material consumption or
+the V1 image-quality gate.
 
 The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
 subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive

@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rigsofrods.org/schemas/ogre14-material-semantic-catalog-v2.schema.json",
+  "title": "Rigs of Rods OGRE 14 material semantic compatibility catalog v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "records"],
+  "properties": {
+    "schema": {
+      "const": "ror.ogre14.material-semantic-catalog.v2"
+    },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 65536,
+      "items": {"$ref": "#/$defs/record"}
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "f32Bits": {
+      "type": "string",
+      "pattern": "^(?!7f[89a-f][0-9a-f]{5}$)(?!ff[89a-f][0-9a-f]{5}$)[0-9a-f]{8}$"
+    },
+    "exactName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "pass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_color",
+        "destination_color",
+        "source_alpha",
+        "destination_alpha",
+        "color_operation",
+        "alpha_operation",
+        "color_write_mask",
+        "depth_check_enabled",
+        "depth_write_enabled",
+        "depth_compare",
+        "constant_depth_bias_f32_bits",
+        "slope_scale_depth_bias_f32_bits",
+        "iteration_depth_bias_f32_bits",
+        "cull",
+        "manual_cull",
+        "alpha_reject",
+        "alpha_reject_value",
+        "alpha_to_coverage",
+        "solid_fill",
+        "pass_iteration_count"
+      ],
+      "properties": {
+        "source_color": {"$ref": "#/$defs/blendFactor"},
+        "destination_color": {"$ref": "#/$defs/blendFactor"},
+        "source_alpha": {"$ref": "#/$defs/blendFactor"},
+        "destination_alpha": {"$ref": "#/$defs/blendFactor"},
+        "color_operation": {"$ref": "#/$defs/blendOperation"},
+        "alpha_operation": {"$ref": "#/$defs/blendOperation"},
+        "color_write_mask": {"type": "integer", "minimum": 1, "maximum": 15},
+        "depth_check_enabled": {"type": "boolean"},
+        "depth_write_enabled": {"type": "boolean"},
+        "depth_compare": {"$ref": "#/$defs/compare"},
+        "constant_depth_bias_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "slope_scale_depth_bias_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "iteration_depth_bias_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "cull": {"enum": ["NONE", "CLOCKWISE", "ANTICLOCKWISE"]},
+        "manual_cull": {"enum": ["NONE", "BACK", "FRONT"]},
+        "alpha_reject": {"$ref": "#/$defs/compare"},
+        "alpha_reject_value": {"type": "integer", "minimum": 0, "maximum": 255},
+        "alpha_to_coverage": {"type": "boolean"},
+        "solid_fill": {"type": "boolean"},
+        "pass_iteration_count": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+      }
+    },
+    "sampler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minification",
+        "magnification",
+        "mip",
+        "address_u",
+        "address_v",
+        "address_w",
+        "mip_lod_bias_f32_bits",
+        "minimum_lod_f32_bits",
+        "maximum_lod_f32_bits",
+        "maximum_anisotropy",
+        "compare_enabled",
+        "compare_operation",
+        "border_color_f32_bits"
+      ],
+      "properties": {
+        "minification": {"$ref": "#/$defs/filter"},
+        "magnification": {"$ref": "#/$defs/filter"},
+        "mip": {"$ref": "#/$defs/filter"},
+        "address_u": {"$ref": "#/$defs/address"},
+        "address_v": {"$ref": "#/$defs/address"},
+        "address_w": {"$ref": "#/$defs/address"},
+        "mip_lod_bias_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "minimum_lod_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "maximum_lod_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "maximum_anisotropy": {"type": "integer", "minimum": 1, "maximum": 16},
+        "compare_enabled": {"type": "boolean"},
+        "compare_operation": {"$ref": "#/$defs/compare"},
+        "border_color_f32_bits": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"$ref": "#/$defs/f32Bits"}
+        }
+      }
+    },
+    "combine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "color_operation",
+        "color_source_one",
+        "color_source_two",
+        "alpha_operation",
+        "alpha_source_one",
+        "alpha_source_two",
+        "color_manual_one_f32_bits",
+        "color_manual_two_f32_bits",
+        "color_manual_factor_f32_bits",
+        "alpha_manual_one_f32_bits",
+        "alpha_manual_two_f32_bits",
+        "alpha_manual_factor_f32_bits"
+      ],
+      "properties": {
+        "color_operation": {"$ref": "#/$defs/combineOperation"},
+        "color_source_one": {"$ref": "#/$defs/combineSource"},
+        "color_source_two": {"$ref": "#/$defs/combineSource"},
+        "alpha_operation": {"$ref": "#/$defs/combineOperation"},
+        "alpha_source_one": {"$ref": "#/$defs/combineSource"},
+        "alpha_source_two": {"$ref": "#/$defs/combineSource"},
+        "color_manual_one_f32_bits": {"$ref": "#/$defs/f32Color"},
+        "color_manual_two_f32_bits": {"$ref": "#/$defs/f32Color"},
+        "color_manual_factor_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "alpha_manual_one_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "alpha_manual_two_f32_bits": {"$ref": "#/$defs/f32Bits"},
+        "alpha_manual_factor_f32_bits": {"$ref": "#/$defs/f32Bits"}
+      }
+    },
+    "textureUnit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "exact_unit_name",
+        "texture_resource_group",
+        "exact_texture_name",
+        "semantic",
+        "color_role",
+        "swizzle",
+        "texture_coordinate_set",
+        "projective",
+        "uv_transform_f32_bits",
+        "sampler",
+        "combine"
+      ],
+      "properties": {
+        "ordinal": {"type": "integer", "minimum": 0, "maximum": 65534},
+        "exact_unit_name": {"$ref": "#/$defs/exactName"},
+        "texture_resource_group": {"$ref": "#/$defs/exactName"},
+        "exact_texture_name": {"$ref": "#/$defs/exactName"},
+        "semantic": {
+          "enum": [
+            "BASE_COLOR",
+            "NORMAL",
+            "METALLIC_ROUGHNESS",
+            "OCCLUSION",
+            "EMISSIVE",
+            "ENVIRONMENT",
+            "DETAIL"
+          ]
+        },
+        "color_role": {"enum": ["BASE_COLOR_SRGB", "LINEAR_DATA"]},
+        "swizzle": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {"enum": ["RED", "GREEN", "BLUE", "ALPHA", "ZERO", "ONE"]}
+        },
+        "texture_coordinate_set": {"type": "integer", "minimum": 0, "maximum": 255},
+        "projective": {"type": "boolean"},
+        "uv_transform_f32_bits": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "items": {"$ref": "#/$defs/f32Bits"}
+        },
+        "sampler": {"$ref": "#/$defs/sampler"},
+        "combine": {"$ref": "#/$defs/combine"}
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_archive_sha256",
+        "resource_group",
+        "resource_generation",
+        "source_script_member",
+        "source_script_sha256",
+        "effective_script_sha256",
+        "repair_plan_version",
+        "material_name",
+        "native_structure_sha256",
+        "selected_scheme",
+        "selected_lod",
+        "runtime_generation",
+        "base_color_semantic",
+        "registry_texture_color_role",
+        "lowering_algorithm",
+        "lowering_version",
+        "declaration_revision",
+        "pass",
+        "environment_augmentation",
+        "environment_texture_unit",
+        "shadow_augmentation",
+        "shadow_technique",
+        "texture_units"
+      ],
+      "properties": {
+        "package_archive_sha256": {"$ref": "#/$defs/sha256"},
+        "resource_group": {"$ref": "#/$defs/exactName"},
+        "resource_generation": {"type": "integer", "minimum": 1, "maximum": 18446744073709551614},
+        "source_script_member": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_script_sha256": {"$ref": "#/$defs/sha256"},
+        "effective_script_sha256": {"$ref": "#/$defs/sha256"},
+        "repair_plan_version": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "material_name": {"$ref": "#/$defs/exactName"},
+        "native_structure_sha256": {"$ref": "#/$defs/sha256"},
+        "selected_scheme": {"$ref": "#/$defs/exactName"},
+        "selected_lod": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+        "runtime_generation": {"enum": ["AUTHORED", "REPAIRED_SCRIPT", "RTSS_GENERATED", "RUNTIME_LISTENER"]},
+        "base_color_semantic": {"enum": ["UNLIT", "ROUGH_DIELECTRIC_PBR"]},
+        "registry_texture_color_role": {"enum": ["BASE_COLOR_SRGB", "LINEAR_DATA"]},
+        "lowering_algorithm": {"type": "string", "minLength": 1, "maxLength": 128},
+        "lowering_version": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "declaration_revision": {"type": "integer", "minimum": 1, "maximum": 18446744073709551614},
+        "pass": {"$ref": "#/$defs/pass"},
+        "environment_augmentation": {"enum": ["NONE", "REFLECTION_2D", "CUBE_REFLECTION", "CUBE_NORMAL"]},
+        "environment_texture_unit": {"type": ["integer", "null"], "minimum": 0, "maximum": 31},
+        "shadow_augmentation": {"enum": ["NONE", "RECEIVE", "CAST", "RECEIVE_AND_CAST"]},
+        "shadow_technique": {"enum": ["NONE", "STENCIL", "PSSM"]},
+        "texture_units": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"$ref": "#/$defs/textureUnit"}
+        }
+      }
+    },
+    "filter": {"enum": ["NONE", "POINT", "LINEAR", "ANISOTROPIC"]},
+    "f32Color": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/f32Bits"}
+    },
+    "address": {"enum": ["WRAP", "MIRROR", "CLAMP", "BORDER"]},
+    "compare": {
+      "enum": ["ALWAYS_FAIL", "ALWAYS_PASS", "LESS", "LESS_EQUAL", "EQUAL", "NOT_EQUAL", "GREATER_EQUAL", "GREATER"]
+    },
+    "blendFactor": {
+      "enum": [
+        "ONE",
+        "ZERO",
+        "DESTINATION_COLOR",
+        "SOURCE_COLOR",
+        "ONE_MINUS_DESTINATION_COLOR",
+        "ONE_MINUS_SOURCE_COLOR",
+        "DESTINATION_ALPHA",
+        "SOURCE_ALPHA",
+        "ONE_MINUS_DESTINATION_ALPHA",
+        "ONE_MINUS_SOURCE_ALPHA"
+      ]
+    },
+    "blendOperation": {"enum": ["ADD", "SUBTRACT", "REVERSE_SUBTRACT", "MINIMUM", "MAXIMUM"]},
+    "combineOperation": {"enum": ["REPLACE", "MODULATE", "ADD", "SUBTRACT", "BLEND_TEXTURE_ALPHA", "DOT_PRODUCT"]},
+    "combineSource": {"enum": ["TEXTURE", "CURRENT", "DIFFUSE", "SPECULAR", "MANUAL"]}
+  }
+}

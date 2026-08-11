@@ -1,13 +1,18 @@
 # OGRE-Next isolated integration checkpoint
 
-Status: **opt-in N1/RT4 raster frontend with bounded directional PSSM, Apple
-Metal N2 geometry, N3 view-dependent hybrid HDR, soaked N4 native directional
-hard shadows, and bounded Vulkan/DXR semantic probes; no shipping renderer
-switch**
+Status: **Ogre-Next-preferred public default with bounded pre-readiness OGRE 14
+fallback; N1/RT4 raster frontend with full frame-owned deformation updates,
+directional PSSM, Apple Metal N2 geometry, N3 view-dependent hybrid HDR, soaked
+N4 native directional hard shadows, bounded Vulkan/DXR semantic probes, and a
+verified/staged production child that remains fail-closed until runtime and
+content admission complete**
 
 This checkpoint compiles a core standalone probe family plus platform-specific
 Metal, Vulkan, and DXR executables against an exact OGRE-Next `v3-0` revision
-while leaving every default RoR and OGRE 14 build unchanged. The capability
+while preserving an explicit compatibility build. Fresh supported-platform
+CMake and Conan builds now enable the renderer-suite process topology described
+below by default, but immutable package facts still select the admitted OGRE 14
+compatibility child at runtime. The capability
 executable proves that the reviewed platform renderer registers with OGRE core,
 HLMS PBS links and selects the expected
 shader family, and Compositor2 remains deferred before a window exists. It
@@ -21,7 +26,12 @@ imports a real `RenderAssetRegistry` catalog into immutable Ogre v2 vertex and
 index buffers plus a `VertexArrayObject`, maps a texture-free material into an
 HLMS PBS datablock, renders a `SceneSnapshot`, and returns both
 `RGBA16_FLOAT` and `RGBA8_SRGB` CPU attachments through `IRendererFrontend`.
-It is deliberately an N1 admission slice, not a complete game renderer.
+It also consumes a complete copied `DynamicMeshUpdateDescriptor` as a
+frame-owned Ogre v2 mesh. A native proof renders base and deformation revision
+2, requires a visible pixel difference, replays both inputs byte exactly, and
+proves that the frontend never aliases mutable solver memory. This closes the
+frontend's full-update consumption contract; the OGRE 14 game-host adapter
+which publishes real vehicle deformation remains a separate admission gate.
 
 The fourth executable is an explicit macOS-only N2 acceptance slice. It asks
 that same frontend to raster a full deformed `SceneSnapshot` revision, borrows
@@ -74,14 +84,270 @@ requires a trusted package-platform match and a distinct production-readiness
 admission fact, never accepts cross-platform backend identity, and never
 crosses `OGRE_NEXT_REQUIRE` or `REQUIRE_NATIVE`. The readiness fact is supplied
 by the caller until package/signing code derives it; N1 and other probes cannot
-set it. Native
-preflight remains mandatory inside the selected Ogre-Next child because device
-identity is process-local. The contract is tested on all three platform
-policies; the launcher executable and package renames are not wired yet. This
-is a real Metal
+set it. Native preflight remains mandatory inside the selected Ogre-Next child
+because device identity is process-local. The dependency-free
+`RendererChildLauncher` core now enforces the next process boundary without
+exposing a path override: it derives the running launcher's canonical directory
+and launches only the exact selected sibling. It rejects a trusted package
+platform which differs from the compile-time host before deriving the child
+basename, preventing `.exe`/extensionless cross-host execution. POSIX uses
+`execv`; Windows uses Unicode `CreateProcessW`, creates the child suspended,
+resolves the executable handle to a final normalized DOS path, preserves its
+validated extended-length `\\?\` prefix for exact sibling and long-path
+semantics, assigns the child to a kill-on-close Job Object, and propagates the
+full child exit code.
+Arguments after `argv[0]`, the current working directory, environment,
+and standard streams are inherited. A test-only fake child proves those
+properties and proves that `PATH`, cwd, and a renderer-path environment decoy
+cannot redirect selection. The contract and launcher core tests are wired into
+all three platform-policy probe builds. OGRE 14 builds now package the public
+launcher as `RoR`, with the real OGRE 14 game emitted as its exact
+`RoR-Ogre14` sibling. A no-flag launch carries Ogre-Next-preferred/PSSM intent,
+but immutable generated facts admit only the OGRE 14 child in this phase. The
+launcher strips only exact options from the initial owned prefix, retains the
+normalized intent independently, and now serializes an admitted future
+Ogre-Next selection as an exact version/frontend/shadow/native-backend argv
+prefix. The child decoder strips only that ordered prefix, owns the preserved
+game suffix, binds the request and declared backend to the compiled host, and
+rejects unknown, malformed, or duplicate reserved state before renderer
+initialization. That codec now lives in the dependency-free
+`RendererChildIntent` module rather than the OS process launcher. A dedicated
+target includes and links only the intent side of this boundary, so the isolated
+native child does not inherit `execv`, `CreateProcessW`, or compatibility-child
+process ownership. The argv contract conveys intent rather than authenticating
+a local caller. Linux/Windows install and CPack staging plus the signed macOS
+application bundle now retain the public launcher and compatibility host; a
+verified product stage adds the exact `RoR-OgreNext` sibling. Flat macOS install
+and CPack rules remain disabled so they cannot bypass Mach-O dependency
+rewriting and nested-code signing; entering this topology also removes only
+stale generated install/CPack control files from a reused macOS build tree.
+The isolated probe now also builds a probe-only `RoR-OgreNext` executable with
+the real POSIX `main` or Windows Unicode `wWinMain` entrypoint. It decodes a
+synthetic versioned child intent, resolves the child-owned startup plan, and
+constructs a seam-free `OgreNextN1Frontend` against the absolute reviewed
+media root. The bounded callback selects `MODERN_PBR_RT4_V1`, the validated
+three-cascade PSSM path, HDR off, a headless 64x64 extent, one frame in flight,
+and vsync off, then performs a clean shutdown. Exit 77 is reserved solely for
+the exact reviewed PSSM capability-unsupported result; every other rejection,
+initialization failure, shutdown failure, or internal failure has a stable
+nonzero diagnostic and fails CTest. This executable is not installed, staged,
+bundled, or production-admitted, and it has no presentation, game bridge, UI,
+input, or scene loop. Its real output name is evidence that the ABI/process
+boundary can bootstrap, not an immutable package-readiness fact.
+Every probe CTest launch now runs through a fail-closed wrapper which writes
+`ror.ogre_next_child_runtime_execution_receipt.v1` even when the child returns
+a nonzero result. The receipt binds the exact RoR and OGRE-Next commits, build
+contract, platform renderer backend, four-record intent contract, child binary
+SHA-256 and byte size before and after execution, and captured stdout/stderr
+logs. Exit 77 is a skip only with the exact reviewed terminal marker (CRLF on
+Windows, LF on macOS/Linux); every other nonzero or marker mismatch is a
+failure. An OS-CSPRNG `execution_nonce` provides per-run uniqueness without
+claiming challenge-response, while wall-clock timestamps are deliberately
+omitted. CI independently validates the receipt, uses the pinned
+`actions/attest` action to GitHub-attest both the receipt and exact
+platform-selected child executable, verifies that DSSE bundle, and uploads the
+receipt, binary, logs, and bundle. This evidence retention does not install,
+stage, bundle, default-select, or production-admit the child.
+
+The separately enabled-by-default `ROR_OGRE_NEXT_PRODUCTION_PACKAGE` path is
+not that probe binary. It performs an isolated `ExternalProject` build of the
+real `ror_renderer_ogre_next_child_runtime`, seals the executable, exact shader
+media, presentation media, notices, and provenance in a sorted SHA-256 manifest,
+and atomically publishes a production-stage completion marker only after a
+strict closure verifier succeeds. Linux and Windows install/CPack copy that
+verified root without recomputing its identity. The macOS stager re-verifies the
+same closure, copies it into `RoR.app`, rewrites the complete Mach-O dependency
+closure, signs `RoR-OgreNext`, `RoR-Ogre14`, and then the outer application, and
+requires strict deep signature verification. A local Apple Silicon build proved
+all three executables are arm64 and that the staged Ogre-Next payload is closed;
+this packaging result proves presence and identity, not production admission.
+Ordinary builds therefore continue to publish fail-closed launcher facts. A
+fresh build configured with `ROR_OGRE_NEXT_DEMO_ADMISSION=ON` is the bounded
+exception: it requires that verified production package, admits only the
+OgreNext child and PSSM in immutable generated launcher facts, and continues to
+declare native ray tracing unsupported. This is a demo switch, not completion
+of the production image, performance, or cross-platform admission gates.
+On POSIX, timeout cleanup starts the child in a new session, kills its process
+group, and reaps the direct child. Windows kills and reaps the direct child. A
+separate build gate lexically scans the reviewed, pinned RoR/OGRE source closure
+and rejects `fork`, spawn, exec, shell, and process-creation calls; the target
+also excludes `RendererChildLauncher`. This is a reviewed-source-closure
+constraint, not a proof over arbitrary injected linked code or a general
+descendant-process sandbox. If any process-spawn call enters the reviewed child
+closure, the build fails until cross-platform process-tree containment is
+designed and admitted.
+
+Separately, the probe builds a renderer-neutral presentation-window ownership
+contract and a real pinned SDL 2.32.10 adapter. The adapter creates only a
+hidden native window. On macOS it requires the Cocoa main thread, owns an
+autoresizing `OgreMetalView` child of SDL's `NSWindow`, and serializes that
+exact view as `externalWindowHandle`. On Windows it serializes SDL's exact
+`HWND` as `externalWindowHandle`, never `parentWindowHandle`. On Linux it
+forces SDL's X11 driver and uses the audited process-local `SDL2x11`
+`{Display*, Window}` bridge with Ogre's Vulkan `Interface=xcb`; Wayland is an
+explicit unsupported result. The Linux Ogre build retains both the hidden
+`windowType=null` bootstrap and XCB presentation sources.
+
+Window lifecycle is fail-closed. Creation starts hidden, Cocoa view/window/SDL
+video ownership unwinds in reverse order, and show/hide complete only after a
+bounded native SDL event acknowledgement. The first runtime validation records
+one SDL/native-window owner thread on every platform; Cocoa additionally
+requires and revalidates the AppKit main thread. Resume, suspend, resize,
+metrics refresh, and shutdown reject a foreign thread before any native
+callback or lifecycle mutation. Explicit successful owner-thread shutdown is
+required before host/runtime destruction; destructors never attempt native UI
+cleanup after owner validation fails.
+
+Teardown is dependency-ordered and retryable. A destroy callback returning
+false or throwing means that exact retained view, window, or SDL-video owner
+remains live. The host enters `FAILED`, invalidates its renderer binding, stops
+before destroying a dependency, and permits owner-thread `Shutdown` retry.
+Only confirmed destruction clears a handle or ownership flag, and only complete
+view -> window -> video teardown publishes `SHUTDOWN`. Resume then re-queries
+and validates the same native window before publishing its post-show drawable
+extent; it never commits the potentially stale hidden-window backing scale.
+Logical resize does not publish a surface revision until a matching
+Cocoa/WM_SIZE/X11 configure event and the acknowledged drawable-pixel extent
+arrive. A separate metrics refresh observes
+same-logical-size HiDPI/display-scale changes, so Retina migration can advance
+the monotonic surface generation without pretending a resize occurred. SDL
+event watches observe these acknowledgements without consuming close, focus,
+minimize, input, or other-window events.
+
+The standalone native-window probe remains a source/ABI/lifecycle checkpoint,
+not presentation admission.
+The live smoke may report CTest skip 77 when a hosted runner has no native
+window server. It does not create an Ogre presentation `RenderWindow`, attach
+a Compositor2 workspace, swap or read back a presented frame, bridge game/UI/
+input state, package SDL with `RoR-OgreNext`, or flip immutable readiness
+facts. The pinned Vulkan/XCB implementation's device-wide resize wait is also
+not accepted as a finite GPU-drain contract; real resize after Ogre surface
+creation remains blocked on a reviewed drain strategy or upstream patch.
+
+The compatibility child's runtime closure
+and crash symbols remain the OGRE 14 closure; the dependency-free public
+launcher is audited separately. The fake child is confined to the test output
+directory and is never installed or staged. The real production
+`RoR-OgreNext` presentation child and its verified package closure now exist,
+but current no-flag packages still run OGRE 14 after the explicit policy
+fallback because immutable readiness/PSSM admission remains false until live
+content, image, performance, and cross-platform gates pass. This bootstrap is
+a real
+cross-platform frontend initialization boundary and N4 is a real Metal
 hard-shadow pass, not a soft-shadow, local-light, GI,
 denoising, Vulkan KHR, DXR, production-material, image-quality, or performance
 claim.
+
+The production migration uses a supervisor-owned two-process topology rather
+than loading both renderer ABIs into one address space. Its first
+process-independent contract is `RendererBridgeEndpoint` version 1. The
+`RendererBridgeProcessSupervisor` version-2 core accepts a caller-owned nonzero
+128-bit session identifier, creates two unidirectional inherited byte streams,
+and launches the OGRE 14 simulation/game host and Ogre-Next presentation
+frontend with mirrored roles and stream directions.
+Each child receives an exact six-record native argv prefix containing the
+contract version, role, compile-time platform, lowercase session identifier,
+and fixed-width native read/write handle tokens. Foreign platforms, unknown
+roles, malformed or noncanonical tokens, all-zero sessions, reserved/equal
+handles, reordered records, and duplicate reserved suffixes fail before a
+child adopts any OS resource. The prefix composes after the existing renderer
+intent: the public launcher first wraps game arguments with the bridge endpoint
+and then wraps that result with Ogre-Next selection intent.
+
+Before touching an OS resource, the supervisor executes and self-validates the
+complete launch plan with reserved preview handles. It then resolves only the
+two canonical executable siblings; cwd, `PATH`, environment, and caller path
+overrides cannot select a child. POSIX creates close-on-exec bridge pipes plus
+private close-on-exec startup controls, places both forked children in one
+separate process group behind an atomic startup gate, closes every unrelated
+non-standard descriptor in each child, and clears close-on-exec only on that
+child's exact inbound/outbound endpoints. Per-child exec-error pipes distinguish
+a successful `execv` from a partial startup. Windows creates both children
+suspended with exact two-handle `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` allow-lists,
+assigns both to one mandatory `KILL_ON_JOB_CLOSE` Job Object, and resumes them
+only after both assignments succeed. Either implementation terminates and
+reaps the peer when one direct child exits, never leaves a direct zombie, and
+retains the game's exact POSIX wait status (exit or signal) or full Windows
+`DWORD` exit code for a later public-launcher propagation call. Version 2 also
+retains the presentation child's natural exit code or signal when that child is
+observed first; supervisor-induced peer termination is never reported as a
+natural game outcome. POSIX accepts that classification only when the reaped
+peer's wait status contains the exact signal sent by the supervisor, then sends
+`SIGKILL` to any remaining member of the private process group before return.
+A game that handles `SIGTERM` and exits normally therefore keeps its exact game
+exit instead of triggering a renderer fallback. Windows retains the same
+distinction from the result of `TerminateProcess` and the observed process
+wait.
+
+The native fake-child gate runs from a decoy cwd and `PATH`, validates its exact
+role/session and inherited endpoints, sends one valid asset envelope followed
+by one valid scene envelope on the shared game-to-presentation stream, and
+returns an acknowledgement on the reverse stream. It also covers a natural
+game exit, a POSIX terminating signal and exact propagation, presentation-first
+peer teardown, and a missing presentation executable during partial startup.
+These children and the supervisor test harness are test-only and never enter
+install or package rules.
+
+The session identifier in argv binds both endpoints to one launch transaction;
+it remains a local consistency value rather than an authentication boundary.
+`RendererPublicLauncher` now calls the supervisor only after the immutable
+handoff selects a production-admitted Ogre-Next child. It supplies a nonzero
+per-transaction session, preserves the original game argv behind both bridge
+contracts, and propagates the game host's exact exit code or POSIX terminating
+signal. One presentation-first result has a deliberately narrow recovery
+contract: under `OGRE_NEXT_PREFER`, natural exit 73 from `RoR-OgreNext` before
+`PEER_READY`, followed by confirmed termination and reaping of both bridge
+children, relaunches the exact single-process `RoR-Ogre14` sibling with the
+original game arguments. Exit 74 after readiness, a signal, incomplete cleanup,
+partial startup, `OGRE_NEXT_REQUIRE`, or `REQUIRE_NATIVE` remains terminal and
+cannot change renderers mid-session.
+
+A test-only admitted-facts fixture runs the real public entrypoint against the
+two exact fake siblings on all three platform policies. It covers no-flag
+Ogre-Next preference, explicit Ogre-Next requirement, Unicode/space-containing
+game argv, exact game exit propagation, presentation-first teardown, exact
+pre-ready fallback, post-ready refusal, native-required rejection, a
+presentation signal, a signal-handling game peer that exits naturally, and
+explicit-require refusal of that fallback. The production package generator
+now stages and verifies the exact Ogre-Next child and its media while
+deliberately leaving production-ready and PSSM admission false; current
+packages therefore continue to choose OGRE 14. The
+endpoint-adopted compatibility child now owns the real
+[`RendererOgre14ProductSession`](OGRE14_PRODUCT_SESSION.md): it drains reverse
+input/control/ACK traffic before gameplay, opens no legacy physical input
+devices, keeps OGRE 14's scene/resource host hidden and non-presenting, and
+publishes the joined scene only after `GfxScene::UpdateScene()` has consumed
+copied simulation buffers and joined flex/wheel work. The lossless bounded
+production owner and presentation-side decoded-camera extent guard prevent
+backpressure or an idle resize from presenting stale state, and it performs ordered
+half-close/EOF/join shutdown. Direct standalone launches are unchanged.
+Together with the packaged presentation runtime, this closes the two-process
+lifecycle and transport-wiring gate. It does not change generated
+presence/readiness/admission facts: real vehicle/terrain/material coverage,
+UI composition, image/performance acceptance, and native Linux/Windows runs
+remain mandatory before admission.
+
+Configure and build the renderer suite with the normal supported-platform
+defaults:
+
+```sh
+cmake -S . -B build-renderer-launcher \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+  -DROR_CREATE_CONTENT_FOLDER=OFF
+cmake --build build-renderer-launcher \
+  --target ror_renderer_launcher ror_ogre_next_product_stage --config Release
+```
+
+The active runtime output directory is `build-renderer-launcher/bin` for this
+tree. The complete product layout contains `RoR`, `RoR-Ogre14`, and
+`RoR-OgreNext` on Linux/macOS, or their `.exe` equivalents on Windows. The same
+roles are retained by Linux/Windows install/package targets and by
+`RoR.app/Contents/MacOS` on macOS. Set `ROR_OGRE14=OFF` only for an explicit
+legacy-development configuration; doing so also disables the public suite and
+product child. Initialize the starter-content submodule and omit
+`-DROR_CREATE_CONTENT_FOLDER=OFF` when that content is required in the build
+tree.
 
 Linux RT6 and Windows RT7 now mirror the renderer-neutral N4 sample semantics
 inside their native API probes: two distinct BLAS, a two-instance TLAS, one
@@ -461,9 +727,13 @@ device.
 
 The CMake routing selects Metal on macOS arm64, Direct3D 11 on Windows x64,
 and Vulkan null-window on Linux x86_64. The same strict-warning N1 sources are
-compiled in each matrix job, but only the macOS Metal runtime has been proven
-locally at this checkpoint. This is not evidence for Linux presentation or
-Windows DXR.
+compiled twice in each matrix job: the established seamful smoke library keeps
+all fault-injection evidence and package contents unchanged, while the new
+runtime library exposes no `ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM` or
+`ROR_OGRE_NEXT_N2_TEST_SEAM` definition to the child. The actual child CTest
+runs on all three hosts. Only the macOS Metal runtime has been proven locally
+at this checkpoint. This is not evidence for presentation on any platform or
+for Windows DXR.
 
 ## Run
 
@@ -582,6 +852,76 @@ parity.
 `--validate-contract-only` checks pins, patch hashes, and the current platform
 policy without accessing the network or compiling.
 
+## Legacy material migration inventory
+
+`tools/audit_ogre14_material_scripts.py` reads bounded `.material` members
+directly from a user-supplied ZIP and emits
+`ror-ogre14-material-script-audit-v1`. It records exact authored material
+names, script hashes, technique/pass/texture-unit structure, program
+references, environment mapping, texture transforms, and authored
+`texture_alias` values. It deliberately does not infer PBR roles from texture
+filenames, legacy specular values, or material names. Every material still
+requires an explicit semantic declaration and exact native-state capture before
+the production translator may admit it.
+
+Against the authenticated CityWorld archive
+`ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`, the
+audit finds 538 definitions in 20 scripts. Only 323 are structural candidates
+for the current one-technique, one-pass, at-most-one-texture v1 boundary; 215
+are structurally blocked. Of the complete inventory, 200 use multiple texture
+units, 135 author environment mapping, 20 author texture transforms or
+animation, and one references an authored GPU program. The texture-unit
+histogram is 10/328/85/113/1/1 for zero through five units. The report also
+retains the known duplicate `concretorojo` definition with both exact source
+locations. These are script-level migration measurements, not proof of runtime
+OGRE inheritance, listener edits, RTShaderSystem output, native pass state, or
+visual parity.
+
+The native boundary now also provides
+`Ogre14LegacyMaterialSemanticRegistry` version 1. It is an immutable, bounded,
+case-sensitive registry keyed by the exact OGRE resource group and material
+name. A declaration is admitted only when it names either authored content
+metadata or a versioned compatibility table and supplies a nonzero source
+revision, base-color semantic, and texture color role. Resolution carries that
+provenance and the exact translator limits into the native extractor. Registry
+construction is transactional, canonical ordering produces a stable diagnostic
+fingerprint, duplicate keys fail even when byte-identical, and injected
+allocation or unexpected failures preserve the previous immutable owner. The
+registry intentionally contains no filename, material-name, lighting-state, or
+specular heuristic. It supplies the explicit declaration gate required by the
+live material coordinator; it does not itself wire CityWorld materials or make
+the Ogre-Next renderer production-ready.
+
+The renderer-neutral `Ogre14SourceTextureDecoder` version 1 closes the legacy
+DDS byte-normalization slice without importing Ogre or a GPU decoder. It
+follows the fixed 128-byte legacy DDS header layout with explicit little-endian
+reads, validates the entire declared 2D mip chain under hard and configurable
+byte/dimension caps, then emits canonical tightly packed RGBA8_UNORM. The
+supported source set is DXT1/BC1, DXT3/BC2, DXT5/BC3, unsigned ATI1/BC4,
+unsigned ATI2/BC5, and exact 32-bit RGBA/RGBX/BGRA/BGRX masks. Integer-only
+palette interpolation and virtual-edge clipping make output deterministic
+across macOS, Windows, and Linux.
+
+Color transfer semantics are deliberately external: an authoritative content
+or material record must select sRGB color or linear data, and a DXT1 caller
+must separately select opaque or one-bit-alpha interpretation. The decoder
+does not infer either fact from names, FourCC values, flags, or pixels. It
+rejects DX10 extensions and arrays, cube maps, volumes, signed and unknown
+formats, ambiguous channel layouts, inconsistent top-level sizes, impossible
+mip counts, arithmetic overflow, truncation, and trailing data. Full validation
+precedes allocation; successful decoding uses a no-throw final move, while
+injected `bad_alloc` and arbitrary exceptions preserve the previous output.
+This is a source-data prerequisite for the future live material coordinator,
+not evidence that CityWorld textures have been uploaded or rendered.
+
+Run the bounded audit with:
+
+```sh
+python3 tools/audit_ogre14_material_scripts.py /path/to/CityWorld.zip \
+  --expect-sha256 ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3 \
+  --pretty
+```
+
 ## Completed local checkpoint
 
 On 2026-07-31 the Release probe configured and built natively with AppleClang
@@ -625,6 +965,16 @@ frontend, reinitialized, resynchronized, rendered again, and shut down cleanly.
 Its report also records that live HLMS getters matched the reviewed metallic
 workflow and height-correlated GGX mapping. These values are local macOS
 evidence, not cross-platform golden pixels.
+
+On 2026-08-02 a clean Release rebuild at RoR commit
+`600242155acfdfc87909e45af5e3dea648bf6241` exercised the full dynamic-mesh
+replacement path on the physical Apple M5. The N1 fixture changed 1,014 pixels
+between the base and deformed revisions; RT4/V1 changed 1,710 pixels. Their
+base/deformed attachment hashes were distinct, both exact-replay checks passed,
+and both reports record `full_update_owned: true` and
+`solver_memory_aliased: false`. This is native Metal evidence for frontend
+consumption, not yet a claim that production vehicles are captured or that the
+same pixels are golden across D3D11 and Vulkan.
 
 The opt-in N2 smoke then passed on the same Apple M5. Ogre rastered deformation
 revision 2 and exported its live pooled 24-byte-stride vertex allocation and
@@ -713,5 +1063,6 @@ non-shipping until these later checkpoints pass:
    capture, image and performance gates, then reproduce equivalent explicit
    interop on Windows/DXR and Linux/Vulkan KHR;
    and
-6. keep OGRE 14 as the default until image, performance, content, and fallback
+6. keep Ogre-Next as the preferred public-launcher default while retaining the
+   fail-closed OGRE 14 fallback until image, performance, content, and fallback
    acceptance gates pass.

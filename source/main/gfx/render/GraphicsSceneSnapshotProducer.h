@@ -24,7 +24,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 3U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 4U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 5U;
 
 /// Source identities belong to the joined graphics scene, not a renderer.
@@ -66,8 +66,7 @@ struct GraphicsSceneAssetInput {
 };
 
 /// One static MeshObject/terrain-object style instance. The referenced mesh
-/// supplies exact local bounds and topology revision. Version 3 deliberately
-/// excludes deformable streams; those remain a later GfxActor producer slice.
+/// supplies exact local bounds and topology revision.
 struct GraphicsSceneStaticMeshInput {
   std::uint64_t source_object_id = 0U;
   std::uint64_t mesh_source_asset_id = 0U;
@@ -75,6 +74,34 @@ struct GraphicsSceneStaticMeshInput {
   Matrix4x4 render_from_object;
   std::uint32_t visibility_mask = 0xFFFFFFFFU;
   std::uint32_t flags = MESH_INSTANCE_DEFAULT_FLAGS;
+};
+
+/// One complete immutable CPU deformation state copied from a fully joined
+/// graphics staging array. It never aliases simulation-owned nodes or solver
+/// memory. An unchanged semantic state may reuse the same owner and revision;
+/// changed contents require the next exact deformation revision.
+struct GraphicsSceneDynamicMeshState {
+  std::uint64_t topology_revision = 1U;
+  std::uint64_t deformation_revision = 2U;
+  std::vector<Float3> positions;
+  std::vector<Float3> normals;
+  std::vector<Float4> tangents;
+  std::vector<Float3> velocities;
+  Bounds3 updated_local_bounds;
+};
+
+/// One live deformable section. Base topology, immutable UV/color streams, and
+/// material remain source assets; the state owner contains the full current
+/// position/direction streams and tight local bounds. Source identities are
+/// permanent for one producer lifetime and share the static-object namespace.
+struct GraphicsSceneDynamicMeshInput {
+  std::uint64_t source_object_id = 0U;
+  std::uint64_t mesh_source_asset_id = 0U;
+  std::uint64_t material_source_asset_id = 0U;
+  Matrix4x4 render_from_object;
+  std::uint32_t visibility_mask = 0xFFFFFFFFU;
+  std::uint32_t flags = MESH_INSTANCE_DEFAULT_FLAGS;
+  std::shared_ptr<const GraphicsSceneDynamicMeshState> state;
 };
 
 /// One authoritative analytic light. The source identity is preserved as the
@@ -124,6 +151,7 @@ struct GraphicsSceneFrameInput {
   std::uint64_t environment_sampler_source_asset_id = 0U;
   std::vector<GraphicsSceneAssetInput> assets;
   std::vector<GraphicsSceneStaticMeshInput> static_meshes;
+  std::vector<GraphicsSceneDynamicMeshInput> dynamic_meshes;
   /// May arrive in any order. analytic_sky.sun_light_id names one of these
   /// stable source identities directly.
   std::vector<GraphicsSceneLightInput> lights;
@@ -142,16 +170,28 @@ struct GraphicsSceneFrameInput {
 class IJoinedGraphicsSceneSource {
 public:
   virtual ~IJoinedGraphicsSceneSource() = default;
+  /// Prepares one immutable frame without advancing source-side identity,
+  /// lifecycle, or semantic-revision state. Exactly one Commit or Discard
+  /// follows every successful capture.
   [[nodiscard]] virtual ValidationResult
   CaptureJoinedGraphicsFrame(GraphicsSceneFrameInput &frame) = 0;
+  virtual void CommitJoinedGraphicsFrame() noexcept {}
+  virtual void DiscardJoinedGraphicsFrame() noexcept {}
 };
 
 struct GraphicsSceneSnapshotProducerConfiguration {
   std::uint64_t registry_id = 0U;
   std::uint64_t first_snapshot_id = 1U;
   std::uint64_t first_asset_ordinal = 1U;
+  /// Process-lifetime allocation cap. Finalizing a scene generation clears
+  /// source-key mappings but never refunds this count or renderer asset IDs.
   std::size_t maximum_asset_records = 65536U;
   std::size_t maximum_static_mesh_objects = 65536U;
+  std::size_t maximum_dynamic_mesh_objects = 65536U;
+  /// Aggregate complete position count and copied dynamic stream bytes in one
+  /// candidate frame. Both are checked transactionally before publication.
+  std::uint64_t maximum_dynamic_vertex_count = 16U * 1024U * 1024U;
+  std::uint64_t maximum_dynamic_payload_bytes = 512U * 1024U * 1024U;
   std::size_t maximum_light_records = 4096U;
   std::size_t maximum_reflection_probe_records = 256U;
   /// Sum of descriptor-owned string, vertex/index, and texel bytes in one
@@ -235,6 +275,17 @@ public:
   [[nodiscard]] GraphicsSceneSnapshotProduceResult
   ProduceJoinedFrame(IJoinedGraphicsSceneSource &source);
 
+  /// Publishes one authoritative empty scene at the last accepted simulation
+  /// time, tombstones every live asset, and starts a new source-identity/time
+  /// generation without resetting transport-visible asset, snapshot, or
+  /// dynamic-update identities or the process-lifetime asset-record count.
+  /// Exact source IDs may therefore be derived again by the next map, but each
+  /// receives a new renderer ID and still consumes the global lifetime cap.
+  /// The returned production must be submitted in order before a tick from the
+  /// next simulation generation is accepted by the host. Invalid before the
+  /// first successful Produce().
+  [[nodiscard]] GraphicsSceneSnapshotProduceResult FinalizeSceneGeneration();
+
   /// Complete live catalog plus permanent tombstones for a fresh or
   /// device-recovered frontend. Invalid before the first successful Produce().
   [[nodiscard]] GraphicsSceneAssetRecoveryResult
@@ -242,6 +293,7 @@ public:
 
   [[nodiscard]] std::uint64_t registry_id() const noexcept;
   [[nodiscard]] std::uint64_t asset_sequence() const noexcept;
+  [[nodiscard]] bool has_open_scene_generation() const noexcept;
 
   /// Acquire-loads the last fully validated immutable production. A successful
   /// Produce() release-publishes the exact owner returned in its result only

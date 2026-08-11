@@ -82,6 +82,69 @@ bool HasOpaqueRgba8Alpha(const TextureResourceDescriptor &texture) noexcept {
   return true;
 }
 
+bool IsCanonicalAbsentBinding(const TextureBinding &binding) noexcept {
+  return IsAbsentRenderAssetReference(binding.texture) &&
+         IsAbsentRenderAssetReference(binding.sampler) &&
+         IsIdentityTextureTransform(binding);
+}
+
+std::uint32_t CompleteMipCount(std::uint32_t width,
+                               std::uint32_t height) noexcept {
+  std::uint32_t count = 1U;
+  while (width > 1U || height > 1U) {
+    width = (std::max)(1U, width / 2U);
+    height = (std::max)(1U, height / 2U);
+    ++count;
+  }
+  return count;
+}
+
+ValidationResult ValidateDisplayDomainTexturePolicy(
+    const TextureResourceDescriptor &texture,
+    const SamplerResourceDescriptor &sampler, std::size_t index) {
+  if (texture.type != TextureResourceType::TEXTURE_2D ||
+      texture.array_layers != 1U ||
+      texture.format != TextureResourceFormat::RGBA8_UNORM ||
+      texture.color_space != TextureColorSpace::SRGB) {
+    return Unsupported(
+        "assets.material.base_color_texture",
+        "RT4/V1 display-domain Unlit requires one non-array RGBA8 sRGB-authored texture uploaded without hardware sRGB decode",
+        index);
+  }
+  if (texture.mip_levels.size() !=
+      CompleteMipCount(texture.width, texture.height)) {
+    return Unsupported(
+        "assets.material.base_color_texture.mip_levels",
+        "RT4/V1 display-domain Unlit requires the complete authored base-to-1x1 mip chain",
+        index);
+  }
+  if (!HasOpaqueRgba8Alpha(texture)) {
+    return Unsupported(
+        "assets.material.base_color_texture.alpha",
+        "RT4/V1 display-domain Unlit requires alpha 255 in every authored texel and mip",
+        index);
+  }
+  const float last_mip =
+      static_cast<float>(texture.mip_levels.size() - 1U);
+  if (sampler.minification_filter != SamplerFilter::LINEAR ||
+      sampler.magnification_filter != SamplerFilter::LINEAR ||
+      sampler.mip_filter != SamplerFilter::NEAREST ||
+      sampler.address_u != SamplerAddressMode::CLAMP_TO_EDGE ||
+      sampler.address_v != SamplerAddressMode::CLAMP_TO_EDGE ||
+      sampler.address_w != SamplerAddressMode::CLAMP_TO_EDGE ||
+      sampler.mip_lod_bias != 0.0F || sampler.minimum_lod != 0.0F ||
+      sampler.maximum_lod != last_mip || sampler.anisotropy_enabled ||
+      sampler.maximum_anisotropy != 1.0F || sampler.compare_enabled ||
+      sampler.compare_operation != SamplerCompareOperation::ALWAYS ||
+      sampler.border_color != Float4{}) {
+    return Unsupported(
+        "assets.material.base_color_texture.sampler",
+        "RT4/V1 display-domain Unlit requires linear min/mag, nearest mip selection, clamp-to-edge, the exact complete mip LOD range, and canonical non-anisotropic non-comparison state",
+        index);
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateCanonicalPositiveZNormalTexture(
     const TextureResourceDescriptor &texture, std::size_t index) {
   if (texture.color_space != TextureColorSpace::LINEAR) {
@@ -292,11 +355,45 @@ ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
 ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
                                         std::size_t index,
                                         OgreNextRasterFeatureTier raster_feature_tier) {
+  const bool display_domain_unlit =
+      material.model == MaterialModel::UNLIT &&
+      material.base_color_transfer ==
+          BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+  if (display_domain_unlit) {
+    if (raster_feature_tier !=
+            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
+        material.alpha_mode != MaterialAlphaMode::OPAQUE ||
+        material.double_sided ||
+        material.base_color_factor != Float4{1.0F, 1.0F, 1.0F, 1.0F} ||
+        !material.base_color_texture.texture.valid() ||
+        !material.base_color_texture.sampler.valid() ||
+        !IsIdentityTextureTransform(material.base_color_texture) ||
+        !IsCanonicalAbsentBinding(material.metallic_roughness_texture) ||
+        !IsCanonicalAbsentBinding(material.normal_texture) ||
+        !IsCanonicalAbsentBinding(material.occlusion_texture) ||
+        !IsCanonicalAbsentBinding(material.emissive_texture) ||
+        material.metallic_factor != 0.0F ||
+        material.roughness_factor != 1.0F || material.normal_scale != 1.0F ||
+        material.occlusion_strength != 1.0F ||
+        material.emissive_factor != Float3{} ||
+        material.emissive_strength != 1.0F ||
+        material.alpha_cutoff != 0.5F ||
+        material.index_of_refraction != 1.5F) {
+      return Unsupported(
+          "assets.material",
+          "RT4/V1 display-domain Unlit admits exactly one opaque UV0 base texture with white modulation and canonical unused fields",
+          index);
+    }
+    return ValidationResult::Success();
+  }
   if (material.model != MaterialModel::PBR_METALLIC_ROUGHNESS ||
-      material.alpha_mode != MaterialAlphaMode::OPAQUE) {
+      material.alpha_mode != MaterialAlphaMode::OPAQUE ||
+      material.base_color_transfer !=
+          BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER) {
     return Unsupported(
         "assets.material.model",
-        "N1 accepts opaque metallic-roughness PBR materials only", index);
+        "N1 accepts conventional opaque metallic-roughness PBR or the exact RT4/V1 display-domain Unlit profile only",
+        index);
   }
   if (raster_feature_tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
       !IsTextureFree(material)) {
@@ -633,6 +730,11 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
   report.maximum_views = 1U;
   report.maximum_frames_in_flight = 1U;
   report.supported_outputs = FrameOutputMask::COLOR;
+  // The frontend consumes one complete DynamicMeshUpdateDescriptor, creates a
+  // frame-owned Ogre v2 mesh, submits it synchronously, and destroys it only
+  // after the frame (or retains it with the same-device interop lease). It
+  // never aliases or incrementally reads mutable solver memory.
+  report.supports_dynamic_mesh_updates = true;
   report.raster_ready = raster_api == RasterGraphicsApi::METAL ||
                         raster_api == RasterGraphicsApi::DIRECT3D11 ||
                         raster_api == RasterGraphicsApi::VULKAN;
@@ -642,7 +744,8 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
 
 ValidationResult ValidateOgreNextN1Initialization(
     const FrontendInitializationRequest &request,
-    const FrontendCapabilityReport &capabilities) {
+    const FrontendCapabilityReport &capabilities,
+    bool native_presentation_enabled) {
   ValidationResult validation = ValidateFrontendCapabilityReport(capabilities);
   if (!validation) {
     return validation;
@@ -651,9 +754,14 @@ ValidationResult ValidateOgreNextN1Initialization(
   if (!validation) {
     return validation;
   }
-  if (!request.headless) {
+  if (!request.headless && !native_presentation_enabled) {
     return Unsupported("headless",
                        "N1 is an offscreen frontend and cannot present");
+  }
+  if (request.headless && native_presentation_enabled) {
+    return Unsupported(
+        "headless",
+        "the optional N1 presentation contract requires its native window");
   }
   if (request.maximum_frames_in_flight != 1U) {
     return Unsupported("maximum_frames_in_flight",
@@ -753,6 +861,25 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
             return binding_validation;
           }
         }
+        if (material->model == MaterialModel::UNLIT) {
+          const TextureResourceDescriptor *texture =
+              registry.ResolveTexture(material->base_color_texture.texture);
+          const SamplerResourceDescriptor *sampler =
+              registry.ResolveSampler(material->base_color_texture.sampler);
+          if (texture == nullptr || sampler == nullptr) {
+            return ValidationResult::Failure(
+                ValidationCode::MISSING_REFERENCE,
+                "assets.material.base_color_texture",
+                "RT4/V1 display-domain Unlit dependency could not be resolved",
+                record_index);
+          }
+          const ValidationResult display_domain_validation =
+              ValidateDisplayDomainTexturePolicy(*texture, *sampler,
+                                                       record_index);
+          if (!display_domain_validation) {
+            return display_domain_validation;
+          }
+        }
       }
       return ValidationResult::Success();
     }
@@ -801,6 +928,21 @@ ValidationResult ValidateOgreNextN1Scene(
   ValidationResult validation = ValidateSceneSnapshotAssets(snapshot, registry);
   if (!validation) {
     return validation;
+  }
+  for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
+       ++index) {
+    const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
+    const MaterialDescriptor *material = registry.ResolveMaterial(instance.material);
+    if (material != nullptr && material->model == MaterialModel::UNLIT &&
+        material->base_color_transfer ==
+            BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE &&
+        (instance.flags & (MESH_INSTANCE_CASTS_SHADOW |
+                           MESH_INSTANCE_RECEIVES_SHADOW)) != 0U) {
+      return Unsupported(
+          "mesh_instances.flags",
+          "RT4/V1 display-domain Unlit instances must neither cast nor receive shadows",
+          index);
+    }
   }
   if (!IsAbsentRenderAssetReference(snapshot.environment().environment_texture) ||
       !IsAbsentRenderAssetReference(snapshot.environment().environment_sampler)) {
@@ -999,14 +1141,20 @@ ValidationResult ValidateOgreNextN1Frame(
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
     bool hdr_compositor_enabled,
-    bool native_directional_shadow_enabled) {
+    bool native_directional_shadow_enabled,
+    bool native_presentation_enabled) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
     return validation;
   }
-  if (request.present) {
+  if (request.present && !native_presentation_enabled) {
     return Unsupported("present", "N1 produces offscreen readbacks only");
+  }
+  if (!request.present && native_presentation_enabled) {
+    return Unsupported(
+        "present",
+        "the optional native-presentation milestone requires its one presented frame");
   }
   if (request.requested_outputs != FrameOutputMask::COLOR ||
       request.views.size() != 1U) {

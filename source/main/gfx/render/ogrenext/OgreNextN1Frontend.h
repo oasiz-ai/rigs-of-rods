@@ -17,6 +17,7 @@
 #include "RasterFeatureTier.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -31,6 +32,96 @@ struct OgreNextReflectionProbeCaptureEvidence;
 struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
+constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 2U;
+
+/// The exact one-frame gate remains the default and is deliberately unchanged.
+/// The production run loop is a separate opt-in lifetime contract that reuses
+/// its source target and Compositor2 graph across presented frames.
+enum class OgreNextN1PresentationMode : std::uint8_t {
+  EXACT_ONE_FRAME_GATE = 0,
+  PRODUCTION_RUN_LOOP,
+};
+
+struct OgreNextN1PresentationParameter final {
+  std::string name;
+  std::string value;
+};
+
+/// Optional probe-only presentation binding copied from the hardened SDL
+/// window host. The frontend owns these strings, but native identities named
+/// by them remain borrowed from the host until Shutdown completes. Production
+/// child/package admission deliberately remains outside this contract.
+struct OgreNextN1PresentationConfiguration final {
+  std::uint32_t version = kOgreNextN1PresentationContractVersion;
+  bool enabled = false;
+  OgreNextN1PresentationMode mode =
+      OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE;
+  /// Production child mode exports only a frontend-owned GPU lease for the
+  /// already-presented source target. No CPU attachment bytes are generated.
+  /// The legacy one-frame and evidence smokes retain readback by default.
+  bool gpu_only_output = false;
+  std::string shader_media_root;
+  NativeWindowHandle exact_window;
+  std::array<OgreNextN1PresentationParameter, 2U> renderer_options{};
+  std::size_t renderer_option_count = 0U;
+  std::array<OgreNextN1PresentationParameter, 2U>
+      bootstrap_window_parameters{};
+  std::size_t bootstrap_window_parameter_count = 0U;
+  std::array<OgreNextN1PresentationParameter, 8U>
+      presentation_window_parameters{};
+  std::size_t presentation_window_parameter_count = 0U;
+  /// Invoked only after the two-channel Compositor2 workspace exists and its
+  /// external window texture has passed identity/extent validation. The host
+  /// callback performs its bounded native show/configure acknowledgement.
+  void *show_callback_context = nullptr;
+  bool (*show_after_workspace_ready)(
+      void *context, FrontendSurfaceUpdate *acknowledged_surface) = nullptr;
+};
+
+/// Exact evidence for the optional one-frame native presentation gate.
+/// Counters are committed only after source-only GPU readback and the matching
+/// RenderFrameOutput have both validated successfully.
+struct OgreNextN1PresentationAudit final {
+  std::uint32_t version = kOgreNextN1PresentationContractVersion;
+  bool enabled = false;
+  OgreNextN1PresentationMode mode =
+      OgreNextN1PresentationMode::EXACT_ONE_FRAME_GATE;
+  bool exact_external_window_binding = false;
+  bool exact_two_external_channels = false;
+  bool ui_free_source = false;
+  bool gpu_quad_copy = false;
+  bool cpu_window_copy = false;
+  bool workspace_ready_before_show = false;
+  bool bounded_swap_completed = false;
+  bool monotonic_presented_frame_ids = false;
+  std::uint64_t window_moved_or_resized_calls = 0U;
+  std::uint64_t show_callback_calls = 0U;
+  std::uint64_t source_target_creates = 0U;
+  std::uint64_t source_target_destroys = 0U;
+  std::uint64_t compositor_node_definition_creates = 0U;
+  std::uint64_t compositor_node_definition_destroys = 0U;
+  std::uint64_t compositor_workspace_creates = 0U;
+  std::uint64_t compositor_workspace_destroys = 0U;
+  std::uint64_t compositor_workspace_rebinds = 0U;
+  std::uint64_t surface_graph_rebuilds = 0U;
+  std::uint64_t suspended_surface_updates = 0U;
+  std::uint64_t restored_surface_updates = 0U;
+  std::uint64_t source_scene_passes = 0U;
+  std::uint64_t presentation_quad_passes = 0U;
+  std::uint64_t render_one_frame_calls = 0U;
+  std::uint64_t window_final_target_updates = 0U;
+  std::uint64_t window_swap_completions = 0U;
+  std::uint64_t presented_frames = 0U;
+  std::uint64_t source_readbacks = 0U;
+  std::uint64_t gpu_only_output_frames = 0U;
+  std::uint64_t first_presented_frame_id = 0U;
+  std::uint64_t last_presented_frame_id = 0U;
+  std::uint64_t last_view_id = 0U;
+  std::uint64_t last_surface_revision = 0U;
+  std::uint32_t last_width = 0U;
+  std::uint32_t last_height = 0U;
+};
+
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 /// Isolated native-smoke fault seam; never compiled into the production RoR
 /// target. Each value injects one failure after the named Ogre allocation step.
@@ -41,6 +132,9 @@ enum class OgreNextN1TextureUploadFailureStage : std::uint8_t {
   AFTER_SET_MIPMAPS,
   AFTER_SET_PIXEL_FORMAT,
   AFTER_SCHEDULE_TRANSITION,
+  /// Fires after a replacement texture with a changed sampling role has been
+  /// uploaded and verified, while the previous-role allocation is still live.
+  AFTER_ROLE_TRANSITION_CANDIDATE_TEXTURES,
 };
 
 /// Native Image2 staging proof exposed only by the standalone smoke seam.
@@ -55,6 +149,21 @@ struct OgreNextN1NormalUploadAudit final {
   std::uint64_t verified_rg_bytes = 0U;
   std::uint64_t verified_padded_source_rows = 0U;
   bool exact_source_rg_to_native_image = false;
+};
+
+/// Probe-only GPU readback proof for the exact display-domain texture role.
+/// The audit compares every authored RGBA byte in every mip against a native
+/// TextureGpu download after residency and after the asset transaction commits.
+struct OgreNextN1DisplayDomainUploadAudit final {
+  std::uint32_t version = 1U;
+  std::uint64_t source_textures = 0U;
+  std::uint64_t native_readbacks = 0U;
+  std::uint64_t expected_mip_levels = 0U;
+  std::uint64_t verified_mip_levels = 0U;
+  std::uint64_t verified_rows = 0U;
+  std::uint64_t verified_texels = 0U;
+  std::uint64_t verified_rgba_bytes = 0U;
+  bool exact_source_rgba_to_native_texture = false;
 };
 
 /// PSSM-only transactional fault seam for the standalone native smoke.
@@ -120,6 +229,7 @@ struct OgreNextN1Configuration final {
   /// explicit RT4 raster mode so raw linear-HDR capture remains unchanged.
   bool enable_hdr_compositor = false;
   OgreNextHdrTemporalConfiguration hdr_temporal_configuration{};
+  OgreNextN1PresentationConfiguration presentation{};
 };
 
 /// Exact observable state of the opt-in persistent HDR compositor. Counts
@@ -259,6 +369,8 @@ public:
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   [[nodiscard]] OgreNextN1NormalUploadAudit
   QueryNormalUploadAudit() const noexcept;
+  [[nodiscard]] OgreNextN1DisplayDomainUploadAudit
+  QueryDisplayDomainUploadAudit() const;
   [[nodiscard]] OgreNextReflectionProbeCaptureEvidence
   QueryReflectionProbeCaptureEvidence() const;
   [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence
@@ -268,6 +380,8 @@ public:
   QueryDirectionalShadowAudit() const noexcept;
   [[nodiscard]] OgreNextHdrCompositorAudit
   QueryHdrCompositorAudit() const noexcept;
+  [[nodiscard]] OgreNextN1PresentationAudit
+  QueryPresentationAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult
@@ -275,6 +389,8 @@ public:
                 std::uint64_t timeout_nanoseconds) override;
   RenderOperationResult
   SynchronizeAssets(const RenderAssetDelta &delta) override;
+  RenderOperationResult
+  ResetSceneGeneration(std::uint64_t next_generation) override;
   RenderOperationResult ReleaseResource(ResourceHandle resource) override;
   RenderOperationResult Render(const RenderFrameRequest &request,
                                RenderFrameOutput &output) override;

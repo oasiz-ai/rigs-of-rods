@@ -25,7 +25,7 @@
         },
         {
           "path": "tools/blender/cityworld_next/canonicalize_storefront_glb.py",
-          "sha256": "c4a189908f79c4b9c8108a57a6978d3d0098c14b6d21c59eba321bde7d15dd8c"
+          "sha256": "68d4d22eb2628cc16461e6d2bfccd2accd4c96af11884566b1b21a3ead02cf80"
         },
         {
           "path": "tools/blender/cityworld_next/artifact_retention_contract.py",

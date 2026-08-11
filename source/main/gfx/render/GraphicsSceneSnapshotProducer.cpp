@@ -142,6 +142,22 @@ struct IndexedStaticMeshInput {
   std::size_t original_index = 0U;
 };
 
+struct IndexedDynamicMeshInput {
+  const GraphicsSceneDynamicMeshInput *input = nullptr;
+  std::size_t original_index = 0U;
+};
+
+struct IndexedMeshObjectInput {
+  std::uint64_t source_object_id = 0U;
+  const GraphicsSceneStaticMeshInput *static_input = nullptr;
+  const GraphicsSceneDynamicMeshInput *dynamic_input = nullptr;
+  std::size_t original_index = 0U;
+
+  [[nodiscard]] bool dynamic() const noexcept {
+    return dynamic_input != nullptr;
+  }
+};
+
 struct IndexedLightInput {
   const GraphicsSceneLightInput *input = nullptr;
   std::size_t original_index = 0U;
@@ -154,7 +170,8 @@ struct IndexedReflectionProbeInput {
 
 ValidationResult RemapSceneElementIndex(
     ValidationResult validation,
-    const std::vector<IndexedStaticMeshInput> &sorted_objects,
+    const std::vector<IndexedMeshObjectInput> &sorted_objects,
+    const std::vector<IndexedDynamicMeshInput> &sorted_dynamic_objects,
     const std::vector<IndexedLightInput> &sorted_lights,
     const std::vector<IndexedReflectionProbeInput> &sorted_probes) {
   if (validation ||
@@ -166,6 +183,12 @@ ValidationResult RemapSceneElementIndex(
       validation.element_index < sorted_objects.size()) {
     validation.element_index =
         sorted_objects[validation.element_index].original_index;
+  } else if (validation.field.compare(
+                 0U, sizeof("dynamic_mesh_updates") - 1U,
+                 "dynamic_mesh_updates") == 0 &&
+             validation.element_index < sorted_dynamic_objects.size()) {
+    validation.element_index =
+        sorted_dynamic_objects[validation.element_index].original_index;
   } else if (validation.field.compare(0U, sizeof("lights") - 1U, "lights") ==
                  0 &&
              validation.element_index < sorted_lights.size()) {
@@ -179,6 +202,38 @@ ValidationResult RemapSceneElementIndex(
         sorted_probes[validation.element_index].original_index;
   }
   return validation;
+}
+
+bool EquivalentDynamicMeshStateContents(
+    const GraphicsSceneDynamicMeshState &lhs,
+    const GraphicsSceneDynamicMeshState &rhs) noexcept {
+  return lhs.topology_revision == rhs.topology_revision &&
+         lhs.positions == rhs.positions && lhs.normals == rhs.normals &&
+         lhs.tangents == rhs.tangents && lhs.velocities == rhs.velocities &&
+         lhs.updated_local_bounds.minimum == rhs.updated_local_bounds.minimum &&
+         lhs.updated_local_bounds.maximum == rhs.updated_local_bounds.maximum;
+}
+
+bool HasExactTightBounds(const GraphicsSceneDynamicMeshState &state) noexcept {
+  if (state.positions.empty() || !IsFinite(state.positions.front())) {
+    return false;
+  }
+  Bounds3 tight;
+  tight.minimum = state.positions.front();
+  tight.maximum = state.positions.front();
+  for (const Float3 &position : state.positions) {
+    if (!IsFinite(position)) {
+      return false;
+    }
+    tight.minimum.x = (std::min)(tight.minimum.x, position.x);
+    tight.minimum.y = (std::min)(tight.minimum.y, position.y);
+    tight.minimum.z = (std::min)(tight.minimum.z, position.z);
+    tight.maximum.x = (std::max)(tight.maximum.x, position.x);
+    tight.maximum.y = (std::max)(tight.maximum.y, position.y);
+    tight.maximum.z = (std::max)(tight.maximum.z, position.z);
+  }
+  return tight.minimum == state.updated_local_bounds.minimum &&
+         tight.maximum == state.updated_local_bounds.maximum;
 }
 
 bool ValidateSourceAssetMetadata(const GraphicsSceneAssetInput &asset,
@@ -246,12 +301,6 @@ ValidateSourceAssetPayload(const GraphicsSceneAssetInput &asset,
   case RenderAssetKind::MESH: {
     const MeshResourceDescriptor &mesh =
         std::get<MeshResourceDescriptor>(*asset.payload);
-    if (mesh.dynamic) {
-      return Failure(
-          ValidationCode::UNSUPPORTED_FEATURE, "assets.mesh.dynamic",
-          "the version-three producer accepts static mesh allocations only",
-          index);
-    }
     validation = ValidateMeshResourceDescriptor(mesh);
     break;
   }
@@ -414,12 +463,17 @@ public:
     RenderAssetRegistry registry;
     std::map<std::uint64_t, AssetState> assets;
     std::uint64_t next_asset_ordinal = 1U;
+    std::size_t lifetime_asset_records = 0U;
     bool asset_ordinal_exhausted = false;
   };
 
   struct ObjectState {
     std::uint64_t source_object_id = 0U;
     Matrix4x4 render_from_object;
+    std::uint64_t mesh_source_asset_id = 0U;
+    std::uint64_t material_source_asset_id = 0U;
+    std::shared_ptr<const GraphicsSceneDynamicMeshState> deformation;
+    bool dynamic = false;
     bool live = false;
   };
 
@@ -438,12 +492,12 @@ public:
     bool live = false;
   };
 
-  struct ValidatedStaticAssetPair {
+  struct ValidatedMeshAssetPair {
     RenderAssetReference mesh;
     RenderAssetReference material;
 
-    friend bool operator==(const ValidatedStaticAssetPair &lhs,
-                           const ValidatedStaticAssetPair &rhs) noexcept {
+    friend bool operator==(const ValidatedMeshAssetPair &lhs,
+                           const ValidatedMeshAssetPair &rhs) noexcept {
       return lhs.mesh == rhs.mesh && lhs.material == rhs.material;
     }
   };
@@ -483,6 +537,9 @@ public:
                   "first asset ordinal must be nonzero");
     } else if (configuration.maximum_asset_records == 0U ||
                configuration.maximum_static_mesh_objects == 0U ||
+               configuration.maximum_dynamic_mesh_objects == 0U ||
+               configuration.maximum_dynamic_vertex_count == 0U ||
+               configuration.maximum_dynamic_payload_bytes == 0U ||
                configuration.maximum_light_records == 0U ||
                configuration.maximum_reflection_probe_records == 0U ||
                configuration.maximum_asset_payload_bytes == 0U) {
@@ -560,7 +617,8 @@ public:
   }
 
   [[nodiscard]] GraphicsSceneSnapshotProduceResult
-  Produce(const GraphicsSceneFrameInput &frame) {
+  Produce(const GraphicsSceneFrameInput &frame,
+          bool finalize_scene_generation = false) {
     GraphicsSceneSnapshotProduceResult result;
     if (!configuration_validation) {
       result.validation = configuration_validation;
@@ -589,7 +647,7 @@ public:
                   "absolute render origin must be finite");
       return result;
     }
-    if (initialized &&
+    if (time_lineage_initialized &&
         (frame.simulation_tick < last_simulation_tick ||
          frame.simulation_time_seconds < last_simulation_time_seconds)) {
       result.validation = Failure(
@@ -614,6 +672,13 @@ public:
       result.validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "static_meshes",
           "live static object count exceeds the configured bound");
+      return result;
+    }
+    if (frame.dynamic_meshes.size() >
+        configuration.maximum_dynamic_mesh_objects) {
+      result.validation = Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "dynamic_meshes",
+          "live dynamic object count exceeds the configured bound");
       return result;
     }
     if (frame.lights.size() > configuration.maximum_light_records) {
@@ -750,6 +815,124 @@ public:
       }
     }
 
+    std::vector<IndexedDynamicMeshInput> sorted_dynamic_objects;
+    sorted_dynamic_objects.reserve(frame.dynamic_meshes.size());
+    std::uint64_t dynamic_vertex_count = 0U;
+    std::uint64_t dynamic_payload_bytes = 0U;
+    for (std::size_t index = 0U; index < frame.dynamic_meshes.size(); ++index) {
+      const GraphicsSceneDynamicMeshInput &object =
+          frame.dynamic_meshes[index];
+      if (object.source_object_id == 0U) {
+        result.validation = Failure(
+            ValidationCode::INVALID_IDENTIFIER,
+            "dynamic_meshes.source_object_id",
+            "source object identity must be nonzero", index);
+        return result;
+      }
+      if (object.mesh_source_asset_id == 0U ||
+          object.material_source_asset_id == 0U) {
+        result.validation = Failure(
+            ValidationCode::MISSING_REFERENCE, "dynamic_meshes.assets",
+            "dynamic object requires mesh and material source identities",
+            index);
+        return result;
+      }
+      if (object.state == nullptr) {
+        result.validation = Failure(
+            ValidationCode::EMPTY_PAYLOAD, "dynamic_meshes.state",
+            "dynamic object requires one immutable joined CPU state", index);
+        return result;
+      }
+      if (object.state->positions.size() >
+              (std::numeric_limits<std::uint64_t>::max)() -
+                  dynamic_vertex_count) {
+        result.validation = Failure(
+            ValidationCode::SIZE_MISMATCH,
+            "dynamic_meshes.state.vertex_count",
+            "aggregate dynamic vertex count overflowed", index);
+        return result;
+      }
+      dynamic_vertex_count +=
+          static_cast<std::uint64_t>(object.state->positions.size());
+      if (dynamic_vertex_count > configuration.maximum_dynamic_vertex_count ||
+          !AddElementBytes(object.state->positions.size(), sizeof(Float3),
+                           dynamic_payload_bytes) ||
+          !AddElementBytes(object.state->normals.size(), sizeof(Float3),
+                           dynamic_payload_bytes) ||
+          !AddElementBytes(object.state->tangents.size(), sizeof(Float4),
+                           dynamic_payload_bytes) ||
+          !AddElementBytes(object.state->velocities.size(), sizeof(Float3),
+                           dynamic_payload_bytes) ||
+          dynamic_payload_bytes >
+              configuration.maximum_dynamic_payload_bytes) {
+        result.validation = Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE,
+            dynamic_vertex_count > configuration.maximum_dynamic_vertex_count
+                ? "dynamic_meshes.state.vertex_count"
+                : "dynamic_meshes.state.payload_bytes",
+            "aggregate dynamic staging exceeds the configured frame bound",
+            index);
+        return result;
+      }
+      sorted_dynamic_objects.push_back(
+          IndexedDynamicMeshInput{&object, index});
+    }
+    std::sort(sorted_dynamic_objects.begin(), sorted_dynamic_objects.end(),
+              [](const IndexedDynamicMeshInput &lhs,
+                 const IndexedDynamicMeshInput &rhs) {
+                if (lhs.input->source_object_id !=
+                    rhs.input->source_object_id) {
+                  return lhs.input->source_object_id <
+                         rhs.input->source_object_id;
+                }
+                return lhs.original_index < rhs.original_index;
+              });
+    for (std::size_t index = 1U; index < sorted_dynamic_objects.size();
+         ++index) {
+      if (sorted_dynamic_objects[index - 1U].input->source_object_id ==
+          sorted_dynamic_objects[index].input->source_object_id) {
+        result.validation = Failure(
+            ValidationCode::DUPLICATE_IDENTIFIER,
+            "dynamic_meshes.source_object_id",
+            "source object identity is duplicated",
+            sorted_dynamic_objects[index].original_index);
+        return result;
+      }
+    }
+
+    std::vector<IndexedMeshObjectInput> sorted_mesh_objects;
+    sorted_mesh_objects.reserve(sorted_objects.size() +
+                                sorted_dynamic_objects.size());
+    for (const IndexedStaticMeshInput &object : sorted_objects) {
+      sorted_mesh_objects.push_back(IndexedMeshObjectInput{
+          object.input->source_object_id, object.input, nullptr,
+          object.original_index});
+    }
+    for (const IndexedDynamicMeshInput &object : sorted_dynamic_objects) {
+      sorted_mesh_objects.push_back(IndexedMeshObjectInput{
+          object.input->source_object_id, nullptr, object.input,
+          object.original_index});
+    }
+    std::sort(sorted_mesh_objects.begin(), sorted_mesh_objects.end(),
+              [](const IndexedMeshObjectInput &lhs,
+                 const IndexedMeshObjectInput &rhs) {
+                if (lhs.source_object_id != rhs.source_object_id) {
+                  return lhs.source_object_id < rhs.source_object_id;
+                }
+                return lhs.dynamic() < rhs.dynamic();
+              });
+    for (std::size_t index = 1U; index < sorted_mesh_objects.size(); ++index) {
+      if (sorted_mesh_objects[index - 1U].source_object_id ==
+          sorted_mesh_objects[index].source_object_id) {
+        result.validation = Failure(
+            ValidationCode::DUPLICATE_IDENTIFIER,
+            "mesh_objects.source_object_id",
+            "static and dynamic objects share one source identity",
+            sorted_mesh_objects[index].original_index);
+        return result;
+      }
+    }
+
     std::vector<IndexedLightInput> sorted_lights;
     sorted_lights.reserve(frame.lights.size());
     for (std::size_t index = 0U; index < frame.lights.size(); ++index) {
@@ -857,7 +1040,7 @@ public:
           }
           continue;
         }
-        if (candidate.assets.size() >=
+        if (candidate.lifetime_asset_records >=
             configuration.maximum_asset_records) {
           result.validation = Failure(
               ValidationCode::VALUE_OUT_OF_RANGE, "assets",
@@ -883,6 +1066,7 @@ public:
         state.material_bindings = input.material_bindings;
         state.live = true;
         candidate.assets.emplace(input.source_asset_id, std::move(state));
+        ++candidate.lifetime_asset_records;
         if (candidate.next_asset_ordinal ==
             (std::numeric_limits<std::uint64_t>::max)()) {
           candidate.asset_ordinal_exhausted = true;
@@ -1422,49 +1606,112 @@ public:
       ++prior_probe_index;
     }
 
-    descriptor.mesh_instances.reserve(sorted_objects.size());
-    std::vector<ValidatedStaticAssetPair> candidate_static_asset_pairs;
-    candidate_static_asset_pairs.reserve(sorted_objects.size());
+    descriptor.mesh_instances.reserve(sorted_mesh_objects.size());
+    descriptor.dynamic_mesh_updates.reserve(sorted_dynamic_objects.size());
+    std::vector<ValidatedMeshAssetPair> candidate_mesh_asset_pairs;
+    candidate_mesh_asset_pairs.reserve(sorted_mesh_objects.size());
 
     std::size_t object_scan = 0U;
-    std::size_t new_object_count = 0U;
-    for (const IndexedStaticMeshInput &indexed_input : sorted_objects) {
-      const GraphicsSceneStaticMeshInput &input = *indexed_input.input;
+    std::size_t new_static_object_count = 0U;
+    std::size_t new_dynamic_object_count = 0U;
+    for (const IndexedMeshObjectInput &indexed_input : sorted_mesh_objects) {
       while (object_scan < objects.size() &&
              objects[object_scan].source_object_id <
-                 input.source_object_id) {
+                 indexed_input.source_object_id) {
         ++object_scan;
       }
       if (object_scan < objects.size() &&
-          objects[object_scan].source_object_id == input.source_object_id) {
+          objects[object_scan].source_object_id ==
+              indexed_input.source_object_id) {
         ++object_scan;
+      } else if (indexed_input.dynamic()) {
+        ++new_dynamic_object_count;
       } else {
-        ++new_object_count;
+        ++new_static_object_count;
       }
     }
-    if (new_object_count >
-        (std::numeric_limits<std::size_t>::max)() - objects.size()) {
+    const std::size_t prior_static_object_count =
+        static_cast<std::size_t>(std::count_if(
+            objects.begin(), objects.end(),
+            [](const ObjectState &object) { return !object.dynamic; }));
+    const std::size_t prior_dynamic_object_count =
+        objects.size() - prior_static_object_count;
+    if (new_static_object_count >
+            (std::numeric_limits<std::size_t>::max)() -
+                prior_static_object_count ||
+        new_dynamic_object_count >
+            (std::numeric_limits<std::size_t>::max)() -
+                prior_dynamic_object_count) {
       result.validation = Failure(
-          ValidationCode::SIZE_MISMATCH, "static_meshes",
+          ValidationCode::SIZE_MISMATCH, "mesh_objects",
           "staged object-history capacity would overflow");
       return result;
     }
-    if (objects.size() > configuration.maximum_static_mesh_objects ||
-        new_object_count >
-            configuration.maximum_static_mesh_objects - objects.size()) {
+    if (prior_static_object_count >
+            configuration.maximum_static_mesh_objects ||
+        new_static_object_count >
+            configuration.maximum_static_mesh_objects -
+                prior_static_object_count) {
       result.validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "static_meshes",
-          "lifetime object record count exceeds the configured bound");
+          "lifetime static object record count exceeds the configured bound");
       return result;
     }
+    if (prior_dynamic_object_count >
+            configuration.maximum_dynamic_mesh_objects ||
+        new_dynamic_object_count >
+            configuration.maximum_dynamic_mesh_objects -
+                prior_dynamic_object_count) {
+      result.validation = Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "dynamic_meshes",
+          "lifetime dynamic object record count exceeds the configured bound");
+      return result;
+    }
+    if (new_static_object_count >
+            (std::numeric_limits<std::size_t>::max)() -
+                new_dynamic_object_count ||
+        new_static_object_count + new_dynamic_object_count >
+            (std::numeric_limits<std::size_t>::max)() - objects.size()) {
+      result.validation = Failure(
+          ValidationCode::SIZE_MISMATCH, "mesh_objects",
+          "combined object-history capacity would overflow");
+      return result;
+    }
+
     std::vector<ObjectState> candidate_objects;
-    candidate_objects.reserve(objects.size() + new_object_count);
+    candidate_objects.reserve(objects.size() + new_static_object_count +
+                              new_dynamic_object_count);
+    std::uint64_t candidate_next_dynamic_update_sequence =
+        next_dynamic_update_sequence;
+    bool candidate_dynamic_update_sequence_exhausted =
+        dynamic_update_sequence_exhausted;
     std::size_t prior_index = 0U;
-    for (const IndexedStaticMeshInput &indexed_input : sorted_objects) {
-      const GraphicsSceneStaticMeshInput &input = *indexed_input.input;
+    for (const IndexedMeshObjectInput &indexed_input : sorted_mesh_objects) {
+      const bool dynamic = indexed_input.dynamic();
+      const GraphicsSceneStaticMeshInput *const static_input =
+          indexed_input.static_input;
+      const GraphicsSceneDynamicMeshInput *const dynamic_input =
+          indexed_input.dynamic_input;
+      const std::uint64_t source_object_id =
+          indexed_input.source_object_id;
+      const std::uint64_t mesh_source_asset_id =
+          dynamic ? dynamic_input->mesh_source_asset_id
+                  : static_input->mesh_source_asset_id;
+      const std::uint64_t material_source_asset_id =
+          dynamic ? dynamic_input->material_source_asset_id
+                  : static_input->material_source_asset_id;
+      const Matrix4x4 &render_from_object =
+          dynamic ? dynamic_input->render_from_object
+                  : static_input->render_from_object;
+      const std::uint32_t visibility_mask =
+          dynamic ? dynamic_input->visibility_mask
+                  : static_input->visibility_mask;
+      const std::uint32_t flags =
+          dynamic ? dynamic_input->flags : static_input->flags;
       const std::size_t input_index = indexed_input.original_index;
+
       while (prior_index < objects.size() &&
-             objects[prior_index].source_object_id < input.source_object_id) {
+             objects[prior_index].source_object_id < source_object_id) {
         ObjectState removed = objects[prior_index];
         removed.live = false;
         candidate_objects.push_back(std::move(removed));
@@ -1472,15 +1719,34 @@ public:
       }
       const ObjectState *prior_object =
           prior_index < objects.size() &&
-                  objects[prior_index].source_object_id ==
-                      input.source_object_id
+                  objects[prior_index].source_object_id == source_object_id
               ? &objects[prior_index]
               : nullptr;
       if (prior_object != nullptr && !prior_object->live) {
         result.validation = Failure(
             ValidationCode::REVISION_MISMATCH,
-            "static_meshes.source_object_id",
+            dynamic ? "dynamic_meshes.source_object_id"
+                    : "static_meshes.source_object_id",
             "a destroyed source object identity may never be reused",
+            input_index);
+        return result;
+      }
+      if (prior_object != nullptr && prior_object->dynamic != dynamic) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "mesh_objects.source_object_id",
+            "a source object identity may never change static/dynamic kind",
+            input_index);
+        return result;
+      }
+      if (prior_object != nullptr && dynamic &&
+          (prior_object->mesh_source_asset_id != mesh_source_asset_id ||
+           prior_object->material_source_asset_id !=
+               material_source_asset_id)) {
+        result.validation = Failure(
+            ValidationCode::REVISION_MISMATCH,
+            dynamic ? "dynamic_meshes.assets" : "static_meshes.assets",
+            "a live source object may not change its mesh/material identity",
             input_index);
         return result;
       }
@@ -1489,24 +1755,26 @@ public:
       }
 
       const auto mesh_asset =
-          candidate_catalog.assets.find(input.mesh_source_asset_id);
+          candidate_catalog.assets.find(mesh_source_asset_id);
       const auto material_asset =
-          candidate_catalog.assets.find(input.material_source_asset_id);
+          candidate_catalog.assets.find(material_source_asset_id);
       if (mesh_asset == candidate_catalog.assets.end() ||
           !mesh_asset->second.live ||
           material_asset == candidate_catalog.assets.end() ||
           !material_asset->second.live) {
         result.validation = Failure(
-            ValidationCode::MISSING_REFERENCE, "static_meshes.assets",
-            "static object references an absent or destroyed source asset",
+            ValidationCode::MISSING_REFERENCE,
+            dynamic ? "dynamic_meshes.assets" : "static_meshes.assets",
+            "mesh object references an absent or destroyed source asset",
             input_index);
         return result;
       }
       if (mesh_asset->second.asset.kind != RenderAssetKind::MESH ||
           material_asset->second.asset.kind != RenderAssetKind::MATERIAL) {
         result.validation = Failure(
-            ValidationCode::WRONG_ASSET_KIND, "static_meshes.assets",
-            "static object source asset has the wrong kind", input_index);
+            ValidationCode::WRONG_ASSET_KIND,
+            dynamic ? "dynamic_meshes.assets" : "static_meshes.assets",
+            "mesh object source asset has the wrong kind", input_index);
         return result;
       }
       const auto *mesh =
@@ -1514,23 +1782,129 @@ public:
               ? std::get_if<MeshResourceDescriptor>(
                     mesh_asset->second.payload.get())
               : nullptr;
-      if (mesh == nullptr) {
+      if (mesh == nullptr || mesh->dynamic != dynamic) {
         result.validation = Failure(
-            ValidationCode::WRONG_ASSET_KIND, "static_meshes.mesh",
-            "resolved static mesh payload has the wrong kind", input_index);
+            mesh == nullptr ? ValidationCode::WRONG_ASSET_KIND
+                            : ValidationCode::REVISION_MISMATCH,
+            dynamic ? "dynamic_meshes.mesh" : "static_meshes.mesh",
+            dynamic
+                ? "resolved dynamic object requires a dynamic mesh allocation"
+                : "resolved static object requires a static mesh allocation",
+            input_index);
         return result;
       }
 
       MeshInstanceDescriptor instance;
-      instance.instance_id = input.source_object_id;
+      instance.instance_id = source_object_id;
       instance.mesh = mesh_asset->second.asset;
       instance.material = material_asset->second.asset;
       instance.topology_revision = mesh->topology_revision;
-      instance.deformation_revision = 1U;
-      instance.render_from_object = input.render_from_object;
-      instance.local_bounds = mesh->local_bounds;
-      instance.visibility_mask = input.visibility_mask;
-      instance.flags = input.flags;
+      instance.render_from_object = render_from_object;
+      instance.visibility_mask = visibility_mask;
+      instance.flags = flags;
+      std::shared_ptr<const GraphicsSceneDynamicMeshState>
+          committed_deformation;
+      if (dynamic) {
+        const GraphicsSceneDynamicMeshState &state = *dynamic_input->state;
+        if (state.topology_revision != mesh->topology_revision) {
+          result.validation = Failure(
+              ValidationCode::REVISION_MISMATCH,
+              "dynamic_meshes.state.topology_revision",
+              "joined deformation topology differs from its base mesh",
+              input_index);
+          return result;
+        }
+        if (state.deformation_revision <= 1U) {
+          result.validation = Failure(
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "dynamic_meshes.state.deformation_revision",
+              "live joined deformation revisions begin at two", input_index);
+          return result;
+        }
+        if (!HasExactTightBounds(state)) {
+          result.validation = Failure(
+              ValidationCode::INVALID_BOUNDS,
+              "dynamic_meshes.state.updated_local_bounds",
+              "joined deformation bounds must be the exact tight position "
+              "bounds",
+              input_index);
+          return result;
+        }
+        if (prior_object == nullptr) {
+          if (state.deformation_revision != 2U) {
+            result.validation = Failure(
+                ValidationCode::REVISION_MISMATCH,
+                "dynamic_meshes.state.deformation_revision",
+                "a new deformable object must begin at revision two",
+                input_index);
+            return result;
+          }
+          committed_deformation = dynamic_input->state;
+        } else {
+          if (prior_object->deformation == nullptr) {
+            result.validation = Failure(
+                ValidationCode::MISSING_REFERENCE,
+                "dynamic_meshes.state",
+                "stored deformable object has no prior immutable state",
+                input_index);
+            return result;
+          }
+          const bool equivalent =
+              prior_object->deformation == dynamic_input->state ||
+              EquivalentDynamicMeshStateContents(
+                  *prior_object->deformation, state);
+          const std::uint64_t prior_revision =
+              prior_object->deformation->deformation_revision;
+          if ((equivalent && state.deformation_revision != prior_revision) ||
+              (!equivalent &&
+               (prior_revision ==
+                    (std::numeric_limits<std::uint64_t>::max)() ||
+                state.deformation_revision != prior_revision + 1U))) {
+            result.validation = Failure(
+                ValidationCode::REVISION_MISMATCH,
+                "dynamic_meshes.state.deformation_revision",
+                equivalent
+                    ? "unchanged deformable contents changed revision"
+                    : "changed deformable contents require the next revision",
+                input_index);
+            return result;
+          }
+          committed_deformation =
+              equivalent ? prior_object->deformation : dynamic_input->state;
+        }
+        if (candidate_dynamic_update_sequence_exhausted) {
+          result.validation = Failure(
+              ValidationCode::SEQUENCE_MISMATCH,
+              "dynamic_mesh_updates.update_sequence",
+              "dynamic update sequence is exhausted", input_index);
+          return result;
+        }
+        DynamicMeshUpdateDescriptor update;
+        update.update_sequence = candidate_next_dynamic_update_sequence;
+        update.instance_id = source_object_id;
+        update.mesh = instance.mesh;
+        update.topology_revision = state.topology_revision;
+        update.deformation_revision = state.deformation_revision;
+        update.positions = state.positions;
+        update.normals = state.normals;
+        update.tangents = state.tangents;
+        update.velocities = state.velocities;
+        update.has_updated_bounds = true;
+        update.updated_local_bounds = state.updated_local_bounds;
+        descriptor.dynamic_mesh_updates.push_back(std::move(update));
+        instance.deformation_revision = state.deformation_revision;
+        instance.local_bounds = state.updated_local_bounds;
+        if (candidate_next_dynamic_update_sequence ==
+            (std::numeric_limits<std::uint64_t>::max)()) {
+          candidate_dynamic_update_sequence_exhausted = true;
+        } else {
+          ++candidate_next_dynamic_update_sequence;
+        }
+      } else {
+        instance.deformation_revision = 1U;
+        instance.local_bounds = mesh->local_bounds;
+      }
+
       if (prior_object != nullptr) {
         if (!RebasePreviousObjectTransform(
                 prior_object->render_from_object,
@@ -1539,19 +1913,27 @@ public:
                 instance.previous_render_from_object)) {
           result.validation = Failure(
               ValidationCode::VALUE_OUT_OF_RANGE,
-              "static_meshes.previous_transform",
+              dynamic ? "dynamic_meshes.previous_transform"
+                      : "static_meshes.previous_transform",
               "previous transform could not be rebased into this origin",
               input_index);
           return result;
         }
       } else {
-        instance.previous_render_from_object = input.render_from_object;
+        instance.previous_render_from_object = render_from_object;
       }
       descriptor.mesh_instances.push_back(instance);
-      candidate_static_asset_pairs.push_back(
-          ValidatedStaticAssetPair{instance.mesh, instance.material});
-      candidate_objects.push_back(
-          ObjectState{input.source_object_id, input.render_from_object, true});
+      candidate_mesh_asset_pairs.push_back(
+          ValidatedMeshAssetPair{instance.mesh, instance.material});
+      ObjectState candidate_object;
+      candidate_object.source_object_id = source_object_id;
+      candidate_object.render_from_object = render_from_object;
+      candidate_object.mesh_source_asset_id = mesh_source_asset_id;
+      candidate_object.material_source_asset_id = material_source_asset_id;
+      candidate_object.deformation = std::move(committed_deformation);
+      candidate_object.dynamic = dynamic;
+      candidate_object.live = true;
+      candidate_objects.push_back(std::move(candidate_object));
     }
     while (prior_index < objects.size()) {
       ObjectState removed = objects[prior_index];
@@ -1559,10 +1941,10 @@ public:
       candidate_objects.push_back(std::move(removed));
       ++prior_index;
     }
-    std::sort(candidate_static_asset_pairs.begin(),
-              candidate_static_asset_pairs.end(),
-              [](const ValidatedStaticAssetPair &lhs,
-                 const ValidatedStaticAssetPair &rhs) {
+    std::sort(candidate_mesh_asset_pairs.begin(),
+              candidate_mesh_asset_pairs.end(),
+              [](const ValidatedMeshAssetPair &lhs,
+                 const ValidatedMeshAssetPair &rhs) {
                 if (lhs.mesh.id != rhs.mesh.id) {
                   return lhs.mesh.id < rhs.mesh.id;
                 }
@@ -1582,21 +1964,23 @@ public:
                 }
                 return lhs.material.revision < rhs.material.revision;
               });
-    candidate_static_asset_pairs.erase(
-        std::unique(candidate_static_asset_pairs.begin(),
-                    candidate_static_asset_pairs.end()),
-        candidate_static_asset_pairs.end());
+    candidate_mesh_asset_pairs.erase(
+        std::unique(candidate_mesh_asset_pairs.begin(),
+                    candidate_mesh_asset_pairs.end()),
+        candidate_mesh_asset_pairs.end());
 
     const SceneSnapshotCreateResult created =
         CreateSceneSnapshot(std::move(descriptor));
     if (!created) {
       result.validation = RemapSceneElementIndex(
-          created.validation, sorted_objects, sorted_lights, sorted_probes);
+          created.validation, sorted_mesh_objects, sorted_dynamic_objects,
+          sorted_lights, sorted_probes);
       return result;
     }
     const bool requires_full_asset_compatibility_validation =
         !asset_compatibility_cache_initialized ||
-        candidate_static_asset_pairs != validated_static_asset_pairs ||
+        candidate_mesh_asset_pairs != validated_mesh_asset_pairs ||
+        !sorted_dynamic_objects.empty() ||
         !(candidate_environment_assets == validated_environment_assets);
     if (requires_full_asset_compatibility_validation) {
       result.production.diagnostics
@@ -1606,8 +1990,8 @@ public:
                                       candidate_catalog.registry);
       if (!validation) {
         result.validation = RemapSceneElementIndex(
-            std::move(validation), sorted_objects, sorted_lights,
-            sorted_probes);
+            std::move(validation), sorted_mesh_objects,
+            sorted_dynamic_objects, sorted_lights, sorted_probes);
         return result;
       }
     }
@@ -1665,21 +2049,53 @@ public:
       return result;
     }
 
+    if (finalize_scene_generation) {
+      // Even an already-empty source generation may still alias the producer's
+      // original const catalog owner. Allocate a fresh candidate before any
+      // state commits; never cast away constness after publication.
+      if (staged_asset_catalog == nullptr) {
+        staged_asset_catalog =
+            std::make_shared<AssetCatalog>(*candidate_asset_catalog);
+        candidate_asset_catalog = staged_asset_catalog;
+      }
+      staged_asset_catalog->assets.clear();
+      candidate_objects.clear();
+      candidate_lights.clear();
+      candidate_reflection_probes.clear();
+      candidate_mesh_asset_pairs.clear();
+    }
+
     asset_catalog = std::move(candidate_asset_catalog);
     objects = std::move(candidate_objects);
     lights = std::move(candidate_lights);
     reflection_probes = std::move(candidate_reflection_probes);
-    validated_static_asset_pairs = std::move(candidate_static_asset_pairs);
-    validated_environment_assets = candidate_environment_assets;
-    asset_compatibility_cache_initialized = true;
-    camera_state.camera = frame.camera;
-    camera_state.absolute_world_origin_meters =
-        frame.absolute_world_origin_meters;
-    camera_state.initialized = true;
-    last_simulation_tick = frame.simulation_tick;
-    last_simulation_time_seconds = frame.simulation_time_seconds;
-    last_absolute_world_origin_meters = frame.absolute_world_origin_meters;
+    validated_mesh_asset_pairs = std::move(candidate_mesh_asset_pairs);
+    next_dynamic_update_sequence =
+        candidate_next_dynamic_update_sequence;
+    dynamic_update_sequence_exhausted =
+        candidate_dynamic_update_sequence_exhausted;
+    validated_environment_assets = finalize_scene_generation
+                                       ? ValidatedEnvironmentAssets{}
+                                       : candidate_environment_assets;
+    asset_compatibility_cache_initialized = !finalize_scene_generation;
+    if (finalize_scene_generation) {
+      camera_state = {};
+      last_simulation_tick = 0U;
+      last_simulation_time_seconds = 0.0;
+      last_absolute_world_origin_meters = {};
+      time_lineage_initialized = false;
+    } else {
+      camera_state.camera = frame.camera;
+      camera_state.absolute_world_origin_meters =
+          frame.absolute_world_origin_meters;
+      camera_state.initialized = true;
+      last_simulation_tick = frame.simulation_tick;
+      last_simulation_time_seconds = frame.simulation_time_seconds;
+      last_absolute_world_origin_meters = frame.absolute_world_origin_meters;
+      time_lineage_initialized = true;
+    }
     initialized = true;
+    scene_generation_open = !finalize_scene_generation;
     if (next_snapshot_id ==
         (std::numeric_limits<std::uint64_t>::max)()) {
       snapshot_id_exhausted = true;
@@ -1696,13 +2112,31 @@ public:
     return result;
   }
 
+  [[nodiscard]] GraphicsSceneSnapshotProduceResult FinalizeSceneGeneration() {
+    if (!initialized || !scene_generation_open || !camera_state.initialized ||
+        published_snapshot == nullptr) {
+      GraphicsSceneSnapshotProduceResult result;
+      result.validation = Failure(
+          ValidationCode::MISSING_REFERENCE, "scene_generation",
+          "a scene generation cannot be finalized before first publication");
+      return result;
+    }
+
+    GraphicsSceneFrameInput empty;
+    empty.simulation_tick = last_simulation_tick;
+    empty.simulation_time_seconds = last_simulation_time_seconds;
+    empty.absolute_world_origin_meters = last_absolute_world_origin_meters;
+    empty.camera = camera_state.camera;
+    return Produce(empty, true);
+  }
+
   GraphicsSceneSnapshotProducerConfiguration configuration;
   ValidationResult configuration_validation;
   std::shared_ptr<const AssetCatalog> asset_catalog;
   std::vector<ObjectState> objects;
   std::vector<LightState> lights;
   std::vector<ReflectionProbeState> reflection_probes;
-  std::vector<ValidatedStaticAssetPair> validated_static_asset_pairs;
+  std::vector<ValidatedMeshAssetPair> validated_mesh_asset_pairs;
   ValidatedEnvironmentAssets validated_environment_assets;
   CameraState camera_state;
   std::uint64_t next_snapshot_id = 1U;
@@ -1710,7 +2144,11 @@ public:
   double last_simulation_time_seconds = 0.0;
   Double3 last_absolute_world_origin_meters{};
   bool initialized = false;
+  bool time_lineage_initialized = false;
+  bool scene_generation_open = false;
   bool snapshot_id_exhausted = false;
+  std::uint64_t next_dynamic_update_sequence = 1U;
+  bool dynamic_update_sequence_exhausted = false;
   bool asset_compatibility_cache_initialized = false;
   std::shared_ptr<const SceneSnapshot> published_snapshot;
 };
@@ -1736,7 +2174,23 @@ GraphicsSceneSnapshotProducer::ProduceJoinedFrame(
     result.validation = capture;
     return result;
   }
-  return Produce(frame);
+  try {
+    GraphicsSceneSnapshotProduceResult result = Produce(frame);
+    if (result) {
+      source.CommitJoinedGraphicsFrame();
+    } else {
+      source.DiscardJoinedGraphicsFrame();
+    }
+    return result;
+  } catch (...) {
+    source.DiscardJoinedGraphicsFrame();
+    throw;
+  }
+}
+
+GraphicsSceneSnapshotProduceResult
+GraphicsSceneSnapshotProducer::FinalizeSceneGeneration() {
+  return impl_->FinalizeSceneGeneration();
 }
 
 GraphicsSceneAssetRecoveryResult
@@ -1768,6 +2222,11 @@ std::uint64_t GraphicsSceneSnapshotProducer::registry_id() const noexcept {
 
 std::uint64_t GraphicsSceneSnapshotProducer::asset_sequence() const noexcept {
   return impl_->asset_catalog->registry.sequence();
+}
+
+bool GraphicsSceneSnapshotProducer::has_open_scene_generation() const
+    noexcept {
+  return impl_->scene_generation_open;
 }
 
 std::shared_ptr<const SceneSnapshot>

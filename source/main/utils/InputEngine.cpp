@@ -21,6 +21,8 @@
 
 #include "InputEngine.h"
 
+#include "RendererOgre14InputAdapter.h"
+
 #include "Actor.h"
 #include "AppContext.h"
 #include "Console.h"
@@ -29,7 +31,13 @@
 #include "Language.h"
 #include "PlatformUtils.h"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
 #include <regex>
+#include <stdexcept>
+#include <utility>
 
 using namespace RoR;
 
@@ -426,22 +434,38 @@ static float NormalizeJoystickAxis(int value)
         static_cast<float>(value) / 32767.0f;
 }
 
-InputEngine::InputEngine() :
+InputEngine::InputEngine(bool enable_physical_input) :
      free_joysticks(0)
     , mForceFeedback(0)
     , mInputManager(0)
     , mKeyboard(0)
     , mMouse(0)
     , uniqueCounter(0)
+    , m_physical_input_enabled(enable_physical_input)
 {
     for (int i = 0; i < MAX_JOYSTICKS; i++)
         mJoy[i] = 0;
 
-    LOG("*** Loading OIS ***");
-
     initAllKeys();
-    setup();
-    windowResized(App::GetAppContext()->GetRenderWindow());
+    if (m_physical_input_enabled)
+    {
+        LOG("*** Loading OIS ***");
+        setup();
+        windowResized(App::GetAppContext()->GetRenderWindow());
+    }
+    else
+    {
+        LOG("*** Renderer bridge input: physical OIS/SDL devices disabled ***");
+        if (!this->EnableRendererTransportInput())
+        {
+            throw std::runtime_error(
+                "could not initialize renderer transport input state");
+        }
+        // Keep the same binding semantics without opening a keyboard, mouse,
+        // joystick, HID, or force-feedback device in the legacy process.
+        this->loadConfigFile(-1);
+        completeMissingEvents();
+    }
 }
 
 InputEngine::~InputEngine()
@@ -451,6 +475,13 @@ InputEngine::~InputEngine()
 
 void InputEngine::destroy()
 {
+    m_renderer_transport_input_active = false;
+    m_renderer_transport_slot_limit = 0;
+    for (RendererTransportJoystickMetadata& metadata :
+         m_renderer_transport_joysticks)
+    {
+        metadata = RendererTransportJoystickMetadata();
+    }
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     m_sdl_controller_backend.Shutdown();
     m_use_sdl_controller_backend = false;
@@ -759,6 +790,24 @@ String InputEngine::getKeyNameForKeyCode(OIS::KeyCode keycode)
 
 void InputEngine::Capture()
 {
+    if (m_renderer_transport_input_active)
+    {
+        // The presentation child owns physical devices. Clear only prior
+        // per-frame deltas; the reverse reconciliation applied immediately
+        // after Capture() restores this frame's authoritative state.
+        mouseState.X.rel = 0;
+        mouseState.Y.rel = 0;
+        mouseState.Z.rel = 0;
+        for (int slot = 0; slot < m_renderer_transport_slot_limit; ++slot)
+        {
+            if (!m_renderer_transport_joysticks[slot].connected)
+                continue;
+            for (Axis& axis : joyState[slot].mAxes)
+                axis.rel = 0;
+        }
+        m_oisworkaround_frames_since_reset++;
+        return;
+    }
 #if !(OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE)
     mKeyboard->capture();
 #endif
@@ -781,21 +830,24 @@ void InputEngine::windowResized(Ogre::RenderWindow* rw)
     (void)rw;
     const RenderDisplayMetrics& metrics =
         App::GetAppContext()->GetRenderDisplayMetrics();
-    const OIS::MouseState& ms = mMouse->getMouseState();
+    const OIS::MouseState& ms =
+        m_renderer_transport_input_active || mMouse == nullptr
+            ? mouseState
+            : mMouse->getMouseState();
     ms.width = static_cast<int>(metrics.logical_width);
     ms.height = static_cast<int>(metrics.logical_height);
 }
 
 void InputEngine::SetKeyboardListener(OIS::KeyListener* keyboard_listener)
 {
-    ROR_ASSERT(mKeyboard != nullptr);
-    mKeyboard->setEventCallback(keyboard_listener);
+    if (mKeyboard != nullptr)
+        mKeyboard->setEventCallback(keyboard_listener);
 }
 
 void InputEngine::SetMouseListener(OIS::MouseListener* mouse_listener)
 {
-    ROR_ASSERT(mMouse != nullptr);
-    mMouse->setEventCallback(mouse_listener);
+    if (mMouse != nullptr)
+        mMouse->setEventCallback(mouse_listener);
 }
 
 void InputEngine::SetJoystickListener(OIS::JoyStickListener* obj)
@@ -818,20 +870,224 @@ void InputEngine::SetJoystickListener(OIS::JoyStickListener* obj)
 /* --- Joystick Events ------------------------------------------ */
 void InputEngine::ProcessJoystickEvent(const OIS::JoyStickEvent& arg)
 {
+    if (m_renderer_transport_input_active)
+        return;
     int i = arg.device->getID();
     if (i < 0 || i >= MAX_JOYSTICKS)
         i = 0;
     joyState[i] = arg.state;
 }
 
+bool InputEngine::EnableRendererTransportInput() noexcept
+{
+    if (m_renderer_transport_input_active)
+        return true;
+    try
+    {
+        for (int slot = 0; slot < MAX_JOYSTICKS; ++slot)
+        {
+            joyState[slot].mAxes.reserve(MAX_JOYSTICK_AXIS);
+            joyState[slot].mButtons.reserve(
+                Render::kInputEventTransportMaximumRawButtons);
+            m_renderer_transport_joysticks[slot] =
+                RendererTransportJoystickMetadata();
+        }
+        m_renderer_transport_slot_limit = 0;
+        m_renderer_transport_input_active = true;
+        this->resetKeysAndMouseButtons();
+        mouseState.X.rel = 0;
+        mouseState.Y.rel = 0;
+        mouseState.Z.rel = 0;
+        return true;
+    }
+    catch (...)
+    {
+        m_renderer_transport_input_active = false;
+        m_renderer_transport_slot_limit = 0;
+        return false;
+    }
+}
+
+bool InputEngine::ApplyRendererTransportInput(
+    const RendererOgre14LegacyInputState& state) noexcept
+{
+    if (!m_renderer_transport_input_active ||
+        state.joysticks.size() > MAX_JOYSTICKS)
+        return false;
+
+    try
+    {
+        std::map<int, bool> next_key_state = keyState;
+        for (auto& key : next_key_state)
+            key.second = false;
+        for (const RendererOgre14LegacyKey legacy_key : state.pressed_keys)
+        {
+            const OIS::KeyCode key = static_cast<OIS::KeyCode>(legacy_key);
+            const std::size_t key_index = static_cast<std::size_t>(key);
+            if (key == OIS::KC_UNASSIGNED || key_index >= 256U)
+                return false;
+            next_key_state[key] = true;
+        }
+
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        MacOSInputBridge::KeyState next_sdl_key_state;
+        for (const RendererOgre14LegacyKey legacy_key : state.pressed_keys)
+            (void)next_sdl_key_state.Set(
+                static_cast<OIS::KeyCode>(legacy_key), true);
+#endif
+
+        OIS::MouseState next_mouse_state = mouseState;
+        next_mouse_state.X.abs = state.mouse_x_pixels;
+        next_mouse_state.Y.abs = state.mouse_y_pixels;
+        next_mouse_state.X.rel = state.mouse_delta_x_pixels;
+        next_mouse_state.Y.rel = state.mouse_delta_y_pixels;
+        const double wheel_units =
+            static_cast<double>(state.wheel_delta_y) * 120.0;
+        next_mouse_state.Z.rel = static_cast<int>(std::max<double>(
+            static_cast<double>((std::numeric_limits<int>::min)()),
+            std::min<double>(
+                static_cast<double>((std::numeric_limits<int>::max)()),
+                std::round(wheel_units))));
+        const long long wheel_absolute =
+            static_cast<long long>(next_mouse_state.Z.abs) +
+            next_mouse_state.Z.rel;
+        next_mouse_state.Z.abs = static_cast<int>(std::max<long long>(
+            (std::numeric_limits<int>::min)(),
+            std::min<long long>((std::numeric_limits<int>::max)(),
+                                wheel_absolute)));
+        next_mouse_state.buttons = 0;
+        for (const RendererOgre14LegacyMouseButton legacy_button :
+             state.pressed_mouse_buttons)
+        {
+            const OIS::MouseButtonID button =
+                static_cast<OIS::MouseButtonID>(legacy_button);
+            const int index = static_cast<int>(button);
+            if (index < static_cast<int>(OIS::MB_Left) ||
+                index > static_cast<int>(OIS::MB_Button4))
+                return false;
+            next_mouse_state.buttons |= 1 << index;
+        }
+
+        std::array<bool, MAX_JOYSTICKS> claimed_slots{};
+        for (const RendererOgre14LegacyJoystickState& source :
+             state.joysticks)
+        {
+            if (source.slot >= MAX_JOYSTICKS || claimed_slots[source.slot] ||
+                source.axes_absolute.size() > MAX_JOYSTICK_AXIS ||
+                source.axes_relative.size() !=
+                    source.axes_absolute.size() ||
+                source.buttons.size() >
+                    Render::kInputEventTransportMaximumRawButtons ||
+                source.hats.size() > MAX_JOYSTICK_POVS ||
+                source.sliders.size() > MAX_JOYSTICK_SLIDERS)
+                return false;
+            claimed_slots[source.slot] = true;
+            for (const std::uint8_t hat : source.hats)
+            {
+                const bool opposite_vertical =
+                    (hat & 1U) != 0U && (hat & 4U) != 0U;
+                const bool opposite_horizontal =
+                    (hat & 2U) != 0U && (hat & 8U) != 0U;
+                if ((hat & ~0x0FU) != 0U || opposite_vertical ||
+                    opposite_horizontal)
+                    return false;
+            }
+        }
+
+        OIS::JoyStickState next_joy_state[MAX_JOYSTICKS];
+        RendererTransportJoystickMetadata
+            next_metadata[MAX_JOYSTICKS];
+        int next_slot_limit = 0;
+        for (int slot = 0; slot < MAX_JOYSTICKS; ++slot)
+        {
+            for (int pov = 0; pov < MAX_JOYSTICK_POVS; ++pov)
+                next_joy_state[slot].mPOV[pov].direction =
+                    OIS::Pov::Centered;
+            for (int slider = 0; slider < MAX_JOYSTICK_SLIDERS; ++slider)
+            {
+                next_joy_state[slot].mSliders[slider].abX = 0;
+                next_joy_state[slot].mSliders[slider].abY = 0;
+            }
+        }
+
+        for (const RendererOgre14LegacyJoystickState& source :
+             state.joysticks)
+        {
+            const int slot = static_cast<int>(source.slot);
+            RendererTransportJoystickMetadata& metadata =
+                next_metadata[slot];
+            metadata.connected = true;
+            metadata.axis_count =
+                static_cast<int>(source.axes_absolute.size());
+            metadata.button_count = static_cast<int>(source.buttons.size());
+            metadata.pov_count = static_cast<int>(source.hats.size());
+            metadata.slider_count =
+                static_cast<int>(source.sliders.size());
+            metadata.vendor = source.vendor;
+
+            OIS::JoyStickState& destination = next_joy_state[slot];
+            destination.mAxes.resize(source.axes_absolute.size());
+            for (std::size_t axis = 0;
+                 axis < source.axes_absolute.size(); ++axis)
+            {
+                destination.mAxes[axis].abs = source.axes_absolute[axis];
+                destination.mAxes[axis].rel = source.axes_relative[axis];
+                destination.mAxes[axis].absOnly = true;
+            }
+            destination.mButtons = source.buttons;
+            for (std::size_t pov = 0; pov < source.hats.size(); ++pov)
+            {
+                const std::uint8_t hat = source.hats[pov];
+                int direction = OIS::Pov::Centered;
+                if ((hat & 1U) != 0U) direction |= OIS::Pov::North;
+                if ((hat & 4U) != 0U) direction |= OIS::Pov::South;
+                if ((hat & 2U) != 0U) direction |= OIS::Pov::East;
+                if ((hat & 8U) != 0U) direction |= OIS::Pov::West;
+                destination.mPOV[pov].direction = direction;
+            }
+            for (std::size_t slider = 0;
+                 slider < source.sliders.size(); ++slider)
+            {
+                destination.mSliders[slider].abX =
+                    source.sliders[slider].first;
+                destination.mSliders[slider].abY =
+                    source.sliders[slider].second;
+            }
+            next_slot_limit = std::max(next_slot_limit, slot + 1);
+        }
+
+        keyState.swap(next_key_state);
+        mouseState = next_mouse_state;
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+        m_sdl_key_state = next_sdl_key_state;
+#endif
+        for (int slot = 0; slot < MAX_JOYSTICKS; ++slot)
+        {
+            joyState[slot] = std::move(next_joy_state[slot]);
+            m_renderer_transport_joysticks[slot] =
+                std::move(next_metadata[slot]);
+        }
+        m_renderer_transport_slot_limit = next_slot_limit;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 /* --- Key Events ------------------------------------------ */
 void InputEngine::ProcessKeyPress(const OIS::KeyEvent& arg)
 {
+    if (m_renderer_transport_input_active)
+        return;
     keyState[arg.key] = 1;
 }
 
 void InputEngine::ProcessKeyRelease(const OIS::KeyEvent& arg)
 {
+    if (m_renderer_transport_input_active)
+        return;
     keyState[arg.key] = 0;
 }
 
@@ -1048,6 +1304,8 @@ void InputEngine::SyncSdlControllerSlot(
 /* --- Mouse Events ------------------------------------------ */
 void InputEngine::processMouseMotionEvent(const OIS::MouseEvent& arg)
 {
+    if (m_renderer_transport_input_active)
+        return;
     // Only pick position info; button info may be dirty, see commentary in `getMouseState()`
     mouseState.X = arg.state.X;
     mouseState.Y = arg.state.Y;
@@ -1056,6 +1314,8 @@ void InputEngine::processMouseMotionEvent(const OIS::MouseEvent& arg)
 
 void InputEngine::processMousePressEvent(const OIS::MouseEvent& arg, OIS::MouseButtonID _id)
 {
+    if (m_renderer_transport_input_active)
+        return;
     // Skip false 'LMB press' event after restoring window focus; see commentary in `resetKeysAndMouseButtons()`.
     if (_id == OIS::MB_Left)
     {
@@ -1073,6 +1333,8 @@ void InputEngine::processMousePressEvent(const OIS::MouseEvent& arg, OIS::MouseB
 
 void InputEngine::processMouseReleaseEvent(const OIS::MouseEvent& arg, OIS::MouseButtonID _id)
 {
+    if (m_renderer_transport_input_active)
+        return;
     // Only update the one particular button, OIS's persistent state may be dirty, see commentary in `getMouseState()`
     BitMask_t btnmask = 1 << _id;
     BITMASK_SET_0(mouseState.buttons, btnmask);
@@ -1560,6 +1822,8 @@ bool InputEngine::hasEventSimulatedValue(int eventID) const
 
 bool InputEngine::isKeyDown(OIS::KeyCode key)
 {
+    if (m_renderer_transport_input_active)
+        return keyState[key];
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     return m_sdl_key_state.IsDown(key);
 #else
@@ -2112,7 +2376,9 @@ int InputEngine::getCurrentPovValue(int& joystickNumber, int& pov, int& povdir)
 
 Ogre::Vector2 InputEngine::getMouseNormalizedScreenPos()
 {
-    OIS::MouseState const& mstate = mMouse->getMouseState();
+    const OIS::MouseState mstate = m_renderer_transport_input_active
+        ? this->getMouseState()
+        : mMouse->getMouseState();
     Ogre::Vector2 res;
     res.x = static_cast<float>(mstate.X.abs) / static_cast<float>(mstate.width);
     res.y = static_cast<float>(mstate.Y.abs) / static_cast<float>(mstate.height);
@@ -2131,6 +2397,20 @@ int InputEngine::getJoyComponentCount(OIS::ComponentType type, int joystickNumbe
     if (!this->IsJoystickConnected(joystickNumber))
     {
         return 0;
+    }
+    if (m_renderer_transport_input_active)
+    {
+        const RendererTransportJoystickMetadata& metadata =
+            m_renderer_transport_joysticks[joystickNumber];
+        switch (type)
+        {
+        case OIS_Axis: return metadata.axis_count;
+        case OIS_Button: return metadata.button_count;
+        case OIS_POV: return metadata.pov_count;
+        case OIS_Slider: return metadata.slider_count;
+        case OIS_Vector3:
+        default: return 0;
+        }
     }
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     if (m_use_sdl_controller_backend)
@@ -2162,6 +2442,13 @@ int InputEngine::getJoyComponentCount(OIS::ComponentType type, int joystickNumbe
 
 int InputEngine::getNumJoysticks() const
 {
+    if (m_renderer_transport_input_active)
+    {
+        int connected = 0;
+        for (int slot = 0; slot < m_renderer_transport_slot_limit; ++slot)
+            connected += m_renderer_transport_joysticks[slot].connected ? 1 : 0;
+        return connected;
+    }
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     if (m_use_sdl_controller_backend)
     {
@@ -2178,6 +2465,8 @@ std::string InputEngine::getJoyVendor(int joystickNumber)
     {
         return "unknown";
     }
+    if (m_renderer_transport_input_active)
+        return m_renderer_transport_joysticks[joystickNumber].vendor;
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     if (m_use_sdl_controller_backend)
     {
@@ -2199,12 +2488,17 @@ JoyStickState* InputEngine::getCurrentJoyState(int joystickNumber)
 
 bool InputEngine::IsJoystickConnected(int joystickNumber) const
 {
-    if (joystickNumber < 0 ||
-        joystickNumber >= free_joysticks ||
-        joystickNumber >= MAX_JOYSTICKS)
+    if (joystickNumber < 0 || joystickNumber >= MAX_JOYSTICKS)
     {
         return false;
     }
+    if (m_renderer_transport_input_active)
+    {
+        return joystickNumber < m_renderer_transport_slot_limit &&
+            m_renderer_transport_joysticks[joystickNumber].connected;
+    }
+    if (joystickNumber >= free_joysticks)
+        return false;
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     if (m_use_sdl_controller_backend)
     {

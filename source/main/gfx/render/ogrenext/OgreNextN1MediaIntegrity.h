@@ -40,4 +40,10 @@ namespace RoR::Render {
 [[nodiscard]] RenderOperationResult VerifyOgreNextN1HdrMedia(
     const std::string &resolved_media_root);
 
+/// Verifies the exact minimal Common fullscreen-quad/copy program closure used
+/// by native presentation. The dedicated root must contain no unrelated
+/// compositor, material, shader, or binary resources.
+[[nodiscard]] RenderOperationResult VerifyOgreNextN1PresentationMedia(
+    const std::string &resolved_presentation_media_root);
+
 } // namespace RoR::Render

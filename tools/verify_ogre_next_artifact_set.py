@@ -15,6 +15,20 @@ import struct
 import sys
 
 
+TOOLS_ROOT = Path(__file__).resolve().parent
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+
+from ogre_next_probe.validate_child_runtime_receipt import (  # noqa: E402
+    RECEIPT_NAME as CHILD_RUNTIME_RECEIPT_ARTIFACT,
+    STDERR_LOG_NAME as CHILD_RUNTIME_STDERR_ARTIFACT,
+    STDOUT_LOG_NAME as CHILD_RUNTIME_STDOUT_ARTIFACT,
+    ReceiptValidationError as ChildReceiptValidationError,
+    expected_child_relative,
+    validate_receipt as validate_child_runtime_receipt,
+)
+
+
 REQUIRED_ARTIFACTS = (
     "ogre-next-build-contract.json",
     "ror-ogre-next-probe-report.json",
@@ -98,6 +112,16 @@ FREETYPE_PACKAGE_LICENSE_CONTRACT = (
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PINNED_LOCK_PATH = REPOSITORY_ROOT / "tools/ogre_next_probe/ogre-next.lock.json"
+DISPLAY_DOMAIN_MEDIA_PATH = (
+    REPOSITORY_ROOT
+    / "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_MEDIA_RELATIVE = (
+    "Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+)
+DISPLAY_DOMAIN_NOTICE_PATH = "licenses/Rigs-of-Rods-GPL-3.0.txt"
+DISPLAY_DOMAIN_LICENSE_EXPRESSION = "GPL-3.0-or-later"
+DISPLAY_DOMAIN_NOTICE_SOURCE = REPOSITORY_ROOT / "COPYING"
 NORMAL_MAP_SOURCE_LOCK_PATH = (
     REPOSITORY_ROOT
     / "tools/ogre_next_probe/ogre-next-normal-map-source.lock.json"
@@ -107,20 +131,251 @@ NORMAL_MAP_SOURCE_LOCK_SHA256 = (
 )
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
+    "CMakeLists.txt",
+    "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md",
+    "cmake/OgreNextProductionPackage.cmake",
+    "cmake/RendererLauncherPackageConfig.cmake",
+    "cmake/macos/StageMacOSBundle.cmake",
+    "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock",
+    "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock",
+    "cmake/conan/locks/ogre3d-14.5.2-windows-x86_64-release.lock",
+    "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock",
+    "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock",
+    "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock",
+    "cmake/conan/recipes/mygui/conanfile.py",
+    "cmake/conan/recipes/ogre3d/conandata.yml",
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch",
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/terrain-composite-revision-metal-readback.patch",
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch",
+    "cmake/conan/recipes/ogre3d/patches/14.5.2/expose-shadow-material-declaration-names.patch",
+    "cmake/conan/recipes/ogre3d/README.md",
+    "cmake/conan/recipes/ogre3d/test_package/CMakeLists.txt",
+    "cmake/conan/recipes/ogre3d/test_package/conanfile.py",
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_material_script_preopen_probe.cpp",
+    "cmake/conan/recipes/ogre3d/test_package/src/ogre_recipe_probe.cpp",
+    "conanfile.py",
+    "doc/nextgen/GRAPHICS_SCENE_SNAPSHOT_PRODUCER.md",
+    "doc/nextgen/OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_RECEIPT.md",
+    "doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md",
+    "doc/nextgen/OGRE14_EXACT_MATERIAL_SCRIPT_PREOPEN.md",
+    "doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md",
+    "source/main/Application.cpp",
+    "source/main/GameContext.cpp",
+    "source/main/GameContext.h",
+    "source/main/gfx/GfxActorCaptureInventory.h",
     "source/main/gfx/RendererBackendPolicy.cpp",
     "source/main/gfx/RendererBackendPolicy.h",
+    "source/main/gfx/GfxScene.cpp",
+    "source/main/gfx/GfxScene.h",
+    "source/main/utils/MeshObject.cpp",
+    "source/main/utils/MeshObject.h",
     "source/main/gfx/RendererStartupHandoff.cpp",
     "source/main/gfx/RendererStartupHandoff.h",
     "source/main/gfx/RendererStartupPlan.cpp",
     "source/main/gfx/RendererStartupPlan.h",
+    "source/main/physics/Actor.cpp",
+    "source/main/physics/ActorManager.cpp",
+    "source/main/physics/ActorManager.h",
+    "source/main/physics/ActorSpawner.cpp",
+    "source/main/physics/ActorSpawner.h",
+    "source/main/physics/ActorSpawnerFlow.cpp",
+    "source/main/physics/collision/Collisions.cpp",
+    "source/main/physics/flex/FlexBody.cpp",
+    "source/main/physics/flex/FlexBody.h",
+    "source/main/physics/flex/FlexFactory.cpp",
+    "source/main/physics/flex/FlexFactory.h",
+    "source/main/physics/flex/FlexMesh.cpp",
+    "source/main/physics/flex/FlexMesh.h",
+    "source/main/physics/flex/FlexMeshTopology.h",
+    "source/main/physics/flex/FlexMeshWheel.cpp",
+    "source/main/physics/flex/FlexMeshWheel.h",
+    "source/main/physics/flex/FlexObj.cpp",
+    "source/main/physics/flex/FlexObj.h",
+    "source/main/physics/flex/Flexable.h",
+    "source/main/terrain/ProceduralManager.cpp",
+    "source/main/terrain/ProceduralManager.h",
+    "source/main/terrain/ProceduralRoad.cpp",
+    "source/main/terrain/ProceduralRoad.h",
+    "source/main/terrain/TerrainObjectManager.cpp",
+    "source/main/terrain/TerrainObjectManager.h",
+    "source/main/terrain/Terrain.cpp",
+    "source/main/terrain/Terrain.h",
+    "source/main/main.cpp",
+    "source/main/system/ApplicationFatalError.h",
+    "source/main/system/RendererBridgeChannel.cpp",
+    "source/main/system/RendererBridgeChannel.h",
+    "source/main/system/RendererBridgeEndpoint.cpp",
+    "source/main/system/RendererBridgeEndpoint.h",
+    "source/main/system/RendererBridgeLaunchPlan.cpp",
+    "source/main/system/RendererBridgeLaunchPlan.h",
+    "source/main/system/RendererBridgeProcessSupervisor.cpp",
+    "source/main/system/RendererBridgeProcessSupervisor.h",
+    "source/main/system/RendererChildIntent.cpp",
+    "source/main/system/RendererChildIntent.h",
+    "source/main/system/RendererChildLauncher.cpp",
+    "source/main/system/RendererChildLauncher.h",
+    "source/main/system/RendererOgre14GameBridge.cpp",
+    "source/main/system/RendererOgre14GameBridge.h",
+    "source/main/system/RendererOgre14GameHostSession.cpp",
+    "source/main/system/RendererOgre14GameHostSession.h",
+    "source/main/system/RendererOgre14InputAdapter.cpp",
+    "source/main/system/RendererOgre14InputAdapter.h",
+    "source/main/system/RendererOgre14ProductSession.cpp",
+    "source/main/system/RendererOgre14ProductSession.h",
+    "source/main/system/RendererSiblingPath.cpp",
+    "source/main/system/RendererSiblingPath.h",
+    "source/main/system/RendererPackagedMediaPath.cpp",
+    "source/main/system/RendererPackagedMediaPath.h",
+    "source/main/system/RendererPackageRuntimeProbe.cpp",
+    "source/main/system/RendererPackageRuntimeProbe.h",
+    "source/main/system/RendererOgreNextChild.cpp",
+    "source/main/system/RendererOgreNextChild.h",
+    "source/main/system/RendererOgreNextChildMain.cpp",
+    "source/main/system/RendererOgreNextLiveSession.cpp",
+    "source/main/system/RendererOgreNextLiveSession.h",
+    "source/main/system/RendererOgreNextProductionSession.cpp",
+    "source/main/system/RendererOgreNextProductionSession.h",
+    "source/main/system/RendererOgreNextSdlWindowRuntime.cpp",
+    "source/main/system/RendererOgreNextSdlWindowRuntime.h",
+    "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm",
+    "source/main/system/RendererOgreNextWindowHost.cpp",
+    "source/main/system/RendererOgreNextWindowHost.h",
+    "source/main/system/RendererLauncherMain.cpp",
+    "source/main/system/RendererLauncherPackageConfig.h.in",
+    "source/main/system/RendererPublicLauncher.cpp",
+    "source/main/system/RendererPublicLauncher.h",
+    "source/main/CMakeLists.txt",
+    "source/main/resources/CacheSystem.cpp",
+    "source/main/resources/ContentManager.cpp",
+    "source/main/resources/ContentManager.h",
+    "source/main/resources/LegacyMaterialScriptSanitizer.cpp",
+    "source/main/resources/LegacyMaterialScriptSanitizer.h",
+    "source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp",
+    "source/main/resources/terrn2_fileformat/TerrainBundleDependency.h",
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp",
+    "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp",
+    "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h",
     "source/main/gfx/render",
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp",
+    "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h",
+    "source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp",
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.h",
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp",
+    "source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.h",
+    "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp",
+    "source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.h",
+    "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp",
+    "source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.h",
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp",
+    "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h",
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp",
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h",
+    "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp",
+    "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
+    "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h",
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h",
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
+    "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
+    "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
+    "source/main/system/detail/OgreNextDemoFrameNormalization.h",
+    "source/main/physics/Savegame.cpp",
+    "tests/tools/test_renderer_suite_packaging_contract.py",
+    "source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h",
+    "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp",
+    "source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h",
+    "source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h",
+    "tests/CMakeLists.txt",
+    "tests/gfx/GfxActorCaptureInventoryTests.cpp",
+    "tests/system/ApplicationFatalShutdownContractTests.cpp",
+    "tests/tools/test_ogre14_native_workflow_contract.py",
     "tests/gfx/RendererBackendPolicyTests.cpp",
+    "tests/gfx/RendererBridgeEndpointTests.cpp",
+    "tests/gfx/RendererBridgeLaunchPlanTests.cpp",
+    "tests/gfx/RendererBridgeChannelTests.cpp",
+    "tests/gfx/RendererBridgeProcessFakeChild.cpp",
+    "tests/gfx/RendererBridgeProcessSupervisorTests.cpp",
+    "tests/gfx/RendererChildIntentTests.cpp",
+    "tests/gfx/RendererChildLauncherFakeChild.cpp",
+    "tests/gfx/RendererChildLauncherTests.cpp",
+    "tests/gfx/RendererOgre14GameBridgeTests.cpp",
+    "tests/gfx/RendererOgre14GameHostSessionTests.cpp",
+    "tests/gfx/RendererSiblingPathTests.cpp",
+    "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
+    "tests/gfx/RendererOgreNextChildTests.cpp",
+    "tests/gfx/RendererOgreNextLiveSessionTests.cpp",
+    "tests/gfx/RendererOgreNextWindowHostTests.cpp",
+    "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
+    "tests/gfx/RendererPublicLauncherTests.cpp",
+    "tests/cmake/VerifyRendererPublicBridgeExit.cmake",
     "tests/gfx/RendererStartupHandoffTests.cpp",
     "tests/gfx/RendererStartupPlanTests.cpp",
+    "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
+    "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp",
+    "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp",
+    "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp",
+    "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp",
+    "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp",
+    "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp",
+    "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp",
+    "tests/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp",
+    "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp",
+    "tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json",
+    "tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp",
+    "tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp",
+    "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp",
+    "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp",
+    "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp",
+    "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+    "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp",
+    "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp",
+    "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp",
+    "tests/resources/LegacyMaterialScriptSanitizerTests.cpp",
+    "tests/resources/TerrainBundleDependencyTests.cpp",
+    "tests/resources/TerrainBundleArchiveVerifierTests.cpp",
+    "tests/tools/assert_ogre_recipe_graph.py",
+    "tests/tools/test_ogre14_exact_material_script_preopen_recipe_contract.py",
+    "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp",
+    "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp",
+    "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp",
+    "tests/physics/FlexMeshTopologyTests.cpp",
+    "tests/physics/Ogre14FlexShadowLoadTests.cpp",
+    "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp",
+    "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp",
+    "tests/tools/test_ogre_next_child_runtime_contract.py",
+    "tests/tools/test_ogre14_legacy_asset_translator_contract.py",
+    "tests/tools/test_ogre14_legacy_material_closure_contract.py",
+    "tests/tools/test_ogre14_particle_capture_contract.py",
+    "tests/tools/test_ogre14_road_material_transaction_contract.py",
+    "tests/tools/test_ogre_next_metal_n2_contract.py",
+    "tests/tools/test_ogre14_dynamic_material_closure_contract.py",
+    "tests/tools/test_ogre14_material_semantic_registry_contract.py",
+    "tests/tools/test_ogre14_source_texture_decoder_contract.py",
+    "tests/tools/test_ogre14_material_semantic_catalog_v2.py",
+    "tests/tools/test_ogre14_live_material_coordinator_contract.py",
+    "tests/tools/test_ogre14_graphics_scene_prepared_material_binding_contract.py",
+    "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py",
+    "tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py",
+    "tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py",
+    "tests/tools/test_ogre14_terrain_composite_recipe_contract.py",
+    "tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py",
+    "tests/tools/test_ogre_next_product_packaging_contract.py",
+    "tests/tools/test_ogre_next_probe_contract.py",
+    "tests/tools/test_ogre_next_probe_workflow.py",
+    "tests/tools/test_ogre_next_window_host_contract.py",
+    "tests/tools/test_ogre_next_window_presentation_contract.py",
+    "tests/tools/test_ogre_next_window_run_loop_contract.py",
+    "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any",
     "tools/ogre_next_probe",
+    "tools/ogre14_runtime_audit.py",
+    "tools/compile_ogre14_material_semantic_catalog_v2.py",
     "tools/run_ogre_next_probe.py",
     "tools/validate_ogre_next_frame_probe.py",
     "tools/verify_ogre_next_artifact_set.py",
+    "tools/schemas/ogre14-material-semantic-catalog-v2.schema.json",
 )
 RT4_ATTESTATION_SCHEMA = (
     "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v4"
@@ -451,6 +706,33 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _expected_build_shader_media(lock: dict[str, object]) -> dict[str, object]:
+    source = DISPLAY_DOMAIN_MEDIA_PATH
+    notice = DISPLAY_DOMAIN_NOTICE_SOURCE
+    if source.is_symlink() or not source.is_file():
+        raise ArtifactSetError(
+            "legacy display-domain shader source is missing or indirect"
+        )
+    if notice.is_symlink() or not notice.is_file():
+        raise ArtifactSetError(
+            "legacy display-domain GPL notice is missing or indirect"
+        )
+    locked = lock.get("shader_media")
+    if not isinstance(locked, dict):
+        raise ArtifactSetError("pinned shader-media contract is invalid")
+    expected = dict(locked)
+    expected["display_domain_unlit"] = {
+        "base_color_transfer": "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE",
+        "relative_path": DISPLAY_DOMAIN_MEDIA_RELATIVE,
+        "size": source.stat().st_size,
+        "sha256": sha256_file(source),
+        "license_expression": DISPLAY_DOMAIN_LICENSE_EXPRESSION,
+        "notice_path": DISPLAY_DOMAIN_NOTICE_PATH,
+        "notice_sha256": sha256_file(notice),
+    }
+    return expected
+
+
 def _read_json_object(path: Path, label: str) -> dict[str, object]:
     def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
         result: dict[str, object] = {}
@@ -674,7 +956,7 @@ def _read_build_contract(
     )
     if (
         type(contract.get("schema_version")) is not int
-        or contract.get("schema_version") != 5
+        or contract.get("schema_version") not in (5, 6)
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
@@ -779,8 +1061,26 @@ def _read_build_contract(
         ),
         "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
         "hdr_visual_evidence_version": 1,
+        "headless_child_bootstrap": True,
+        "headless_child_output_name": "RoR-OgreNext",
+        "headless_child_packaged": False,
+        "headless_child_production_admitted": False,
         "native_ray_tracing": "not_evaluated",
     }
+    if contract.get("schema_version") == 6:
+        expected_components.update(
+            {
+                "headless_child_execution_receipt_schema": (
+                    "ror.ogre_next_child_runtime_execution_receipt.v1"
+                ),
+                "headless_child_execution_receipt_required": True,
+                "headless_child_binary_retained": True,
+                "headless_child_logs_retained": True,
+                "headless_child_process_model": (
+                    "single-process-reviewed-source-closure-v1"
+                ),
+            }
+        )
     expected_platform = {
         "policy": platform["policy"],
         "system": platform.get("system"),
@@ -808,7 +1108,9 @@ def _read_build_contract(
         "source": _json_exact(ror_source, expected_source),
         "ogre": _json_exact(ogre_source, expected_ogre),
         "dependencies": _json_exact(dependencies, expected_dependencies),
-        "shader_media": _json_exact(shader_media, lock.get("shader_media")),
+        "shader_media": _json_exact(
+            shader_media, _expected_build_shader_media(lock)
+        ),
         "reflection_shader_media": _json_exact(
             reflection_shader_media, lock.get("reflection_shader_media")
         ),
@@ -2057,6 +2359,7 @@ def _verify_rt4_semantics(
             "renderer",
             "adapter",
             "catalog",
+            "display_domain_unlit",
             "texture_allocations",
             "texture_upload_rollback",
             "texture_retirement",
@@ -2084,6 +2387,32 @@ def _verify_rt4_semantics(
         raise ArtifactSetError("RT4 HDR/SDR report metrics are missing")
     if not isinstance(isolation, dict):
         raise ArtifactSetError("RT4 isolation report is missing")
+    display_domain_unlit = report.get("display_domain_unlit")
+    if not isinstance(display_domain_unlit, dict):
+        raise ArtifactSetError("RT4 display-domain Unlit report is missing")
+    _require_exact_keys(
+        display_domain_unlit,
+        {
+            "schema",
+            "base_color_transfer",
+            "upload_format",
+            "mip_policy",
+            "sampler",
+            "shader_precision",
+            "encoded_filtered",
+            "filter_then_eotf",
+            "decode_before_filter",
+            "matching_foreground_pixels",
+            "decode_before_filter_pixels",
+            "complete_unorm_mips_uploaded",
+            "full32_after_filter_shader_executed",
+            "alpha_untouched_opaque",
+            "no_cast_or_receive_shadow_flags",
+            "usage_transition_rollback_exact",
+            "usage_transition_commit_exact",
+        },
+        "RT4 display-domain Unlit report",
+    )
     _verify_hdr_compositor(report.get("hdr_compositor"))
     compositor_slices = _verify_hdr_compositor_visual(
         report, ppm_pixels, compositor_path
@@ -2391,6 +2720,41 @@ def _verify_rt4_semantics(
             report.get("texture_upload_rollback"),
             RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK,
         ),
+        "display_domain_unlit": display_domain_unlit.get("schema")
+        == "ror.ogre_next_rt4_display_domain_unlit.v1"
+        and display_domain_unlit.get("base_color_transfer")
+        == "SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE"
+        and display_domain_unlit.get("upload_format") == "RGBA8_UNORM"
+        and display_domain_unlit.get("mip_policy")
+        == "complete_base_to_1x1_nearest_mip"
+        and display_domain_unlit.get("sampler")
+        == "linear_min_mag_clamp_edge"
+        and display_domain_unlit.get("shader_precision") == "PrecisionFull32"
+        and all(
+            isinstance(display_domain_unlit.get(field), list)
+            and len(display_domain_unlit[field]) == 3
+            and all(
+                isinstance(value, (int, float))
+                for value in display_domain_unlit[field]
+            )
+            for field in (
+                "encoded_filtered",
+                "filter_then_eotf",
+                "decode_before_filter",
+            )
+        )
+        and _is_positive_int(
+            display_domain_unlit.get("matching_foreground_pixels")
+        )
+        and display_domain_unlit["matching_foreground_pixels"] >= 512
+        and _json_exact(display_domain_unlit.get("decode_before_filter_pixels"), 0)
+        and display_domain_unlit.get("complete_unorm_mips_uploaded") is True
+        and display_domain_unlit.get("full32_after_filter_shader_executed")
+        is True
+        and display_domain_unlit.get("alpha_untouched_opaque") is True
+        and display_domain_unlit.get("no_cast_or_receive_shadow_flags") is True
+        and display_domain_unlit.get("usage_transition_rollback_exact") is True
+        and display_domain_unlit.get("usage_transition_commit_exact") is True,
         "lifecycle": _json_exact(
             report.get("lifecycle"), RT4_EXPECTED_LIFECYCLE
         ),
@@ -4777,6 +5141,38 @@ def _verify_metal_n4(
         raise ArtifactSetError("Metal N4 capability skip is not exact")
 
 
+def _verify_child_runtime_receipt(
+    root: Path,
+    manifest: list[dict[str, object]],
+    build_contract: dict[str, object],
+) -> None:
+    try:
+        validate_child_runtime_receipt(root, require_pass_or_skip=False)
+    except ChildReceiptValidationError as error:
+        raise ArtifactSetError(
+            f"Ogre-Next child execution receipt is invalid: {error}"
+        ) from error
+    child_relative = expected_child_relative(build_contract)
+    for relative in (
+        CHILD_RUNTIME_RECEIPT_ARTIFACT,
+        CHILD_RUNTIME_STDOUT_ARTIFACT,
+        CHILD_RUNTIME_STDERR_ARTIFACT,
+        child_relative,
+    ):
+        path = root.joinpath(*relative.split("/"))
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactSetError(
+                f"Ogre-Next child upload artifact is missing or indirect: {relative}"
+            )
+        manifest.append(
+            {
+                "path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+
+
 def verify_artifact_set(
     build_dir: Path,
     verify_metal_n2_evidence: bool = False,
@@ -4822,6 +5218,8 @@ def verify_artifact_set(
         expected_commit=expected_ror_commit,
     )
     build_contract = _read_build_contract(root, expected_source)
+    if build_contract.get("schema_version") == 6:
+        _verify_child_runtime_receipt(root, manifest, build_contract)
     _verify_pssm(root, manifest, build_contract)
     _verify_rt4(root, manifest, build_contract)
     _verify_freetype_package_licenses(root, manifest)

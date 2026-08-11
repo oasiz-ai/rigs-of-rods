@@ -23,6 +23,7 @@
 
 #include "RigDef_Prerequisites.h"
 #include "Application.h"
+#include "Flexable.h"
 #include "Locator_t.h"
 #include "SimData.h"
 #include "GfxData.h"
@@ -32,6 +33,16 @@
 #include <Ogre.h>
 
 namespace RoR {
+
+/// CPU-owned source streams captured before any flexbody renderer resource is
+/// created. Their ordering matches the joined shared/non-shared vertex layout.
+struct FlexBodyInitialVertexStreams
+{
+    std::vector<Ogre::Vector3> positions;
+    std::vector<Ogre::Vector3> normals;
+    std::vector<Ogre::Vector2> texcoords0;
+    bool has_complete_texcoords0 = false;
+};
 
 /// @addtogroup Gfx
 /// @{
@@ -53,9 +64,11 @@ class FlexBody
         NodeNum_t nx, 
         NodeNum_t ny,
         Ogre::Vector3 offset,
-        Ogre::Quaternion const & rot, 
+        Ogre::Quaternion const & rot,
         std::vector<unsigned int>& node_indices,
-        std::vector<ForvertTempData>& forvert_data
+        std::vector<ForvertTempData>& forvert_data,
+        FlexBodyInitialVertexStreams initial_vertex_streams,
+        std::vector<FlexMeshTopologySection> cpu_topology
     );
 
 public:
@@ -76,7 +89,7 @@ public:
     /// @}
 
     FlexBody(PlaceholderType, FlexbodyID_t id, const std::string& orig_meshname);
-    ~FlexBody();
+    ~FlexBody() noexcept;
 
     void reset();
     void updateBlend();
@@ -84,6 +97,18 @@ public:
 
     void computeFlexbody(); //!< Updates mesh deformation; works on CPU using local copy of vertex data.
     void updateFlexbodyVertexBuffers();
+
+    /// Copies only the fully computed graphics staging arrays. Callers must
+    /// invoke this after GfxActor::FinishFlexbodyTasks(); no NodeSB/solver
+    /// memory is exposed.
+    bool copyJoinedCpuStaging(std::vector<Ogre::Vector3>& positions,
+                              std::vector<Ogre::Vector3>& normals,
+                              std::vector<Ogre::Vector2>& texcoords0) const;
+    const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
+    {
+        return m_cpu_topology_sections;
+    }
+    bool hasDynamicTextureBlend() const { return m_has_texture_blend; }
 
     bool isVisible() const;
     void setVisible(bool visible);
@@ -105,11 +130,9 @@ public:
 
     FlexbodyID_t getID() const { return m_id; }
     PlaceholderType getPlaceholderType() const { return m_placeholder_type; }
-    void destroyOgreObjects();
+    void destroyOgreObjects() noexcept;
 
 private:
-
-    void defragmentFlexbodyMesh();
 
     RoR::GfxActor*    m_gfx_actor = nullptr;
     size_t            m_vertex_count = 0;
@@ -121,6 +144,8 @@ private:
     Ogre::Vector3*    m_src_normals = nullptr;
     Ogre::Vector3*    m_dst_normals = nullptr;
     Ogre::ARGB*       m_src_colors = nullptr;
+    std::vector<Ogre::Vector2> m_src_texcoords0;
+    std::vector<FlexMeshTopologySection> m_cpu_topology_sections;
     Locator_t*        m_locators = nullptr; //!< 1 loc per vertex
 
     NodeNum_t         m_node_center = NODENUM_INVALID;

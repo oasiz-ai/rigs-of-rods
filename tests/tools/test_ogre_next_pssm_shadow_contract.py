@@ -348,6 +348,9 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "render_mesh->mesh->getAabb()",
             "item->getLocalAabb()",
             "item->getWorldAabbUpdated()",
+            "node->_getFullTransformUpdated()",
+            "NearlyEqualNativeTransform",
+            "NearlyEqualNativeTransformedAabb",
         ):
             self.assertIn(token, self.frontend)
 

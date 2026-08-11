@@ -52,6 +52,19 @@ struct TerrainBundleDependencyPlan
     bool IsValid() const { return diagnostics.empty(); }
 };
 
+/// A published authenticated archive cannot be reported as an ordinary
+/// recoverable dependency-load failure until both its OGRE group and exact
+/// ContentManager authority have been proven absent.
+constexpr bool
+TerrainBundleDependencyTeardownMustFailStop(
+    bool authenticated_mount_published,
+    bool resource_group_destroyed,
+    bool authenticated_archive_unregistered) noexcept
+{
+    return authenticated_mount_published &&
+        (!resource_group_destroyed || !authenticated_archive_unregistered);
+}
+
 /// Validates a bounded dependency list without filesystem or OGRE access.
 ///
 /// Dependencies are intentionally limited to exact root-level terrain entries

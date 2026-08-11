@@ -28,11 +28,16 @@
 #include "CameraManager.h"
 #include "ForwardDeclarations.h"
 #include "EnvironmentMap.h" // RoR::GfxEnvmap
+#include "GfxActorCaptureInventory.h"
 #include "GfxData.h"
+#include "ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
+#include "ogre14/detail/OgreNextDemoMaterialSource.h"
+#include "render/Ogre14GraphicsSceneSource.h"
 #include "SimBuffers.h"
 #include "Skidmark.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <memory>
 
@@ -43,7 +48,7 @@ namespace RoR {
 
 /// Provides a 3D graphical representation of the simulation
 /// Idea: simulation runs at it's own constant rate, scene updates and rendering run asynchronously.
-class GfxScene
+class GfxScene: public Render::IOgre14GraphicsSceneCaptureProvider
 {
 public:
 
@@ -71,8 +76,10 @@ public:
     void           DrawNetLabel(Ogre::Vector3 pos, float cam_dist, std::string const& nick, int colornum);
     void           UpdateScene(float dt);
     void           ClearScene();
-    void           RegisterGfxActor(RoR::GfxActor* gfx_actor);
-    void           RemoveGfxActor(RoR::GfxActor* gfx_actor);
+    bool           RegisterGfxActor(RoR::GfxActor* gfx_actor);
+    bool           HideGfxActor(RoR::GfxActor* gfx_actor);
+    bool           UnhideGfxActor(RoR::GfxActor* gfx_actor);
+    void           DestroyGfxActor(RoR::GfxActor* gfx_actor) noexcept;
     void           ForceUpdateSingleGfxActor(RoR::GfxActor* gfx_actor);
     /// Synchronizes all non-UI visuals needed by canonical capture from one
     /// joined simulation boundary. The supplied camera replaces mutable
@@ -85,25 +92,118 @@ public:
     void           RegisterGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           RemoveGfxCharacter(RoR::GfxCharacter* gfx_character);
     void           BufferSimulationData(); //!< Run this when simulation is halted
+    /// Enables the disposable actual-game OgreNext demo source. The OGRE 14
+    /// scene remains a private migration input; it is not a public renderer
+    /// compatibility mode or a generalized material API.
+    void           EnableOgreNextDemoCapture() noexcept
+                   { m_ogre_next_demo_capture_enabled = true; }
+    /// The hidden OGRE 14 scene is only an ingestion source in this mode.
+    /// It must not automatically synthesize additional render-only mesh LODs;
+    /// that path is unsafe for some legacy CityWorld meshes in pinned OGRE 14.
+    [[nodiscard]] bool IsOgreNextDemoCaptureEnabled() const noexcept
+                   { return m_ogre_next_demo_capture_enabled; }
+    /// Reads only the completed simulation buffer and graphics-owned OGRE 14
+    /// state. Incomplete renderer-neutral inventories are identified through
+    /// available_fields rather than populated with guessed defaults.
+    Render::ValidationResult CaptureOgre14GraphicsScene(
+        Render::Ogre14GraphicsSceneCapture& capture) override;
+    void CommitOgre14GraphicsSceneCapture() noexcept override;
+    void DiscardOgre14GraphicsSceneCapture() noexcept override;
     GameContextSB&     GetSimDataBuffer() { return m_simbuf; }
     GfxEnvmap&     GetEnvMap() { return m_envmap; }
     RoR::SkidmarkConfig* GetSkidmarkConf () { return &m_skidmark_conf; }
     Ogre::SceneManager* GetSceneManager() { return m_scene_manager; }
-    std::vector<GfxActor*>& GetGfxActors() { return m_all_gfx_actors; }
+    const std::vector<GfxActor*>& GetGfxActors() const
+                   { return m_gfx_actor_inventory.Active(); }
     std::vector<GfxCharacter*>& GetGfxCharacters() { return m_all_gfx_characters; }
 
     static Ogre::Quaternion SpecialGetRotationTo(const Ogre::Vector3& src, const Ogre::Vector3& dest);
 
 private:
 
+    /// Clears every map-scoped capture identity/cache/inventory. ClearScene()
+    /// calls this only after ProductSession admits the prior empty scene;
+    /// global child/input transport ownership remains outside GfxScene.
+    void ResetOgre14GraphicsSceneGeneration() noexcept;
+
+    Render::ValidationResult CaptureOgre14DynamicActorInventory(
+        Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+                 std::less<>>& mesh_cache,
+        std::vector<Render::GraphicsSceneAssetInput>& assets,
+        std::vector<Render::GraphicsSceneDynamicMeshInput>& dynamic_meshes);
+
     std::map<std::string, DustPool *> m_dustpools;
     Ogre::SceneManager*               m_scene_manager = nullptr;
-    std::vector<GfxActor*>            m_all_gfx_actors;
     std::vector<GfxActor*>            m_live_gfx_actors;
+    // Hidden actors remain durably identified while leaving the legacy active
+    // update list. Destroyed records retain a null-owner tombstone.
+    GfxActorCaptureInventory           m_gfx_actor_inventory;
     std::vector<GfxCharacter*>        m_all_gfx_characters;
     RoR::GfxEnvmap                    m_envmap;
     GameContextSB                     m_simbuf;
     SkidmarkConfig                    m_skidmark_conf;
+
+    // Exact joined-boundary identity for the OGRE 14 scene adapter. These are
+    // copied only inside BufferSimulationData(), before the next physics batch
+    // may start; the adapter never reads ActorManager directly.
+    std::uint64_t                      m_ogre14_joined_buffer_epoch = 0U;
+    std::uint64_t                      m_ogre14_post_update_scene_epoch = 0U;
+    std::uint64_t                      m_ogre14_simulation_tick = 0U;
+    double                             m_ogre14_simulation_time_seconds = 0.0;
+    bool                               m_ogre14_joined_buffer_ready = false;
+    bool                               m_ogre14_joined_buffer_atomic = false;
+    bool                               m_ogre_next_demo_capture_enabled = false;
+    Gfx::Detail::Ogre14ToOgreNextTerrainSource
+                                       m_ogre_next_demo_terrain_source;
+    Gfx::Detail::OgreNextDemoMaterialSource
+                                       m_ogre_next_demo_material_source;
+    // Map-generation identities reset only at ClearScene(), after the product
+    // session has sequenced the preceding authoritative empty scene.
+    Render::Ogre14GraphicsSceneLightIdentityRegistry
+                                       m_ogre14_light_identity_registry;
+    Render::Ogre14GraphicsSceneStaticIdentityRegistry
+                                       m_ogre14_static_identity_registry;
+    // CPU extraction is performed only on a new/reloaded immutable OGRE mesh
+    // draw-range key. Stable frames reuse these immutable payload owners.
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
+                                       m_ogre14_static_mesh_cache;
+    // Admission grows monotonically within one map generation. Once a static
+    // object enters the demo camera envelope it never disappears, so renderer
+    // object/asset tombstones can never be resurrected while driving.
+    std::set<std::uint64_t>             m_ogre_next_demo_admitted_static_objects;
+    // Full-resolution terrain payload owners are keyed by exact TerrainGroup
+    // page identity; each entry retains its collision-free byte state. Stable
+    // frames never regenerate the large CPU mesh.
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneTerrainPageCacheEntry, std::less<>>
+                                       m_ogre14_terrain_page_cache;
+    Render::Ogre14GraphicsSceneDynamicIdentityRegistry
+                                       m_ogre14_dynamic_identity_registry;
+    std::map<std::string,
+             Render::Ogre14GraphicsSceneDynamicMeshCacheEntry, std::less<>>
+                                       m_ogre14_dynamic_mesh_cache;
+    struct Ogre14PendingCaptureState
+    {
+        Render::Ogre14GraphicsSceneLightIdentityRegistry light_registry;
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
+                 std::less<>> terrain_page_cache;
+        Render::Ogre14GraphicsSceneStaticIdentityRegistry static_registry;
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
+            static_mesh_cache;
+        std::set<std::uint64_t> admitted_static_objects;
+        Render::Ogre14GraphicsSceneDynamicIdentityRegistry dynamic_registry;
+        std::map<std::string,
+                 Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+                 std::less<>> dynamic_mesh_cache;
+        std::size_t new_material_projection_count = 0U;
+        std::size_t active_material_projection_count = 0U;
+    };
+    std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 
     // Free beams GFX:
     std::vector<FreeBeamGfx>          m_gfx_freebeams;

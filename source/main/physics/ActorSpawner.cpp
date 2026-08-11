@@ -1673,6 +1673,11 @@ void ActorSpawner::ProcessSubmesh(RigDef::Submesh & def)
 void ActorSpawner::ProcessFlexbody(RigDef::Flexbody& def)
 {
     const FlexbodyID_t flexbody_id = (FlexbodyID_t)m_actor->m_gfx_actor->m_flexbodies.size();
+    // CreateFlexBody publishes the candidate to the cache before returning.
+    // Reserve its final owner slot first so success and placeholder insertion
+    // are non-allocating and cannot strand a cached FlexBody.
+    m_actor->m_gfx_actor->m_flexbodies.reserve(
+        m_actor->m_gfx_actor->m_flexbodies.size() + 1U);
 
     // Check if disabled by .tuneup mod.
     if (TuneupUtil::isFlexbodyAnyhowRemoved(m_actor->getWorkingTuneupDef(), flexbody_id))
@@ -5466,6 +5471,7 @@ void ActorSpawner::CreateWheelVisuals(
     try
     {
         WheelGfx visual_wheel;
+        visual_wheel.wx_wheel_id = wheel_index;
 
         const std::string wheel_mesh_name = this->ComposeName("mesh @ wheel*", wheel_index);
         visual_wheel.wx_flex_mesh = new FlexMesh(
@@ -5533,6 +5539,8 @@ void ActorSpawner::CreateFlexBodyWheelVisuals(
     }
     std::vector<ForvertTempData> forverts;
 
+    m_actor->m_gfx_actor->m_flexbodies.reserve(
+        m_actor->m_gfx_actor->m_flexbodies.size() + 1U);
     try
     {
         auto* flexbody = m_flex_factory.CreateFlexBody(
@@ -5551,9 +5559,10 @@ void ActorSpawner::CreateFlexBodyWheelVisuals(
         if (flexbody == nullptr)
             return; // Error already logged
 
-        this->CreateWheelSkidmarks(wheel_id);
-
+        // The reserved owner insertion cannot allocate. Publish ownership
+        // before any later wheel setup can throw.
         m_actor->m_gfx_actor->m_flexbodies.push_back(flexbody);
+        this->CreateWheelSkidmarks(wheel_id);
     }
     catch (Ogre::Exception& e)
     {

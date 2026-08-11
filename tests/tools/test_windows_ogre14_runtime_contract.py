@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -17,6 +18,14 @@ STAGER = (
     / "StageWindowsRuntime.cmake"
 )
 MAIN_CMAKE = REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
+APP_CONTEXT = REPOSITORY_ROOT / "source" / "main" / "AppContext.cpp"
+WINDOWS_RUNTIME_PATH = (
+    REPOSITORY_ROOT
+    / "source"
+    / "main"
+    / "utils"
+    / "WindowsRuntimePath.h"
+)
 EXPECTED_PLUGINS = (
     "Codec_FreeImage",
     "RenderSystem_Direct3D11",
@@ -72,6 +81,25 @@ def stage_runtime(
 
 
 class WindowsOgre14RuntimeContractTests(unittest.TestCase):
+    def test_launcher_extended_path_is_normalized_before_runtime_roots(self) -> None:
+        source = APP_CONTEXT.read_text(encoding="utf-8")
+        self.assertIn('#include "WindowsRuntimePath.h"', source)
+        normalize = re.search(
+            r"NormalizeWindowsExtendedPathForRuntime\s*\(\s*exe_path\s*\);",
+            source,
+        )
+        self.assertIsNotNone(normalize)
+        normalize_offset = normalize.start()
+        process_root_offset = source.index(
+            "App::sys_process_dir->setStr",
+            normalize_offset,
+        )
+        self.assertLess(normalize_offset, process_root_offset)
+
+        helper = WINDOWS_RUNTIME_PATH.read_text(encoding="utf-8")
+        self.assertIn('extended_unc_prefix = "\\\\\\\\?\\\\UNC\\\\"', helper)
+        self.assertIn('extended_prefix = "\\\\\\\\?\\\\"', helper)
+
     def test_ogre14_install_routes_dlls_through_exact_stager(self) -> None:
         source = MAIN_CMAKE.read_text(encoding="utf-8")
         self.assertEqual(source.count("StageWindowsRuntime.cmake"), 1)

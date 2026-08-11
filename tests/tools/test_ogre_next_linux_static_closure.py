@@ -225,7 +225,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             "${ROR_FREETYPE_PACKAGE_OVERVIEW_PATH}", self.entry_cmake
         )
         self.assertGreaterEqual(self.entry_cmake.count("-E compare_files"), 10)
-        self.assertIn(".stage-v10", self.entry_cmake)
+        self.assertIn(".stage-v11", self.entry_cmake)
         self.assertIn(
             "ror_ogre_next_linux_static_closure_manifest",
             self.entry_cmake,

@@ -101,6 +101,13 @@ struct OgreNextPssmShadowFramePlan final {
   OgreNextPssmProjectionExtents projection_extents;
 };
 
+/// Compare a scalar portable transform result with the same value read back
+/// after Ogre-Next evaluates its pinned native TRS/SIMD path. This deliberately
+/// has a separate, small roundoff budget; it must not be used for local asset
+/// authority or other renderer state.
+[[nodiscard]] bool NearlyEqualOgreNextPssmNativeTransformValue(
+    float expected, float observed) noexcept;
+
 [[nodiscard]] bool IsKnownOgreNextDirectionalShadowMode(
     OgreNextDirectionalShadowMode mode) noexcept;
 

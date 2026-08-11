@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Rigs of Rods exact legacy display-domain base-colour transfer.
+// The texture remains encoded UNORM through mip selection and interpolation;
+// this piece applies the IEC 61966-2-1 sRGB EOTF to filtered RGB only.
+@property( ror_display_domain_unlit )
+@piece( custom_ps_preLights )
+	midf3 rorEncodedRgb = diffuseCol.xyz;
+	diffuseCol.x = rorEncodedRgb.x <= midf_c( 0.04045f ) ?
+		rorEncodedRgb.x / midf_c( 12.92f ) :
+		pow( (rorEncodedRgb.x + midf_c( 0.055f )) / midf_c( 1.055f ), midf_c( 2.4f ) );
+	diffuseCol.y = rorEncodedRgb.y <= midf_c( 0.04045f ) ?
+		rorEncodedRgb.y / midf_c( 12.92f ) :
+		pow( (rorEncodedRgb.y + midf_c( 0.055f )) / midf_c( 1.055f ), midf_c( 2.4f ) );
+	diffuseCol.z = rorEncodedRgb.z <= midf_c( 0.04045f ) ?
+		rorEncodedRgb.z / midf_c( 12.92f ) :
+		pow( (rorEncodedRgb.z + midf_c( 0.055f )) / midf_c( 1.055f ), midf_c( 2.4f ) );
+@end
+@end

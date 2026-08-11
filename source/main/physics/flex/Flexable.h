@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "FlexMeshTopology.h"
+
 #include <OgreVector3.h>
 
 namespace RoR {

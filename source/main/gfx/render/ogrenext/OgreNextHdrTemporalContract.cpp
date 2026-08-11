@@ -457,6 +457,30 @@ void OgreNextHdrTemporalState::AbortPrepared() noexcept {
   ClearPending();
 }
 
+ValidationResult OgreNextHdrTemporalState::ResetSceneGeneration() {
+  if (!initialized_) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "state",
+        "Ogre-Next HDR temporal state is not initialized");
+  }
+  if (commit_prepared_) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "state",
+        "a prepared HDR commit must finish before scene reset");
+  }
+  HdrR16Float initial_history;
+  const ValidationResult quantized = QuantizeHdrR16Float(
+      configuration_.initial_inverse_luminance, initial_history);
+  if (!quantized) {
+    return quantized;
+  }
+  previous_inverse_luminance_ = initial_history;
+  last_history_comparison_ = OgreNextHdrHistoryComparison{};
+  committed_simulation_time_seconds_ = 0.0;
+  ClearPending();
+  return ValidationResult::Success();
+}
+
 void OgreNextHdrTemporalState::ClearPending() noexcept {
   pending_previous_inverse_luminance_ = HdrR16Float{};
   pending_history_comparison_ = OgreNextHdrHistoryComparison{};

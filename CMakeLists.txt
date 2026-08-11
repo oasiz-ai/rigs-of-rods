@@ -41,8 +41,60 @@ option(ROR_BUILD_DOC_DOXYGEN "Build documentation from sources with Doxygen" OFF
 option(ROR_BUILD_TESTS "Build deterministic dependency-free physics tests" OFF)
 option(ROR_USE_PCH "Use a Precompiled header for speeding up the build" ON)
 option(ROR_CREATE_CONTENT_FOLDER "Create the base content folder" ON)
-option(ROR_OGRE14 "Opt in to the cross-platform OGRE 14 bring-up" OFF)
+option(
+    ROR_OGRE14
+    "Build the cross-platform OGRE 14 simulation and compatibility host"
+    ON)
+option(
+    ROR_RENDERER_PUBLIC_LAUNCHER
+    "Build and package the Ogre-Next-first public renderer chooser with the admitted renderer siblings"
+    ON)
+option(
+    ROR_OGRE_NEXT_PRODUCTION_PACKAGE
+    "Build and package the verified real OgreNext renderer child"
+    ON)
+option(
+    ROR_OGRE_NEXT_DEMO_ADMISSION
+    "Admit the verified OgreNext child and PSSM for an explicit demo build"
+    OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
+
+if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
+    message(FATAL_ERROR
+        "ROR_RENDERER_PUBLIC_LAUNCHER requires ROR_OGRE14 because the "
+        "Ogre-Next presentation child uses RoR-Ogre14 as its simulation "
+        "host and bounded compatibility fallback")
+endif ()
+if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE AND
+        NOT ROR_RENDERER_PUBLIC_LAUNCHER)
+    message(FATAL_ERROR
+        "ROR_OGRE_NEXT_PRODUCTION_PACKAGE requires the public renderer launcher")
+endif ()
+if (ROR_OGRE_NEXT_DEMO_ADMISSION AND
+        NOT ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+    message(FATAL_ERROR
+        "ROR_OGRE_NEXT_DEMO_ADMISSION requires "
+        "ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON")
+endif ()
+
+if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
+    # The signed RoR.app stager owns dependency rewriting, nested-code signing,
+    # and both executable roles. A flat CMake install would bypass those gates
+    # and leave the OGRE 14 child's @rpath dependencies unresolved.
+    file(GLOB_RECURSE
+        _ror_stale_macos_install_scripts
+        LIST_DIRECTORIES FALSE
+        "${CMAKE_BINARY_DIR}/cmake_install.cmake"
+        "${CMAKE_BINARY_DIR}/*/cmake_install.cmake")
+    file(REMOVE
+        ${_ror_stale_macos_install_scripts}
+        "${CMAKE_BINARY_DIR}/CPackConfig.cmake"
+        "${CMAKE_BINARY_DIR}/CPackSourceConfig.cmake"
+        "${CMAKE_BINARY_DIR}/CMakeFiles/package.util"
+        "${CMAKE_BINARY_DIR}/CMakeFiles/package_source.util")
+    unset(_ror_stale_macos_install_scripts)
+    set(CMAKE_SKIP_INSTALL_RULES ON)
+endif ()
 
 if (ROR_OGRE14)
     include(Ogre14Platform)
@@ -209,6 +261,11 @@ ELSEIF (UNIX)
 endif (WIN32)
 
 include(DependenciesConfig)
+
+if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+    include(OgreNextProductionPackage)
+    ror_add_ogre_next_production_package()
+endif ()
 
 ################################################################################
 # Recurse into subdirectories

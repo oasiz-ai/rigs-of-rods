@@ -24,9 +24,8 @@ struct MeshResourceDescriptor;
 struct SamplerResourceDescriptor;
 struct TextureResourceDescriptor;
 
-// Version 2 replaces frontend-local ResourceHandle texture bindings with exact
-// renderer-neutral RenderAssetReference values.
-constexpr std::uint32_t kMaterialDescriptorVersion = 2U;
+// Version 3 makes the base-color transfer/filter ordering explicit.
+constexpr std::uint32_t kMaterialDescriptorVersion = 3U;
 constexpr std::size_t kMaximumMaterialDebugNameBytes = 255U;
 
 enum class MaterialModel : std::uint8_t {
@@ -38,6 +37,18 @@ enum class MaterialAlphaMode : std::uint8_t {
   OPAQUE = 0,
   MASK = 1,
   BLEND = 2,
+};
+
+/// Transfer ordering for an sRGB base-color texture.
+///
+/// SRGB_DECODE_BEFORE_FILTER is the conventional GPU sRGB texture path:
+/// texels are decoded before interpolation and mip filtering. The display
+/// domain mode preserves encoded RGB through sampling/filtering and applies
+/// the exact sRGB EOTF to the filtered result. It exists for authenticated
+/// legacy composite maps and must never be inferred from MaterialModel.
+enum class BaseColorTransfer : std::uint8_t {
+  SRGB_DECODE_BEFORE_FILTER = 0,
+  SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE = 1,
 };
 
 enum class MaterialTextureSlot : std::uint8_t {
@@ -83,6 +94,8 @@ struct MaterialDescriptor {
   std::string debug_name;
   MaterialModel model = MaterialModel::PBR_METALLIC_ROUGHNESS;
   MaterialAlphaMode alpha_mode = MaterialAlphaMode::OPAQUE;
+  BaseColorTransfer base_color_transfer =
+      BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER;
   bool double_sided = false;
 
   Float4 base_color_factor{1.0F, 1.0F, 1.0F, 1.0F};
@@ -104,6 +117,8 @@ struct MaterialDescriptor {
 
 [[nodiscard]] bool IsKnownMaterialModel(MaterialModel model) noexcept;
 [[nodiscard]] bool IsKnownMaterialAlphaMode(MaterialAlphaMode mode) noexcept;
+[[nodiscard]] bool
+IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept;
 [[nodiscard]] ValidationResult
 ValidateMaterialDescriptor(const MaterialDescriptor &descriptor);
 /// Validates the exact vertex streams needed to apply this material without

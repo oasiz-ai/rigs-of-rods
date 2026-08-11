@@ -22,6 +22,7 @@
 #pragma once
 
 #include "Application.h"
+#include "Flexable.h"
 #include "SimData.h"
 
 #include <Ogre.h>
@@ -76,6 +77,14 @@ public:
 
     Ogre::Vector3   UpdateFlexObj();
     void            ScaleFlexObj(float factor);
+    bool            copyJoinedCpuStaging(
+                        std::vector<Ogre::Vector3>& positions,
+                        std::vector<Ogre::Vector3>& normals,
+                        std::vector<Ogre::Vector2>& texcoords0) const;
+    const std::vector<FlexMeshTopologySection>& getCpuTopologySections() const
+    {
+        return m_cpu_topology_sections;
+    }
 
 private:
 
@@ -107,7 +116,8 @@ private:
 
     size_t                      m_index_count;
     unsigned short*             m_indices;
-    int                         m_triangle_count;	
+    int                         m_triangle_count;
+    std::vector<FlexMeshTopologySection> m_cpu_topology_sections;
 };
 
 /// @} // addtogroup Flex

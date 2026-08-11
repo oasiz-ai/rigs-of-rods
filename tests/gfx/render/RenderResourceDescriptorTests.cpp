@@ -248,6 +248,12 @@ void TestDynamicMeshUpdateCompatibility() {
   Require(ValidateDynamicMeshUpdateCompatibility(mesh, update).ok(),
           "valid in-range dynamic mesh update was rejected");
 
+  MeshResourceDescriptor malformed_mesh = mesh;
+  malformed_mesh.positions.front().x = std::numeric_limits<float>::infinity();
+  RequireCode(ValidateDynamicMeshUpdateCompatibility(malformed_mesh, update),
+              ValidationCode::NON_FINITE_VALUE,
+              "standalone update validation trusted a malformed mesh");
+
   MeshInstanceDescriptor instance;
   instance.instance_id = 7U;
   instance.mesh = RenderAssetReference::Create(
@@ -259,6 +265,10 @@ void TestDynamicMeshUpdateCompatibility() {
   instance.local_bounds = mesh.local_bounds;
   Require(ValidateMeshInstanceCompatibility(mesh, instance, nullptr).ok(),
           "base instance bounds matching its live mesh were rejected");
+  RequireCode(
+      ValidateMeshInstanceCompatibility(malformed_mesh, instance, nullptr),
+      ValidationCode::NON_FINITE_VALUE,
+      "standalone instance validation trusted a malformed mesh");
   instance.local_bounds.maximum.x = 2.0F;
   RequireCode(ValidateMeshInstanceCompatibility(mesh, instance, nullptr),
               ValidationCode::INVALID_BOUNDS,
@@ -367,6 +377,19 @@ void TestEnvironmentTextureCompatibility() {
   sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
   Require(ValidateEnvironmentTextureCompatibility(texture, sampler).ok(),
           "valid HDR environment texture and sampler were rejected");
+
+  TextureResourceDescriptor malformed_texture = texture;
+  malformed_texture.version = kTextureResourceDescriptorVersion + 1U;
+  RequireCode(
+      ValidateEnvironmentTextureCompatibility(malformed_texture, sampler),
+      ValidationCode::UNSUPPORTED_VERSION,
+      "standalone environment validation trusted a malformed texture");
+  SamplerResourceDescriptor malformed_sampler = sampler;
+  malformed_sampler.version = kSamplerResourceDescriptorVersion + 1U;
+  RequireCode(
+      ValidateEnvironmentTextureCompatibility(texture, malformed_sampler),
+      ValidationCode::UNSUPPORTED_VERSION,
+      "standalone environment validation trusted a malformed sampler");
 
   texture.type = TextureResourceType::TEXTURE_2D_ARRAY;
   RequireCode(ValidateEnvironmentTextureCompatibility(texture, sampler),

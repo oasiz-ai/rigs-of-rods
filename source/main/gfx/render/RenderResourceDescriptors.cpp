@@ -9,6 +9,7 @@
 #include "RenderResourceDescriptors.h"
 
 #include "SceneSnapshot.h"
+#include "ValidatedAssetCompatibilityInternal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -537,6 +538,16 @@ ValidationResult ValidateDynamicMeshUpdateCompatibility(
   if (!validation) {
     return validation;
   }
+
+  return Detail::ValidateDynamicMeshUpdateCompatibilityFromValidatedMesh(
+      ValidatedAssetCompatibilityAccess{}, mesh, update);
+}
+
+ValidationResult
+Detail::ValidateDynamicMeshUpdateCompatibilityFromValidatedMesh(
+    const ValidatedAssetCompatibilityAccess &,
+    const MeshResourceDescriptor &mesh,
+    const DynamicMeshUpdateDescriptor &update) {
   if (!mesh.dynamic) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE, "mesh.dynamic",
@@ -596,6 +607,15 @@ ValidationResult ValidateMeshInstanceCompatibility(
   if (!validation) {
     return validation;
   }
+
+  return Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
+      ValidatedAssetCompatibilityAccess{}, mesh, instance, deformation_update);
+}
+
+ValidationResult Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
+    const ValidatedAssetCompatibilityAccess &access,
+    const MeshResourceDescriptor &mesh, const MeshInstanceDescriptor &instance,
+    const DynamicMeshUpdateDescriptor *deformation_update) {
   if (instance.topology_revision != mesh.topology_revision) {
     return ValidationResult::Failure(
         ValidationCode::MISSING_REFERENCE, "instance.topology_revision",
@@ -619,8 +639,9 @@ ValidationResult ValidateMeshInstanceCompatibility(
         ValidationCode::MISSING_REFERENCE, "deformation_update",
         "non-base instance revision requires its full deformation update");
   }
-  validation =
-      ValidateDynamicMeshUpdateCompatibility(mesh, *deformation_update);
+  ValidationResult validation =
+      ValidateDynamicMeshUpdateCompatibilityFromValidatedMesh(
+          access, mesh, *deformation_update);
   if (!validation) {
     return validation;
   }
@@ -653,6 +674,16 @@ ValidationResult ValidateEnvironmentTextureCompatibility(
   if (!validation) {
     return validation;
   }
+
+  return Detail::ValidateEnvironmentTextureCompatibilityFromValidatedAssets(
+      ValidatedAssetCompatibilityAccess{}, texture, sampler);
+}
+
+ValidationResult
+Detail::ValidateEnvironmentTextureCompatibilityFromValidatedAssets(
+    const ValidatedAssetCompatibilityAccess &,
+    const TextureResourceDescriptor &texture,
+    const SamplerResourceDescriptor &sampler) {
   const bool floating_rgba =
       texture.format == TextureResourceFormat::RGBA16_FLOAT ||
       texture.format == TextureResourceFormat::RGBA32_FLOAT;

@@ -23,6 +23,8 @@
 
 #include <Ogre.h>
 
+#include <utility>
+
 #include "ApproxMath.h"
 #include "SimData.h"
 #include "GfxActor.h"
@@ -225,6 +227,20 @@ FlexMesh::FlexMesh(
     m_submesh_tiretread->indexData->indexCount = tiretread_num_indices;
     m_submesh_tiretread->indexData->indexStart = 0;
 
+    m_cpu_topology_sections.resize(2U);
+    m_cpu_topology_sections[0U].index_format =
+        FlexMeshTopologySection::IndexFormat::UINT16;
+    m_cpu_topology_sections[0U].vertex_count =
+        static_cast<std::uint32_t>(m_vertices.size());
+    m_cpu_topology_sections[0U].indices.assign(
+        m_wheelface_indices.begin(), m_wheelface_indices.end());
+    m_cpu_topology_sections[1U].index_format =
+        FlexMeshTopologySection::IndexFormat::UINT16;
+    m_cpu_topology_sections[1U].vertex_count =
+        static_cast<std::uint32_t>(m_vertices.size());
+    m_cpu_topology_sections[1U].indices.assign(
+        m_tiretread_indices.begin(), m_tiretread_indices.end());
+
     // Set bounding information (for culling)
     m_mesh->_setBounds(AxisAlignedBox(-1,-1,0,1,1,0), true);
 
@@ -299,4 +315,30 @@ Vector3 FlexMesh::flexitFinal()
 {
     m_hw_vbuf->writeData(0, m_hw_vbuf->getSizeInBytes(), m_vertices.data(), true);
     return m_flexit_center;
+}
+
+bool FlexMesh::copyJoinedCpuStaging(
+    std::vector<Ogre::Vector3>& positions,
+    std::vector<Ogre::Vector3>& normals,
+    std::vector<Ogre::Vector2>& texcoords0) const
+{
+    if (!m_mesh || m_vertices.empty() || m_hw_vbuf.isNull())
+        return false;
+
+    std::vector<Ogre::Vector3> candidate_positions;
+    std::vector<Ogre::Vector3> candidate_normals;
+    std::vector<Ogre::Vector2> candidate_texcoords;
+    candidate_positions.reserve(m_vertices.size());
+    candidate_normals.reserve(m_vertices.size());
+    candidate_texcoords.reserve(m_vertices.size());
+    for (const FlexMeshVertex& vertex : m_vertices)
+    {
+        candidate_positions.push_back(vertex.position);
+        candidate_normals.push_back(vertex.normal);
+        candidate_texcoords.push_back(vertex.texcoord);
+    }
+    positions = std::move(candidate_positions);
+    normals = std::move(candidate_normals);
+    texcoords0 = std::move(candidate_texcoords);
+    return true;
 }

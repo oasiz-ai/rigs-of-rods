@@ -39,6 +39,10 @@ constexpr std::uint32_t kHeight = 128U;
 constexpr std::uint64_t kRegistryId = UINT64_C(0x4E315F534D4F4B45);
 constexpr std::uint64_t kRetirementRegistryId =
     UINT64_C(0x5254345F52455449);
+constexpr std::uint64_t kDynamicRegistryId =
+    UINT64_C(0x44594E5F4D455348);
+constexpr std::uint64_t kDisplayDomainRegistryId =
+    UINT64_C(0x444953505F554E4C);
 
 struct Arguments {
   std::string media_root;
@@ -89,6 +93,13 @@ struct SmokeResult final {
   bool reflection_same_device_deterministic_replay = false;
   OgreNextN1TextureAllocationAudit replacement_final_audit;
   bool live_replacement_retirement = false;
+  struct DynamicMeshEvidence final {
+    Metrics base;
+    Metrics deformed;
+    std::size_t changed_pixels = 0U;
+    bool base_exact_replay = false;
+    bool deformed_exact_replay = false;
+  } dynamic_mesh;
   struct TextureRetirementEvidence final {
     OgreNextN1TextureAllocationAudit initial;
     OgreNextN1TextureAllocationAudit expanded;
@@ -118,6 +129,19 @@ struct SmokeResult final {
     std::size_t sdr_changed_pixels = 0U;
     bool only_tangent_w_changed = false;
   } tangent_handedness;
+  struct DisplayDomainUnlitEvidence final {
+    std::array<float, 3U> encoded_filtered{};
+    std::array<float, 3U> filter_then_eotf{};
+    std::array<float, 3U> decode_before_filter{};
+    std::size_t matching_foreground_pixels = 0U;
+    std::size_t decode_before_filter_pixels = 0U;
+    bool complete_unorm_mips_uploaded = false;
+    bool full32_after_filter_shader_executed = false;
+    bool alpha_untouched_opaque = false;
+    bool no_cast_or_receive_shadow_flags = false;
+    bool usage_transition_rollback_exact = false;
+    bool usage_transition_commit_exact = false;
+  } display_domain_unlit;
   bool non_uniform_scale_rejected_before_submission = false;
   struct HdrCompositorEvidence final {
     OgreNextHdrCompositorAudit initialized;
@@ -344,6 +368,100 @@ TextureResourceDescriptor MakeTexture(TextureColorSpace color_space,
   std::memcpy(mip.bytes.data() + 12U, rgba.data() + 8U, 8U);
   texture.mip_levels.push_back(std::move(mip));
   return texture;
+}
+
+RenderAssetDelta MakeDisplayDomainUnlitCatalog() {
+  RenderAssetDelta delta;
+  delta.registry_id = kDisplayDomainRegistryId;
+  delta.sequence = 1U;
+  delta.full_snapshot = true;
+
+  MeshResourceDescriptor mesh = MakeMesh(true);
+  mesh.debug_name = "RT4/V1 constant-UV display-domain Unlit triangle";
+  mesh.texture_coordinates_0.assign(mesh.positions.size(), Float2{0.5F, 0.5F});
+  RenderAssetMutation mesh_mutation;
+  mesh_mutation.asset = AssetRef(RenderAssetKind::MESH, 1U);
+  mesh_mutation.payload = std::move(mesh);
+  delta.mutations.push_back(std::move(mesh_mutation));
+
+  MaterialDescriptor material;
+  material.debug_name = "RT4/V1 exact display-domain Unlit";
+  material.model = MaterialModel::UNLIT;
+  material.base_color_transfer =
+      BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+  material.base_color_texture.texture = AssetRef(RenderAssetKind::TEXTURE, 3U);
+  material.base_color_texture.sampler = AssetRef(RenderAssetKind::SAMPLER, 4U);
+  RenderAssetMutation material_mutation;
+  material_mutation.asset = AssetRef(RenderAssetKind::MATERIAL, 2U);
+  material_mutation.payload = std::move(material);
+  delta.mutations.push_back(std::move(material_mutation));
+
+  TextureResourceDescriptor texture;
+  texture.debug_name = "RT4/V1 complete display-domain RGBA8 mip chain";
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 2U;
+  texture.height = 2U;
+  TextureMipLevelDescriptor base;
+  base.width = 2U;
+  base.height = 2U;
+  base.row_pitch_bytes = 8U;
+  base.layer_pitch_bytes = 16U;
+  base.bytes = {0U,   32U,  64U,  255U, 255U, 96U,  64U,  255U,
+                0U,   160U, 192U, 255U, 255U, 224U, 192U, 255U};
+  texture.mip_levels.push_back(std::move(base));
+  TextureMipLevelDescriptor last;
+  last.width = 1U;
+  last.height = 1U;
+  last.row_pitch_bytes = 4U;
+  last.layer_pitch_bytes = 4U;
+  last.bytes = {250U, 7U, 201U, 255U};
+  texture.mip_levels.push_back(std::move(last));
+  RenderAssetMutation texture_mutation;
+  texture_mutation.asset = AssetRef(RenderAssetKind::TEXTURE, 3U);
+  texture_mutation.payload = std::move(texture);
+  delta.mutations.push_back(std::move(texture_mutation));
+
+  SamplerResourceDescriptor sampler;
+  sampler.debug_name = "RT4/V1 display-domain bilinear nearest-mip clamp";
+  sampler.mip_filter = SamplerFilter::NEAREST;
+  sampler.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_w = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.maximum_lod = 1.0F;
+  RenderAssetMutation sampler_mutation;
+  sampler_mutation.asset = AssetRef(RenderAssetKind::SAMPLER, 4U);
+  sampler_mutation.payload = std::move(sampler);
+  delta.mutations.push_back(std::move(sampler_mutation));
+  return delta;
+}
+
+RenderAssetDelta MakeDisplayDomainTransferCatalog(
+    BaseColorTransfer transfer, std::uint64_t sequence,
+    std::uint64_t material_revision) {
+  RenderAssetDelta delta = MakeDisplayDomainUnlitCatalog();
+  delta.sequence = sequence;
+  const auto material_record = std::find_if(
+      delta.mutations.begin(), delta.mutations.end(),
+      [](const RenderAssetMutation &mutation) {
+        return mutation.asset.kind == RenderAssetKind::MATERIAL;
+      });
+  Require(material_record != delta.mutations.end(),
+          "display-domain role-transition catalog lost its material");
+  RenderAssetMutation &material_mutation = *material_record;
+  material_mutation.asset =
+      AssetRef(RenderAssetKind::MATERIAL, 2U, material_revision);
+  MaterialDescriptor &material =
+      std::get<MaterialDescriptor>(material_mutation.payload);
+  material.base_color_transfer = transfer;
+  material.model =
+      transfer == BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE
+          ? MaterialModel::UNLIT
+          : MaterialModel::PBR_METALLIC_ROUGHNESS;
+  material.debug_name =
+      transfer == BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE
+          ? "RT4/V1 exact display-domain Unlit role transition"
+          : "RT4/V1 exact decode-before-filter PBR role transition";
+  return delta;
 }
 
 TextureResourceDescriptor MakeRetirementTexture(std::uint64_t revision) {
@@ -581,6 +699,21 @@ RenderAssetDelta MakeCatalog(bool modern_pbr = false,
     delta.mutations.push_back(std::move(normal));
   }
   return delta;
+}
+
+RenderAssetDelta MakeDynamicCatalog(bool modern_pbr) {
+  RenderAssetDelta catalog = MakeCatalog(
+      modern_pbr, modern_pbr ? &kVariantSpecs.front() : nullptr);
+  catalog.registry_id = kDynamicRegistryId;
+  const auto mesh = std::find_if(
+      catalog.mutations.begin(), catalog.mutations.end(),
+      [](const RenderAssetMutation &mutation) {
+        return mutation.asset.kind == RenderAssetKind::MESH;
+      });
+  Require(mesh != catalog.mutations.end(),
+          "dynamic mesh proof catalog lost its base mesh");
+  std::get<MeshResourceDescriptor>(mesh->payload).dynamic = true;
+  return catalog;
 }
 
 const RenderAssetMutation &MutationFor(const RenderAssetDelta &catalog,
@@ -898,6 +1031,86 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
   return result.snapshot;
 }
 
+std::shared_ptr<const SceneSnapshot> MakeDisplayDomainUnlitScene(
+    std::uint64_t asset_sequence = 1U,
+    std::uint64_t material_revision = 1U,
+    std::uint64_t snapshot_id = 900U,
+    Float3 ambient_radiance = Float3{}) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = kDisplayDomainRegistryId;
+  descriptor.asset_sequence = asset_sequence;
+  descriptor.simulation_tick = snapshot_id;
+  descriptor.simulation_time_seconds =
+      static_cast<double>(snapshot_id) / 48.0;
+  descriptor.environment.ambient_radiance = ambient_radiance;
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
+  instance.material =
+      AssetRef(RenderAssetKind::MATERIAL, 2U, material_revision);
+  instance.local_bounds = MakeMesh(true).local_bounds;
+  instance.flags = MESH_INSTANCE_VISIBLE_IN_REFLECTIONS;
+  descriptor.mesh_instances.push_back(instance);
+  SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
+  if (!result) {
+    Fail("could not create display-domain Unlit smoke scene: " +
+         result.validation.field + ": " + result.validation.detail);
+  }
+  return result.snapshot;
+}
+
+std::shared_ptr<const SceneSnapshot>
+MakeDynamicScene(std::uint64_t snapshot_id, bool modern_pbr,
+                 bool deformed) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = kDynamicRegistryId;
+  descriptor.asset_sequence = 1U;
+  descriptor.simulation_tick = snapshot_id;
+  descriptor.simulation_time_seconds =
+      static_cast<double>(snapshot_id) / 48.0;
+  descriptor.environment.ambient_radiance = {0.03F, 0.04F, 0.055F};
+
+  MeshResourceDescriptor mesh = MakeMesh(modern_pbr);
+  MeshInstanceDescriptor instance;
+  instance.instance_id = 1U;
+  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U);
+  instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U);
+  instance.deformation_revision = deformed ? 2U : 1U;
+  if (deformed) {
+    mesh.positions[2U] = {0.65F, 0.30F, 0.0F};
+    mesh.local_bounds.minimum = {-1.15F, -0.85F, 0.0F};
+    mesh.local_bounds.maximum = {1.15F, 0.30F, 0.0F};
+  }
+  instance.local_bounds = mesh.local_bounds;
+  descriptor.mesh_instances.push_back(instance);
+
+  if (deformed) {
+    DynamicMeshUpdateDescriptor update;
+    update.update_sequence = 1U;
+    update.instance_id = instance.instance_id;
+    update.mesh = instance.mesh;
+    update.topology_revision = instance.topology_revision;
+    update.deformation_revision = instance.deformation_revision;
+    update.positions = mesh.positions;
+    update.normals = mesh.normals;
+    update.tangents = mesh.tangents;
+    update.velocities = mesh.velocities;
+    update.has_updated_bounds = true;
+    update.updated_local_bounds = mesh.local_bounds;
+    descriptor.dynamic_mesh_updates.push_back(std::move(update));
+  }
+
+  SceneSnapshotCreateResult result =
+      CreateSceneSnapshot(std::move(descriptor));
+  if (!result) {
+    Fail("could not create full dynamic-mesh smoke scene: " +
+         result.validation.field + ": " + result.validation.detail);
+  }
+  return result.snapshot;
+}
+
 std::shared_ptr<const SceneSnapshot>
 MakeRetirementScene(std::uint64_t revision) {
   SceneSnapshotDescriptor descriptor;
@@ -1065,7 +1278,7 @@ std::size_t CountChangedPixels(const std::vector<std::uint8_t> &baseline,
                                std::size_t bytes_per_pixel) {
   Require(baseline.size() == variant.size() && bytes_per_pixel != 0U &&
               baseline.size() % bytes_per_pixel == 0U,
-          "RT4/V1 evidence attachment layout changed");
+          "renderer evidence attachment layout changed");
   std::size_t changed = 0U;
   for (std::size_t offset = 0U; offset < baseline.size();
        offset += bytes_per_pixel) {
@@ -1583,7 +1796,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"relocated_executable\": true,\n"
          << "    \"compositor2\": true,\n"
          << "    \"ui_included\": false,\n"
-         << "    \"cpu_readback_completed\": true,\n";
+         << "    \"cpu_readback_completed\": true,\n"
+         << "    \"dynamic_mesh_updates\": \"synchronous_full_frame_owned\",\n";
   if (modern_pbr) {
     report << "    \"analytic_lights_calibrated\": true,\n"
            << "    \"directional_lux_to_native_power_scale\": 0.0009765625,\n"
@@ -1611,7 +1825,26 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
   report
          << "    \"transactional_replay_after_restart\": true\n"
          << "  },\n"
-         ;
+         << "  \"dynamic_meshes\": {\n"
+         << "    \"schema\": \"ror.ogre_next_dynamic_mesh.v1\",\n"
+         << "    \"base_deformation_revision\": 1,\n"
+         << "    \"deformed_deformation_revision\": 2,\n"
+         << "    \"full_update_owned\": true,\n"
+         << "    \"solver_memory_aliased\": false,\n"
+         << "    \"changed_pixels\": "
+         << result.dynamic_mesh.changed_pixels << ",\n"
+         << "    \"base_attachment_fnv1a64\": \""
+         << HexHash(result.dynamic_mesh.base.attachment_fnv1a64) << "\",\n"
+         << "    \"deformed_attachment_fnv1a64\": \""
+         << HexHash(result.dynamic_mesh.deformed.attachment_fnv1a64)
+         << "\",\n"
+         << "    \"base_exact_replay\": "
+         << (result.dynamic_mesh.base_exact_replay ? "true" : "false")
+         << ",\n"
+         << "    \"deformed_exact_replay\": "
+         << (result.dynamic_mesh.deformed_exact_replay ? "true" : "false")
+         << "\n"
+         << "  },\n";
   if (modern_pbr) {
     constexpr std::size_t kRawReflectionBytes = 32U * 32U * 6U * 8U;
     constexpr std::size_t kFilteredReflectionBytes =
@@ -1721,6 +1954,59 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "      \"max_absolute_rgb\": "
            << filtered_reflection.max_absolute_rgb << "\n"
            << "    }\n"
+           << "  },\n"
+           << "  \"display_domain_unlit\": {\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_display_domain_unlit.v1\",\n"
+           << "    \"base_color_transfer\": \"SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE\",\n"
+           << "    \"upload_format\": \"RGBA8_UNORM\",\n"
+           << "    \"mip_policy\": \"complete_base_to_1x1_nearest_mip\",\n"
+           << "    \"sampler\": \"linear_min_mag_clamp_edge\",\n"
+           << "    \"shader_precision\": \"PrecisionFull32\",\n"
+           << "    \"encoded_filtered\": ["
+           << result.display_domain_unlit.encoded_filtered[0U] << ", "
+           << result.display_domain_unlit.encoded_filtered[1U] << ", "
+           << result.display_domain_unlit.encoded_filtered[2U] << "],\n"
+           << "    \"filter_then_eotf\": ["
+           << result.display_domain_unlit.filter_then_eotf[0U] << ", "
+           << result.display_domain_unlit.filter_then_eotf[1U] << ", "
+           << result.display_domain_unlit.filter_then_eotf[2U] << "],\n"
+           << "    \"decode_before_filter\": ["
+           << result.display_domain_unlit.decode_before_filter[0U] << ", "
+           << result.display_domain_unlit.decode_before_filter[1U] << ", "
+           << result.display_domain_unlit.decode_before_filter[2U] << "],\n"
+           << "    \"matching_foreground_pixels\": "
+           << result.display_domain_unlit.matching_foreground_pixels << ",\n"
+           << "    \"decode_before_filter_pixels\": "
+           << result.display_domain_unlit.decode_before_filter_pixels << ",\n"
+           << "    \"complete_unorm_mips_uploaded\": "
+           << (result.display_domain_unlit.complete_unorm_mips_uploaded
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"full32_after_filter_shader_executed\": "
+           << (result.display_domain_unlit.full32_after_filter_shader_executed
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"alpha_untouched_opaque\": "
+           << (result.display_domain_unlit.alpha_untouched_opaque ? "true"
+                                                                  : "false")
+           << ",\n"
+           << "    \"no_cast_or_receive_shadow_flags\": "
+           << (result.display_domain_unlit.no_cast_or_receive_shadow_flags
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"usage_transition_rollback_exact\": "
+           << (result.display_domain_unlit.usage_transition_rollback_exact
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"usage_transition_commit_exact\": "
+           << (result.display_domain_unlit.usage_transition_commit_exact
+                   ? "true"
+                   : "false")
+           << "\n"
            << "  },\n"
            << "  \"texture_allocations\": {\n"
            << "    \"version\": " << result.texture_allocations.version
@@ -2199,6 +2485,311 @@ void InitializeAndSync(OgreNextN1Frontend &frontend,
   const FrontendInitializationRequest initialization = Initialization();
   RequireSuccess(frontend.Initialize(initialization), "Initialize");
   RequireSuccess(frontend.SynchronizeAssets(catalog), "SynchronizeAssets");
+}
+
+float SrgbDisplayDomainEotf(float encoded) {
+  return encoded <= 0.04045F
+             ? encoded / 12.92F
+             : std::pow((encoded + 0.055F) / 1.055F, 2.4F);
+}
+
+std::pair<bool, bool>
+RunDisplayDomainUsageTransitionProof(const std::string &media_root) {
+  const RenderAssetDelta decode_before = MakeDisplayDomainTransferCatalog(
+      BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER, 1U, 1U);
+  const RenderAssetDelta display_domain = MakeDisplayDomainTransferCatalog(
+      BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE, 2U, 2U);
+  const RenderAssetDelta decode_before_replacement =
+      MakeDisplayDomainTransferCatalog(
+          BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER, 3U, 3U);
+  const auto decode_before_scene = MakeDisplayDomainUnlitScene(
+      1U, 1U, 910U, Float3{1.0F, 1.0F, 1.0F});
+  const auto display_domain_scene =
+      MakeDisplayDomainUnlitScene(2U, 2U, 911U);
+  const auto decode_before_replacement_scene = MakeDisplayDomainUnlitScene(
+      3U, 3U, 912U, Float3{1.0F, 1.0F, 1.0F});
+
+  OgreNextN1Configuration configuration;
+  configuration.shader_media_root = media_root;
+  configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  configuration.texture_upload_failure_stage =
+      OgreNextN1TextureUploadFailureStage::
+          AFTER_ROLE_TRANSITION_CANDIDATE_TEXTURES;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend, decode_before);
+
+  const auto require_audit =
+      [](const OgreNextN1TextureAllocationAudit &audit,
+         std::uint64_t creates, std::uint64_t destroys,
+         std::uint64_t live, const char *label) {
+        Require(audit.version == 1U && audit.live_source_textures == 1U &&
+                    audit.sampled_rgba_allocations == 1U &&
+                    audit.roughness_r8_allocations == 0U &&
+                    audit.metallic_r8_allocations == 0U &&
+                    audit.normal_rg8_allocations == 0U &&
+                    audit.native_allocation_creates == creates &&
+                    audit.native_allocation_destroys == destroys &&
+                    audit.live_native_allocations == live &&
+                    audit.retired_name_lookups == destroys &&
+                    audit.retired_name_rejections == destroys &&
+                    audit.exact_usage,
+                std::string("display-domain usage transition audit drifted at ") +
+                    label);
+      };
+  require_audit(frontend.QueryTextureAllocationAudit(), 1U, 0U, 1U,
+                "initial decode-before-filter");
+
+  const RenderOperationResult injected =
+      frontend.SynchronizeAssets(display_domain);
+  Require(injected.code == RenderOperationCode::BACKEND_FAILURE &&
+              injected.detail.find("injected RT4/V1") != std::string::npos,
+          "display-domain usage-transition rollback seam did not fire");
+  require_audit(frontend.QueryTextureAllocationAudit(), 2U, 1U, 1U,
+                "injected candidate rollback");
+
+  RenderFrameOutput preserved_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, decode_before_scene,
+                               PixelFormat::RGBA16_FLOAT),
+                     preserved_output),
+                 "decode-before-filter Render after transition rollback");
+  static_cast<void>(InspectHdr(preserved_output, false));
+
+  RequireSuccess(frontend.SynchronizeAssets(display_domain),
+                 "display-domain role-transition retry");
+  require_audit(frontend.QueryTextureAllocationAudit(), 3U, 2U, 1U,
+                "display-domain commit");
+  RenderFrameOutput display_domain_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(2U, display_domain_scene,
+                               PixelFormat::RGBA16_FLOAT),
+                     display_domain_output),
+                 "display-domain Render after role-transition commit");
+  static_cast<void>(InspectHdr(display_domain_output, false));
+
+  RequireSuccess(frontend.SynchronizeAssets(decode_before_replacement),
+                 "decode-before-filter reverse role transition");
+  require_audit(frontend.QueryTextureAllocationAudit(), 4U, 3U, 1U,
+                "decode-before-filter reverse commit");
+  RenderFrameOutput replacement_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(3U, decode_before_replacement_scene,
+                               PixelFormat::RGBA16_FLOAT),
+                     replacement_output),
+                 "decode-before-filter Render after reverse transition");
+  static_cast<void>(InspectHdr(replacement_output, false));
+
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "display-domain usage-transition Shutdown");
+  const OgreNextN1TextureAllocationAudit after_shutdown =
+      frontend.QueryTextureAllocationAudit();
+  Require(after_shutdown.version == 1U &&
+              after_shutdown.native_allocation_creates == 4U &&
+              after_shutdown.native_allocation_destroys == 4U &&
+              after_shutdown.live_native_allocations == 0U &&
+              after_shutdown.retired_name_lookups == 4U &&
+              after_shutdown.retired_name_rejections == 4U,
+          "display-domain usage transition leaked a native allocation");
+  return {true, true};
+}
+
+SmokeResult::DisplayDomainUnlitEvidence
+RunDisplayDomainUnlitProof(const std::string &media_root) {
+  const RenderAssetDelta catalog = MakeDisplayDomainUnlitCatalog();
+  const auto scene = MakeDisplayDomainUnlitScene();
+  OgreNextN1Frontend frontend(OgreNextN1Configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1});
+  InitializeAndSync(frontend, catalog);
+
+  const OgreNextN1TextureAllocationAudit allocations =
+      frontend.QueryTextureAllocationAudit();
+  const OgreNextN1DisplayDomainUploadAudit native_upload =
+      frontend.QueryDisplayDomainUploadAudit();
+  SmokeResult::DisplayDomainUnlitEvidence evidence;
+  evidence.complete_unorm_mips_uploaded =
+      allocations.version == 1U && allocations.live_source_textures == 1U &&
+      allocations.sampled_rgba_allocations == 1U &&
+      allocations.roughness_r8_allocations == 0U &&
+      allocations.metallic_r8_allocations == 0U &&
+      allocations.normal_rg8_allocations == 0U &&
+      allocations.live_native_allocations == 1U && allocations.exact_usage &&
+      native_upload.version == 1U && native_upload.source_textures == 1U &&
+      native_upload.native_readbacks == 1U &&
+      native_upload.expected_mip_levels == 2U &&
+      native_upload.verified_mip_levels == 2U &&
+      native_upload.verified_rows == 3U &&
+      native_upload.verified_texels == 5U &&
+      native_upload.verified_rgba_bytes == 20U &&
+      native_upload.exact_source_rgba_to_native_texture;
+
+  RenderFrameOutput output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, scene, PixelFormat::RGBA16_FLOAT), output),
+                 "display-domain Unlit RGBA16_FLOAT Render");
+  const FrameAttachment &attachment =
+      RequireAttachment(output, PixelFormat::RGBA16_FLOAT);
+  Require(attachment.row_pitch_bytes == static_cast<std::uint64_t>(kWidth) * 8U &&
+              attachment.bytes.size() ==
+                  static_cast<std::size_t>(attachment.row_pitch_bytes) *
+                      kHeight,
+          "display-domain Unlit HDR readback layout changed");
+
+  constexpr std::array<std::array<std::uint8_t, 4U>, 3U> kEncodedTexels{{
+      {{0U, 255U, 0U, 255U}},
+      {{32U, 96U, 160U, 224U}},
+      {{64U, 64U, 192U, 192U}},
+  }};
+  std::array<HdrR16Float, 3U> expected_after{};
+  std::array<HdrR16Float, 3U> expected_before{};
+  float maximum_oracle_separation = 0.0F;
+  for (std::size_t channel = 0U; channel < 3U; ++channel) {
+    const auto normalized = [&](std::size_t texel) {
+      return static_cast<float>(kEncodedTexels[channel][texel]) / 255.0F;
+    };
+    const float top = (normalized(0U) + normalized(1U)) * 0.5F;
+    const float bottom = (normalized(2U) + normalized(3U)) * 0.5F;
+    evidence.encoded_filtered[channel] = (top + bottom) * 0.5F;
+    evidence.filter_then_eotf[channel] =
+        SrgbDisplayDomainEotf(evidence.encoded_filtered[channel]);
+    const float decoded_top =
+        (SrgbDisplayDomainEotf(normalized(0U)) +
+         SrgbDisplayDomainEotf(normalized(1U))) *
+        0.5F;
+    const float decoded_bottom =
+        (SrgbDisplayDomainEotf(normalized(2U)) +
+         SrgbDisplayDomainEotf(normalized(3U))) *
+        0.5F;
+    evidence.decode_before_filter[channel] =
+        (decoded_top + decoded_bottom) * 0.5F;
+    maximum_oracle_separation = std::max(
+        maximum_oracle_separation,
+        std::fabs(evidence.filter_then_eotf[channel] -
+                  evidence.decode_before_filter[channel]));
+    Require(QuantizeHdrR16Float(evidence.filter_then_eotf[channel],
+                                expected_after[channel])
+                    .ok() &&
+                QuantizeHdrR16Float(evidence.decode_before_filter[channel],
+                                    expected_before[channel])
+                    .ok(),
+            "display-domain Unlit CPU oracle could not quantize to RGBA16F");
+  }
+  Require(maximum_oracle_separation > 0.03F,
+          "display-domain Unlit fixture does not separate transfer ordering");
+
+  HdrR16Float expected_opaque_alpha;
+  Require(QuantizeHdrR16Float(1.0F, expected_opaque_alpha).ok(),
+          "display-domain Unlit opaque alpha oracle is invalid");
+  std::size_t matching_opaque_alpha_pixels = 0U;
+  for (std::size_t pixel = 0U;
+       pixel < static_cast<std::size_t>(kWidth) * kHeight; ++pixel) {
+    bool matches_after = true;
+    bool matches_before = true;
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+      std::uint16_t observed = 0U;
+      std::memcpy(&observed,
+                  attachment.bytes.data() + pixel * 8U + channel * 2U,
+                  sizeof(observed));
+      matches_after =
+          matches_after &&
+          std::abs(static_cast<int>(observed) -
+                   static_cast<int>(expected_after[channel].bits)) <= 2;
+      matches_before =
+          matches_before &&
+          std::abs(static_cast<int>(observed) -
+                   static_cast<int>(expected_before[channel].bits)) <= 2;
+    }
+    evidence.matching_foreground_pixels += matches_after ? 1U : 0U;
+    evidence.decode_before_filter_pixels += matches_before ? 1U : 0U;
+    std::uint16_t observed_alpha = 0U;
+    std::memcpy(&observed_alpha,
+                attachment.bytes.data() + pixel * 8U + 3U * 2U,
+                sizeof(observed_alpha));
+    matching_opaque_alpha_pixels +=
+        matches_after &&
+                std::abs(static_cast<int>(observed_alpha) -
+                         static_cast<int>(expected_opaque_alpha.bits)) <= 1
+            ? 1U
+            : 0U;
+  }
+  evidence.no_cast_or_receive_shadow_flags =
+      (scene->mesh_instances().front().flags &
+       (MESH_INSTANCE_CASTS_SHADOW | MESH_INSTANCE_RECEIVES_SHADOW)) == 0U;
+  evidence.full32_after_filter_shader_executed =
+      evidence.matching_foreground_pixels >= 512U &&
+      evidence.decode_before_filter_pixels == 0U;
+  evidence.alpha_untouched_opaque =
+      matching_opaque_alpha_pixels == evidence.matching_foreground_pixels &&
+      matching_opaque_alpha_pixels >= 512U;
+  Require(evidence.complete_unorm_mips_uploaded &&
+              evidence.full32_after_filter_shader_executed &&
+              evidence.alpha_untouched_opaque &&
+              evidence.no_cast_or_receive_shadow_flags,
+          "display-domain Unlit did not execute filter-then-EOTF from complete UNORM mips");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "display-domain Unlit proof Shutdown");
+  const std::pair<bool, bool> transition =
+      RunDisplayDomainUsageTransitionProof(media_root);
+  evidence.usage_transition_rollback_exact = transition.first;
+  evidence.usage_transition_commit_exact = transition.second;
+  return evidence;
+}
+
+SmokeResult::DynamicMeshEvidence
+RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
+  const RenderAssetDelta catalog = MakeDynamicCatalog(modern_pbr);
+  const auto base_scene = MakeDynamicScene(850U, modern_pbr, false);
+  const auto deformed_scene = MakeDynamicScene(851U, modern_pbr, true);
+
+  OgreNextN1Configuration configuration{
+      media_root,
+      modern_pbr ? OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1
+                 : OgreNextRasterFeatureTier::STATIC_PBR_N1};
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend, catalog);
+  Require(frontend.QueryCapabilities().supports_dynamic_mesh_updates,
+          "initialized frontend did not advertise full dynamic updates");
+
+  RenderFrameOutput base_output;
+  RenderFrameOutput deformed_output;
+  RenderFrameOutput base_replay_output;
+  RenderFrameOutput deformed_replay_output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, base_scene, PixelFormat::RGBA8_SRGB),
+                     base_output),
+                 "dynamic base Render");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(2U, deformed_scene, PixelFormat::RGBA8_SRGB),
+                     deformed_output),
+                 "full dynamic deformation Render");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(3U, base_scene, PixelFormat::RGBA8_SRGB),
+                     base_replay_output),
+                 "dynamic base replay Render");
+  RequireSuccess(frontend.Render(
+                     MakeFrame(4U, deformed_scene, PixelFormat::RGBA8_SRGB),
+                     deformed_replay_output),
+                 "full dynamic deformation replay Render");
+
+  SmokeResult::DynamicMeshEvidence evidence;
+  evidence.base = InspectSdr(base_output);
+  evidence.deformed = InspectSdr(deformed_output);
+  const Metrics base_replay = InspectSdr(base_replay_output);
+  const Metrics deformed_replay = InspectSdr(deformed_replay_output);
+  evidence.changed_pixels = CountChangedPixels(
+      evidence.base.attachment_bytes, evidence.deformed.attachment_bytes, 4U);
+  evidence.base_exact_replay =
+      base_replay.attachment_bytes == evidence.base.attachment_bytes;
+  evidence.deformed_exact_replay =
+      deformed_replay.attachment_bytes == evidence.deformed.attachment_bytes;
+  Require(evidence.changed_pixels >= 256U &&
+              evidence.base.attachment_fnv1a64 !=
+                  evidence.deformed.attachment_fnv1a64 &&
+              evidence.base_exact_replay && evidence.deformed_exact_replay,
+          "full dynamic mesh replacement was not visible and deterministic");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "dynamic mesh proof Shutdown");
+  return evidence;
 }
 
 SmokeResult::TangentHandednessEvidence
@@ -2953,7 +3544,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                   kOgreNextN1ConservativeMaximumTextureDimension &&
               capabilities.native_api == NativeGraphicsApi::NONE &&
               !capabilities.supports_compute &&
-              !capabilities.supports_dynamic_mesh_updates &&
+              capabilities.supports_dynamic_mesh_updates &&
               !capabilities.supports_particle_events &&
               !capabilities.supports_native_interop &&
               !capabilities.supports_native_ray_tracing_api,
@@ -2962,7 +3553,9 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
           "N1 unexpectedly exported native interop");
 
   SmokeResult result;
+  result.dynamic_mesh = RunDynamicMeshProof(media_root, modern_pbr);
   if (modern_pbr) {
+    result.display_domain_unlit = RunDisplayDomainUnlitProof(media_root);
     result.tangent_handedness = RunTangentHandednessProof(media_root);
     result.texture_upload_rollback =
         RunTextureUploadRollbackProof(media_root);

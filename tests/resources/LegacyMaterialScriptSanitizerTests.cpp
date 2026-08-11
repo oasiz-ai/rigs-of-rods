@@ -631,6 +631,41 @@ void TestLegacyEnvironmentMapConversionIsTransactional()
     CHECK(!rejected.rejection_reason.empty());
 }
 
+void TestCanonicalRepairPlanDigestsAreDomainSeparated()
+{
+    const std::string archive_sha256 =
+        "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+    const RoR::LegacyMaterialScriptEditPlan* plan =
+        RoR::FindLegacyMaterialScriptEditPlan(
+            archive_sha256, "NeoQ2-0.material");
+    CHECK(plan != nullptr);
+    std::string applied;
+    std::string repeated;
+    std::string none;
+    CHECK(RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+        *plan, "NeoQ2-0.material", plan->script_sha256, applied));
+    CHECK(RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+        *plan, "NeoQ2-0.material", plan->script_sha256, repeated));
+    CHECK(RoR::ComputeLegacyMaterialScriptNoRepairPlanSha256(
+        archive_sha256, "NeoQ2-0.material", plan->script_sha256, none));
+    CHECK(applied.size() == 64U);
+    CHECK(applied == repeated);
+    CHECK(applied != none);
+    CHECK(none ==
+        "94950a0d8dd46673d5003fa7995dd436354be4596222d551d38e3099cf352c35");
+    CHECK(!RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+        *plan, "nested/NeoQ2-0.material", plan->script_sha256, repeated));
+    CHECK(!RoR::ComputeLegacyMaterialScriptNoRepairPlanSha256(
+        "not-a-digest", "NeoQ2-0.material", plan->script_sha256, repeated));
+    RoR::LegacyMaterialScriptEditPlan oversized = *plan;
+    oversized.edit_count =
+        RoR::kLegacyMaterialScriptMaximumRepairPlanEdits + 1U;
+    repeated = "sentinel";
+    CHECK(!RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+        oversized, "NeoQ2-0.material", plan->script_sha256, repeated));
+    CHECK(repeated == "sentinel");
+}
+
 } // namespace
 
 int main()
@@ -646,5 +681,6 @@ int main()
     TestExactPlanAppliesTransactionally();
     TestDuplicateMaterialBlockRemovalIsTransactional();
     TestLegacyEnvironmentMapConversionIsTransactional();
+    TestCanonicalRepairPlanDigestsAreDomainSeparated();
     return EXIT_SUCCESS;
 }

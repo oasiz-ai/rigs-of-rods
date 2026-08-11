@@ -70,6 +70,7 @@
 #include <fstream>
 #include <limits>
 #include <new>
+#include <stdexcept>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -888,6 +889,10 @@ void ActorManager::CaptureDeterministicStateTraceStep(
 
 ActorPtr ActorManager::CreateNewActor(ActorSpawnRequest rq, RigDef::DocumentPtr def)
 {
+    // Reserve the ownership slot before constructing/registering anything.
+    // Once graphics registration commits, the final ActorPtr append cannot
+    // allocate and therefore cannot strand a capture-side raw owner.
+    m_actors.reserve(m_actors.size() + 1U);
     if (rq.asr_instance_id == ACTORINSTANCEID_INVALID)
     {
         rq.asr_instance_id = this->GetActorNextInstanceId();
@@ -1077,8 +1082,6 @@ ActorPtr ActorManager::CreateNewActor(ActorSpawnRequest rq, RigDef::DocumentPtr 
         actor->GetGfxActor()->FinishFlexbodyTasks(); // Sync tasks from threadpool
     }
 
-    App::GetGfxScene()->RegisterGfxActor(actor->GetGfxActor());
-
     if (actor->ar_engine)
     {
         if (!actor->m_preloaded_with_terrain && App::sim_spawn_running->getBool())
@@ -1149,6 +1152,21 @@ ActorPtr ActorManager::CreateNewActor(ActorSpawnRequest rq, RigDef::DocumentPtr 
         actor->WriteDiagnosticDump(actor->ar_filename + "_dump_recalc.txt"); // Saves file to 'logs'
     }
 
+    try
+    {
+        if (!App::GetGfxScene()->RegisterGfxActor(actor->GetGfxActor()))
+        {
+            throw std::runtime_error(
+                "failed to register durable GfxActor capture identity");
+        }
+    }
+    catch (...)
+    {
+        // Registration itself is strongly transactional. Dispose the still
+        // unowned Actor so its destructor contract remains satisfied.
+        actor->dispose();
+        throw;
+    }
     m_actors.push_back(ActorPtr(actor));
 
     return actor;
@@ -1773,8 +1791,29 @@ void ActorManager::CleanUpSimulation() // Called after simulation finishes
 
 void ActorManager::DeleteActorInternal(ActorPtr actor)
 {
-    if (actor == nullptr || actor->ar_state == ActorState::DISPOSED)
+    if (actor == nullptr)
         return;
+
+    // Tombstone the renderer identity before any synchronization, script
+    // callback, network operation, or disposal can throw. Actor::dispose()
+    // releases GfxActor ownership, so no raw capture pointer may survive it.
+    if (App::GetGfxScene() != nullptr && actor->GetGfxActor() != nullptr)
+    {
+        App::GetGfxScene()->DestroyGfxActor(actor->GetGfxActor());
+    }
+
+    // A prior disposal attempt may have thrown after setting DISPOSED but
+    // before the ownership vector was compacted. Retrying cleanup must still
+    // release that retained ActorPtr instead of spinning forever on the same
+    // already-tombstoned entry.
+    if (actor->ar_state == ActorState::DISPOSED)
+    {
+        EraseIf(m_actors,
+            [actor](ActorPtr& cur_actor) { return actor == cur_actor; });
+        for (unsigned int index = 0U; index < m_actors.size(); ++index)
+            m_actors[index]->ar_vector_index = index;
+        return;
+    }
 
     this->SyncWithSimThread();
 

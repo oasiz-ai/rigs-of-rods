@@ -684,6 +684,17 @@ bool ActorManager::SaveScene(Ogre::String filename)
         }
     }
 
+    // A renderer-child failure can request scene teardown before the local
+    // character has been created (or after it has already been released).
+    // Autosave is best-effort on that path; never dereference the absent
+    // character while unwinding the renderer session.
+    Character* player_character = App::GetGameContext()->GetPlayerCharacter();
+    if (player_character == nullptr)
+    {
+        LOG("SaveScene: skipped because no local player character exists");
+        return false;
+    }
+
     rapidjson::Document j_doc;
     j_doc.SetObject();
     j_doc.AddMember("format_version", SAVEGAME_FILE_FORMAT, j_doc.GetAllocator());
@@ -709,11 +720,11 @@ bool ActorManager::SaveScene(Ogre::String filename)
 
     // Character
     rapidjson::Value j_player_position(rapidjson::kArrayType);
-    j_player_position.PushBack(App::GetGameContext()->GetPlayerCharacter()->getPosition().x, j_doc.GetAllocator());
-    j_player_position.PushBack(App::GetGameContext()->GetPlayerCharacter()->getPosition().y, j_doc.GetAllocator());
-    j_player_position.PushBack(App::GetGameContext()->GetPlayerCharacter()->getPosition().z, j_doc.GetAllocator());
+    j_player_position.PushBack(player_character->getPosition().x, j_doc.GetAllocator());
+    j_player_position.PushBack(player_character->getPosition().y, j_doc.GetAllocator());
+    j_player_position.PushBack(player_character->getPosition().z, j_doc.GetAllocator());
     j_doc.AddMember("player_position", j_player_position, j_doc.GetAllocator());
-    j_doc.AddMember("player_rotation", App::GetGameContext()->GetPlayerCharacter()->getRotation().valueRadians(), j_doc.GetAllocator());
+    j_doc.AddMember("player_rotation", player_character->getRotation().valueRadians(), j_doc.GetAllocator());
 
     std::map<int, int> vector_index_lookup;
     for (ActorPtr& actor : m_actors)

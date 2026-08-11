@@ -35,8 +35,529 @@
 #include "ActorSpawner.h"
 
 #include <OgreMeshManager.h>
+#include <OgreMeshSerializer.h>
+#include <OgreResourceGroupManager.h>
 #include <OgreSceneManager.h>
 #include <MeshLodGenerator/OgreMeshLodGenerator.h>
+
+#include <algorithm>
+#include <cstring>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <utility>
+
+namespace {
+
+bool ValidateShadowedFlexbodyVertexData(
+    const Ogre::VertexData* vertex_data) noexcept
+{
+    try
+    {
+        if (vertex_data == nullptr || vertex_data->vertexStart != 0U ||
+            vertex_data->vertexCount == 0U ||
+            vertex_data->vertexCount >
+                static_cast<std::size_t>(
+                    (std::numeric_limits<int>::max)()) ||
+            vertex_data->vertexDeclaration == nullptr ||
+            vertex_data->vertexBufferBinding == nullptr)
+        {
+            return false;
+        }
+        const auto& bindings =
+            vertex_data->vertexBufferBinding->getBindings();
+        if (bindings.empty())
+            return false;
+        for (const auto& binding : bindings)
+        {
+            const Ogre::HardwareVertexBufferSharedPtr& buffer =
+                binding.second;
+            // Ogre 14 reorganiseBuffers() locks every bound source stream,
+            // including streams outside the target declaration. Require a CPU
+            // shadow for all of them so Metal never sees a private read lock.
+            if (buffer.isNull() || !buffer->hasShadowBuffer() ||
+                buffer->getVertexSize() == 0U ||
+                vertex_data->vertexCount > buffer->getNumVertices())
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+template <typename T>
+bool AppendShadowedFlexbodyVertexElement(
+    const Ogre::VertexData* vertex_data,
+    Ogre::VertexElementSemantic semantic,
+    Ogre::VertexElementType expected_type,
+    std::vector<T>& destination)
+{
+    const Ogre::VertexElement* const element =
+        vertex_data->vertexDeclaration->findElementBySemantic(semantic, 0U);
+    if (element == nullptr || element->getType() != expected_type ||
+        element->getSize() != sizeof(T))
+    {
+        return false;
+    }
+    const Ogre::HardwareVertexBufferSharedPtr buffer =
+        vertex_data->vertexBufferBinding->getBuffer(element->getSource());
+    if (buffer.isNull() || !buffer->hasShadowBuffer() ||
+        vertex_data->vertexCount > buffer->getNumVertices())
+    {
+        return false;
+    }
+
+    const std::size_t stride = buffer->getVertexSize();
+    const std::size_t element_offset = element->getOffset();
+    const std::size_t element_size = element->getSize();
+    if (stride == 0U || element_offset > stride ||
+        element_size > stride - element_offset ||
+        element_offset >
+            (std::numeric_limits<std::size_t>::max)() - element_size)
+    {
+        return false;
+    }
+    const std::size_t trailing_vertices = vertex_data->vertexCount - 1U;
+    const std::size_t tail_capacity =
+        (std::numeric_limits<std::size_t>::max)() -
+        element_offset - element_size;
+    if (trailing_vertices > tail_capacity / stride)
+        return false;
+    const std::size_t byte_count =
+        trailing_vertices * stride + element_size;
+    if (element_offset > buffer->getSizeInBytes() ||
+        byte_count > buffer->getSizeInBytes() - element_offset ||
+        vertex_data->vertexCount >
+            destination.max_size() - destination.size())
+    {
+        return false;
+    }
+
+    const std::size_t old_size = destination.size();
+    destination.resize(old_size + vertex_data->vertexCount);
+    Ogre::HardwareBufferLockGuard shadow_lock(
+        buffer, element_offset, byte_count,
+        Ogre::HardwareBuffer::HBL_READ_ONLY);
+    if (shadow_lock.pData == nullptr)
+        return false;
+    const auto* const bytes =
+        static_cast<const unsigned char*>(shadow_lock.pData);
+    for (std::size_t vertex = 0U;
+         vertex < vertex_data->vertexCount; ++vertex)
+    {
+        std::memcpy(
+            &destination[old_size + vertex], bytes + vertex * stride,
+            sizeof(T));
+    }
+    return true;
+}
+
+bool CaptureShadowedFlexbodyVertexStreams(
+    const Ogre::MeshPtr& mesh,
+    RoR::FlexBodyInitialVertexStreams& output) noexcept
+{
+    try
+    {
+        if (mesh.isNull() || mesh->getNumSubMeshes() == 0U)
+            return false;
+        RoR::FlexBodyInitialVertexStreams candidate;
+        candidate.has_complete_texcoords0 = true;
+        const auto append_vertex_data = [&candidate](
+            const Ogre::VertexData* vertex_data) -> bool
+        {
+            if (!ValidateShadowedFlexbodyVertexData(vertex_data) ||
+                !AppendShadowedFlexbodyVertexElement(
+                    vertex_data, Ogre::VES_POSITION, Ogre::VET_FLOAT3,
+                    candidate.positions) ||
+                !AppendShadowedFlexbodyVertexElement(
+                    vertex_data, Ogre::VES_NORMAL, Ogre::VET_FLOAT3,
+                    candidate.normals))
+            {
+                return false;
+            }
+            const Ogre::VertexElement* const texcoord =
+                vertex_data->vertexDeclaration->findElementBySemantic(
+                    Ogre::VES_TEXTURE_COORDINATES, 0U);
+            if (texcoord == nullptr)
+            {
+                candidate.has_complete_texcoords0 = false;
+                return true;
+            }
+            return AppendShadowedFlexbodyVertexElement(
+                vertex_data, Ogre::VES_TEXTURE_COORDINATES,
+                Ogre::VET_FLOAT2, candidate.texcoords0);
+        };
+
+        if (mesh->sharedVertexData != nullptr &&
+            !append_vertex_data(mesh->sharedVertexData))
+        {
+            return false;
+        }
+        std::size_t nonshared_section_count = 0U;
+        for (std::size_t section_index = 0U;
+             section_index < mesh->getNumSubMeshes(); ++section_index)
+        {
+            const Ogre::SubMesh* const submesh =
+                mesh->getSubMesh(section_index);
+            if (submesh == nullptr)
+                return false;
+            if (submesh->useSharedVertices)
+            {
+                if (mesh->sharedVertexData == nullptr)
+                    return false;
+                continue;
+            }
+            ++nonshared_section_count;
+            if (nonshared_section_count > 16U ||
+                !append_vertex_data(submesh->vertexData))
+            {
+                return false;
+            }
+        }
+        if (candidate.positions.empty() ||
+            candidate.positions.size() != candidate.normals.size())
+        {
+            return false;
+        }
+        if (candidate.has_complete_texcoords0)
+        {
+            if (candidate.texcoords0.size() != candidate.positions.size())
+                return false;
+        }
+        else
+        {
+            candidate.texcoords0.clear();
+        }
+        output = std::move(candidate);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+void RemoveFlexbodyMeshResourceNoexcept(const Ogre::MeshPtr& mesh) noexcept
+{
+    if (mesh.isNull())
+        return;
+    try
+    {
+        Ogre::MeshManager::getSingleton().remove(mesh);
+    }
+    catch (...)
+    {
+        // Best-effort rollback only; preserve the original construction error.
+    }
+}
+
+Ogre::MeshPtr ImportShadowedFlexbodyMesh(
+    const std::string& source_name,
+    const std::string& unique_name,
+    const std::string& resource_group_name)
+{
+    Ogre::MeshManager& mesh_manager = Ogre::MeshManager::getSingleton();
+    Ogre::MeshPtr mesh = mesh_manager.createManual(
+        unique_name, resource_group_name);
+    try
+    {
+        mesh->setVertexBufferPolicy(Ogre::HBU_GPU_ONLY, true);
+        mesh->setIndexBufferPolicy(Ogre::HBU_GPU_ONLY, true);
+        const Ogre::DataStreamPtr source =
+            Ogre::ResourceGroupManager::getSingleton().openResource(
+                source_name, resource_group_name);
+        Ogre::MeshSerializer serializer;
+        serializer.setListener(mesh_manager.getListener());
+        serializer.importMesh(source, mesh.get());
+        // Manual resources are populated above; load() performs the normal
+        // Mesh post-load lifecycle and marks the resource ready for Entity.
+        mesh->load();
+        mesh->touch();
+        return mesh;
+    }
+    catch (...)
+    {
+        RemoveFlexbodyMeshResourceNoexcept(mesh);
+        throw;
+    }
+}
+
+class OgreFlexbodyTopologySource final
+    : public RoR::IFlexMeshTopologySource
+{
+public:
+    explicit OgreFlexbodyTopologySource(const Ogre::MeshPtr& mesh)
+        : m_mesh(mesh)
+    {
+    }
+
+    std::size_t SectionCount() const noexcept override
+    {
+        return m_mesh.isNull() ? 0U : m_mesh->getNumSubMeshes();
+    }
+
+    bool DescribeSection(
+        std::size_t section_index,
+        RoR::FlexMeshTopologySourceSection& description) const override
+    {
+        if (m_mesh.isNull() || section_index >= m_mesh->getNumSubMeshes())
+            return false;
+        const Ogre::SubMesh* const submesh =
+            m_mesh->getSubMesh(section_index);
+        if (submesh == nullptr || submesh->indexData == nullptr ||
+            submesh->indexData->indexBuffer.isNull())
+        {
+            return false;
+        }
+        const Ogre::VertexData* const vertices = submesh->useSharedVertices
+            ? m_mesh->sharedVertexData
+            : submesh->vertexData;
+        if (vertices == nullptr)
+            return false;
+
+        const Ogre::HardwareIndexBufferSharedPtr& buffer =
+            submesh->indexData->indexBuffer;
+        RoR::FlexMeshTopologySourceSection candidate;
+        if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
+        {
+            candidate.index_format =
+                RoR::FlexMeshTopologySection::IndexFormat::UINT16;
+        }
+        else if (buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT)
+        {
+            candidate.index_format =
+                RoR::FlexMeshTopologySection::IndexFormat::UINT32;
+        }
+        else
+        {
+            return false;
+        }
+        candidate.vertex_count = vertices->vertexCount;
+        candidate.buffer_index_count = buffer->getNumIndexes();
+        candidate.index_start = submesh->indexData->indexStart;
+        candidate.index_count = submesh->indexData->indexCount;
+        candidate.has_cpu_shadow = buffer->hasShadowBuffer();
+        description = candidate;
+        return true;
+    }
+
+    bool ReadShadowedIndices(
+        std::size_t section_index,
+        std::size_t index_start,
+        std::size_t index_count,
+        RoR::FlexMeshTopologySection::IndexFormat index_format,
+        std::vector<std::uint32_t>& indices) const override
+    {
+        if (m_mesh.isNull() || section_index >= m_mesh->getNumSubMeshes())
+            return false;
+        const Ogre::SubMesh* const submesh =
+            m_mesh->getSubMesh(section_index);
+        if (submesh == nullptr || submesh->indexData == nullptr ||
+            submesh->indexData->indexBuffer.isNull())
+        {
+            return false;
+        }
+        const Ogre::HardwareIndexBufferSharedPtr& buffer =
+            submesh->indexData->indexBuffer;
+        if (!buffer->hasShadowBuffer() ||
+            index_start > buffer->getNumIndexes() ||
+            index_count > buffer->getNumIndexes() - index_start)
+        {
+            return false;
+        }
+
+        const bool format_matches =
+            (index_format ==
+                 RoR::FlexMeshTopologySection::IndexFormat::UINT16 &&
+             buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT) ||
+            (index_format ==
+                 RoR::FlexMeshTopologySection::IndexFormat::UINT32 &&
+             buffer->getType() == Ogre::HardwareIndexBuffer::IT_32BIT);
+        if (!format_matches)
+            return false;
+        const std::size_t index_size =
+            index_format ==
+                    RoR::FlexMeshTopologySection::IndexFormat::UINT16
+            ? sizeof(std::uint16_t)
+            : sizeof(std::uint32_t);
+        const std::size_t max_index_count =
+            (std::numeric_limits<std::size_t>::max)() / index_size;
+        if (buffer->getNumIndexes() > max_index_count ||
+            index_start > max_index_count ||
+            index_count > max_index_count - index_start)
+        {
+            return false;
+        }
+
+        const std::size_t byte_offset = index_start * index_size;
+        const std::size_t byte_count = index_count * index_size;
+        if (byte_offset > buffer->getSizeInBytes() ||
+            byte_count > buffer->getSizeInBytes() - byte_offset)
+        {
+            return false;
+        }
+
+        std::vector<std::uint32_t> candidate(index_count);
+        // Do not call the readData API here. Ogre 14's Metal implementation reads
+        // its native delegate even when a CPU shadow exists. The public
+        // HardwareBuffer::lock() path is the API that routes HBL_READ_ONLY to
+        // mShadowBuffer, and the guard makes the unlock exception-safe.
+        Ogre::HardwareBufferLockGuard shadow_lock(
+            buffer, byte_offset, byte_count,
+            Ogre::HardwareBuffer::HBL_READ_ONLY);
+        if (shadow_lock.pData == nullptr)
+            return false;
+        if (index_format ==
+            RoR::FlexMeshTopologySection::IndexFormat::UINT16)
+        {
+            std::vector<std::uint16_t> source(index_count);
+            std::memcpy(source.data(), shadow_lock.pData, byte_count);
+            std::copy(source.begin(), source.end(), candidate.begin());
+        }
+        else
+        {
+            std::memcpy(candidate.data(), shadow_lock.pData, byte_count);
+        }
+        indices = std::move(candidate);
+        return true;
+    }
+
+private:
+    Ogre::MeshPtr m_mesh;
+};
+
+bool InstallShadowedFlexbodyIndexBuffers(
+    const Ogre::MeshPtr& mesh,
+    const std::vector<RoR::FlexMeshTopologySection>& topology) noexcept
+{
+    struct PreparedIndexRange
+    {
+        Ogre::IndexData* native_range = nullptr;
+        Ogre::HardwareIndexBufferSharedPtr buffer;
+        std::size_t index_count = 0U;
+    };
+
+    if (mesh.isNull() || topology.size() != mesh->getNumSubMeshes())
+        return false;
+    return RoR::InstallFlexMeshCpuTopologyTransaction<PreparedIndexRange>(
+        topology.size(),
+        [&mesh, &topology](
+            std::size_t section_index,
+            PreparedIndexRange& prepared) -> bool
+        {
+            Ogre::SubMesh* const submesh = mesh->getSubMesh(section_index);
+            if (submesh == nullptr || submesh->indexData == nullptr ||
+                submesh->indexData->indexBuffer.isNull() ||
+                submesh->indexData->indexCount !=
+                    topology[section_index].indices.size() ||
+                topology[section_index].revision == 0U ||
+                topology[section_index].indices.empty() ||
+                topology[section_index].indices.size() % 3U != 0U)
+            {
+                return false;
+            }
+            const Ogre::VertexData* const vertices =
+                submesh->useSharedVertices
+                ? mesh->sharedVertexData
+                : submesh->vertexData;
+            if (vertices == nullptr || vertices->vertexCount !=
+                    topology[section_index].vertex_count)
+            {
+                return false;
+            }
+            const Ogre::HardwareIndexBufferSharedPtr& source =
+                submesh->indexData->indexBuffer;
+            const Ogre::HardwareIndexBuffer::IndexType native_format =
+                topology[section_index].index_format ==
+                        RoR::FlexMeshTopologySection::IndexFormat::UINT16
+                ? Ogre::HardwareIndexBuffer::IT_16BIT
+                : Ogre::HardwareIndexBuffer::IT_32BIT;
+            if (source->getType() != native_format)
+                return false;
+            const std::size_t index_size =
+                native_format == Ogre::HardwareIndexBuffer::IT_16BIT
+                ? sizeof(std::uint16_t)
+                : sizeof(std::uint32_t);
+            if (topology[section_index].indices.size() >
+                (std::numeric_limits<std::size_t>::max)() / index_size)
+            {
+                return false;
+            }
+            const std::size_t max_index_count =
+                (std::numeric_limits<std::size_t>::max)() / index_size;
+            const std::size_t source_index_count = source->getNumIndexes();
+            const std::size_t source_index_start =
+                submesh->indexData->indexStart;
+            const std::size_t source_draw_count =
+                submesh->indexData->indexCount;
+            if (source_index_count > max_index_count ||
+                source_index_start > source_index_count ||
+                source_draw_count >
+                    source_index_count - source_index_start ||
+                source->getSizeInBytes() <
+                    source_index_count * index_size)
+            {
+                return false;
+            }
+
+            Ogre::HardwareIndexBufferSharedPtr buffer =
+                Ogre::HardwareBufferManager::getSingleton().createIndexBuffer(
+                    native_format, topology[section_index].indices.size(),
+                    source->getUsage(), true);
+            const std::size_t byte_count =
+                topology[section_index].indices.size() * index_size;
+            if (buffer.isNull() || !buffer->hasShadowBuffer() ||
+                buffer->getNumIndexes() !=
+                    topology[section_index].indices.size() ||
+                buffer->getSizeInBytes() < byte_count)
+            {
+                return false;
+            }
+            if (native_format == Ogre::HardwareIndexBuffer::IT_16BIT)
+            {
+                std::vector<std::uint16_t> indices;
+                indices.reserve(topology[section_index].indices.size());
+                for (std::uint32_t index : topology[section_index].indices)
+                {
+                    if (index >
+                        (std::numeric_limits<std::uint16_t>::max)())
+                    {
+                        return false;
+                    }
+                    indices.push_back(static_cast<std::uint16_t>(index));
+                }
+                buffer->writeData(
+                    0U, byte_count,
+                    indices.data(), true);
+            }
+            else
+            {
+                buffer->writeData(
+                    0U, byte_count,
+                    topology[section_index].indices.data(), true);
+            }
+            prepared.native_range = submesh->indexData;
+            prepared.buffer = std::move(buffer);
+            prepared.index_count = topology[section_index].indices.size();
+            return true;
+        },
+        [](std::size_t, PreparedIndexRange& prepared) noexcept
+        {
+            // shared_ptr::swap and scalar assignments are non-throwing. No
+            // dirty-state callback follows this point, so a completed prepare
+            // phase cannot become a partial native rebind.
+            prepared.native_range->indexBuffer.swap(prepared.buffer);
+            prepared.native_range->indexStart = 0U;
+            prepared.native_range->indexCount = prepared.index_count;
+        });
+}
+
+} // namespace
 
 //#define FLEXFACTORY_DEBUG_LOGGING
 
@@ -72,45 +593,134 @@ FlexBody* FlexFactory::CreateFlexBody(
     const std::string& mesh_name,
     const std::string& resource_group_name)
 {
-    Ogre::MeshPtr common_mesh = Ogre::MeshManager::getSingleton().load(mesh_name, resource_group_name);
-    const std::string mesh_unique_name = m_rig_spawner->ComposeName(fmt::format("{}_FlexBody", mesh_name).c_str(), flexbody_id);
-    Ogre::MeshPtr mesh = common_mesh->clone(mesh_unique_name);
-    const std::string flexbody_name = m_rig_spawner->ComposeName("Flexbody", flexbody_id);
-    Ogre::Entity* entity = App::GetGfxScene()->GetSceneManager()->createEntity(flexbody_name, mesh_unique_name, resource_group_name);
-    m_rig_spawner->SetupNewEntity(entity, Ogre::ColourValue(0.5, 0.5, 1));
-
-    FLEX_DEBUG_LOG(__FUNCTION__);
-    FlexBodyCacheData* from_cache = nullptr;
-    if (m_is_flexbody_cache_loaded)
+    const std::string mesh_unique_name = m_rig_spawner->ComposeName(
+        fmt::format("{}_FlexBody", mesh_name).c_str(), flexbody_id);
+    Ogre::MeshPtr mesh;
+    Ogre::Entity* entity = nullptr;
+    bool entity_owned_by_flexbody = false;
+    try
     {
-        FLEX_DEBUG_LOG(__FUNCTION__ " >> Get entry from cache ");
-        from_cache = m_flexbody_cache.GetLoadedItem(m_flexbody_cache_next_index);
-        m_flexbody_cache_next_index++;
+        // Every flexbody needs an actor-local mutable Mesh. Import that unique
+        // resource with shadow policy established before deserialization.
+        // This is safe for both first use and an already-cached unshadowed
+        // source: no Mesh::clone copy can bypass the CPU shadow via a native
+        // delegate, and no shared resource is unloaded or mutated.
+        mesh = ImportShadowedFlexbodyMesh(
+            mesh_name, mesh_unique_name, resource_group_name);
+
+        FlexBodyInitialVertexStreams initial_vertex_streams;
+        if (!CaptureShadowedFlexbodyVertexStreams(
+                mesh, initial_vertex_streams))
+        {
+            LOG("FlexFactory: flexbody has an unsafe or invalid vertex "
+                "stream after shadowed import: " + mesh_name);
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Flexbody position, normal, and present UV streams require "
+                "valid CPU shadows",
+                "FlexFactory::CreateFlexBody");
+        }
+        std::vector<FlexMeshTopologySection> cpu_topology;
+        const OgreFlexbodyTopologySource topology_source(mesh);
+        const bool captured_cpu_topology =
+            CaptureFlexMeshCpuTopology(topology_source, cpu_topology);
+        if (!captured_cpu_topology ||
+            !InstallShadowedFlexbodyIndexBuffers(mesh, cpu_topology))
+        {
+            // Keep the legacy visual usable, but fail modern capture closed.
+            // In particular, never read an unshadowed private buffer.
+            cpu_topology.clear();
+            LOG("FlexFactory: imported flexbody has no safe CPU index "
+                "topology: " + mesh_name);
+        }
+
+        const std::string flexbody_name =
+            m_rig_spawner->ComposeName("Flexbody", flexbody_id);
+        entity = App::GetGfxScene()->GetSceneManager()->createEntity(
+                flexbody_name, mesh_unique_name, resource_group_name);
+        m_rig_spawner->SetupNewEntity(
+            entity, Ogre::ColourValue(0.5, 0.5, 1));
+
+        FLEX_DEBUG_LOG(__FUNCTION__);
+        FlexBodyCacheData* from_cache = nullptr;
+        if (m_is_flexbody_cache_loaded)
+        {
+            FLEX_DEBUG_LOG(__FUNCTION__ " >> Get entry from cache ");
+            from_cache = m_flexbody_cache.GetLoadedItem(
+                m_flexbody_cache_next_index);
+            if (from_cache != nullptr)
+            {
+                ++m_flexbody_cache_next_index;
+            }
+            else
+            {
+                // A short/corrupt cache must never index past its loaded
+                // records or shift later flexbodies onto the wrong entry.
+                m_is_flexbody_cache_loaded = false;
+                m_is_flexbody_cache_safe_to_save = false;
+                LOG("FlexFactory: flexbody cache exhausted; rebuilding "
+                    "remaining flexbodies from source meshes");
+            }
+        }
+
+        Ogre::Quaternion rot = Ogre::Quaternion(
+            Ogre::Degree(rotation.z), Ogre::Vector3::UNIT_Z);
+        rot = rot * Ogre::Quaternion(
+            Ogre::Degree(rotation.y), Ogre::Vector3::UNIT_Y);
+        rot = rot * Ogre::Quaternion(
+            Ogre::Degree(rotation.x), Ogre::Vector3::UNIT_X);
+
+        std::unique_ptr<FlexBody> new_flexbody(new FlexBody(
+            from_cache,
+            m_rig_spawner->GetActor()->GetGfxActor(),
+            entity,
+            ref_node,
+            x_node,
+            y_node,
+            offset,
+            rot,
+            node_indices,
+            forvert_data,
+            std::move(initial_vertex_streams),
+            std::move(cpu_topology)));
+        entity_owned_by_flexbody = true;
+
+        // Retain ownership across every operation that can still throw. A
+        // failed metadata allocation or cache-vector growth destroys the
+        // FlexBody (and its Entity/unique Mesh) instead of leaking it or
+        // publishing a dangling cache pointer.
+        new_flexbody->m_id = flexbody_id;
+        new_flexbody->m_orig_mesh_name = mesh_name;
+        if (m_is_flexbody_cache_enabled)
+        {
+            m_flexbody_cache.AddItemToSave(new_flexbody.get());
+        }
+        return new_flexbody.release();
     }
-
-    Ogre::Quaternion rot=Ogre::Quaternion(Ogre::Degree(rotation.z), Ogre::Vector3::UNIT_Z);
-    rot=rot*Ogre::Quaternion(Ogre::Degree(rotation.y), Ogre::Vector3::UNIT_Y);
-    rot=rot*Ogre::Quaternion(Ogre::Degree(rotation.x), Ogre::Vector3::UNIT_X);
-
-    FlexBody* new_flexbody = new FlexBody(
-        from_cache,
-        m_rig_spawner->GetActor()->GetGfxActor(),
-        entity,
-        ref_node,
-        x_node,
-        y_node,
-        offset,
-        rot,
-        node_indices,
-        forvert_data);
-
-    if (m_is_flexbody_cache_enabled)
+    catch (...)
     {
-        m_flexbody_cache.AddItemToSave(new_flexbody);
+        // The v1 cache is positional and has no mesh identity. Any failed
+        // creation makes its remaining cursor ambiguous, so fail over to
+        // source construction instead of applying an entry to the next mesh.
+        // Never persist that partial positional sequence for the next launch.
+        m_is_flexbody_cache_loaded = false;
+        m_is_flexbody_cache_safe_to_save = false;
+        // Before a complete FlexBody exists, the factory still owns the
+        // Entity. Destroy it before removing the unique Mesh registration.
+        if (entity != nullptr && !entity_owned_by_flexbody)
+        {
+            try
+            {
+                App::GetGfxScene()->GetSceneManager()->destroyEntity(entity);
+            }
+            catch (...)
+            {
+                // Best effort only; preserve the construction exception.
+            }
+        }
+        RemoveFlexbodyMeshResourceNoexcept(mesh);
+        throw;
     }
-    new_flexbody->m_id = flexbody_id;
-    new_flexbody->m_orig_mesh_name = common_mesh->getName();
-    return new_flexbody;
 }
 
 FlexMeshWheel* FlexFactory::CreateFlexMeshWheel(
@@ -419,10 +1029,10 @@ void FlexFactory::CheckAndLoadFlexbodyCache()
 void FlexFactory::SaveFlexbodiesToCache()
 {
     FLEX_DEBUG_LOG(__FUNCTION__);
-    if (m_is_flexbody_cache_enabled && !m_is_flexbody_cache_loaded)
+    if (m_is_flexbody_cache_enabled && !m_is_flexbody_cache_loaded &&
+        m_is_flexbody_cache_safe_to_save)
     {
         FLEX_DEBUG_LOG(__FUNCTION__ " >> Saving flexbodies");
         m_flexbody_cache.SaveFile();
     }
 }
-

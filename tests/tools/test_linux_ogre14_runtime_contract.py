@@ -89,6 +89,37 @@ def validate_config(config_text: str) -> subprocess.CompletedProcess[str]:
         return result
 
 
+def stage_plugin_chain(
+    *,
+    source_directory: Path,
+    destination_directory: Path,
+    plugin_name: str,
+) -> subprocess.CompletedProcess[str]:
+    """Stage one plugin family and record its resolved destination."""
+
+    output = destination_directory.parent / "staged-plugin.txt"
+    result = run_cmake(
+        destination_directory.parent,
+        "ror_linux_ogre14_stage_plugin_chain(\n"
+        f'    "{source_directory.as_posix()}"\n'
+        f'    "{destination_directory.as_posix()}"\n'
+        f'    "{plugin_name}")\n'
+        "ror_linux_ogre14_resolve_plugin(\n"
+        "    staged_chain staged_real\n"
+        f'    "{destination_directory.as_posix()}"\n'
+        f'    "{plugin_name}")\n'
+        "ror_linux_ogre14_validate_installed_plugins(\n"
+        f'    "{destination_directory.as_posix()}" "{plugin_name}")\n'
+        f'file(WRITE "{output.as_posix()}" '
+        '"${staged_chain}\\n${staged_real}\\n")\n',
+    )
+    if result.returncode == 0:
+        lines = output.read_text(encoding="utf-8").splitlines()
+        result.staged_chain = tuple(lines[0].split(";"))
+        result.staged_real = lines[1]
+    return result
+
+
 class LinuxOgre14RuntimeContractTests(unittest.TestCase):
     def test_valid_config_selects_only_the_exact_runtime_plugins(self) -> None:
         result = validate_config(
@@ -204,6 +235,293 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
                 "symlink is absolute",
                 escaped.stdout + escaped.stderr,
             )
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "Linux plugin SONAME chain execution runs in the Linux lane",
+    )
+    def test_plugin_staging_builds_exact_chain_without_mutating_source(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-linux-plugin-stage-spaces-"
+        ) as temporary:
+            root = Path(temporary)
+            source = root / "source package" / "lib" / "OGRE plugins"
+            destination = root / "relocated package" / "lib" / "OGRE"
+            source.mkdir(parents=True)
+            destination.mkdir(parents=True)
+            plugin_name = "Codec_FreeImage"
+            source_real = source / f"{plugin_name}.so.14.5"
+            source_bytes = b"contained-plugin-binary\x00fixture"
+            source_real.write_bytes(source_bytes)
+            source_link = source / f"{plugin_name}.so"
+            source_link.symlink_to(source_real.name)
+
+            source_entries_before = {
+                path.name: (
+                    "symlink" if path.is_symlink() else "file",
+                    os.readlink(path) if path.is_symlink() else path.read_bytes(),
+                )
+                for path in source.iterdir()
+            }
+            result = stage_plugin_chain(
+                source_directory=source,
+                destination_directory=destination,
+                plugin_name=plugin_name,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=result.stdout + result.stderr,
+            )
+
+            destination_unversioned = destination / f"{plugin_name}.so"
+            destination_abi = destination / f"{plugin_name}.so.14.5"
+            destination_real = destination / f"{plugin_name}.so.14.5.2"
+            self.assertEqual(
+                {path.name for path in destination.iterdir()},
+                {
+                    destination_unversioned.name,
+                    destination_abi.name,
+                    destination_real.name,
+                },
+            )
+            self.assertTrue(destination_unversioned.is_symlink())
+            self.assertTrue(destination_abi.is_symlink())
+            self.assertFalse(destination_real.is_symlink())
+            self.assertEqual(
+                os.readlink(destination_unversioned),
+                destination_abi.name,
+            )
+            self.assertEqual(
+                os.readlink(destination_abi),
+                destination_real.name,
+            )
+            self.assertFalse(os.path.isabs(os.readlink(destination_unversioned)))
+            self.assertFalse(os.path.isabs(os.readlink(destination_abi)))
+            self.assertEqual(destination_real.read_bytes(), source_bytes)
+            self.assertEqual(
+                native_path_text(result.staged_real),
+                native_path_text(destination_real.resolve()),
+            )
+            self.assertEqual(
+                {
+                    native_path_text(path)
+                    for path in result.staged_chain
+                },
+                {
+                    native_path_text(destination_unversioned),
+                    native_path_text(destination_abi),
+                    native_path_text(destination_real),
+                },
+            )
+
+            source_entries_after = {
+                path.name: (
+                    "symlink" if path.is_symlink() else "file",
+                    os.readlink(path) if path.is_symlink() else path.read_bytes(),
+                )
+                for path in source.iterdir()
+            }
+            self.assertEqual(source_entries_after, source_entries_before)
+            self.assertEqual(source_real.read_bytes(), source_bytes)
+            self.assertEqual(os.readlink(source_link), source_real.name)
+
+            destination_entries_before_duplicate = {
+                path.name: (
+                    "symlink" if path.is_symlink() else "file",
+                    os.readlink(path) if path.is_symlink() else path.read_bytes(),
+                )
+                for path in destination.iterdir()
+            }
+            duplicate = stage_plugin_chain(
+                source_directory=source,
+                destination_directory=destination,
+                plugin_name=plugin_name,
+            )
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn(
+                "destination already contains",
+                duplicate.stdout + duplicate.stderr,
+            )
+            destination_entries_after_duplicate = {
+                path.name: (
+                    "symlink" if path.is_symlink() else "file",
+                    os.readlink(path) if path.is_symlink() else path.read_bytes(),
+                )
+                for path in destination.iterdir()
+            }
+            self.assertEqual(
+                destination_entries_after_duplicate,
+                destination_entries_before_duplicate,
+            )
+
+            canonical_source = root / "canonical source plugins"
+            canonical_destination = root / "canonical relocated plugins"
+            canonical_source.mkdir()
+            canonical_destination.mkdir()
+            canonical_real = (
+                canonical_source / f"{plugin_name}.so.14.5.2"
+            )
+            canonical_real.write_bytes(source_bytes)
+            canonical_abi = canonical_source / f"{plugin_name}.so.14.5"
+            canonical_abi.symlink_to(canonical_real.name)
+            canonical_unversioned = canonical_source / f"{plugin_name}.so"
+            canonical_unversioned.symlink_to(canonical_abi.name)
+            canonical = stage_plugin_chain(
+                source_directory=canonical_source,
+                destination_directory=canonical_destination,
+                plugin_name=plugin_name,
+            )
+            self.assertEqual(
+                canonical.returncode,
+                0,
+                msg=canonical.stdout + canonical.stderr,
+            )
+            self.assertEqual(
+                (
+                    canonical_destination / f"{plugin_name}.so.14.5.2"
+                ).read_bytes(),
+                source_bytes,
+            )
+            self.assertEqual(
+                os.readlink(
+                    canonical_destination / f"{plugin_name}.so.14.5"
+                ),
+                f"{plugin_name}.so.14.5.2",
+            )
+            self.assertEqual(os.readlink(canonical_abi), canonical_real.name)
+            self.assertEqual(
+                os.readlink(canonical_unversioned),
+                canonical_abi.name,
+            )
+
+    @unittest.skipIf(
+        os.name == "nt",
+        "Linux plugin SONAME chain execution runs in the Linux lane",
+    )
+    def test_plugin_resolution_rejects_invalid_exact_chains(self) -> None:
+        cases = ("broken", "cyclic", "escaped", "unexpected")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory(
+                prefix=f"ror-linux-plugin-{case}-"
+            ) as temporary:
+                root = Path(temporary)
+                plugin_dir = root / "source plugins"
+                plugin_dir.mkdir()
+                plugin_name = "Plugin_ParticleFX"
+                unversioned = plugin_dir / f"{plugin_name}.so"
+                abi = plugin_dir / f"{plugin_name}.so.14.5"
+
+                if case == "broken":
+                    unversioned.symlink_to(abi.name)
+                elif case == "cyclic":
+                    unversioned.symlink_to(abi.name)
+                    abi.symlink_to(unversioned.name)
+                elif case == "escaped":
+                    outside = root / "outside.so"
+                    outside.write_bytes(b"outside")
+                    unversioned.symlink_to(abi.name)
+                    abi.symlink_to("../../outside.so")
+                else:
+                    abi.write_bytes(b"fixture")
+                    unversioned.symlink_to(abi.name)
+                    (plugin_dir / f"{plugin_name}.so.14.5.9").write_bytes(
+                        b"unexpected"
+                    )
+
+                result = run_cmake(
+                    root,
+                    "ror_linux_ogre14_resolve_plugin(\n"
+                    f'    chain real "{plugin_dir.as_posix()}" '
+                    f'"{plugin_name}")\n',
+                )
+                self.assertNotEqual(result.returncode, 0)
+                diagnostics = result.stdout + result.stderr
+                if case == "cyclic":
+                    self.assertIn("symlink cycle", diagnostics)
+                elif case == "escaped":
+                    self.assertIn("escapes its root", diagnostics)
+                elif case == "unexpected":
+                    self.assertIn("unexpected ABI entry", diagnostics)
+
+    @unittest.skipUnless(
+        os.name == "posix"
+        and shutil.which("cc") is not None
+        and shutil.which("readelf") is not None,
+        "ELF SONAME proof requires a Linux compiler and readelf",
+    )
+    def test_plugin_canonicalization_preserves_embedded_abi_soname(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-linux-plugin-soname-"
+        ) as temporary:
+            root = Path(temporary)
+            source = root / "source plugins"
+            destination = root / "relocated plugins"
+            source.mkdir()
+            destination.mkdir()
+            plugin_name = "Plugin_ParticleFX"
+            source_code = root / "fixture.c"
+            source_code.write_text(
+                "int ror_plugin_fixture(void) { return 14; }\n",
+                encoding="utf-8",
+            )
+            source_real = source / f"{plugin_name}.so.14.5"
+            compiled = subprocess.run(
+                [
+                    shutil.which("cc") or "cc",
+                    "-shared",
+                    "-fPIC",
+                    f"-Wl,-soname,{plugin_name}.so.14.5",
+                    "-o",
+                    str(source_real),
+                    str(source_code),
+                ],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(
+                compiled.returncode,
+                0,
+                msg=compiled.stdout + compiled.stderr,
+            )
+            (source / f"{plugin_name}.so").symlink_to(source_real.name)
+
+            result = stage_plugin_chain(
+                source_directory=source,
+                destination_directory=destination,
+                plugin_name=plugin_name,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                msg=result.stdout + result.stderr,
+            )
+            destination_abi = destination / f"{plugin_name}.so.14.5"
+            destination_real = destination / f"{plugin_name}.so.14.5.2"
+            metadata = subprocess.run(
+                [shutil.which("readelf") or "readelf", "-d", destination_real],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(
+                metadata.returncode,
+                0,
+                msg=metadata.stdout + metadata.stderr,
+            )
+            self.assertRegex(
+                metadata.stdout,
+                rf"\(SONAME\).*\[{plugin_name}\.so\.14\.5\]",
+            )
+            self.assertTrue(destination_abi.is_symlink())
+            self.assertEqual(os.readlink(destination_abi), destination_real.name)
 
     def test_ambiguous_or_traversal_plugin_sources_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory(
@@ -505,7 +823,23 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
         )
         self.assertIn("tools/linux/RunRoR-ogre14", source)
         self.assertIn("StageLinuxRuntime.cmake", source)
-        self.assertIn("${CONAN_RUNTIME_LIB_DIRS}", source)
+        self.assertIn(
+            'set(_ror_linux_installed_game_executable "RoR-Ogre14")',
+            source,
+        )
+        self.assertIn(
+            "ROR_LINUX_INSTALLED_EXECUTABLE_NAME",
+            stager,
+        )
+        self.assertIn(
+            "ror_ogre14_cmakedeps_runtime_search_dirs(",
+            source,
+        )
+        self.assertIn(
+            "ror_ogre14_install_set_list_code(",
+            source,
+        )
+        self.assertNotIn("CONAN_RUNTIME_LIB_DIRS", source)
         self.assertIn(
             '[=[set(ROR_LINUX_INSTALL_ROOT '
             '"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")\n]=]',
@@ -514,6 +848,15 @@ class LinuxOgre14RuntimeContractTests(unittest.TestCase):
         self.assertIn("file(GET_RUNTIME_DEPENDENCIES", stager)
         self.assertIn("CONFLICTING_DEPENDENCIES_PREFIX", stager)
         self.assertIn("FOLLOW_SYMLINK_CHAIN", stager)
+        self.assertIn(
+            "ror_linux_ogre14_stage_plugin_chain(",
+            stager,
+        )
+        self.assertNotIn("_ror_plugin_sources", stager)
+        self.assertNotIn(
+            'file(COPY\n        "${_ror_plugin_source}"',
+            stager,
+        )
         for exclusion in (
             '"^/lib/"',
             '"^/lib64/"',

@@ -16,6 +16,82 @@ include(FetchContent)
 find_package(Git REQUIRED)
 include("${CMAKE_CURRENT_LIST_DIR}/FreeTypeArchivePolicy.cmake")
 
+# Presentation is still non-admitted, but its SDL ABI/source must already be
+# reproducible. Keep this independent from the product Conan graph so the
+# standalone probe cannot silently accept a host SDL or a moving recipe.
+set(ROR_SDL2_PRESENTATION_LOCK_PATH
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/renderer-presentation-sdl2.lock.json")
+set(ROR_SDL2_PRESENTATION_LOCK_SHA256
+    "965d992c2059b3ada9c1d2c03fd2fd4a4bb8aef15267d06146a9b9d21287ecc1")
+file(SHA256 "${ROR_SDL2_PRESENTATION_LOCK_PATH}"
+    _ror_sdl2_presentation_lock_sha256)
+if (NOT _ror_sdl2_presentation_lock_sha256 STREQUAL
+        ROR_SDL2_PRESENTATION_LOCK_SHA256)
+    message(FATAL_ERROR "The reviewed SDL2 presentation source lock changed")
+endif ()
+file(READ "${ROR_SDL2_PRESENTATION_LOCK_PATH}"
+    _ror_sdl2_presentation_lock_json)
+string(JSON ROR_SDL2_PRESENTATION_SCHEMA GET
+    "${_ror_sdl2_presentation_lock_json}" schema)
+string(JSON ROR_SDL2_PRESENTATION_VERSION GET
+    "${_ror_sdl2_presentation_lock_json}" version)
+string(JSON ROR_SDL2_PRESENTATION_ARCHIVE_URL GET
+    "${_ror_sdl2_presentation_lock_json}" archive_url)
+string(JSON ROR_SDL2_PRESENTATION_ARCHIVE_SHA256 GET
+    "${_ror_sdl2_presentation_lock_json}" archive_sha256)
+string(JSON ROR_SDL2_PRESENTATION_LICENSE_SPDX GET
+    "${_ror_sdl2_presentation_lock_json}" license spdx)
+string(JSON ROR_SDL2_PRESENTATION_LICENSE_PATH GET
+    "${_ror_sdl2_presentation_lock_json}" license path)
+string(JSON ROR_SDL2_PRESENTATION_LICENSE_SHA256 GET
+    "${_ror_sdl2_presentation_lock_json}" license sha256)
+string(JSON ROR_SDL2_PRESENTATION_CONAN_REFERENCE GET
+    "${_ror_sdl2_presentation_lock_json}" conan reference)
+string(JSON ROR_SDL2_PRESENTATION_CONAN_RECIPE_REVISION GET
+    "${_ror_sdl2_presentation_lock_json}" conan recipe_revision)
+string(JSON ROR_SDL2_PRESENTATION_CMAKE_TARGET GET
+    "${_ror_sdl2_presentation_lock_json}" conan cmake_target)
+foreach (_ror_sdl2_scope_key IN ITEMS
+        source_dependency_locked probe_linked live_window_smoke
+        production_admitted packaged)
+    string(JSON _ror_sdl2_scope_${_ror_sdl2_scope_key}_type TYPE
+        "${_ror_sdl2_presentation_lock_json}" scope
+        ${_ror_sdl2_scope_key})
+    string(JSON _ror_sdl2_scope_${_ror_sdl2_scope_key} GET
+        "${_ror_sdl2_presentation_lock_json}" scope
+        ${_ror_sdl2_scope_key})
+    if (NOT _ror_sdl2_scope_${_ror_sdl2_scope_key}_type STREQUAL "BOOLEAN")
+        message(FATAL_ERROR "SDL2 presentation scope field has wrong type")
+    endif ()
+endforeach ()
+if (NOT ROR_SDL2_PRESENTATION_SCHEMA STREQUAL
+        "ror.renderer_presentation_sdl2_source.v1" OR
+        NOT ROR_SDL2_PRESENTATION_VERSION STREQUAL "2.32.10" OR
+        NOT ROR_SDL2_PRESENTATION_ARCHIVE_URL STREQUAL
+            "https://www.libsdl.org/release/SDL2-2.32.10.tar.gz" OR
+        NOT ROR_SDL2_PRESENTATION_ARCHIVE_SHA256 STREQUAL
+            "5f5993c530f084535c65a6879e9b26ad441169b3e25d789d83287040a9ca5165" OR
+        NOT ROR_SDL2_PRESENTATION_LICENSE_SPDX STREQUAL "Zlib" OR
+        NOT ROR_SDL2_PRESENTATION_LICENSE_PATH STREQUAL "LICENSE.txt" OR
+        NOT ROR_SDL2_PRESENTATION_LICENSE_SHA256 STREQUAL
+            "97f35b302b361680ec1e891e95d2d52097bb95abff361434916d99dc1305f127" OR
+        NOT ROR_SDL2_PRESENTATION_CONAN_REFERENCE STREQUAL "sdl/2.32.10" OR
+        NOT ROR_SDL2_PRESENTATION_CONAN_RECIPE_REVISION STREQUAL
+            "19432981a8779c918a13682d4186fa3b" OR
+        NOT ROR_SDL2_PRESENTATION_CMAKE_TARGET STREQUAL "SDL2::SDL2" OR
+        NOT _ror_sdl2_scope_source_dependency_locked OR
+        NOT _ror_sdl2_scope_probe_linked OR
+        NOT _ror_sdl2_scope_live_window_smoke OR
+        _ror_sdl2_scope_production_admitted OR
+        _ror_sdl2_scope_packaged)
+    message(FATAL_ERROR "The SDL2 presentation source contract changed")
+endif ()
+FetchContent_Declare(
+    ror_sdl2
+    URL "${ROR_SDL2_PRESENTATION_ARCHIVE_URL}"
+    URL_HASH "SHA256=${ROR_SDL2_PRESENTATION_ARCHIVE_SHA256}"
+    DOWNLOAD_EXTRACT_TIMESTAMP true)
+
 set(_ror_lock_path "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ogre-next.lock.json")
 file(READ "${_ror_lock_path}" _ror_lock_json)
 string(JSON ROR_OGRE_NEXT_LOCK_SCHEMA GET "${_ror_lock_json}" schema_version)
@@ -539,6 +615,11 @@ if (DEFINED FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE AND
     message(FATAL_ERROR
         "FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE bypasses archive verification and is prohibited")
 endif ()
+if (DEFINED FETCHCONTENT_SOURCE_DIR_ROR_SDL2 AND
+        NOT FETCHCONTENT_SOURCE_DIR_ROR_SDL2 STREQUAL "")
+    message(FATAL_ERROR
+        "FETCHCONTENT_SOURCE_DIR_ROR_SDL2 bypasses archive verification and is prohibited")
+endif ()
 foreach (_ror_content_name IN ITEMS
         SHADERC ROR_GLSLANG_SOURCE ROR_SPIRV_TOOLS_SOURCE
         ROR_SPIRV_HEADERS_SOURCE)
@@ -735,9 +816,9 @@ elseif (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "windows-x64-d3d11")
     set(OGRE_BUILD_RENDERSYSTEM_D3D11 ON CACHE BOOL "" FORCE)
 else ()
     set(OGRE_BUILD_RENDERSYSTEM_VULKAN ON CACHE BOOL "" FORCE)
-    set(OGRE_CONFIG_UNIX_NO_X11 ON CACHE BOOL "" FORCE)
+    set(OGRE_CONFIG_UNIX_NO_X11 OFF CACHE BOOL "" FORCE)
     set(OGRE_VULKAN_WINDOW_NULL ON CACHE BOOL "" FORCE)
-    set(OGRE_VULKAN_WINDOW_XCB OFF CACHE BOOL "" FORCE)
+    set(OGRE_VULKAN_WINDOW_XCB ON CACHE BOOL "" FORCE)
 
     # Never mix host-package C++ archives into OGRE's direct glslang API.
     # shaderc v2025.3 owns an exact DEPS family; it is populated below and its
@@ -1091,6 +1172,34 @@ FetchContent_Declare(
         ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
+
+# Compile the exact SDL source only for the non-admitted native-window probe.
+# X11 is intentional on Linux: pinned Ogre-Next has an XCB external-window
+# bridge and no reviewed Wayland bridge. SDL2main/install/tests/shared output
+# stay outside this source closure.
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL2_DISABLE_SDL2MAIN ON CACHE BOOL "" FORCE)
+set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+set(SDL_INSTALL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL_RPATH OFF CACHE BOOL "" FORCE)
+if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+    set(SDL_X11 ON CACHE BOOL "" FORCE)
+    set(SDL_X11_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
+endif ()
+FetchContent_MakeAvailable(ror_sdl2)
+if (NOT TARGET SDL2::SDL2 OR NOT TARGET SDL2::SDL2-static)
+    message(FATAL_ERROR "Pinned SDL2 static CMake targets are unavailable")
+endif ()
+file(SHA256 "${ror_sdl2_SOURCE_DIR}/${ROR_SDL2_PRESENTATION_LICENSE_PATH}"
+    _ror_sdl2_license_sha256)
+if (NOT _ror_sdl2_license_sha256 STREQUAL
+        ROR_SDL2_PRESENTATION_LICENSE_SHA256)
+    message(FATAL_ERROR "Pinned SDL2 license hash changed")
+endif ()
 
 # Ogre-Next's legacy finder is allowed to populate diagnostic cache entries,
 # but the actual include and link interfaces must remain entirely source-owned.

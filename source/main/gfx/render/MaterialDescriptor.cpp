@@ -9,6 +9,7 @@
 #include "MaterialDescriptor.h"
 
 #include "RenderResourceDescriptors.h"
+#include "ValidatedAssetCompatibilityInternal.h"
 
 #include <array>
 #include <utility>
@@ -93,6 +94,15 @@ bool IsKnownMaterialAlphaMode(MaterialAlphaMode mode) noexcept {
   return false;
 }
 
+bool IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept {
+  switch (transfer) {
+  case BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER:
+  case BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE:
+    return true;
+  }
+  return false;
+}
+
 ValidationResult
 ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
   if (descriptor.version != kMaterialDescriptorVersion) {
@@ -113,6 +123,11 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
   if (!IsKnownMaterialAlphaMode(descriptor.alpha_mode)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM, "alpha_mode",
                                      "unknown alpha mode");
+  }
+  if (!IsKnownBaseColorTransfer(descriptor.base_color_transfer)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "base_color_transfer",
+                                     "unknown base-color transfer ordering");
   }
   if (!IsNormalizedColor(descriptor.base_color_factor)) {
     return ValidationResult::Failure(IsFinite(descriptor.base_color_factor)
@@ -199,6 +214,14 @@ ValidateMaterialMeshCompatibility(const MaterialDescriptor &material,
   if (!validation) {
     return validation;
   }
+
+  return Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+      ValidatedAssetCompatibilityAccess{}, material, mesh);
+}
+
+ValidationResult Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+    const ValidatedAssetCompatibilityAccess &, const MaterialDescriptor &material,
+    const MeshResourceDescriptor &mesh) {
 
   if ((material.model == MaterialModel::PBR_METALLIC_ROUGHNESS ||
        material.normal_texture.texture.valid()) &&

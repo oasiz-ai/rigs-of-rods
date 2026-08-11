@@ -19,6 +19,25 @@ option(
 )
 
 find_package(Threads REQUIRED)
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+
+set(ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/material-semantic-catalog-v2.synthetic.rormat2")
+add_custom_command(
+    OUTPUT "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}"
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+        "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+        "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}"
+    DEPENDS
+        "${ROR_REPOSITORY_ROOT}/tools/compile_ogre14_material_semantic_catalog_v2.py"
+        "${ROR_REPOSITORY_ROOT}/tools/schemas/ogre14-material-semantic-catalog-v2.schema.json"
+        "${ROR_REPOSITORY_ROOT}/tests/fixtures/gfx/ogre14/material-semantic-catalog-v2.synthetic.json"
+    VERBATIM)
+add_custom_target(
+    ror_ogre14_material_semantic_catalog_v2_fixture
+    DEPENDS "${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}")
 
 set(ROR_WORLDMODEL_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/worldmodel/EpisodeArtifacts.cpp"
@@ -150,6 +169,11 @@ add_executable(
 )
 
 add_executable(
+    ror_windows_runtime_path_tests
+    "${CMAKE_CURRENT_LIST_DIR}/platform/WindowsRuntimePathTests.cpp"
+)
+
+add_executable(
     ror_sky_mode_availability_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/SkyModeAvailabilityTests.cpp"
 )
@@ -205,21 +229,750 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
 )
 
+add_executable(
+    ror_renderer_child_launcher_fake_child
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherFakeChild.cpp"
+)
+set_target_properties(
+    ror_renderer_child_launcher_fake_child
+    PROPERTIES
+        OUTPUT_NAME "RoR-OgreNext"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${CMAKE_CURRENT_BINARY_DIR}/renderer-child-launcher-tests"
+)
+
+add_executable(
+    ror_renderer_child_intent_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildIntentTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+)
+target_include_directories(
+    ror_renderer_child_intent_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
+    ror_renderer_sibling_path_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererSiblingPathTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+)
+target_include_directories(
+    ror_renderer_sibling_path_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
+    ror_renderer_package_runtime_probe_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererPackageRuntimeProbeTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp"
+)
+target_include_directories(
+    ror_renderer_package_runtime_probe_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
+    ror_renderer_bridge_endpoint_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBridgeEndpointTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+)
+target_include_directories(
+    ror_renderer_bridge_endpoint_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
+    ror_renderer_bridge_launch_plan_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBridgeLaunchPlanTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+)
+target_include_directories(
+    ror_renderer_bridge_launch_plan_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+set(_ror_renderer_bridge_process_test_output
+    "${CMAKE_CURRENT_BINARY_DIR}/renderer-bridge-process-tests")
+set(_ror_renderer_bridge_process_fake_common_sources
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBridgeProcessFakeChild.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportEnvelope.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+)
+add_executable(
+    ror_renderer_bridge_process_fake_game
+    ${_ror_renderer_bridge_process_fake_common_sources}
+)
+target_compile_definitions(
+    ror_renderer_bridge_process_fake_game
+    PRIVATE ROR_RENDERER_BRIDGE_FAKE_GAME=1
+)
+set_target_properties(
+    ror_renderer_bridge_process_fake_game
+    PROPERTIES
+        OUTPUT_NAME "RoR-Ogre14"
+        RUNTIME_OUTPUT_DIRECTORY "${_ror_renderer_bridge_process_test_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_bridge_process_test_output}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_bridge_process_test_output}/Release"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_bridge_process_test_output}/MinSizeRel"
+)
+add_executable(
+    ror_renderer_bridge_process_fake_presentation
+    ${_ror_renderer_bridge_process_fake_common_sources}
+)
+target_compile_definitions(
+    ror_renderer_bridge_process_fake_presentation
+    PRIVATE ROR_RENDERER_BRIDGE_FAKE_PRESENTATION=1
+)
+set_target_properties(
+    ror_renderer_bridge_process_fake_presentation
+    PROPERTIES
+        OUTPUT_NAME "RoR-OgreNext"
+        RUNTIME_OUTPUT_DIRECTORY "${_ror_renderer_bridge_process_test_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_bridge_process_test_output}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_bridge_process_test_output}/Release"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_bridge_process_test_output}/MinSizeRel"
+)
+foreach (bridge_fake_target IN ITEMS
+    ror_renderer_bridge_process_fake_game
+    ror_renderer_bridge_process_fake_presentation
+)
+    target_include_directories(
+        ${bridge_fake_target}
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+    )
+endforeach ()
+
+add_executable(
+    ror_renderer_bridge_process_supervisor_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBridgeProcessSupervisorTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+)
+target_include_directories(
+    ror_renderer_bridge_process_supervisor_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+set_target_properties(
+    ror_renderer_bridge_process_supervisor_tests
+    PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${_ror_renderer_bridge_process_test_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_bridge_process_test_output}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_bridge_process_test_output}/Release"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_bridge_process_test_output}/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_bridge_process_test_output}/MinSizeRel"
+)
+add_dependencies(
+    ror_renderer_bridge_process_supervisor_tests
+    ror_renderer_bridge_process_fake_game
+    ror_renderer_bridge_process_fake_presentation
+)
+
+add_executable(
+    ror_renderer_bridge_channel_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererBridgeChannelTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+)
+target_include_directories(
+    ror_renderer_bridge_channel_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_bridge_channel_tests
+    PRIVATE Threads::Threads
+)
+
+add_executable(
+    ror_renderer_ogre14_game_bridge_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14GameBridgeTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre14_game_bridge_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre14_game_bridge_tests
+    PRIVATE Threads::Threads
+)
+
+add_executable(
+    ror_renderer_child_launcher_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererChildLauncherTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+)
+
+target_include_directories(
+    ror_renderer_child_launcher_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+add_dependencies(
+    ror_renderer_child_launcher_tests
+    ror_renderer_child_launcher_fake_child
+)
+set_target_properties(
+    ror_renderer_child_launcher_tests
+    PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/renderer-child-launcher-tests"
+)
+
+add_executable(
+    ror_renderer_ogre_next_child_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextChildTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextChild.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_child_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
+    ror_renderer_ogre_next_window_host_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextWindowHostTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_window_host_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre_next_window_host_tests
+    PRIVATE Threads::Threads
+)
+
+add_executable(
+    ror_renderer_ogre_next_live_session_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextLiveSessionTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextLiveSession.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_live_session_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre_next_live_session_tests
+    PRIVATE ror_render_contract Threads::Threads
+)
+
+if (MINGW)
+    target_link_options(
+        ror_renderer_child_launcher_fake_child
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_child_launcher_tests
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_bridge_process_fake_game
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_bridge_process_fake_presentation
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_bridge_process_supervisor_tests
+        PRIVATE -municode
+    )
+endif ()
+
+include(
+    "${ROR_REPOSITORY_ROOT}/cmake/RendererLauncherPackageConfig.cmake")
+set(_ror_renderer_public_launcher_generated_include_dir
+    "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-launcher-generated")
+ror_configure_renderer_launcher_package_facts(
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
+    "${_ror_renderer_public_launcher_generated_include_dir}"
+    _ror_renderer_public_launcher_generated_header
+    OFF)
+
+add_executable(
+    ror_renderer_public_launcher_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererPublicLauncherTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+    "${_ror_renderer_public_launcher_generated_header}"
+)
+target_include_directories(
+    ror_renderer_public_launcher_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+        "${_ror_renderer_public_launcher_generated_include_dir}"
+)
+set(_ror_renderer_public_launcher_test_output
+    "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-launcher-tests")
+set_target_properties(
+    ror_renderer_public_launcher_tests
+    PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY
+            "${_ror_renderer_public_launcher_test_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_public_launcher_test_output}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_public_launcher_test_output}/Release"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_public_launcher_test_output}/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_public_launcher_test_output}/MinSizeRel"
+)
+
+# Compile and run the real public process entrypoint against an exact sibling
+# fake. Keeping this pair in a dedicated test-only directory proves the native
+# POSIX main or Windows Unicode wWinMain/link topology without making either
+# executable available to install or package rules.
+set(_ror_renderer_public_entrypoint_test_output
+    "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-entrypoint-tests")
+add_executable(
+    ror_renderer_public_launcher_legacy_child
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererPublicLauncherLegacyChild.cpp"
+)
+set_target_properties(
+    ror_renderer_public_launcher_legacy_child
+    PROPERTIES
+        OUTPUT_NAME "RoR-Ogre14"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${_ror_renderer_public_entrypoint_test_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_public_entrypoint_test_output}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_public_entrypoint_test_output}/Release"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_public_entrypoint_test_output}/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_public_entrypoint_test_output}/MinSizeRel"
+)
+
+add_executable(
+    ror_renderer_public_launcher_entrypoint
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherMain.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+    "${_ror_renderer_public_launcher_generated_header}"
+)
+target_include_directories(
+    ror_renderer_public_launcher_entrypoint
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+        "${_ror_renderer_public_launcher_generated_include_dir}"
+)
+set_target_properties(
+    ror_renderer_public_launcher_entrypoint
+    PROPERTIES
+        OUTPUT_NAME "RoR"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${_ror_renderer_public_entrypoint_test_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_public_entrypoint_test_output}/Debug"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_public_entrypoint_test_output}/Release"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_public_entrypoint_test_output}/RelWithDebInfo"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_public_entrypoint_test_output}/MinSizeRel"
+)
+add_dependencies(
+    ror_renderer_public_launcher_entrypoint
+    ror_renderer_public_launcher_legacy_child
+)
+if (WIN32)
+    set_target_properties(
+        ror_renderer_public_launcher_entrypoint
+        PROPERTIES WIN32_EXECUTABLE YES
+    )
+    target_compile_definitions(
+        ror_renderer_public_launcher_entrypoint
+        PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
+    )
+    target_link_libraries(
+        ror_renderer_public_launcher_entrypoint
+        PRIVATE Shell32
+    )
+endif ()
+if (MINGW)
+    target_link_options(
+        ror_renderer_public_launcher_legacy_child
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_public_launcher_entrypoint
+        PRIVATE -municode
+    )
+endif ()
+
+# Exercise the real public entrypoint with test-only, internally consistent
+# admitted package facts and two exact fake siblings. The production package
+# generator above remains immutable and continues to record Ogre-Next as
+# unavailable until the independent admission gate changes it.
+set(_ror_renderer_public_bridge_generated_include_dir
+    "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-bridge-generated")
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "MACOS")
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "LINUX")
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM "WINDOWS")
+else ()
+    message(FATAL_ERROR
+        "The renderer public bridge fixture has no platform contract")
+endif ()
+set(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND "OGRE_NEXT_PREFER")
+set(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS "PSSM")
+set(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT "true")
+set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT "true")
+set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY "true")
+set(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED "true")
+set(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND "NONE")
+file(MAKE_DIRECTORY "${_ror_renderer_public_bridge_generated_include_dir}")
+set(_ror_renderer_public_bridge_generated_header
+    "${_ror_renderer_public_bridge_generated_include_dir}/RendererLauncherPackageConfig.generated.h")
+configure_file(
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherPackageConfig.h.in"
+    "${_ror_renderer_public_bridge_generated_header}"
+    @ONLY)
+unset(ROR_RENDERER_LAUNCHER_PACKAGE_PLATFORM)
+unset(ROR_RENDERER_LAUNCHER_DEFAULT_FRONTEND)
+unset(ROR_RENDERER_LAUNCHER_DEFAULT_DIRECTIONAL_SHADOWS)
+unset(ROR_RENDERER_LAUNCHER_OGRE14_CHILD_PRESENT)
+unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_CHILD_PRESENT)
+unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PRODUCTION_READY)
+unset(ROR_RENDERER_LAUNCHER_OGRE_NEXT_PSSM_ADMITTED)
+unset(ROR_RENDERER_LAUNCHER_NATIVE_SHADOW_BACKEND)
+
+set(_ror_renderer_public_bridge_test_output
+    "${CMAKE_CURRENT_BINARY_DIR}/renderer-public-bridge-tests")
+if (APPLE)
+    set(_ror_renderer_public_bridge_runtime_output
+        "${_ror_renderer_public_bridge_test_output}/RoR.app/Contents/MacOS")
+    foreach (_ror_public_bridge_config IN ITEMS
+        DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set(
+            _ror_renderer_public_bridge_runtime_output_${_ror_public_bridge_config}
+            "${_ror_renderer_public_bridge_runtime_output}")
+    endforeach ()
+    file(MAKE_DIRECTORY
+        "${_ror_renderer_public_bridge_test_output}/RoR.app/Contents/Resources/ogrenext/Hlms"
+        "${_ror_renderer_public_bridge_test_output}/RoR.app/Contents/Resources/ogrenext/Presentation")
+else ()
+    set(_ror_renderer_public_bridge_runtime_output
+        "${_ror_renderer_public_bridge_test_output}")
+    foreach (_ror_public_bridge_config IN ITEMS
+        DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set(
+            _ror_renderer_public_bridge_runtime_output_${_ror_public_bridge_config}
+            "${_ror_renderer_public_bridge_test_output}/${_ror_public_bridge_config}")
+    endforeach ()
+    foreach (_ror_public_bridge_runtime_root IN ITEMS
+        "${_ror_renderer_public_bridge_runtime_output}"
+        "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+        "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+        "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+        "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}")
+        file(MAKE_DIRECTORY
+            "${_ror_public_bridge_runtime_root}/resources/ogrenext/Hlms"
+            "${_ror_public_bridge_runtime_root}/resources/ogrenext/Presentation")
+    endforeach ()
+endif ()
+add_executable(
+    ror_renderer_public_bridge_fake_game
+    ${_ror_renderer_bridge_process_fake_common_sources}
+)
+target_compile_definitions(
+    ror_renderer_public_bridge_fake_game
+    PRIVATE
+        ROR_RENDERER_BRIDGE_FAKE_GAME=1
+        ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1
+        ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1
+)
+add_executable(
+    ror_renderer_public_bridge_fake_presentation
+    ${_ror_renderer_bridge_process_fake_common_sources}
+)
+target_compile_definitions(
+    ror_renderer_public_bridge_fake_presentation
+    PRIVATE
+        ROR_RENDERER_BRIDGE_FAKE_PRESENTATION=1
+        ROR_RENDERER_BRIDGE_FAKE_ACCEPT_ANY_SESSION=1
+        ROR_RENDERER_BRIDGE_FAKE_REQUIRE_PUBLIC_ARGUMENTS=1
+)
+foreach (public_bridge_fake_target IN ITEMS
+    ror_renderer_public_bridge_fake_game
+    ror_renderer_public_bridge_fake_presentation
+)
+    target_include_directories(
+        ${public_bridge_fake_target}
+        PRIVATE
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+            "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+            "${ROR_REPOSITORY_ROOT}/source/main/system"
+    )
+endforeach ()
+set_target_properties(
+    ror_renderer_public_bridge_fake_game
+    PROPERTIES
+        OUTPUT_NAME "RoR-Ogre14"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${_ror_renderer_public_bridge_runtime_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}"
+)
+set_target_properties(
+    ror_renderer_public_bridge_fake_presentation
+    PROPERTIES
+        OUTPUT_NAME "RoR-OgreNext"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${_ror_renderer_public_bridge_runtime_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}"
+)
+
+add_executable(
+    ror_renderer_public_bridge_entrypoint
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererLauncherMain.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeLaunchPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeProcessSupervisor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildLauncher.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackageRuntimeProbe.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPackagedMediaPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererSiblingPath.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererPublicLauncher.cpp"
+    "${_ror_renderer_public_bridge_generated_header}"
+)
+target_include_directories(
+    ror_renderer_public_bridge_entrypoint
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+        "${_ror_renderer_public_bridge_generated_include_dir}"
+)
+set_target_properties(
+    ror_renderer_public_bridge_entrypoint
+    PROPERTIES
+        OUTPUT_NAME "RoR"
+        RUNTIME_OUTPUT_DIRECTORY
+            "${_ror_renderer_public_bridge_runtime_output}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG
+            "${_ror_renderer_public_bridge_runtime_output_DEBUG}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE
+            "${_ror_renderer_public_bridge_runtime_output_RELEASE}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO
+            "${_ror_renderer_public_bridge_runtime_output_RELWITHDEBINFO}"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL
+            "${_ror_renderer_public_bridge_runtime_output_MINSIZEREL}"
+)
+add_dependencies(
+    ror_renderer_public_bridge_entrypoint
+    ror_renderer_public_bridge_fake_game
+    ror_renderer_public_bridge_fake_presentation
+)
+if (APPLE)
+    # Compile the admitted bridge fixture with the same private Finder-launch
+    # behavior as the disposable macOS demo. Existing cases all supply an
+    # explicit suffix, so they simultaneously prove that the argc=1 default
+    # does not alter caller-owned arguments.
+    target_compile_definitions(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE ROR_OGRE_NEXT_MACOS_DEMO_AUTOSTART=1
+    )
+    foreach (public_bridge_fake_target IN ITEMS
+        ror_renderer_public_bridge_fake_game
+        ror_renderer_public_bridge_fake_presentation
+    )
+        target_compile_definitions(
+            ${public_bridge_fake_target}
+            PRIVATE ROR_RENDERER_BRIDGE_FAKE_ALLOW_MACOS_DEMO_AUTOSTART=1
+        )
+    endforeach ()
+endif ()
+if (WIN32)
+    set_target_properties(
+        ror_renderer_public_bridge_entrypoint
+        PROPERTIES WIN32_EXECUTABLE YES
+    )
+    target_compile_definitions(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
+    )
+    target_link_libraries(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE Shell32
+    )
+endif ()
+if (MINGW)
+    target_link_options(
+        ror_renderer_public_bridge_fake_game
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_public_bridge_fake_presentation
+        PRIVATE -municode
+    )
+    target_link_options(
+        ror_renderer_public_bridge_entrypoint
+        PRIVATE -municode
+    )
+endif ()
+
 set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14GraphicsSceneSource.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyAssetTranslator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14LegacyMaterialClosure.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ParticleCaptureSource.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ProceduralRoadSource.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14SourceTextureDecoder.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/InputEventTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ParallaxProbeReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/PbrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeRuntime.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetDeltaTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeControlTransport.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneGenerationBoundaryTransport.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeSessionIdentity.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportEnvelope.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportStream.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendTransportDispatcher.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ResourceHandle.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshot.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshotTransport.cpp"
 )
 
 add_library(ror_render_contract STATIC ${ROR_RENDER_CONTRACT_SOURCES})
@@ -237,6 +990,167 @@ target_link_libraries(
     PRIVATE Threads::Threads
 )
 add_executable(
+    ror_ogre14_graphics_scene_source_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
+)
+add_executable(
+    ror_flex_mesh_topology_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/FlexMeshTopologyTests.cpp"
+)
+target_include_directories(
+    ror_flex_mesh_topology_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/physics/flex"
+)
+add_executable(
+    ror_ogre14_metal_flex_shadow_read_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
+)
+add_executable(
+    ror_gfx_actor_capture_inventory_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/GfxActorCaptureInventoryTests.cpp"
+)
+target_include_directories(
+    ror_gfx_actor_capture_inventory_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+)
+add_executable(
+    ror_ogre14_legacy_asset_translator_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
+)
+add_executable(
+    ror_ogre14_legacy_material_closure_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
+)
+add_executable(
+    ror_ogre14_particle_capture_source_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
+)
+add_executable(
+    ror_ogre14_procedural_road_source_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
+)
+add_executable(
+    ror_ogre14_road_material_transaction_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
+)
+add_executable(
+    ror_ogre14_dynamic_material_closure_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
+)
+add_executable(
+    ror_ogre_next_demo_private_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+)
+target_include_directories(
+    ror_ogre_next_demo_private_policy_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
+    ror_ogre14_material_semantic_registry_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistryTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+)
+target_include_directories(
+    ror_ogre14_material_semantic_registry_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
+    ror_ogre14_source_texture_decoder_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14SourceTextureDecoderTests.cpp"
+)
+add_executable(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2Tests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticCatalogV2.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+)
+add_dependencies(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    ror_ogre14_material_semantic_catalog_v2_fixture)
+target_include_directories(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_material_semantic_catalog_v2_tests
+    PRIVATE
+        "ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE=\"${ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE}\"")
+add_executable(
+    ror_ogre14_live_material_coordinator_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+)
+target_include_directories(
+    ror_ogre14_live_material_coordinator_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_live_material_coordinator_tests
+    PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+)
+add_executable(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+)
+target_include_directories(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+)
+add_executable(
+    ror_ogre14_authenticated_texture_receipt_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+)
+target_include_directories(
+    ror_ogre14_authenticated_texture_receipt_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
+    ror_ogre14_terrain_composite_capture_receipt_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
+)
+target_include_directories(
+    ror_ogre14_terrain_composite_capture_receipt_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_terrain_composite_capture_receipt_tests
+    PRIVATE ROR_OGRE14_TERRAIN_COMPOSITE_CAPTURE_INTERNAL_TESTING=1
+)
+add_executable(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
+)
+target_include_directories(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+target_compile_definitions(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    PRIVATE ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1
+)
+target_link_libraries(
+    ror_ogre14_authenticated_material_script_receipt_tests
+    PRIVATE OpenSSL::Crypto Threads::Threads
+)
+add_executable(
     ror_render_resource_handle_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
 )
@@ -249,12 +1163,24 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/HdrReferenceTests.cpp"
 )
 add_executable(
+    ror_input_event_transport_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/InputEventTransportTests.cpp"
+)
+add_executable(
+    ror_render_bridge_control_transport_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderBridgeControlTransportTests.cpp"
+)
+add_executable(
     ror_render_parallax_probe_reference_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ParallaxProbeReferenceTests.cpp"
 )
 add_executable(
     ror_render_pbr_reference_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/PbrReferenceTests.cpp"
+)
+add_executable(
+    ror_render_strict_fp_environment_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/StrictFloatingPointEnvironmentTests.cpp"
 )
 add_executable(
     ror_render_reflection_probe_capture_receipt_tests
@@ -269,8 +1195,24 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderAssetRegistryTests.cpp"
 )
 add_executable(
+    ror_render_asset_delta_transport_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderAssetDeltaTransportTests.cpp"
+)
+add_executable(
     ror_render_scene_snapshot_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/SceneSnapshotTests.cpp"
+)
+add_executable(
+    ror_render_scene_snapshot_transport_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/SceneSnapshotTransportTests.cpp"
+)
+add_executable(
+    ror_render_transport_stream_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderTransportStreamTests.cpp"
+)
+add_executable(
+    ror_renderer_frontend_transport_dispatcher_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
 )
 add_executable(
     ror_render_resource_descriptor_tests
@@ -356,15 +1298,38 @@ target_include_directories(
 
 set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_graphics_scene_snapshot_producer_tests
+    ror_ogre14_graphics_scene_source_tests
+    ror_ogre14_legacy_asset_translator_tests
+    ror_ogre14_legacy_material_closure_tests
+    ror_ogre14_particle_capture_source_tests
+    ror_ogre14_procedural_road_source_tests
+    ror_ogre14_road_material_transaction_tests
+    ror_ogre14_dynamic_material_closure_tests
+    ror_ogre_next_demo_private_policy_tests
+    ror_ogre14_material_semantic_registry_tests
+    ror_ogre14_source_texture_decoder_tests
+    ror_ogre14_material_semantic_catalog_v2_tests
+    ror_ogre14_live_material_coordinator_tests
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    ror_ogre14_authenticated_texture_receipt_tests
+    ror_ogre14_terrain_composite_capture_receipt_tests
+    ror_ogre14_authenticated_material_script_receipt_tests
     ror_render_hdr_reference_tests
+    ror_input_event_transport_tests
+    ror_render_bridge_control_transport_tests
     ror_render_parallax_probe_reference_tests
     ror_render_reflection_probe_capture_receipt_tests
     ror_render_reflection_probe_runtime_tests
     ror_render_resource_handle_tests
     ror_render_material_descriptor_tests
     ror_render_pbr_reference_tests
+    ror_render_strict_fp_environment_tests
     ror_render_asset_registry_tests
+    ror_render_asset_delta_transport_tests
     ror_render_scene_snapshot_tests
+    ror_render_scene_snapshot_transport_tests
+    ror_render_transport_stream_tests
+    ror_renderer_frontend_transport_dispatcher_tests
     ror_render_resource_descriptor_tests
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
@@ -375,6 +1340,180 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre_next_vulkan_rt6_contract_tests
     ror_ogre_next_dxr7_contract_tests
 )
+
+if (ROR_OGRE14 AND TARGET RoR)
+    # Exercise the exact production ContentManager and OGRE managers through
+    # the already-linked RoR host. This avoids a second, potentially divergent
+    # copy of the game while keeping the private native authority test-only.
+    target_sources(
+        RoR
+        PRIVATE
+            "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
+    )
+    target_compile_definitions(
+        RoR
+        PRIVATE
+            ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING=1
+    )
+
+    add_executable(
+        ror_ogre14_authenticated_archive_location_closure_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_authenticated_archive_location_closure_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre14_authenticated_archive_location_closure_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_authenticated_archive_location_closure_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_authenticated_archive_location_closure_tests)
+
+    add_executable(
+        ror_ogre14_legacy_native_asset_extractor_compile_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_legacy_native_asset_extractor_compile_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    target_compile_definitions(
+        ror_ogre14_legacy_native_asset_extractor_compile_tests
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre14_legacy_native_asset_extractor_compile_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_legacy_native_asset_extractor_compile_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_legacy_native_asset_extractor_compile_tests)
+
+    add_executable(
+        ror_ogre14_terrain_composite_native_readback_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_terrain_composite_native_readback_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    target_compile_definitions(
+        ror_ogre14_terrain_composite_native_readback_tests
+        PRIVATE ROR_OGRE14_TERRAIN_COMPOSITE_CAPTURE_INTERNAL_TESTING=1
+    )
+    if (TARGET OGRE::Terrain)
+        target_link_libraries(
+            ror_ogre14_terrain_composite_native_readback_tests
+            PRIVATE OGRE::Terrain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_terrain_composite_native_readback_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_terrain_composite_native_readback_tests)
+
+    add_executable(
+        ror_ogre14_flex_shadow_load_tests
+        "${CMAKE_CURRENT_LIST_DIR}/physics/Ogre14FlexShadowLoadTests.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_flex_shadow_load_tests
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre14_flex_shadow_load_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_flex_shadow_load_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_flex_shadow_load_tests)
+endif ()
+
+add_executable(
+    ror_renderer_ogre14_input_adapter_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14InputAdapterTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
+)
+
+add_executable(
+    ror_renderer_ogre14_runtime_ownership_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14RuntimeOwnershipTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14RuntimeOwnership.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre14_runtime_ownership_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_include_directories(
+    ror_renderer_ogre14_input_adapter_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre14_input_adapter_tests
+    PRIVATE ror_render_contract
+)
+
+add_executable(
+    ror_renderer_ogre14_game_host_session_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14GameHostSessionTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoFrameNormalization.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre14_game_host_session_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+target_link_libraries(
+    ror_renderer_ogre14_game_host_session_tests
+    PRIVATE ror_render_contract Threads::Threads
+)
 foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
     target_link_libraries(${render_contract_test} PRIVATE ror_render_contract)
 endforeach ()
@@ -383,6 +1522,13 @@ set(ROR_RENDER_CONTRACT_BUILD_TARGETS
     ror_render_contract
     ${ROR_RENDER_CONTRACT_TEST_TARGETS}
     ror_renderer_boundary_header_isolation_tests
+    ror_renderer_ogre14_input_adapter_tests
+    ror_renderer_ogre14_runtime_ownership_tests
+    ror_renderer_ogre14_game_host_session_tests
+    ror_renderer_ogre_next_live_session_tests
+    ror_flex_mesh_topology_tests
+    ror_ogre14_metal_flex_shadow_read_contract_tests
+    ror_gfx_actor_capture_inventory_tests
 )
 foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
     set_target_properties(
@@ -406,6 +1552,29 @@ foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
         )
     endif ()
 endforeach ()
+
+# Optimized game builds enable fast-math globally. On GCC, leaving
+# `-ffast-math` active on an executable's link command selects crtfastmath.o,
+# whose process-start constructor enables flush-to-zero/denormals-are-zero.
+# Compile-only `-fno-fast-math` therefore cannot preserve the renderer
+# contract's strict IEEE environment by itself. End every portable strict-FP
+# test link with the matching opt-out; production game link behavior is
+# intentionally unchanged.
+if (NOT MSVC)
+    set(ROR_RENDER_CONTRACT_LINK_TARGETS
+        ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+        ror_renderer_ogre14_input_adapter_tests
+        ror_renderer_ogre14_runtime_ownership_tests
+        ror_renderer_ogre14_game_host_session_tests
+        ror_renderer_ogre_next_live_session_tests
+    )
+    foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_LINK_TARGETS)
+        target_link_options(
+            ${render_contract_test}
+            PRIVATE -fno-fast-math
+        )
+    endforeach ()
+endif ()
 
 # This test intentionally replaces global new/delete with one malloc/free pair
 # so it can count allocations. GCC 11's interprocedural analysis diagnoses the
@@ -438,6 +1607,15 @@ if (MSVC)
         PRIVATE _CRT_SECURE_NO_WARNINGS
     )
 endif ()
+
+add_executable(
+    ror_application_fatal_shutdown_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/system/ApplicationFatalShutdownContractTests.cpp"
+)
+target_include_directories(
+    ror_application_fatal_shutdown_contract_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
 
 add_executable(
     ror_beam_axial_response_tests
@@ -593,6 +1771,10 @@ add_executable(
     ror_legacy_material_script_sanitizer_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/LegacyMaterialScriptSanitizerTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+)
+target_link_libraries(
+    ror_legacy_material_script_sanitizer_tests
+    PRIVATE OpenSSL::Crypto
 )
 if (MSVC)
     # The pinned-fixture opt-in uses the standard getenv API. Keep this
@@ -896,6 +2078,12 @@ target_include_directories(
 )
 
 target_include_directories(
+    ror_windows_runtime_path_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/utils"
+)
+
+target_include_directories(
     ror_sky_mode_availability_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/gfx"
@@ -1087,6 +2275,7 @@ target_link_libraries(
 
 set(ROR_PHYSICS_TEST_TARGETS
     ror_render_display_metrics_tests
+    ror_windows_runtime_path_tests
     ror_sky_mode_availability_tests
     ror_v0_post_process_math_tests
     ror_post_process_policy_tests
@@ -1094,8 +2283,29 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_renderer_backend_policy_tests
     ror_renderer_startup_plan_tests
     ror_renderer_startup_handoff_tests
+    ror_renderer_child_intent_tests
+    ror_renderer_sibling_path_tests
+    ror_renderer_package_runtime_probe_tests
+    ror_renderer_bridge_endpoint_tests
+    ror_renderer_bridge_launch_plan_tests
+    ror_renderer_bridge_channel_tests
+    ror_renderer_bridge_process_fake_game
+    ror_renderer_bridge_process_fake_presentation
+    ror_renderer_bridge_process_supervisor_tests
+    ror_renderer_ogre14_game_bridge_tests
+    ror_renderer_ogre_next_child_tests
+    ror_renderer_ogre_next_window_host_tests
+    ror_renderer_child_launcher_fake_child
+    ror_renderer_child_launcher_tests
+    ror_renderer_public_launcher_tests
+    ror_renderer_public_launcher_legacy_child
+    ror_renderer_public_launcher_entrypoint
+    ror_renderer_public_bridge_fake_game
+    ror_renderer_public_bridge_fake_presentation
+    ror_renderer_public_bridge_entrypoint
     ror_local_light_budget_tests
     ror_command_line_info_tests
+    ror_application_fatal_shutdown_contract_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
@@ -1209,6 +2419,12 @@ endif ()
 set_target_properties(
     ror_beamng_material_inventory_tests
     ror_jbeam_to_rigdef_tests
+    ror_application_fatal_shutdown_contract_tests
+    ror_renderer_bridge_process_fake_game
+    ror_renderer_bridge_process_fake_presentation
+    ror_renderer_public_bridge_fake_game
+    ror_renderer_public_bridge_fake_presentation
+    ror_renderer_bridge_process_supervisor_tests
     PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
@@ -1218,6 +2434,18 @@ set_target_properties(
 add_test(
     NAME render_display_metrics
     COMMAND ror_render_display_metrics_tests
+)
+
+add_test(
+    NAME windows_runtime_path
+    COMMAND ror_windows_runtime_path_tests
+)
+
+add_test(
+    NAME application_fatal_shutdown_contract
+    COMMAND
+        ror_application_fatal_shutdown_contract_tests
+        "${ROR_REPOSITORY_ROOT}"
 )
 
 add_test(
@@ -1256,8 +2484,280 @@ add_test(
 )
 
 add_test(
+    NAME renderer_child_intent
+    COMMAND ror_renderer_child_intent_tests
+)
+
+add_test(
+    NAME renderer_sibling_path
+    COMMAND ror_renderer_sibling_path_tests
+)
+
+add_test(
+    NAME renderer_bridge_endpoint
+    COMMAND ror_renderer_bridge_endpoint_tests
+)
+
+add_test(
+    NAME renderer_bridge_launch_plan
+    COMMAND ror_renderer_bridge_launch_plan_tests
+)
+
+add_test(
+    NAME renderer_bridge_channel
+    COMMAND ror_renderer_bridge_channel_tests
+)
+
+add_test(
+    NAME renderer_bridge_process_supervisor
+    COMMAND ror_renderer_bridge_process_supervisor_tests
+)
+set_tests_properties(
+    renderer_bridge_process_supervisor
+    PROPERTIES TIMEOUT 30
+)
+
+add_test(
+    NAME renderer_ogre14_game_bridge
+    COMMAND ror_renderer_ogre14_game_bridge_tests
+)
+
+add_test(
+    NAME renderer_ogre14_input_adapter
+    COMMAND ror_renderer_ogre14_input_adapter_tests
+)
+
+add_test(
+    NAME renderer_ogre14_runtime_ownership
+    COMMAND ror_renderer_ogre14_runtime_ownership_tests
+)
+
+add_test(
+    NAME renderer_ogre14_game_host_session
+    COMMAND ror_renderer_ogre14_game_host_session_tests
+)
+
+add_test(
+    NAME renderer_ogre_next_child
+    COMMAND ror_renderer_ogre_next_child_tests
+)
+
+add_test(
+    NAME renderer_ogre_next_live_session
+    COMMAND ror_renderer_ogre_next_live_session_tests
+)
+set_tests_properties(
+    renderer_ogre_next_live_session
+    PROPERTIES TIMEOUT 30
+)
+
+add_test(
+    NAME renderer_ogre_next_window_host
+    COMMAND ror_renderer_ogre_next_window_host_tests
+)
+
+add_test(
+    NAME renderer_child_launcher
+    COMMAND ror_renderer_child_launcher_tests
+)
+
+add_test(
+    NAME renderer_public_launcher
+    COMMAND ror_renderer_public_launcher_tests
+)
+
+add_test(
+    NAME renderer_package_runtime_probe
+    COMMAND ror_renderer_package_runtime_probe_tests
+)
+
+add_test(
+    NAME renderer_public_launcher_entrypoint
+    COMMAND $<TARGET_FILE:ror_renderer_public_launcher_entrypoint>
+)
+set_tests_properties(
+    renderer_public_launcher_entrypoint
+    PROPERTIES TIMEOUT 10
+)
+
+set(_ror_renderer_public_bridge_cases
+    default-prefer
+    explicit-require
+    presentation-first
+    pre-ready-fallback
+    pre-ready-require-terminal
+    post-ready-terminal
+    native-require-terminal
+)
+if (APPLE)
+    list(APPEND _ror_renderer_public_bridge_cases macos-demo-autostart)
+endif ()
+foreach (public_bridge_case IN LISTS _ror_renderer_public_bridge_cases)
+    add_test(
+        NAME "renderer_public_bridge_${public_bridge_case}"
+        COMMAND
+            "${CMAKE_COMMAND}"
+            "-DROR_RENDERER_PUBLIC_BRIDGE_LAUNCHER=$<TARGET_FILE:ror_renderer_public_bridge_entrypoint>"
+            "-DROR_RENDERER_PUBLIC_BRIDGE_CASE=${public_bridge_case}"
+            -P
+            "${CMAKE_CURRENT_LIST_DIR}/cmake/VerifyRendererPublicBridgeExit.cmake"
+    )
+    set_tests_properties(
+        "renderer_public_bridge_${public_bridge_case}"
+        PROPERTIES TIMEOUT 20
+    )
+endforeach ()
+unset(_ror_renderer_public_bridge_cases)
+
+add_test(
     NAME graphics_scene_snapshot_producer
     COMMAND ror_graphics_scene_snapshot_producer_tests
+)
+
+add_test(
+    NAME ogre14_graphics_scene_source
+    COMMAND ror_ogre14_graphics_scene_source_tests
+)
+
+add_test(
+    NAME flex_mesh_topology
+    COMMAND ror_flex_mesh_topology_tests
+)
+
+add_test(
+    NAME ogre14_metal_flex_shadow_read_contract
+    COMMAND
+        ror_ogre14_metal_flex_shadow_read_contract_tests
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/flex/FlexFactory.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/flex/FlexBody.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/ActorSpawner.cpp"
+)
+
+add_test(
+    NAME gfx_actor_capture_inventory
+    COMMAND
+        ror_gfx_actor_capture_inventory_tests
+        "${ROR_REPOSITORY_ROOT}/source/main/main.cpp"
+)
+
+add_test(
+    NAME ogre14_legacy_asset_translator
+    COMMAND ror_ogre14_legacy_asset_translator_tests
+)
+
+add_test(
+    NAME ogre14_legacy_material_closure
+    COMMAND ror_ogre14_legacy_material_closure_tests
+)
+
+add_test(
+    NAME ogre14_particle_capture_source
+    COMMAND ror_ogre14_particle_capture_source_tests
+)
+
+if (TARGET ror_ogre14_legacy_native_asset_extractor_compile_tests)
+    add_test(
+        NAME ogre14_legacy_native_asset_extractor_compile
+        COMMAND ror_ogre14_legacy_native_asset_extractor_compile_tests
+    )
+endif ()
+
+if (TARGET ror_ogre14_authenticated_archive_location_closure_tests)
+    add_test(
+        NAME ogre14_authenticated_archive_location_closure
+        COMMAND
+            ror_ogre14_authenticated_archive_location_closure_tests
+            "${ROR_REPOSITORY_ROOT}/resources/meshes"
+    )
+endif ()
+
+if (TARGET RoR AND ROR_OGRE14)
+    add_test(
+        NAME ogre14_authenticated_material_script_native_integration
+        COMMAND
+            $<TARGET_FILE:RoR>
+            --internal-ogre14-authenticated-material-script-native-integration
+    )
+    set_tests_properties(
+        ogre14_authenticated_material_script_native_integration
+        PROPERTIES TIMEOUT 60
+    )
+endif ()
+
+if (TARGET ror_ogre14_flex_shadow_load_tests)
+    add_test(
+        NAME ogre14_flex_shadow_load
+        COMMAND
+            ror_ogre14_flex_shadow_load_tests
+            "${ROR_REPOSITORY_ROOT}/resources/meshes"
+    )
+endif ()
+
+add_test(
+    NAME ogre14_procedural_road_source
+    COMMAND ror_ogre14_procedural_road_source_tests
+)
+
+add_test(
+    NAME ogre14_road_material_transaction
+    COMMAND ror_ogre14_road_material_transaction_tests
+)
+
+add_test(
+    NAME ogre14_dynamic_material_closure
+    COMMAND ror_ogre14_dynamic_material_closure_tests
+)
+
+add_test(
+    NAME ogre_next_demo_private_policy
+    COMMAND ror_ogre_next_demo_private_policy_tests
+)
+
+add_test(
+    NAME ogre14_material_semantic_registry
+    COMMAND ror_ogre14_material_semantic_registry_tests
+)
+
+add_test(
+    NAME ogre14_source_texture_decoder
+    COMMAND ror_ogre14_source_texture_decoder_tests
+)
+
+add_test(
+    NAME ogre14_material_semantic_catalog_v2
+    COMMAND ror_ogre14_material_semantic_catalog_v2_tests
+)
+
+add_test(
+    NAME ogre14_live_material_coordinator
+    COMMAND ror_ogre14_live_material_coordinator_tests
+)
+
+add_test(
+    NAME ogre14_graphics_scene_prepared_material_binding
+    COMMAND ror_ogre14_graphics_scene_prepared_material_binding_tests
+)
+
+add_test(
+    NAME ogre14_authenticated_texture_receipt
+    COMMAND ror_ogre14_authenticated_texture_receipt_tests
+)
+
+add_test(
+    NAME ogre14_terrain_composite_capture_receipt
+    COMMAND ror_ogre14_terrain_composite_capture_receipt_tests
+)
+
+if (TARGET ror_ogre14_terrain_composite_native_readback_tests)
+    add_test(
+        NAME ogre14_terrain_composite_native_readback
+        COMMAND ror_ogre14_terrain_composite_native_readback_tests
+    )
+endif ()
+
+add_test(
+    NAME ogre14_authenticated_material_script_receipt
+    COMMAND ror_ogre14_authenticated_material_script_receipt_tests
 )
 
 add_test(
@@ -1273,6 +2773,16 @@ add_test(
 add_test(
     NAME render_hdr_reference
     COMMAND ror_render_hdr_reference_tests
+)
+
+add_test(
+    NAME input_event_transport
+    COMMAND ror_input_event_transport_tests
+)
+
+add_test(
+    NAME render_bridge_control_transport
+    COMMAND ror_render_bridge_control_transport_tests
 )
 
 add_test(
@@ -1296,13 +2806,37 @@ add_test(
 )
 
 add_test(
+    NAME render_strict_fp_environment
+    COMMAND ror_render_strict_fp_environment_tests
+)
+
+add_test(
     NAME render_asset_registry
     COMMAND ror_render_asset_registry_tests
 )
 
 add_test(
+    NAME render_asset_delta_transport
+    COMMAND ror_render_asset_delta_transport_tests
+)
+
+add_test(
     NAME render_scene_snapshot
     COMMAND ror_render_scene_snapshot_tests
+)
+
+add_test(
+    NAME render_scene_snapshot_transport
+    COMMAND ror_render_scene_snapshot_transport_tests
+)
+
+add_test(
+    NAME render_transport_stream
+    COMMAND ror_render_transport_stream_tests
+)
+add_test(
+    NAME renderer_frontend_transport_dispatcher
+    COMMAND ror_renderer_frontend_transport_dispatcher_tests
 )
 
 add_test(

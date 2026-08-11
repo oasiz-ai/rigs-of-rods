@@ -590,6 +590,9 @@ class OgreNextProbeContractTests(unittest.TestCase):
         contract["reflection_shader_media"] = copy.deepcopy(
             self.lock["reflection_shader_media"]
         )
+        contract["shader_media"] = PROBE.expected_build_shader_media(
+            self.lock
+        )
         PROBE.validate_build_contract(contract, self.lock, self.policy)
         current_contract = copy.deepcopy(contract)
         current_contract["schema_version"] = 4
@@ -609,6 +612,14 @@ class OgreNextProbeContractTests(unittest.TestCase):
             current_contract, self.lock, self.policy
         )
         current_contract["schema_version"] = 5
+        current_contract["components"].update(
+            {
+                "headless_child_bootstrap": True,
+                "headless_child_output_name": "RoR-OgreNext",
+                "headless_child_packaged": False,
+                "headless_child_production_admitted": False,
+            }
+        )
         freetype = self.lock["dependencies"]["freetype"]
         current_contract["dependencies"]["freetype"] = {
             "repository": freetype["repository"],
@@ -631,6 +642,23 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 freetype["disabled_optional_dependencies"]
             ),
         }
+        PROBE.validate_build_contract(
+            current_contract, self.lock, self.policy
+        )
+        current_contract["schema_version"] = 6
+        current_contract["components"].update(
+            {
+                "headless_child_execution_receipt_schema": (
+                    "ror.ogre_next_child_runtime_execution_receipt.v1"
+                ),
+                "headless_child_execution_receipt_required": True,
+                "headless_child_binary_retained": True,
+                "headless_child_logs_retained": True,
+                "headless_child_process_model": (
+                    "single-process-reviewed-source-closure-v1"
+                ),
+            }
+        )
         PROBE.validate_build_contract(
             current_contract, self.lock, self.policy
         )
@@ -742,7 +770,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         build_contract = (
             PROBE_DIR / "ogre_next_build_contract.json.in"
         ).read_text(encoding="utf-8")
-        self.assertIn('"schema_version": 5', build_contract)
+        self.assertIn('"schema_version": 6', build_contract)
         self.assertIn(
             '"target_type": "@ROR_FREETYPE_TARGET_TYPE@"',
             build_contract,
@@ -754,6 +782,28 @@ class OgreNextProbeContractTests(unittest.TestCase):
             build_contract,
         )
         self.assertIn("native_ray_tracing\": \"not_evaluated", build_contract)
+        self.assertIn('"headless_child_bootstrap": true', build_contract)
+        self.assertIn(
+            '"headless_child_packaged": @ROR_OGRE_NEXT_CHILD_PACKAGED_JSON@',
+            build_contract,
+        )
+        self.assertIn(
+            'set(ROR_OGRE_NEXT_CHILD_PACKAGED_JSON "false")', cmake
+        )
+        self.assertIn(
+            '"headless_child_execution_receipt_required": true',
+            build_contract,
+        )
+        self.assertIn('"headless_child_binary_retained": true', build_contract)
+        self.assertIn('"headless_child_logs_retained": true', build_contract)
+        self.assertIn(
+            '"headless_child_process_model": '
+            '"single-process-reviewed-source-closure-v1"',
+            build_contract,
+        )
+        self.assertIn(
+            '"headless_child_production_admitted": false', build_contract
+        )
         self.assertNotIn(
             "ogre_next_probe",
             (REPOSITORY_ROOT / "CMakeLists.txt").read_text(encoding="utf-8"),
@@ -1074,6 +1124,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        self.assertEqual(build_contract["shader_media"], shader_media)
         runtime_report = json.loads(
             (REPOSITORY_ROOT / provenance["runtime_report_path"]).read_text(
                 encoding="utf-8"
@@ -1090,9 +1141,11 @@ class OgreNextProbeContractTests(unittest.TestCase):
         build_contract["reflection_shader_media"] = copy.deepcopy(
             self.lock["reflection_shader_media"]
         )
+        build_contract["shader_media"] = PROBE.expected_build_shader_media(
+            self.lock
+        )
         PROBE.validate_build_contract(build_contract, self.lock, self.policy)
         PROBE.validate_report(runtime_report, self.lock, self.policy)
-        self.assertEqual(build_contract["shader_media"], shader_media)
         self.assertEqual(
             evidence["abi"]["cookie"], runtime_report["build"]["abi_cookie"]
         )

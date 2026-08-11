@@ -16,7 +16,8 @@ source/main/gfx/particle/FireExtinguisherAffector.cpp whitespace=cr-at-eol
 source/main/gfx/particle/OgreParticleCustomParam.h whitespace=cr-at-eol
 source/main/gfx/particle/OgreShaderParticleRenderer.cpp whitespace=cr-at-eol
 source/main/gfx/particle/OgreShaderParticleRenderer.h whitespace=cr-at-eol
-source/main/main.cpp whitespace=cr-at-eol
+source/main/icon.rc whitespace=cr-at-eol
+source/main/main.cpp -text whitespace=cr-at-eol
 source/main/physics/flex/FlexBody.cpp whitespace=cr-at-eol
 source/main/resources/ContentManager.cpp whitespace=cr-at-eol
 source/main/resources/ContentManager.h whitespace=cr-at-eol
@@ -30,7 +31,10 @@ source/main/terrain/TerrainGeometryManager.cpp whitespace=cr-at-eol
 source/main/terrain/Terrain.cpp whitespace=cr-at-eol
 source/main/terrain/ProceduralManager.cpp whitespace=cr-at-eol
 source/main/terrain/ProceduralManager.h whitespace=cr-at-eol
+source/main/terrain/ProceduralRoad.cpp text eol=lf
+source/main/terrain/ProceduralRoad.h text eol=lf
 source/main/utils/InputEngine.cpp whitespace=cr-at-eol
+source/main/utils/MeshObject.cpp whitespace=cr-at-eol
 source/main/utils/PlatformUtils.cpp whitespace=cr-at-eol
 source/main/utils/PlatformUtils.h whitespace=cr-at-eol
 #
@@ -41,6 +45,8 @@ cmake/conan/locks/*.lock text eol=lf
 cmake/conan/recipes/ogre3d/patches/14.5.2/relocatable-install-paths.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/bounds-safe-shadow-texture-projectors.patch -whitespace
 cmake/conan/recipes/ogre3d/patches/14.5.2/defer-glsl-program-validation.patch -whitespace
+cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch -whitespace
+cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/honor-toolchain-cxx-standard.patch -whitespace
 
@@ -62,15 +68,86 @@ content-source/cityworld_next/provenance/*.json text eol=lf
 
 # OGRE-Next dependency, patch, and shader-license contracts are verified by
 # exact byte hashes. Keep the isolated probe identical on every checkout.
+cmake/RendererLauncherPackageConfig.cmake text eol=lf
 source/main/gfx/RendererBackendPolicy.* text eol=lf
+source/main/gfx/GfxScene.* text eol=lf
 source/main/gfx/RendererStartupHandoff.* text eol=lf
 source/main/gfx/RendererStartupPlan.* text eol=lf
+source/main/system/RendererBridge* text eol=lf
+source/main/system/RendererChildIntent.* text eol=lf
+source/main/system/RendererChildLauncher.* text eol=lf
+source/main/system/RendererOgre14GameBridge.* text eol=lf
+source/main/system/RendererOgre14GameHostSession.* text eol=lf
+source/main/system/RendererSiblingPath.* text eol=lf
+source/main/system/RendererPackagedMediaPath.* text eol=lf
+source/main/system/RendererPackageRuntimeProbe.* text eol=lf
+source/main/system/RendererBridgeEndpoint.* text eol=lf
+source/main/system/RendererBridgeLaunchPlan.* text eol=lf
+source/main/system/RendererBridgeProcessSupervisor.* text eol=lf
+source/main/system/RendererOgreNextChild.* text eol=lf
+source/main/system/RendererOgreNextLiveSession.* text eol=lf
+source/main/system/RendererOgreNextProductionSession.* text eol=lf
+source/main/system/RendererOgreNextSdlWindowRuntime* text eol=lf
+source/main/system/RendererOgreNextWindowHost.* text eol=lf
+source/main/system/RendererLauncherMain.cpp text eol=lf
+source/main/system/RendererLauncherPackageConfig.h.in text eol=lf
+source/main/system/RendererPublicLauncher.* text eol=lf
 source/main/gfx/render/** text eol=lf
+source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.* text eol=lf
+source/main/gfx/ogre14/detail/OgreNextDemo* text eol=lf
+source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.* text eol=lf
+source/main/system/detail/OgreNextDemo* text eol=lf
+doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md text eol=lf
+source/main/physics/Savegame.cpp text eol=lf
+tests/tools/test_renderer_suite_packaging_contract.py text eol=lf
+source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.* text eol=lf
+source/main/terrain/TerrainObjectManager.* whitespace=cr-at-eol
+tests/gfx/render/RenderTransportStreamTests.cpp text eol=lf
+tests/gfx/render/RenderBridgeControlTransportTests.cpp text eol=lf
+tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp text eol=lf
+tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp text eol=lf
+tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp text eol=lf
+tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp text eol=lf
+tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp text eol=lf
+tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp text eol=lf
+tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp text eol=lf
+tests/resources/TerrainBundleArchiveVerifierTests.cpp text eol=lf
 tests/gfx/RendererBackendPolicyTests.cpp text eol=lf
+tests/gfx/RendererChildIntentTests.cpp text eol=lf
+tests/gfx/RendererChildLauncherFakeChild.cpp text eol=lf
+tests/gfx/RendererChildLauncherTests.cpp text eol=lf
+tests/gfx/RendererBridge*Tests.cpp text eol=lf
+tests/gfx/RendererOgre14GameBridgeTests.cpp text eol=lf
+tests/gfx/RendererOgre14GameHostSessionTests.cpp text eol=lf
+tests/gfx/RendererSiblingPathTests.cpp text eol=lf
+tests/gfx/RendererPackageRuntimeProbeTests.cpp text eol=lf
+tests/gfx/RendererBridgeEndpointTests.cpp text eol=lf
+tests/gfx/RendererBridgeLaunchPlanTests.cpp text eol=lf
+tests/gfx/RendererBridgeProcessFakeChild.cpp text eol=lf
+tests/gfx/RendererBridgeProcessSupervisorTests.cpp text eol=lf
+tests/gfx/RendererOgreNextChildTests.cpp text eol=lf
+tests/gfx/RendererOgreNextLiveSessionTests.cpp text eol=lf
+tests/gfx/RendererOgreNextWindowHostTests.cpp text eol=lf
+tests/gfx/RendererPublicLauncherLegacyChild.cpp text eol=lf
+tests/gfx/RendererPublicLauncherTests.cpp text eol=lf
+tests/cmake/VerifyRendererPublicBridgeExit.cmake text eol=lf
 tests/gfx/RendererStartupHandoffTests.cpp text eol=lf
 tests/gfx/RendererStartupPlanTests.cpp text eol=lf
 tools/ogre_next_probe/** text eol=lf
 tools/run_ogre_next_probe.py text eol=lf
 tools/validate_ogre_next_frame_probe.py text eol=lf
 tools/verify_ogre_next_artifact_set.py text eol=lf
+tools/audit_ogre14_material_scripts.py text eol=lf
+tests/tools/test_audit_ogre14_material_scripts.py text eol=lf
+tests/tools/test_ogre_next_child_runtime_contract.py text eol=lf
+tests/tools/test_ogre14_road_material_transaction_contract.py text eol=lf
+tests/tools/test_ogre14_dynamic_material_closure_contract.py text eol=lf
+tests/tools/test_ogre14_authenticated_texture_receipt_contract.py text eol=lf
+tests/tools/test_ogre_next_window_host_contract.py text eol=lf
+tests/tools/test_ogre_next_window_presentation_contract.py text eol=lf
+tests/tools/test_ogre_next_window_run_loop_contract.py text eol=lf
+doc/nextgen/OGRE_NEXT_INTEGRATION.md text eol=lf
+doc/nextgen/NATIVE_RAY_TRACING_BACKEND.md text eol=lf
+doc/nextgen/ROADMAP.md text eol=lf
+doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md text eol=lf
 doc/nextgen/evidence/OGRE_NEXT_METAL_* text eol=lf

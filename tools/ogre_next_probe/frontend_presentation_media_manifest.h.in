@@ -1,0 +1,18 @@
+#pragma once
+
+#include "ror_ogre_next_n1_media_manifest.h"
+
+#include <cstddef>
+
+namespace RoR::Render {
+
+inline constexpr OgreNextN1MediaManifestEntry
+    kOgreNextN1PresentationMediaManifest[]{
+@ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_ENTRIES@};
+
+inline constexpr std::size_t kOgreNextN1PresentationMediaManifestCount =
+    @ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_COUNT@U;
+inline constexpr char kOgreNextN1PresentationMediaManifestSha256[] =
+    "@ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_SHA256@";
+
+} // namespace RoR::Render

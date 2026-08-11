@@ -11,11 +11,15 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace RoR
 {
+
+constexpr std::uint32_t kLegacyMaterialScriptRepairPlanVersion = 1U;
+constexpr std::size_t kLegacyMaterialScriptMaximumRepairPlanEdits = 65536U;
 
 struct LegacyMaterialScriptRepair
 {
@@ -87,5 +91,23 @@ LegacyMaterialScriptPlanApplication ApplyLegacyMaterialScriptEditPlan(
     const LegacyMaterialScriptEditPlan& plan,
     const std::string& observed_script_sha256,
     const std::string& payload);
+
+/// Hash a domain-separated canonical little-endian representation of an
+/// exact reviewed plan. The exact archive member must equal plan.script_name;
+/// basename fallback is intentionally forbidden. Plans above the fixed edit
+/// cap are rejected before canonical storage is reserved or any edit is read.
+bool ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+    const LegacyMaterialScriptEditPlan& plan,
+    const std::string& exact_member_name,
+    const std::string& observed_script_sha256,
+    std::string& out_sha256);
+
+/// Hash the distinct canonical v1 NONE record for an exact authenticated
+/// archive member and original script digest.
+bool ComputeLegacyMaterialScriptNoRepairPlanSha256(
+    const std::string& archive_sha256,
+    const std::string& exact_member_name,
+    const std::string& observed_script_sha256,
+    std::string& out_sha256);
 
 } // namespace RoR
