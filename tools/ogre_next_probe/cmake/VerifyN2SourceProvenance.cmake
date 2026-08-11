@@ -229,6 +229,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererPackageRuntimeProbeTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
     tests/gfx/RendererOgreNextLiveSessionTests.cpp
+    tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp
     tests/gfx/RendererOgreNextWindowHostTests.cpp
     tests/gfx/RendererPublicLauncherLegacyChild.cpp
     tests/gfx/RendererPublicLauncherTests.cpp
@@ -525,6 +526,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererOgreNextLiveSessionTests.cpp"
+    "tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"

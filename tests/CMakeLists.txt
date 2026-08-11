@@ -524,6 +524,17 @@ target_link_libraries(
 )
 
 add_executable(
+    ror_renderer_ogre_next_in_process_presenter_policy_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp"
+)
+target_include_directories(
+    ror_renderer_ogre_next_in_process_presenter_policy_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+
+add_executable(
     ror_renderer_ogre_next_live_session_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgreNextLiveSessionTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
@@ -2608,6 +2619,11 @@ add_test(
 add_test(
     NAME renderer_ogre_next_window_host
     COMMAND ror_renderer_ogre_next_window_host_tests
+)
+
+add_test(
+    NAME renderer_ogre_next_in_process_presenter_policy
+    COMMAND ror_renderer_ogre_next_in_process_presenter_policy_tests
 )
 
 add_test(

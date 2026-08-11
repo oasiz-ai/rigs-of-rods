@@ -244,6 +244,13 @@ public:
       const RendererOgreNextWindowHostRuntime &runtime) noexcept;
   RendererOgreNextWindowHostStatus Resume() noexcept;
   RendererOgreNextWindowHostStatus Suspend() noexcept;
+  /// Adopts visibility state already committed by the native window system.
+  /// Unlike Resume()/Suspend(), this never requests SDL_ShowWindow or
+  /// SDL_HideWindow. A hidden/minimized adoption retains the last valid
+  /// drawable metrics; a visible adoption refreshes them before becoming
+  /// ACTIVE.
+  RendererOgreNextWindowHostStatus AdoptExternalVisibility(
+      bool visible) noexcept;
   RendererOgreNextWindowHostStatus Resize(
       std::uint32_t logical_width,
       std::uint32_t logical_height) noexcept;

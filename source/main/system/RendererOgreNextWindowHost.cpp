@@ -502,6 +502,31 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Suspend() noexcept 
   }
 }
 
+RendererOgreNextWindowHostStatus
+RendererOgreNextWindowHost::AdoptExternalVisibility(bool visible) noexcept {
+  if (m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&
+      m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) {
+    return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
+  if (!visible) {
+    // The native system has already hidden or minimized the exact owned
+    // window. Issuing another hide here can consume the corresponding restore
+    // transition and strand the presentation window off screen.
+    m_lifecycle = RendererOgreNextWindowLifecycle::SUSPENDED;
+    return RendererOgreNextWindowHostStatus::COMPLETED;
+  }
+
+  const RendererOgreNextWindowHostStatus refreshed =
+      RefreshMetricsOnOwnerThread();
+  if (refreshed == RendererOgreNextWindowHostStatus::COMPLETED) {
+    m_lifecycle = RendererOgreNextWindowLifecycle::ACTIVE;
+  }
+  return refreshed;
+}
+
 RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resize(
     std::uint32_t logical_width, std::uint32_t logical_height) noexcept {
   if ((m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&

@@ -131,6 +131,7 @@ tests/gfx/RendererBridgeLaunchPlanTests.cpp text eol=lf
 tests/gfx/RendererBridgeProcessFakeChild.cpp text eol=lf
 tests/gfx/RendererBridgeProcessSupervisorTests.cpp text eol=lf
 tests/gfx/RendererOgreNextChildTests.cpp text eol=lf
+tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp text eol=lf
 tests/gfx/RendererOgreNextLiveSessionTests.cpp text eol=lf
 tests/gfx/RendererOgreNextWindowHostTests.cpp text eol=lf
 tests/gfx/RendererPublicLauncherLegacyChild.cpp text eol=lf

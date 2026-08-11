@@ -586,6 +586,66 @@ void TestLinuxX11XcbTranslationAndStablePair() {
           "Linux host did not shut down");
 }
 
+void TestExternalVisibilityAdoptionNeverIssuesShowOrHide() {
+  FakeSdlRuntime fake;
+  RoR::RendererOgreNextWindowHost host;
+  Require(host.Initialize(Request(fake.platform),
+                          Runtime(fake, fake.platform)) ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "external-visibility fixture did not initialize");
+  const std::size_t hidden_show_count = CountCall(fake, "window-show");
+  const std::size_t hidden_hide_count = CountCall(fake, "window-hide");
+  Require(host.AdoptExternalVisibility(false) ==
+                  RoR::RendererOgreNextWindowHostStatus::
+                      REJECTED_INVALID_REQUEST &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+              CountCall(fake, "window-show") == hidden_show_count &&
+              CountCall(fake, "window-hide") == hidden_hide_count,
+          "external visibility bypassed first-frame show ownership");
+
+  Require(host.Resume() ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::ACTIVE,
+          "external-visibility fixture did not become active");
+  const std::size_t show_count = CountCall(fake, "window-show");
+  const std::size_t hide_count = CountCall(fake, "window-hide");
+  const std::uint64_t generation = host.Metrics()->generation;
+
+  // Model an OS minimize/hide that was already committed before the host was
+  // notified. Adoption must retain the last valid drawable and must not hide
+  // the window a second time.
+  fake.visible = false;
+  fake.drawable_width = 0U;
+  fake.drawable_height = 0U;
+  Require(host.AdoptExternalVisibility(false) ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::SUSPENDED &&
+              host.Metrics()->generation == generation &&
+              CountCall(fake, "window-show") == show_count &&
+              CountCall(fake, "window-hide") == hide_count,
+          "external minimize adoption issued a programmatic hide");
+
+  // Model the matching OS restore. The host may query and commit current
+  // drawable metrics, but it must not issue SDL_ShowWindow a second time.
+  fake.visible = true;
+  fake.drawable_width = 1920U;
+  fake.drawable_height = 1080U;
+  Require(host.AdoptExternalVisibility(true) ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              host.Lifecycle() ==
+                  RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
+              CountCall(fake, "window-show") == show_count &&
+              CountCall(fake, "window-hide") == hide_count,
+          "external restore adoption issued a programmatic show");
+  RequireMetrics(host, generation + 1U, 800U, 600U, 1920U, 1080U);
+  Require(host.Shutdown() ==
+              RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+          "external-visibility fixture did not shut down");
+}
+
 void TestWaylandAndInvalidContractsFailBeforeSdl() {
   FakeSdlRuntime fake;
   fake.platform = RoR::RendererOgreNextWindowPlatform::LINUX_WAYLAND;
@@ -699,6 +759,10 @@ void TestOwnerThreadAffinityIsFailClosed() {
                 return host.AdoptExternalResize(900U, 700U);
               }) == RoR::RendererOgreNextWindowHostStatus::
                         REJECTED_OWNER_THREAD_REQUIRED &&
+              RunOnForeignThread([&host]() {
+                return host.AdoptExternalVisibility(false);
+              }) == RoR::RendererOgreNextWindowHostStatus::
+                        REJECTED_OWNER_THREAD_REQUIRED &&
               RunOnForeignThread([&host]() { return host.RefreshMetrics(); }) ==
                   RoR::RendererOgreNextWindowHostStatus::
                       REJECTED_OWNER_THREAD_REQUIRED &&
@@ -706,13 +770,14 @@ void TestOwnerThreadAffinityIsFailClosed() {
                   RoR::RendererOgreNextWindowHostStatus::
                       REJECTED_OWNER_THREAD_REQUIRED,
           "a foreign thread reached a live lifecycle operation");
-  Require(fake.calls.size() == calls_before + 6U &&
+  Require(fake.calls.size() == calls_before + 7U &&
               fake.calls[calls_before] == "owner-thread" &&
               fake.calls[calls_before + 1U] == "owner-thread" &&
               fake.calls[calls_before + 2U] == "owner-thread" &&
               fake.calls[calls_before + 3U] == "owner-thread" &&
               fake.calls[calls_before + 4U] == "owner-thread" &&
               fake.calls[calls_before + 5U] == "owner-thread" &&
+              fake.calls[calls_before + 6U] == "owner-thread" &&
               host.Lifecycle() ==
                   RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
               host.Binding() == binding && host.Metrics() != nullptr &&
@@ -952,6 +1017,7 @@ int main() {
   TestCocoaMetalViewTranslationAndLifecycle();
   TestWin32Translation();
   TestLinuxX11XcbTranslationAndStablePair();
+  TestExternalVisibilityAdoptionNeverIssuesShowOrHide();
   TestWaylandAndInvalidContractsFailBeforeSdl();
   TestOwnerThreadAffinityIsFailClosed();
   TestCocoaMainThreadIsRevalidatedAfterInitialize();

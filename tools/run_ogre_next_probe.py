@@ -302,6 +302,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp",
     "tests/gfx/RendererOgreNextChildTests.cpp",
     "tests/gfx/RendererOgreNextLiveSessionTests.cpp",
+    "tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp",
     "tests/gfx/RendererOgreNextWindowHostTests.cpp",
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp",
     "tests/gfx/RendererPublicLauncherTests.cpp",

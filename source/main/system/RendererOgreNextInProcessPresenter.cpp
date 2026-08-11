@@ -19,6 +19,7 @@
 #include <limits>
 #include <new>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -204,6 +205,13 @@ public:
     std::size_t button_count = 0U;
     std::size_t hat_count = 0U;
     bool standardized = false;
+  };
+
+  struct RefreshedDeviceState final {
+    std::vector<std::int32_t> axes;
+    std::vector<std::int32_t> relative_axes;
+    std::vector<bool> buttons;
+    std::vector<std::uint8_t> hats;
   };
 
   static constexpr std::size_t kMaximumAxes = 32U;
@@ -402,43 +410,67 @@ public:
     return false;
   }
 
-  void RefreshDeviceState(InputDevice &device) noexcept {
+  RefreshedDeviceState ReadDeviceState(const InputDevice &device) {
+    RefreshedDeviceState refreshed;
     if (device.joystick == nullptr) {
-      return;
+      return refreshed;
     }
-    device.relative_axes.assign(device.axis_count, 0);
-    device.axes.resize(device.axis_count, 0);
+    refreshed.relative_axes.assign(device.axis_count, 0);
+    refreshed.axes.resize(device.axis_count, 0);
     for (std::size_t axis = 0U; axis < device.axis_count; ++axis) {
-      device.axes[axis] = device.standardized
+      refreshed.axes[axis] = device.standardized
           ? SDL_GameControllerGetAxis(
                 device.controller,
                 static_cast<SDL_GameControllerAxis>(axis))
           : SDL_JoystickGetAxis(device.joystick,
                                 static_cast<int>(axis));
     }
-    device.buttons.resize(device.button_count, false);
+    refreshed.buttons.resize(device.button_count, false);
     for (std::size_t button = 0U; button < device.button_count; ++button) {
-      device.buttons[button] = device.standardized
+      refreshed.buttons[button] = device.standardized
           ? SDL_GameControllerGetButton(
                 device.controller,
                 static_cast<SDL_GameControllerButton>(button)) != 0U
           : SDL_JoystickGetButton(device.joystick,
                                   static_cast<int>(button)) != 0U;
     }
-    device.hats.resize(device.hat_count, 0U);
+    refreshed.hats.resize(device.hat_count, 0U);
     if (!device.standardized) {
       for (std::size_t hat = 0U; hat < device.hat_count; ++hat) {
-        device.hats[hat] = SDL_JoystickGetHat(
+        refreshed.hats[hat] = SDL_JoystickGetHat(
             device.joystick, static_cast<int>(hat));
       }
     }
+    return refreshed;
   }
 
-  void RefreshAllDeviceStates() noexcept {
+  void CommitDeviceState(InputDevice &device,
+                         RefreshedDeviceState refreshed) noexcept {
+    device.axes.swap(refreshed.axes);
+    device.relative_axes.swap(refreshed.relative_axes);
+    device.buttons.swap(refreshed.buttons);
+    device.hats.swap(refreshed.hats);
+  }
+
+  void RefreshDeviceState(InputDevice &device) {
+    CommitDeviceState(device, ReadDeviceState(device));
+  }
+
+  void RefreshAllDeviceStates() {
     SDL_GameControllerUpdate();
     SDL_JoystickUpdate();
-    for (InputDevice &device : input_devices) {
-      RefreshDeviceState(device);
+    std::array<RefreshedDeviceState, kRendererGameJoystickSlots> refreshed{};
+    std::array<bool, kRendererGameJoystickSlots> active{};
+    for (std::size_t index = 0U; index < input_devices.size(); ++index) {
+      if (input_devices[index].joystick != nullptr) {
+        refreshed[index] = ReadDeviceState(input_devices[index]);
+        active[index] = true;
+      }
+    }
+    for (std::size_t index = 0U; index < input_devices.size(); ++index) {
+      if (active[index]) {
+        CommitDeviceState(input_devices[index], std::move(refreshed[index]));
+      }
     }
   }
 
@@ -524,11 +556,16 @@ public:
     candidate.hat_count = static_cast<std::size_t>((std::min)(
         hats, static_cast<int>(kMaximumHats)));
     candidate.standardized = standardized;
-    const char *name = standardized ? SDL_GameControllerName(controller)
-                                    : SDL_JoystickName(joystick);
-    candidate.vendor = name != nullptr ? name : "unknown";
-    RefreshDeviceState(candidate);
-    *free = std::move(candidate);
+    try {
+      const char *name = standardized ? SDL_GameControllerName(controller)
+                                      : SDL_JoystickName(joystick);
+      candidate.vendor = name != nullptr ? name : "unknown";
+      RefreshDeviceState(candidate);
+      *free = std::move(candidate);
+    } catch (...) {
+      CloseDevice(candidate);
+      throw;
+    }
     return true;
   }
 
@@ -588,6 +625,12 @@ public:
         return RendererOgreNextInProcessPresenterStatus::
             FAILED_INPUT_ACTIVATION;
       }
+    } catch (const std::bad_alloc &) {
+      ShutdownControllers();
+      return RendererOgreNextInProcessPresenterStatus::FAILED_ALLOCATION;
+    } catch (const std::length_error &) {
+      ShutdownControllers();
+      return RendererOgreNextInProcessPresenterStatus::FAILED_ALLOCATION;
     } catch (...) {
       ShutdownControllers();
       return RendererOgreNextInProcessPresenterStatus::
@@ -608,10 +651,12 @@ public:
     RendererOgreNextWindowLifecycle lifecycle = host.Lifecycle();
     if ((events.minimized || events.hidden) &&
         lifecycle == RendererOgreNextWindowLifecycle::ACTIVE) {
-      if (host.Suspend() != RendererOgreNextWindowHostStatus::COMPLETED) {
+      if (host.AdoptExternalVisibility(false) !=
+          RendererOgreNextWindowHostStatus::COMPLETED) {
         return Failure(ValidationCode::INVALID_HANDLE,
                        "in_process_presenter.surface",
-                       "failed to suspend the native presentation window");
+                       "failed to adopt the externally suspended native "
+                       "presentation window");
       }
       const RendererOgreNextWindowMetrics *metrics = host.Metrics();
       if (metrics == nullptr || !ObserveMetrics(*metrics, true)) {
@@ -624,12 +669,12 @@ public:
     }
     if (!events.minimized && !events.hidden &&
         lifecycle == RendererOgreNextWindowLifecycle::SUSPENDED) {
-      if (host.Resume() != RendererOgreNextWindowHostStatus::COMPLETED ||
-          host.RefreshMetrics() !=
-              RendererOgreNextWindowHostStatus::COMPLETED) {
+      if (host.AdoptExternalVisibility(true) !=
+          RendererOgreNextWindowHostStatus::COMPLETED) {
         return Failure(ValidationCode::INVALID_HANDLE,
                        "in_process_presenter.surface",
-                       "failed to resume the native presentation window");
+                       "failed to adopt the externally restored native "
+                       "presentation window");
       }
       lifecycle = host.Lifecycle();
     }
@@ -708,7 +753,7 @@ public:
   }
 
   ValidationResult DispatchFocus(bool next_focused) {
-    if (focus_observed && focused == next_focused) {
+    if (focus_observed && input_gate.focused() == next_focused) {
       return ValidationResult::Success();
     }
     ValidationResult reserved = AdvanceInputEventOrFailure();
@@ -716,8 +761,8 @@ public:
       return reserved;
     }
     focus_observed = true;
-    focused = next_focused;
-    if (!focused) {
+    input_gate.ObserveFocus(next_focused);
+    if (!input_gate.focused()) {
       pressed_keys.clear();
       pressed_mouse_buttons.clear();
       SDL_StopTextInput();
@@ -725,7 +770,7 @@ public:
       RefreshAllDeviceStates();
       SDL_StartTextInput();
     }
-    target->FocusChanged(focused);
+    target->FocusChanged(input_gate.focused());
     return ValidationResult::Success();
   }
 
@@ -777,7 +822,8 @@ public:
   }
 
   ValidationResult ObservePresentationWindow(
-      RendererOgreNextSdlWindowEventBatch &window_events) {
+      RendererOgreNextSdlWindowEventBatch &window_events,
+      bool reconcile_input_gate) {
     SDL_Window *const presented = static_cast<SDL_Window *>(sdl_window);
     int logical_width = 0;
     int logical_height = 0;
@@ -789,8 +835,10 @@ public:
     window_events.focused = (flags & SDL_WINDOW_INPUT_FOCUS) != 0U;
     window_events.minimized = (flags & SDL_WINDOW_MINIMIZED) != 0U;
     window_events.hidden = (flags & SDL_WINDOW_HIDDEN) != 0U;
-    window_input_suppressed =
-        window_events.hidden || window_events.minimized;
+    if (reconcile_input_gate) {
+      input_gate.ObserveWindowSuppressed(
+          window_events.hidden || window_events.minimized);
+    }
     if (logical_width <= 0 || logical_height <= 0 || drawable_width < 0 ||
         drawable_height < 0 ||
         ((drawable_width == 0 || drawable_height == 0) &&
@@ -906,20 +954,20 @@ public:
           break;
         case SDL_WINDOWEVENT_MINIMIZED:
           ++window_events.minimize_events;
-          window_input_suppressed = true;
+          input_gate.ObserveWindowSuppressed(true);
           transition = DispatchFocus(false);
           break;
         case SDL_WINDOWEVENT_HIDDEN:
-          window_input_suppressed = true;
+          input_gate.ObserveWindowSuppressed(true);
           transition = DispatchFocus(false);
           break;
         case SDL_WINDOWEVENT_SHOWN:
-          window_input_suppressed = false;
+          input_gate.ObserveWindowSuppressed(false);
           break;
         case SDL_WINDOWEVENT_RESTORED:
         case SDL_WINDOWEVENT_MAXIMIZED:
           ++window_events.restore_events;
-          window_input_suppressed = false;
+          input_gate.ObserveWindowSuppressed(false);
           break;
         case SDL_WINDOWEVENT_DISPLAY_CHANGED:
           ++window_events.display_change_events;
@@ -1044,7 +1092,7 @@ public:
           break;
         }
         std::size_t slot = 0U;
-        if (!focused || window_input_suppressed ||
+        if (!input_gate.AcceptsPhysicalInput() ||
             !FindDevice(instance_id, slot)) {
           continue;
         }
@@ -1120,7 +1168,8 @@ public:
       default:
         break;
       }
-      if (!belongs_to_presenter || window_input_suppressed) {
+      if (!belongs_to_presenter ||
+          !input_gate.AcceptsKeyboardTextMouse()) {
         continue;
       }
       switch (event.type) {
@@ -1219,12 +1268,13 @@ public:
       }
     }
 
-    ValidationResult observed = ObservePresentationWindow(window_events);
+    ValidationResult observed =
+        ObservePresentationWindow(window_events, true);
     if (!observed) {
       return observed;
     }
     ValidationResult focus = DispatchFocus(
-        window_events.focused && !window_input_suppressed);
+        window_events.focused && !input_gate.window_suppressed());
     if (!focus) {
       return focus;
     }
@@ -1236,14 +1286,14 @@ public:
     }
 
     state.through_event_id = next_event_id - 1U;
-    state.focused = focused;
+    state.focused = input_gate.focused();
     state.window_close_requested = close_requested;
     state.pressed_keys = pressed_keys;
     state.pressed_mouse_buttons = pressed_mouse_buttons;
     state.mouse_x_pixels = mouse_x_pixels;
     state.mouse_y_pixels = mouse_y_pixels;
     ValidationResult devices = BuildJoystickState(
-        state, focused && !window_input_suppressed);
+        state, input_gate.AcceptsPhysicalInput());
     if (!devices) {
       return devices;
     }
@@ -1275,7 +1325,7 @@ public:
       // Pump SDL so Cocoa metrics are current, leave the FIFO untouched, and
       // observe only authoritative window state.
       SDL_PumpEvents();
-      polled = ObservePresentationWindow(events);
+      polled = ObservePresentationWindow(events, false);
     }
     if (!polled) {
       return polled;
@@ -1346,6 +1396,7 @@ public:
   std::uint64_t metrics_generation = 0U;
   std::uint64_t next_event_id = 1U;
   std::uint64_t next_device_generation = 0U;
+  Detail::RendererOgreNextInProcessInputGate input_gate;
   std::array<InputDevice, kRendererGameJoystickSlots> input_devices{};
   std::vector<RendererGameKey> pressed_keys;
   std::vector<RendererGameMouseButton> pressed_mouse_buttons;
@@ -1356,9 +1407,7 @@ public:
   bool has_drawable_baseline = false;
   bool owns_controller_subsystem = false;
   bool controllers_initialized = false;
-  bool window_input_suppressed = true;
   bool focus_observed = false;
-  bool focused = false;
   bool close_requested = false;
   bool prepared = false;
   bool quiesced = false;

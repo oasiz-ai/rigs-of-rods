@@ -2315,6 +2315,28 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             implementation,
         )
         self.assertIn("leave the FIFO untouched", implementation)
+        self.assertIn("host.AdoptExternalVisibility(false)", implementation)
+        self.assertIn("host.AdoptExternalVisibility(true)", implementation)
+        self.assertNotIn("host.Suspend()", implementation)
+        self.assertIn("input_gate.AcceptsKeyboardTextMouse()", implementation)
+        self.assertIn(
+            "ObservePresentationWindow(events, false)", implementation
+        )
+        self.assertNotIn(
+            "void RefreshDeviceState(InputDevice &device) noexcept",
+            implementation,
+        )
+        self.assertNotIn(
+            "void RefreshAllDeviceStates() noexcept", implementation
+        )
+        self.assertIn("RefreshedDeviceState ReadDeviceState", implementation)
+        self.assertIn(
+            "RendererOgreNextInProcessInputGate", header
+        )
+        self.assertIn(
+            "ror_renderer_ogre_next_in_process_presenter_policy_tests",
+            cmake,
+        )
         presenter_start = cmake.index(
             "add_library(\n        ror_ogre_next_in_process_presenter"
         )

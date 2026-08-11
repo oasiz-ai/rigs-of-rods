@@ -20,6 +20,37 @@
 
 namespace RoR {
 
+namespace Detail {
+
+/// Allocation-free FIFO policy shared by the concrete SDL drain and its
+/// deterministic contract test. Focus and native visibility are independent:
+/// keyboard, text, and mouse events are admitted only after both transitions
+/// have made the presentation window interactive.
+class RendererOgreNextInProcessInputGate final {
+public:
+  void ObserveFocus(bool focused) noexcept { focused_ = focused; }
+  void ObserveWindowSuppressed(bool suppressed) noexcept {
+    window_suppressed_ = suppressed;
+  }
+
+  [[nodiscard]] bool focused() const noexcept { return focused_; }
+  [[nodiscard]] bool window_suppressed() const noexcept {
+    return window_suppressed_;
+  }
+  [[nodiscard]] bool AcceptsKeyboardTextMouse() const noexcept {
+    return focused_ && !window_suppressed_;
+  }
+  [[nodiscard]] bool AcceptsPhysicalInput() const noexcept {
+    return AcceptsKeyboardTextMouse();
+  }
+
+private:
+  bool focused_ = false;
+  bool window_suppressed_ = true;
+};
+
+} // namespace Detail
+
 constexpr std::uint32_t
     kRendererOgreNextInProcessPresenterContractVersion = 1U;
 

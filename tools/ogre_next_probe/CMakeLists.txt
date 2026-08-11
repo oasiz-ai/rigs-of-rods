@@ -348,6 +348,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"
     "tests/gfx/RendererOgreNextLiveSessionTests.cpp"
+    "tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp"
     "tests/gfx/RendererOgreNextWindowHostTests.cpp"
     "tests/gfx/RendererPublicLauncherLegacyChild.cpp"
     "tests/gfx/RendererPublicLauncherTests.cpp"
@@ -1218,6 +1219,18 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             VISIBILITY_INLINES_HIDDEN YES)
     ror_ogre_next_enable_embedded_namespace(
         ror_ogre_next_in_process_presenter LANGUAGES CXX)
+
+    add_executable(
+        ror_renderer_ogre_next_in_process_presenter_policy_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp")
+    target_include_directories(
+        ror_renderer_ogre_next_in_process_presenter_policy_tests
+        PRIVATE
+            "${_ror_render_root}/.."
+            "${_ror_system_root}")
+    set_target_properties(
+        ror_renderer_ogre_next_in_process_presenter_policy_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
         ror_ogre_next_dual_runtime_link_smoke
@@ -3229,6 +3242,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererPackageRuntimeProbeTests.cpp
             tests/gfx/RendererOgreNextChildTests.cpp
             tests/gfx/RendererOgreNextLiveSessionTests.cpp
+            tests/gfx/RendererOgreNextInProcessPresenterPolicyTests.cpp
             tests/gfx/RendererOgreNextWindowHostTests.cpp
             tests/gfx/RendererPublicLauncherLegacyChild.cpp
             tests/gfx/RendererPublicLauncherTests.cpp
@@ -3864,6 +3878,11 @@ endif ()
 if (TARGET ror_renderer_ogre_next_window_host_tests)
     add_test(NAME ror_renderer_ogre_next_window_host
         COMMAND $<TARGET_FILE:ror_renderer_ogre_next_window_host_tests>)
+endif ()
+if (TARGET ror_renderer_ogre_next_in_process_presenter_policy_tests)
+    add_test(NAME ror_renderer_ogre_next_in_process_presenter_policy
+        COMMAND
+            $<TARGET_FILE:ror_renderer_ogre_next_in_process_presenter_policy_tests>)
 endif ()
 if (TARGET ror_renderer_ogre_next_window_host_smoke)
     add_test(NAME ror_renderer_ogre_next_window_host_smoke

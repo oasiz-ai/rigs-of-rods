@@ -367,6 +367,29 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
             "resume did not re-query native metrics after the show ack", tests
         )
 
+    def test_external_visibility_is_adopted_without_a_second_command(self) -> None:
+        self.assertIn("AdoptExternalVisibility", self.host_header)
+        adoption = self.host[
+            self.host.index(
+                "RendererOgreNextWindowHost::AdoptExternalVisibility"
+            ) : self.host.index("RendererOgreNextWindowHost::Resize(")
+        ]
+        self.assertNotIn("set_sdl_window_visible_and_wait_for_ack", adoption)
+        self.assertIn(
+            "m_lifecycle = RendererOgreNextWindowLifecycle::SUSPENDED",
+            adoption,
+        )
+        self.assertIn("RefreshMetricsOnOwnerThread", adoption)
+        tests = (
+            REPOSITORY_ROOT / "tests/gfx/RendererOgreNextWindowHostTests.cpp"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "TestExternalVisibilityAdoptionNeverIssuesShowOrHide",
+            "external minimize adoption issued a programmatic hide",
+            "external restore adoption issued a programmatic show",
+        ):
+            self.assertIn(token, tests)
+
     def test_sdl_adapter_is_msvc_strict_and_winuser_macro_safe(self) -> None:
         for token in (
             "std::numeric_limits<Uint8>::max()",
