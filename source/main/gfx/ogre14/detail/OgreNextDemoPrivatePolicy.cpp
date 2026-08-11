@@ -19,10 +19,9 @@ namespace {
 constexpr std::uint64_t kFnv1a64OffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnv1a64Prime = 1099511628211ULL;
 
-Render::ValidationResult Failure(Render::ValidationCode code,
-                                 const char *field, const char *detail,
-                                 std::size_t index =
-                                     Render::ValidationResult::kNoElement) {
+Render::ValidationResult
+Failure(Render::ValidationCode code, const char *field, const char *detail,
+        std::size_t index = Render::ValidationResult::kNoElement) {
   return Render::ValidationResult::Failure(code, field, detail, index);
 }
 
@@ -49,14 +48,173 @@ std::uint8_t EncodeLinearSrgbByte(double linear) {
   const double encoded = linear <= 0.0031308
                              ? linear * 12.92
                              : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
-  const double scaled =
-      (std::clamp)(encoded, 0.0, 1.0) * 255.0;
+  const double scaled = (std::clamp)(encoded, 0.0, 1.0) * 255.0;
   // All inputs are finite decoded bytes, so floor(x + 0.5) is an exact,
   // deterministic round-to-nearest rule with ties resolved upward.
   return static_cast<std::uint8_t>(std::floor(scaled + 0.5));
 }
 
+std::size_t SaturatingAdd(std::size_t lhs, std::size_t rhs) noexcept {
+  const std::size_t maximum = (std::numeric_limits<std::size_t>::max)();
+  return lhs > maximum - rhs ? maximum : lhs + rhs;
+}
+
+bool HasZeroGpuReadbacks(
+    const OgreNextDemoTextureSourceCounters &counters) noexcept {
+  return counters.gpu_readbacks == 0U &&
+         counters.authenticated_gpu_readbacks == 0U &&
+         counters.unauthenticated_gpu_readbacks == 0U;
+}
+
 } // namespace
+
+bool IsOgreNextDemoAuthenticatedTextureSourceMode(
+    OgreNextDemoTextureSourceMode mode) noexcept {
+  return mode == OgreNextDemoTextureSourceMode::
+                     AUTHENTICATED_ARCHIVE_SOURCE_BYTES ||
+         mode == OgreNextDemoTextureSourceMode::
+                     AUTHENTICATED_GENERATED_SOURCE_BYTES;
+}
+
+Render::ValidationResult RecordOgreNextDemoTextureSourceDecode(
+    OgreNextDemoTextureSourceMode mode,
+    OgreNextDemoTextureSourceCounters &counters) {
+  if (!HasZeroGpuReadbacks(counters)) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.material.source_accounting.gpu_readbacks",
+                   "source-byte accounting cannot follow a GPU readback");
+  }
+  OgreNextDemoTextureSourceCounters candidate = counters;
+  switch (mode) {
+  case OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES:
+    candidate.authenticated_archive_source_decodes =
+        SaturatingAdd(candidate.authenticated_archive_source_decodes, 1U);
+    candidate.authenticated_source_decodes =
+        SaturatingAdd(candidate.authenticated_source_decodes, 1U);
+    break;
+  case OgreNextDemoTextureSourceMode::AUTHENTICATED_GENERATED_SOURCE_BYTES:
+    candidate.authenticated_generated_source_decodes =
+        SaturatingAdd(candidate.authenticated_generated_source_decodes, 1U);
+    candidate.authenticated_source_decodes =
+        SaturatingAdd(candidate.authenticated_source_decodes, 1U);
+    break;
+  case OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES:
+    candidate.ordinary_observed_source_decodes =
+        SaturatingAdd(candidate.ordinary_observed_source_decodes, 1U);
+    break;
+  default:
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.source_accounting.mode",
+                   "texture source mode is invalid");
+  }
+  counters = std::move(candidate);
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult RecordOgreNextDemoTextureSourceCacheHit(
+    OgreNextDemoTextureSourceCounters &counters) {
+  if (!HasZeroGpuReadbacks(counters)) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.material.source_accounting.gpu_readbacks",
+                   "source cache accounting cannot follow a GPU readback");
+  }
+  counters.source_cache_hits = SaturatingAdd(counters.source_cache_hits, 1U);
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult RecordOgreNextDemoTextureProjectionExclusion(
+    OgreNextDemoTextureProjectionExclusion exclusion,
+    OgreNextDemoTextureSourceCounters &counters) {
+  const std::size_t index = static_cast<std::size_t>(exclusion);
+  if (exclusion == OgreNextDemoTextureProjectionExclusion::NONE ||
+      index >= kOgreNextDemoTextureProjectionExclusionCount) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.source_accounting.exclusion",
+                   "texture projection exclusion is invalid or empty");
+  }
+  if (!HasZeroGpuReadbacks(counters)) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.material.source_accounting.gpu_readbacks",
+                   "source exclusion accounting cannot follow a GPU readback");
+  }
+  OgreNextDemoTextureSourceCounters candidate = counters;
+  candidate.source_exclusions = SaturatingAdd(candidate.source_exclusions, 1U);
+  candidate.exclusions_by_reason[index] =
+      SaturatingAdd(candidate.exclusions_by_reason[index], 1U);
+  if (exclusion ==
+          OgreNextDemoTextureProjectionExclusion::SOURCE_DECODE_REJECTED ||
+      exclusion ==
+          OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_CONTAINER) {
+    candidate.source_decode_rejections =
+        SaturatingAdd(candidate.source_decode_rejections, 1U);
+  }
+  counters = std::move(candidate);
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
+    const OgreNextDemoTextureSourceCounters &increment,
+    OgreNextDemoTextureSourceCounters &total) {
+  if (!HasZeroGpuReadbacks(increment) || !HasZeroGpuReadbacks(total)) {
+    return Failure(
+        Render::ValidationCode::SEQUENCE_MISMATCH,
+        "ogre_next_demo.material.source_accounting.gpu_readbacks",
+        "material texture capture observed a forbidden GPU readback");
+  }
+  OgreNextDemoTextureSourceCounters candidate = total;
+  candidate.authenticated_archive_source_decodes =
+      SaturatingAdd(candidate.authenticated_archive_source_decodes,
+                    increment.authenticated_archive_source_decodes);
+  candidate.authenticated_generated_source_decodes =
+      SaturatingAdd(candidate.authenticated_generated_source_decodes,
+                    increment.authenticated_generated_source_decodes);
+  candidate.ordinary_observed_source_decodes =
+      SaturatingAdd(candidate.ordinary_observed_source_decodes,
+                    increment.ordinary_observed_source_decodes);
+  candidate.source_cache_hits =
+      SaturatingAdd(candidate.source_cache_hits, increment.source_cache_hits);
+  candidate.source_decode_rejections = SaturatingAdd(
+      candidate.source_decode_rejections, increment.source_decode_rejections);
+  candidate.source_exclusions =
+      SaturatingAdd(candidate.source_exclusions, increment.source_exclusions);
+  for (std::size_t index = 0U; index < candidate.exclusions_by_reason.size();
+       ++index) {
+    candidate.exclusions_by_reason[index] =
+        SaturatingAdd(candidate.exclusions_by_reason[index],
+                      increment.exclusions_by_reason[index]);
+  }
+  candidate.authenticated_source_decodes =
+      SaturatingAdd(candidate.authenticated_source_decodes,
+                    increment.authenticated_source_decodes);
+  candidate.projections =
+      SaturatingAdd(candidate.projections, increment.projections);
+  total = std::move(candidate);
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult ClassifyOgreNextDemoTextureProjectionEligibility(
+    const OgreNextDemoTextureEligibilityObservation &observation,
+    OgreNextDemoTextureProjectionExclusion &output) {
+  OgreNextDemoTextureProjectionExclusion candidate =
+      OgreNextDemoTextureProjectionExclusion::NONE;
+  if (!observation.source_available) {
+    candidate = OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
+  } else if (observation.manually_loaded) {
+    candidate = OgreNextDemoTextureProjectionExclusion::MANUAL_OR_PROCEDURAL;
+  } else if (observation.render_target) {
+    candidate = OgreNextDemoTextureProjectionExclusion::RENDER_TARGET;
+  } else if (!observation.texture_2d) {
+    candidate = OgreNextDemoTextureProjectionExclusion::NON_2D;
+  } else if (!observation.unit_depth) {
+    candidate = OgreNextDemoTextureProjectionExclusion::NON_UNIT_DEPTH;
+  } else if (!observation.unit_face_count) {
+    candidate = OgreNextDemoTextureProjectionExclusion::NON_UNIT_FACE_COUNT;
+  } else if (!observation.dimensions_in_range) {
+    candidate = OgreNextDemoTextureProjectionExclusion::DIMENSION_OUT_OF_RANGE;
+  }
+  output = candidate;
+  return Render::ValidationResult::Success();
+}
 
 Render::ValidationResult
 BuildOgreNextDemoCachedProjectionPublicationTransaction(
@@ -65,7 +223,7 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
     const std::vector<OgreNextDemoCachedTexturePublicationInput> &textures,
     const std::vector<OgreNextDemoCachedSamplerPublicationInput> &samplers,
     const std::vector<std::string> &used_projection_keys,
-    IOgreNextDemoAuthenticatedTexturePublicationBatchValidator &validator,
+    IOgreNextDemoTexturePublicationBatchValidator &validator,
     OgreNextDemoCachedProjectionPublicationTransaction &output) {
   std::map<std::string, const OgreNextDemoCachedProjectionPublicationInput *,
            std::less<>>
@@ -109,10 +267,9 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
                      "cached texture publication identity is empty or zero",
                      index);
     }
-    if (input.source_mode !=
-            OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES &&
+    if (!IsOgreNextDemoAuthenticatedTextureSourceMode(input.source_mode) &&
         input.source_mode !=
-            OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK) {
+            OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES) {
       return Failure(Render::ValidationCode::INVALID_ENUM,
                      "ogre_next_demo.material.publication.texture_mode",
                      "cached texture source mode is invalid", index);
@@ -179,6 +336,7 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
   candidate.owner_catalog.reserve(projections.size());
   candidate.frame_root_material_source_ids.reserve(used_keys.size());
   std::map<std::string, bool, std::less<>> observed_authenticated_textures;
+  std::map<std::string, bool, std::less<>> observed_ordinary_textures;
   for (const OgreNextDemoCachedProjectionPublicationInput &input :
        projections) {
     const bool frame_reachable =
@@ -199,15 +357,15 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
     }
     candidate.frame_root_material_source_ids.push_back(
         input.material_source_id);
-    if (texture.source_mode !=
-        OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES) {
-      continue;
+    if (IsOgreNextDemoAuthenticatedTextureSourceMode(texture.source_mode)) {
+      if (observed_authenticated_textures.emplace(input.texture_key, true)
+              .second) {
+        candidate.authenticated_texture_keys.push_back(input.texture_key);
+      }
+    } else if (observed_ordinary_textures.emplace(input.texture_key, true)
+                   .second) {
+      candidate.ordinary_texture_keys.push_back(input.texture_key);
     }
-    if (!observed_authenticated_textures.emplace(input.texture_key, true)
-             .second) {
-      continue;
-    }
-    candidate.authenticated_texture_keys.push_back(input.texture_key);
   }
   if (!candidate.authenticated_texture_keys.empty()) {
     Render::ValidationResult validation =
@@ -219,48 +377,97 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
       return validation;
     }
   }
+  if (!candidate.ordinary_texture_keys.empty()) {
+    Render::ValidationResult validation =
+        validator.ValidateReachableOrdinaryTextureBatch(
+            candidate.ordinary_texture_keys);
+    if (!validation) {
+      validation.field =
+          "ogre_next_demo.material.publication." + validation.field;
+      return validation;
+    }
+  }
   output = std::move(candidate);
   return Render::ValidationResult::Success();
 }
 
 Render::ValidationResult SelectOgreNextDemoTextureSourceMode(
-    bool authenticated_source_required, bool resolution_attempted,
-    const Render::ValidationResult &resolution_result,
-    OgreNextDemoTextureSourceMode &output) {
+    bool authenticated_source_required, bool authenticated_resolution_attempted,
+    const Render::ValidationResult &authenticated_resolution_result,
+    OgreNextDemoTextureSourceMode authenticated_resolution_mode,
+    bool ordinary_resolution_attempted,
+    const Render::ValidationResult &ordinary_resolution_result,
+    OgreNextDemoTextureSourceSelection &output) {
   if (authenticated_source_required) {
-    if (!resolution_attempted) {
+    if (ordinary_resolution_attempted || !ordinary_resolution_result) {
+      return Failure(
+          Render::ValidationCode::SEQUENCE_MISMATCH,
+          "ogre_next_demo.material.authenticated.ordinary_resolution",
+          "authenticated-required texture probed ordinary source authority");
+    }
+    if (!authenticated_resolution_attempted) {
       return Failure(
           Render::ValidationCode::MISSING_REFERENCE,
           "ogre_next_demo.material.authenticated.resolution",
           "authenticated-required texture has no source resolution attempt");
     }
-    if (!resolution_result) {
-      return resolution_result;
+    if (!authenticated_resolution_result) {
+      return authenticated_resolution_result;
     }
-    output = OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES;
+    if (!IsOgreNextDemoAuthenticatedTextureSourceMode(
+            authenticated_resolution_mode)) {
+      return Failure(Render::ValidationCode::INVALID_ENUM,
+                     "ogre_next_demo.material.authenticated.source_kind",
+                     "authenticated resolution has no exact archive/generated "
+                     "source kind");
+    }
+    OgreNextDemoTextureSourceSelection candidate;
+    candidate.selected = true;
+    candidate.mode = authenticated_resolution_mode;
+    candidate.exclusion = OgreNextDemoTextureProjectionExclusion::NONE;
+    output = candidate;
     return Render::ValidationResult::Success();
   }
-  if (resolution_attempted) {
+  if (authenticated_resolution_attempted) {
     return Failure(
         Render::ValidationCode::SEQUENCE_MISMATCH,
         "ogre_next_demo.material.unauthenticated.resolution",
         "ordinary texture must not probe authenticated source authority");
   }
-  if (!resolution_result) {
+  if (!authenticated_resolution_result) {
     return Failure(
         Render::ValidationCode::SEQUENCE_MISMATCH,
         "ogre_next_demo.material.unauthenticated.resolution_result",
         "ordinary texture received a stale source-resolution failure");
   }
-  output = OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+  OgreNextDemoTextureSourceSelection candidate;
+  candidate.mode =
+      OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
+  if (!ordinary_resolution_attempted || !ordinary_resolution_result) {
+    candidate.selected = false;
+    candidate.exclusion = OgreNextDemoTextureProjectionExclusion::
+        ORDINARY_SELECTED_SOURCE_UNAVAILABLE;
+    output = candidate;
+    return Render::ValidationResult::Success();
+  }
+  candidate.selected = true;
+  candidate.exclusion = OgreNextDemoTextureProjectionExclusion::NONE;
+  output = candidate;
   return Render::ValidationResult::Success();
 }
 
 Render::ValidationResult ValidateOgreNextDemoCachedTextureSourceAuthority(
     OgreNextDemoTextureSourceMode frozen_mode, bool frame_reachable,
-    bool authenticated_source_required, bool fresh_resolution_attempted,
+    bool source_classification_matches, bool fresh_resolution_attempted,
     const Render::ValidationResult &fresh_resolution_result,
     bool immutable_receipt_matches) {
+  if (!IsOgreNextDemoAuthenticatedTextureSourceMode(frozen_mode) &&
+      frozen_mode !=
+          OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.cached.source_mode",
+                   "cached texture source mode is invalid");
+  }
   if (!frame_reachable) {
     if (fresh_resolution_attempted || !fresh_resolution_result ||
         immutable_receipt_matches) {
@@ -272,37 +479,25 @@ Render::ValidationResult ValidateOgreNextDemoCachedTextureSourceAuthority(
     return Render::ValidationResult::Success();
   }
 
-  if (frozen_mode ==
-      OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES) {
-    if (!authenticated_source_required) {
-      return Failure(
-          Render::ValidationCode::REVISION_MISMATCH,
-          "ogre_next_demo.material.cached.authenticated_classification",
-          "frozen authenticated source cannot demote to GPU readback");
-    }
-    if (!fresh_resolution_attempted) {
-      return Failure(Render::ValidationCode::MISSING_REFERENCE,
-                     "ogre_next_demo.material.cached.authenticated_resolution",
-                     "reachable authenticated source has no fresh resolution");
-    }
-    if (!fresh_resolution_result) {
-      return fresh_resolution_result;
-    }
-    if (!immutable_receipt_matches) {
-      return Failure(
-          Render::ValidationCode::REVISION_MISMATCH,
-          "ogre_next_demo.material.cached.authenticated_receipt",
-          "fresh authenticated receipt differs from the frozen source state");
-    }
-    return Render::ValidationResult::Success();
-  }
-
-  if (authenticated_source_required || fresh_resolution_attempted ||
-      !fresh_resolution_result || immutable_receipt_matches) {
+  if (!source_classification_matches) {
     return Failure(
         Render::ValidationCode::REVISION_MISMATCH,
-        "ogre_next_demo.material.cached.unauthenticated_classification",
-        "cached ordinary texture changed source authority classification");
+        "ogre_next_demo.material.cached.source_classification",
+        "cached texture changed selected source authority classification");
+  }
+  if (!fresh_resolution_attempted) {
+    return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                   "ogre_next_demo.material.cached.fresh_resolution",
+                   "reachable source-byte texture has no fresh resolution");
+  }
+  if (!fresh_resolution_result) {
+    return fresh_resolution_result;
+  }
+  if (!immutable_receipt_matches) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.material.cached.immutable_receipt",
+        "fresh source receipt differs from the frozen immutable state");
   }
   return Render::ValidationResult::Success();
 }
@@ -312,36 +507,40 @@ Render::ValidationResult ValidateOgreNextDemoSampling(
   if (!observation.ordinary_texture) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.terrain.sampling.ordinary",
-                   "TUS0 must be a named, single-frame, loaded 2D texture without UAV access");
+                   "TUS0 must be a named, single-frame, loaded 2D texture "
+                   "without UAV access");
   }
   if (!observation.uv0_identity) {
-    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
-                   "ogre_next_demo.terrain.sampling.uv",
-                   "TUS0 must use UV0 with no generation, effects, or transform");
+    return Failure(
+        Render::ValidationCode::UNSUPPORTED_FEATURE,
+        "ogre_next_demo.terrain.sampling.uv",
+        "TUS0 must use UV0 with no generation, effects, or transform");
   }
   if (!observation.sampler_identity) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.terrain.sampling.sampler",
-                   "TUS0 must use clamp U/V/W, linear min/mag, nearest mip, and no comparison");
+                   "TUS0 must use clamp U/V/W, linear min/mag, nearest mip, "
+                   "and no comparison");
   }
   if (!observation.gamma_disabled) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.terrain.sampling.gamma",
-                   "display-domain filtering requires native hardware gamma decode to remain disabled");
+                   "display-domain filtering requires native hardware gamma "
+                   "decode to remain disabled");
   }
   if (!observation.fog_disabled) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.terrain.sampling.fog",
-                   "the disposable opaque terrain lowering cannot preserve OGRE scene fog");
+                   "the disposable opaque terrain lowering cannot preserve "
+                   "OGRE scene fog");
   }
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult RevalidateOgreNextDemoSampling(
-    const OgreNextDemoSamplingObservation &before,
-    const OgreNextDemoSamplingObservation &after) {
-  Render::ValidationResult validation =
-      ValidateOgreNextDemoSampling(before);
+Render::ValidationResult
+RevalidateOgreNextDemoSampling(const OgreNextDemoSamplingObservation &before,
+                               const OgreNextDemoSamplingObservation &after) {
+  Render::ValidationResult validation = ValidateOgreNextDemoSampling(before);
   if (!validation) {
     return validation;
   }
@@ -349,34 +548,35 @@ Render::ValidationResult RevalidateOgreNextDemoSampling(
   if (!validation) {
     return validation;
   }
-  if (before.exact_native_state.empty() ||
-      after.exact_native_state.empty() ||
+  if (before.exact_native_state.empty() || after.exact_native_state.empty() ||
       before.exact_native_state != after.exact_native_state) {
     return Failure(Render::ValidationCode::REVISION_MISMATCH,
                    "ogre_next_demo.terrain.readback.revalidation",
-                   "terrain, TUS0, sampler, texture, or mip state mutated during readback");
+                   "terrain, TUS0, sampler, texture, or mip state mutated "
+                   "during readback");
   }
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult CompleteOgreNextDemoOpaqueMipChain(
-    Render::TextureResourceDescriptor &texture) {
+Render::ValidationResult
+CompleteOgreNextDemoOpaqueMipChain(Render::TextureResourceDescriptor &texture) {
   if (texture.type != Render::TextureResourceType::TEXTURE_2D ||
       texture.format != Render::TextureResourceFormat::RGBA8_UNORM ||
       texture.color_space != Render::TextureColorSpace::SRGB ||
       texture.array_layers != 1U || texture.width == 0U ||
       texture.height == 0U || texture.mip_levels.size() != 1U) {
-    return Failure(Render::ValidationCode::SIZE_MISMATCH,
-                   "ogre_next_demo.terrain.texture.full_mip_chain",
-                   "opaque lowering requires exactly one fresh SRGB RGBA8 2D base level");
+    return Failure(
+        Render::ValidationCode::SIZE_MISMATCH,
+        "ogre_next_demo.terrain.texture.full_mip_chain",
+        "opaque lowering requires exactly one fresh SRGB RGBA8 2D base level");
   }
 
   const Render::TextureMipLevelDescriptor &base = texture.mip_levels.front();
   const std::uint64_t row_bytes =
       static_cast<std::uint64_t>(texture.width) * 4U;
   if (texture.height != 0U &&
-      row_bytes > (std::numeric_limits<std::uint64_t>::max)() /
-                      texture.height) {
+      row_bytes >
+          (std::numeric_limits<std::uint64_t>::max)() / texture.height) {
     return Failure(Render::ValidationCode::SIZE_MISMATCH,
                    "ogre_next_demo.terrain.texture.mip_layout",
                    "RGBA8 base-level byte count overflows", 0U);
@@ -397,15 +597,14 @@ Render::ValidationResult CompleteOgreNextDemoOpaqueMipChain(
   // Validation above completes before the first write, so malformed input is
   // transactionally unchanged. Only the fourth byte of a native base texel is
   // touched; its RGB triplet remains byte-identical to the fresh readback.
-  for (std::size_t alpha = 3U;
-       alpha < texture.mip_levels.front().bytes.size(); alpha += 4U) {
+  for (std::size_t alpha = 3U; alpha < texture.mip_levels.front().bytes.size();
+       alpha += 4U) {
     texture.mip_levels.front().bytes[alpha] = 255U;
   }
 
   while (texture.mip_levels.size() <
          CompleteMipCount(texture.width, texture.height)) {
-    const Render::TextureMipLevelDescriptor &source =
-        texture.mip_levels.back();
+    const Render::TextureMipLevelDescriptor &source = texture.mip_levels.back();
     Render::TextureMipLevelDescriptor destination;
     destination.width = (std::max)(1U, source.width / 2U);
     destination.height = (std::max)(1U, source.height / 2U);
@@ -414,8 +613,7 @@ Render::ValidationResult CompleteOgreNextDemoOpaqueMipChain(
     destination.layer_pitch_bytes =
         destination.row_pitch_bytes * destination.height;
     if (destination.layer_pitch_bytes >
-        static_cast<std::uint64_t>(
-            (std::numeric_limits<std::size_t>::max)())) {
+        static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)())) {
       return Failure(Render::ValidationCode::SIZE_MISMATCH,
                      "ogre_next_demo.terrain.texture.generated_mip",
                      "generated mip allocation exceeds host address space");
@@ -473,16 +671,16 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
       texture.height == 0U || texture.mip_levels.size() != 1U) {
     return Failure(Render::ValidationCode::SIZE_MISMATCH,
                    "ogre_next_demo.material.texture.full_mip_chain",
-                   "sRGB PBR lowering requires exactly one fresh SRGB RGBA8 2D base level");
+                   "sRGB PBR lowering requires exactly one fresh SRGB RGBA8 2D "
+                   "base level");
   }
 
-  const Render::TextureMipLevelDescriptor &base =
-      texture.mip_levels.front();
+  const Render::TextureMipLevelDescriptor &base = texture.mip_levels.front();
   const std::uint64_t row_bytes =
       static_cast<std::uint64_t>(texture.width) * 4U;
   if (texture.height != 0U &&
-      row_bytes > (std::numeric_limits<std::uint64_t>::max)() /
-                      texture.height) {
+      row_bytes >
+          (std::numeric_limits<std::uint64_t>::max)() / texture.height) {
     return Failure(Render::ValidationCode::SIZE_MISMATCH,
                    "ogre_next_demo.material.texture.mip_layout",
                    "RGBA8 base-level byte count overflows", 0U);
@@ -494,10 +692,10 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
       base.row_pitch_bytes != row_bytes ||
       base.layer_pitch_bytes != layer_bytes ||
       base.bytes.size() != static_cast<std::size_t>(layer_bytes)) {
-    return Failure(Render::ValidationCode::SIZE_MISMATCH,
-                   "ogre_next_demo.material.texture.mip_layout",
-                   "sRGB PBR lowering requires an exact tight RGBA8 base layout",
-                   0U);
+    return Failure(
+        Render::ValidationCode::SIZE_MISMATCH,
+        "ogre_next_demo.material.texture.mip_layout",
+        "sRGB PBR lowering requires an exact tight RGBA8 base layout", 0U);
   }
 
   // Work on a complete candidate so every validation failure leaves the
@@ -520,8 +718,7 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
     destination.layer_pitch_bytes =
         destination.row_pitch_bytes * destination.height;
     if (destination.layer_pitch_bytes >
-        static_cast<std::uint64_t>(
-            (std::numeric_limits<std::size_t>::max)())) {
+        static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)())) {
       return Failure(Render::ValidationCode::SIZE_MISMATCH,
                      "ogre_next_demo.material.texture.generated_mip",
                      "generated mip allocation exceeds host address space");
@@ -678,8 +875,7 @@ Render::ValidationResult DeriveOgreNextDemoSourceId(std::string_view domain,
   std::uint64_t hash = kFnv1a64OffsetBasis;
   const auto append = [&hash](std::string_view bytes) {
     for (const char byte : bytes) {
-      hash ^= static_cast<std::uint8_t>(
-          static_cast<unsigned char>(byte));
+      hash ^= static_cast<std::uint8_t>(static_cast<unsigned char>(byte));
       hash *= kFnv1a64Prime;
     }
   };
@@ -696,9 +892,10 @@ Render::ValidationResult DeriveOgreNextDemoSourceId(std::string_view domain,
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult BuildOgreNextDemoMatteTangents(
-    std::size_t vertex_count, std::vector<Render::Float3> &normals,
-    std::vector<Render::Float4> &tangents) {
+Render::ValidationResult
+BuildOgreNextDemoMatteTangents(std::size_t vertex_count,
+                               std::vector<Render::Float3> &normals,
+                               std::vector<Render::Float4> &tangents) {
   if (vertex_count == 0U) {
     return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
                    "ogre_next_demo.matte_mesh.normals",
@@ -719,18 +916,16 @@ Render::ValidationResult BuildOgreNextDemoMatteTangents(
   candidate_tangents.reserve(vertex_count);
   for (std::size_t index = 0U; index < vertex_count; ++index) {
     Render::Float3 &normal = candidate_normals[index];
-    const float normal_length_squared = normal.x * normal.x +
-                                        normal.y * normal.y +
-                                        normal.z * normal.z;
+    const float normal_length_squared =
+        normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
     if (std::isfinite(normal.x) && std::isfinite(normal.y) &&
         std::isfinite(normal.z) && std::isfinite(normal_length_squared) &&
         normal_length_squared > 0.0F) {
       const float inverse_length = 1.0F / std::sqrt(normal_length_squared);
       normal = {normal.x * inverse_length, normal.y * inverse_length,
                 normal.z * inverse_length};
-      const float sanitized_length_squared = normal.x * normal.x +
-                                             normal.y * normal.y +
-                                             normal.z * normal.z;
+      const float sanitized_length_squared =
+          normal.x * normal.x + normal.y * normal.y + normal.z * normal.z;
       if (!std::isfinite(sanitized_length_squared) ||
           std::fabs(sanitized_length_squared - 1.0F) > 1.0e-3F) {
         normal = kFallbackNormal;
@@ -745,13 +940,11 @@ Render::ValidationResult BuildOgreNextDemoMatteTangents(
     const Render::Float3 axis = std::fabs(normal.z) < 0.875F
                                     ? Render::Float3{0.0F, 0.0F, 1.0F}
                                     : Render::Float3{0.0F, 1.0F, 0.0F};
-    const Render::Float3 crossed{
-        axis.y * normal.z - axis.z * normal.y,
-        axis.z * normal.x - axis.x * normal.z,
-        axis.x * normal.y - axis.y * normal.x};
-    const float length_squared = crossed.x * crossed.x +
-                                 crossed.y * crossed.y +
-                                 crossed.z * crossed.z;
+    const Render::Float3 crossed{axis.y * normal.z - axis.z * normal.y,
+                                 axis.z * normal.x - axis.x * normal.z,
+                                 axis.x * normal.y - axis.y * normal.x};
+    const float length_squared =
+        crossed.x * crossed.x + crossed.y * crossed.y + crossed.z * crossed.z;
     if (!std::isfinite(length_squared) || length_squared <= 0.0F) {
       return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
                      "ogre_next_demo.matte_mesh.tangents",
@@ -759,17 +952,17 @@ Render::ValidationResult BuildOgreNextDemoMatteTangents(
                      index);
     }
     const float inverse_length = 1.0F / std::sqrt(length_squared);
-    candidate_tangents.push_back(
-        {crossed.x * inverse_length, crossed.y * inverse_length,
-         crossed.z * inverse_length, 1.0F});
+    candidate_tangents.push_back({crossed.x * inverse_length,
+                                  crossed.y * inverse_length,
+                                  crossed.z * inverse_length, 1.0F});
   }
   normals = std::move(candidate_normals);
   tangents = std::move(candidate_tangents);
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
-    Render::MeshResourceDescriptor &mesh) {
+Render::ValidationResult
+NormalizeOgreNextDemoMatteMesh(Render::MeshResourceDescriptor &mesh) {
   Render::MeshResourceDescriptor candidate = mesh;
   if (candidate.texture_coordinates_0.empty()) {
     candidate.texture_coordinates_0.assign(candidate.positions.size(), {});
@@ -795,27 +988,26 @@ Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
 Render::ValidationResult BuildOgreNextDemoStaticCaptureRadius(
     float left, float right, float top, float bottom, float near_plane,
     float far_plane, float target_aspect, float &radius_meters) {
-  if (!std::isfinite(left) || !std::isfinite(right) ||
-      !std::isfinite(top) || !std::isfinite(bottom) ||
-      !std::isfinite(near_plane) || !std::isfinite(far_plane) ||
-      !std::isfinite(target_aspect) || !(left < right) || !(bottom < top) ||
-      !(near_plane > 0.0F) || !(far_plane > near_plane) ||
-      !(target_aspect > 0.0F)) {
+  if (!std::isfinite(left) || !std::isfinite(right) || !std::isfinite(top) ||
+      !std::isfinite(bottom) || !std::isfinite(near_plane) ||
+      !std::isfinite(far_plane) || !std::isfinite(target_aspect) ||
+      !(left < right) || !(bottom < top) || !(near_plane > 0.0F) ||
+      !(far_plane > near_plane) || !(target_aspect > 0.0F)) {
     return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
                    "ogre_next_demo.static_capture.frustum",
-                   "static capture requires finite ordered perspective extents, clip distances, and target aspect");
+                   "static capture requires finite ordered perspective "
+                   "extents, clip distances, and target aspect");
   }
 
   const double horizontal_span =
       static_cast<double>(right) - static_cast<double>(left);
   const double vertical_span =
       static_cast<double>(top) - static_cast<double>(bottom);
-  const double horizontal_offset = std::fabs(
-      (static_cast<double>(right) + static_cast<double>(left)) /
-      horizontal_span);
+  const double horizontal_offset =
+      std::fabs((static_cast<double>(right) + static_cast<double>(left)) /
+                horizontal_span);
   const double vertical_offset = std::fabs(
-      (static_cast<double>(top) + static_cast<double>(bottom)) /
-      vertical_span);
+      (static_cast<double>(top) + static_cast<double>(bottom)) / vertical_span);
   const double half_vertical_slope =
       vertical_span / (2.0 * static_cast<double>(near_plane));
   const double half_horizontal_slope =
@@ -824,38 +1016,36 @@ Render::ValidationResult BuildOgreNextDemoStaticCaptureRadius(
       half_horizontal_slope * (1.0 + horizontal_offset);
   const double maximum_vertical_slope =
       half_vertical_slope * (1.0 + vertical_offset);
-  const double candidate = static_cast<double>(far_plane) *
+  const double candidate =
+      static_cast<double>(far_plane) *
       std::sqrt(1.0 + maximum_horizontal_slope * maximum_horizontal_slope +
                 maximum_vertical_slope * maximum_vertical_slope);
   if (!std::isfinite(candidate) || !(candidate > 0.0) ||
       candidate > static_cast<double>((std::numeric_limits<float>::max)())) {
-    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
-                   "ogre_next_demo.static_capture.radius",
-                   "normalized far-frustum enclosing radius is not representable");
+    return Failure(
+        Render::ValidationCode::VALUE_OUT_OF_RANGE,
+        "ogre_next_demo.static_capture.radius",
+        "normalized far-frustum enclosing radius is not representable");
   }
   const float conservative = std::nextafter(
-      static_cast<float>(candidate),
-      (std::numeric_limits<float>::infinity)());
+      static_cast<float>(candidate), (std::numeric_limits<float>::infinity)());
   if (!std::isfinite(conservative) || !(conservative > 0.0F)) {
     return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
                    "ogre_next_demo.static_capture.radius",
-                   "normalized far-frustum enclosing radius overflowed conservative rounding");
+                   "normalized far-frustum enclosing radius overflowed "
+                   "conservative rounding");
   }
   radius_meters = conservative;
   return Render::ValidationResult::Success();
 }
 
 Render::ValidationResult ClassifyOgreNextDemoStaticBounds(
-    const Render::Bounds3 &world_bounds,
-    const Render::Float3 &camera_position, float radius_meters,
-    bool &within_capture_radius) {
+    const Render::Bounds3 &world_bounds, const Render::Float3 &camera_position,
+    float radius_meters, bool &within_capture_radius) {
   const auto finite = [](float value) { return std::isfinite(value); };
-  if (!finite(world_bounds.minimum.x) ||
-      !finite(world_bounds.minimum.y) ||
-      !finite(world_bounds.minimum.z) ||
-      !finite(world_bounds.maximum.x) ||
-      !finite(world_bounds.maximum.y) ||
-      !finite(world_bounds.maximum.z) ||
+  if (!finite(world_bounds.minimum.x) || !finite(world_bounds.minimum.y) ||
+      !finite(world_bounds.minimum.z) || !finite(world_bounds.maximum.x) ||
+      !finite(world_bounds.maximum.y) || !finite(world_bounds.maximum.z) ||
       !finite(camera_position.x) || !finite(camera_position.y) ||
       !finite(camera_position.z) || !finite(radius_meters) ||
       world_bounds.minimum.x > world_bounds.maximum.x ||
@@ -864,11 +1054,11 @@ Render::ValidationResult ClassifyOgreNextDemoStaticBounds(
       !(radius_meters > 0.0F)) {
     return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
                    "ogre_next_demo.static_capture.bounds",
-                   "static capture requires a finite ordered world AABB, camera, and positive radius");
+                   "static capture requires a finite ordered world AABB, "
+                   "camera, and positive radius");
   }
 
-  const auto separation = [](double value, double minimum,
-                             double maximum) {
+  const auto separation = [](double value, double minimum, double maximum) {
     if (value < minimum) {
       return minimum - value;
     }
@@ -884,17 +1074,17 @@ Render::ValidationResult ClassifyOgreNextDemoStaticBounds(
   const double dz = separation(camera_position.z, world_bounds.minimum.z,
                                world_bounds.maximum.z);
   const double radius = radius_meters;
-  within_capture_radius =
-      dx * dx + dy * dy + dz * dz <= radius * radius;
+  within_capture_radius = dx * dx + dy * dy + dz * dz <= radius * radius;
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult OgreNextDemoIdentityRegistry::Register(
-    std::string exact_key, std::uint64_t source_id) {
+Render::ValidationResult
+OgreNextDemoIdentityRegistry::Register(std::string exact_key,
+                                       std::uint64_t source_id) {
   if (exact_key.empty() || source_id == 0U) {
-    return Failure(Render::ValidationCode::INVALID_IDENTIFIER,
-                   "ogre_next_demo.source_id",
-                   "registered source ID and exact identity must be nonzero and nonempty");
+    return Failure(
+        Render::ValidationCode::INVALID_IDENTIFIER, "ogre_next_demo.source_id",
+        "registered source ID and exact identity must be nonzero and nonempty");
   }
   const auto id_match = keys_by_id_.find(source_id);
   if (id_match != keys_by_id_.end() && id_match->second != exact_key) {
@@ -924,7 +1114,7 @@ std::size_t OgreNextDemoIdentityRegistry::size() const noexcept {
 }
 
 bool OgreNextDemoRequiresMatte(std::size_t texture_unit_count,
-                              bool has_authored_program) noexcept {
+                               bool has_authored_program) noexcept {
   return texture_unit_count != 0U || has_authored_program;
 }
 
@@ -953,8 +1143,8 @@ bool OgreNextDemoAllowsAlexisTUS0Approximation(
   if (exact_resource_group != "{bundle USER:/mods/AlexisSaber.zip}") {
     return false;
   }
-  constexpr std::array<std::string_view, 4U> kOpaqueManagedNames{{
-      "SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles"}};
+  constexpr std::array<std::string_view, 4U> kOpaqueManagedNames{
+      {"SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles"}};
   constexpr std::string_view kSuffixPrefix =
       " (AlexisSaber.truck [Instance ID ";
   constexpr std::string_view kSuffixEnd = "])";
@@ -973,9 +1163,8 @@ bool OgreNextDemoAllowsAlexisTUS0Approximation(
         exact_material_name.size() - base.size() - kSuffixPrefix.size() -
             kSuffixEnd.size());
     if (!instance.empty() &&
-        std::all_of(instance.begin(), instance.end(), [](char value) {
-          return value >= '0' && value <= '9';
-        })) {
+        std::all_of(instance.begin(), instance.end(),
+                    [](char value) { return value >= '0' && value <= '9'; })) {
       return true;
     }
   }

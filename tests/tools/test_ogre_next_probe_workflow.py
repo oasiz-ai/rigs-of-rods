@@ -325,6 +325,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
         ).read_text(encoding="utf-8")
+        private_policy_header = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
+        ).read_text(encoding="utf-8")
         private_policy_test = (
             REPOSITORY_ROOT
             / "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
@@ -343,7 +347,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             private_policy,
         )
         for reachability_test_token in (
-            "CheckAuthenticatedCacheReachabilitySequence",
+            "CheckCachedSourceReachabilitySequence",
+            "CheckSourceAccountingAndEligibility",
             "CheckCachedPublicationTransactionSequence",
             "Frame N+1 represents same-map bundle unload",
             "Frame N+2 unchanged reuse",
@@ -359,12 +364,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
         ).read_text(encoding="utf-8")
-        self.assertEqual(material_source.count("blitToMemory("), 1)
-        self.assertIn(
-            "buffer->blitToMemory(native_destination)", material_source
-        )
-        self.assertNotIn("buffer->blitToMemory(destination)", material_source)
+        self.assertEqual(material_source.count("blitToMemory("), 0)
         for native_readback_token in (
+            "HardwarePixelBuffer",
             "Ogre::PixelUtil::isCompressed(native_format)",
             "Ogre::PixelUtil::getNumElemBytes(native_format)",
             "ValidateNativeBasePixelFormat(buffer_format)",
@@ -374,38 +376,55 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "buffer_after->getFormat() != native_format",
             "Ogre::PixelUtil::bulkPixelConversion(native_destination, destination)",
             "captured.native_texture = native_texture.get()",
-            "captured.native_texture_format = native_texture->getFormat()",
             "captured.native_buffer_format = captured_buffer_format",
-            "captured.native_texture_format != native_texture->getFormat()",
             "captured.native_buffer_format !=",
         ):
             with self.subTest(native_readback_token=native_readback_token):
-                self.assertIn(native_readback_token, material_source)
-        self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", material_source)
-        for authenticated_source_token in (
+                self.assertNotIn(native_readback_token, material_source)
+        self.assertNotIn(
+            "CompleteOgreNextDemoSrgbPbrMipChain", material_source
+        )
+        for source_byte_token in (
             "RequiresAuthenticatedTextureSource",
             "ResolveAuthenticatedTexture",
+            "ResolveSelectedTextureSource",
+            "RevalidateSelectedTextureSource",
             "DecodeOgre14SourceTexture",
             "BuildOgreNextDemoSrgbPbrTextureFromDecodedSource",
             "SharesImmutableStateWith",
             "authenticated_content_decode_key",
-            "authenticated_source_decodes",
+            "ordinary_content_decode_key",
+            "source_cache_hits",
+            "gpu_readbacks",
             "authenticated_gpu_readbacks",
             "unauthenticated_gpu_readbacks",
             "Ogre::TexturePtr native_texture",
             "authenticated_texture_observations.clear()",
+            "ordinary_texture_observations.clear()",
+            "ValidateReachableOrdinaryTextureBatch",
             "unreachable anti-tombstone owners only",
         ):
-            with self.subTest(
-                authenticated_source_token=authenticated_source_token
-            ):
-                self.assertIn(authenticated_source_token, material_source)
+            with self.subTest(source_byte_token=source_byte_token):
+                self.assertIn(source_byte_token, material_source)
+        for source_counter_token in (
+            "authenticated_archive_source_decodes",
+            "authenticated_generated_source_decodes",
+            "ordinary_observed_source_decodes",
+            "source_cache_hits",
+            "source_decode_rejections",
+            "source_exclusions",
+            "exclusions_by_reason",
+            "gpu_readbacks",
+        ):
+            with self.subTest(source_counter_token=source_counter_token):
+                self.assertIn(source_counter_token, private_policy_header)
+        self.assertIn("ordinary_texture_keys", private_policy)
         self.assertNotIn(
             "SharesLoadedResourceAuthorityWith", material_source
         )
         self.assertIn("OgreNextDemoAllowsAlexisTUS0Approximation", material_source)
         self.assertIn("EquivalentRenderAssetPayload", material_source)
-        self.assertIn("exact_unsigned_rgb8", material_source)
+        self.assertNotIn("exact_unsigned_rgb8", material_source)
         self.assertIn("std::shared_ptr<MaterialCache> cache", material_source)
         self.assertIn("pending_->cache.unique()", material_source)
         self.assertIn(
@@ -459,7 +478,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "resolver_->RevalidateAuthenticatedTexture("
             ),
         )
-        self.assertIn("PreflightTextureBase(", material_source)
+        self.assertNotIn("PreflightTextureBase(", material_source)
+        self.assertIn("PreflightTextureIdentity(", material_source)
+        self.assertIn(
+            "ClassifyOgreNextDemoTextureProjectionEligibility(",
+            material_source,
+        )
         self.assertIn("current_projection_key != decision->second.projection_key",
                       material_source)
         self.assertNotIn("native_material_state_count", material_source)

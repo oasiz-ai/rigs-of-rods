@@ -29,9 +29,8 @@ void Require(bool condition, const char *message) {
   }
 }
 
-TextureMipLevelDescriptor MakeMip(
-    std::uint32_t width, std::uint32_t height,
-    std::vector<std::uint8_t> bytes) {
+TextureMipLevelDescriptor MakeMip(std::uint32_t width, std::uint32_t height,
+                                  std::vector<std::uint8_t> bytes) {
   TextureMipLevelDescriptor mip;
   mip.width = width;
   mip.height = height;
@@ -76,11 +75,9 @@ TextureResourceDescriptor NativeBaseLevel() {
 
 void CheckFullMipOpaqueLowering() {
   TextureResourceDescriptor texture = NativeBaseLevel();
-  const std::vector<std::uint8_t> base_before =
-      texture.mip_levels[0U].bytes;
+  const std::vector<std::uint8_t> base_before = texture.mip_levels[0U].bytes;
 
-  const ValidationResult result =
-      CompleteOgreNextDemoOpaqueMipChain(texture);
+  const ValidationResult result = CompleteOgreNextDemoOpaqueMipChain(texture);
   Require(result.ok(), "valid native base level was rejected");
   Require(texture.mip_levels.size() == 3U &&
               texture.mip_levels.back().width == 1U &&
@@ -89,8 +86,7 @@ void CheckFullMipOpaqueLowering() {
   for (std::size_t level = 0U; level < texture.mip_levels.size(); ++level) {
     const auto &bytes = texture.mip_levels[level].bytes;
     for (std::size_t alpha = 3U; alpha < bytes.size(); alpha += 4U) {
-      Require(bytes[alpha] == 255U,
-              "one output mip retained non-opaque alpha");
+      Require(bytes[alpha] == 255U, "one output mip retained non-opaque alpha");
     }
   }
   for (std::size_t offset = 0U; offset < base_before.size(); ++offset) {
@@ -99,9 +95,9 @@ void CheckFullMipOpaqueLowering() {
               "base native RGB byte changed");
     }
   }
-  const std::array<std::uint8_t, 16U> expected_second{{
-      13U, 33U, 53U, 255U, 15U, 35U, 55U, 255U,
-      21U, 41U, 61U, 255U, 23U, 43U, 63U, 255U}};
+  const std::array<std::uint8_t, 16U> expected_second{
+      {13U, 33U, 53U, 255U, 15U, 35U, 55U, 255U, 21U, 41U, 61U, 255U, 23U, 43U,
+       63U, 255U}};
   Require(std::equal(expected_second.begin(), expected_second.end(),
                      texture.mip_levels[1U].bytes.begin()),
           "generated 4x4-to-2x2 display-domain box result changed");
@@ -115,10 +111,8 @@ void CheckMalformedMipRollback() {
   TextureResourceDescriptor texture = NativeBaseLevel();
   texture.mip_levels[0U].row_pitch_bytes = 9U;
   const TextureResourceDescriptor before = texture;
-  const ValidationResult result =
-      CompleteOgreNextDemoOpaqueMipChain(texture);
-  Require(!result.ok() &&
-              result.code == ValidationCode::SIZE_MISMATCH,
+  const ValidationResult result = CompleteOgreNextDemoOpaqueMipChain(texture);
+  Require(!result.ok() && result.code == ValidationCode::SIZE_MISMATCH,
           "malformed native base level was accepted");
   Require(texture.mip_levels.size() == before.mip_levels.size() &&
               texture.mip_levels[0U].bytes == before.mip_levels[0U].bytes &&
@@ -126,16 +120,14 @@ void CheckMalformedMipRollback() {
           "failed mip validation partially changed the candidate");
 
   texture = NativeBaseLevel();
-  texture.mip_levels.push_back(MakeMip(
-      2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 7U)));
+  texture.mip_levels.push_back(
+      MakeMip(2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 7U)));
   const TextureResourceDescriptor extra_before = texture;
-  const ValidationResult extra =
-      CompleteOgreNextDemoOpaqueMipChain(texture);
+  const ValidationResult extra = CompleteOgreNextDemoOpaqueMipChain(texture);
   Require(!extra.ok() && texture.mip_levels.size() == 2U &&
               texture.mip_levels[0U].bytes ==
                   extra_before.mip_levels[0U].bytes &&
-              texture.mip_levels[1U].bytes ==
-                  extra_before.mip_levels[1U].bytes,
+              texture.mip_levels[1U].bytes == extra_before.mip_levels[1U].bytes,
           "native nonzero mip was read or partially rewritten");
 }
 
@@ -148,17 +140,16 @@ void CheckConventionalSrgbPbrMipChain() {
   texture.width = 2U;
   texture.height = 2U;
   texture.array_layers = 1U;
-  texture.mip_levels.push_back(MakeMip(
-      2U, 2U,
-      {// Hostile black/white contrast in R, midtones in G, and four
-       // distinct midtones in B. Authored alpha must not affect RGB.
-       0U, 64U, 16U, 0U, 0U, 64U, 80U, 1U,
-       255U, 192U, 144U, 127U, 255U, 192U, 208U, 254U}));
+  texture.mip_levels.push_back(
+      MakeMip(2U, 2U,
+              {// Hostile black/white contrast in R, midtones in G, and four
+               // distinct midtones in B. Authored alpha must not affect RGB.
+               0U, 64U, 16U, 0U, 0U, 64U, 80U, 1U, 255U, 192U, 144U, 127U, 255U,
+               192U, 208U, 254U}));
   const std::vector<std::uint8_t> base_before =
       texture.mip_levels.front().bytes;
 
-  const ValidationResult result =
-      CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  const ValidationResult result = CompleteOgreNextDemoSrgbPbrMipChain(texture);
   Require(result.ok(), "valid conventional sRGB PBR base was rejected");
   Require(texture.mip_levels.size() == 2U &&
               texture.mip_levels.back().width == 1U &&
@@ -187,27 +178,23 @@ void CheckConventionalSrgbPbrRollback() {
   TextureResourceDescriptor texture = NativeBaseLevel();
   texture.mip_levels[0U].layer_pitch_bytes -= 4U;
   const TextureResourceDescriptor before = texture;
-  const ValidationResult result =
-      CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  const ValidationResult result = CompleteOgreNextDemoSrgbPbrMipChain(texture);
   Require(!result.ok() && result.code == ValidationCode::SIZE_MISMATCH &&
               texture.mip_levels.size() == before.mip_levels.size() &&
-              texture.mip_levels[0U].bytes ==
-                  before.mip_levels[0U].bytes &&
+              texture.mip_levels[0U].bytes == before.mip_levels[0U].bytes &&
               texture.mip_levels[0U].layer_pitch_bytes ==
                   before.mip_levels[0U].layer_pitch_bytes,
           "malformed sRGB PBR base partially changed the candidate");
 
   texture = NativeBaseLevel();
-  texture.mip_levels.push_back(MakeMip(
-      2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 31U)));
+  texture.mip_levels.push_back(
+      MakeMip(2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 31U)));
   const TextureResourceDescriptor extra_before = texture;
-  const ValidationResult extra =
-      CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  const ValidationResult extra = CompleteOgreNextDemoSrgbPbrMipChain(texture);
   Require(!extra.ok() && texture.mip_levels.size() == 2U &&
               texture.mip_levels[0U].bytes ==
                   extra_before.mip_levels[0U].bytes &&
-              texture.mip_levels[1U].bytes ==
-                  extra_before.mip_levels[1U].bytes,
+              texture.mip_levels[1U].bytes == extra_before.mip_levels[1U].bytes,
           "authored sRGB PBR nonzero mip was consumed or rewritten");
 }
 
@@ -289,55 +276,109 @@ void CheckDecodedSourceFailureRollback() {
 }
 
 void CheckTextureSourceSelectionContract() {
-  OgreNextDemoTextureSourceMode mode =
-      OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+  OgreNextDemoTextureSourceSelection selection;
+  selection.selected = true;
+  selection.mode =
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_GENERATED_SOURCE_BYTES;
+  selection.exclusion = OgreNextDemoTextureProjectionExclusion::NONE;
+  const OgreNextDemoTextureSourceSelection sentinel = selection;
   const ValidationResult missing_receipt = ValidationResult::Failure(
       ValidationCode::MISSING_REFERENCE, "texture_registry.resource_lookup",
       "exact authenticated texture resource is absent");
-  const ValidationResult required_missing =
-      SelectOgreNextDemoTextureSourceMode(true, true, missing_receipt, mode);
-  std::size_t gpu_readbacks = 0U;
-  if (required_missing.ok() &&
-      mode == OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK) {
-    ++gpu_readbacks;
-  }
+  const ValidationResult required_missing = SelectOgreNextDemoTextureSourceMode(
+      true, true, missing_receipt,
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES, false,
+      ValidationResult::Success(), selection);
   Require(
-      !required_missing.ok() && gpu_readbacks == 0U &&
-          mode == OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK,
+      !required_missing.ok() && selection.selected == sentinel.selected &&
+          selection.mode == sentinel.mode &&
+          selection.exclusion == sentinel.exclusion,
       "authenticated-required missing receipt fell through to GPU readback");
 
-  const ValidationResult ordinary = SelectOgreNextDemoTextureSourceMode(
-      false, false, ValidationResult::Success(), mode);
-  if (ordinary.ok() &&
-      mode == OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK) {
-    ++gpu_readbacks;
-  }
-  Require(ordinary.ok() && gpu_readbacks == 1U,
-          "ordinary texture did not select exactly one GPU readback");
+  const ValidationResult ordinary_unavailable =
+      SelectOgreNextDemoTextureSourceMode(
+          false, false, ValidationResult::Success(),
+          OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+          false, ValidationResult::Success(), selection);
+  Require(
+      ordinary_unavailable.ok() && !selection.selected &&
+          selection.mode ==
+              OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES &&
+          selection.exclusion == OgreNextDemoTextureProjectionExclusion::
+                                     ORDINARY_SELECTED_SOURCE_UNAVAILABLE,
+      "ordinary texture without selected source was not explicitly matted");
 
-  mode = OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
-  const ValidationResult required = SelectOgreNextDemoTextureSourceMode(
-      true, true, ValidationResult::Success(), mode);
-  Require(required.ok() &&
-              mode == OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES,
-          "successful authenticated resolution did not select source bytes");
+  const ValidationResult ordinary = SelectOgreNextDemoTextureSourceMode(
+      false, false, ValidationResult::Success(),
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES, true,
+      ValidationResult::Success(), selection);
+  Require(
+      ordinary.ok() && selection.selected &&
+          selection.mode ==
+              OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES &&
+          selection.exclusion == OgreNextDemoTextureProjectionExclusion::NONE,
+      "ordinary selected source bytes were not selected");
+
+  const ValidationResult ordinary_missing_receipt =
+      SelectOgreNextDemoTextureSourceMode(
+          false, false, ValidationResult::Success(),
+          OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+          true, missing_receipt, selection);
+  Require(ordinary_missing_receipt.ok() && !selection.selected &&
+              selection.exclusion == OgreNextDemoTextureProjectionExclusion::
+                                         ORDINARY_SELECTED_SOURCE_UNAVAILABLE,
+          "failed ordinary selected-source resolution was not explicitly matted");
+
+  const ValidationResult required_archive = SelectOgreNextDemoTextureSourceMode(
+      true, true, ValidationResult::Success(),
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES, false,
+      ValidationResult::Success(), selection);
+  Require(
+      required_archive.ok() && selection.selected &&
+          selection.mode ==
+              OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+      "authenticated archive resolution did not select source bytes");
+
+  const ValidationResult required_generated =
+      SelectOgreNextDemoTextureSourceMode(
+          true, true, ValidationResult::Success(),
+          OgreNextDemoTextureSourceMode::AUTHENTICATED_GENERATED_SOURCE_BYTES,
+          false, ValidationResult::Success(), selection);
+  Require(required_generated.ok() && selection.selected &&
+              selection.mode == OgreNextDemoTextureSourceMode::
+                                    AUTHENTICATED_GENERATED_SOURCE_BYTES,
+          "authenticated generated resolution lost its distinct source mode");
 
   const ValidationResult ordinary_probe = SelectOgreNextDemoTextureSourceMode(
-      false, true, ValidationResult::Success(), mode);
+      false, true, ValidationResult::Success(),
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES, true,
+      ValidationResult::Success(), selection);
   Require(!ordinary_probe.ok(),
           "ordinary texture was allowed to probe authenticated authority");
+
+  const ValidationResult authenticated_probe =
+      SelectOgreNextDemoTextureSourceMode(
+          true, true, ValidationResult::Success(),
+          OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+          true, ValidationResult::Success(), selection);
+  Require(!authenticated_probe.ok(),
+          "authenticated texture was allowed to probe ordinary authority");
 }
 
-void CheckAuthenticatedCacheReachabilitySequence() {
+void CheckCachedSourceReachabilitySequence() {
   constexpr OgreNextDemoTextureSourceMode authenticated =
-      OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES;
-  std::size_t authenticated_gpu_readbacks = 0U;
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES;
+  constexpr OgreNextDemoTextureSourceMode ordinary =
+      OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
 
   const ValidationResult frame_n =
       ValidateOgreNextDemoCachedTextureSourceAuthority(
           authenticated, true, true, true, ValidationResult::Success(), true);
-  Require(frame_n.ok() && authenticated_gpu_readbacks == 0U,
-          "frame N authenticated cache observation was rejected or read back");
+  Require(frame_n.ok(), "frame N authenticated cache observation was rejected");
+  Require(ValidateOgreNextDemoCachedTextureSourceAuthority(
+              ordinary, true, true, true, ValidationResult::Success(), true)
+              .ok(),
+          "frame N ordinary cache observation was rejected");
 
   // N+1 has no reachable instance after same-map bundle unload. The immutable
   // owner remains only to prevent source-ID resurrection and probes nothing.
@@ -345,8 +386,12 @@ void CheckAuthenticatedCacheReachabilitySequence() {
       ValidateOgreNextDemoCachedTextureSourceAuthority(
           authenticated, false, false, false, ValidationResult::Success(),
           false);
-  Require(frame_n_plus_1.ok() && authenticated_gpu_readbacks == 0U,
-          "frame N+1 unreachable owner probed or read back native storage");
+  Require(
+      frame_n_plus_1.ok() &&
+          ValidateOgreNextDemoCachedTextureSourceAuthority(
+              ordinary, false, false, false, ValidationResult::Success(), false)
+              .ok(),
+      "frame N+1 unreachable owner probed live source authority");
 
   const ValidationResult missing_fresh_receipt = ValidationResult::Failure(
       ValidationCode::MISSING_REFERENCE, "texture_resolution.resource_lookup",
@@ -354,21 +399,148 @@ void CheckAuthenticatedCacheReachabilitySequence() {
   const ValidationResult frame_n_plus_2_missing =
       ValidateOgreNextDemoCachedTextureSourceAuthority(
           authenticated, true, true, true, missing_fresh_receipt, false);
-  Require(!frame_n_plus_2_missing.ok() && authenticated_gpu_readbacks == 0U,
+  Require(!frame_n_plus_2_missing.ok(),
           "frame N+2 missing fresh receipt fell through to GPU readback");
 
   const ValidationResult frame_n_plus_2_mutated =
       ValidateOgreNextDemoCachedTextureSourceAuthority(
           authenticated, true, true, true, ValidationResult::Success(), false);
-  Require(!frame_n_plus_2_mutated.ok() && authenticated_gpu_readbacks == 0U,
+  Require(!frame_n_plus_2_mutated.ok(),
           "frame N+2 changed immutable receipt was accepted or read back");
 
-  const ValidationResult revoked_before_reuse =
+  const ValidationResult reclassified_before_reuse =
       ValidateOgreNextDemoCachedTextureSourceAuthority(
           authenticated, true, false, false, ValidationResult::Success(),
           false);
-  Require(!revoked_before_reuse.ok() && authenticated_gpu_readbacks == 0U,
-          "revoked authenticated cache entry demoted to native readback");
+  Require(!reclassified_before_reuse.ok(),
+          "cached authenticated entry changed authority classification");
+
+  const ValidationResult ordinary_mutated =
+      ValidateOgreNextDemoCachedTextureSourceAuthority(
+          ordinary, true, true, true, ValidationResult::Success(), false);
+  Require(!ordinary_mutated.ok(),
+          "cached ordinary entry accepted changed selected-source bytes");
+}
+
+void CheckSourceAccountingAndEligibility() {
+  OgreNextDemoTextureSourceCounters counters;
+  for (std::size_t index = 0U; index < 29U; ++index) {
+    Require(
+        RecordOgreNextDemoTextureSourceDecode(
+            OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+            counters)
+            .ok(),
+        "authenticated archive decode accounting failed");
+  }
+  for (std::size_t index = 0U; index < 3U; ++index) {
+    Require(RecordOgreNextDemoTextureSourceDecode(
+                OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES,
+                counters)
+                .ok(),
+            "ordinary selected-source decode accounting failed");
+  }
+  Require(counters.authenticated_archive_source_decodes == 29U &&
+              counters.authenticated_generated_source_decodes == 0U &&
+              counters.authenticated_source_decodes == 29U &&
+              counters.ordinary_observed_source_decodes == 3U &&
+              counters.gpu_readbacks == 0U &&
+              counters.authenticated_gpu_readbacks == 0U &&
+              counters.unauthenticated_gpu_readbacks == 0U,
+          "29 authenticated plus 3 ordinary source-byte accounting changed");
+
+  Require(RecordOgreNextDemoTextureSourceCacheHit(counters).ok() &&
+              counters.source_cache_hits == 1U,
+          "source cache hit was not counted without a readback");
+  Require(RecordOgreNextDemoTextureProjectionExclusion(
+              OgreNextDemoTextureProjectionExclusion::SOURCE_DECODE_REJECTED,
+              counters)
+              .ok() &&
+              counters.source_decode_rejections == 1U &&
+              counters.source_exclusions == 1U,
+          "decode rejection was not retained as a bounded matte exclusion");
+  Require(RecordOgreNextDemoTextureProjectionExclusion(
+              OgreNextDemoTextureProjectionExclusion::
+                  UNSUPPORTED_SOURCE_CONTAINER,
+              counters)
+              .ok() &&
+              RecordOgreNextDemoTextureProjectionExclusion(
+                  OgreNextDemoTextureProjectionExclusion::
+                      UNSUPPORTED_SOURCE_SEMANTIC,
+                  counters)
+                  .ok() &&
+              counters.source_decode_rejections == 2U &&
+              counters.source_exclusions == 3U &&
+              counters.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      UNSUPPORTED_SOURCE_CONTAINER)] == 1U &&
+              counters.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      UNSUPPORTED_SOURCE_SEMANTIC)] == 1U,
+          "unsupported ordinary sources lost bounded exclusion accounting");
+
+  OgreNextDemoTextureEligibilityObservation eligible;
+  eligible.source_available = true;
+  eligible.texture_2d = true;
+  eligible.unit_depth = true;
+  eligible.unit_face_count = true;
+  eligible.dimensions_in_range = true;
+  OgreNextDemoTextureProjectionExclusion exclusion =
+      OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
+  Require(ClassifyOgreNextDemoTextureProjectionEligibility(eligible, exclusion)
+                  .ok() &&
+              exclusion == OgreNextDemoTextureProjectionExclusion::NONE,
+          "eligible file-backed 2D texture was excluded");
+
+  const auto require_exclusion =
+      [&](OgreNextDemoTextureEligibilityObservation observation,
+          OgreNextDemoTextureProjectionExclusion expected) {
+        OgreNextDemoTextureProjectionExclusion observed =
+            OgreNextDemoTextureProjectionExclusion::NONE;
+        Require(ClassifyOgreNextDemoTextureProjectionEligibility(observation,
+                                                                 observed)
+                        .ok() &&
+                    observed == expected,
+                "native texture exclusion classification changed");
+      };
+  OgreNextDemoTextureEligibilityObservation mutation = eligible;
+  mutation.manually_loaded = true;
+  require_exclusion(
+      mutation, OgreNextDemoTextureProjectionExclusion::MANUAL_OR_PROCEDURAL);
+  mutation = eligible;
+  mutation.render_target = true;
+  require_exclusion(mutation,
+                    OgreNextDemoTextureProjectionExclusion::RENDER_TARGET);
+  mutation = eligible;
+  mutation.texture_2d = false;
+  require_exclusion(mutation, OgreNextDemoTextureProjectionExclusion::NON_2D);
+  mutation = eligible;
+  mutation.unit_depth = false;
+  require_exclusion(mutation,
+                    OgreNextDemoTextureProjectionExclusion::NON_UNIT_DEPTH);
+  mutation = eligible;
+  mutation.unit_face_count = false;
+  require_exclusion(
+      mutation, OgreNextDemoTextureProjectionExclusion::NON_UNIT_FACE_COUNT);
+
+  OgreNextDemoTextureSourceCounters committed;
+  Require(
+      AccumulateOgreNextDemoTextureSourceCounters(counters, committed).ok() &&
+          committed.authenticated_source_decodes == 29U &&
+          committed.ordinary_observed_source_decodes == 3U &&
+          committed.gpu_readbacks == 0U,
+      "valid source-byte counters did not commit atomically");
+  OgreNextDemoTextureSourceCounters hostile_increment;
+  hostile_increment.gpu_readbacks = 1U;
+  const OgreNextDemoTextureSourceCounters before = committed;
+  Require(
+      !AccumulateOgreNextDemoTextureSourceCounters(hostile_increment, committed)
+              .ok() &&
+          committed.authenticated_source_decodes ==
+              before.authenticated_source_decodes &&
+          committed.ordinary_observed_source_decodes ==
+              before.ordinary_observed_source_decodes &&
+          committed.gpu_readbacks == 0U,
+      "GPU-readback accounting bypassed the zero gate or partially committed");
 }
 
 struct FrozenPublicationCatalog final {
@@ -406,10 +578,10 @@ FrozenPublicationCatalog RepresentativePublicationCatalog() {
   FrozenPublicationCatalog catalog;
   catalog.textures.push_back(
       {"texture/authenticated", 101U,
-       OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES});
+       OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES});
   catalog.textures.push_back(
       {"texture/ordinary", 102U,
-       OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK});
+       OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES});
   catalog.samplers.push_back({"sampler/authenticated", 201U});
   catalog.samplers.push_back({"sampler/ordinary", 202U});
   catalog.projections.push_back({"projection/authenticated",
@@ -421,19 +593,29 @@ FrozenPublicationCatalog RepresentativePublicationCatalog() {
 }
 
 class FakePublicationBatchValidator final
-    : public IOgreNextDemoAuthenticatedTexturePublicationBatchValidator {
+    : public IOgreNextDemoTexturePublicationBatchValidator {
 public:
   ValidationResult ValidateReachableAuthenticatedTextureBatch(
       const std::vector<std::string> &texture_keys) override {
     ++batch_calls;
     observed_texture_keys = texture_keys;
-    return result;
+    return authenticated_result;
   }
 
-  ValidationResult result = ValidationResult::Success();
+  ValidationResult ValidateReachableOrdinaryTextureBatch(
+      const std::vector<std::string> &texture_keys) override {
+    ++ordinary_batch_calls;
+    observed_ordinary_texture_keys = texture_keys;
+    return ordinary_result;
+  }
+
+  ValidationResult authenticated_result = ValidationResult::Success();
+  ValidationResult ordinary_result = ValidationResult::Success();
   std::size_t batch_calls = 0U;
+  std::size_t ordinary_batch_calls = 0U;
   std::size_t gpu_readback_calls = 0U;
   std::vector<std::string> observed_texture_keys;
+  std::vector<std::string> observed_ordinary_texture_keys;
 };
 
 OgreNextDemoCachedProjectionPublicationTransaction SentinelTransaction() {
@@ -441,6 +623,7 @@ OgreNextDemoCachedProjectionPublicationTransaction SentinelTransaction() {
   sentinel.owner_catalog.push_back({"sentinel", 9991U, 9992U, 9993U, true});
   sentinel.frame_root_material_source_ids.push_back(9991U);
   sentinel.authenticated_texture_keys.push_back("sentinel/texture");
+  sentinel.ordinary_texture_keys.push_back("sentinel/ordinary");
   return sentinel;
 }
 
@@ -455,7 +638,9 @@ bool IsSentinelTransaction(
          transaction.frame_root_material_source_ids ==
              std::vector<std::uint64_t>{9991U} &&
          transaction.authenticated_texture_keys ==
-             std::vector<std::string>{"sentinel/texture"};
+             std::vector<std::string>{"sentinel/texture"} &&
+         transaction.ordinary_texture_keys ==
+             std::vector<std::string>{"sentinel/ordinary"};
 }
 
 void CheckCachedPublicationTransactionSequence() {
@@ -464,28 +649,34 @@ void CheckCachedPublicationTransactionSequence() {
   const std::string frozen_fingerprint =
       PublicationCatalogFingerprint(*committed);
 
-  // Frame N: the actual used-projection key roots only the authenticated
-  // material, while Apply still publishes both cached P/T/S owner triples.
+  // Frame N roots both source classes while Apply publishes the complete
+  // cached P/T/S owner catalog.
   FakePublicationBatchValidator frame_n_validator;
   OgreNextDemoCachedProjectionPublicationTransaction frame_n;
   Require(BuildOgreNextDemoCachedProjectionPublicationTransaction(
               committed->projections, committed->textures, committed->samplers,
-              {"projection/authenticated"}, frame_n_validator, frame_n)
+              {"projection/authenticated", "projection/ordinary"},
+              frame_n_validator, frame_n)
               .ok(),
           "frame N cached publication transaction failed");
-  Require(frame_n.owner_catalog.size() == 2U &&
-              frame_n.owner_catalog[0U].frame_reachable &&
-              !frame_n.owner_catalog[1U].frame_reachable &&
-              frame_n.frame_root_material_source_ids ==
-                  std::vector<std::uint64_t>{301U} &&
-              frame_n.authenticated_texture_keys ==
-                  std::vector<std::string>{"texture/authenticated"} &&
-              frame_n_validator.batch_calls == 1U &&
-              frame_n_validator.observed_texture_keys ==
-                  frame_n.authenticated_texture_keys &&
-              frame_n_validator.gpu_readback_calls == 0U,
-          "frame N did not retain all owners and validate exactly one rooted "
-          "authenticated texture");
+  Require(
+      frame_n.owner_catalog.size() == 2U &&
+          frame_n.owner_catalog[0U].frame_reachable &&
+          frame_n.owner_catalog[1U].frame_reachable &&
+          frame_n.frame_root_material_source_ids ==
+              std::vector<std::uint64_t>({301U, 302U}) &&
+          frame_n.authenticated_texture_keys ==
+              std::vector<std::string>{"texture/authenticated"} &&
+          frame_n.ordinary_texture_keys ==
+              std::vector<std::string>{"texture/ordinary"} &&
+          frame_n_validator.batch_calls == 1U &&
+          frame_n_validator.ordinary_batch_calls == 1U &&
+          frame_n_validator.observed_texture_keys ==
+              frame_n.authenticated_texture_keys &&
+          frame_n_validator.observed_ordinary_texture_keys ==
+              frame_n.ordinary_texture_keys &&
+          frame_n_validator.gpu_readback_calls == 0U,
+      "frame N did not validate distinct authenticated and ordinary sources");
 
   // Frame N+1 represents same-map bundle unload after every instance root was
   // removed. BeginCapture retains the same immutable COW catalog; Apply emits
@@ -510,7 +701,9 @@ void CheckCachedPublicationTransactionSequence() {
               frame_n_plus_1.owner_catalog[0U].sampler_source_id == 201U &&
               frame_n_plus_1.frame_root_material_source_ids.empty() &&
               frame_n_plus_1.authenticated_texture_keys.empty() &&
+              frame_n_plus_1.ordinary_texture_keys.empty() &&
               frame_n_plus_1_validator.batch_calls == 0U &&
+              frame_n_plus_1_validator.ordinary_batch_calls == 0U &&
               frame_n_plus_1_validator.gpu_readback_calls == 0U,
           "frame N+1 changed the COW owner catalog or rooted/probed an "
           "unreachable texture");
@@ -521,21 +714,22 @@ void CheckCachedPublicationTransactionSequence() {
   OgreNextDemoCachedProjectionPublicationTransaction frame_n_plus_2;
   Require(BuildOgreNextDemoCachedProjectionPublicationTransaction(
               committed->projections, committed->textures, committed->samplers,
-              {"projection/authenticated"}, frame_n_plus_2_validator,
-              frame_n_plus_2)
+              {"projection/ordinary"}, frame_n_plus_2_validator, frame_n_plus_2)
                   .ok() &&
-              frame_n_plus_2.owner_catalog[0U].material_source_id == 301U &&
-              frame_n_plus_2.owner_catalog[0U].texture_source_id == 101U &&
-              frame_n_plus_2.owner_catalog[0U].sampler_source_id == 201U &&
-              frame_n_plus_2_validator.batch_calls == 1U &&
+              frame_n_plus_2.owner_catalog[1U].material_source_id == 302U &&
+              frame_n_plus_2.owner_catalog[1U].texture_source_id == 102U &&
+              frame_n_plus_2.owner_catalog[1U].sampler_source_id == 202U &&
+              frame_n_plus_2_validator.batch_calls == 0U &&
+              frame_n_plus_2_validator.ordinary_batch_calls == 1U &&
               frame_n_plus_2_validator.gpu_readback_calls == 0U,
-          "frame N+2 unchanged reuse changed IDs or skipped fresh authority");
+          "frame N+2 ordinary reuse changed IDs or skipped fresh authority");
 
   const auto require_authority_rollback = [&](ValidationCode code,
                                               const char *field,
                                               const char *detail) {
     FakePublicationBatchValidator validator;
-    validator.result = ValidationResult::Failure(code, field, detail);
+    validator.authenticated_result =
+        ValidationResult::Failure(code, field, detail);
     OgreNextDemoCachedProjectionPublicationTransaction output =
         SentinelTransaction();
     const ValidationResult result =
@@ -545,7 +739,9 @@ void CheckCachedPublicationTransactionSequence() {
     Require(
         !result.ok() && IsSentinelTransaction(output) &&
             PublicationCatalogFingerprint(*committed) == frozen_fingerprint &&
-            validator.batch_calls == 1U && validator.gpu_readback_calls == 0U,
+            validator.batch_calls == 1U &&
+            validator.ordinary_batch_calls == 0U &&
+            validator.gpu_readback_calls == 0U,
         "revoked, mutated, or missing authority partially committed or read "
         "back");
   };
@@ -559,6 +755,23 @@ void CheckCachedPublicationTransactionSequence() {
       ValidationCode::REVISION_MISMATCH, "revoked_authority",
       "authenticated group authority was revoked before reuse");
 
+  FakePublicationBatchValidator ordinary_rollback_validator;
+  ordinary_rollback_validator.ordinary_result = ValidationResult::Failure(
+      ValidationCode::REVISION_MISMATCH, "mutated_selected_source",
+      "ordinary selected source changed before reuse");
+  OgreNextDemoCachedProjectionPublicationTransaction ordinary_rollback_output =
+      SentinelTransaction();
+  Require(!BuildOgreNextDemoCachedProjectionPublicationTransaction(
+               committed->projections, committed->textures, committed->samplers,
+               {"projection/ordinary"}, ordinary_rollback_validator,
+               ordinary_rollback_output)
+                  .ok() &&
+              IsSentinelTransaction(ordinary_rollback_output) &&
+              ordinary_rollback_validator.batch_calls == 0U &&
+              ordinary_rollback_validator.ordinary_batch_calls == 1U &&
+              ordinary_rollback_validator.gpu_readback_calls == 0U,
+          "ordinary authority failure partially committed or read back");
+
   FrozenPublicationCatalog missing_dependency = *committed;
   missing_dependency.samplers.pop_back();
   FakePublicationBatchValidator dependency_validator;
@@ -570,7 +783,8 @@ void CheckCachedPublicationTransactionSequence() {
                dependency_validator, dependency_output)
                   .ok() &&
               IsSentinelTransaction(dependency_output) &&
-              dependency_validator.batch_calls == 0U,
+              dependency_validator.batch_calls == 0U &&
+              dependency_validator.ordinary_batch_calls == 0U,
           "missing cached dependency partially committed publication output");
 
   FrozenPublicationCatalog duplicate = *committed;
@@ -585,6 +799,7 @@ void CheckCachedPublicationTransactionSequence() {
                   .ok() &&
               IsSentinelTransaction(duplicate_output) &&
               duplicate_validator.batch_calls == 0U &&
+              duplicate_validator.ordinary_batch_calls == 0U &&
               PublicationCatalogFingerprint(*committed) == frozen_fingerprint,
           "duplicate cached projection partially committed or mutated the "
           "frozen cache");
@@ -621,10 +836,8 @@ void CheckSamplingRejectionsAndMutation() {
   after.exact_native_state.push_back('!');
   const ValidationResult mutated =
       RevalidateOgreNextDemoSampling(canonical, after);
-  Require(!mutated.ok() &&
-              mutated.code == ValidationCode::REVISION_MISMATCH &&
-              mutated.field ==
-                  "ogre_next_demo.terrain.readback.revalidation",
+  Require(!mutated.ok() && mutated.code == ValidationCode::REVISION_MISMATCH &&
+              mutated.field == "ogre_next_demo.terrain.readback.revalidation",
           "before/after native state mutation was accepted");
 }
 
@@ -638,8 +851,8 @@ void CheckIdentityCollisionAndRollback() {
   std::uint64_t mesh_id = 0U;
   std::uint64_t texture_id = 0U;
   Require(DeriveOgreNextDemoSourceId("demo/mesh", "page/0/0", mesh_id).ok() &&
-              DeriveOgreNextDemoSourceId("demo/texture", "page/0/0",
-                                         texture_id).ok() &&
+              DeriveOgreNextDemoSourceId("demo/texture", "page/0/0", texture_id)
+                  .ok() &&
               mesh_id != texture_id,
           "domain separation did not produce distinct stable IDs");
 
@@ -670,18 +883,17 @@ void CheckStaticCaptureAdmission() {
   float radius = -1.0F;
   const float vertical_half_extent = 0.28867513F;
   Require(BuildOgreNextDemoStaticCaptureRadius(
-              -0.51320022F, 0.51320022F,
-              vertical_half_extent, -vertical_half_extent,
-              0.5F, 350.0F, 16.0F / 9.0F, radius)
-              .ok() &&
+              -0.51320022F, 0.51320022F, vertical_half_extent,
+              -vertical_half_extent, 0.5F, 350.0F, 16.0F / 9.0F, radius)
+                  .ok() &&
               radius > 539.0F && radius < 542.0F,
           "normalized 16:9 far-frustum capture radius changed");
   float ultrawide_radius = -1.0F;
   Require(BuildOgreNextDemoStaticCaptureRadius(
-              -0.51320022F, 0.51320022F,
-              vertical_half_extent, -vertical_half_extent,
-              0.5F, 350.0F, 32.0F / 9.0F, ultrawide_radius)
-              .ok() &&
+              -0.51320022F, 0.51320022F, vertical_half_extent,
+              -vertical_half_extent, 0.5F, 350.0F, 32.0F / 9.0F,
+              ultrawide_radius)
+                  .ok() &&
               ultrawide_radius > radius,
           "ultrawide child aspect did not expand static admission");
 
@@ -689,33 +901,33 @@ void CheckStaticCaptureAdmission() {
   touching.minimum = {radius - 1.0F, -1.0F, -1.0F};
   touching.maximum = {radius + 1.0F, 1.0F, 1.0F};
   bool retained = false;
-  Require(ClassifyOgreNextDemoStaticBounds(touching, {}, radius, retained)
-              .ok() &&
-              retained,
-          "AABB touching the demo capture sphere was omitted");
+  Require(
+      ClassifyOgreNextDemoStaticBounds(touching, {}, radius, retained).ok() &&
+          retained,
+      "AABB touching the demo capture sphere was omitted");
   Bounds3 outside = touching;
   outside.minimum.x = radius + 1.0F;
   outside.maximum.x = radius + 2.0F;
   retained = true;
-  Require(ClassifyOgreNextDemoStaticBounds(outside, {}, radius, retained)
-              .ok() &&
-              !retained,
-          "AABB outside the demo capture sphere was retained");
+  Require(
+      ClassifyOgreNextDemoStaticBounds(outside, {}, radius, retained).ok() &&
+          !retained,
+      "AABB outside the demo capture sphere was retained");
 
   float sentinel_radius = 17.0F;
-  Require(!BuildOgreNextDemoStaticCaptureRadius(
-               1.0F, -1.0F, 1.0F, -1.0F,
-               0.5F, 350.0F, 16.0F / 9.0F, sentinel_radius)
-               .ok() &&
+  Require(!BuildOgreNextDemoStaticCaptureRadius(1.0F, -1.0F, 1.0F, -1.0F, 0.5F,
+                                                350.0F, 16.0F / 9.0F,
+                                                sentinel_radius)
+                  .ok() &&
               sentinel_radius == 17.0F,
           "invalid frustum partially published a capture radius");
   Bounds3 invalid = touching;
   invalid.minimum.x = (std::numeric_limits<float>::quiet_NaN)();
   retained = true;
-  Require(!ClassifyOgreNextDemoStaticBounds(invalid, {}, radius, retained)
-               .ok() &&
-              retained,
-          "invalid AABB partially published its admission result");
+  Require(
+      !ClassifyOgreNextDemoStaticBounds(invalid, {}, radius, retained).ok() &&
+          retained,
+      "invalid AABB partially published its admission result");
 }
 
 void CheckMatteFallbackPolicy() {
@@ -732,16 +944,16 @@ void CheckMatteFallbackPolicy() {
               !OgreNextDemoOmitsInvisibleCab("invisible", 0.0F, true) &&
               !OgreNextDemoOmitsInvisibleCab("Invisible", 0.0F, false),
           "authored invisible cab omission is no longer exact");
-  Require(OgreNextDemoOmitsNonUniformSpeedBump(
-              "topeQr.mesh", {1.0F, 0.5F, 0.5F}) &&
-              !OgreNextDemoOmitsNonUniformSpeedBump(
-                  "topeQr.mesh", {1.0F, 1.0F, 1.0F}) &&
-              !OgreNextDemoOmitsNonUniformSpeedBump(
-                  "other.mesh", {1.0F, 0.5F, 0.5F}),
-          "CityWorld speed-bump omission broadened beyond its exact identity");
+  Require(
+      OgreNextDemoOmitsNonUniformSpeedBump("topeQr.mesh", {1.0F, 0.5F, 0.5F}) &&
+          !OgreNextDemoOmitsNonUniformSpeedBump("topeQr.mesh",
+                                                {1.0F, 1.0F, 1.0F}) &&
+          !OgreNextDemoOmitsNonUniformSpeedBump("other.mesh",
+                                                {1.0F, 0.5F, 0.5F}),
+      "CityWorld speed-bump omission broadened beyond its exact identity");
   Require(OgreNextDemoAllowsAlexisTUS0Approximation(
-                  "{bundle USER:/mods/AlexisSaber.zip}",
-                  "SaberChassis (AlexisSaber.truck [Instance ID 17])") &&
+              "{bundle USER:/mods/AlexisSaber.zip}",
+              "SaberChassis (AlexisSaber.truck [Instance ID 17])") &&
               OgreNextDemoAllowsAlexisTUS0Approximation(
                   "{bundle USER:/mods/AlexisSaber.zip}",
                   "SaberGrilles (AlexisSaber.truck [Instance ID 0])") &&
@@ -767,13 +979,11 @@ void CheckMatteMeshNormalization() {
   mesh.dynamic = true;
   mesh.local_bounds.minimum = {-1.0F, 0.0F, 0.0F};
   mesh.local_bounds.maximum = {1.0F, 1.0F, 0.0F};
-  mesh.positions = {{-1.0F, 0.0F, 0.0F},
-                    {1.0F, 0.0F, 0.0F},
-                    {0.0F, 1.0F, 0.0F}};
-  mesh.normals = {
-      {0.0F, 0.0F, 2.0F},
-      {0.0F, 0.0F, 0.0F},
-      {(std::numeric_limits<float>::quiet_NaN)(), 0.0F, 0.0F}};
+  mesh.positions = {
+      {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}};
+  mesh.normals = {{0.0F, 0.0F, 2.0F},
+                  {0.0F, 0.0F, 0.0F},
+                  {(std::numeric_limits<float>::quiet_NaN)(), 0.0F, 0.0F}};
   mesh.velocities.assign(3U, {2.0F, 3.0F, 4.0F});
   mesh.texture_coordinates_1.assign(3U, {0.25F, 0.75F});
   mesh.colors.assign(3U, {0.2F, 0.4F, 0.6F, 0.8F});
@@ -798,9 +1008,8 @@ void CheckMatteMeshNormalization() {
               mesh.tangents[1U] == Float4{-1.0F, 0.0F, 0.0F, 1.0F} &&
               mesh.tangents[2U] == Float4{-1.0F, 0.0F, 0.0F, 1.0F},
           "matte tangent basis was not rebuilt from sanitized normals");
-  Require(mesh.velocities.empty() &&
-              mesh.texture_coordinates_1.empty() && mesh.colors.empty() &&
-              ValidateMeshResourceDescriptor(mesh).ok(),
+  Require(mesh.velocities.empty() && mesh.texture_coordinates_1.empty() &&
+              mesh.colors.empty() && ValidateMeshResourceDescriptor(mesh).ok(),
           "matte normalization retained an unsupported RT4 stream");
 
   std::vector<Float3> dynamic_normals{
@@ -808,22 +1017,19 @@ void CheckMatteMeshNormalization() {
       {(std::numeric_limits<float>::infinity)(), 1.0F, 0.0F},
       {0.0F, 0.0F, 0.0F}};
   std::vector<Float4> dynamic_tangents{{9.0F, 9.0F, 9.0F, 9.0F}};
-  Require(BuildOgreNextDemoMatteTangents(
-              3U, dynamic_normals, dynamic_tangents)
+  Require(
+      BuildOgreNextDemoMatteTangents(3U, dynamic_normals, dynamic_tangents)
               .ok() &&
-              dynamic_normals ==
-                  std::vector<Float3>(3U, {0.0F, 1.0F, 0.0F}) &&
-              dynamic_tangents ==
-                  std::vector<Float4>(3U, {-1.0F, 0.0F, 0.0F, 1.0F}),
-          "joined dynamic normals/tangents were not sanitized deterministically");
+          dynamic_normals == std::vector<Float3>(3U, {0.0F, 1.0F, 0.0F}) &&
+          dynamic_tangents ==
+              std::vector<Float4>(3U, {-1.0F, 0.0F, 0.0F, 1.0F}),
+      "joined dynamic normals/tangents were not sanitized deterministically");
 
   std::vector<Float3> missing_normals;
   std::vector<Float4> missing_tangents{{7.0F, 7.0F, 7.0F, 7.0F}};
-  Require(BuildOgreNextDemoMatteTangents(
-              2U, missing_normals, missing_tangents)
-              .ok() &&
-              missing_normals ==
-                  std::vector<Float3>(2U, {0.0F, 1.0F, 0.0F}) &&
+  Require(BuildOgreNextDemoMatteTangents(2U, missing_normals, missing_tangents)
+                  .ok() &&
+              missing_normals == std::vector<Float3>(2U, {0.0F, 1.0F, 0.0F}) &&
               missing_tangents ==
                   std::vector<Float4>(2U, {-1.0F, 0.0F, 0.0F, 1.0F}),
           "absent demo normal stream did not receive the fixed fallback");
@@ -845,8 +1051,7 @@ void CheckMatteMeshNormalization() {
   const std::vector<Float4> rollback_tangents = rollback.tangents;
   const ValidationResult rollback_result =
       NormalizeOgreNextDemoMatteMesh(rollback);
-  Require(!rollback_result.ok() &&
-              rollback.normals == rollback_normals &&
+  Require(!rollback_result.ok() && rollback.normals == rollback_normals &&
               rollback.tangents == rollback_tangents &&
               rollback.texture_coordinates_0.size() == 2U,
           "post-validation failure partially committed sanitized mesh streams");
@@ -862,7 +1067,8 @@ int main() {
   CheckDecodedSourceUsesOnlyDeterministicBase();
   CheckDecodedSourceFailureRollback();
   CheckTextureSourceSelectionContract();
-  CheckAuthenticatedCacheReachabilitySequence();
+  CheckCachedSourceReachabilitySequence();
+  CheckSourceAccountingAndEligibility();
   CheckCachedPublicationTransactionSequence();
   CheckSamplingRejectionsAndMutation();
   CheckIdentityCollisionAndRollback();

@@ -10,6 +10,8 @@
 
 #pragma once
 
+#include "OgreNextDemoPrivatePolicy.h"
+
 #include "gfx/render/Ogre14GraphicsSceneSource.h"
 
 #include <OgreMaterial.h>
@@ -23,22 +25,13 @@
 namespace RoR::Render {
 class IOgre14AuthenticatedTextureResolver;
 class IOgre14AuthenticatedTextureAuthorityProvider;
+class IOgre14SelectedTextureSourceResolver;
 } // namespace RoR::Render
 
 namespace RoR::Gfx::Detail {
 
-/// Transactional accounting for the private product material source. A source
-/// decode/readback is counted only after its immutable texture payload and
-/// authority checks have succeeded. `projections` is the number of distinct
-/// projection identities used by the capture, not the number of mesh sections.
-struct OgreNextDemoMaterialSourceCounters final {
-  std::size_t authenticated_source_decodes = 0U;
-  /// Authenticated source bytes are never recovered from GPU storage. This
-  /// counter is explicit so product logs and acceptance tests can enforce zero.
-  std::size_t authenticated_gpu_readbacks = 0U;
-  std::size_t unauthenticated_gpu_readbacks = 0U;
-  std::size_t projections = 0U;
-};
+/// MaterialSource exposes the renderer-neutral transactional accounting type.
+using OgreNextDemoMaterialSourceCounters = OgreNextDemoTextureSourceCounters;
 
 /// Performance-first private bridge for the playable OgreNext demo. It is not
 /// a legacy-material API: one narrowly eligible opaque TUS0 is captured once
@@ -65,6 +58,13 @@ public:
       const Render::IOgre14AuthenticatedTextureAuthorityProvider
           &provider) noexcept;
 
+  /// Binds the ordinary-package selected-source resolver used by automatic
+  /// source-byte projection. A focused/authenticated-only caller may leave it
+  /// absent and receives explicit mattes; the combined product binds it before
+  /// capture. Replacement or late first binding is rejected.
+  [[nodiscard]] bool BindOrdinarySelectedTextureSourceResolver(
+      const Render::IOgre14SelectedTextureSourceResolver &resolver) noexcept;
+
   /// Starts one outer GfxScene capture transaction. The joined capture must
   /// fail if this source cannot open; it must never publish a first-frame matte
   /// merely because projected-asset allocation failed.
@@ -78,12 +78,12 @@ public:
   /// ValidationResult distinguishes an ordinary unsupported matte decision
   /// from a capture/authority error; projected reports whether replacement was
   /// selected for this frozen section decision.
-  [[nodiscard]] Render::ValidationResult TryProject(
-      std::string_view exact_section_key,
-      const Ogre::MaterialPtr &native_material,
-      bool projection_candidate, bool has_authored_uv0,
-      Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
-      bool &projected) noexcept;
+  [[nodiscard]] Render::ValidationResult
+  TryProject(std::string_view exact_section_key,
+             const Ogre::MaterialPtr &native_material,
+             bool projection_candidate, bool has_authored_uv0,
+             Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
+             bool &projected) noexcept;
 
   /// Replaces matching synthetic matte material assets and appends their
   /// immutable texture/sampler owners. Input is unchanged on failure.
@@ -107,8 +107,8 @@ private:
   [[nodiscard]] bool TryProjectCurrent(
       const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
       Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
-      std::string &selected_projection_key,
-      bool allow_new_projection,
+      std::string &selected_projection_key, bool allow_new_projection,
+      OgreNextDemoTextureProjectionExclusion &exclusion,
       Render::ValidationResult &failure);
 
   struct State;
@@ -118,6 +118,8 @@ private:
       nullptr;
   const Render::IOgre14AuthenticatedTextureAuthorityProvider
       *texture_authority_provider_ = nullptr;
+  const Render::IOgre14SelectedTextureSourceResolver
+      *ordinary_texture_source_resolver_ = nullptr;
   OgreNextDemoMaterialSourceCounters lifetime_counters_;
 };
 

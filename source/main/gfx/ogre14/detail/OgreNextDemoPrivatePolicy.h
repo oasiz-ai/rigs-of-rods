@@ -13,6 +13,7 @@
 #include "gfx/render/Ogre14SourceTextureDecoder.h"
 #include "gfx/render/RenderResourceDescriptors.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -23,8 +24,96 @@
 namespace RoR::Gfx::Detail {
 
 enum class OgreNextDemoTextureSourceMode : std::uint8_t {
-  AUTHENTICATED_SOURCE_BYTES = 0U,
-  UNAUTHENTICATED_GPU_READBACK = 1U,
+  AUTHENTICATED_ARCHIVE_SOURCE_BYTES = 0U,
+  AUTHENTICATED_GENERATED_SOURCE_BYTES = 1U,
+  ORDINARY_OBSERVED_SOURCE_BYTES = 2U,
+};
+
+/// Bounded reasons why an opaque TUS0 remains on the deterministic matte path.
+/// These are policy outcomes, not permission to inspect GPU storage.
+enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
+  NONE = 0U,
+  SOURCE_UNAVAILABLE = 1U,
+  MANUAL_OR_PROCEDURAL = 2U,
+  RENDER_TARGET = 3U,
+  NON_2D = 4U,
+  NON_UNIT_DEPTH = 5U,
+  NON_UNIT_FACE_COUNT = 6U,
+  DIMENSION_OUT_OF_RANGE = 7U,
+  ORDINARY_SELECTED_SOURCE_UNAVAILABLE = 8U,
+  UNSUPPORTED_SOURCE_CONTAINER = 9U,
+  UNSUPPORTED_SOURCE_SEMANTIC = 10U,
+  SOURCE_DECODE_REJECTED = 11U,
+  COUNT = 12U,
+};
+
+constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
+    static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
+
+/// Transactional source accounting. The three legacy fields are retained for
+/// log compatibility; all GPU-readback fields are hard-zero invariants.
+struct OgreNextDemoTextureSourceCounters final {
+  std::size_t authenticated_archive_source_decodes = 0U;
+  std::size_t authenticated_generated_source_decodes = 0U;
+  std::size_t ordinary_observed_source_decodes = 0U;
+  std::size_t source_cache_hits = 0U;
+  std::size_t source_decode_rejections = 0U;
+  std::size_t source_exclusions = 0U;
+  std::array<std::size_t, kOgreNextDemoTextureProjectionExclusionCount>
+      exclusions_by_reason{};
+  std::size_t gpu_readbacks = 0U;
+  std::size_t authenticated_source_decodes = 0U;
+  std::size_t authenticated_gpu_readbacks = 0U;
+  std::size_t unauthenticated_gpu_readbacks = 0U;
+  std::size_t projections = 0U;
+};
+
+[[nodiscard]] bool IsOgreNextDemoAuthenticatedTextureSourceMode(
+    OgreNextDemoTextureSourceMode mode) noexcept;
+
+/// Records one committed source decode, one distinct per-capture cache reuse,
+/// or one matte exclusion. Invalid enum values and any pre-existing/readback
+/// count fail without changing `counters`.
+[[nodiscard]] Render::ValidationResult RecordOgreNextDemoTextureSourceDecode(
+    OgreNextDemoTextureSourceMode mode,
+    OgreNextDemoTextureSourceCounters &counters);
+[[nodiscard]] Render::ValidationResult RecordOgreNextDemoTextureSourceCacheHit(
+    OgreNextDemoTextureSourceCounters &counters);
+[[nodiscard]] Render::ValidationResult
+RecordOgreNextDemoTextureProjectionExclusion(
+    OgreNextDemoTextureProjectionExclusion exclusion,
+    OgreNextDemoTextureSourceCounters &counters);
+
+/// Saturating accumulation for a committed capture. A nonzero GPU-readback
+/// observation rejects the candidate and leaves `total` unchanged.
+[[nodiscard]] Render::ValidationResult
+AccumulateOgreNextDemoTextureSourceCounters(
+    const OgreNextDemoTextureSourceCounters &increment,
+    OgreNextDemoTextureSourceCounters &total);
+
+/// Renderer-neutral eligibility facts gathered from the live TUS0. Exactly one
+/// exclusion is selected in stable priority order.
+struct OgreNextDemoTextureEligibilityObservation final {
+  bool source_available = false;
+  bool manually_loaded = false;
+  bool render_target = false;
+  bool texture_2d = false;
+  bool unit_depth = false;
+  bool unit_face_count = false;
+  bool dimensions_in_range = false;
+};
+
+[[nodiscard]] Render::ValidationResult
+ClassifyOgreNextDemoTextureProjectionEligibility(
+    const OgreNextDemoTextureEligibilityObservation &observation,
+    OgreNextDemoTextureProjectionExclusion &output);
+
+struct OgreNextDemoTextureSourceSelection final {
+  bool selected = false;
+  OgreNextDemoTextureSourceMode mode =
+      OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
+  OgreNextDemoTextureProjectionExclusion exclusion =
+      OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
 };
 
 /// Renderer-neutral inventory rows copied from MaterialSource's actual frozen
@@ -40,7 +129,7 @@ struct OgreNextDemoCachedTexturePublicationInput final {
   std::string texture_key;
   std::uint64_t texture_source_id = 0U;
   OgreNextDemoTextureSourceMode source_mode =
-      OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+      OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
 };
 
 struct OgreNextDemoCachedSamplerPublicationInput final {
@@ -63,12 +152,12 @@ struct OgreNextDemoCachedProjectionPublicationTransaction final {
   std::vector<OgreNextDemoCachedProjectionPublicationOwner> owner_catalog;
   std::vector<std::uint64_t> frame_root_material_source_ids;
   std::vector<std::string> authenticated_texture_keys;
+  std::vector<std::string> ordinary_texture_keys;
 };
 
-class IOgreNextDemoAuthenticatedTexturePublicationBatchValidator {
+class IOgreNextDemoTexturePublicationBatchValidator {
 public:
-  virtual ~IOgreNextDemoAuthenticatedTexturePublicationBatchValidator() =
-      default;
+  virtual ~IOgreNextDemoTexturePublicationBatchValidator() = default;
 
   /// Called once with the complete distinct frame-reachable authenticated
   /// texture-key batch, and never for an empty batch. The production adapter
@@ -77,6 +166,13 @@ public:
   /// readback operation in this interface.
   [[nodiscard]] virtual Render::ValidationResult
   ValidateReachableAuthenticatedTextureBatch(
+      const std::vector<std::string> &texture_keys) = 0;
+
+  /// Called once with the complete distinct frame-reachable ordinary selected
+  /// source batch, and never for an empty batch. Implementations fresh-resolve
+  /// every key and immutable-match it to the frozen selected-source receipt.
+  [[nodiscard]] virtual Render::ValidationResult
+  ValidateReachableOrdinaryTextureBatch(
       const std::vector<std::string> &texture_keys) = 0;
 };
 
@@ -91,17 +187,21 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
     const std::vector<OgreNextDemoCachedTexturePublicationInput> &textures,
     const std::vector<OgreNextDemoCachedSamplerPublicationInput> &samplers,
     const std::vector<std::string> &used_projection_keys,
-    IOgreNextDemoAuthenticatedTexturePublicationBatchValidator &validator,
+    IOgreNextDemoTexturePublicationBatchValidator &validator,
     OgreNextDemoCachedProjectionPublicationTransaction &output);
 
-/// Renderer-neutral fail-closed decision between the two product texture
-/// capture paths. Required authentication must have one successful resolution;
-/// ordinary content must not probe the authenticated registry at all. Output is
-/// transactionally unchanged on failure.
+/// Renderer-neutral fail-closed decision among the three source-byte modes.
+/// Required authentication must have one successful resolution and an exact
+/// archive/generated classification. Ordinary content must not probe the
+/// authenticated registry; an absent ordinary selected-source observation is
+/// an explicit matte exclusion. Output is unchanged on sequencing failure.
 [[nodiscard]] Render::ValidationResult SelectOgreNextDemoTextureSourceMode(
-    bool authenticated_source_required, bool resolution_attempted,
-    const Render::ValidationResult &resolution_result,
-    OgreNextDemoTextureSourceMode &output);
+    bool authenticated_source_required, bool authenticated_resolution_attempted,
+    const Render::ValidationResult &authenticated_resolution_result,
+    OgreNextDemoTextureSourceMode authenticated_resolution_mode,
+    bool ordinary_resolution_attempted,
+    const Render::ValidationResult &ordinary_resolution_result,
+    OgreNextDemoTextureSourceSelection &output);
 
 /// Validates one cached source-mode observation without permitting authority
 /// demotion. Unreachable entries may remain as immutable anti-tombstone owners
@@ -110,7 +210,7 @@ BuildOgreNextDemoCachedProjectionPublicationTransaction(
 [[nodiscard]] Render::ValidationResult
 ValidateOgreNextDemoCachedTextureSourceAuthority(
     OgreNextDemoTextureSourceMode frozen_mode, bool frame_reachable,
-    bool authenticated_source_required, bool fresh_resolution_attempted,
+    bool source_classification_matches, bool fresh_resolution_attempted,
     const Render::ValidationResult &fresh_resolution_result,
     bool immutable_receipt_matches);
 
@@ -129,17 +229,17 @@ struct OgreNextDemoSamplingObservation final {
 [[nodiscard]] Render::ValidationResult ValidateOgreNextDemoSampling(
     const OgreNextDemoSamplingObservation &observation);
 
-[[nodiscard]] Render::ValidationResult RevalidateOgreNextDemoSampling(
-    const OgreNextDemoSamplingObservation &before,
-    const OgreNextDemoSamplingObservation &after);
+[[nodiscard]] Render::ValidationResult
+RevalidateOgreNextDemoSampling(const OgreNextDemoSamplingObservation &before,
+                               const OgreNextDemoSamplingObservation &after);
 
 /// Validates one freshly read tight RGBA8 base level, forces only its alpha
 /// bytes opaque, then deterministically generates every remaining mip through
 /// 1x1. Generated levels use an encoded/display-domain 2x2 integer box filter;
 /// RGB bytes in the native base level are never rewritten. Reading native
 /// nonzero mips is forbidden because pinned OGRE Metal aliases them to mip 0.
-[[nodiscard]] Render::ValidationResult CompleteOgreNextDemoOpaqueMipChain(
-    Render::TextureResourceDescriptor &texture);
+[[nodiscard]] Render::ValidationResult
+CompleteOgreNextDemoOpaqueMipChain(Render::TextureResourceDescriptor &texture);
 
 /// Completes a freshly read tight RGBA8 base level for a conventional sRGB
 /// PBR base-color texture. Each generated RGB texel is decoded with the exact
@@ -147,8 +247,8 @@ struct OgreNextDemoSamplingObservation final {
 /// sRGB OETF and deterministic nearest-byte rounding. Alpha is forced opaque
 /// at every level. This path is intentionally separate from the terrain's
 /// display-domain mip contract above. The input is unchanged on failure.
-[[nodiscard]] Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
-    Render::TextureResourceDescriptor &texture);
+[[nodiscard]] Render::ValidationResult
+CompleteOgreNextDemoSrgbPbrMipChain(Render::TextureResourceDescriptor &texture);
 
 /// Validates a complete renderer-neutral decoded mip prefix, consumes only its
 /// canonical base level, and regenerates the established deterministic opaque
@@ -169,16 +269,17 @@ DeriveOgreNextDemoSourceId(std::string_view domain, std::string_view exact_key,
 /// finite nonzero normals are normalized, unusable or absent normals become
 /// deterministic +Y, tangent directions are rebuilt, and streams with no
 /// matte consumer are removed. The input is unchanged on failure.
-[[nodiscard]] Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
-    Render::MeshResourceDescriptor &mesh);
+[[nodiscard]] Render::ValidationResult
+NormalizeOgreNextDemoMatteMesh(Render::MeshResourceDescriptor &mesh);
 
 /// Sanitizes the complete normal stream and rebuilds the same matte-only
 /// tangent basis for a joined dynamic update. Finite nonzero directions are
 /// normalized; absent, zero, or non-finite directions become +Y. Both output
 /// streams are unchanged on structural failure.
-[[nodiscard]] Render::ValidationResult BuildOgreNextDemoMatteTangents(
-    std::size_t vertex_count, std::vector<Render::Float3> &normals,
-    std::vector<Render::Float4> &tangents);
+[[nodiscard]] Render::ValidationResult
+BuildOgreNextDemoMatteTangents(std::size_t vertex_count,
+                               std::vector<Render::Float3> &normals,
+                               std::vector<Render::Float4> &tangents);
 
 /// Builds the smallest camera-centered sphere containing the normalized
 /// OgreNext demo far frustum. Source offsets and vertical FOV are retained;
@@ -190,9 +291,8 @@ DeriveOgreNextDemoSourceId(std::string_view domain, std::string_view exact_key,
 /// Classifies a finite world AABB by closest-point distance to the enclosing
 /// demo frustum sphere. The output remains unchanged on failure.
 [[nodiscard]] Render::ValidationResult ClassifyOgreNextDemoStaticBounds(
-    const Render::Bounds3 &world_bounds,
-    const Render::Float3 &camera_position, float radius_meters,
-    bool &within_capture_radius);
+    const Render::Bounds3 &world_bounds, const Render::Float3 &camera_position,
+    float radius_meters, bool &within_capture_radius);
 
 /// Bidirectional collision audit. Transactions copy this private registry,
 /// mutate the candidate, and replace the committed owner only on commit.
@@ -209,13 +309,15 @@ private:
   std::map<std::string, std::uint64_t, std::less<>> ids_by_key_;
 };
 
-[[nodiscard]] bool OgreNextDemoRequiresMatte(
-    std::size_t texture_unit_count, bool has_authored_program) noexcept;
-[[nodiscard]] bool OgreNextDemoDropsDynamicBlendColors(
-    bool has_dynamic_texture_blend) noexcept;
-[[nodiscard]] bool OgreNextDemoOmitsInvisibleCab(
-    std::string_view exact_material_name, float diffuse_alpha,
-    bool depth_write_enabled) noexcept;
+[[nodiscard]] bool
+OgreNextDemoRequiresMatte(std::size_t texture_unit_count,
+                          bool has_authored_program) noexcept;
+[[nodiscard]] bool
+OgreNextDemoDropsDynamicBlendColors(bool has_dynamic_texture_blend) noexcept;
+[[nodiscard]] bool
+OgreNextDemoOmitsInvisibleCab(std::string_view exact_material_name,
+                              float diffuse_alpha,
+                              bool depth_write_enabled) noexcept;
 [[nodiscard]] bool OgreNextDemoOmitsNonUniformSpeedBump(
     std::string_view exact_mesh_name,
     const Render::Float3 &derived_scale) noexcept;
