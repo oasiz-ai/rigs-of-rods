@@ -891,9 +891,7 @@ Render::ValidationResult ContentManager::ResolveSelectedTextureSource(
         }
         const auto package_group =
             m_package_archives_by_group.find(texture.getGroup());
-        if (package_group == m_package_archives_by_group.end() ||
-            package_group->second.empty() ||
-            m_authenticated_package_archives_by_group.find(
+        if (m_authenticated_package_archives_by_group.find(
                 texture.getGroup()) !=
                 m_authenticated_package_archives_by_group.end() ||
             m_authenticated_package_archive_bindings_by_group.find(
@@ -904,6 +902,14 @@ Render::ValidationResult ContentManager::ResolveSelectedTextureSource(
                 Render::ValidationCode::INVALID_ASSET_REFERENCE,
                 "selected_texture_resolution.source_mode",
                 "texture group is not a live ordinary package source");
+        }
+        if (package_group == m_package_archives_by_group.end() ||
+            package_group->second.empty())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "selected_texture_resolution.package_marker",
+                "texture group has no live ordinary package marker");
         }
         const Ogre::ResourcePtr by_handle =
             manager->getByHandle(texture.getHandle());

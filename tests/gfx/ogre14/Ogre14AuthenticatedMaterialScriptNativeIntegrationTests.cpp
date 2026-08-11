@@ -681,8 +681,32 @@ void TestOrdinarySelectedTextureScope(
                 unregistered_native->observed_bytes() ==
                     unregistered_payload &&
                 !unregistered_resolved &&
+                unregistered_resolved.code ==
+                    RoR::Render::ValidationCode::MISSING_REFERENCE &&
+                unregistered_resolved.field ==
+                    "selected_texture_resolution.package_marker" &&
                 !unregistered_resolution.initialized(),
             "unregistered texture did not load normally without selected-source authority");
+    Require(
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            InstallAuthenticatedNameMapOnly(content, unregistered_group),
+        "could not stage authenticated map without an ordinary package marker");
+    RoR::Render::Ogre14SelectedTextureSourceResolution
+        authenticated_without_marker_resolution;
+    const RoR::Render::ValidationResult authenticated_without_marker =
+        content.ResolveSelectedTextureSource(
+            *unregistered_texture,
+            authenticated_without_marker_resolution);
+    Require(!authenticated_without_marker &&
+                authenticated_without_marker.code ==
+                    RoR::Render::ValidationCode::INVALID_ASSET_REFERENCE &&
+                authenticated_without_marker.field ==
+                    "selected_texture_resolution.source_mode" &&
+                !authenticated_without_marker_resolution.initialized(),
+            "authenticated-map inconsistency was flattened into honest "
+            "missing-package matte");
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        RemoveAuthenticatedNameMapOnly(content, unregistered_group);
     groups.removeResourceLocation(
         unregistered_archive.string(), unregistered_group);
     unregistered_texture.setNull();

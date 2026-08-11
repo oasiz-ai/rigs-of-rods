@@ -36,10 +36,12 @@ using OgreNextDemoMaterialSourceCounters = OgreNextDemoTextureSourceCounters;
 /// Performance-first private bridge for the playable OgreNext demo. It is not
 /// a legacy-material API: one narrowly eligible opaque TUS0 is captured once
 /// per map generation and lowered to conventional PBR assets. Each exact
-/// section's first observation freezes generic-factor versus matte/projection
-/// mode plus material/UV/cull identity. Generic factor values remain governed
-/// by the outer inventory; a later mode/key change or projected
-/// native-authority change fails the joined capture.
+/// section's first observation freezes generic-factor identity plus
+/// material/UV/cull state. Projected decisions and non-transient matte reasons
+/// remain immutable. Source-unavailable mattes are recounted and retried on a
+/// later capture so package/resource generation changes can promote them;
+/// authentication inconsistency/demotion and projected authority changes stay
+/// fail-closed. Generic factor values remain governed by the outer inventory.
 class OgreNextDemoMaterialSource final {
 public:
   OgreNextDemoMaterialSource();

@@ -46,7 +46,14 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   UNSUPPORTED_SOURCE_CONTAINER = 11U,
   UNSUPPORTED_SOURCE_SEMANTIC = 12U,
   SOURCE_DECODE_REJECTED = 13U,
-  COUNT = 14U,
+  MISSING_AUTHORED_UV0 = 14U,
+  MATERIAL_STRUCTURE_UNSUPPORTED = 15U,
+  MATERIAL_STATE_UNSUPPORTED = 16U,
+  TEXTURE_UNIT_STRUCTURE_UNSUPPORTED = 17U,
+  TEXTURE_UNIT_SEMANTIC_UNSUPPORTED = 18U,
+  SAMPLER_STATE_UNSUPPORTED = 19U,
+  ALEXIS_APPROXIMATION_UNSAFE = 20U,
+  COUNT = 21U,
 };
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
@@ -68,6 +75,46 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t authenticated_gpu_readbacks = 0U;
   std::size_t unauthenticated_gpu_readbacks = 0U;
   std::size_t projections = 0U;
+  /// Each section first freezes a decision per map generation; only explicit
+  /// source-unavailable reasons are re-evaluated for later promotion.
+  /// Candidate/projected/matte counts below are section observations in the
+  /// current capture; lifetime accumulation therefore sums observations, not
+  /// unique map identities.
+  std::size_t new_frozen_material_decisions = 0U;
+  std::size_t candidate_sections = 0U;
+  std::size_t projected_sections = 0U;
+  std::size_t matte_excluded_sections = 0U;
+  /// Per-capture distinct key cardinalities. Lifetime accumulation is the sum
+  /// of per-capture cardinalities and deliberately is not global uniqueness.
+  std::size_t distinct_eligible_texture_keys = 0U;
+  std::size_t distinct_projected_texture_keys = 0U;
+  std::size_t distinct_matte_only_texture_keys = 0U;
+  std::size_t modern_source_normalizations = 0U;
+  std::size_t authored_mip_prefix_levels = 0U;
+  std::size_t generated_mip_tail_levels = 0U;
+  std::size_t normalized_output_mip_levels = 0U;
+  std::size_t legacy_native_additional_mip_levels = 0U;
+  std::size_t legacy_texture_unit_gamma_nonunit_observations = 0U;
+  std::size_t legacy_texture_gamma_nonunit_observations = 0U;
+  std::size_t legacy_texture_unit_hardware_gamma_off_observations = 0U;
+  std::size_t legacy_hardware_gamma_off_observations = 0U;
+  std::size_t legacy_automipmap_observations = 0U;
+  /// Active per-capture distinct texture observations. These drive the
+  /// change-only coverage snapshot; lifetime values sum committed captures.
+  std::size_t active_texture_state_observations = 0U;
+  std::size_t active_authored_mip_prefix_levels = 0U;
+  std::size_t active_generated_mip_tail_levels = 0U;
+  std::size_t active_normalized_output_mip_levels = 0U;
+  std::size_t active_legacy_native_additional_mip_levels = 0U;
+  std::size_t active_legacy_texture_unit_gamma_nonunit_observations = 0U;
+  std::size_t active_legacy_texture_gamma_nonunit_observations = 0U;
+  std::size_t active_legacy_texture_unit_hardware_gamma_off_observations = 0U;
+  std::size_t active_legacy_hardware_gamma_off_observations = 0U;
+  std::size_t active_legacy_automipmap_observations = 0U;
+  /// Ambient/specular and the legacy fixed-function lighting equation are
+  /// deliberately normalized, not translated, by the current versioned PBR
+  /// policy. This count prevents that loss from being presented as parity.
+  std::size_t lossy_material_normalizations = 0U;
 };
 
 [[nodiscard]] bool IsOgreNextDemoAuthenticatedTextureSourceMode(
@@ -85,6 +132,9 @@ struct OgreNextDemoTextureSourceCounters final {
 RecordOgreNextDemoTextureProjectionExclusion(
     OgreNextDemoTextureProjectionExclusion exclusion,
     OgreNextDemoTextureSourceCounters &counters);
+
+[[nodiscard]] std::string_view OgreNextDemoTextureProjectionExclusionName(
+    OgreNextDemoTextureProjectionExclusion exclusion) noexcept;
 
 /// Saturating accumulation for a committed capture. A nonzero GPU-readback
 /// observation rejects the candidate and leaves `total` unchanged.
@@ -161,6 +211,37 @@ struct OgreNextDemoExactSamplerObservation final {
     const OgreNextDemoExactSamplerObservation &observation,
     std::size_t mip_count, std::string_view debug_token,
     Render::SamplerResourceDescriptor &output);
+
+/// Exact native texture/TUS state captured while all native owners are live.
+/// These values are provenance and revalidation inputs only; they never
+/// authorize GPU readback or override decoded source bytes.
+struct OgreNextDemoExactTextureObservation final {
+  float texture_unit_gamma = 1.0F;
+  float texture_gamma = 1.0F;
+  bool texture_unit_hardware_gamma = false;
+  bool texture_hardware_gamma = false;
+  std::uint32_t additional_mip_count = 0U;
+  std::uint32_t actual_mip_count = 1U;
+  bool mipmaps_hardware_generated = false;
+  std::uint32_t usage_token = 0U;
+  std::uint32_t source_width = 0U;
+  std::uint32_t source_height = 0U;
+  std::uint32_t source_depth = 0U;
+  std::uint32_t source_format_token = 0U;
+  std::uint32_t output_width = 0U;
+  std::uint32_t output_height = 0U;
+  std::uint32_t output_depth = 0U;
+  std::uint32_t output_format_token = 0U;
+  std::uint32_t face_count = 0U;
+  std::uint32_t texture_type_token = 0U;
+};
+
+[[nodiscard]] Render::ValidationResult
+ValidateOgreNextDemoExactTextureObservation(
+    const OgreNextDemoExactTextureObservation &observation);
+[[nodiscard]] bool MatchOgreNextDemoExactTextureObservation(
+    const OgreNextDemoExactTextureObservation &left,
+    const OgreNextDemoExactTextureObservation &right) noexcept;
 
 struct OgreNextDemoTextureSourceSelection final {
   bool selected = false;
@@ -295,24 +376,35 @@ RevalidateOgreNextDemoSampling(const OgreNextDemoSamplingObservation &before,
 [[nodiscard]] Render::ValidationResult
 CompleteOgreNextDemoOpaqueMipChain(Render::TextureResourceDescriptor &texture);
 
-/// Completes a freshly read tight RGBA8 base level for a conventional sRGB
-/// PBR base-color texture. Each generated RGB texel is decoded with the exact
-/// sRGB EOTF, averaged as a 2x2 linear-light box, then encoded with the exact
-/// sRGB OETF and deterministic nearest-byte rounding. Alpha is forced opaque
-/// at every level. This path is intentionally separate from the terrain's
-/// display-domain mip contract above. The input is unchanged on failure.
-[[nodiscard]] Render::ValidationResult
-CompleteOgreNextDemoSrgbPbrMipChain(Render::TextureResourceDescriptor &texture);
+struct OgreNextDemoTextureNormalizationObservation final {
+  std::uint32_t policy_version = 0U;
+  std::size_t authored_mip_prefix_levels = 0U;
+  std::size_t generated_mip_tail_levels = 0U;
+};
 
-/// Validates a complete renderer-neutral decoded mip prefix, consumes only its
-/// canonical base level, and regenerates the established deterministic opaque
-/// sRGB PBR mip chain. Authored nonzero DDS mips are validation inputs only;
-/// they never affect product pixels. `output` is unchanged on failure.
+inline constexpr std::uint32_t
+    kOgreNextDemoModernSourceNormalizationPolicyVersion = 2U;
+
+/// Completes a canonical tight RGBA8 authored mip prefix for a conventional
+/// sRGB PBR base-color texture. Authored RGB bytes at every supplied level are
+/// retained. Alpha is forced opaque at every level, and only a missing tail is
+/// generated through 1x1 with the exact linear-light sRGB box rule. This path
+/// intentionally exceeds the OGRE14 runtime state, which remains provenance
+/// rather than output authority. The input and observation are unchanged on
+/// failure.
+[[nodiscard]] Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
+    Render::TextureResourceDescriptor &texture,
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr);
+
+/// Validates and preserves the complete renderer-neutral decoded authored mip
+/// prefix, then generates only the missing modern tail. `output` and optional
+/// observation are unchanged on failure.
 [[nodiscard]] Render::ValidationResult
 BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
     Render::Ogre14DecodedSourceTexture decoded,
     std::uint32_t expected_native_width, std::uint32_t expected_native_height,
-    std::string_view debug_name, Render::TextureResourceDescriptor &output);
+    std::string_view debug_name, Render::TextureResourceDescriptor &output,
+    OgreNextDemoTextureNormalizationObservation *observation = nullptr);
 
 [[nodiscard]] Render::ValidationResult
 DeriveOgreNextDemoSourceId(std::string_view domain, std::string_view exact_key,

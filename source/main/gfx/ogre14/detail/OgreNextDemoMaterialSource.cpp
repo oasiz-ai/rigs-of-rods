@@ -51,16 +51,20 @@ namespace RoR::Gfx::Detail {
 namespace {
 
 constexpr char kProjectionTokenDomain[] =
-    "RoR/OgreNextDemo/ProjectedPbr/Token/v1";
+    "RoR/OgreNextDemo/ProjectedPbr/Token/v2";
 constexpr char kTextureIdDomain[] =
     "RoR/OgreNextDemo/ProjectedPbr/TextureSourceAsset/v1";
 constexpr char kSamplerIdDomain[] =
     "RoR/OgreNextDemo/ProjectedPbr/SamplerSourceAsset/v1";
 constexpr char kAuthenticatedDecoderPolicy[] =
-    "RoR/OgreNextDemo/AuthenticatedSourceDecoder/v1";
+    "RoR/OgreNextDemo/AuthenticatedSourceDecoder/v2";
 constexpr char kOrdinarySelectedDecoderPolicy[] =
-    "RoR/OgreNextDemo/OrdinarySelectedSourceDecoder/v1";
-constexpr char kMaterialGroup[] = "RoR/OgreNextDemo/ProjectedPbr/v1";
+    "RoR/OgreNextDemo/OrdinarySelectedSourceDecoder/v2";
+constexpr char kModernSourceNormalizationPolicy[] =
+    "RoR/OgreNextDemo/ModernSourceNormalization/SrgbOpaqueMipPrefix/v2";
+constexpr char kMaterialGroup[] = "RoR/OgreNextDemo/ProjectedPbr/v2";
+constexpr char kLossyMaterialNormalizationPolicy[] =
+    "RoR/OgreNextDemo/LegacyFixedFunctionToPbrNormalization/v2";
 constexpr std::uint32_t kMaximumTextureDimension = 8192U;
 constexpr std::uint64_t kMaximumTextureBaseBytes = 256ULL * 1024ULL * 1024ULL;
 
@@ -140,6 +144,89 @@ void AppendNumber(std::string &key, std::uint64_t value) {
   AppendField(key, std::to_string(value));
 }
 
+void AppendFloatBits(std::string &key, float value) {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  AppendNumber(key, bits);
+}
+
+std::array<float, 4U>
+ObserveColourComponents(const Ogre::ColourValue &colour) noexcept {
+  return {static_cast<float>(colour.r), static_cast<float>(colour.g),
+          static_cast<float>(colour.b), static_cast<float>(colour.a)};
+}
+
+void AppendColourComponents(std::string &key, const Ogre::ColourValue &colour) {
+  for (float component : ObserveColourComponents(colour)) {
+    AppendFloatBits(key, component);
+  }
+}
+
+Render::ValidationResult
+ObserveExactTexture(const Ogre::TextureUnitState &unit,
+                    const Ogre::Texture &texture,
+                    OgreNextDemoExactTextureObservation &output) {
+  if (texture.getNumMipmaps() == (std::numeric_limits<std::uint32_t>::max)()) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.material.texture.native_mip_count",
+                   "native additional mip count cannot include a base level");
+  }
+  OgreNextDemoExactTextureObservation candidate;
+  candidate.texture_unit_gamma = static_cast<float>(unit.getGamma());
+  candidate.texture_gamma = texture.getGamma();
+  candidate.texture_unit_hardware_gamma = unit.isHardwareGammaEnabled();
+  candidate.texture_hardware_gamma = texture.isHardwareGammaEnabled();
+  candidate.additional_mip_count = texture.getNumMipmaps();
+  candidate.actual_mip_count = candidate.additional_mip_count + 1U;
+  candidate.mipmaps_hardware_generated = texture.getMipmapsHardwareGenerated();
+  candidate.usage_token = static_cast<std::uint32_t>(texture.getUsage());
+  candidate.source_width = texture.getSrcWidth();
+  candidate.source_height = texture.getSrcHeight();
+  candidate.source_depth = texture.getSrcDepth();
+  candidate.source_format_token =
+      static_cast<std::uint32_t>(texture.getSrcFormat());
+  candidate.output_width = texture.getWidth();
+  candidate.output_height = texture.getHeight();
+  candidate.output_depth = texture.getDepth();
+  candidate.output_format_token =
+      static_cast<std::uint32_t>(texture.getFormat());
+  candidate.face_count = texture.getNumFaces();
+  candidate.texture_type_token =
+      static_cast<std::uint32_t>(texture.getTextureType());
+  Render::ValidationResult validation =
+      ValidateOgreNextDemoExactTextureObservation(candidate);
+  if (!validation) {
+    return validation;
+  }
+  output = candidate;
+  return Render::ValidationResult::Success();
+}
+
+void AppendExactTextureObservation(
+    std::string &key, const OgreNextDemoExactTextureObservation &observation) {
+  AppendField(key, kModernSourceNormalizationPolicy);
+  AppendNumber(key, kOgreNextDemoModernSourceNormalizationPolicyVersion);
+  AppendFloatBits(key, observation.texture_unit_gamma);
+  AppendFloatBits(key, observation.texture_gamma);
+  AppendNumber(key, observation.texture_unit_hardware_gamma ? 1U : 0U);
+  AppendNumber(key, observation.texture_hardware_gamma ? 1U : 0U);
+  AppendNumber(key, observation.additional_mip_count);
+  AppendNumber(key, observation.actual_mip_count);
+  AppendNumber(key, observation.mipmaps_hardware_generated ? 1U : 0U);
+  AppendNumber(key, observation.usage_token);
+  AppendNumber(key, observation.source_width);
+  AppendNumber(key, observation.source_height);
+  AppendNumber(key, observation.source_depth);
+  AppendNumber(key, observation.source_format_token);
+  AppendNumber(key, observation.output_width);
+  AppendNumber(key, observation.output_height);
+  AppendNumber(key, observation.output_depth);
+  AppendNumber(key, observation.output_format_token);
+  AppendNumber(key, observation.face_count);
+  AppendNumber(key, observation.texture_type_token);
+}
+
 Render::ValidationResult
 PreflightTextureIdentity(const Ogre::TexturePtr &native_texture,
                          OgreNextDemoTextureProjectionExclusion &exclusion) {
@@ -160,16 +247,26 @@ PreflightTextureIdentity(const Ogre::TexturePtr &native_texture,
     observation.unit_face_count = native_texture->getNumFaces() == 1U;
     const std::size_t native_width = native_texture->getWidth();
     const std::size_t native_height = native_texture->getHeight();
+    const std::size_t source_width = native_texture->getSrcWidth();
+    const std::size_t source_height = native_texture->getSrcHeight();
     const bool dimensions_fit =
-        native_width != 0U && native_height != 0U &&
-        native_width <= kMaximumTextureDimension &&
+        native_width != 0U && native_height != 0U && source_width != 0U &&
+        source_height != 0U && native_width <= kMaximumTextureDimension &&
         native_height <= kMaximumTextureDimension &&
+        source_width <= kMaximumTextureDimension &&
+        source_height <= kMaximumTextureDimension &&
         native_width <= (std::numeric_limits<std::uint32_t>::max)() &&
-        native_height <= (std::numeric_limits<std::uint32_t>::max)();
+        native_height <= (std::numeric_limits<std::uint32_t>::max)() &&
+        source_width <= (std::numeric_limits<std::uint32_t>::max)() &&
+        source_height <= (std::numeric_limits<std::uint32_t>::max)();
     observation.dimensions_in_range =
-        dimensions_fit && static_cast<std::uint64_t>(native_width) * 4U <=
-                              kMaximumTextureBaseBytes /
-                                  static_cast<std::uint64_t>(native_height);
+        dimensions_fit &&
+        static_cast<std::uint64_t>(native_width) * 4U <=
+            kMaximumTextureBaseBytes /
+                static_cast<std::uint64_t>(native_height) &&
+        static_cast<std::uint64_t>(source_width) * 4U <=
+            kMaximumTextureBaseBytes /
+                static_cast<std::uint64_t>(source_height);
   }
   return ClassifyOgreNextDemoTextureProjectionEligibility(observation,
                                                           exclusion);
@@ -243,6 +340,7 @@ Render::ValidationResult BuildAuthenticatedTextureProvenance(
     const Render::IOgre14AuthenticatedTextureResolver &resolver,
     const Render::Ogre14AuthenticatedTextureResolution &resolution,
     const Render::Ogre14SourceTextureDecodeOptions &options,
+    const OgreNextDemoExactTextureObservation &exact_texture_observation,
     AuthenticatedTextureProvenance &output, std::string &content_decode_key) {
   const Render::Ogre14AuthenticatedTextureReceipt *const receipt =
       resolution.source_receipt();
@@ -323,6 +421,7 @@ Render::ValidationResult BuildAuthenticatedTextureProvenance(
                static_cast<std::uint64_t>(candidate.color_semantic));
   AppendNumber(candidate_key,
                static_cast<std::uint64_t>(candidate.bc1_alpha_mode));
+  AppendExactTextureObservation(candidate_key, exact_texture_observation);
   output = std::move(candidate);
   content_decode_key = std::move(candidate_key);
   return Render::ValidationResult::Success();
@@ -333,6 +432,7 @@ Render::ValidationResult BuildOrdinaryTextureProvenance(
     const Render::IOgre14SelectedTextureSourceResolver &resolver,
     const Render::Ogre14SelectedTextureSourceResolution &resolution,
     const Render::Ogre14SourceTextureDecodeOptions &options,
+    const OgreNextDemoExactTextureObservation &exact_texture_observation,
     OrdinaryTextureProvenance &output, std::string &content_decode_key) {
   const Render::Ogre14SelectedTextureSourceReceipt *const receipt =
       resolution.source_receipt();
@@ -417,6 +517,7 @@ Render::ValidationResult BuildOrdinaryTextureProvenance(
                static_cast<std::uint64_t>(candidate.color_semantic));
   AppendNumber(candidate_key,
                static_cast<std::uint64_t>(candidate.bc1_alpha_mode));
+  AppendExactTextureObservation(candidate_key, exact_texture_observation);
   output = std::move(candidate);
   content_decode_key = std::move(candidate_key);
   return Render::ValidationResult::Success();
@@ -442,10 +543,33 @@ bool IsCanonicalModulate(const Ogre::LayerBlendModeEx &blend,
          blend.source2 == Ogre::LBS_CURRENT;
 }
 
+bool IsCanonicalTextureUnitSemantic(
+    const Ogre::TextureUnitState &unit) noexcept {
+  return unit.getNumFrames() == 1U && unit.getTextureCoordSet() == 0U &&
+         unit.getProjectiveTexturingFrustum() == nullptr &&
+         unit.getEffects().empty() && unit.getUnorderedAccessMipLevel() == -1 &&
+         IsIdentityTextureTransform(unit.getTextureTransform()) &&
+         IsCanonicalModulate(unit.getColourBlendMode(), Ogre::LBT_COLOUR) &&
+         IsCanonicalModulate(unit.getAlphaBlendMode(), Ogre::LBT_ALPHA);
+}
+
+bool HasAvailableNamedTextureSource(
+    const Ogre::TextureUnitState &unit) noexcept {
+  return unit.getContentType() == Ogre::TextureUnitState::CONTENT_NAMED &&
+         !unit.isBlank() && !unit.isTextureLoadFailing();
+}
+
 bool HasAuthoredProgram(const Ogre::Pass &pass) noexcept {
   return pass.hasVertexProgram() || pass.hasFragmentProgram() ||
          pass.hasGeometryProgram() || pass.hasTessellationHullProgram() ||
          pass.hasTessellationDomainProgram() || pass.hasComputeProgram();
+}
+
+bool IsFiniteColour(const Ogre::ColourValue &colour) noexcept {
+  return std::isfinite(static_cast<float>(colour.r)) &&
+         std::isfinite(static_cast<float>(colour.g)) &&
+         std::isfinite(static_cast<float>(colour.b)) &&
+         std::isfinite(static_cast<float>(colour.a));
 }
 
 bool IsOpaqueReplacePass(const Ogre::Pass &pass,
@@ -456,7 +580,11 @@ bool IsOpaqueReplacePass(const Ogre::Pass &pass,
   bool alpha = false;
   pass.getColourWriteEnabled(red, green, blue, alpha);
   const Ogre::ColourValue diffuse = pass.getDiffuse();
-  return red && green && blue && alpha && diffuse.a == 1.0F &&
+  return IsFiniteColour(diffuse) && IsFiniteColour(pass.getAmbient()) &&
+         IsFiniteColour(pass.getSpecular()) &&
+         IsFiniteColour(pass.getSelfIllumination()) &&
+         std::isfinite(static_cast<float>(pass.getShininess())) && red &&
+         green && blue && alpha && diffuse.a == 1.0F &&
          pass.getLightingEnabled() &&
          pass.getSceneBlendingOperation() == Ogre::SBO_ADD &&
          pass.getSceneBlendingOperationAlpha() == Ogre::SBO_ADD &&
@@ -577,13 +705,6 @@ ObserveExactSampler(const Ogre::Sampler &native) noexcept {
   return observation;
 }
 
-void AppendFloatBits(std::string &key, float value) {
-  std::uint32_t bits = 0U;
-  static_assert(sizeof(bits) == sizeof(value));
-  std::memcpy(&bits, &value, sizeof(bits));
-  AppendNumber(key, bits);
-}
-
 void AppendExactSamplerObservation(
     std::string &key, const OgreNextDemoExactSamplerObservation &observation) {
   AppendNumber(key,
@@ -606,10 +727,9 @@ void AppendExactSamplerObservation(
 struct CapturedTexture final {
   OgreNextDemoTextureSourceMode source =
       OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
-  Ogre::PixelFormat native_texture_format = Ogre::PF_UNKNOWN;
   std::size_t native_state_count = 0U;
-  std::uint32_t native_width = 0U;
-  std::uint32_t native_height = 0U;
+  OgreNextDemoExactTextureObservation exact_texture_observation;
+  OgreNextDemoTextureNormalizationObservation normalization_observation;
   Render::Ogre14AuthenticatedTextureReceipt authenticated_receipt;
   AuthenticatedTextureProvenance authenticated_provenance;
   /// Separate from the stable public source-asset identity. A reload or byte
@@ -627,16 +747,16 @@ bool ResolveFrozenAuthenticatedTexture(
     Ogre::Texture &native_texture,
     const Render::IOgre14AuthenticatedTextureResolver &resolver,
     const CapturedTexture &captured,
+    const OgreNextDemoExactTextureObservation &fresh_texture_observation,
     Render::Ogre14AuthenticatedTextureResolution *fresh_output) noexcept {
   try {
     if (!IsOgreNextDemoAuthenticatedTextureSourceMode(captured.source) ||
         !captured.authenticated_receipt.initialized() ||
         captured.authenticated_content_decode_key.empty() ||
         !native_texture.isLoaded() ||
-        captured.native_texture_format != native_texture.getFormat() ||
         captured.native_state_count != native_texture.getStateCount() ||
-        captured.native_width != native_texture.getWidth() ||
-        captured.native_height != native_texture.getHeight()) {
+        !MatchOgreNextDemoExactTextureObservation(
+            captured.exact_texture_observation, fresh_texture_observation)) {
       return false;
     }
     Render::Ogre14AuthenticatedTextureResolution fresh;
@@ -655,9 +775,9 @@ bool ResolveFrozenAuthenticatedTexture(
     std::string observed_key;
     const Render::ValidationResult observation =
         metadata != nullptr
-            ? BuildAuthenticatedTextureProvenance(native_texture, resolver,
-                                                  fresh, options, observed,
-                                                  observed_key)
+            ? BuildAuthenticatedTextureProvenance(
+                  native_texture, resolver, fresh, options,
+                  fresh_texture_observation, observed, observed_key)
             : Failure(Render::ValidationCode::MISSING_REFERENCE,
                       "ogre_next_demo.material.authenticated.receipt",
                       "authenticated receipt disappeared");
@@ -702,6 +822,7 @@ bool ResolveFrozenOrdinaryTexture(
     Ogre::Texture &native_texture,
     const Render::IOgre14SelectedTextureSourceResolver &resolver,
     const CapturedTexture &captured,
+    const OgreNextDemoExactTextureObservation &fresh_texture_observation,
     Render::Ogre14SelectedTextureSourceResolution *fresh_output) noexcept {
   try {
     if (captured.source !=
@@ -709,10 +830,9 @@ bool ResolveFrozenOrdinaryTexture(
         !captured.ordinary_receipt.initialized() ||
         captured.ordinary_content_decode_key.empty() ||
         !native_texture.isLoaded() ||
-        captured.native_texture_format != native_texture.getFormat() ||
         captured.native_state_count != native_texture.getStateCount() ||
-        captured.native_width != native_texture.getWidth() ||
-        captured.native_height != native_texture.getHeight()) {
+        !MatchOgreNextDemoExactTextureObservation(
+            captured.exact_texture_observation, fresh_texture_observation)) {
       return false;
     }
     Render::Ogre14SelectedTextureSourceResolution fresh;
@@ -728,7 +848,8 @@ bool ResolveFrozenOrdinaryTexture(
     const Render::ValidationResult observation =
         receipt != nullptr
             ? BuildOrdinaryTextureProvenance(native_texture, resolver, fresh,
-                                             options, observed, observed_key)
+                                             options, fresh_texture_observation,
+                                             observed, observed_key)
             : Failure(Render::ValidationCode::MISSING_REFERENCE,
                       "ogre_next_demo.material.ordinary.receipt",
                       "ordinary selected-source receipt disappeared");
@@ -762,8 +883,12 @@ struct Projection final {
   std::uintptr_t native_sampler_pointer_token = 0U;
   OgreNextDemoExactSamplerObservation sampler_observation;
   std::array<float, 4U> base_color_factor{};
+  std::array<float, 4U> discarded_ambient{};
+  std::array<float, 4U> discarded_specular{};
   float roughness_factor = 1.0F;
   std::array<float, 3U> emissive_factor{};
+  float discarded_emissive_alpha = 1.0F;
+  std::uint8_t vertex_colour_tracking_token = 0U;
   std::uint64_t material_source_id = 0U;
   std::shared_ptr<const Render::RenderAssetPayload> placeholder_payload;
   std::shared_ptr<const Render::RenderAssetPayload> material_payload;
@@ -777,17 +902,22 @@ struct ProjectionDecision final {
   bool projection_candidate = false;
   bool has_authored_uv0 = false;
   bool projected = false;
+  OgreNextDemoTextureProjectionExclusion exclusion =
+      OgreNextDemoTextureProjectionExclusion::NONE;
   std::string projection_key;
 };
 
 Render::ValidationResult CaptureAuthenticatedTextureSource(
     const Ogre::TexturePtr &native_texture,
+    const Ogre::TextureUnitState &native_unit,
+    const OgreNextDemoExactTextureObservation &initial_texture_observation,
     const Render::IOgre14AuthenticatedTextureResolver &resolver,
     const Render::Ogre14AuthenticatedTextureResolution &resolution,
     std::string_view debug_token, Render::TextureResourceDescriptor &output,
     Render::Ogre14AuthenticatedTextureReceipt &output_receipt,
     AuthenticatedTextureProvenance &output_provenance,
-    std::string &output_content_decode_key) {
+    std::string &output_content_decode_key,
+    OgreNextDemoTextureNormalizationObservation &output_normalization) {
   if (!native_texture || !resolution.initialized()) {
     return Failure(Render::ValidationCode::MISSING_REFERENCE,
                    "ogre_next_demo.material.authenticated.resolution",
@@ -811,8 +941,8 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
   AuthenticatedTextureProvenance provenance;
   std::string content_decode_key;
   Render::ValidationResult validation = BuildAuthenticatedTextureProvenance(
-      *native_texture, resolver, resolution, options, provenance,
-      content_decode_key);
+      *native_texture, resolver, resolution, options,
+      initial_texture_observation, provenance, content_decode_key);
   if (!validation) {
     return validation;
   }
@@ -825,9 +955,6 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
   }
 
   const std::size_t native_state_count = native_texture->getStateCount();
-  const std::size_t native_width = native_texture->getWidth();
-  const std::size_t native_height = native_texture->getHeight();
-  const Ogre::PixelFormat native_format = native_texture->getFormat();
   std::vector<std::uint8_t> encoded_source(receipt->source_bytes(),
                                            receipt->source_bytes() +
                                                receipt->source_size());
@@ -841,10 +968,12 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
   }
 
   Render::TextureResourceDescriptor candidate;
+  OgreNextDemoTextureNormalizationObservation normalization;
   validation = BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
-      std::move(decoded), static_cast<std::uint32_t>(native_width),
-      static_cast<std::uint32_t>(native_height),
-      "OgreNextDemoPbrTexture/" + std::string(debug_token), candidate);
+      std::move(decoded), initial_texture_observation.source_width,
+      initial_texture_observation.source_height,
+      "OgreNextDemoPbrTexture/" + std::string(debug_token), candidate,
+      &normalization);
   if (!validation) {
     return validation;
   }
@@ -852,22 +981,27 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
   // The receipt must remain the exact current ContentManager publication
   // immediately after decode and immediately before the candidate can escape.
   // There is deliberately no native-buffer readback fallback beyond this point.
-  if (!native_texture->isLoaded() ||
+  OgreNextDemoExactTextureObservation final_texture_observation;
+  validation = ObserveExactTexture(native_unit, *native_texture,
+                                   final_texture_observation);
+  if (!validation || !native_texture->isLoaded() ||
       native_texture->getStateCount() != native_state_count ||
-      native_texture->getWidth() != native_width ||
-      native_texture->getHeight() != native_height ||
-      native_texture->getFormat() != native_format ||
+      !MatchOgreNextDemoExactTextureObservation(initial_texture_observation,
+                                                final_texture_observation) ||
       !resolver.RevalidateAuthenticatedTexture(*native_texture, resolution)) {
-    return Failure(Render::ValidationCode::REVISION_MISMATCH,
-                   "ogre_next_demo.material.authenticated.final_revalidation",
-                   "loaded texture or authenticated source authority changed "
-                   "during source decode");
+    return validation
+               ? Failure(Render::ValidationCode::REVISION_MISMATCH,
+                         "ogre_next_demo.material.authenticated.final_"
+                         "revalidation",
+                         "loaded texture or authenticated source authority "
+                         "changed during source decode")
+               : validation;
   }
   AuthenticatedTextureProvenance final_provenance;
   std::string final_content_decode_key;
   validation = BuildAuthenticatedTextureProvenance(
-      *native_texture, resolver, resolution, options, final_provenance,
-      final_content_decode_key);
+      *native_texture, resolver, resolution, options, final_texture_observation,
+      final_provenance, final_content_decode_key);
   if (!validation || final_content_decode_key != content_decode_key) {
     return validation
                ? Failure(
@@ -882,18 +1016,22 @@ Render::ValidationResult CaptureAuthenticatedTextureSource(
   output_receipt = *receipt;
   output_provenance = std::move(final_provenance);
   output_content_decode_key = std::move(final_content_decode_key);
+  output_normalization = normalization;
   return Render::ValidationResult::Success();
 }
 
 Render::ValidationResult TryCaptureOrdinaryTextureSource(
     const Ogre::TexturePtr &native_texture,
+    const Ogre::TextureUnitState &native_unit,
+    const OgreNextDemoExactTextureObservation &initial_texture_observation,
     const Render::IOgre14SelectedTextureSourceResolver &resolver,
     const Render::Ogre14SelectedTextureSourceResolution &resolution,
     std::string_view debug_token, Render::TextureResourceDescriptor &output,
     Render::Ogre14SelectedTextureSourceReceipt &output_receipt,
     OrdinaryTextureProvenance &output_provenance,
     std::string &output_content_decode_key, bool &captured,
-    OgreNextDemoTextureProjectionExclusion &exclusion) {
+    OgreNextDemoTextureProjectionExclusion &exclusion,
+    OgreNextDemoTextureNormalizationObservation &output_normalization) {
   captured = false;
   exclusion = OgreNextDemoTextureProjectionExclusion::NONE;
   if (!native_texture || !resolution.initialized()) {
@@ -916,9 +1054,9 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
       BuildOrdinaryDecodeOptions(*receipt);
   OrdinaryTextureProvenance provenance;
   std::string content_decode_key;
-  Render::ValidationResult validation =
-      BuildOrdinaryTextureProvenance(*native_texture, resolver, resolution,
-                                     options, provenance, content_decode_key);
+  Render::ValidationResult validation = BuildOrdinaryTextureProvenance(
+      *native_texture, resolver, resolution, options,
+      initial_texture_observation, provenance, content_decode_key);
   if (!validation) {
     return validation;
   }
@@ -929,9 +1067,6 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
   }
 
   const std::size_t native_state_count = native_texture->getStateCount();
-  const std::size_t native_width = native_texture->getWidth();
-  const std::size_t native_height = native_texture->getHeight();
-  const Ogre::PixelFormat native_format = native_texture->getFormat();
   std::vector<std::uint8_t> encoded_source(receipt->source_bytes(),
                                            receipt->source_bytes() +
                                                receipt->source_size());
@@ -952,31 +1087,37 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
   }
 
   Render::TextureResourceDescriptor candidate;
+  OgreNextDemoTextureNormalizationObservation normalization;
   validation = BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
-      std::move(decoded), static_cast<std::uint32_t>(native_width),
-      static_cast<std::uint32_t>(native_height),
-      "OgreNextDemoPbrTexture/" + std::string(debug_token), candidate);
+      std::move(decoded), initial_texture_observation.source_width,
+      initial_texture_observation.source_height,
+      "OgreNextDemoPbrTexture/" + std::string(debug_token), candidate,
+      &normalization);
   if (!validation) {
     exclusion = OgreNextDemoTextureProjectionExclusion::SOURCE_DECODE_REJECTED;
     return Render::ValidationResult::Success();
   }
 
-  if (!native_texture->isLoaded() ||
+  OgreNextDemoExactTextureObservation final_texture_observation;
+  validation = ObserveExactTexture(native_unit, *native_texture,
+                                   final_texture_observation);
+  if (!validation || !native_texture->isLoaded() ||
       native_texture->getStateCount() != native_state_count ||
-      native_texture->getWidth() != native_width ||
-      native_texture->getHeight() != native_height ||
-      native_texture->getFormat() != native_format ||
+      !MatchOgreNextDemoExactTextureObservation(initial_texture_observation,
+                                                final_texture_observation) ||
       !resolver.RevalidateSelectedTextureSource(*native_texture, resolution)) {
-    return Failure(Render::ValidationCode::REVISION_MISMATCH,
-                   "ogre_next_demo.material.ordinary.final_revalidation",
-                   "loaded texture or ordinary selected-source authority "
-                   "changed during source decode");
+    return validation
+               ? Failure(Render::ValidationCode::REVISION_MISMATCH,
+                         "ogre_next_demo.material.ordinary.final_revalidation",
+                         "loaded texture or ordinary selected-source authority "
+                         "changed during source decode")
+               : validation;
   }
   OrdinaryTextureProvenance final_provenance;
   std::string final_content_decode_key;
   validation = BuildOrdinaryTextureProvenance(
-      *native_texture, resolver, resolution, options, final_provenance,
-      final_content_decode_key);
+      *native_texture, resolver, resolution, options, final_texture_observation,
+      final_provenance, final_content_decode_key);
   if (!validation || final_content_decode_key != content_decode_key) {
     return validation
                ? Failure(Render::ValidationCode::REVISION_MISMATCH,
@@ -991,6 +1132,7 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
   output_receipt = *receipt;
   output_provenance = std::move(final_provenance);
   output_content_decode_key = std::move(final_content_decode_key);
+  output_normalization = normalization;
   captured = true;
   return Render::ValidationResult::Success();
 }
@@ -1005,15 +1147,122 @@ struct MaterialCache final {
   std::map<std::string, ProjectionDecision, std::less<>> decisions;
 };
 
+struct PendingNativeTextureOwner final {
+  Ogre::MaterialPtr native_material;
+  std::uintptr_t native_pass_pointer_token = 0U;
+  std::uintptr_t native_unit_pointer_token = 0U;
+  std::uintptr_t native_sampler_pointer_token = 0U;
+  OgreNextDemoExactSamplerObservation sampler_observation;
+  OgreNextDemoExactTextureObservation texture_observation;
+  bool allow_alexis_approximation = false;
+  std::size_t technique_pass_count = 0U;
+  std::size_t pass_texture_unit_count = 0U;
+  std::array<float, 4U> diffuse{};
+  std::array<float, 4U> ambient{};
+  std::array<float, 4U> specular{};
+  std::array<float, 4U> emissive{};
+  float shininess = 0.0F;
+  std::uint8_t vertex_colour_tracking_token = 0U;
+};
+
 struct PendingAuthenticatedTextureObservation final {
   Ogre::TexturePtr native_texture;
   Render::Ogre14AuthenticatedTextureResolution resolution;
+  std::vector<PendingNativeTextureOwner> native_owners;
 };
 
 struct PendingOrdinaryTextureObservation final {
   Ogre::TexturePtr native_texture;
   Render::Ogre14SelectedTextureSourceResolution resolution;
+  std::vector<PendingNativeTextureOwner> native_owners;
 };
+
+Render::ValidationResult RevalidatePendingNativeTextureOwners(
+    const Ogre::TexturePtr &native_texture,
+    const std::vector<PendingNativeTextureOwner> &owners,
+    OgreNextDemoExactTextureObservation &fresh_texture_observation) {
+  if (!native_texture || owners.empty()) {
+    return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                   "ogre_next_demo.material.pending_native_owner",
+                   "reachable texture has no strong native TUS owner");
+  }
+  bool observed = false;
+  OgreNextDemoExactTextureObservation common_observation;
+  for (const PendingNativeTextureOwner &owner : owners) {
+    if (!owner.native_material ||
+        owner.native_material->getNumTechniques() == 0U) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.material.pending_native_owner",
+                     "native material owner disappeared before publication");
+    }
+    Ogre::Technique *const technique = owner.native_material->getTechnique(0U);
+    Ogre::Pass *const pass =
+        technique != nullptr && technique->getNumPasses() != 0U
+            ? technique->getPass(0U)
+            : nullptr;
+    Ogre::TextureUnitState *const unit =
+        pass != nullptr && pass->getNumTextureUnitStates() != 0U
+            ? pass->getTextureUnitState(0U)
+            : nullptr;
+    const Ogre::SamplerPtr sampler =
+        unit != nullptr ? unit->getSampler() : Ogre::SamplerPtr{};
+    if (pass == nullptr || unit == nullptr || !sampler ||
+        reinterpret_cast<std::uintptr_t>(pass) !=
+            owner.native_pass_pointer_token ||
+        reinterpret_cast<std::uintptr_t>(unit) !=
+            owner.native_unit_pointer_token ||
+        reinterpret_cast<std::uintptr_t>(sampler.get()) !=
+            owner.native_sampler_pointer_token ||
+        unit->_getTexturePtr().get() != native_texture.get() ||
+        technique->getNumPasses() != owner.technique_pass_count ||
+        pass->getNumTextureUnitStates() != owner.pass_texture_unit_count ||
+        !IsOpaqueReplacePass(*pass, owner.allow_alexis_approximation) ||
+        !HasAvailableNamedTextureSource(*unit) ||
+        !IsCanonicalTextureUnitSemantic(*unit) ||
+        (!owner.allow_alexis_approximation &&
+         (technique->getNumPasses() != 1U ||
+          pass->getNumTextureUnitStates() != 1U ||
+          HasAuthoredProgram(*pass))) ||
+        (owner.allow_alexis_approximation &&
+         !IsExactAlexisDiffuseProjection(*technique, *pass,
+                                         owner.native_material->getName(),
+                                         native_texture->getName())) ||
+        ObserveColourComponents(pass->getDiffuse()) != owner.diffuse ||
+        ObserveColourComponents(pass->getAmbient()) != owner.ambient ||
+        ObserveColourComponents(pass->getSpecular()) != owner.specular ||
+        ObserveColourComponents(pass->getSelfIllumination()) !=
+            owner.emissive ||
+        static_cast<float>(pass->getShininess()) != owner.shininess ||
+        static_cast<std::uint8_t>(pass->getVertexColourTracking()) !=
+            owner.vertex_colour_tracking_token ||
+        !MatchOgreNextDemoExactSamplerObservation(
+            owner.sampler_observation, ObserveExactSampler(*sampler))) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.material.pending_native_owner",
+                     "native pass, TUS0, sampler, or texture owner changed "
+                     "before publication");
+    }
+    OgreNextDemoExactTextureObservation current;
+    Render::ValidationResult validation =
+        ObserveExactTexture(*unit, *native_texture, current);
+    if (!validation) {
+      return validation;
+    }
+    if (!MatchOgreNextDemoExactTextureObservation(owner.texture_observation,
+                                                  current) ||
+        (observed && !MatchOgreNextDemoExactTextureObservation(
+                         common_observation, current))) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.material.pending_native_texture",
+                     "native TUS/texture provenance changed before "
+                     "publication");
+    }
+    common_observation = current;
+    observed = true;
+  }
+  fresh_texture_observation = common_observation;
+  return Render::ValidationResult::Success();
+}
 
 struct OgreNextDemoMaterialSource::State final {
   State() : cache(std::make_shared<MaterialCache>()) {}
@@ -1029,6 +1278,13 @@ struct OgreNextDemoMaterialSource::State final {
   std::map<std::string, PendingOrdinaryTextureObservation, std::less<>>
       ordinary_texture_observations;
   std::set<std::string, std::less<>> source_cache_hits;
+  std::set<std::string, std::less<>> eligible_texture_keys;
+  std::set<std::string, std::less<>> projected_texture_keys;
+  std::map<std::string, OgreNextDemoExactTextureObservation, std::less<>>
+      active_native_texture_observations;
+  std::map<std::string, OgreNextDemoTextureNormalizationObservation,
+           std::less<>>
+      active_normalization_observations;
   OgreNextDemoMaterialSourceCounters counters;
 };
 
@@ -1087,6 +1343,10 @@ bool OgreNextDemoMaterialSource::BeginCapture() noexcept {
     pending_->authenticated_texture_observations.clear();
     pending_->ordinary_texture_observations.clear();
     pending_->source_cache_hits.clear();
+    pending_->eligible_texture_keys.clear();
+    pending_->projected_texture_keys.clear();
+    pending_->active_native_texture_observations.clear();
+    pending_->active_normalization_observations.clear();
     pending_->counters = {};
     return true;
   } catch (...) {
@@ -1113,9 +1373,20 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   selected_projection_key.clear();
   exclusion = OgreNextDemoTextureProjectionExclusion::NONE;
   failure = Render::ValidationResult::Success();
-  if (pending_ == nullptr || !pending_->capture_open || !has_authored_uv0 ||
-      !native_material || native_material->getName().empty() ||
+  if (pending_ == nullptr || !pending_->capture_open) {
+    failure = Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                      "ogre_next_demo.material.pending",
+                      "material projection has no open capture transaction");
+    return false;
+  }
+  if (!has_authored_uv0) {
+    exclusion = OgreNextDemoTextureProjectionExclusion::MISSING_AUTHORED_UV0;
+    return false;
+  }
+  if (!native_material || native_material->getName().empty() ||
       native_material->getNumTechniques() == 0U) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
     return false;
   }
   Ogre::Technique *const technique = native_material->getTechnique(0U);
@@ -1126,41 +1397,42 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   const bool allow_alexis_approximation =
       OgreNextDemoAllowsAlexisTUS0Approximation(native_material->getGroup(),
                                                 native_material->getName());
-  if (pass == nullptr ||
-      !IsOpaqueReplacePass(*pass, allow_alexis_approximation) ||
-      pass->getNumTextureUnitStates() == 0U) {
+  if (pass == nullptr || pass->getNumTextureUnitStates() == 0U) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
+    return false;
+  }
+  if (!IsOpaqueReplacePass(*pass, allow_alexis_approximation)) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STATE_UNSUPPORTED;
     return false;
   }
   if (!allow_alexis_approximation &&
       (technique->getNumPasses() != 1U ||
        pass->getNumTextureUnitStates() != 1U || HasAuthoredProgram(*pass))) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
     return false;
   }
   Ogre::TextureUnitState *const unit = pass->getTextureUnitState(0U);
   if (unit == nullptr) {
+    exclusion = OgreNextDemoTextureProjectionExclusion::
+        TEXTURE_UNIT_STRUCTURE_UNSUPPORTED;
     return false;
   }
-  if (unit->getContentType() != Ogre::TextureUnitState::CONTENT_NAMED ||
-      unit->isBlank() || unit->isTextureLoadFailing() ||
-      !unit->_getTexturePtr()) {
+  if (!HasAvailableNamedTextureSource(*unit) || !unit->_getTexturePtr()) {
     exclusion = OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
     return false;
   }
-  if (unit->getNumFrames() != 1U || unit->getTextureCoordSet() != 0U ||
-      unit->getProjectiveTexturingFrustum() != nullptr ||
-      !unit->getEffects().empty() || unit->getUnorderedAccessMipLevel() != -1 ||
-      unit->getGamma() != 1.0F ||
-      !IsIdentityTextureTransform(unit->getTextureTransform()) ||
-      !IsCanonicalModulate(unit->getColourBlendMode(), Ogre::LBT_COLOUR) ||
-      !IsCanonicalModulate(unit->getAlphaBlendMode(), Ogre::LBT_ALPHA)) {
-    exclusion =
-        OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_SEMANTIC;
+  if (!IsCanonicalTextureUnitSemantic(*unit)) {
+    exclusion = OgreNextDemoTextureProjectionExclusion::
+        TEXTURE_UNIT_SEMANTIC_UNSUPPORTED;
     return false;
   }
   const Ogre::SamplerPtr native_sampler = unit->getSampler();
   if (!native_sampler) {
     exclusion =
-        OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_SEMANTIC;
+        OgreNextDemoTextureProjectionExclusion::SAMPLER_STATE_UNSUPPORTED;
     return false;
   }
   const OgreNextDemoExactSamplerObservation sampler_observation =
@@ -1169,7 +1441,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   if (!BuildOgreNextDemoSamplerDescriptor(sampler_observation, 1U, "preflight",
                                           sampler_preflight)) {
     exclusion =
-        OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_SEMANTIC;
+        OgreNextDemoTextureProjectionExclusion::SAMPLER_STATE_UNSUPPORTED;
     return false;
   }
   const Ogre::TexturePtr native_texture = unit->_getTexturePtr();
@@ -1182,6 +1454,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
        !IsExactAlexisDiffuseProjection(*technique, *pass,
                                        native_material->getName(),
                                        native_texture->getName()))) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::ALEXIS_APPROXIMATION_UNSAFE;
     return false;
   }
   Render::ValidationResult texture_preflight_validation =
@@ -1193,17 +1467,83 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   if (exclusion != OgreNextDemoTextureProjectionExclusion::NONE) {
     return false;
   }
+  OgreNextDemoExactTextureObservation exact_texture_observation;
+  Render::ValidationResult exact_texture_validation =
+      ObserveExactTexture(*unit, *native_texture, exact_texture_observation);
+  if (!exact_texture_validation) {
+    failure = std::move(exact_texture_validation);
+    return false;
+  }
   std::string texture_key;
   AppendField(texture_key, native_texture->getGroup());
   AppendField(texture_key, native_texture->getName());
+  pending_->eligible_texture_keys.insert(texture_key);
+  const auto active_native =
+      pending_->active_native_texture_observations.emplace(
+          texture_key, exact_texture_observation);
+  if (!active_native.second &&
+      !MatchOgreNextDemoExactTextureObservation(active_native.first->second,
+                                                exact_texture_observation)) {
+    failure = Failure(Render::ValidationCode::REVISION_MISMATCH,
+                      "ogre_next_demo.material.texture.active_observation",
+                      "one capture observed conflicting native state for one "
+                      "texture identity");
+    return false;
+  }
   std::string sampler_key = texture_key;
   AppendExactSamplerObservation(sampler_key, sampler_observation);
   std::string projection_key;
+  AppendField(projection_key, kLossyMaterialNormalizationPolicy);
   AppendField(projection_key, native_material->getGroup());
   AppendField(projection_key, native_material->getName());
   AppendField(projection_key, texture_key);
   AppendField(projection_key, sampler_key);
+  AppendExactTextureObservation(projection_key, exact_texture_observation);
+  AppendColourComponents(projection_key, pass->getDiffuse());
+  AppendColourComponents(projection_key, pass->getAmbient());
+  AppendColourComponents(projection_key, pass->getSpecular());
+  AppendColourComponents(projection_key, pass->getSelfIllumination());
+  AppendFloatBits(projection_key, static_cast<float>(pass->getShininess()));
+  AppendNumber(projection_key,
+               static_cast<std::uint8_t>(pass->getVertexColourTracking()));
   AppendNumber(projection_key, static_cast<std::uint64_t>(input.cull));
+
+  const auto make_pending_native_owner = [&]() {
+    PendingNativeTextureOwner owner;
+    owner.native_material = native_material;
+    owner.native_pass_pointer_token = reinterpret_cast<std::uintptr_t>(pass);
+    owner.native_unit_pointer_token = reinterpret_cast<std::uintptr_t>(unit);
+    owner.native_sampler_pointer_token =
+        reinterpret_cast<std::uintptr_t>(native_sampler.get());
+    owner.sampler_observation = sampler_observation;
+    owner.texture_observation = exact_texture_observation;
+    owner.allow_alexis_approximation = allow_alexis_approximation;
+    owner.technique_pass_count = technique->getNumPasses();
+    owner.pass_texture_unit_count = pass->getNumTextureUnitStates();
+    owner.diffuse = ObserveColourComponents(pass->getDiffuse());
+    owner.ambient = ObserveColourComponents(pass->getAmbient());
+    owner.specular = ObserveColourComponents(pass->getSpecular());
+    owner.emissive = ObserveColourComponents(pass->getSelfIllumination());
+    owner.shininess = static_cast<float>(pass->getShininess());
+    owner.vertex_colour_tracking_token =
+        static_cast<std::uint8_t>(pass->getVertexColourTracking());
+    return owner;
+  };
+
+  const auto append_pending_native_owner =
+      [&](std::vector<PendingNativeTextureOwner> &owners) {
+        const std::uintptr_t unit_token =
+            reinterpret_cast<std::uintptr_t>(unit);
+        const auto existing = std::find_if(
+            owners.begin(), owners.end(), [unit_token](const auto &owner) {
+              return owner.native_unit_pointer_token == unit_token;
+            });
+        if (existing == owners.end()) {
+          owners.push_back(make_pending_native_owner());
+        } else {
+          *existing = make_pending_native_owner();
+        }
+      };
 
   const auto record_authenticated_observation =
       [&](const CapturedTexture &captured) -> Render::ValidationResult {
@@ -1218,7 +1558,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     const bool immutable_receipt_matches =
         authenticated_source_required &&
         ResolveFrozenAuthenticatedTexture(*native_texture, *texture_resolver_,
-                                          captured, &fresh);
+                                          captured, exact_texture_observation,
+                                          &fresh);
     const Render::ValidationResult fresh_result =
         immutable_receipt_matches
             ? Render::ValidationResult::Success()
@@ -1238,6 +1579,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     PendingAuthenticatedTextureObservation observation;
     observation.native_texture = native_texture;
     observation.resolution = std::move(fresh);
+    observation.native_owners.push_back(make_pending_native_owner());
     auto existing =
         pending_->authenticated_texture_observations.find(texture_key);
     if (existing == pending_->authenticated_texture_observations.end()) {
@@ -1250,7 +1592,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                        "one capture observed two native textures for the "
                        "frozen source identity");
       }
-      existing->second = std::move(observation);
+      existing->second.resolution = std::move(observation.resolution);
+      append_pending_native_owner(existing->second.native_owners);
     }
     return Render::ValidationResult::Success();
   };
@@ -1268,9 +1611,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     Render::Ogre14SelectedTextureSourceResolution fresh;
     const bool immutable_receipt_matches =
         ordinary_source_required &&
-        ResolveFrozenOrdinaryTexture(*native_texture,
-                                     *ordinary_texture_source_resolver_,
-                                     captured, &fresh);
+        ResolveFrozenOrdinaryTexture(
+            *native_texture, *ordinary_texture_source_resolver_, captured,
+            exact_texture_observation, &fresh);
     const Render::ValidationResult fresh_result =
         immutable_receipt_matches
             ? Render::ValidationResult::Success()
@@ -1288,6 +1631,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     PendingOrdinaryTextureObservation observation;
     observation.native_texture = native_texture;
     observation.resolution = std::move(fresh);
+    observation.native_owners.push_back(make_pending_native_owner());
     auto existing = pending_->ordinary_texture_observations.find(texture_key);
     if (existing == pending_->ordinary_texture_observations.end()) {
       pending_->ordinary_texture_observations.emplace(texture_key,
@@ -1299,17 +1643,17 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                        "one capture observed two native textures for the "
                        "frozen ordinary source identity");
       }
-      existing->second = std::move(observation);
+      existing->second.resolution = std::move(observation.resolution);
+      append_pending_native_owner(existing->second.native_owners);
     }
     return Render::ValidationResult::Success();
   };
 
   const auto revalidate_cached_texture =
       [&](const CapturedTexture &captured) -> Render::ValidationResult {
-    if (captured.native_texture_format != native_texture->getFormat() ||
-        captured.native_state_count != native_texture->getStateCount() ||
-        captured.native_width != native_texture->getWidth() ||
-        captured.native_height != native_texture->getHeight()) {
+    if (captured.native_state_count != native_texture->getStateCount() ||
+        !MatchOgreNextDemoExactTextureObservation(
+            captured.exact_texture_observation, exact_texture_observation)) {
       return Failure(Render::ValidationCode::REVISION_MISMATCH,
                      "ogre_next_demo.material.texture.cache",
                      "cached TUS0 loaded-texture identity changed");
@@ -1422,10 +1766,12 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       Render::TextureResourceDescriptor descriptor;
       if (IsOgreNextDemoAuthenticatedTextureSourceMode(captured.source)) {
         validation = CaptureAuthenticatedTextureSource(
-            native_texture, *texture_resolver_, authenticated_resolution,
+            native_texture, *unit, exact_texture_observation,
+            *texture_resolver_, authenticated_resolution,
             HexId(captured.source_id), descriptor,
             captured.authenticated_receipt, captured.authenticated_provenance,
-            captured.authenticated_content_decode_key);
+            captured.authenticated_content_decode_key,
+            captured.normalization_observation);
         if (!validation) {
           // Successful resolution selected the authenticated path. Decode or
           // authority failure is terminal; native readback is forbidden.
@@ -1442,10 +1788,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       } else {
         bool ordinary_captured = false;
         validation = TryCaptureOrdinaryTextureSource(
-            native_texture, *ordinary_texture_source_resolver_,
-            ordinary_resolution, HexId(captured.source_id), descriptor,
-            captured.ordinary_receipt, captured.ordinary_provenance,
-            captured.ordinary_content_decode_key, ordinary_captured, exclusion);
+            native_texture, *unit, exact_texture_observation,
+            *ordinary_texture_source_resolver_, ordinary_resolution,
+            HexId(captured.source_id), descriptor, captured.ordinary_receipt,
+            captured.ordinary_provenance, captured.ordinary_content_decode_key,
+            ordinary_captured, exclusion, captured.normalization_observation);
         if (!validation) {
           failure = std::move(validation);
           return false;
@@ -1461,12 +1808,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           return false;
         }
       }
-      captured.native_texture_format = native_texture->getFormat();
       captured.native_state_count = native_texture->getStateCount();
-      captured.native_width =
-          static_cast<std::uint32_t>(native_texture->getWidth());
-      captured.native_height =
-          static_cast<std::uint32_t>(native_texture->getHeight());
+      captured.exact_texture_observation = exact_texture_observation;
       validation = IsOgreNextDemoAuthenticatedTextureSourceMode(captured.source)
                        ? record_authenticated_observation(captured)
                        : record_ordinary_observation(captured);
@@ -1479,6 +1822,33 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       if (!validation) {
         failure = std::move(validation);
         return false;
+      }
+      pending_->counters.modern_source_normalizations += 1U;
+      pending_->counters.authored_mip_prefix_levels +=
+          captured.normalization_observation.authored_mip_prefix_levels;
+      pending_->counters.generated_mip_tail_levels +=
+          captured.normalization_observation.generated_mip_tail_levels;
+      pending_->counters.normalized_output_mip_levels +=
+          captured.normalization_observation.authored_mip_prefix_levels +
+          captured.normalization_observation.generated_mip_tail_levels;
+      pending_->counters.legacy_native_additional_mip_levels +=
+          captured.exact_texture_observation.additional_mip_count;
+      if (captured.exact_texture_observation.texture_unit_gamma != 1.0F) {
+        pending_->counters.legacy_texture_unit_gamma_nonunit_observations += 1U;
+      }
+      if (captured.exact_texture_observation.texture_gamma != 1.0F) {
+        pending_->counters.legacy_texture_gamma_nonunit_observations += 1U;
+      }
+      if (!captured.exact_texture_observation.texture_unit_hardware_gamma) {
+        pending_->counters
+            .legacy_texture_unit_hardware_gamma_off_observations += 1U;
+      }
+      if (!captured.exact_texture_observation.texture_hardware_gamma) {
+        pending_->counters.legacy_hardware_gamma_off_observations += 1U;
+      }
+      if ((captured.exact_texture_observation.usage_token &
+           static_cast<std::uint32_t>(Ogre::TU_AUTOMIPMAP)) != 0U) {
+        pending_->counters.legacy_automipmap_observations += 1U;
       }
       std::string identity(kTextureIdDomain);
       identity.push_back('\0');
@@ -1501,6 +1871,25 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         failure = std::move(cache_validation);
         return false;
       }
+    }
+    const auto active_normalization =
+        pending_->active_normalization_observations.emplace(
+            texture_key, texture->second.normalization_observation);
+    if (!active_normalization.second &&
+        (active_normalization.first->second.policy_version !=
+             texture->second.normalization_observation.policy_version ||
+         active_normalization.first->second.authored_mip_prefix_levels !=
+             texture->second.normalization_observation
+                 .authored_mip_prefix_levels ||
+         active_normalization.first->second.generated_mip_tail_levels !=
+             texture->second.normalization_observation
+                 .generated_mip_tail_levels)) {
+      failure = Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.texture.active_normalization",
+          "one capture observed conflicting normalization for one texture "
+          "identity");
+      return false;
     }
 
     auto sampler = pending_->cache->samplers.find(sampler_key);
@@ -1593,6 +1982,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     captured.base_color_factor = {static_cast<float>(native_diffuse.r),
                                   static_cast<float>(native_diffuse.g),
                                   static_cast<float>(native_diffuse.b), 1.0F};
+    const Ogre::ColourValue native_ambient = pass->getAmbient();
+    captured.discarded_ambient = {static_cast<float>(native_ambient.r),
+                                  static_cast<float>(native_ambient.g),
+                                  static_cast<float>(native_ambient.b),
+                                  static_cast<float>(native_ambient.a)};
+    const Ogre::ColourValue native_specular = pass->getSpecular();
+    captured.discarded_specular = {static_cast<float>(native_specular.r),
+                                   static_cast<float>(native_specular.g),
+                                   static_cast<float>(native_specular.b),
+                                   static_cast<float>(native_specular.a)};
     material.base_color_factor = {
         captured.base_color_factor[0U], captured.base_color_factor[1U],
         captured.base_color_factor[2U], captured.base_color_factor[3U]};
@@ -1604,6 +2003,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     captured.emissive_factor = {static_cast<float>(native_emissive.r),
                                 static_cast<float>(native_emissive.g),
                                 static_cast<float>(native_emissive.b)};
+    captured.discarded_emissive_alpha = static_cast<float>(native_emissive.a);
+    captured.vertex_colour_tracking_token =
+        static_cast<std::uint8_t>(pass->getVertexColourTracking());
     material.emissive_factor = {captured.emissive_factor[0U],
                                 captured.emissive_factor[1U],
                                 captured.emissive_factor[2U]};
@@ -1645,11 +2047,42 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       failure = std::move(cache_validation);
       return false;
     }
+    const auto active_normalization =
+        pending_->active_normalization_observations.emplace(
+            projection->second.texture_key,
+            texture->second.normalization_observation);
+    if (!active_normalization.second &&
+        (active_normalization.first->second.policy_version !=
+             texture->second.normalization_observation.policy_version ||
+         active_normalization.first->second.authored_mip_prefix_levels !=
+             texture->second.normalization_observation
+                 .authored_mip_prefix_levels ||
+         active_normalization.first->second.generated_mip_tail_levels !=
+             texture->second.normalization_observation
+                 .generated_mip_tail_levels)) {
+      failure =
+          Failure(Render::ValidationCode::REVISION_MISMATCH,
+                  "ogre_next_demo.material.texture.active_normalization",
+                  "cached projection normalization changed within one capture");
+      return false;
+    }
     const Ogre::ColourValue native_diffuse = pass->getDiffuse();
     const std::array<float, 4U> base_color_factor{
         {static_cast<float>(native_diffuse.r),
          static_cast<float>(native_diffuse.g),
          static_cast<float>(native_diffuse.b), 1.0F}};
+    const Ogre::ColourValue native_ambient = pass->getAmbient();
+    const std::array<float, 4U> discarded_ambient{
+        {static_cast<float>(native_ambient.r),
+         static_cast<float>(native_ambient.g),
+         static_cast<float>(native_ambient.b),
+         static_cast<float>(native_ambient.a)}};
+    const Ogre::ColourValue native_specular = pass->getSpecular();
+    const std::array<float, 4U> discarded_specular{
+        {static_cast<float>(native_specular.r),
+         static_cast<float>(native_specular.g),
+         static_cast<float>(native_specular.b),
+         static_cast<float>(native_specular.a)}};
     const float roughness_factor = static_cast<float>(
         std::sqrt(2.0 / (static_cast<double>(pass->getShininess()) + 2.0)));
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
@@ -1668,8 +2101,14 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         !MatchOgreNextDemoExactSamplerObservation(
             projection->second.sampler_observation, sampler_observation) ||
         projection->second.base_color_factor != base_color_factor ||
+        projection->second.discarded_ambient != discarded_ambient ||
+        projection->second.discarded_specular != discarded_specular ||
         projection->second.roughness_factor != roughness_factor ||
-        projection->second.emissive_factor != emissive_factor) {
+        projection->second.emissive_factor != emissive_factor ||
+        projection->second.discarded_emissive_alpha !=
+            static_cast<float>(native_emissive.a) ||
+        projection->second.vertex_colour_tracking_token !=
+            static_cast<std::uint8_t>(pass->getVertexColourTracking())) {
       failure = Failure(Render::ValidationCode::REVISION_MISMATCH,
                         "ogre_next_demo.material.projection.native",
                         "projected native material authority changed");
@@ -1678,6 +2117,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   }
 
   pending_->used_projections.insert(projection_key);
+  pending_->projected_texture_keys.insert(texture_key);
   input.exact_resource_group = kMaterialGroup;
   input.exact_name = projection->second.exact_name;
   input.pass_count = 1U;
@@ -1735,7 +2175,32 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
 
     std::string decision_key;
     AppendField(decision_key, exact_section_key);
-    const auto decision = pending_->cache->decisions.find(decision_key);
+    const auto record_candidate_outcome =
+        [&](bool selected, OgreNextDemoTextureProjectionExclusion reason)
+        -> Render::ValidationResult {
+      if (!selected) {
+        if (reason == OgreNextDemoTextureProjectionExclusion::NONE) {
+          return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                         "ogre_next_demo.material.decision.exclusion",
+                         "candidate matte decision has no stable named reason");
+        }
+        return RecordOgreNextDemoTextureProjectionExclusion(reason,
+                                                            pending_->counters);
+      }
+      const std::size_t maximum = (std::numeric_limits<std::size_t>::max)();
+      if (pending_->counters.candidate_sections != maximum) {
+        ++pending_->counters.candidate_sections;
+      }
+      if (pending_->counters.projected_sections != maximum) {
+        ++pending_->counters.projected_sections;
+      }
+      if (pending_->counters.lossy_material_normalizations != maximum) {
+        ++pending_->counters.lossy_material_normalizations;
+      }
+      return Render::ValidationResult::Success();
+    };
+
+    auto decision = pending_->cache->decisions.find(decision_key);
     if (decision != pending_->cache->decisions.end()) {
       if (decision->second.exact_resource_group !=
               native_material->getGroup() ||
@@ -1748,8 +2213,49 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
             "ogre_next_demo.material.decision.identity",
             "the frozen section changed material, UV, or culling identity");
       }
-      if (!decision->second.projection_candidate ||
-          !decision->second.projected) {
+      if (!decision->second.projection_candidate) {
+        return Render::ValidationResult::Success();
+      }
+      if (!decision->second.projected) {
+        const bool retryable =
+            decision->second.exclusion ==
+                OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE ||
+            decision->second.exclusion ==
+                OgreNextDemoTextureProjectionExclusion::
+                    ORDINARY_SELECTED_SOURCE_UNAVAILABLE;
+        if (retryable) {
+          EnsurePendingCacheWritable();
+          decision = pending_->cache->decisions.find(decision_key);
+          if (decision == pending_->cache->decisions.end()) {
+            return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                           "ogre_next_demo.material.decision.retry",
+                           "retryable frozen decision disappeared");
+          }
+          std::string current_projection_key;
+          OgreNextDemoTextureProjectionExclusion current_exclusion =
+              OgreNextDemoTextureProjectionExclusion::NONE;
+          Render::ValidationResult current_failure =
+              Render::ValidationResult::Success();
+          const bool current_projected = TryProjectCurrent(
+              native_material, has_authored_uv0, input, current_projection_key,
+              true, current_exclusion, current_failure);
+          if (!current_failure) {
+            return current_failure;
+          }
+          decision->second.projected = current_projected;
+          decision->second.projection_key =
+              current_projected ? std::move(current_projection_key)
+                                : std::string{};
+          decision->second.exclusion =
+              current_projected ? OgreNextDemoTextureProjectionExclusion::NONE
+                                : current_exclusion;
+        }
+        Render::ValidationResult accounting = record_candidate_outcome(
+            decision->second.projected, decision->second.exclusion);
+        if (!accounting) {
+          return accounting;
+        }
+        projected = decision->second.projected;
         return Render::ValidationResult::Success();
       }
       std::string current_projection_key;
@@ -1770,10 +2276,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
             "the frozen projected material changed native authority");
       }
       projected = true;
-      return Render::ValidationResult::Success();
+      return record_candidate_outcome(
+          true, OgreNextDemoTextureProjectionExclusion::NONE);
     }
 
     EnsurePendingCacheWritable();
+    const std::size_t maximum = (std::numeric_limits<std::size_t>::max)();
+    if (pending_->counters.new_frozen_material_decisions != maximum) {
+      ++pending_->counters.new_frozen_material_decisions;
+    }
     ProjectionDecision new_decision;
     new_decision.exact_resource_group = native_material->getGroup();
     new_decision.exact_material_name = native_material->getName();
@@ -1791,14 +2302,13 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
       if (!current_failure) {
         return current_failure;
       }
-      if (!new_decision.projected &&
-          current_exclusion != OgreNextDemoTextureProjectionExclusion::NONE) {
-        Render::ValidationResult accounting =
-            RecordOgreNextDemoTextureProjectionExclusion(current_exclusion,
-                                                         pending_->counters);
-        if (!accounting) {
-          return accounting;
-        }
+      new_decision.exclusion =
+          new_decision.projected ? OgreNextDemoTextureProjectionExclusion::NONE
+                                 : current_exclusion;
+      Render::ValidationResult accounting = record_candidate_outcome(
+          new_decision.projected, new_decision.exclusion);
+      if (!accounting) {
+        return accounting;
       }
     }
     const auto inserted = pending_->cache->decisions.emplace(
@@ -1919,10 +2429,19 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
           }
           Ogre::TexturePtr native_texture =
               pending_observation->second.native_texture;
+          OgreNextDemoExactTextureObservation fresh_texture_observation;
+          Render::ValidationResult native_validation =
+              RevalidatePendingNativeTextureOwners(
+                  native_texture, pending_observation->second.native_owners,
+                  fresh_texture_observation);
+          if (!native_validation) {
+            return native_validation;
+          }
           Render::Ogre14AuthenticatedTextureResolution fresh;
           if (!resolver_->RequiresAuthenticatedTextureSource(*native_texture) ||
-              !ResolveFrozenAuthenticatedTexture(*native_texture, *resolver_,
-                                                 texture->second, &fresh)) {
+              !ResolveFrozenAuthenticatedTexture(
+                  *native_texture, *resolver_, texture->second,
+                  fresh_texture_observation, &fresh)) {
             return Failure(
                 Render::ValidationCode::REVISION_MISMATCH,
                 "authenticated.batch_revalidation",
@@ -1931,6 +2450,7 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
           PendingAuthenticatedTextureObservation observation;
           observation.native_texture = std::move(native_texture);
           observation.resolution = std::move(fresh);
+          observation.native_owners = pending_observation->second.native_owners;
           observations.push_back(std::move(observation));
         }
 
@@ -1985,11 +2505,19 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
           }
           Ogre::TexturePtr native_texture =
               pending_observation->second.native_texture;
+          OgreNextDemoExactTextureObservation fresh_texture_observation;
+          Render::ValidationResult native_validation =
+              RevalidatePendingNativeTextureOwners(
+                  native_texture, pending_observation->second.native_owners,
+                  fresh_texture_observation);
+          if (!native_validation) {
+            return native_validation;
+          }
           Render::Ogre14SelectedTextureSourceResolution fresh;
           if (resolver_->RequiresAuthenticatedTextureSource(*native_texture) ||
-              !ResolveFrozenOrdinaryTexture(*native_texture,
-                                            *ordinary_resolver_,
-                                            texture->second, &fresh)) {
+              !ResolveFrozenOrdinaryTexture(
+                  *native_texture, *ordinary_resolver_, texture->second,
+                  fresh_texture_observation, &fresh)) {
             return Failure(Render::ValidationCode::REVISION_MISMATCH,
                            "ordinary.batch_revalidation",
                            "reachable ordinary selected source changed before "
@@ -2161,6 +2689,13 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
                      "material texture publication observed a forbidden GPU "
                      "readback");
     }
+    OgreNextDemoTextureSourceCounters accounting_audit;
+    const Render::ValidationResult accounting_validation =
+        AccumulateOgreNextDemoTextureSourceCounters(CurrentCaptureCounters(),
+                                                    accounting_audit);
+    if (!accounting_validation) {
+      return accounting_validation;
+    }
     std::sort(candidate.begin(), candidate.end(),
               [](const auto &first, const auto &second) {
                 return first.source_asset_id < second.source_asset_id;
@@ -2201,6 +2736,46 @@ OgreNextDemoMaterialSource::CurrentCaptureCounters() const noexcept {
   }
   OgreNextDemoMaterialSourceCounters counters = pending_->counters;
   counters.projections = pending_->used_projections.size();
+  counters.distinct_eligible_texture_keys =
+      pending_->eligible_texture_keys.size();
+  counters.distinct_projected_texture_keys =
+      pending_->projected_texture_keys.size();
+  counters.distinct_matte_only_texture_keys = 0U;
+  for (const std::string &texture_key : pending_->eligible_texture_keys) {
+    if (pending_->projected_texture_keys.find(texture_key) ==
+        pending_->projected_texture_keys.end()) {
+      ++counters.distinct_matte_only_texture_keys;
+    }
+  }
+  counters.active_texture_state_observations =
+      pending_->active_native_texture_observations.size();
+  for (const auto &entry : pending_->active_native_texture_observations) {
+    const OgreNextDemoExactTextureObservation &observation = entry.second;
+    counters.active_legacy_native_additional_mip_levels +=
+        observation.additional_mip_count;
+    counters.active_legacy_texture_unit_gamma_nonunit_observations +=
+        observation.texture_unit_gamma != 1.0F ? 1U : 0U;
+    counters.active_legacy_texture_gamma_nonunit_observations +=
+        observation.texture_gamma != 1.0F ? 1U : 0U;
+    counters.active_legacy_texture_unit_hardware_gamma_off_observations +=
+        !observation.texture_unit_hardware_gamma ? 1U : 0U;
+    counters.active_legacy_hardware_gamma_off_observations +=
+        !observation.texture_hardware_gamma ? 1U : 0U;
+    counters.active_legacy_automipmap_observations +=
+        (observation.usage_token &
+         static_cast<std::uint32_t>(Ogre::TU_AUTOMIPMAP)) != 0U
+            ? 1U
+            : 0U;
+  }
+  for (const auto &entry : pending_->active_normalization_observations) {
+    counters.active_authored_mip_prefix_levels +=
+        entry.second.authored_mip_prefix_levels;
+    counters.active_generated_mip_tail_levels +=
+        entry.second.generated_mip_tail_levels;
+    counters.active_normalized_output_mip_levels +=
+        entry.second.authored_mip_prefix_levels +
+        entry.second.generated_mip_tail_levels;
+  }
   return counters;
 }
 
@@ -2211,7 +2786,7 @@ OgreNextDemoMaterialSource::LifetimeCounters() const noexcept {
 
 void OgreNextDemoMaterialSource::Commit() noexcept {
   if (pending_ != nullptr && pending_->capture_open) {
-    pending_->counters.projections = pending_->used_projections.size();
+    pending_->counters = CurrentCaptureCounters();
     if (!AccumulateOgreNextDemoTextureSourceCounters(pending_->counters,
                                                      lifetime_counters_)) {
       pending_.reset();
@@ -2222,6 +2797,10 @@ void OgreNextDemoMaterialSource::Commit() noexcept {
     pending_->authenticated_texture_observations.clear();
     pending_->ordinary_texture_observations.clear();
     pending_->source_cache_hits.clear();
+    pending_->eligible_texture_keys.clear();
+    pending_->projected_texture_keys.clear();
+    pending_->active_native_texture_observations.clear();
+    pending_->active_normalization_observations.clear();
     committed_.swap(pending_);
     pending_.reset();
   }

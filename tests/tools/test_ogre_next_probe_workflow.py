@@ -407,10 +407,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             private_policy,
         )
         self.assertIn(
-            "decoded.mip_levels.front()", private_policy
+            "for (Render::Ogre14DecodedSourceTextureMip &decoded_mip :",
+            private_policy,
         )
         self.assertIn(
-            "authored nonzero mips cannot change established",
+            "decoded source mip prefix is not canonical tight RGBA8 geometry",
             private_policy,
         )
         for reachability_test_token in (
@@ -606,7 +607,16 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn('"dynamic/" + BuildNativeDynamicMeshCacheKey(identity)',
                       gfx_scene)
         self.assertIn('"static/" +', gfx_scene)
-        self.assertIn("Committed {} new opaque TUS0", gfx_scene)
+        self.assertIn(
+            "modern_policy=srgb_opaque_authored_prefix_linear_tail_v2",
+            gfx_scene,
+        )
+        self.assertIn("committed_new_projections={}", gfx_scene)
+        self.assertIn("active_projections={}", gfx_scene)
+        self.assertIn("matte_by_reason=[{}]", gfx_scene)
+        self.assertIn(
+            "OgreNextDemoTextureProjectionExclusionName", gfx_scene
+        )
         material_commit = gfx_scene[
             gfx_scene.index(
                 "void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept"
@@ -615,26 +625,47 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             )
         ]
         activity_gate_start = material_commit.index(
-            "if (m_ogre14_pending_capture->"
-            "new_material_projection_count != 0U"
+            "const bool activity_event ="
         )
         activity_gate = material_commit[
-            activity_gate_start : material_commit.index(
-                "{", activity_gate_start
-            )
+            activity_gate_start : material_commit.index(";", activity_gate_start)
         ]
         self.assertNotIn(
             "capture_counters.projections != 0U",
             activity_gate,
         )
-        self.assertIn("projections={}; lifetime", material_commit)
+        self.assertNotIn(
+            "capture_counters.source_decode_rejections != 0U",
+            activity_gate,
+        )
+        self.assertIn(
+            "coverage_snapshot !=",
+            material_commit,
+        )
+        self.assertIn("projections={} matte_by_reason=[{}]; lifetime",
+                      material_commit)
         for material_log_token in (
+            "candidate_sections={}",
+            "projected_sections={}",
+            "matte_excluded_sections={}",
+            "distinct_eligible_texture_keys={}",
+            "distinct_projected_texture_keys={}",
+            "distinct_matte_only_texture_keys={}",
+            "active_authored_mip_prefix_levels={}",
+            "active_generated_mip_tail_levels={}",
+            "active_normalized_output_mip_levels={}",
+            "active_legacy_texture_unit_gamma_nonunit_observations={}",
+            "active_legacy_texture_gamma_nonunit_observations={}",
             "authenticated_archive_source_decodes={}",
             "authenticated_generated_source_decodes={}",
             "ordinary_observed_source_decodes={}",
             "source_cache_hits={}",
             "source_decode_rejections={}",
             "source_exclusions={}",
+            "modern_source_normalizations={}",
+            "authored_mip_prefix_levels={}",
+            "generated_mip_tail_levels={}",
+            "lossy_material_normalizations={}",
             "gpu_readbacks={}",
         ):
             with self.subTest(material_log_token=material_log_token):
@@ -1757,6 +1788,44 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn(
             "-R '^ror_ogre14_authenticated_texture_receipt$'", self.workflow
         )
+        self.assertIn(
+            "-R '^ror_ogre14_selected_texture_source$'", self.workflow
+        )
+        focused_source_gates = (
+            (
+                "Prove authenticated DDS PNG and JPEG source decoding on the host ABI",
+                "Prove exclusive live material preparation on the host ABI",
+                "ror_ogre14_source_texture_decoder",
+            ),
+            (
+                "Prove authenticated source-texture receipts on the host ABI",
+                "Prove ordinary selected source-texture receipts on the host ABI",
+                "ror_ogre14_authenticated_texture_receipt",
+            ),
+            (
+                "Prove ordinary selected source-texture receipts on the host ABI",
+                "Prove the game-host stream and native pipe half-close contract",
+                "ror_ogre14_selected_texture_source",
+            ),
+        )
+
+        def require_focused_gate(step: str, test_name: str) -> None:
+            self.assertEqual(step.count(f"-R '^{test_name}$'"), 1)
+            self.assertEqual(step.count("--no-tests=error"), 1)
+
+        for step_name, next_step_name, test_name in focused_source_gates:
+            with self.subTest(focused_source_gate=test_name):
+                start = self.workflow.index(f"- name: {step_name}")
+                end = self.workflow.index(f"- name: {next_step_name}", start)
+                step = self.workflow[start:end]
+                require_focused_gate(step, test_name)
+                for mutant in (
+                    step.replace("--no-tests=error", "", 1),
+                    step.replace(f"-R '^{test_name}$'", "", 1),
+                    step.replace(f"-R '^{test_name}$'", f"-R '{test_name}'", 1),
+                ):
+                    with self.assertRaises(AssertionError):
+                        require_focused_gate(mutant, test_name)
         self.assertIn(
             "ror_renderer_frontend_transport_dispatcher_tests",
             native_cmake,

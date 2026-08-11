@@ -161,6 +161,10 @@ private:
                                        m_ogre_next_demo_terrain_source;
     Gfx::Detail::OgreNextDemoMaterialSource
                                        m_ogre_next_demo_material_source;
+    // Stable active-coverage digest. Identical cached matte/projected frames
+    // do not flood the log; the first accepted inventory and any promotion or
+    // denominator/reason change are still emitted exactly once.
+    std::string                        m_ogre_next_demo_material_coverage_log_snapshot;
     // Map-generation identities reset at the explicit full-scene generation
     // release (and idempotently again in ClearScene), after the product session
     // has sequenced the preceding authoritative empty scene or terminal close.

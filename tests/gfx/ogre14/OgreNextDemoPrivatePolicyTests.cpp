@@ -149,12 +149,19 @@ void CheckConventionalSrgbPbrMipChain() {
   const std::vector<std::uint8_t> base_before =
       texture.mip_levels.front().bytes;
 
-  const ValidationResult result = CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  OgreNextDemoTextureNormalizationObservation normalization;
+  const ValidationResult result =
+      CompleteOgreNextDemoSrgbPbrMipChain(texture, &normalization);
   Require(result.ok(), "valid conventional sRGB PBR base was rejected");
   Require(texture.mip_levels.size() == 2U &&
               texture.mip_levels.back().width == 1U &&
               texture.mip_levels.back().height == 1U,
           "conventional sRGB PBR base was not completed through 1x1");
+  Require(normalization.policy_version ==
+                  kOgreNextDemoModernSourceNormalizationPolicyVersion &&
+              normalization.authored_mip_prefix_levels == 1U &&
+              normalization.generated_mip_tail_levels == 1U,
+          "modern normalization version or mip provenance changed");
   const std::array<std::uint8_t, 4U> expected{{188U, 146U, 137U, 255U}};
   Require(std::equal(expected.begin(), expected.end(),
                      texture.mip_levels[1U].bytes.begin()),
@@ -172,6 +179,20 @@ void CheckConventionalSrgbPbrMipChain() {
               "sRGB PBR base RGB byte changed");
     }
   }
+
+  TextureResourceDescriptor threshold = texture;
+  threshold.debug_name = "OgreNextDemo/TestSrgbThreshold";
+  threshold.mip_levels.resize(1U);
+  threshold.mip_levels.front() =
+      MakeMip(2U, 2U,
+              {0U, 0U, 0U, 255U, 0U, 0U, 0U, 255U, 0U, 0U, 0U, 255U, 174U, 174U,
+               174U, 255U});
+  Require(CompleteOgreNextDemoSrgbPbrMipChain(threshold).ok() &&
+              threshold.mip_levels[1U].bytes[0U] == 92U &&
+              threshold.mip_levels[1U].bytes[1U] == 92U &&
+              threshold.mip_levels[1U].bytes[2U] == 92U,
+          "standard sRGB half-code threshold quantization regressed to "
+          "nearest decoded-code midpoint");
 }
 
 void CheckConventionalSrgbPbrRollback() {
@@ -190,12 +211,20 @@ void CheckConventionalSrgbPbrRollback() {
   texture.mip_levels.push_back(
       MakeMip(2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 31U)));
   const TextureResourceDescriptor extra_before = texture;
-  const ValidationResult extra = CompleteOgreNextDemoSrgbPbrMipChain(texture);
-  Require(!extra.ok() && texture.mip_levels.size() == 2U &&
-              texture.mip_levels[0U].bytes ==
-                  extra_before.mip_levels[0U].bytes &&
-              texture.mip_levels[1U].bytes == extra_before.mip_levels[1U].bytes,
-          "authored sRGB PBR nonzero mip was consumed or rewritten");
+  OgreNextDemoTextureNormalizationObservation normalization;
+  const ValidationResult extra =
+      CompleteOgreNextDemoSrgbPbrMipChain(texture, &normalization);
+  Require(extra.ok() && texture.mip_levels.size() == 3U &&
+              normalization.authored_mip_prefix_levels == 2U &&
+              normalization.generated_mip_tail_levels == 1U,
+          "valid authored sRGB PBR mip prefix was not preserved/completed");
+  for (std::size_t offset = 0U;
+       offset < extra_before.mip_levels[1U].bytes.size(); ++offset) {
+    Require(texture.mip_levels[1U].bytes[offset] ==
+                (offset % 4U == 3U ? 255U
+                                   : extra_before.mip_levels[1U].bytes[offset]),
+            "authored nonzero mip RGB changed or alpha was not normalized");
+  }
 }
 
 Ogre14DecodedSourceTexture DecodedSrgbMipPrefix() {
@@ -204,8 +233,8 @@ Ogre14DecodedSourceTexture DecodedSrgbMipPrefix() {
   decoded.width = native.width;
   decoded.height = native.height;
   // Model the generic decoder's canonical output for one authored multi-mip
-  // legacy DXT1 source. The product validates every decoded level but consumes
-  // only this base when regenerating its deterministic chain.
+  // legacy DXT1 source. The product preserves every decoded authored level
+  // and generates only a missing modern tail.
   decoded.source_format = Ogre14SourceTextureFormat::BC1_UNORM;
   decoded.color_semantic = Ogre14SourceTextureColorSemantic::SRGB_COLOR;
   decoded.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
@@ -219,32 +248,31 @@ Ogre14DecodedSourceTexture DecodedSrgbMipPrefix() {
   return decoded;
 }
 
-void CheckDecodedSourceUsesOnlyDeterministicBase() {
-  TextureResourceDescriptor expected = NativeBaseLevel();
-  Require(CompleteOgreNextDemoSrgbPbrMipChain(expected).ok(),
-          "test deterministic PBR chain could not be built");
-
+void CheckDecodedSourcePreservesAuthoredMipPrefix() {
   Ogre14DecodedSourceTexture decoded = DecodedSrgbMipPrefix();
-  const std::vector<std::uint8_t> authored_second =
-      decoded.mip_levels[1U].rgba8_unorm;
+  std::vector<std::vector<std::uint8_t>> authored;
+  for (const auto &mip : decoded.mip_levels) {
+    authored.push_back(mip.rgba8_unorm);
+  }
   TextureResourceDescriptor output;
+  OgreNextDemoTextureNormalizationObservation normalization;
   const ValidationResult result =
-      BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
-          std::move(decoded), 4U, 4U, "decoded/multi-mip", output);
+      BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(std::move(decoded), 4U,
+                                                       4U, "decoded/multi-mip",
+                                                       output, &normalization);
   Require(result.ok() && output.debug_name == "decoded/multi-mip" &&
-              output.mip_levels.size() == expected.mip_levels.size(),
+              output.mip_levels.size() == 3U &&
+              normalization.authored_mip_prefix_levels == 3U &&
+              normalization.generated_mip_tail_levels == 0U,
           "valid decoded multi-mip source was not lowered");
   for (std::size_t level = 0U; level < output.mip_levels.size(); ++level) {
-    Require(output.mip_levels[level].bytes == expected.mip_levels[level].bytes,
-            "authored nonzero source mip changed deterministic PBR output");
-    for (std::size_t alpha = 3U; alpha < output.mip_levels[level].bytes.size();
-         alpha += 4U) {
-      Require(output.mip_levels[level].bytes[alpha] == 255U,
-              "decoded-source PBR output retained nonopaque alpha");
+    for (std::size_t offset = 0U;
+         offset < output.mip_levels[level].bytes.size(); ++offset) {
+      Require(output.mip_levels[level].bytes[offset] ==
+                  (offset % 4U == 3U ? 255U : authored[level][offset]),
+              "authored decoded mip RGB changed or alpha stayed nonopaque");
     }
   }
-  Require(output.mip_levels[1U].bytes != authored_second,
-          "authored nonzero source mip was published instead of regenerated");
 }
 
 void CheckDecodedSourceFailureRollback() {
@@ -348,6 +376,21 @@ void CheckTextureSourceSelectionContract() {
               selection.exclusion == OgreNextDemoTextureProjectionExclusion::
                                          ORDINARY_SELECTED_SOURCE_UNAVAILABLE,
           "honestly unregistered ordinary group was not explicitly matted");
+
+  const ValidationResult ordinary_package_absent =
+      SelectOgreNextDemoTextureSourceMode(
+          false, false, ValidationResult::Success(),
+          OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+          true,
+          ValidationResult::Failure(
+              ValidationCode::MISSING_REFERENCE,
+              "selected_texture_resolution.package_marker",
+              "resource group has no ordinary package marker"),
+          selection);
+  Require(ordinary_package_absent.ok() && !selection.selected &&
+              selection.exclusion == OgreNextDemoTextureProjectionExclusion::
+                                         ORDINARY_SELECTED_SOURCE_UNAVAILABLE,
+          "honestly absent ordinary package marker was not retryable matte");
 
   const std::array<ValidationResult, 7U> terminal_ordinary_failures{{
       missing_receipt,
@@ -526,6 +569,9 @@ void CheckSourceAccountingAndEligibility() {
               .ok() &&
           counters.source_decode_rejections == 2U &&
           counters.source_exclusions == 3U &&
+          counters.candidate_sections == 3U &&
+          counters.projected_sections == 0U &&
+          counters.matte_excluded_sections == 3U &&
           counters.exclusions_by_reason[static_cast<std::size_t>(
               OgreNextDemoTextureProjectionExclusion::
                   UNSUPPORTED_SOURCE_CONTAINER)] == 1U &&
@@ -614,6 +660,18 @@ void CheckSourceAccountingAndEligibility() {
               before.ordinary_observed_source_decodes &&
           committed.gpu_readbacks == 0U,
       "GPU-readback accounting bypassed the zero gate or partially committed");
+
+  OgreNextDemoTextureSourceCounters broken_denominator = counters;
+  --broken_denominator.candidate_sections;
+  const OgreNextDemoTextureSourceCounters denominator_before = committed;
+  Require(!AccumulateOgreNextDemoTextureSourceCounters(broken_denominator,
+                                                       committed)
+                  .ok() &&
+              committed.candidate_sections ==
+                  denominator_before.candidate_sections &&
+              committed.matte_excluded_sections ==
+                  denominator_before.matte_excluded_sections,
+          "corrupt candidate/projected/matte equation partially committed");
 }
 
 void CheckExactSamplerMappingAndFingerprint() {
@@ -691,6 +749,61 @@ void CheckExactSamplerMappingAndFingerprint() {
   mutation.border_color[2U] = 0.75F;
   Require(!MatchOgreNextDemoExactSamplerObservation(observation, mutation),
           "exact border color escaped sampler fingerprint");
+}
+
+void CheckExactTextureFingerprint() {
+  OgreNextDemoExactTextureObservation observation;
+  observation.texture_unit_gamma = 1.25F;
+  observation.texture_gamma = 0.75F;
+  observation.texture_unit_hardware_gamma = false;
+  observation.texture_hardware_gamma = true;
+  observation.additional_mip_count = 2U;
+  observation.actual_mip_count = 3U;
+  observation.mipmaps_hardware_generated = true;
+  observation.usage_token = 17U;
+  observation.source_width = 8U;
+  observation.source_height = 4U;
+  observation.source_depth = 1U;
+  observation.source_format_token = 21U;
+  observation.output_width = 8U;
+  observation.output_height = 4U;
+  observation.output_depth = 1U;
+  observation.output_format_token = 22U;
+  observation.face_count = 1U;
+  observation.texture_type_token = 2U;
+  Require(
+      ValidateOgreNextDemoExactTextureObservation(observation).ok() &&
+          MatchOgreNextDemoExactTextureObservation(observation, observation),
+      "valid exact gamma/mip/source/output observation was rejected");
+
+  const auto require_mutation = [&observation](auto mutate) {
+    OgreNextDemoExactTextureObservation changed = observation;
+    mutate(changed);
+    Require(!MatchOgreNextDemoExactTextureObservation(observation, changed),
+            "native gamma/mip/source/output mutation escaped fingerprint");
+  };
+  require_mutation([](auto &value) { value.texture_unit_gamma = 1.0F; });
+  require_mutation([](auto &value) { value.texture_gamma = 1.0F; });
+  require_mutation([](auto &value) { value.texture_hardware_gamma = false; });
+  require_mutation([](auto &value) { value.additional_mip_count = 3U; });
+  require_mutation(
+      [](auto &value) { value.mipmaps_hardware_generated = false; });
+  require_mutation([](auto &value) { value.usage_token ^= 4U; });
+  require_mutation([](auto &value) { value.source_width = 16U; });
+  require_mutation([](auto &value) { value.source_format_token = 23U; });
+  require_mutation([](auto &value) { value.output_height = 8U; });
+  require_mutation([](auto &value) { value.output_format_token = 24U; });
+  require_mutation([](auto &value) { value.face_count = 2U; });
+  require_mutation([](auto &value) { value.texture_type_token = 3U; });
+
+  OgreNextDemoExactTextureObservation invalid = observation;
+  invalid.actual_mip_count = 2U;
+  Require(!ValidateOgreNextDemoExactTextureObservation(invalid).ok(),
+          "inconsistent actual/additional native mip counts were accepted");
+  invalid = observation;
+  invalid.texture_gamma = (std::numeric_limits<float>::quiet_NaN)();
+  Require(!ValidateOgreNextDemoExactTextureObservation(invalid).ok(),
+          "nonfinite native texture gamma was accepted");
 }
 
 struct FrozenPublicationCatalog final {
@@ -1214,12 +1327,13 @@ int main() {
   CheckMalformedMipRollback();
   CheckConventionalSrgbPbrMipChain();
   CheckConventionalSrgbPbrRollback();
-  CheckDecodedSourceUsesOnlyDeterministicBase();
+  CheckDecodedSourcePreservesAuthoredMipPrefix();
   CheckDecodedSourceFailureRollback();
   CheckTextureSourceSelectionContract();
   CheckCachedSourceReachabilitySequence();
   CheckSourceAccountingAndEligibility();
   CheckExactSamplerMappingAndFingerprint();
+  CheckExactTextureFingerprint();
   CheckCachedPublicationTransactionSequence();
   CheckSamplingRejectionsAndMutation();
   CheckIdentityCollisionAndRollback();

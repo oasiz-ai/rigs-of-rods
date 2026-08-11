@@ -49,6 +49,20 @@ CONAN_SOURCE_FALLBACK = (
     'core.sources:download_urls=["origin", '
     '"https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]'
 )
+AUTOMATIC_TEXTURE_BUILD_STEP = (
+    "Build automatic texture native lifecycle gate"
+)
+AUTOMATIC_TEXTURE_TEST_STEP = "Run exact automatic texture host gates"
+AUTOMATIC_TEXTURE_NATIVE_TARGET = (
+    "ror_ogre_next_demo_material_source_native_tests"
+)
+AUTOMATIC_TEXTURE_HOST_TESTS = (
+    "ogre14_source_texture_decoder",
+    "ogre14_authenticated_texture_receipt",
+    "ogre14_selected_texture_source",
+    "ogre_next_demo_material_source_native",
+    "ogre14_authenticated_material_script_native_integration",
+)
 
 EXPECTED_PLUGINS = {
     "linux-x86_64": (
@@ -110,6 +124,121 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         )
         cls.test_cmake_text = TEST_CMAKE.read_text(encoding="utf-8")
 
+    def workflow_step(self, text: str, name: str) -> str:
+        matches = tuple(
+            re.finditer(
+                rf"(?ms)^      - name: {re.escape(name)}$.*?"
+                r"(?=^      - (?:name:|uses:)|\Z)",
+                text,
+            )
+        )
+        self.assertEqual(
+            len(matches),
+            1,
+            msg=f"expected one workflow step named {name!r}",
+        )
+        return matches[0].group(0)
+
+    def mutate_workflow_step(
+        self,
+        text: str,
+        name: str,
+        old: str,
+        new: str,
+    ) -> str:
+        step = self.workflow_step(text, name)
+        self.assertEqual(
+            step.count(old),
+            1,
+            msg=f"mutation input is not unique in {name!r}: {old!r}",
+        )
+        mutated_step = step.replace(old, new, 1)
+        return text.replace(step, mutated_step, 1)
+
+    def assert_automatic_texture_host_gate_contract(
+        self,
+        text: str,
+        build_directory: str,
+    ) -> None:
+        build_step = self.workflow_step(
+            text,
+            AUTOMATIC_TEXTURE_BUILD_STEP,
+        )
+        self.assertEqual(
+            tuple(
+                line.strip()
+                for line in build_step.splitlines()
+                if line.strip().startswith("--target ")
+            ),
+            (f"--target {AUTOMATIC_TEXTURE_NATIVE_TARGET}",),
+        )
+        self.assertEqual(
+            build_step.count(f'--build "{build_directory}"'),
+            1,
+        )
+        self.assertEqual(build_step.count("--config Release"), 1)
+
+        test_step = self.workflow_step(
+            text,
+            AUTOMATIC_TEXTURE_TEST_STEP,
+        )
+        commands = tuple(
+            re.findall(
+                r"(?ms)^          ctest \\\n.*?"
+                r"(?=^          ctest \\\n|\Z)",
+                test_step,
+            )
+        )
+        self.assertEqual(len(commands), len(AUTOMATIC_TEXTURE_HOST_TESTS))
+        self.assertEqual(
+            test_step.count("--no-tests=error"),
+            len(AUTOMATIC_TEXTURE_HOST_TESTS),
+        )
+        self.assertNotRegex(test_step, r"-R\s+['\"][^'\"]*\|")
+
+        for command, test_name in zip(
+            commands,
+            AUTOMATIC_TEXTURE_HOST_TESTS,
+        ):
+            self.assertEqual(
+                command.count(f'--test-dir "{build_directory}"'),
+                1,
+            )
+            self.assertEqual(
+                command.count("--build-config Release"),
+                1,
+            )
+            self.assertEqual(
+                command.count("--output-on-failure"),
+                1,
+            )
+            self.assertEqual(
+                command.count("--no-tests=error"),
+                1,
+            )
+            self.assertEqual(command.count("-R "), 1)
+            self.assertEqual(
+                command.count(f"-R '^{test_name}$'"),
+                1,
+            )
+
+    def automatic_texture_combined_gate_step(
+        self,
+        build_directory: str,
+    ) -> str:
+        combined = "|".join(AUTOMATIC_TEXTURE_HOST_TESTS)
+        return (
+            f"      - name: {AUTOMATIC_TEXTURE_TEST_STEP}\n"
+            "        shell: bash\n"
+            "        run: |\n"
+            "          ctest \\\n"
+            f'            --test-dir "{build_directory}" \\\n'
+            "            --build-config Release \\\n"
+            "            --output-on-failure \\\n"
+            "            --no-tests=error \\\n"
+            f"            -R '^({combined})$'\n\n"
+        )
+
     def assert_conan_source_fallback_contract(self, text: str) -> None:
         self.assertEqual(text.count("core.sources:download_urls="), 1)
         self.assertEqual(text.count(CONAN_SOURCE_FALLBACK), 1)
@@ -151,6 +280,127 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             with self.subTest(contract=contract):
                 self.assertIn(contract, text)
         self.assertNotIn("runner: windows-2025", text)
+
+    def test_automatic_texture_gates_use_exact_registered_test_names(
+        self,
+    ) -> None:
+        workflows = (
+            (
+                WORKFLOW.name,
+                self.text,
+                "build-ogre14-${{ matrix.platform }}",
+            ),
+            (MACOS_WORKFLOW.name, self.macos_text, "build-macos-ogre14"),
+        )
+        for workflow_name, text, build_directory in workflows:
+            with self.subTest(workflow=workflow_name):
+                self.assert_automatic_texture_host_gate_contract(
+                    text,
+                    build_directory,
+                )
+
+        for test_name in AUTOMATIC_TEXTURE_HOST_TESTS:
+            with self.subTest(registered_test=test_name):
+                self.assertEqual(
+                    len(
+                        re.findall(
+                            rf"(?m)^\s+NAME {re.escape(test_name)}$",
+                            self.test_cmake_text,
+                        )
+                    ),
+                    1,
+                )
+
+    def test_automatic_texture_gate_rejects_step_scoped_mutations(
+        self,
+    ) -> None:
+        workflows = (
+            (
+                WORKFLOW.name,
+                self.text,
+                "build-ogre14-${{ matrix.platform }}",
+            ),
+            (MACOS_WORKFLOW.name, self.macos_text, "build-macos-ogre14"),
+        )
+        for workflow_name, text, build_directory in workflows:
+            renamed_target = self.mutate_workflow_step(
+                text,
+                AUTOMATIC_TEXTURE_BUILD_STEP,
+                f"--target {AUTOMATIC_TEXTURE_NATIVE_TARGET}",
+                f"--target {AUTOMATIC_TEXTURE_NATIVE_TARGET}_wrong",
+            )
+            renamed_target += (
+                "\n# A matching token outside the named build step must not "
+                "satisfy the contract.\n"
+                f"# --target {AUTOMATIC_TEXTURE_NATIVE_TARGET}\n"
+            )
+
+            wrong_ctest_prefix = self.mutate_workflow_step(
+                text,
+                AUTOMATIC_TEXTURE_TEST_STEP,
+                "-R '^ogre14_source_texture_decoder$'",
+                "-R '^ror_ogre14_source_texture_decoder$'",
+            )
+            wrong_ctest_prefix += (
+                "\n# A matching regex outside the named test step must not "
+                "satisfy the contract.\n"
+                "# -R '^ogre14_source_texture_decoder$'\n"
+            )
+
+            missing_no_tests_error = self.mutate_workflow_step(
+                text,
+                AUTOMATIC_TEXTURE_TEST_STEP,
+                "--no-tests=error \\\n"
+                "            -R '^ogre14_source_texture_decoder$'",
+                "--no-tests=ignore \\\n"
+                "            -R '^ogre14_source_texture_decoder$'",
+            )
+            unanchored_regex = self.mutate_workflow_step(
+                text,
+                AUTOMATIC_TEXTURE_TEST_STEP,
+                "-R '^ogre14_selected_texture_source$'",
+                "-R 'ogre14_selected_texture_source'",
+            )
+            missing_lifecycle = self.mutate_workflow_step(
+                text,
+                AUTOMATIC_TEXTURE_TEST_STEP,
+                (
+                    "-R '^ogre14_authenticated_material_script_"
+                    "native_integration$'"
+                ),
+                "-R '^ogre14_authenticated_material_script_receipt$'",
+            )
+
+            exact_test_step = self.workflow_step(
+                text,
+                AUTOMATIC_TEXTURE_TEST_STEP,
+            )
+            combined_alternation = text.replace(
+                exact_test_step,
+                self.automatic_texture_combined_gate_step(
+                    build_directory,
+                ),
+                1,
+            )
+
+            mutations = (
+                ("target renamed outside-step shadow", renamed_target),
+                ("wrong CTest prefix outside-step shadow", wrong_ctest_prefix),
+                ("missing no-tests error", missing_no_tests_error),
+                ("unanchored regex", unanchored_regex),
+                ("missing ContentManager lifecycle", missing_lifecycle),
+                ("combined regex alternation", combined_alternation),
+            )
+            for mutation_name, mutated in mutations:
+                with self.subTest(
+                    workflow=workflow_name,
+                    mutation=mutation_name,
+                ):
+                    with self.assertRaises(AssertionError):
+                        self.assert_automatic_texture_host_gate_contract(
+                            mutated,
+                            build_directory,
+                        )
 
     def test_conan_graph_and_cache_are_locked_and_platform_isolated(
         self,

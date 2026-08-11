@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -36,22 +37,132 @@ std::uint32_t CompleteMipCount(std::uint32_t width,
   return count;
 }
 
-double DecodeSrgbByte(std::uint8_t encoded_byte) {
-  const double encoded = static_cast<double>(encoded_byte) / 255.0;
-  if (encoded <= 0.04045) {
-    return encoded / 12.92;
-  }
-  return std::pow((encoded + 0.055) / 1.055, 2.4);
-}
+// Frozen Q0.32 decode points for the 256 sRGB byte codes. This table is part
+// of modern source-normalization policy v2 and removes libm/compiler drift
+// from generated mip bytes.
+constexpr std::array<std::uint32_t, 256U> kSrgbLinearQ32 = {
+    0U,          1303638U,    2607277U,    3910915U,    5214554U,
+    6518192U,    7821831U,    9125469U,    10429108U,   11732746U,
+    13036385U,   14373262U,   15790479U,   17286028U,   18861100U,
+    20516859U,   22254445U,   24074974U,   25979540U,   27969217U,
+    30045058U,   32208097U,   34459351U,   36799819U,   39230483U,
+    41752310U,   44366252U,   47073245U,   49874213U,   52770066U,
+    55761699U,   58849999U,   62035836U,   65320072U,   68703557U,
+    72187129U,   75771618U,   79457840U,   83246606U,   87138715U,
+    91134956U,   95236110U,   99442951U,   103756241U,  108176738U,
+    112705190U,  117342336U,  122088910U,  126945637U,  131913236U,
+    136992419U,  142183890U,  147488347U,  152906483U,  158438983U,
+    164086527U,  169849787U,  175729433U,  181726125U,  187840520U,
+    194073270U,  200425020U,  206896410U,  213488075U,  220200647U,
+    227034750U,  233991006U,  241070029U,  248272432U,  255598822U,
+    263049800U,  270625965U,  278327911U,  286156227U,  294111500U,
+    302194310U,  310405235U,  318744849U,  327213722U,  335812420U,
+    344541505U,  353401536U,  362393069U,  371516655U,  380772844U,
+    390162179U,  399685202U,  409342452U,  419134464U,  429061771U,
+    439124900U,  449324378U,  459660727U,  470134468U,  480746117U,
+    491496188U,  502385192U,  513413639U,  524582032U,  535890876U,
+    547340670U,  558931911U,  570665096U,  582540715U,  594559259U,
+    606721215U,  619027069U,  631477301U,  644072393U,  656812821U,
+    669699062U,  682731588U,  695910869U,  709237375U,  722711571U,
+    736333921U,  750104887U,  764024929U,  778094504U,  792314068U,
+    806684074U,  821204974U,  835877217U,  850701250U,  865677518U,
+    880806466U,  896088534U,  911524162U,  927113788U,  942857848U,
+    958756776U,  974811004U,  991020962U,  1007387079U, 1023909783U,
+    1040589497U, 1057426646U, 1074421651U, 1091574933U, 1108886909U,
+    1126357997U, 1143988611U, 1161779166U, 1179730072U, 1197841740U,
+    1216114580U, 1234548997U, 1253145399U, 1271904188U, 1290825768U,
+    1309910539U, 1329158902U, 1348571255U, 1368147994U, 1387889515U,
+    1407796211U, 1427868476U, 1448106700U, 1468511273U, 1489082583U,
+    1509821018U, 1530726963U, 1551800803U, 1573042920U, 1594453696U,
+    1616033513U, 1637782748U, 1659701780U, 1681790986U, 1704050740U,
+    1726481418U, 1749083391U, 1771857033U, 1794802712U, 1817920800U,
+    1841211663U, 1864675668U, 1888313183U, 1912124570U, 1936110194U,
+    1960270418U, 1984605601U, 2009116105U, 2033802289U, 2058664510U,
+    2083703126U, 2108918491U, 2134310962U, 2159880890U, 2185628630U,
+    2211554532U, 2237658948U, 2263942226U, 2290404714U, 2317046762U,
+    2343868714U, 2370870916U, 2398053713U, 2425417448U, 2452962464U,
+    2480689102U, 2508597703U, 2536688606U, 2564962150U, 2593418672U,
+    2622058510U, 2650882000U, 2679889476U, 2709081272U, 2738457721U,
+    2768019156U, 2797765908U, 2827698308U, 2857816685U, 2888121367U,
+    2918612683U, 2949290959U, 2980156522U, 3011209696U, 3042450807U,
+    3073880178U, 3105498131U, 3137304989U, 3169301072U, 3201486702U,
+    3233862196U, 3266427875U, 3299184055U, 3332131054U, 3365269189U,
+    3398598774U, 3432120125U, 3465833555U, 3499739378U, 3533837906U,
+    3568129450U, 3602614323U, 3637292832U, 3672165289U, 3707232002U,
+    3742493279U, 3777949427U, 3813600752U, 3849447560U, 3885490157U,
+    3921728847U, 3958163932U, 3994795717U, 4031624504U, 4068650594U,
+    4105874287U, 4143295885U, 4180915686U, 4218733989U, 4256751093U,
+    4294967295U,
+};
 
-std::uint8_t EncodeLinearSrgbByte(double linear) {
-  const double encoded = linear <= 0.0031308
-                             ? linear * 12.92
-                             : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
-  const double scaled = (std::clamp)(encoded, 0.0, 1.0) * 255.0;
-  // All inputs are finite decoded bytes, so floor(x + 0.5) is an exact,
-  // deterministic round-to-nearest rule with ties resolved upward.
-  return static_cast<std::uint8_t>(std::floor(scaled + 0.5));
+// D((code + 0.5) / 255) in the same Q0.32 domain. These are the exact
+// round-to-nearest encoded-code decision boundaries for this frozen table;
+// equality selects the higher code.
+constexpr std::array<std::uint32_t, 255U> kSrgbEncodeBoundaryQ32 = {
+    651819U,     1955458U,    3259096U,    4562735U,    5866373U,
+    7170012U,    8473650U,    9777289U,    11080927U,   12384565U,
+    13693648U,   15072154U,   16528387U,   18063550U,   19678822U,
+    21375353U,   23154272U,   25016685U,   26963673U,   28996302U,
+    31115614U,   33322635U,   35618372U,   38003816U,   40479942U,
+    43047708U,   45708059U,   48461925U,   51310223U,   54253854U,
+    57293711U,   60430671U,   63665601U,   66999356U,   70432780U,
+    73966707U,   77601961U,   81339355U,   85179693U,   89123770U,
+    93172370U,   97326272U,   101586242U,  105953042U,  110427423U,
+    115010130U,  119701899U,  124503459U,  129415533U,  134438835U,
+    139574074U,  144821952U,  150183162U,  155658395U,  161248332U,
+    166953650U,  172775020U,  178713107U,  184768569U,  190942060U,
+    197234230U,  203645720U,  210177168U,  216829209U,  223602468U,
+    230497570U,  237515133U,  244655770U,  251920091U,  259308700U,
+    266822197U,  274461179U,  282226236U,  290117958U,  298136927U,
+    306283722U,  314558920U,  322963093U,  331496807U,  340160629U,
+    348955117U,  357880830U,  366938321U,  376128140U,  385450834U,
+    394906945U,  404497015U,  414221580U,  424081173U,  434076324U,
+    444207562U,  454475411U,  464880391U,  475423022U,  486103818U,
+    496923292U,  507881954U,  518980311U,  530218866U,  541598123U,
+    553118578U,  564780730U,  576585070U,  588532091U,  600622280U,
+    612856125U,  625234107U,  637756710U,  650424410U,  663237686U,
+    676197010U,  689302855U,  702555690U,  715955982U,  729504197U,
+    743200798U,  757046245U,  771040996U,  785185509U,  799480238U,
+    813925634U,  828522150U,  843270232U,  858170327U,  873222879U,
+    888428332U,  903787126U,  919299698U,  934966487U,  950787927U,
+    966764450U,  982896490U,  999184474U,  1015628831U, 1032229987U,
+    1048988366U, 1065904391U, 1082978482U, 1100211058U, 1117602538U,
+    1135153338U, 1152863870U, 1170734549U, 1188765785U, 1206957988U,
+    1225311566U, 1243826925U, 1262504470U, 1281344604U, 1300347730U,
+    1319514247U, 1338844555U, 1358339051U, 1377998132U, 1397822191U,
+    1417811623U, 1437966818U, 1458288168U, 1478776061U, 1499430886U,
+    1520253028U, 1541242872U, 1562400803U, 1583727202U, 1605222451U,
+    1626886929U, 1648721016U, 1670725088U, 1692899521U, 1715244690U,
+    1737760969U, 1760448730U, 1783308345U, 1806340182U, 1829544611U,
+    1852922000U, 1876472714U, 1900197120U, 1924095580U, 1948168458U,
+    1972416117U, 1996838916U, 2021437215U, 2046211373U, 2071161746U,
+    2096288693U, 2121592566U, 2147073722U, 2172732512U, 2198569289U,
+    2224584404U, 2250778207U, 2277151047U, 2303703272U, 2330435228U,
+    2357347262U, 2384439719U, 2411712942U, 2439167275U, 2466803059U,
+    2494620636U, 2522620345U, 2550802526U, 2579167517U, 2607715656U,
+    2636447278U, 2665362719U, 2694462313U, 2723746394U, 2753215295U,
+    2782869347U, 2812708882U, 2842734229U, 2872945717U, 2903343675U,
+    2933928430U, 2964700309U, 2995659637U, 3026806739U, 3058141940U,
+    3089665562U, 3121377927U, 3153279357U, 3185370174U, 3217650696U,
+    3250121242U, 3282782132U, 3315633683U, 3348676210U, 3381910031U,
+    3415335459U, 3448952811U, 3482762398U, 3516764534U, 3550959532U,
+    3585347701U, 3619929353U, 3654704798U, 3689674345U, 3724838301U,
+    3760196975U, 3795750673U, 3831499702U, 3867444366U, 3903584971U,
+    3939921821U, 3976455219U, 4013185467U, 4050112867U, 4087237721U,
+    4124560329U, 4162080991U, 4199800006U, 4237717672U, 4275834288U,
+};
+
+std::uint8_t EncodeSrgbQ32Average(std::uint64_t linear_sum) noexcept {
+  std::uint8_t best = 0U;
+  for (std::size_t index = 0U; index < kSrgbEncodeBoundaryQ32.size(); ++index) {
+    if (linear_sum >=
+        static_cast<std::uint64_t>(kSrgbEncodeBoundaryQ32[index]) * 4U) {
+      best = static_cast<std::uint8_t>(index + 1U);
+    } else {
+      break;
+    }
+  }
+  return best;
 }
 
 std::size_t SaturatingAdd(std::size_t lhs, std::size_t rhs) noexcept {
@@ -64,6 +175,21 @@ bool HasZeroGpuReadbacks(
   return counters.gpu_readbacks == 0U &&
          counters.authenticated_gpu_readbacks == 0U &&
          counters.unauthenticated_gpu_readbacks == 0U;
+}
+
+bool HasConsistentMaterialDenominators(
+    const OgreNextDemoTextureSourceCounters &counters) noexcept {
+  std::size_t exclusions = 0U;
+  for (std::size_t count : counters.exclusions_by_reason) {
+    exclusions = SaturatingAdd(exclusions, count);
+  }
+  return exclusions == counters.source_exclusions &&
+         exclusions == counters.matte_excluded_sections &&
+         counters.candidate_sections ==
+             SaturatingAdd(counters.projected_sections, exclusions) &&
+         counters.distinct_eligible_texture_keys ==
+             SaturatingAdd(counters.distinct_projected_texture_keys,
+                           counters.distinct_matte_only_texture_keys);
 }
 
 } // namespace
@@ -139,6 +265,10 @@ Render::ValidationResult RecordOgreNextDemoTextureProjectionExclusion(
   }
   OgreNextDemoTextureSourceCounters candidate = counters;
   candidate.source_exclusions = SaturatingAdd(candidate.source_exclusions, 1U);
+  candidate.candidate_sections =
+      SaturatingAdd(candidate.candidate_sections, 1U);
+  candidate.matte_excluded_sections =
+      SaturatingAdd(candidate.matte_excluded_sections, 1U);
   candidate.exclusions_by_reason[index] =
       SaturatingAdd(candidate.exclusions_by_reason[index], 1U);
   if (exclusion ==
@@ -152,6 +282,35 @@ Render::ValidationResult RecordOgreNextDemoTextureProjectionExclusion(
   return Render::ValidationResult::Success();
 }
 
+std::string_view OgreNextDemoTextureProjectionExclusionName(
+    OgreNextDemoTextureProjectionExclusion exclusion) noexcept {
+  constexpr std::array<std::string_view,
+                       kOgreNextDemoTextureProjectionExclusionCount>
+      names = {"none",
+               "source_unavailable",
+               "manual_or_procedural",
+               "render_target",
+               "cube_texture",
+               "volume_texture",
+               "non_2d",
+               "non_unit_depth",
+               "non_unit_face_count",
+               "dimension_out_of_range",
+               "ordinary_selected_source_unavailable",
+               "unsupported_source_container",
+               "unsupported_source_semantic",
+               "source_decode_rejected",
+               "missing_authored_uv0",
+               "material_structure_unsupported",
+               "material_state_unsupported",
+               "texture_unit_structure_unsupported",
+               "texture_unit_semantic_unsupported",
+               "sampler_state_unsupported",
+               "alexis_approximation_unsafe"};
+  const std::size_t index = static_cast<std::size_t>(exclusion);
+  return index < names.size() ? names[index] : std::string_view{"invalid"};
+}
+
 Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
     const OgreNextDemoTextureSourceCounters &increment,
     OgreNextDemoTextureSourceCounters &total) {
@@ -160,6 +319,13 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
         Render::ValidationCode::SEQUENCE_MISMATCH,
         "ogre_next_demo.material.source_accounting.gpu_readbacks",
         "material texture capture observed a forbidden GPU readback");
+  }
+  if (!HasConsistentMaterialDenominators(increment) ||
+      !HasConsistentMaterialDenominators(total)) {
+    return Failure(
+        Render::ValidationCode::SEQUENCE_MISMATCH,
+        "ogre_next_demo.material.source_accounting.denominator",
+        "candidate sections must equal projected plus every named matte");
   }
   OgreNextDemoTextureSourceCounters candidate = total;
   candidate.authenticated_archive_source_decodes =
@@ -188,6 +354,93 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
                     increment.authenticated_source_decodes);
   candidate.projections =
       SaturatingAdd(candidate.projections, increment.projections);
+  candidate.new_frozen_material_decisions =
+      SaturatingAdd(candidate.new_frozen_material_decisions,
+                    increment.new_frozen_material_decisions);
+  candidate.candidate_sections =
+      SaturatingAdd(candidate.candidate_sections, increment.candidate_sections);
+  candidate.projected_sections =
+      SaturatingAdd(candidate.projected_sections, increment.projected_sections);
+  candidate.matte_excluded_sections = SaturatingAdd(
+      candidate.matte_excluded_sections, increment.matte_excluded_sections);
+  candidate.distinct_eligible_texture_keys =
+      SaturatingAdd(candidate.distinct_eligible_texture_keys,
+                    increment.distinct_eligible_texture_keys);
+  candidate.distinct_projected_texture_keys =
+      SaturatingAdd(candidate.distinct_projected_texture_keys,
+                    increment.distinct_projected_texture_keys);
+  candidate.distinct_matte_only_texture_keys =
+      SaturatingAdd(candidate.distinct_matte_only_texture_keys,
+                    increment.distinct_matte_only_texture_keys);
+  candidate.modern_source_normalizations =
+      SaturatingAdd(candidate.modern_source_normalizations,
+                    increment.modern_source_normalizations);
+  candidate.authored_mip_prefix_levels =
+      SaturatingAdd(candidate.authored_mip_prefix_levels,
+                    increment.authored_mip_prefix_levels);
+  candidate.generated_mip_tail_levels = SaturatingAdd(
+      candidate.generated_mip_tail_levels, increment.generated_mip_tail_levels);
+  candidate.normalized_output_mip_levels =
+      SaturatingAdd(candidate.normalized_output_mip_levels,
+                    increment.normalized_output_mip_levels);
+  candidate.legacy_native_additional_mip_levels =
+      SaturatingAdd(candidate.legacy_native_additional_mip_levels,
+                    increment.legacy_native_additional_mip_levels);
+  candidate.legacy_texture_unit_gamma_nonunit_observations =
+      SaturatingAdd(candidate.legacy_texture_unit_gamma_nonunit_observations,
+                    increment.legacy_texture_unit_gamma_nonunit_observations);
+  candidate.legacy_texture_gamma_nonunit_observations =
+      SaturatingAdd(candidate.legacy_texture_gamma_nonunit_observations,
+                    increment.legacy_texture_gamma_nonunit_observations);
+  candidate.legacy_texture_unit_hardware_gamma_off_observations = SaturatingAdd(
+      candidate.legacy_texture_unit_hardware_gamma_off_observations,
+      increment.legacy_texture_unit_hardware_gamma_off_observations);
+  candidate.legacy_hardware_gamma_off_observations =
+      SaturatingAdd(candidate.legacy_hardware_gamma_off_observations,
+                    increment.legacy_hardware_gamma_off_observations);
+  candidate.legacy_automipmap_observations =
+      SaturatingAdd(candidate.legacy_automipmap_observations,
+                    increment.legacy_automipmap_observations);
+  candidate.active_texture_state_observations =
+      SaturatingAdd(candidate.active_texture_state_observations,
+                    increment.active_texture_state_observations);
+  candidate.active_authored_mip_prefix_levels =
+      SaturatingAdd(candidate.active_authored_mip_prefix_levels,
+                    increment.active_authored_mip_prefix_levels);
+  candidate.active_generated_mip_tail_levels =
+      SaturatingAdd(candidate.active_generated_mip_tail_levels,
+                    increment.active_generated_mip_tail_levels);
+  candidate.active_normalized_output_mip_levels =
+      SaturatingAdd(candidate.active_normalized_output_mip_levels,
+                    increment.active_normalized_output_mip_levels);
+  candidate.active_legacy_native_additional_mip_levels =
+      SaturatingAdd(candidate.active_legacy_native_additional_mip_levels,
+                    increment.active_legacy_native_additional_mip_levels);
+  candidate.active_legacy_texture_unit_gamma_nonunit_observations =
+      SaturatingAdd(
+          candidate.active_legacy_texture_unit_gamma_nonunit_observations,
+          increment.active_legacy_texture_unit_gamma_nonunit_observations);
+  candidate.active_legacy_texture_gamma_nonunit_observations =
+      SaturatingAdd(candidate.active_legacy_texture_gamma_nonunit_observations,
+                    increment.active_legacy_texture_gamma_nonunit_observations);
+  candidate.active_legacy_texture_unit_hardware_gamma_off_observations =
+      SaturatingAdd(
+          candidate.active_legacy_texture_unit_hardware_gamma_off_observations,
+          increment.active_legacy_texture_unit_hardware_gamma_off_observations);
+  candidate.active_legacy_hardware_gamma_off_observations =
+      SaturatingAdd(candidate.active_legacy_hardware_gamma_off_observations,
+                    increment.active_legacy_hardware_gamma_off_observations);
+  candidate.active_legacy_automipmap_observations =
+      SaturatingAdd(candidate.active_legacy_automipmap_observations,
+                    increment.active_legacy_automipmap_observations);
+  candidate.lossy_material_normalizations =
+      SaturatingAdd(candidate.lossy_material_normalizations,
+                    increment.lossy_material_normalizations);
+  if (!HasConsistentMaterialDenominators(candidate)) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.material.source_accounting.denominator",
+                   "accumulated candidate denominator became inconsistent");
+  }
   total = std::move(candidate);
   return Render::ValidationResult::Success();
 }
@@ -234,6 +487,65 @@ bool MatchOgreNextDemoExactSamplerObservation(
          left.compare_enabled == right.compare_enabled &&
          left.compare_function_token == right.compare_function_token &&
          left.border_color == right.border_color;
+}
+
+Render::ValidationResult ValidateOgreNextDemoExactTextureObservation(
+    const OgreNextDemoExactTextureObservation &observation) {
+  if (!std::isfinite(observation.texture_unit_gamma) ||
+      !std::isfinite(observation.texture_gamma)) {
+    return Failure(Render::ValidationCode::NON_FINITE_VALUE,
+                   "ogre_next_demo.material.texture.native_gamma",
+                   "native TUS/texture gamma must be finite provenance");
+  }
+  if (observation.additional_mip_count ==
+          (std::numeric_limits<std::uint32_t>::max)() ||
+      observation.actual_mip_count != observation.additional_mip_count + 1U) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.material.texture.native_mip_count",
+                   "actual mip count must include the base plus all additional "
+                   "native levels");
+  }
+  if (observation.source_width == 0U || observation.source_height == 0U ||
+      observation.source_depth == 0U || observation.output_width == 0U ||
+      observation.output_height == 0U || observation.output_depth == 0U ||
+      observation.face_count == 0U) {
+    return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                   "ogre_next_demo.material.texture.native_dimensions",
+                   "native source/output dimensions and faces must be nonzero");
+  }
+  return Render::ValidationResult::Success();
+}
+
+bool MatchOgreNextDemoExactTextureObservation(
+    const OgreNextDemoExactTextureObservation &left,
+    const OgreNextDemoExactTextureObservation &right) noexcept {
+  const auto same_float_bits = [](float lhs, float rhs) noexcept {
+    std::uint32_t lhs_bits = 0U;
+    std::uint32_t rhs_bits = 0U;
+    static_assert(sizeof(lhs_bits) == sizeof(lhs));
+    std::memcpy(&lhs_bits, &lhs, sizeof(lhs_bits));
+    std::memcpy(&rhs_bits, &rhs, sizeof(rhs_bits));
+    return lhs_bits == rhs_bits;
+  };
+  return same_float_bits(left.texture_unit_gamma, right.texture_unit_gamma) &&
+         same_float_bits(left.texture_gamma, right.texture_gamma) &&
+         left.texture_unit_hardware_gamma ==
+             right.texture_unit_hardware_gamma &&
+         left.texture_hardware_gamma == right.texture_hardware_gamma &&
+         left.additional_mip_count == right.additional_mip_count &&
+         left.actual_mip_count == right.actual_mip_count &&
+         left.mipmaps_hardware_generated == right.mipmaps_hardware_generated &&
+         left.usage_token == right.usage_token &&
+         left.source_width == right.source_width &&
+         left.source_height == right.source_height &&
+         left.source_depth == right.source_depth &&
+         left.source_format_token == right.source_format_token &&
+         left.output_width == right.output_width &&
+         left.output_height == right.output_height &&
+         left.output_depth == right.output_depth &&
+         left.output_format_token == right.output_format_token &&
+         left.face_count == right.face_count &&
+         left.texture_type_token == right.texture_type_token;
 }
 
 Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
@@ -570,7 +882,9 @@ Render::ValidationResult SelectOgreNextDemoTextureSourceMode(
         (ordinary_resolution_result.field ==
              "selected_texture_registry.resource_lookup" ||
          ordinary_resolution_result.field ==
-             "selected_texture_resolution.group_generation");
+             "selected_texture_resolution.group_generation" ||
+         ordinary_resolution_result.field ==
+             "selected_texture_resolution.package_marker");
     if (!honestly_absent) {
       return ordinary_resolution_result;
     }
@@ -793,47 +1107,59 @@ CompleteOgreNextDemoOpaqueMipChain(Render::TextureResourceDescriptor &texture) {
 }
 
 Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
-    Render::TextureResourceDescriptor &texture) {
+    Render::TextureResourceDescriptor &texture,
+    OgreNextDemoTextureNormalizationObservation *observation) {
   if (texture.type != Render::TextureResourceType::TEXTURE_2D ||
       texture.format != Render::TextureResourceFormat::RGBA8_UNORM ||
       texture.color_space != Render::TextureColorSpace::SRGB ||
       texture.array_layers != 1U || texture.width == 0U ||
-      texture.height == 0U || texture.mip_levels.size() != 1U) {
+      texture.height == 0U || texture.mip_levels.empty() ||
+      texture.mip_levels.size() >
+          CompleteMipCount(texture.width, texture.height)) {
     return Failure(Render::ValidationCode::SIZE_MISMATCH,
                    "ogre_next_demo.material.texture.full_mip_chain",
-                   "sRGB PBR lowering requires exactly one fresh SRGB RGBA8 2D "
-                   "base level");
+                   "sRGB PBR lowering requires a canonical nonempty authored "
+                   "SRGB RGBA8 2D mip prefix");
   }
 
-  const Render::TextureMipLevelDescriptor &base = texture.mip_levels.front();
-  const std::uint64_t row_bytes =
-      static_cast<std::uint64_t>(texture.width) * 4U;
-  if (texture.height != 0U &&
-      row_bytes >
-          (std::numeric_limits<std::uint64_t>::max)() / texture.height) {
-    return Failure(Render::ValidationCode::SIZE_MISMATCH,
-                   "ogre_next_demo.material.texture.mip_layout",
-                   "RGBA8 base-level byte count overflows", 0U);
-  }
-  const std::uint64_t layer_bytes = row_bytes * texture.height;
-  if (layer_bytes > static_cast<std::uint64_t>(
-                        (std::numeric_limits<std::size_t>::max)()) ||
-      base.width != texture.width || base.height != texture.height ||
-      base.row_pitch_bytes != row_bytes ||
-      base.layer_pitch_bytes != layer_bytes ||
-      base.bytes.size() != static_cast<std::size_t>(layer_bytes)) {
-    return Failure(
-        Render::ValidationCode::SIZE_MISMATCH,
-        "ogre_next_demo.material.texture.mip_layout",
-        "sRGB PBR lowering requires an exact tight RGBA8 base layout", 0U);
+  std::uint32_t expected_width = texture.width;
+  std::uint32_t expected_height = texture.height;
+  for (std::size_t level = 0U; level < texture.mip_levels.size(); ++level) {
+    const Render::TextureMipLevelDescriptor &mip = texture.mip_levels[level];
+    const std::uint64_t row_bytes =
+        static_cast<std::uint64_t>(expected_width) * 4U;
+    if (expected_height != 0U &&
+        row_bytes >
+            (std::numeric_limits<std::uint64_t>::max)() / expected_height) {
+      return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                     "ogre_next_demo.material.texture.mip_layout",
+                     "RGBA8 authored mip byte count overflows", level);
+    }
+    const std::uint64_t layer_bytes = row_bytes * expected_height;
+    if (layer_bytes > static_cast<std::uint64_t>(
+                          (std::numeric_limits<std::size_t>::max)()) ||
+        mip.width != expected_width || mip.height != expected_height ||
+        mip.row_pitch_bytes != row_bytes ||
+        mip.layer_pitch_bytes != layer_bytes ||
+        mip.bytes.size() != static_cast<std::size_t>(layer_bytes)) {
+      return Failure(
+          Render::ValidationCode::SIZE_MISMATCH,
+          "ogre_next_demo.material.texture.mip_layout",
+          "sRGB PBR lowering requires an exact tight authored mip prefix",
+          level);
+    }
+    expected_width = (std::max)(1U, expected_width / 2U);
+    expected_height = (std::max)(1U, expected_height / 2U);
   }
 
-  // Work on a complete candidate so every validation failure leaves the
-  // caller's freshly read native base byte-for-byte unchanged.
+  const std::size_t authored_mip_count = texture.mip_levels.size();
+  // Work on a complete candidate so every validation failure leaves every
+  // authored source level byte-for-byte unchanged.
   Render::TextureResourceDescriptor candidate = texture;
-  for (std::size_t alpha = 3U;
-       alpha < candidate.mip_levels.front().bytes.size(); alpha += 4U) {
-    candidate.mip_levels.front().bytes[alpha] = 255U;
+  for (Render::TextureMipLevelDescriptor &mip : candidate.mip_levels) {
+    for (std::size_t alpha = 3U; alpha < mip.bytes.size(); alpha += 4U) {
+      mip.bytes[alpha] = 255U;
+    }
   }
 
   while (candidate.mip_levels.size() <
@@ -878,14 +1204,17 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
             static_cast<std::size_t>(y) * destination.row_pitch_bytes +
             static_cast<std::size_t>(x) * 4U;
         for (std::size_t channel = 0U; channel < 3U; ++channel) {
-          const double linear_average =
-              (DecodeSrgbByte(source.bytes[offsets[0U] + channel]) +
-               DecodeSrgbByte(source.bytes[offsets[1U] + channel]) +
-               DecodeSrgbByte(source.bytes[offsets[2U] + channel]) +
-               DecodeSrgbByte(source.bytes[offsets[3U] + channel])) /
-              4.0;
+          const std::uint64_t linear_sum =
+              static_cast<std::uint64_t>(
+                  kSrgbLinearQ32[source.bytes[offsets[0U] + channel]]) +
+              static_cast<std::uint64_t>(
+                  kSrgbLinearQ32[source.bytes[offsets[1U] + channel]]) +
+              static_cast<std::uint64_t>(
+                  kSrgbLinearQ32[source.bytes[offsets[2U] + channel]]) +
+              static_cast<std::uint64_t>(
+                  kSrgbLinearQ32[source.bytes[offsets[3U] + channel]]);
           destination.bytes[output + channel] =
-              EncodeLinearSrgbByte(linear_average);
+              EncodeSrgbQ32Average(linear_sum);
         }
         destination.bytes[output + 3U] = 255U;
       }
@@ -899,14 +1228,24 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
     validation.field = "ogre_next_demo.material.texture." + validation.field;
     return validation;
   }
+  OgreNextDemoTextureNormalizationObservation candidate_observation;
+  candidate_observation.policy_version =
+      kOgreNextDemoModernSourceNormalizationPolicyVersion;
+  candidate_observation.authored_mip_prefix_levels = authored_mip_count;
+  candidate_observation.generated_mip_tail_levels =
+      candidate.mip_levels.size() - authored_mip_count;
   texture = std::move(candidate);
+  if (observation != nullptr) {
+    *observation = candidate_observation;
+  }
   return Render::ValidationResult::Success();
 }
 
 Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
     Render::Ogre14DecodedSourceTexture decoded,
     std::uint32_t expected_native_width, std::uint32_t expected_native_height,
-    std::string_view debug_name, Render::TextureResourceDescriptor &output) {
+    std::string_view debug_name, Render::TextureResourceDescriptor &output,
+    OgreNextDemoTextureNormalizationObservation *observation) {
   if (decoded.version != Render::kOgre14DecodedSourceTextureVersion ||
       decoded.width == 0U || decoded.height == 0U ||
       decoded.width != expected_native_width ||
@@ -957,15 +1296,6 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
     mip_height = (std::max)(1U, mip_height / 2U);
   }
 
-  Render::Ogre14DecodedSourceTextureMip &decoded_base =
-      decoded.mip_levels.front();
-  Render::TextureMipLevelDescriptor base;
-  base.width = decoded_base.width;
-  base.height = decoded_base.height;
-  base.row_pitch_bytes = decoded_base.row_pitch_bytes;
-  base.layer_pitch_bytes = decoded_base.slice_pitch_bytes;
-  base.bytes = std::move(decoded_base.rgba8_unorm);
-
   Render::TextureResourceDescriptor candidate;
   candidate.debug_name.assign(debug_name.data(), debug_name.size());
   candidate.type = Render::TextureResourceType::TEXTURE_2D;
@@ -974,13 +1304,21 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
   candidate.width = decoded.width;
   candidate.height = decoded.height;
   candidate.array_layers = 1U;
-  candidate.mip_levels.push_back(std::move(base));
+  candidate.mip_levels.reserve(decoded.mip_levels.size());
+  for (Render::Ogre14DecodedSourceTextureMip &decoded_mip :
+       decoded.mip_levels) {
+    Render::TextureMipLevelDescriptor mip;
+    mip.width = decoded_mip.width;
+    mip.height = decoded_mip.height;
+    mip.row_pitch_bytes = decoded_mip.row_pitch_bytes;
+    mip.layer_pitch_bytes = decoded_mip.slice_pitch_bytes;
+    mip.bytes = std::move(decoded_mip.rgba8_unorm);
+    candidate.mip_levels.push_back(std::move(mip));
+  }
 
-  // The full decoded prefix above is authoritative validation input. Only the
-  // base is product input; authored nonzero mips cannot change established
-  // CityWorld/Alexis deterministic PBR filtering semantics.
+  OgreNextDemoTextureNormalizationObservation candidate_observation;
   Render::ValidationResult validation =
-      CompleteOgreNextDemoSrgbPbrMipChain(candidate);
+      CompleteOgreNextDemoSrgbPbrMipChain(candidate, &candidate_observation);
   if (!validation) {
     return validation;
   }
@@ -991,6 +1329,9 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
     return validation;
   }
   output = std::move(candidate);
+  if (observation != nullptr) {
+    *observation = candidate_observation;
+  }
   return Render::ValidationResult::Success();
 }
 

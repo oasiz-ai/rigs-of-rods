@@ -189,6 +189,30 @@ public:
 
   ~TestTexture() override { ++destruction_count; }
 
+  void MutateMipState(std::uint32_t additional_mips, bool hardware_generated) {
+    mNumRequestedMipmaps = additional_mips;
+    mNumMipmaps = additional_mips;
+    mMipmapsHardwareGenerated = hardware_generated;
+  }
+
+  void MutateUsage(int usage) { mUsage = usage; }
+
+  void MutateSourceState(std::uint32_t width, std::uint32_t height,
+                         std::uint32_t depth, Ogre::PixelFormat format) {
+    mSrcWidth = width;
+    mSrcHeight = height;
+    mSrcDepth = depth;
+    mSrcFormat = format;
+  }
+
+  void MutateOutputState(std::uint32_t width, std::uint32_t height,
+                         std::uint32_t depth, Ogre::PixelFormat format) {
+    mWidth = width;
+    mHeight = height;
+    mDepth = depth;
+    mFormat = format;
+  }
+
 protected:
   void prepareImpl() override {}
   void loadImpl() override {}
@@ -415,9 +439,105 @@ void CaptureAndCommit(OgreNextDemoMaterialSource &source,
   RequireOk(source.Apply(assets), "apply projected native material assets");
   Require(assets.size() == 3U && source.UsedProjectionCount() == 1U,
           "projected material did not publish one material/texture/sampler");
+  const OgreNextDemoMaterialSourceCounters counters =
+      source.CurrentCaptureCounters();
+  Require(counters.candidate_sections == 1U &&
+              counters.projected_sections == 1U &&
+              counters.matte_excluded_sections == 0U,
+          "native projected section lost exact section denominator");
+  Require(counters.distinct_eligible_texture_keys == 1U &&
+              counters.distinct_projected_texture_keys == 1U &&
+              counters.distinct_matte_only_texture_keys == 0U,
+          "native projected section lost distinct texture partition");
+  Require(counters.active_texture_state_observations == 1U,
+          "native projected section lost active texture observation");
+  if (counters.active_authored_mip_prefix_levels != 1U ||
+      counters.active_generated_mip_tail_levels != 1U ||
+      counters.active_normalized_output_mip_levels != 2U) {
+    std::cerr << "active mip buckets authored="
+              << counters.active_authored_mip_prefix_levels
+              << " generated=" << counters.active_generated_mip_tail_levels
+              << " output=" << counters.active_normalized_output_mip_levels
+              << " decode_authored=" << counters.authored_mip_prefix_levels
+              << " decode_generated=" << counters.generated_mip_tail_levels
+              << '\n';
+  }
+  Require(counters.active_authored_mip_prefix_levels == 1U &&
+              counters.active_generated_mip_tail_levels == 1U &&
+              counters.active_normalized_output_mip_levels == 2U,
+          "native projected section lost active mip normalization buckets");
+  Require(counters.lossy_material_normalizations == 1U,
+          "native projected section hid lossy material normalization");
   RequireZeroReadback(source, *readbacks);
   source.Commit();
   RequireZeroReadback(source, *readbacks);
+}
+
+void TestRetryableOrdinaryAbsencePromotion() {
+  const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize retry authority");
+  OrdinaryTrustResolver trust_resolver;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &trust_resolver;
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry(
+                Ogre14SelectedTextureSourceRegistryConfiguration{},
+                selected_registry),
+            "initialize retry selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, selected_registry),
+            "activate retry group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+  Ogre::TexturePtr texture =
+      std::make_shared<TestTexture>(kTextureName, 61U, kGroup, readbacks);
+  texture->load();
+  NativeMaterial native(texture, 91U);
+  OgreNextDemoMaterialSource source;
+  Require(
+      source.BindAuthenticatedTextureAuthority(trust_resolver,
+                                               authority_provider) &&
+          source.BindOrdinarySelectedTextureSourceResolver(selected_resolver),
+      "bind retry MaterialSource authorities");
+
+  Require(source.BeginCapture(), "begin honest absence frame");
+  Ogre14GraphicsSceneMaterialCaptureInput input = CaptureInput();
+  const Ogre14GraphicsSceneMaterialCaptureInput before = input;
+  bool projected = true;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "honest ordinary absence must be a matte decision");
+  const OgreNextDemoMaterialSourceCounters matte =
+      source.CurrentCaptureCounters();
+  const std::size_t reason =
+      static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::
+                                   ORDINARY_SELECTED_SOURCE_UNAVAILABLE);
+  Require(!projected && SameCaptureInput(input, before) &&
+              matte.candidate_sections == 1U &&
+              matte.projected_sections == 0U &&
+              matte.matte_excluded_sections == 1U &&
+              matte.exclusions_by_reason[reason] == 1U,
+          "honest absence lost named matte denominator accounting");
+  std::vector<GraphicsSceneAssetInput> empty_assets;
+  RequireOk(source.Apply(empty_assets), "apply honest absence matte frame");
+  source.Commit();
+
+  const Ogre14SelectedTextureSourceReceipt receipt =
+      BuildReceipt(*texture, 1U, 0U, 0x2500U, bytes);
+  RequireOk(
+      CommitOgre14SelectedTextureSourceReceipt(receipt, selected_registry),
+      "mount receipt after honest absence");
+  CaptureAndCommit(source, native, readbacks);
+  Require(source.LifetimeCounters().candidate_sections == 2U &&
+              source.LifetimeCounters().projected_sections == 1U &&
+              source.LifetimeCounters().matte_excluded_sections == 1U,
+          "retryable matte was not recounted and promoted after mount");
 }
 
 void RequireFrozenProjectionFailure(OgreNextDemoMaterialSource &source,
@@ -429,6 +549,13 @@ void RequireFrozenProjectionFailure(OgreNextDemoMaterialSource &source,
   bool projected = true;
   const ValidationResult result = source.TryProject(
       kSectionKey, native.material, true, true, input, projected);
+  if (result || result.code != ValidationCode::REVISION_MISMATCH || projected ||
+      !SameCaptureInput(input, before)) {
+    std::cerr << "frozen failure diagnostic ok=" << result.ok()
+              << " code=" << static_cast<unsigned>(result.code)
+              << " field=" << result.field << " detail=" << result.detail
+              << " projected=" << projected << '\n';
+  }
   Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
               !projected && SameCaptureInput(input, before),
           message);
@@ -528,6 +655,159 @@ void TestNativeMaterialSourceLifecycle() {
                                 Ogre::FO_POINT);
   CaptureAndCommit(source, *native, readbacks);
 
+  // Legacy gamma/mip/usage/source/output state is accepted as provenance, not
+  // output authority. Every reachable bit remains frozen and a mutation is
+  // terminal for the committed cache rather than silently changing
+  // publication. OGRE 14's _getTexturePtr() reapplies its private requested
+  // scalar gamma before returning, so scalar-gamma fingerprint mutations are
+  // covered by the exact pure-policy seam; hardware-gamma is stable in this
+  // native lifecycle seam.
+  auto test_texture = std::static_pointer_cast<TestTexture>(texture);
+  Require(test_texture->getGamma() == 1.0F && native->unit->getGamma() == 1.0F,
+          "synthetic gamma baseline changed before mutation");
+  native->unit->setHardwareGammaEnabled(true);
+  RequireFrozenProjectionFailure(
+      source, *native, "hardware-gamma mutation escaped provenance key");
+  native->unit->setHardwareGammaEnabled(false);
+  test_texture->MutateMipState(1U, true);
+  RequireFrozenProjectionFailure(
+      source, *native, "native mip-count/hardware generation mutation escaped");
+  test_texture->MutateMipState(0U, false);
+  test_texture->MutateUsage(Ogre::TU_STATIC | Ogre::TU_AUTOMIPMAP);
+  RequireFrozenProjectionFailure(
+      source, *native, "TU_AUTOMIPMAP usage mutation escaped provenance key");
+  test_texture->MutateUsage(Ogre::TU_STATIC);
+  test_texture->MutateSourceState(4U, 2U, 1U, Ogre::PF_BYTE_RGBA);
+  RequireFrozenProjectionFailure(
+      source, *native, "native source dimension mutation escaped provenance");
+  test_texture->MutateSourceState(2U, 2U, 1U, Ogre::PF_BYTE_RGBA);
+  test_texture->MutateOutputState(2U, 2U, 1U, Ogre::PF_A8R8G8B8);
+  RequireFrozenProjectionFailure(
+      source, *native, "native output format mutation escaped provenance");
+  test_texture->MutateOutputState(2U, 2U, 1U, Ogre::PF_BYTE_RGBA);
+  const Ogre::ColourValue ambient_before = native->pass->getAmbient();
+  native->pass->setAmbient(0.25F, 0.5F, 0.75F);
+  RequireFrozenProjectionFailure(
+      source, *native,
+      "lossy-normalized ambient mutation escaped material fingerprint");
+  native->pass->setAmbient(ambient_before);
+  const Ogre::ColourValue specular_before = native->pass->getSpecular();
+  native->pass->setSpecular(Ogre::ColourValue(0.75F, 0.5F, 0.25F, 1.0F));
+  RequireFrozenProjectionFailure(
+      source, *native,
+      "lossy-normalized specular mutation escaped material fingerprint");
+  native->pass->setSpecular(specular_before);
+  const Ogre::ColourValue emissive_before = native->pass->getSelfIllumination();
+  Ogre::ColourValue emissive_alpha_mutation = emissive_before;
+  emissive_alpha_mutation.a = 0.5F;
+  native->pass->setSelfIllumination(emissive_alpha_mutation);
+  RequireFrozenProjectionFailure(
+      source, *native,
+      "discarded emissive alpha mutation escaped material fingerprint");
+  native->pass->setSelfIllumination(emissive_before);
+
+  // Mutation after TryProject must fail Apply atomically as well; this reaches
+  // the genuine final-publication native owner revalidation seam.
+  Require(source.BeginCapture(), "begin native-state Apply rollback capture");
+  Ogre14GraphicsSceneMaterialCaptureInput state_rollback_input = CaptureInput();
+  bool state_rollback_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              state_rollback_input, state_rollback_projected),
+            "project before native-state Apply mutation");
+  Require(state_rollback_projected,
+          "native-state rollback fixture did not project");
+  std::vector<GraphicsSceneAssetInput> state_rollback_assets =
+      BuildPlaceholderAssets(state_rollback_input);
+  const std::vector<GraphicsSceneAssetInput> state_rollback_before =
+      state_rollback_assets;
+  native->unit->setHardwareGammaEnabled(true);
+  const ValidationResult state_rollback_result =
+      source.Apply(state_rollback_assets);
+  Require(!state_rollback_result &&
+              state_rollback_result.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(state_rollback_assets, state_rollback_before),
+          "native-state Apply mutation partially published projected assets");
+  native->unit->setHardwareGammaEnabled(false);
+  source.Discard();
+  CaptureAndCommit(source, *native, readbacks);
+
+  // The final publication guard repeats the complete admitted TUS0 semantic
+  // predicate, not only pointer, sampler, and texture provenance checks.
+  Require(source.BeginCapture(), "begin TUS semantic Apply rollback capture");
+  Ogre14GraphicsSceneMaterialCaptureInput tus_rollback_input = CaptureInput();
+  bool tus_rollback_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              tus_rollback_input, tus_rollback_projected),
+            "project before TUS semantic Apply mutation");
+  Require(tus_rollback_projected,
+          "TUS semantic rollback fixture did not project");
+  std::vector<GraphicsSceneAssetInput> tus_rollback_assets =
+      BuildPlaceholderAssets(tus_rollback_input);
+  const std::vector<GraphicsSceneAssetInput> tus_rollback_before =
+      tus_rollback_assets;
+  native->unit->setTextureCoordSet(1U);
+  const ValidationResult tus_rollback_result =
+      source.Apply(tus_rollback_assets);
+  Require(!tus_rollback_result &&
+              tus_rollback_result.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(tus_rollback_assets, tus_rollback_before),
+          "TUS semantic Apply mutation partially published projected assets");
+  native->unit->setTextureCoordSet(0U);
+  source.Discard();
+  CaptureAndCommit(source, *native, readbacks);
+
+  // Availability classification is part of the same final TUS0 contract.
+  // Changing only the content mode leaves the live texture pointer intact,
+  // so pointer identity alone cannot authorize publication.
+  Require(source.BeginCapture(),
+          "begin TUS content-mode Apply rollback capture");
+  Ogre14GraphicsSceneMaterialCaptureInput content_rollback_input =
+      CaptureInput();
+  bool content_rollback_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              content_rollback_input,
+                              content_rollback_projected),
+            "project before TUS content-mode Apply mutation");
+  Require(content_rollback_projected,
+          "TUS content-mode rollback fixture did not project");
+  std::vector<GraphicsSceneAssetInput> content_rollback_assets =
+      BuildPlaceholderAssets(content_rollback_input);
+  const std::vector<GraphicsSceneAssetInput> content_rollback_before =
+      content_rollback_assets;
+  native->unit->setContentType(Ogre::TextureUnitState::CONTENT_SHADOW);
+  const ValidationResult content_rollback_result =
+      source.Apply(content_rollback_assets);
+  Require(!content_rollback_result &&
+              content_rollback_result.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(content_rollback_assets, content_rollback_before),
+          "TUS content-mode Apply mutation partially published assets");
+  native->unit->setContentType(Ogre::TextureUnitState::CONTENT_NAMED);
+  source.Discard();
+  CaptureAndCommit(source, *native, readbacks);
+
+  // OGRE14 state is a regression-floor observation, never output authority:
+  // a fresh generation with automipmaps and hardware-generated legacy mips
+  // still normalizes the source PNG into the modern full chain.
+  source.Reset();
+  native->unit->setHardwareGammaEnabled(false);
+  test_texture->MutateMipState(1U, true);
+  test_texture->MutateUsage(Ogre::TU_STATIC | Ogre::TU_AUTOMIPMAP);
+  CaptureAndCommit(source, *native, readbacks);
+  const OgreNextDemoMaterialSourceCounters modern_floor =
+      source.LifetimeCounters();
+  Require(modern_floor.legacy_hardware_gamma_off_observations != 0U &&
+              modern_floor.legacy_automipmap_observations != 0U &&
+              modern_floor.legacy_native_additional_mip_levels != 0U &&
+              modern_floor.authored_mip_prefix_levels != 0U &&
+              modern_floor.generated_mip_tail_levels != 0U &&
+              modern_floor.normalized_output_mip_levels != 0U,
+          "modern normalization excluded or hid legacy gamma/mip provenance");
+  test_texture->MutateMipState(0U, false);
+  test_texture->MutateUsage(Ogre::TU_STATIC);
+  source.Reset();
+  CaptureAndCommit(source, *native, readbacks);
+
   // Teardown after TryProject invalidates Apply's final batch. Candidate
   // assets and the committed cache both remain intact after Discard.
   const Ogre14SelectedTextureSourceReceiptRegistry reload_registry =
@@ -581,6 +861,7 @@ void TestNativeMaterialSourceLifecycle() {
   // Destroy every old native owner while the cache retains only integer
   // observation tokens. A same-name generation-2 remount is rejected without
   // dereferencing the dead Material/Pass/TUS/Sampler addresses.
+  test_texture.reset();
   native.reset();
   texture.reset();
   Require(TestTexture::destruction_count == 1U,
@@ -628,6 +909,7 @@ int main() {
   Ogre::LogManager log_manager;
   log_manager.createLog("MaterialSourceNativeTests", true, false, true);
   Ogre::Root root("", "", "");
+  TestRetryableOrdinaryAbsencePromotion();
   TestNativeMaterialSourceLifecycle();
   std::cout << "OgreNext demo MaterialSource native lifecycle tests passed\n";
   return EXIT_SUCCESS;

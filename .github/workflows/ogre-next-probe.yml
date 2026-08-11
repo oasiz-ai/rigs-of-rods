@@ -682,6 +682,7 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
+          --no-tests=error
           -R '^ror_ogre14_source_texture_decoder$'
 
       - name: Prove exclusive live material preparation on the host ABI
@@ -706,6 +707,7 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
+          --no-tests=error
           -R '^ror_ogre14_authenticated_texture_receipt$'
 
       - name: Prove ordinary selected source-texture receipts on the host ABI
@@ -714,6 +716,7 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
+          --no-tests=error
           -R '^ror_ogre14_selected_texture_source$'
 
       - name: Prove the game-host stream and native pipe half-close contract

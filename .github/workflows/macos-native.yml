@@ -96,6 +96,48 @@ jobs:
           --target all
           --config Release
 
+      - name: Build automatic texture native lifecycle gate
+        shell: bash
+        run: >-
+          cmake
+          --build "build-macos-ogre14"
+          --target ror_ogre_next_demo_material_source_native_tests
+          --config Release
+
+      - name: Run exact automatic texture host gates
+        shell: bash
+        run: |
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre14_source_texture_decoder$'
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre14_authenticated_texture_receipt$'
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre14_selected_texture_source$'
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre_next_demo_material_source_native$'
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre14_authenticated_material_script_native_integration$'
+
       - name: Stage application bundle
         run: >-
           cmake

@@ -69,6 +69,54 @@ using namespace RoR;
 namespace
 {
 
+std::string FormatOgreNextDemoMaterialExclusions(
+    const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters)
+{
+    std::string result;
+    for (std::size_t index = 1U;
+         index < counters.exclusions_by_reason.size(); ++index)
+    {
+        if (!result.empty())
+            result.push_back(',');
+        const auto reason = static_cast<
+            RoR::Gfx::Detail::OgreNextDemoTextureProjectionExclusion>(index);
+        result.append(
+            RoR::Gfx::Detail::OgreNextDemoTextureProjectionExclusionName(
+                reason));
+        result.push_back('=');
+        result.append(std::to_string(counters.exclusions_by_reason[index]));
+    }
+    return result;
+}
+
+std::string BuildOgreNextDemoMaterialCoverageSnapshot(
+    std::size_t active_projections,
+    const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters)
+{
+    return fmt::format(
+        "active={};candidates={};projected={};matte={};eligible_keys={};"
+        "projected_keys={};matte_only_keys={};active_texture_states={};"
+        "authored_mips={};generated_mips={};output_mips={};native_mips={};"
+        "tus_gamma_nonunit={};texture_gamma_nonunit={};tus_hw_gamma_off={};"
+        "texture_hw_gamma_off={};automipmap={};reasons={}",
+        active_projections, counters.candidate_sections,
+        counters.projected_sections, counters.matte_excluded_sections,
+        counters.distinct_eligible_texture_keys,
+        counters.distinct_projected_texture_keys,
+        counters.distinct_matte_only_texture_keys,
+        counters.active_texture_state_observations,
+        counters.active_authored_mip_prefix_levels,
+        counters.active_generated_mip_tail_levels,
+        counters.active_normalized_output_mip_levels,
+        counters.active_legacy_native_additional_mip_levels,
+        counters.active_legacy_texture_unit_gamma_nonunit_observations,
+        counters.active_legacy_texture_gamma_nonunit_observations,
+        counters.active_legacy_texture_unit_hardware_gamma_off_observations,
+        counters.active_legacy_hardware_gamma_off_observations,
+        counters.active_legacy_automipmap_observations,
+        FormatOgreNextDemoMaterialExclusions(counters));
+}
+
 class OgreNextDemoTerrainPendingGuard final
 {
 public:
@@ -2341,6 +2389,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     // them here; same-map bundle reload retains only unreachable payload owners
     // and must pass a fresh exact authenticated observation before reuse.
     m_ogre_next_demo_material_source.Reset();
+    m_ogre_next_demo_material_coverage_log_snapshot.clear();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3218,35 +3267,118 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     m_ogre_next_demo_material_source.Commit();
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;
-    if (m_ogre14_pending_capture->new_material_projection_count != 0U ||
+    const std::string coverage_snapshot =
+        BuildOgreNextDemoMaterialCoverageSnapshot(
+            m_ogre14_pending_capture->active_material_projection_count,
+            capture_counters);
+    const bool activity_event =
+        m_ogre14_pending_capture->new_material_projection_count != 0U ||
+        capture_counters.new_frozen_material_decisions != 0U ||
         capture_counters.authenticated_archive_source_decodes != 0U ||
         capture_counters.authenticated_generated_source_decodes != 0U ||
         capture_counters.ordinary_observed_source_decodes != 0U ||
-        capture_counters.source_decode_rejections != 0U ||
-        capture_counters.source_exclusions != 0U)
+        capture_counters.modern_source_normalizations != 0U;
+    if (activity_event ||
+        coverage_snapshot !=
+            m_ogre_next_demo_material_coverage_log_snapshot)
     {
         const Gfx::Detail::OgreNextDemoMaterialSourceCounters
             lifetime_counters =
                 m_ogre_next_demo_material_source.LifetimeCounters();
+        const std::string capture_exclusions =
+            FormatOgreNextDemoMaterialExclusions(capture_counters);
+        const std::string lifetime_exclusions =
+            FormatOgreNextDemoMaterialExclusions(lifetime_counters);
         LOG(fmt::format(
-            "[RoR|OgreNextDemo|MaterialSource] Committed {} new opaque TUS0 "
-            "projection(s); {} projected material(s) are active; capture "
+            "[RoR|OgreNextDemo|MaterialSource] "
+            "modern_policy=srgb_opaque_authored_prefix_linear_tail_v2 "
+            "committed_new_projections={} active_projections={} capture "
+            "new_frozen_material_decisions={} candidate_sections={} "
+            "projected_sections={} matte_excluded_sections={} "
+            "distinct_eligible_texture_keys={} "
+            "distinct_projected_texture_keys={} "
+            "distinct_matte_only_texture_keys={} "
+            "active_texture_state_observations={} "
+            "active_authored_mip_prefix_levels={} "
+            "active_generated_mip_tail_levels={} "
+            "active_normalized_output_mip_levels={} "
+            "active_legacy_native_additional_mip_levels={} "
+            "active_legacy_texture_unit_gamma_nonunit_observations={} "
+            "active_legacy_texture_gamma_nonunit_observations={} "
+            "active_legacy_texture_unit_hardware_gamma_off_observations={} "
+            "active_legacy_hardware_gamma_off_observations={} "
+            "active_legacy_automipmap_observations={} "
             "authenticated_archive_source_decodes={} "
             "authenticated_generated_source_decodes={} "
             "authenticated_source_decodes={} "
             "ordinary_observed_source_decodes={} source_cache_hits={} "
             "source_decode_rejections={} source_exclusions={} "
-            "gpu_readbacks={} "
-            "authenticated_gpu_readbacks={} "
-            "unauthenticated_gpu_readbacks={} projections={}; lifetime "
+            "modern_source_normalizations={} "
+            "authored_mip_prefix_levels={} generated_mip_tail_levels={} "
+            "normalized_output_mip_levels={} "
+            "legacy_native_additional_mip_levels={} "
+            "legacy_texture_unit_gamma_nonunit_observations={} "
+            "legacy_texture_gamma_nonunit_observations={} "
+            "legacy_texture_unit_hardware_gamma_off_observations={} "
+            "legacy_hardware_gamma_off_observations={} "
+            "legacy_automipmap_observations={} "
+            "lossy_material_normalizations={} gpu_readbacks={} "
+            "authenticated_gpu_readbacks={} unauthenticated_gpu_readbacks={} "
+            "projections={} matte_by_reason=[{}]; lifetime "
+            "new_frozen_material_decisions={} candidate_sections={} "
+            "projected_sections={} matte_excluded_sections={} "
+            "distinct_eligible_texture_keys={} "
+            "distinct_projected_texture_keys={} "
+            "distinct_matte_only_texture_keys={} "
+            "active_texture_state_observations={} "
+            "active_authored_mip_prefix_levels={} "
+            "active_generated_mip_tail_levels={} "
+            "active_normalized_output_mip_levels={} "
+            "active_legacy_native_additional_mip_levels={} "
+            "active_legacy_texture_unit_gamma_nonunit_observations={} "
+            "active_legacy_texture_gamma_nonunit_observations={} "
+            "active_legacy_texture_unit_hardware_gamma_off_observations={} "
+            "active_legacy_hardware_gamma_off_observations={} "
+            "active_legacy_automipmap_observations={} "
             "authenticated_archive_source_decodes={} "
             "authenticated_generated_source_decodes={} "
             "authenticated_source_decodes={} authenticated_gpu_readbacks={} "
             "ordinary_observed_source_decodes={} source_cache_hits={} "
             "source_decode_rejections={} source_exclusions={} "
-            "gpu_readbacks={} unauthenticated_gpu_readbacks={} projections={}",
+            "modern_source_normalizations={} "
+            "authored_mip_prefix_levels={} generated_mip_tail_levels={} "
+            "normalized_output_mip_levels={} "
+            "legacy_native_additional_mip_levels={} "
+            "legacy_texture_unit_gamma_nonunit_observations={} "
+            "legacy_texture_gamma_nonunit_observations={} "
+            "legacy_texture_unit_hardware_gamma_off_observations={} "
+            "legacy_hardware_gamma_off_observations={} "
+            "legacy_automipmap_observations={} "
+            "lossy_material_normalizations={} gpu_readbacks={} "
+            "unauthenticated_gpu_readbacks={} projections={} "
+            "matte_by_reason=[{}]",
             m_ogre14_pending_capture->new_material_projection_count,
             m_ogre14_pending_capture->active_material_projection_count,
+            capture_counters.new_frozen_material_decisions,
+            capture_counters.candidate_sections,
+            capture_counters.projected_sections,
+            capture_counters.matte_excluded_sections,
+            capture_counters.distinct_eligible_texture_keys,
+            capture_counters.distinct_projected_texture_keys,
+            capture_counters.distinct_matte_only_texture_keys,
+            capture_counters.active_texture_state_observations,
+            capture_counters.active_authored_mip_prefix_levels,
+            capture_counters.active_generated_mip_tail_levels,
+            capture_counters.active_normalized_output_mip_levels,
+            capture_counters.active_legacy_native_additional_mip_levels,
+            capture_counters
+                .active_legacy_texture_unit_gamma_nonunit_observations,
+            capture_counters
+                .active_legacy_texture_gamma_nonunit_observations,
+            capture_counters
+                .active_legacy_texture_unit_hardware_gamma_off_observations,
+            capture_counters.active_legacy_hardware_gamma_off_observations,
+            capture_counters.active_legacy_automipmap_observations,
             capture_counters.authenticated_archive_source_decodes,
             capture_counters.authenticated_generated_source_decodes,
             capture_counters.authenticated_source_decodes,
@@ -3254,10 +3386,44 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             capture_counters.source_cache_hits,
             capture_counters.source_decode_rejections,
             capture_counters.source_exclusions,
+            capture_counters.modern_source_normalizations,
+            capture_counters.authored_mip_prefix_levels,
+            capture_counters.generated_mip_tail_levels,
+            capture_counters.normalized_output_mip_levels,
+            capture_counters.legacy_native_additional_mip_levels,
+            capture_counters
+                .legacy_texture_unit_gamma_nonunit_observations,
+            capture_counters.legacy_texture_gamma_nonunit_observations,
+            capture_counters
+                .legacy_texture_unit_hardware_gamma_off_observations,
+            capture_counters.legacy_hardware_gamma_off_observations,
+            capture_counters.legacy_automipmap_observations,
+            capture_counters.lossy_material_normalizations,
             capture_counters.gpu_readbacks,
             capture_counters.authenticated_gpu_readbacks,
             capture_counters.unauthenticated_gpu_readbacks,
             capture_counters.projections,
+            capture_exclusions,
+            lifetime_counters.new_frozen_material_decisions,
+            lifetime_counters.candidate_sections,
+            lifetime_counters.projected_sections,
+            lifetime_counters.matte_excluded_sections,
+            lifetime_counters.distinct_eligible_texture_keys,
+            lifetime_counters.distinct_projected_texture_keys,
+            lifetime_counters.distinct_matte_only_texture_keys,
+            lifetime_counters.active_texture_state_observations,
+            lifetime_counters.active_authored_mip_prefix_levels,
+            lifetime_counters.active_generated_mip_tail_levels,
+            lifetime_counters.active_normalized_output_mip_levels,
+            lifetime_counters.active_legacy_native_additional_mip_levels,
+            lifetime_counters
+                .active_legacy_texture_unit_gamma_nonunit_observations,
+            lifetime_counters
+                .active_legacy_texture_gamma_nonunit_observations,
+            lifetime_counters
+                .active_legacy_texture_unit_hardware_gamma_off_observations,
+            lifetime_counters.active_legacy_hardware_gamma_off_observations,
+            lifetime_counters.active_legacy_automipmap_observations,
             lifetime_counters.authenticated_archive_source_decodes,
             lifetime_counters.authenticated_generated_source_decodes,
             lifetime_counters.authenticated_source_decodes,
@@ -3266,9 +3432,24 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             lifetime_counters.source_cache_hits,
             lifetime_counters.source_decode_rejections,
             lifetime_counters.source_exclusions,
+            lifetime_counters.modern_source_normalizations,
+            lifetime_counters.authored_mip_prefix_levels,
+            lifetime_counters.generated_mip_tail_levels,
+            lifetime_counters.normalized_output_mip_levels,
+            lifetime_counters.legacy_native_additional_mip_levels,
+            lifetime_counters
+                .legacy_texture_unit_gamma_nonunit_observations,
+            lifetime_counters.legacy_texture_gamma_nonunit_observations,
+            lifetime_counters
+                .legacy_texture_unit_hardware_gamma_off_observations,
+            lifetime_counters.legacy_hardware_gamma_off_observations,
+            lifetime_counters.legacy_automipmap_observations,
+            lifetime_counters.lossy_material_normalizations,
             lifetime_counters.gpu_readbacks,
             lifetime_counters.unauthenticated_gpu_readbacks,
-            lifetime_counters.projections));
+            lifetime_counters.projections,
+            lifetime_exclusions));
+        m_ogre_next_demo_material_coverage_log_snapshot = coverage_snapshot;
     }
     m_ogre14_pending_capture.reset();
 }
