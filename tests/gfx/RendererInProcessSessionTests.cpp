@@ -549,6 +549,104 @@ void TestThrowingPostCapturePolicyDiscardsSourceTransaction() {
   }
 }
 
+void TestSkipUpdatedSceneConsumesExactlyOneGrant() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  FakeSceneSource source(log);
+
+  const RendererInProcessSessionResult before_start =
+      session.SkipUpdatedScene();
+  Require(before_start.status ==
+                  RendererInProcessSessionStatus::REJECTED_NOT_READY &&
+              !before_start.accepted && !before_start.terminal &&
+              events.polls == 0U && source.captures == 0U,
+          "skip outside the started lifecycle was accepted");
+  Require(session.Start(Config(0x534B49504752414EULL)).ok(),
+          "skip-grant session did not initialize");
+
+  const RendererInProcessSessionResult without_grant =
+      session.SkipUpdatedScene();
+  Require(without_grant.status ==
+                  RendererInProcessSessionStatus::REJECTED_NOT_READY &&
+              without_grant.frontend_code ==
+                  RenderOperationCode::INVALID_ARGUMENT &&
+              !without_grant.accepted && !without_grant.terminal &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "skip without a simulation grant mutated session state");
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  const RendererInProcessSessionResult granted =
+      session.PumpEventsBeforeSimulation();
+  Require(granted.ok() && granted.simulation_may_advance &&
+              granted.event_polls == 1U && events.polls == 1U,
+          "skip-grant pre-simulation event poll did not establish a grant");
+  const RendererInProcessSessionResult repeated_grant =
+      session.PumpEventsBeforeSimulation();
+  Require(repeated_grant.ok() && repeated_grant.simulation_may_advance &&
+              repeated_grant.event_polls == 0U && events.polls == 1U,
+          "outstanding grant unexpectedly repolled native events");
+
+  const RendererInProcessSessionResult skipped = session.SkipUpdatedScene();
+  Require(skipped.status ==
+                  RendererInProcessSessionStatus::SIMULATION_SKIPPED &&
+              skipped.ok() && !skipped.simulation_may_advance &&
+              skipped.event_polls == 0U && !skipped.pending_frame &&
+              events.polls == 1U && source.captures == 0U &&
+              source.commits == 0U && source.discards == 0U &&
+              frame_policy.capture_begins == 0U &&
+              frame_policy.capture_ends == 0U &&
+              frontend.synchronized_sequences.empty() &&
+              frontend.render_attempts.empty() &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "skip captured a source or advanced direct-dispatch identities");
+
+  const RendererInProcessSessionResult duplicate =
+      session.SkipUpdatedScene();
+  Require(duplicate.status ==
+                  RendererInProcessSessionStatus::REJECTED_NOT_READY &&
+              duplicate.frontend_code ==
+                  RenderOperationCode::INVALID_ARGUMENT &&
+              !duplicate.accepted && !duplicate.simulation_may_advance &&
+              events.polls == 1U && source.captures == 0U,
+          "one-shot simulation grant was consumed more than once");
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  const RendererInProcessSessionResult next_grant =
+      session.PumpEventsBeforeSimulation();
+  Require(next_grant.ok() && next_grant.simulation_may_advance &&
+              next_grant.event_polls == 1U && events.polls == 2U,
+          "post-skip loop did not poll events for a fresh grant");
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult submitted =
+      session.PostUpdatedScene(source);
+  Require(submitted.status ==
+                  RendererInProcessSessionStatus::FRAME_COMPLETED &&
+              submitted.ok() && submitted.asset_sequence == 1U &&
+              submitted.scene_snapshot_id == 1U &&
+              submitted.frontend_frame_id == 1U &&
+              source.captures == 1U && source.commits == 1U &&
+              source.discards == 0U && events.polls == 3U &&
+              session.asset_sequence() == 1U &&
+              session.last_consumed_scene_snapshot_id() == 1U &&
+              session.last_frontend_frame_id() == 1U,
+          "fresh grant after skip did not retain first transaction identities");
+
+  Require(session.Shutdown().ok(), "skip-grant session did not close");
+  const RendererInProcessSessionResult after_shutdown =
+      session.SkipUpdatedScene();
+  Require(after_shutdown.status ==
+                  RendererInProcessSessionStatus::REJECTED_NOT_READY &&
+              !after_shutdown.accepted && !after_shutdown.simulation_may_advance,
+          "skip after shutdown was accepted");
+}
+
 void TestFirstRenderSurfaceStaleRetiresThenResubmitsFreshCapture() {
   std::vector<std::string> log;
   FakeFrontend frontend(log);
@@ -833,6 +931,9 @@ void TestStatusSurface() {
               RendererInProcessSessionStatus::PENDING_BACKPRESSURE)) ==
               "pending_backpressure" &&
               std::string(ToString(RendererInProcessSessionStatus::
+                                       SIMULATION_SKIPPED)) ==
+                  "simulation_skipped" &&
+              std::string(ToString(RendererInProcessSessionStatus::
                                        PENDING_FRONTEND_SURFACE)) ==
                   "pending_frontend_surface" &&
               std::string(ToString(static_cast<
@@ -847,6 +948,7 @@ int main() {
   TestStatusSurface();
   TestCaptureRollbackAndTypedSubmissionOrder();
   TestThrowingPostCapturePolicyDiscardsSourceTransaction();
+  TestSkipUpdatedSceneConsumesExactlyOneGrant();
   TestFirstRenderSurfaceStaleRetiresThenResubmitsFreshCapture();
   TestOnlyTypedPresentationSurfaceStaleIsRetryable();
   TestFailedStartQuiescesAfterFrontendRollback();

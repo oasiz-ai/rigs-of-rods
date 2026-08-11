@@ -574,6 +574,21 @@ public:
     return result;
   }
 
+  RendererInProcessSessionResult SkipUpdatedScene() noexcept {
+    if (!started || closed || terminal || producer == nullptr ||
+        dispatcher == nullptr) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY);
+    }
+    if (!simulation_granted || pending.has_value() ||
+        scene_generation_reset_pending) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY,
+                     Render::ValidationResult::Success(),
+                     Render::RenderOperationCode::INVALID_ARGUMENT);
+    }
+    simulation_granted = false;
+    return Result(RendererInProcessSessionStatus::SIMULATION_SKIPPED, true);
+  }
+
   RendererInProcessSessionResult PostUpdatedScene(
       Render::IJoinedGraphicsSceneSource &source) noexcept {
     if (!started || closed || terminal || producer == nullptr ||
@@ -899,6 +914,11 @@ RendererInProcessSession::PumpEventsBeforeSimulation() noexcept {
   return impl_->PumpEventsBeforeSimulation();
 }
 
+RendererInProcessSessionResult
+RendererInProcessSession::SkipUpdatedScene() noexcept {
+  return impl_->SkipUpdatedScene();
+}
+
 RendererInProcessSessionResult RendererInProcessSession::PostUpdatedScene(
     Render::IJoinedGraphicsSceneSource &source) noexcept {
   return impl_->PostUpdatedScene(source);
@@ -969,6 +989,7 @@ bool IsKnownRendererInProcessSessionStatus(
   switch (status) {
   case RendererInProcessSessionStatus::READY:
   case RendererInProcessSessionStatus::EVENTS_PUMPED:
+  case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
   case RendererInProcessSessionStatus::WAITING_FOR_SURFACE:
   case RendererInProcessSessionStatus::FRAME_COMPLETED:
   case RendererInProcessSessionStatus::FRAME_RETIRED:
@@ -998,6 +1019,8 @@ const char *ToString(RendererInProcessSessionStatus status) noexcept {
   case RendererInProcessSessionStatus::READY: return "ready";
   case RendererInProcessSessionStatus::EVENTS_PUMPED:
     return "events_pumped";
+  case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
+    return "simulation_skipped";
   case RendererInProcessSessionStatus::WAITING_FOR_SURFACE:
     return "waiting_for_surface";
   case RendererInProcessSessionStatus::FRAME_COMPLETED:

@@ -92,6 +92,7 @@ struct RendererInProcessSessionConfig final {
 enum class RendererInProcessSessionStatus : std::uint8_t {
   READY = 0U,
   EVENTS_PUMPED,
+  SIMULATION_SKIPPED,
   WAITING_FOR_SURFACE,
   FRAME_COMPLETED,
   FRAME_RETIRED,
@@ -163,9 +164,14 @@ public:
   /// Pump and apply native input/surface state before the simulation advances.
   /// If an older immutable production is retained, it is drained first. A
   /// successful result with simulation_may_advance=true grants exactly one
-  /// subsequent PostUpdatedScene() call.
+  /// subsequent PostUpdatedScene() or SkipUpdatedScene() call.
   [[nodiscard]] RendererInProcessSessionResult
   PumpEventsBeforeSimulation() noexcept;
+  /// Consume the current one-shot simulation grant when the application has
+  /// intentionally not advanced or copied simulation state. No source is
+  /// captured and no asset, snapshot, or frontend-frame identity advances.
+  /// The next loop iteration must pump events to obtain a fresh grant.
+  [[nodiscard]] RendererInProcessSessionResult SkipUpdatedScene() noexcept;
   /// Call after the simulation-to-graphics copy and all joined deformation
   /// work complete. The caller must have obtained the current one-shot
   /// simulation grant above before advancing the simulation; otherwise this
