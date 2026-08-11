@@ -34,6 +34,9 @@ PROVIDER_CONTRACT = (
 ).read_text(encoding="utf-8")
 VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_binary_closure.py"
 VERIFIER = VERIFIER_PATH.read_text(encoding="utf-8")
+NAMESPACE_AUDIT = (
+    ROOT / "tools/ogre_next_probe/audit_embedded_namespace.py"
+).read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/ogre-next-probe.yml").read_text(
     encoding="utf-8"
 )
@@ -85,7 +88,7 @@ class CombinedProviderContractTests(unittest.TestCase):
         )
         self.assertIn("SDL2::SDL2", presentation_sdl)
         self.assertNotIn("FetchContent", presentation_sdl)
-        self.assertIn("libSDL2.a(", VERIFIER)
+        self.assertIn('basename == "libSDL2.a"', VERIFIER)
         self.assertIn("root_sdl_static_archive_members_extracted", VERIFIER)
 
     def test_facade_does_not_export_ogre_next_compile_usage(self) -> None:
@@ -348,8 +351,24 @@ class CombinedProviderContractTests(unittest.TestCase):
             "isolated_consumers",
             "REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST",
             "_verify_strict_fp_receipts",
+            "_nm_undefined_symbol_names",
+            "root_sdl_defined_symbols",
+            "stb_image_nm_confirmed_live_symbols",
+            "ogre14_runtime_package_root",
         ):
             self.assertIn(evidence, VERIFIER)
+        self.assertIn('--build-root "${CMAKE_BINARY_DIR}"', MAIN_CMAKE)
+        self.assertIn("STB_IMAGE_INDIRECT_INPUT_PREFIXES", NAMESPACE_AUDIT)
+        self.assertIn('"indirect_input_tokens": []', NAMESPACE_AUDIT)
+        self.assertIn(
+            'stb_implementation.get("indirect_input_tokens") != []', VERIFIER
+        )
+        for standalone_input in (
+            '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.py"',
+            '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/*"',
+            '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/presentation_media/*"',
+        ):
+            self.assertIn(standalone_input, PROVIDER)
         self.assertIn("if receipt.exists() or receipt.is_symlink():", VERIFIER)
         self.assertIn('"provider_contract":', EXECUTABLE_CONTRACT)
         self.assertIn('"namespace_audit_report":', EXECUTABLE_CONTRACT)
@@ -625,6 +644,378 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"authenticated_source_texture_decoder_present": True',
         ):
             self.assertIn(token, VERIFIER)
+
+    def test_binary_proof_parses_exact_symbols_and_complete_codec_intersection(
+        self,
+    ) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_exact_symbols", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        decoder_token = "RoR::Render::DecodeOgre14SourceTexture("
+        fake = (
+            "0000000100001000 t "
+            "FakeRoR::Render::DecodeOgre14SourceTexture(int)\n"
+        )
+        self.assertIn(
+            decoder_token, module._missing_required_demangled_symbols(fake)
+        )
+        exact = (
+            "0000000100001000 t "
+            "RoR::Render::DecodeOgre14SourceTexture(int)\n"
+        )
+        self.assertNotIn(
+            decoder_token, module._missing_required_demangled_symbols(exact)
+        )
+
+        intersection, unexpected = module._unexpected_symbol_intersection(
+            {"_jcopy_sample_rows", "_compress"},
+            {"_jcopy_sample_rows", "_compress"},
+            module.REVIEWED_CODEC_FREEIMAGE_DEFINED_INTERSECTION_ALLOWLIST,
+        )
+        self.assertEqual(intersection, ["_compress", "_jcopy_sample_rows"])
+        self.assertEqual(unexpected, ["_jcopy_sample_rows"])
+        undefined = module._nm_undefined_symbol_names(
+            "_jcopy_sample_rows\n_UndefinedOther\n"
+        )
+        self.assertEqual(
+            undefined, {"_jcopy_sample_rows", "_UndefinedOther"}
+        )
+        undefined_intersection, undefined_unexpected = (
+            module._unexpected_symbol_intersection(
+                undefined,
+                {"_jcopy_sample_rows"},
+                module.REVIEWED_CODEC_FREEIMAGE_UNDEFINED_INTERSECTION_ALLOWLIST,
+            )
+        )
+        self.assertEqual(undefined_intersection, ["_jcopy_sample_rows"])
+        self.assertEqual(undefined_unexpected, ["_jcopy_sample_rows"])
+        self.assertEqual(
+            module._sdl_definition_symbols({"_SDL_Init", "_unrelated"}),
+            ["_SDL_Init"],
+        )
+
+    def test_ogre14_runtime_manifest_rehashes_exact_configured_dylib_set(
+        self,
+    ) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_ogre14_manifest", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            package = Path(temporary) / "package"
+            (package / "lib/OGRE").mkdir(parents=True)
+            paths = (
+                package / "lib/libOgreMain.14.5.dylib",
+                package / "lib/libOgreBites.14.5.dylib",
+                package / "lib/OGRE/Codec_FreeImage.14.5.dylib",
+            )
+            for index, path in enumerate(paths):
+                path.write_bytes(f"runtime-{index}".encode("ascii"))
+            records = [
+                {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                for path in paths
+            ]
+            serialized = "".join(
+                f"{path.relative_to(package).as_posix()}|{path.stat().st_size}|"
+                f"{hashlib.sha256(path.read_bytes()).hexdigest()}\n"
+                for path in sorted(paths)
+            )
+            contract = {
+                "ogre14_runtime_package_root": str(package),
+                "ogre14_runtime_library_count": len(paths),
+                "ogre14_runtime_manifest_sha256": hashlib.sha256(
+                    serialized.encode("utf-8")
+                ).hexdigest(),
+                "ogre14_main_runtime": str(paths[0]),
+                "ogre14_sdl_provider_runtime": str(paths[1]),
+            }
+            report = module._verify_ogre14_runtime_manifest(contract, records)
+            self.assertEqual(report["library_count"], 3)
+            self.assertEqual(
+                report["codec_freeimage"], str(paths[2].resolve(strict=True))
+            )
+
+            paths[2].write_bytes(b"post-config replacement")
+            with self.assertRaisesRegex(ValueError, "changed after namespace audit"):
+                module._verify_ogre14_runtime_manifest(contract, records)
+
+    def test_structural_link_map_requires_exact_archives_and_one_stb_owner(
+        self,
+    ) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_structural_map", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / "build"
+            binary = build / "bin/RoR-Combined"
+            archive = build / "bin/librequired.a"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"binary")
+            archive.write_bytes(b"archive")
+            decoder_object = module.COMBINED_STB_DECODER_OBJECT
+            decoder_symbols = {"__ZL15stbi__load_mainP"}
+
+            def payload(
+                archive_row: str,
+                extra_owner: bool = False,
+                dead_extra_owner: bool = False,
+                root_sdl_symbol: bool = False,
+                sdl_import_stub: bool = False,
+                inject_second_header: bool = False,
+            ) -> bytes:
+                rows = [
+                    "# Path: bin/RoR-Combined",
+                    "# Object files:",
+                    "[  0] linker synthesized",
+                    f"[  1] {archive_row}",
+                    f"[  2] {decoder_object}",
+                ]
+                if extra_owner or dead_extra_owner:
+                    rows.append("[  3] generated/private_stb_owner.cpp.o")
+                if sdl_import_stub:
+                    rows.append("[  4] /authenticated/libOgreBites.dylib")
+                rows.extend(
+                    [
+                        "# Sections:",
+                        "# Symbols:",
+                        "0x1000 0x10 [  2] __ZL15stbi__load_mainP",
+                    ]
+                )
+                if extra_owner:
+                    rows.append("0x1010 0x10 [  3] _stbi_image_free")
+                if root_sdl_symbol:
+                    rows.append("0x1020 0x10 [  2] _SDL_Init")
+                if sdl_import_stub:
+                    rows.append("0x1028 0x10 [  4] _SDL_Init.stub")
+                if dead_extra_owner:
+                    rows.extend(
+                        [
+                            "# Dead Stripped Symbols:",
+                            "<<dead>> 0x10 [  3] _stbi_image_free",
+                        ]
+                    )
+                if inject_second_header:
+                    rows.extend(
+                        [
+                            "# Object files:",
+                            "[  4] bin/librequired.a(fake.o)",
+                            "# Sections:",
+                            "# Symbols:",
+                            "0x1030 0x10 [  4] _stbi_image_free",
+                        ]
+                    )
+                return ("\n".join(rows) + "\n").encode("utf-8")
+
+            report = module._structural_link_map_evidence(
+                payload("bin/librequired.a(member.o)"),
+                binary,
+                build,
+                [archive],
+                decoder_symbols,
+            )
+            self.assertEqual(report["missing_required_archives"], [])
+            self.assertEqual(report["stb_image_symbol_count"], 1)
+            bracket_report = module._structural_link_map_evidence(
+                payload("bin/librequired.a[member.o]"),
+                binary,
+                build,
+                [archive],
+                decoder_symbols,
+            )
+            self.assertEqual(bracket_report["missing_required_archives"], [])
+
+            decoy = build / "decoy/librequired.a"
+            decoy.parent.mkdir()
+            decoy.write_bytes(b"decoy")
+            decoy_report = module._structural_link_map_evidence(
+                payload("decoy/librequired.a(member.o)"),
+                binary,
+                build,
+                [archive],
+                decoder_symbols,
+            )
+            self.assertEqual(
+                decoy_report["missing_required_archives"],
+                [str(archive.resolve(strict=True))],
+            )
+            with self.assertRaisesRegex(ValueError, "unreviewed object owner"):
+                module._structural_link_map_evidence(
+                    payload("bin/librequired.a(member.o)", extra_owner=True),
+                    binary,
+                    build,
+                    [archive],
+                    decoder_symbols | {"_stbi_image_free"},
+                )
+            with self.assertRaisesRegex(ValueError, "unreviewed object owner"):
+                module._structural_link_map_evidence(
+                    payload(
+                        "bin/librequired.a(member.o)",
+                        dead_extra_owner=True,
+                    ),
+                    binary,
+                    build,
+                    [archive],
+                    decoder_symbols,
+                )
+            root_sdl_report = module._structural_link_map_evidence(
+                payload(
+                    "bin/librequired.a(member.o)", root_sdl_symbol=True
+                ),
+                binary,
+                build,
+                [archive],
+                decoder_symbols,
+            )
+            self.assertEqual(
+                root_sdl_report["root_sdl_defined_symbols"], ["_SDL_Init"]
+            )
+            import_stub_report = module._structural_link_map_evidence(
+                payload(
+                    "bin/librequired.a(member.o)", sdl_import_stub=True
+                ),
+                binary,
+                build,
+                [archive],
+                decoder_symbols,
+            )
+            self.assertEqual(
+                import_stub_report["root_sdl_defined_symbols"], []
+            )
+            with self.assertRaisesRegex(
+                ValueError, "duplicate or out-of-order Object files"
+            ):
+                module._structural_link_map_evidence(
+                    payload(
+                        "bin/librequired.a(member.o)",
+                        inject_second_header=True,
+                    ),
+                    binary,
+                    build,
+                    [archive],
+                    decoder_symbols | {"_stbi_image_free"},
+                )
+            forged_symbol_payload = payload(
+                "bin/librequired.a(member.o)"
+            ) + b"0x1040 0x10 [  2] _stbi_image_free\n"
+            with self.assertRaisesRegex(
+                ValueError, "absent from defined nm"
+            ):
+                module._structural_link_map_evidence(
+                    forged_symbol_payload,
+                    binary,
+                    build,
+                    [archive],
+                    decoder_symbols,
+                )
+
+            absolute_decoder = build / module.COMBINED_STB_DECODER_OBJECT
+            absolute_payload = (
+                f"# Path: {binary}\n"
+                "# Object files:\n"
+                "[  0] linker synthesized\n"
+                f"[  1] {archive}(member.o)\n"
+                f"[  2] {absolute_decoder}\n"
+                "# Sections:\n"
+                "# Symbols:\n"
+                "0x1000 0x10 [  2] __ZL15stbi__load_mainP\n"
+            ).encode("utf-8")
+            absolute_report = module._structural_link_map_evidence(
+                absolute_payload,
+                binary,
+                build,
+                [archive],
+                decoder_symbols,
+            )
+            self.assertEqual(absolute_report["missing_required_archives"], [])
+
+    def test_dynamic_load_gate_resolves_only_exact_authenticated_ogre14_paths(
+        self,
+    ) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_dynamic_loads", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package_lib = root / "package/lib"
+            package_lib.mkdir(parents=True)
+            binary = root / "build/bin/RoR-Combined"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"binary")
+            names = [
+                f"{prefix}14.5.dylib"
+                for prefix in module.EXPECTED_OGRE14_DIRECT_LOAD_PREFIXES
+            ]
+            names.append("Codec_FreeImage.14.5.dylib")
+            libraries = []
+            for name in names:
+                path = package_lib / name
+                path.write_bytes(name.encode("ascii"))
+                libraries.append({"path": str(path)})
+            manifest = {"libraries": libraries}
+            loads = "binary:\n" + "".join(
+                f"\t@rpath/{name} (compatibility version 1.0.0)\n"
+                for name in names[:-1]
+            )
+            commands = (
+                "Load command 1\n"
+                "          cmd LC_RPATH\n"
+                "      cmdsize 64\n"
+                f"         path {package_lib} (offset 12)\n"
+            )
+            report = module._direct_dynamic_load_evidence(
+                loads, commands, binary, manifest
+            )
+            self.assertEqual(report["unexpected_non_system"], [])
+            self.assertEqual(report["resolution_failures"], [])
+
+            extra_codec_loads = loads + (
+                "\t@rpath/Codec_FreeImage.14.5.dylib "
+                "(compatibility version 1.0.0)\n"
+            )
+            extra_report = module._direct_dynamic_load_evidence(
+                extra_codec_loads, commands, binary, manifest
+            )
+            self.assertEqual(
+                extra_report["unexpected_non_system"],
+                ["@rpath/Codec_FreeImage.14.5.dylib"],
+            )
+
+            hostile_lib = root / "hostile"
+            hostile_lib.mkdir()
+            (hostile_lib / names[0]).write_bytes(b"renamed hostile codec")
+            ambiguous_commands = (
+                "Load command 1\n"
+                "          cmd LC_RPATH\n"
+                "      cmdsize 64\n"
+                f"         path {hostile_lib} (offset 12)\n"
+                "Load command 2\n"
+                "          cmd LC_RPATH\n"
+                "      cmdsize 64\n"
+                f"         path {package_lib} (offset 12)\n"
+            )
+            ambiguous = module._direct_dynamic_load_evidence(
+                loads, ambiguous_commands, binary, manifest
+            )
+            self.assertIn(f"@rpath/{names[0]}", ambiguous["resolution_failures"])
 
     def test_manifests_bind_build_authority_and_rehash_at_postlink(self) -> None:
         for path in (

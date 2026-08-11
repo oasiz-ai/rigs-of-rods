@@ -13,6 +13,19 @@ from pathlib import Path
 
 
 CPP_SUFFIXES = {".cc", ".cpp", ".cxx", ".mm"}
+STB_IMAGE_IMPLEMENTATION_PATTERN = re.compile(
+    rb"^[ \t]*#[ \t]*define[ \t]+STB_IMAGE_IMPLEMENTATION(?:[ \t]|$)",
+    re.MULTILINE,
+)
+STB_IMAGE_COMMAND_CONFIGURATION_PATTERN = re.compile(
+    r"(?:STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)"
+)
+STB_IMAGE_INDIRECT_INPUT_PREFIXES = (
+    "-include",
+    "-imacros",
+    "/FI",
+    "@",
+)
 DEFINED_GLOBAL_INTERSECTION_ALLOWLIST: frozenset[str] = frozenset(
     {
         # libc++17 inline variable, emitted weakly by both runtime closures.
@@ -392,6 +405,8 @@ def main() -> int:
         "--isolated-consumer-source", action="append", default=[]
     )
     parser.add_argument("--isolated-consumer-target-name")
+    parser.add_argument("--stb-decoder-source")
+    parser.add_argument("--stb-decoder-target-name")
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
 
@@ -437,6 +452,14 @@ def main() -> int:
     )
     presenter_adapter = exact_regular_file(
         args.presenter_adapter, "in-process presenter adapter source"
+    )
+    require(
+        bool(args.stb_decoder_source) == bool(args.stb_decoder_target_name),
+        "stb_image decoder audit arguments must be provided together",
+    )
+    stb_decoder_source = (
+        exact_regular_file(args.stb_decoder_source, "stb_image decoder source")
+        if args.stb_decoder_source else None
     )
     embedded_sources = [
         exact_regular_file(value, "embedded N1 source")
@@ -740,6 +763,73 @@ def main() -> int:
     payload = json.loads(compile_commands.read_text(encoding="utf-8"))
     require(isinstance(payload, list), "compile_commands.json is not an array")
     entries = [entry for entry in payload if isinstance(entry, dict)]
+    stb_implementation_report = None
+    if stb_decoder_source is not None:
+        stb_target_token = f"CMakeFiles/{args.stb_decoder_target_name}.dir/"
+        stb_target_entries = [
+            entry for entry in entries
+            if stb_target_token in command_text(entry)
+            and Path(str(entry.get("file", ""))).suffix.lower()
+                in {".c", ".cc", ".cpp", ".cxx", ".m", ".mm"}
+        ]
+        require(stb_target_entries, "stb_image decoder target has no compile entries")
+        stb_implementation_entries: list[dict[str, object]] = []
+        for entry in stb_target_entries:
+            entry_source = Path(str(entry.get("file", "")))
+            require(
+                entry_source.is_absolute()
+                and entry_source.is_file()
+                and not entry_source.is_symlink(),
+                f"stb_image target compile source is missing or indirect: {entry_source}",
+            )
+            command = command_text(entry)
+            injected_configuration = sorted(
+                token for token in shlex.split(command)
+                if STB_IMAGE_COMMAND_CONFIGURATION_PATTERN.search(token)
+            )
+            require(
+                not injected_configuration,
+                "stb_image configuration leaked through a compile definition: "
+                + ", ".join(injected_configuration),
+            )
+            if entry_source.resolve() == stb_decoder_source:
+                indirect_inputs = sorted(
+                    token for token in shlex.split(command)
+                    if token.startswith(STB_IMAGE_INDIRECT_INPUT_PREFIXES)
+                )
+                require(
+                    not indirect_inputs,
+                    "stb_image decoder compile command uses an unaudited indirect input: "
+                    + ", ".join(indirect_inputs),
+                )
+            if STB_IMAGE_IMPLEMENTATION_PATTERN.search(entry_source.read_bytes()):
+                stb_implementation_entries.append(entry)
+        require(
+            len(stb_implementation_entries) == 1,
+            "combined target must compile exactly one stb_image implementation owner",
+        )
+        stb_implementation_entry = stb_implementation_entries[0]
+        require(
+            Path(str(stb_implementation_entry.get("file", ""))).resolve()
+            == stb_decoder_source,
+            "combined target stb_image implementation owner is not the reviewed decoder",
+        )
+        stb_decoder_command = command_text(stb_implementation_entry)
+        require_strict_fp_compile_command(
+            stb_decoder_command, str(stb_decoder_source)
+        )
+        stb_implementation_report = {
+            "source": str(stb_decoder_source),
+            "target": str(args.stb_decoder_target_name),
+            "target_compile_entries": len(stb_target_entries),
+            "implementation_compile_entries": 1,
+            "compile_command_sha256": hashlib.sha256(
+                stb_decoder_command.encode("utf-8")
+            ).hexdigest(),
+            "external_configuration_tokens": [],
+            "indirect_input_tokens": [],
+            "strict_fp": True,
+        }
     upstream_entries = [
         entry for entry in entries
         if Path(str(entry.get("file", ""))).suffix.lower() in CPP_SUFFIXES
@@ -935,6 +1025,7 @@ def main() -> int:
         ),
         "executable": {"path": str(executable), "sha256": digest(executable)},
         "compile_commands_sha256": digest(compile_commands),
+        "stb_image_implementation": stb_implementation_report,
         "defined_global_intersections": global_intersections,
         "translation_unit_isolation": {
             "next_adapter_forced_remap": True,

@@ -6,20 +6,40 @@
     published by the Free Software Foundation.
 */
 
-#include "Ogre14SourceTextureDecoder.h"
-
-#include <array>
-#include <limits>
-#include <memory>
-#include <new>
-#include <stdexcept>
-#include <type_traits>
-#include <utility>
-
 // This exact vendored implementation is intentionally confined to this
 // translation unit. OGRE14's Codec_FreeImage exports overlapping PNG/JPEG
 // codec symbols, so source-image normalization must not add another global
 // codec ABI to the combined process.
+//
+// Keep this guard before every include. It makes compiler/toolchain -D and
+// forced-include configuration visible and fatal before the reviewed private
+// implementation policy is established.
+#if defined(STBIDEF) || defined(STB_IMAGE_IMPLEMENTATION) || \
+    defined(STB_IMAGE_STATIC) || defined(STBI_ASSERT) || \
+    defined(STBI_FAILURE_USERMSG) || defined(STBI_FREE) || \
+    defined(STBI_HAS_LROTL) || defined(STBI_INCLUDE_STB_IMAGE_H) || \
+    defined(STBI_MALLOC) || defined(STBI_MAX_DIMENSIONS) || \
+    defined(STBI_MINGW_ENABLE_SSE2) || defined(STBI_NEON) || \
+    defined(STBI_NO_BMP) || \
+    defined(STBI_NO_FAILURE_STRINGS) || defined(STBI_NO_GIF) || \
+    defined(STBI_NO_HDR) || defined(STBI_NO_JPEG) || \
+    defined(STBI_NO_LINEAR) || defined(STBI_NO_PIC) || \
+    defined(STBI_NO_PNG) || defined(STBI_NO_PNM) || \
+    defined(STBI_NO_PSD) || defined(STBI_NO_SIMD) || \
+    defined(STBI_NO_STDIO) || defined(STBI_NO_TGA) || \
+    defined(STBI_NO_THREAD_LOCALS) || defined(STBI_NO_ZLIB) || \
+    defined(STBI_ONLY_BMP) || defined(STBI_ONLY_GIF) || \
+    defined(STBI_ONLY_HDR) || defined(STBI_ONLY_JPEG) || \
+    defined(STBI_ONLY_PIC) || defined(STBI_ONLY_PNG) || \
+    defined(STBI_ONLY_PNM) || defined(STBI_ONLY_PSD) || \
+    defined(STBI_ONLY_TGA) || defined(STBI_ONLY_ZLIB) || \
+    defined(STBI_REALLOC) || defined(STBI_REALLOC_SIZED) || \
+    defined(STBI_SIMD_ALIGN) || \
+    defined(STBI_SSE2) || defined(STBI_SUPPORT_ZLIB) || \
+    defined(STBI_THREAD_LOCAL) || defined(STBI_WINDOWS_UTF8) || \
+    defined(STBI__X64_TARGET) || defined(STBI__X86_TARGET)
+#error "stb_image configuration must not be injected before the reviewed decoder policy"
+#endif
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_STATIC
 #define STBI_ONLY_PNG
@@ -55,6 +75,16 @@
 #elif defined(_MSC_VER)
 #pragma warning(pop)
 #endif
+
+#include "Ogre14SourceTextureDecoder.h"
+
+#include <array>
+#include <limits>
+#include <memory>
+#include <new>
+#include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace RoR::Render {
 namespace {

@@ -1,6 +1,8 @@
 # Verify the exact renderer-neutral PNG/JPEG decoder source before any target
 # can compile it. This intentionally does not fetch or repair vendored bytes.
 
+set(_ROR_VERIFY_STB_IMAGE_SOURCE_CMAKE "${CMAKE_CURRENT_LIST_FILE}")
+
 function(_ror_stb_extract_json_object json key output_variable)
     string(REGEX MATCH
         "\"${key}\"[ \t\r\n]*:[ \t\r\n]*\\{([^}]*)\\}"
@@ -177,6 +179,7 @@ function(ror_verify_stb_image_source repository_root)
             "Pinned stb_image source-lock semantics differ from the verified source, license, or product policy")
     endif ()
 
+    file(READ "${_ror_stb_header}" _ror_stb_header_source)
     file(READ "${_ror_stb_decoder}" _ror_stb_decoder_source)
     set(_ror_stb_expected_definitions
 "#define STB_IMAGE_IMPLEMENTATION
@@ -189,40 +192,88 @@ function(ror_verify_stb_image_source repository_root)
 #define STBI_NO_SIMD
 #define STBI_NO_FAILURE_STRINGS
 #define STBI_MAX_DIMENSIONS 8192")
-    string(REGEX MATCHALL
-        "#define ST(B_IMAGE|BI)_[A-Za-z0-9_]+[^\r\n]*"
-        _ror_stb_actual_definition_lines
-        "${_ror_stb_decoder_source}")
+    file(STRINGS "${_ror_stb_decoder}" _ror_stb_actual_definition_lines
+        REGEX "^[ \t]*#[ \t]*define[ \t]+ST(B_IMAGE|BI)_[A-Za-z0-9_]+")
     list(LENGTH _ror_stb_actual_definition_lines
         _ror_stb_actual_definition_count)
-    string(JOIN "\n" _ror_stb_actual_definitions
-        ${_ror_stb_actual_definition_lines})
+    set(_ror_stb_actual_canonical_definition_lines "")
     set(_ror_stb_actual_lock_definitions "")
     foreach (_ror_stb_actual_definition_line IN LISTS
             _ror_stb_actual_definition_lines)
+        string(REGEX REPLACE "^[ \t]*#[ \t]*define[ \t]+" "#define "
+            _ror_stb_actual_canonical_definition_line
+            "${_ror_stb_actual_definition_line}")
+        list(APPEND _ror_stb_actual_canonical_definition_lines
+            "${_ror_stb_actual_canonical_definition_line}")
         string(REGEX REPLACE "^#define[ \t]+" ""
             _ror_stb_actual_lock_definition
-            "${_ror_stb_actual_definition_line}")
+            "${_ror_stb_actual_canonical_definition_line}")
         string(REGEX REPLACE "[ \t]+" "="
             _ror_stb_actual_lock_definition
             "${_ror_stb_actual_lock_definition}")
         list(APPEND _ror_stb_actual_lock_definitions
             "${_ror_stb_actual_lock_definition}")
     endforeach ()
+    string(JOIN "\n" _ror_stb_actual_definitions
+        ${_ror_stb_actual_canonical_definition_lines})
     string(FIND "${_ror_stb_decoder_source}"
         "${_ror_stb_expected_definitions}" _ror_stb_definition_offset)
     string(FIND "${_ror_stb_decoder_source}"
         "#include \"third_party/stb/stb_image.h\"" _ror_stb_include_offset)
+    string(FIND "${_ror_stb_decoder_source}"
+        "#if defined(STBIDEF)" _ror_stb_guard_offset)
+    string(FIND "${_ror_stb_decoder_source}"
+        "#include" _ror_stb_first_include_offset)
     if (NOT _ror_stb_actual_definition_count EQUAL 10 OR
             NOT _ror_stb_actual_definitions STREQUAL
                 "${_ror_stb_expected_definitions}" OR
             _ror_stb_definition_offset LESS 0 OR
             _ror_stb_include_offset LESS 0 OR
+            _ror_stb_guard_offset LESS 0 OR
+            _ror_stb_first_include_offset LESS 0 OR
+            NOT _ror_stb_guard_offset LESS _ror_stb_definition_offset OR
             NOT _ror_stb_definition_offset LESS _ror_stb_include_offset OR
+            NOT _ror_stb_include_offset EQUAL _ror_stb_first_include_offset OR
             NOT "${_ror_stb_lock_definitions}" STREQUAL
                 "${_ror_stb_actual_lock_definitions}")
         message(FATAL_ERROR
-            "stb_image must retain the exact reviewed private/static macro set and order before its one implementation include")
+            "stb_image must retain its injection guard and exact reviewed private/static macro set before every include")
+    endif ()
+
+    # Reconcile the guard with every stb-prefixed macro that the exact pinned
+    # header consults in a preprocessor conditional. This makes toolchain -D
+    # and forced-include policy injection fail in the translation unit, while
+    # the header digest above prevents the consulted set from drifting.
+    string(REGEX MATCHALL
+        "(defined[ \t\r\n]*\\([ \t\r\n]*|#[ \t]*(ifdef|ifndef)[ \t]+)(STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)"
+        _ror_stb_consulted_macro_matches "${_ror_stb_header_source}")
+    set(_ror_stb_consulted_macros "")
+    foreach (_ror_stb_consulted_macro_match IN LISTS
+            _ror_stb_consulted_macro_matches)
+        string(REGEX REPLACE
+            "^(defined[ \t\r\n]*\\([ \t\r\n]*|#[ \t]*(ifdef|ifndef)[ \t]+)" ""
+            _ror_stb_consulted_macro "${_ror_stb_consulted_macro_match}")
+        list(APPEND _ror_stb_consulted_macros "${_ror_stb_consulted_macro}")
+    endforeach ()
+    list(REMOVE_DUPLICATES _ror_stb_consulted_macros)
+    list(SORT _ror_stb_consulted_macros)
+    string(SUBSTRING "${_ror_stb_decoder_source}" ${_ror_stb_guard_offset}
+        ${_ror_stb_definition_offset} _ror_stb_guard_source)
+    string(REGEX MATCHALL
+        "defined[ \t\r\n]*\\([ \t\r\n]*(STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)"
+        _ror_stb_guard_macro_matches "${_ror_stb_guard_source}")
+    set(_ror_stb_guarded_macros "")
+    foreach (_ror_stb_guard_macro_match IN LISTS _ror_stb_guard_macro_matches)
+        string(REGEX REPLACE "^defined[ \t\r\n]*\\([ \t\r\n]*" ""
+            _ror_stb_guarded_macro "${_ror_stb_guard_macro_match}")
+        list(APPEND _ror_stb_guarded_macros "${_ror_stb_guarded_macro}")
+    endforeach ()
+    list(REMOVE_DUPLICATES _ror_stb_guarded_macros)
+    list(SORT _ror_stb_guarded_macros)
+    if (NOT "${_ror_stb_consulted_macros}" STREQUAL
+            "${_ror_stb_guarded_macros}")
+        message(FATAL_ERROR
+            "stb_image injection guard differs from the exact pinned header's externally consulted macro set")
     endif ()
 
     string(REGEX MATCHALL
@@ -234,26 +285,50 @@ function(ror_verify_stb_image_source repository_root)
             "stb_image implementation must be confined to one reviewed translation-unit include")
     endif ()
 
-    file(GLOB_RECURSE _ror_stb_translation_units LIST_DIRECTORIES false
+    file(GLOB_RECURSE _ror_stb_policy_sources LIST_DIRECTORIES false
         "${repository_root}/source/*.c"
         "${repository_root}/source/*.cc"
         "${repository_root}/source/*.cpp"
+        "${repository_root}/source/*.h"
+        "${repository_root}/source/*.hh"
+        "${repository_root}/source/*.hpp"
+        "${repository_root}/source/*.inl"
         "${repository_root}/source/*.m"
         "${repository_root}/source/*.mm"
         "${repository_root}/tests/*.c"
         "${repository_root}/tests/*.cc"
         "${repository_root}/tests/*.cpp"
+        "${repository_root}/tests/*.h"
+        "${repository_root}/tests/*.hh"
+        "${repository_root}/tests/*.hpp"
+        "${repository_root}/tests/*.inl"
         "${repository_root}/tools/*.c"
         "${repository_root}/tools/*.cc"
-        "${repository_root}/tools/*.cpp")
+        "${repository_root}/tools/*.cpp"
+        "${repository_root}/tools/*.h"
+        "${repository_root}/tools/*.hh"
+        "${repository_root}/tools/*.hpp"
+        "${repository_root}/tools/*.inl")
     set(_ror_stb_implementation_owners "")
-    foreach (_ror_stb_translation_unit IN LISTS _ror_stb_translation_units)
-        file(STRINGS "${_ror_stb_translation_unit}"
+    foreach (_ror_stb_policy_source IN LISTS _ror_stb_policy_sources)
+        string(FIND "${_ror_stb_policy_source}" "${_ror_stb_root}/"
+            _ror_stb_vendor_prefix)
+        if (_ror_stb_vendor_prefix EQUAL 0)
+            continue()
+        endif ()
+        file(STRINGS "${_ror_stb_policy_source}"
+            _ror_stb_policy_definition_lines
+            REGEX "^[ \t]*#[ \t]*define[ \t]+(STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)([ \t]|$)")
+        if (_ror_stb_policy_definition_lines AND
+                NOT _ror_stb_policy_source STREQUAL "${_ror_stb_decoder}")
+            message(FATAL_ERROR
+                "stb_image configuration macro was defined outside the reviewed decoder translation unit: ${_ror_stb_policy_source}")
+        endif ()
+        file(STRINGS "${_ror_stb_policy_source}"
             _ror_stb_implementation_lines
-            REGEX "^#define[ \t]+STB_IMAGE_IMPLEMENTATION([ \t]|$)")
+            REGEX "^[ \t]*#[ \t]*define[ \t]+STB_IMAGE_IMPLEMENTATION([ \t]|$)")
         if (_ror_stb_implementation_lines)
-            list(APPEND _ror_stb_implementation_owners
-                "${_ror_stb_translation_unit}")
+            list(APPEND _ror_stb_implementation_owners "${_ror_stb_policy_source}")
         endif ()
     endforeach ()
     list(LENGTH _ror_stb_implementation_owners
@@ -264,6 +339,33 @@ function(ror_verify_stb_image_source repository_root)
         message(FATAL_ERROR
             "STB_IMAGE_IMPLEMENTATION must have exactly one repository translation-unit owner")
     endif ()
+
+    # Reject repository-owned target/global compile-definition injection. The
+    # source guard above independently catches command-line/toolchain and
+    # forced-include injection when the decoder is actually compiled.
+    set(_ror_stb_cmake_inputs "${repository_root}/CMakeLists.txt")
+    file(GLOB_RECURSE _ror_stb_nested_cmake_inputs LIST_DIRECTORIES false
+        "${repository_root}/cmake/*.cmake"
+        "${repository_root}/source/CMakeLists.txt"
+        "${repository_root}/source/*/CMakeLists.txt"
+        "${repository_root}/tests/CMakeLists.txt"
+        "${repository_root}/tests/*.cmake"
+        "${repository_root}/tools/CMakeLists.txt"
+        "${repository_root}/tools/*.cmake")
+    list(APPEND _ror_stb_cmake_inputs ${_ror_stb_nested_cmake_inputs})
+    list(REMOVE_DUPLICATES _ror_stb_cmake_inputs)
+    foreach (_ror_stb_cmake_input IN LISTS _ror_stb_cmake_inputs)
+        if (_ror_stb_cmake_input STREQUAL
+                "${_ROR_VERIFY_STB_IMAGE_SOURCE_CMAKE}")
+            continue()
+        endif ()
+        file(STRINGS "${_ror_stb_cmake_input}" _ror_stb_cmake_policy_lines
+            REGEX "(^|[^A-Za-z0-9_])(STBIDEF|STB_IMAGE_(IMPLEMENTATION|STATIC)|STBI_[A-Z0-9_]+)([^A-Za-z0-9_]|$)")
+        if (_ror_stb_cmake_policy_lines)
+            message(FATAL_ERROR
+                "stb_image configuration appeared in repository CMake outside its verifier: ${_ror_stb_cmake_input}")
+        endif ()
+    endforeach ()
 
     # Export only after every byte, identity, and translation-unit policy check
     # has passed. Combined-runtime provider receipts consume these cache values

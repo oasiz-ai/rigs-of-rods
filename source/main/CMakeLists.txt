@@ -1210,6 +1210,7 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             --nm "${CMAKE_NM}"
             --otool "${ROR_OGRE_NEXT_OTOOL}"
             --binary "$<TARGET_FILE:${BINNAME}>"
+            --build-root "${CMAKE_BINARY_DIR}"
             --link-map "${_ror_combined_link_map}"
             --executable-contract
                 "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"

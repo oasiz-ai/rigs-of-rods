@@ -189,6 +189,9 @@ foreach (_ror_root_ogre14_runtime IN LISTS
 endforeach ()
 string(SHA256 ROR_ROOT_OGRE14_RUNTIME_MANIFEST_SHA256
     "${_ror_root_ogre14_runtime_manifest}")
+set(ROR_ROOT_OGRE14_RUNTIME_PACKAGE_ROOT
+    "${ogre3d_PACKAGE_FOLDER_RELEASE}"
+    CACHE INTERNAL "Exact OGRE14 runtime package root for RoR-Combined" FORCE)
 set(ROR_ROOT_OGRE14_MAIN_RUNTIME
     "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
     CACHE INTERNAL "Exact OGRE14 host dylib for RoR-Combined" FORCE)
@@ -389,9 +392,14 @@ file(GLOB_RECURSE _ror_provider_manifest_files
     "${CMAKE_SOURCE_DIR}/cmake/ogre_next_embedded/*"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.json"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.h.in"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.py"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/cmake/*"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/licenses/*"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media/*"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/patches/*")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/patches/*"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/presentation_media/*"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/shaders/*"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/*")
 list(APPEND _ror_provider_manifest_files
     "CMakeLists.txt"
     ".github/workflows/ogre-next-probe.yml"
@@ -1210,6 +1218,9 @@ add_custom_target(ror_ogre_next_root_namespace_audit
             "${_ror_system_root}/RendererGameInputTarget.cpp"
         --isolated-consumer-source "${CMAKE_SOURCE_DIR}/source/main/main.cpp"
         --isolated-consumer-target-name RoR-Combined
+        --stb-decoder-source
+            "${_ror_render_root}/Ogre14SourceTextureDecoder.cpp"
+        --stb-decoder-target-name RoR-Combined
         --report "${ROR_OGRE_NEXT_COMBINED_NAMESPACE_AUDIT_REPORT}"
     BYPRODUCTS "${ROR_OGRE_NEXT_COMBINED_NAMESPACE_AUDIT_REPORT}"
     DEPENDS
@@ -1228,6 +1239,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         OgreNextOverlay
         "${_ror_namespace_audit_build_contract}"
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/audit_embedded_namespace.py"
+        "${_ror_render_root}/Ogre14SourceTextureDecoder.cpp"
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}"
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
         ${ROR_ROOT_OGRE14_RUNTIME_LIBRARIES}

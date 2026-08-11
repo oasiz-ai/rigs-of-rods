@@ -99,6 +99,53 @@ FORBIDDEN_EXTERNAL_IMAGE_CODEC_SYMBOL_PREFIXES = (
     "_stbi_",
 )
 
+# These are the exact pre-existing zlib/libc++ definitions/imports shared by
+# the reviewed RoR-Combined closure and OGRE14 Codec_FreeImage. PNG/JPEG/stb
+# symbols, including libjpeg's non-jpeg_ helper globals, are intentionally not
+# admitted. The complete Codec_FreeImage symbol set is intersected below, so a
+# renamed archive/object cannot evade this boundary by changing its filename.
+REVIEWED_CODEC_FREEIMAGE_DEFINED_INTERSECTION_ALLOWLIST = (
+    "__ZNSt3__119piecewise_constructE",
+    "_compress",
+    "_compress2",
+    "_compress2_z",
+    "_compressBound",
+    "_compressBound_z",
+    "_compress_z",
+    "_uncompress",
+    "_uncompress2",
+    "_uncompress2_z",
+    "_uncompress_z",
+)
+REVIEWED_CODEC_FREEIMAGE_UNDEFINED_INTERSECTION_ALLOWLIST = (
+    "_deflate",
+    "_deflateEnd",
+    "_deflateInit_",
+    "_inflate",
+    "_inflateEnd",
+    "_inflateInit2_",
+    "_inflateInit_",
+    "_zError",
+    "_zlibVersion",
+)
+
+COMBINED_STB_DECODER_OBJECT = (
+    "source/main/CMakeFiles/RoR-Combined.dir/"
+    "gfx/render/Ogre14SourceTextureDecoder.cpp.o"
+)
+
+EXPECTED_OGRE14_DIRECT_LOAD_PREFIXES = (
+    "libOgreBites.",
+    "libOgreMain.",
+    "libOgreMeshLodGenerator.",
+    "libOgreOverlay.",
+    "libOgrePaging.",
+    "libOgreProperty.",
+    "libOgreRTShaderSystem.",
+    "libOgreTerrain.",
+    "libOgreVolume.",
+)
+
 REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS = (
     "SDL_Init",
     "SDL_PollEvent",
@@ -185,6 +232,526 @@ def _external_image_codec_symbol_violations(payload: str) -> list[str]:
         ):
             violations.append(symbol)
     return sorted(set(violations))
+
+
+def _nm_symbol_names(payload: str) -> set[str]:
+    """Parse exact nm rows without substring or last-word ambiguity."""
+    symbols: set[str] = set()
+    for line in payload.splitlines():
+        if not line.strip() or line.endswith(":"):
+            continue
+        fields = line.split(maxsplit=2)
+        if (
+            len(fields) == 3
+            and re.fullmatch(r"[0-9A-Fa-f]+", fields[0])
+            and re.fullmatch(r"[A-Za-z?]", fields[1])
+        ):
+            symbols.add(fields[2])
+        elif len(fields) == 2 and re.fullmatch(r"[A-Za-z?]", fields[0]):
+            symbols.add(fields[1])
+    return symbols
+
+
+def _nm_undefined_symbol_names(payload: str) -> set[str]:
+    """Parse Apple/GNU undefined-only nm output without dropping one-field rows."""
+    symbols: set[str] = set()
+    for line in payload.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.endswith(":"):
+            continue
+        fields = stripped.split()
+        if len(fields) == 1:
+            symbols.add(fields[0])
+        elif len(fields) == 2 and re.fullmatch(r"[UuWw?]", fields[0]):
+            symbols.add(fields[1])
+        elif (
+            len(fields) == 3
+            and re.fullmatch(r"[0-9A-Fa-f]+", fields[0])
+            and re.fullmatch(r"[UuWw?]", fields[1])
+        ):
+            symbols.add(fields[2])
+        else:
+            raise ValueError(f"undefined nm emitted an unrecognized row: {line}")
+    return symbols
+
+
+def _sdl_definition_symbols(symbols: set[str]) -> list[str]:
+    return sorted(symbol for symbol in symbols if symbol.startswith("_SDL_"))
+
+
+def _missing_required_demangled_symbols(payload: str) -> list[str]:
+    symbols = _nm_symbol_names(payload)
+    return sorted(
+        required
+        for required in REQUIRED_SYMBOL_TOKENS
+        if not any(symbol.startswith(required) for symbol in symbols)
+    )
+
+
+def _unexpected_symbol_intersection(
+    left: set[str], right: set[str], allowlist: tuple[str, ...]
+) -> tuple[list[str], list[str]]:
+    intersection = sorted(left & right)
+    unexpected = sorted(set(intersection) - set(allowlist))
+    return intersection, unexpected
+
+
+def _parse_apple_link_map(
+    payload: bytes, binary: Path, build_root: Path
+) -> tuple[dict[int, str], list[tuple[int, bytes, bool]]]:
+    """Parse only Apple's path/object/symbol records; ignore raw literals."""
+    lines = payload.splitlines()
+    map_binary_text = None
+    object_rows: dict[int, str] = {}
+    symbol_rows: list[tuple[int, bytes, bool]] = []
+    section = "header"
+    path_seen = False
+    object_header_seen = False
+    sections_header_seen = False
+    symbols_header_seen = False
+    dead_header_seen = False
+    for raw_line in lines:
+        if raw_line.startswith(b"# Path: "):
+            if path_seen or section != "header":
+                raise ValueError("Apple link map has a duplicate or misplaced Path")
+            map_binary_text = raw_line[len(b"# Path: ") :].decode(
+                "utf-8", errors="strict"
+            )
+            path_seen = True
+        elif raw_line == b"# Object files:":
+            if not path_seen or object_header_seen or section != "header":
+                raise ValueError(
+                    "Apple link map has duplicate or out-of-order Object files"
+                )
+            object_header_seen = True
+            section = "objects"
+            continue
+        elif raw_line == b"# Sections:":
+            if not object_header_seen or sections_header_seen or section != "objects":
+                raise ValueError(
+                    "Apple link map has duplicate or out-of-order Sections"
+                )
+            sections_header_seen = True
+            section = "sections"
+            continue
+        elif raw_line == b"# Symbols:":
+            if not sections_header_seen or symbols_header_seen or section != "sections":
+                raise ValueError(
+                    "Apple link map has duplicate or out-of-order Symbols"
+                )
+            symbols_header_seen = True
+            section = "symbols"
+            continue
+        elif raw_line == b"# Dead Stripped Symbols:":
+            if not symbols_header_seen or dead_header_seen or section != "symbols":
+                raise ValueError(
+                    "Apple link map has duplicate or out-of-order dead symbols"
+                )
+            dead_header_seen = True
+            section = "dead_symbols"
+            continue
+
+        if section == "objects":
+            match = re.fullmatch(rb"\[\s*([0-9]+)\]\s+(.+)", raw_line)
+            if match:
+                index = int(match.group(1))
+                if index in object_rows:
+                    raise ValueError("Apple link map contains duplicate object index")
+                object_rows[index] = match.group(2).decode(
+                    "utf-8", errors="strict"
+                )
+        elif section in ("symbols", "dead_symbols"):
+            match = re.fullmatch(
+                rb"(?:0x[0-9A-Fa-f]+|<<dead>>)\s+0x[0-9A-Fa-f]+\s+"
+                rb"\[\s*([0-9]+)\]\s+(.+)",
+                raw_line,
+            )
+            if match:
+                symbol_rows.append(
+                    (
+                        int(match.group(1)),
+                        match.group(2),
+                        section == "dead_symbols",
+                    )
+                )
+
+    if (
+        not map_binary_text
+        or not object_rows
+        or not symbol_rows
+        or not symbols_header_seen
+    ):
+        raise ValueError("Apple link map lacks path, object, or symbol records")
+    map_binary = PurePosixPath(map_binary_text)
+    if map_binary.is_absolute():
+        if Path(map_binary_text).resolve(strict=True) != binary:
+            raise ValueError("Apple link map names a different absolute binary")
+    else:
+        if any(part in ("", ".", "..") for part in map_binary.parts):
+            raise ValueError("Apple link map binary path is unsafe")
+        if build_root.joinpath(*map_binary.parts).resolve(strict=True) != binary:
+            raise ValueError("Apple link map names a different binary")
+    return object_rows, symbol_rows
+
+
+def _link_map_archive_path(build_root: Path, object_row: str):
+    match = re.fullmatch(r"(.+[.]a)(?:[(].+[)]|\[.+\])", object_row)
+    if not match:
+        return None
+    candidate = Path(match.group(1))
+    if not candidate.is_absolute():
+        candidate = build_root / candidate
+    return candidate.resolve(strict=False)
+
+
+def _is_private_stbi_link_map_symbol(symbol: bytes) -> bool:
+    return re.fullmatch(
+        rb"(?:_stbi_.+|(?:__Z(?:Z)?L|l___const[.]_Z(?:Z)?L).+stbi_.+)",
+        symbol,
+    ) is not None
+
+
+def _structural_link_map_evidence(
+    payload: bytes,
+    binary: Path,
+    build_root: Path,
+    required_archives: list[Path],
+    raw_defined_symbols: set[str],
+) -> dict[str, object]:
+    binary = binary.resolve(strict=True)
+    build_root = build_root.resolve(strict=True)
+    required_archives = [path.resolve(strict=True) for path in required_archives]
+    object_rows, symbol_rows = _parse_apple_link_map(
+        payload, binary, build_root
+    )
+    archive_members: dict[Path, int] = {}
+    object_violations: set[str] = set()
+    root_image_codec_archives: set[str] = set()
+    extracted_sdl = False
+    for object_row in object_rows.values():
+        archive = _link_map_archive_path(build_root, object_row)
+        if archive is not None:
+            archive_members[archive] = archive_members.get(archive, 0) + 1
+            basename = archive.name
+            if basename == "libSDL2.a":
+                extracted_sdl = True
+            if basename in {
+                "libpng.a",
+                "libpng16.a",
+                "libjpeg.a",
+                "libjpeg-static.a",
+            }:
+                root_image_codec_archives.add(str(archive))
+        for forbidden in FORBIDDEN_LINK_MAP_OBJECT_TOKENS:
+            if object_row.endswith(forbidden):
+                object_violations.add(forbidden)
+
+    missing_required = sorted(
+        str(path) for path in required_archives if archive_members.get(path, 0) < 1
+    )
+    stbi_symbol_rows = [
+        (index, symbol, dead) for index, symbol, dead in symbol_rows
+        if _is_private_stbi_link_map_symbol(symbol)
+    ]
+    live_stbi_symbol_names = {
+        symbol.decode("ascii", errors="strict")
+        for _index, symbol, dead in stbi_symbol_rows
+        if not dead
+    }
+    unverified_live_stbi_symbols = sorted(
+        live_stbi_symbol_names - raw_defined_symbols
+    )
+    if unverified_live_stbi_symbols:
+        raise ValueError(
+            "Apple link map stb_image symbols are absent from defined nm: "
+            + ", ".join(unverified_live_stbi_symbols)
+        )
+    verified_live_stbi_symbols = sorted(
+        live_stbi_symbol_names & raw_defined_symbols
+    )
+    if not verified_live_stbi_symbols:
+        raise ValueError(
+            "Apple link map lacks an nm-confirmed live private stb_image symbol"
+        )
+    root_sdl_symbol_rows: list[str] = []
+    for index, symbol, _dead in symbol_rows:
+        if not re.fullmatch(rb"_SDL_.+", symbol) or symbol.endswith(b".stub"):
+            continue
+        object_row = object_rows.get(index, "")
+        if object_row == "linker synthesized" or object_row.endswith(
+            (".dylib", ".tbd")
+        ):
+            continue
+        root_sdl_symbol_rows.append(symbol.decode("ascii", errors="strict"))
+    root_sdl_symbol_rows.sort()
+    stbi_owner_indices = {
+        index for index, _symbol, _dead in stbi_symbol_rows
+    }
+    if not stbi_owner_indices:
+        raise ValueError("Apple link map lacks positive private stb_image symbols")
+    stbi_owner_objects: list[str] = []
+    for index in sorted(stbi_owner_indices):
+        object_row = object_rows.get(index)
+        if object_row is None or _link_map_archive_path(build_root, object_row):
+            stbi_owner_objects.append(f"<invalid-object-{index}>")
+            continue
+        candidate = Path(object_row)
+        if not candidate.is_absolute():
+            candidate = build_root / candidate
+        stbi_owner_objects.append(str(candidate.resolve(strict=False)))
+    expected_stbi_owner = str(
+        (build_root / COMBINED_STB_DECODER_OBJECT).resolve(strict=False)
+    )
+    if stbi_owner_objects != [expected_stbi_owner]:
+        raise ValueError(
+            "private stb_image symbols have an unreviewed object owner: "
+            + ", ".join(stbi_owner_objects)
+        )
+
+    return {
+        "build_root": str(build_root),
+        "required_archive_member_counts": {
+            str(path): archive_members.get(path, 0) for path in required_archives
+        },
+        "missing_required_archives": missing_required,
+        "forbidden_objects": sorted(object_violations),
+        "root_sdl_archive_members_extracted": extracted_sdl,
+        "root_image_codec_archives": sorted(root_image_codec_archives),
+        "stb_image_symbol_count": len(stbi_symbol_rows),
+        "stb_image_nm_confirmed_live_symbols": verified_live_stbi_symbols,
+        "stb_image_owner_objects": stbi_owner_objects,
+        "expected_stb_image_owner_object": expected_stbi_owner,
+        "root_sdl_defined_symbols": root_sdl_symbol_rows,
+    }
+
+
+def _otool_load_commands(payload: str) -> list[str]:
+    commands: list[str] = []
+    for line in payload.splitlines()[1:]:
+        if not line.startswith(("\t", " ")):
+            continue
+        fields = line.split()
+        if fields:
+            commands.append(fields[0])
+    return commands
+
+
+def _otool_rpaths(payload: str) -> list[str]:
+    rpaths: list[str] = []
+    lines = payload.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != "cmd LC_RPATH":
+            continue
+        if index + 2 >= len(lines):
+            raise ValueError("otool LC_RPATH record is truncated")
+        match = re.match(r"\s*path\s+(.+?)\s+\(offset\s+[0-9]+\)\s*$", lines[index + 2])
+        if not match:
+            raise ValueError("otool LC_RPATH path record is invalid")
+        rpaths.append(match.group(1))
+    return rpaths
+
+
+def _expand_rpath(path: str, binary: Path) -> Path:
+    if path.startswith("@loader_path/"):
+        return (binary.parent / path[len("@loader_path/") :]).resolve(
+            strict=False
+        )
+    if path.startswith("@executable_path/"):
+        return (binary.parent / path[len("@executable_path/") :]).resolve(
+            strict=False
+        )
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        raise ValueError(f"unsupported or relative LC_RPATH: {path}")
+    return candidate.resolve(strict=False)
+
+
+def _direct_dynamic_load_evidence(
+    load_payload: str,
+    command_payload: str,
+    binary: Path,
+    runtime_manifest: dict[str, object],
+) -> dict[str, object]:
+    load_commands = _otool_load_commands(load_payload)
+    non_system = [
+        command for command in load_commands
+        if not command.startswith(("/System/Library/", "/usr/lib/"))
+    ]
+    basenames = [Path(command).name for command in non_system]
+    runtime_entries = runtime_manifest.get("libraries")
+    if not isinstance(runtime_entries, list):
+        raise ValueError("OGRE14 runtime manifest library records are invalid")
+    runtime_by_basename = {
+        Path(str(entry.get("path", ""))).name:
+            Path(str(entry.get("path", ""))).resolve(strict=True)
+        for entry in runtime_entries if isinstance(entry, dict)
+    }
+    if len(runtime_by_basename) != len(runtime_entries):
+        raise ValueError("OGRE14 runtime manifest basenames are ambiguous")
+    expected_direct_basenames: set[str] = set()
+    for prefix in EXPECTED_OGRE14_DIRECT_LOAD_PREFIXES:
+        matches = sorted(
+            basename for basename in runtime_by_basename
+            if basename.startswith(prefix)
+        )
+        if len(matches) != 1:
+            raise ValueError(
+                f"OGRE14 runtime manifest lacks one direct-load {prefix} library"
+            )
+        expected_direct_basenames.add(matches[0])
+
+    rpaths = [_expand_rpath(path, binary) for path in _otool_rpaths(command_payload)]
+    resolved_commands: list[dict[str, object]] = []
+    resolution_failures: list[str] = []
+    for command in non_system:
+        basename = Path(command).name
+        expected_path = runtime_by_basename.get(basename)
+        candidates: list[Path] = []
+        if command.startswith("@rpath/"):
+            for rpath in rpaths:
+                candidate = rpath / command[len("@rpath/") :]
+                if candidate.is_file() and not candidate.is_symlink():
+                    candidates.append(candidate.resolve(strict=True))
+        elif command.startswith("@loader_path/"):
+            candidate = binary.parent / command[len("@loader_path/") :]
+            if candidate.is_file() and not candidate.is_symlink():
+                candidates.append(candidate.resolve(strict=True))
+        elif command.startswith("@executable_path/"):
+            candidate = binary.parent / command[len("@executable_path/") :]
+            if candidate.is_file() and not candidate.is_symlink():
+                candidates.append(candidate.resolve(strict=True))
+        elif Path(command).is_absolute():
+            candidate = Path(command)
+            if candidate.is_file() and not candidate.is_symlink():
+                candidates.append(candidate.resolve(strict=True))
+        else:
+            resolution_failures.append(command)
+        candidates = list(dict.fromkeys(candidates))
+        if expected_path is None or candidates != [expected_path]:
+            resolution_failures.append(command)
+        resolved_commands.append(
+            {
+                "install_name": command,
+                "basename": basename,
+                "candidates": [str(path) for path in candidates],
+                "authenticated_path": (
+                    str(expected_path) if expected_path is not None else None
+                ),
+            }
+        )
+
+    return {
+        "all": load_commands,
+        "non_system": non_system,
+        "unexpected_non_system": sorted(
+            command for command in non_system
+            if Path(command).name not in expected_direct_basenames
+        ),
+        "duplicate_non_system_basenames": sorted(
+            basename for basename in set(basenames)
+            if basenames.count(basename) != 1
+        ),
+        "missing_required_basenames": sorted(
+            expected_direct_basenames - set(basenames)
+        ),
+        "rpaths": [str(path) for path in rpaths],
+        "resolved_non_system": resolved_commands,
+        "resolution_failures": sorted(set(resolution_failures)),
+    }
+
+
+def _verify_ogre14_runtime_manifest(
+    provider_contract: dict[str, object],
+    audited_records: list[dict[str, str]],
+) -> dict[str, object]:
+    package_root = _directory_absolute(
+        str(provider_contract.get("ogre14_runtime_package_root", "")),
+        "OGRE14 runtime package root",
+    )
+    expected_count = provider_contract.get("ogre14_runtime_library_count")
+    expected_manifest_sha256 = provider_contract.get(
+        "ogre14_runtime_manifest_sha256"
+    )
+    if (
+        type(expected_count) is not int
+        or expected_count < 3
+        or len(audited_records) != expected_count
+        or not isinstance(expected_manifest_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_manifest_sha256)
+    ):
+        raise ValueError("provider OGRE14 runtime manifest authority is invalid")
+
+    paths = [Path(record["path"]).resolve(strict=True) for record in audited_records]
+    if len(paths) != len(set(paths)):
+        raise ValueError("provider OGRE14 runtime manifest contains duplicates")
+    serialized = ""
+    entries: list[dict[str, object]] = []
+    for path in sorted(paths):
+        try:
+            relative = path.relative_to(package_root)
+        except ValueError as error:
+            raise ValueError(
+                "namespace-audited OGRE14 dylib escaped its configured package"
+            ) from error
+        relative_text = relative.as_posix()
+        if (
+            any(part in ("", ".", "..") for part in relative.parts)
+            or not re.fullmatch(
+                r"(?:lib|lib/OGRE)/(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib",
+                relative_text,
+            )
+        ):
+            raise ValueError("provider OGRE14 runtime relative path is invalid")
+        size = path.stat().st_size
+        sha256 = _sha256(path)
+        audited_sha256 = next(
+            record["sha256"] for record in audited_records
+            if Path(record["path"]).resolve(strict=True) == path
+        )
+        if sha256 != audited_sha256:
+            raise ValueError("provider OGRE14 runtime changed after namespace audit")
+        serialized += f"{relative_text}|{size}|{sha256}\n"
+        entries.append(
+            {
+                "relative_path": relative_text,
+                "path": str(path),
+                "size": size,
+                "sha256": sha256,
+            }
+        )
+    observed_manifest_sha256 = hashlib.sha256(
+        serialized.encode("utf-8")
+    ).hexdigest()
+    if observed_manifest_sha256 != expected_manifest_sha256:
+        raise ValueError(
+            "current OGRE14 runtime closure differs from its configured manifest"
+        )
+
+    main_runtime = _regular_absolute(
+        str(provider_contract.get("ogre14_main_runtime", "")),
+        "provider OGRE14 main runtime",
+    )
+    sdl_runtime = _regular_absolute(
+        str(provider_contract.get("ogre14_sdl_provider_runtime", "")),
+        "provider OGRE14 SDL runtime",
+    )
+    if main_runtime not in paths or sdl_runtime not in paths:
+        raise ValueError("provider OGRE14 main/SDL runtimes escaped its manifest")
+    codec_freeimage = [
+        path for path in paths
+        if re.fullmatch(r"Codec_FreeImage(?:[.][0-9]+)+[.]dylib", path.name)
+    ]
+    if len(codec_freeimage) != 1:
+        raise ValueError("configured OGRE14 closure lacks one exact Codec_FreeImage")
+    return {
+        "package_root": str(package_root),
+        "manifest_sha256": observed_manifest_sha256,
+        "library_count": len(entries),
+        "libraries": entries,
+        "main_runtime": str(main_runtime),
+        "sdl_provider_runtime": str(sdl_runtime),
+        "codec_freeimage": str(codec_freeimage[0]),
+    }
 
 
 def _reject_duplicate_pairs(
@@ -452,6 +1019,7 @@ def main() -> int:
     parser.add_argument("--nm", required=True)
     parser.add_argument("--otool", required=True)
     parser.add_argument("--binary", required=True)
+    parser.add_argument("--build-root", required=True)
     parser.add_argument("--link-map", required=True)
     parser.add_argument("--executable-contract", required=True)
     parser.add_argument("--provider-contract", required=True)
@@ -473,6 +1041,7 @@ def main() -> int:
         nm = _regular_absolute(arguments.nm, "nm executable")
         otool = _regular_absolute(arguments.otool, "otool executable")
         binary = _regular_absolute(arguments.binary, "combined binary")
+        build_root = _directory_absolute(arguments.build_root, "combined build root")
         link_map = _regular_absolute(arguments.link_map, "combined link map")
         executable_contract = _regular_absolute(
             arguments.executable_contract, "combined executable contract"
@@ -609,6 +1178,34 @@ def main() -> int:
         }
         if isolated_consumers != [expected_isolated_consumer]:
             raise ValueError("namespace audit lacks exact RoR-Combined compile isolation")
+        stb_implementation = namespace_audit_document.get(
+            "stb_image_implementation"
+        )
+        expected_stb_source = str(
+            provider_source_root
+            / "source/main/gfx/render/Ogre14SourceTextureDecoder.cpp"
+        )
+        if (
+            not isinstance(stb_implementation, dict)
+            or stb_implementation.get("source") != expected_stb_source
+            or stb_implementation.get("target") != "RoR-Combined"
+            or type(stb_implementation.get("target_compile_entries")) is not int
+            or stb_implementation.get("target_compile_entries", 0) < 1
+            or stb_implementation.get("implementation_compile_entries") != 1
+            or stb_implementation.get("external_configuration_tokens") != []
+            or stb_implementation.get("indirect_input_tokens") != []
+            or stb_implementation.get("strict_fp") is not True
+            or not isinstance(
+                stb_implementation.get("compile_command_sha256"), str
+            )
+            or not re.fullmatch(
+                r"[0-9a-f]{64}",
+                str(stb_implementation.get("compile_command_sha256", "")),
+            )
+        ):
+            raise ValueError(
+                "namespace audit lacks exact effective stb_image owner evidence"
+            )
         namespace_evidence_scope = namespace_audit_document.get("evidence_scope")
         if not isinstance(namespace_evidence_scope, dict) or any(
             namespace_evidence_scope.get(field) is not True
@@ -730,8 +1327,24 @@ def main() -> int:
             or any(str(path) not in audited_legacy_paths for path in required_ogre14_dylibs)
         ):
             raise ValueError("required OGRE14 dylibs lack full collision-audit evidence")
+        ogre14_runtime_manifest = _verify_ogre14_runtime_manifest(
+            provider_contract_document, verified_audited_legacy
+        )
+        expected_host_runtimes = {
+            ogre14_runtime_manifest["main_runtime"],
+            ogre14_runtime_manifest["sdl_provider_runtime"],
+        }
+        if (
+            {str(path) for path in required_ogre14_dylibs}
+            != expected_host_runtimes
+            or str(sdl_provider_dylib)
+            != ogre14_runtime_manifest["sdl_provider_runtime"]
+        ):
+            raise ValueError(
+                "final host runtime arguments differ from the configured OGRE14 manifest"
+            )
 
-        completed = subprocess.run(
+        demangled_external = subprocess.run(
             [
                 str(nm),
                 "--defined-only",
@@ -745,16 +1358,35 @@ def main() -> int:
             encoding="utf-8",
             errors="strict",
         )
-        if completed.returncode != 0:
+        if demangled_external.returncode != 0:
             raise ValueError(
-                f"nm failed ({completed.returncode}): {completed.stderr.strip()}"
+                "demangled external nm failed "
+                f"({demangled_external.returncode}): "
+                f"{demangled_external.stderr.strip()}"
             )
-        symbols = completed.stdout
+        raw_external = subprocess.run(
+            [str(nm), "--defined-only", "--extern-only", str(binary)],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        if raw_external.returncode != 0:
+            raise ValueError(
+                f"raw external nm failed ({raw_external.returncode}): "
+                f"{raw_external.stderr.strip()}"
+            )
+        demangled_external_symbols = _nm_symbol_names(
+            demangled_external.stdout
+        )
+        raw_external_symbols = _nm_symbol_names(raw_external.stdout)
         symbol_violations = sorted(
-            token for token in FORBIDDEN_SYMBOL_TOKENS if token in symbols
+            token for token in FORBIDDEN_SYMBOL_TOKENS
+            if any(token in symbol for symbol in demangled_external_symbols)
         )
         external_image_codec_symbol_violations = (
-            _external_image_codec_symbol_violations(symbols)
+            _external_image_codec_symbol_violations(raw_external.stdout)
         )
         all_defined = subprocess.run(
             [
@@ -774,35 +1406,96 @@ def main() -> int:
                 f"all-defined nm failed ({all_defined.returncode}): "
                 f"{all_defined.stderr.strip()}"
             )
-        missing_symbol_evidence = sorted(
-            token
-            for token in REQUIRED_SYMBOL_TOKENS
-            if token not in all_defined.stdout
+        missing_symbol_evidence = _missing_required_demangled_symbols(
+            all_defined.stdout
+        )
+        raw_all_defined = subprocess.run(
+            [str(nm), "--defined-only", str(binary)],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        if raw_all_defined.returncode != 0:
+            raise ValueError(
+                f"raw all-defined nm failed ({raw_all_defined.returncode}): "
+                f"{raw_all_defined.stderr.strip()}"
+            )
+        raw_all_defined_symbols = _nm_symbol_names(raw_all_defined.stdout)
+
+        undefined_symbols = subprocess.run(
+            [str(nm), "-u", str(binary)],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        if undefined_symbols.returncode != 0:
+            raise ValueError(
+                f"undefined nm failed ({undefined_symbols.returncode}): "
+                f"{undefined_symbols.stderr.strip()}"
+            )
+        codec_freeimage = Path(str(ogre14_runtime_manifest["codec_freeimage"]))
+        codec_symbols = subprocess.run(
+            [
+                str(nm),
+                "--defined-only",
+                "--extern-only",
+                str(codec_freeimage),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        if codec_symbols.returncode != 0:
+            raise ValueError(
+                f"Codec_FreeImage nm failed ({codec_symbols.returncode}): "
+                f"{codec_symbols.stderr.strip()}"
+            )
+        codec_defined_symbols = _nm_symbol_names(codec_symbols.stdout)
+        defined_codec_intersection, unexpected_defined_codec_intersection = (
+            _unexpected_symbol_intersection(
+                raw_external_symbols,
+                codec_defined_symbols,
+                REVIEWED_CODEC_FREEIMAGE_DEFINED_INTERSECTION_ALLOWLIST,
+            )
+        )
+        undefined_codec_intersection, unexpected_undefined_codec_intersection = (
+            _unexpected_symbol_intersection(
+                _nm_undefined_symbol_names(undefined_symbols.stdout),
+                codec_defined_symbols,
+                REVIEWED_CODEC_FREEIMAGE_UNDEFINED_INTERSECTION_ALLOWLIST,
+            )
         )
 
-        # Apple linker maps include the raw bytes of literal strings. Those bytes
-        # are not required to be UTF-8, so keep this evidence byte-exact and only
-        # encode the ASCII/UTF-8 authority tokens being searched for.
+        # Parse only Apple's structured object and symbol tables. Literal
+        # payloads later in the map may contain arbitrary bytes and must never
+        # satisfy positive archive/object evidence.
         link_map_payload = link_map.read_bytes()
-        object_violations = sorted(
-            token
-            for token in FORBIDDEN_LINK_MAP_OBJECT_TOKENS
-            if _link_map_contains(link_map_payload, token)
+        structural_link_map = _structural_link_map_evidence(
+            link_map_payload,
+            binary,
+            build_root,
+            required_archives,
+            raw_all_defined_symbols,
         )
-        extracted_sdl_members = (
-            _link_map_contains(link_map_payload, "libSDL2.a(")
-            or _link_map_contains(link_map_payload, "libSDL2.a[")
-        )
-        extracted_root_image_codec_members = sorted(
-            token
-            for token in FORBIDDEN_ROOT_IMAGE_CODEC_ARCHIVE_TOKENS
-            if _link_map_contains(link_map_payload, token)
-        )
-        missing_archive_evidence = sorted(
-            str(archive)
-            for archive in required_archives
-            if not _link_map_contains(link_map_payload, archive.name)
-        )
+        object_violations = structural_link_map["forbidden_objects"]
+        extracted_sdl_members = structural_link_map[
+            "root_sdl_archive_members_extracted"
+        ]
+        extracted_root_image_codec_members = structural_link_map[
+            "root_image_codec_archives"
+        ]
+        structural_root_sdl_symbols = structural_link_map[
+            "root_sdl_defined_symbols"
+        ]
+        missing_archive_evidence = structural_link_map[
+            "missing_required_archives"
+        ]
 
         linked_dylibs = subprocess.run(
             [str(otool), "-L", str(binary)],
@@ -817,10 +1510,41 @@ def main() -> int:
                 f"otool failed ({linked_dylibs.returncode}): "
                 f"{linked_dylibs.stderr.strip()}"
             )
+        binary_load_commands = subprocess.run(
+            [str(otool), "-l", str(binary)],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+        if binary_load_commands.returncode != 0:
+            raise ValueError(
+                f"otool load-command scan failed ({binary_load_commands.returncode}): "
+                f"{binary_load_commands.stderr.strip()}"
+            )
+        direct_dynamic_loads = _direct_dynamic_load_evidence(
+            linked_dylibs.stdout,
+            binary_load_commands.stdout,
+            binary,
+            ogre14_runtime_manifest,
+        )
+        unexpected_non_system_load_commands = direct_dynamic_loads[
+            "unexpected_non_system"
+        ]
+        duplicate_non_system_load_basenames = direct_dynamic_loads[
+            "duplicate_non_system_basenames"
+        ]
+        unresolved_non_system_load_commands = direct_dynamic_loads[
+            "resolution_failures"
+        ]
+        missing_direct_load_basenames = direct_dynamic_loads[
+            "missing_required_basenames"
+        ]
         missing_ogre14_dylib_evidence = sorted(
             str(dylib)
             for dylib in required_ogre14_dylibs
-            if dylib.name not in linked_dylibs.stdout
+            if dylib.name in direct_dynamic_loads["missing_required_basenames"]
         )
 
         sdl_provider_symbols = subprocess.run(
@@ -841,38 +1565,68 @@ def main() -> int:
                 f"nm failed for SDL provider ({sdl_provider_symbols.returncode}): "
                 f"{sdl_provider_symbols.stderr.strip()}"
             )
+        sdl_provider_defined_symbols = _nm_symbol_names(
+            sdl_provider_symbols.stdout
+        )
+        sdl_provider_api_symbols = _sdl_definition_symbols(
+            sdl_provider_defined_symbols
+        )
         missing_sdl_provider_symbols = sorted(
             token
             for token in REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS
-            if token not in sdl_provider_symbols.stdout
+            if f"_{token}" not in sdl_provider_defined_symbols
+        )
+        executable_sdl_definitions = _sdl_definition_symbols(
+            raw_external_symbols
+        )
+        executable_sdl_provider_intersection = sorted(
+            set(executable_sdl_definitions) & set(sdl_provider_api_symbols)
         )
 
         if (
             symbol_violations
             or external_image_codec_symbol_violations
+            or unexpected_defined_codec_intersection
+            or unexpected_undefined_codec_intersection
             or object_violations
             or extracted_sdl_members
+            or structural_root_sdl_symbols
+            or executable_sdl_definitions
             or extracted_root_image_codec_members
             or missing_symbol_evidence
             or missing_archive_evidence
             or missing_ogre14_dylib_evidence
+            or missing_direct_load_basenames
+            or unexpected_non_system_load_commands
+            or duplicate_non_system_load_basenames
+            or unresolved_non_system_load_commands
             or missing_sdl_provider_symbols
         ):
             details = ", ".join(
                 symbol_violations
                 + external_image_codec_symbol_violations
+                + unexpected_defined_codec_intersection
+                + unexpected_undefined_codec_intersection
                 + object_violations
+                + structural_root_sdl_symbols
+                + executable_sdl_definitions
                 + extracted_root_image_codec_members
                 + missing_symbol_evidence
                 + missing_archive_evidence
                 + missing_ogre14_dylib_evidence
+                + missing_direct_load_basenames
+                + unexpected_non_system_load_commands
+                + duplicate_non_system_load_basenames
+                + unresolved_non_system_load_commands
                 + missing_sdl_provider_symbols
             )
             if extracted_sdl_members:
                 details = f"{details}, extracted libSDL2.a member".lstrip(", ")
             raise ValueError(f"RoR-Combined closure evidence failed: {details}")
 
-        symbol_lines = [line for line in symbols.splitlines() if line.strip()]
+        symbol_lines = [
+            line for line in raw_external.stdout.splitlines() if line.strip()
+        ]
         all_defined_symbol_lines = [
             line for line in all_defined.stdout.splitlines() if line.strip()
         ]
@@ -898,11 +1652,30 @@ def main() -> int:
                     "build_contract": verified_namespace_build_contract,
                     "audited_archives": verified_audited_archives,
                     "audited_ogre14_dylibs": verified_audited_legacy,
+                    "stb_image_implementation": stb_implementation,
                 },
                 "ogre_next_upstream_strict_fp": strict_fp_report,
+                "ogre14_runtime_manifest": ogre14_runtime_manifest,
                 "authenticated_source_image_decoder": (
                     authenticated_source_image_decoder
                 ),
+                "codec_freeimage_global_collision_audit": {
+                    "path": str(codec_freeimage),
+                    "sha256": _sha256(codec_freeimage),
+                    "defined_global_count": len(codec_defined_symbols),
+                    "defined_intersection": defined_codec_intersection,
+                    "defined_intersection_allowlist": list(
+                        REVIEWED_CODEC_FREEIMAGE_DEFINED_INTERSECTION_ALLOWLIST
+                    ),
+                    "unexpected_defined_intersection": [],
+                    "undefined_intersection": undefined_codec_intersection,
+                    "undefined_intersection_allowlist": list(
+                        REVIEWED_CODEC_FREEIMAGE_UNDEFINED_INTERSECTION_ALLOWLIST
+                    ),
+                    "unexpected_undefined_intersection": [],
+                },
+                "direct_dynamic_load_commands": direct_dynamic_loads,
+                "structural_link_map": structural_link_map,
                 "provider_source_manifest": provider_manifest_report,
                 "selected_game_source_manifest": selected_manifest_report,
                 "defined_external_symbol_count": len(symbol_lines),
@@ -921,6 +1694,7 @@ def main() -> int:
                 "bridge_or_transport_symbols_present": False,
                 "bridge_or_transport_objects_present": False,
                 "required_symbol_tokens": list(REQUIRED_SYMBOL_TOKENS),
+                "required_symbols_parsed_with_exact_prefixes": True,
                 "required_archives": [
                     {"path": str(path), "sha256": _sha256(path)}
                     for path in required_archives
@@ -933,9 +1707,16 @@ def main() -> int:
                     "path": str(sdl_provider_dylib),
                     "sha256": _sha256(sdl_provider_dylib),
                     "required_symbols": list(REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS),
+                    "defined_sdl_symbol_count": len(sdl_provider_api_symbols),
+                    "executable_defined_intersection": (
+                        executable_sdl_provider_intersection
+                    ),
                 },
                 "root_sdl_static_archive_members_extracted": False,
+                "root_sdl_symbols_present": False,
                 "root_image_codec_static_archive_members_extracted": False,
+                "extra_image_codec_dynamic_libraries_loaded": False,
+                "codec_freeimage_unreviewed_global_intersections_present": False,
                 "authenticated_source_texture_decoder_present": True,
                 "ogre_next_runtime_contributors_present": True,
                 "ogre14_host_load_commands_present": True,

@@ -6,6 +6,10 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -206,9 +210,34 @@ class Ogre14SourceTextureDecoderContractTests(unittest.TestCase):
         include = '#include "third_party/stb/stb_image.h"'
         self.assertEqual(self.source.count(include), 1)
         self.assertLess(
+            self.source.index("#if defined(STBIDEF)"),
+            self.source.index("#define STB_IMAGE_IMPLEMENTATION"),
+        )
+        self.assertLess(
             self.source.index("#define STB_IMAGE_IMPLEMENTATION"),
             self.source.index(include),
         )
+        self.assertEqual(self.source.index("#include"), self.source.index(include))
+        consulted = set(
+            re.findall(
+                r"(?:defined\s*\(\s*|^\s*#\s*(?:ifdef|ifndef)\s+)"
+                r"(STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)",
+                STB_HEADER.read_text(encoding="utf-8"),
+                flags=re.MULTILINE,
+            )
+        )
+        guard = self.source[
+            self.source.index("#if defined(STBIDEF)") :
+            self.source.index("#define STB_IMAGE_IMPLEMENTATION")
+        ]
+        guarded = set(
+            re.findall(
+                r"defined\s*\(\s*"
+                r"(STBIDEF|STB_IMAGE_[A-Z0-9_]+|STBI_[A-Z0-9_]+)",
+                guard,
+            )
+        )
+        self.assertEqual(guarded, consulted)
         for token in STB_DEFINITIONS:
             self.assertNotIn(token.split("=")[0], self.header)
         for forbidden in (
@@ -225,11 +254,88 @@ class Ogre14SourceTextureDecoderContractTests(unittest.TestCase):
             for suffix in ("*.c", "*.cc", "*.cpp", "*.m", "*.mm"):
                 for path in source_root.rglob(suffix):
                     if any(
-                        line.startswith(b"#define STB_IMAGE_IMPLEMENTATION")
+                        re.match(
+                            rb"^[ \t]*#[ \t]*define[ \t]+"
+                            rb"STB_IMAGE_IMPLEMENTATION(?:[ \t]|$)",
+                            line,
+                        )
                         for line in path.read_bytes().splitlines()
                     ):
                         implementation_owners.append(path.resolve())
         self.assertEqual(implementation_owners, [SOURCE.resolve()])
+
+    def test_cmake_verifier_rejects_hostile_owner_header_and_target_injection(
+        self,
+    ) -> None:
+        cmake = shutil.which("cmake")
+        self.assertIsNotNone(cmake)
+
+        def run_case(kind: str) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "repository"
+                copies = (
+                    Path("cmake/VerifyStbImageSource.cmake"),
+                    Path("source/main/gfx/render/Ogre14SourceTextureDecoder.cpp"),
+                    Path("source/main/gfx/render/Ogre14SourceTextureDecoder.h"),
+                    Path("source/main/gfx/render/third_party/stb/stb_image.h"),
+                    Path(
+                        "source/main/gfx/render/third_party/stb/"
+                        "stb-image-source.lock.json"
+                    ),
+                    Path("source/main/gfx/render/third_party/stb/LICENSE.txt"),
+                )
+                for relative in copies:
+                    destination = root / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(ROOT / relative, destination)
+                (root / "CMakeLists.txt").write_text(
+                    "# clean verifier fixture\n", encoding="utf-8"
+                )
+                if kind == "owner":
+                    hostile = root / "source/hostile_owner.cpp"
+                    hostile.parent.mkdir(parents=True, exist_ok=True)
+                    hostile.write_text(
+                        "# define STB_IMAGE_IMPLEMENTATION\n",
+                        encoding="utf-8",
+                    )
+                elif kind == "header":
+                    public_header = (
+                        root
+                        / "source/main/gfx/render/Ogre14SourceTextureDecoder.h"
+                    )
+                    public_header.write_text(
+                        "#define STBI_NO_PNG\n"
+                        + public_header.read_text(encoding="utf-8"),
+                        encoding="utf-8",
+                    )
+                elif kind == "cmake":
+                    (root / "CMakeLists.txt").write_text(
+                        "target_compile_definitions(fake PRIVATE STBI_NO_PNG)\n",
+                        encoding="utf-8",
+                    )
+                wrapper = root / "verify.cmake"
+                wrapper.write_text(
+                    'include("${CMAKE_CURRENT_LIST_DIR}/cmake/'
+                    'VerifyStbImageSource.cmake")\n'
+                    'ror_verify_stb_image_source("${CMAKE_CURRENT_LIST_DIR}")\n',
+                    encoding="utf-8",
+                )
+                return subprocess.run(
+                    [str(cmake), "-P", str(wrapper)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="strict",
+                )
+
+        clean = run_case("clean")
+        self.assertEqual(clean.returncode, 0, clean.stdout + clean.stderr)
+        for kind in ("owner", "header", "cmake"):
+            with self.subTest(kind=kind):
+                hostile = run_case(kind)
+                self.assertNotEqual(hostile.returncode, 0)
+                self.assertIn("stb_image configuration", hostile.stdout + hostile.stderr)
 
     def test_png_jpeg_preflight_is_exact_and_bounded(self) -> None:
         for token in (
