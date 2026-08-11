@@ -97,6 +97,11 @@ public:
     /// compatibility mode or a generalized material API.
     void           EnableOgreNextDemoCapture() noexcept
                    { m_ogre_next_demo_capture_enabled = true; }
+    /// The hidden OGRE 14 scene is only an ingestion source in this mode.
+    /// It must not automatically synthesize additional render-only mesh LODs;
+    /// that path is unsafe for some legacy CityWorld meshes in pinned OGRE 14.
+    [[nodiscard]] bool IsOgreNextDemoCaptureEnabled() const noexcept
+                   { return m_ogre_next_demo_capture_enabled; }
     /// Reads only the completed simulation buffer and graphics-owned OGRE 14
     /// state. Incomplete renderer-neutral inventories are identified through
     /// available_fields rather than populated with guessed defaults.

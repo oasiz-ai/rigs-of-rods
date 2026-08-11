@@ -161,9 +161,13 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
                 lod_available = true;
             }
 
+            const bool ogre_next_demo_source =
+                App::GetGfxScene() != nullptr &&
+                App::GetGfxScene()->IsOgreNextDemoCaptureEnabled();
+
             if (lod_available)
                 Ogre::MeshLodGenerator::getSingleton().generateLodLevels(config);
-            else if (App::gfx_auto_lod->getBool())
+            else if (!ogre_next_demo_source && App::gfx_auto_lod->getBool())
                 Ogre::MeshLodGenerator::getSingleton().generateAutoconfiguredLodLevels(m_mesh);
         }
 

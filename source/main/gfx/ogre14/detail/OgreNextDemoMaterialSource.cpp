@@ -227,7 +227,6 @@ struct Projection final {
   const Ogre::Pass *native_pass = nullptr;
   const Ogre::TextureUnitState *native_unit = nullptr;
   const Ogre::Sampler *native_sampler = nullptr;
-  std::size_t native_material_state_count = 0U;
   std::array<float, 4U> base_color_factor{};
   float roughness_factor = 1.0F;
   std::array<float, 3U> emissive_factor{};
@@ -813,7 +812,6 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       captured.native_pass = pass;
       captured.native_unit = unit;
       captured.native_sampler = native_sampler.get();
-      captured.native_material_state_count = native_material->getStateCount();
       validation = Render::DeriveOgre14GraphicsSceneMaterialAssetId(
           kMaterialGroup, captured.exact_name,
           captured.material_source_id);
@@ -918,8 +916,6 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           projection->second.native_pass != pass ||
           projection->second.native_unit != unit ||
           projection->second.native_sampler != native_sampler.get() ||
-          projection->second.native_material_state_count !=
-              native_material->getStateCount() ||
           projection->second.base_color_factor != base_color_factor ||
           projection->second.roughness_factor != roughness_factor ||
           projection->second.emissive_factor != emissive_factor) {

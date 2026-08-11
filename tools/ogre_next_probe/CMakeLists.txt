@@ -130,6 +130,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererBackendPolicy.h"
     "source/main/gfx/GfxScene.cpp"
     "source/main/gfx/GfxScene.h"
+    "source/main/utils/MeshObject.cpp"
+    "source/main/utils/MeshObject.h"
     "source/main/gfx/RendererStartupHandoff.cpp"
     "source/main/gfx/RendererStartupHandoff.h"
     "source/main/gfx/RendererStartupPlan.cpp"
@@ -2467,6 +2469,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererBackendPolicy.h
             source/main/gfx/GfxScene.cpp
             source/main/gfx/GfxScene.h
+            source/main/utils/MeshObject.cpp
+            source/main/utils/MeshObject.h
             source/main/gfx/RendererStartupHandoff.cpp
             source/main/gfx/RendererStartupHandoff.h
             source/main/gfx/RendererStartupPlan.cpp

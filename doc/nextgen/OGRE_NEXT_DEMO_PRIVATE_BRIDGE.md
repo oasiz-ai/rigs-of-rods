@@ -87,6 +87,12 @@ Generic factor values remain owned by the existing inventory. A later mode,
 material-name, UV-layout, cull, or projected native-authority transition
 rejects the joined capture; the bridge retains the last accepted frame rather
 than toggling a live object between identities.
+The projected source revalidates authored technique 0/pass 0/TUS0 pointers,
+shape, sampling, texture storage, and material factors directly. It deliberately
+does not treat the enclosing `Material::getStateCount()` as source authority:
+pinned RTSS appends and loads a derived destination technique after the first
+capture, which reloads the whole Material resource without changing the
+authored pass being projected.
 Projected material, texture, and sampler owners remain published through actor
 destruction until the ordered map reset, so a later respawn never resurrects a
 retired source ID.
@@ -103,6 +109,12 @@ native Item creation without changing the renderer-neutral lifecycle contract.
 Directional-shadow casters wholly outside this receiver envelope are likewise
 deferred until approached; that is an explicit disposable-demo tradeoff, not a
 general renderer culling contract.
+
+The hidden OGRE 14 source scene does not generate automatic render-only mesh
+LODs after demo capture is enabled. Pinned OGRE 14's LOD baker is unsafe for
+some CityWorld v1.40 meshes, and those LODs have no consumer because OgreNext
+owns the visible frame and its spatial policy. Authored base geometry is still
+loaded and captured; direct legacy launches retain their configured LOD path.
 
 After the first accepted frame, terrain geometry, composite bytes, sampler,
 material, and instance owners are frozen until the ordered map-generation

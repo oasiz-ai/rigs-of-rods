@@ -78,6 +78,8 @@ OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
     "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
+    "source/main/utils/MeshObject.cpp",
+    "source/main/utils/MeshObject.h",
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
     "source/main/system/detail/OgreNextDemoFrameNormalization.h",
     "source/main/physics/Savegame.cpp",
@@ -89,6 +91,7 @@ OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
     "source/main/gfx/ogre14/detail/OgreNextDemo*",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*",
+    "source/main/utils/MeshObject.*",
     "source/main/system/detail/OgreNextDemo*",
     "source/main/physics/Savegame.cpp",
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
@@ -279,6 +282,21 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         gfx_scene = (REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp").read_text(
             encoding="utf-8"
         )
+        gfx_header = (
+            REPOSITORY_ROOT / "source/main/gfx/GfxScene.h"
+        ).read_text(encoding="utf-8")
+        mesh_object = (
+            REPOSITORY_ROOT / "source/main/utils/MeshObject.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn("IsOgreNextDemoCaptureEnabled()", gfx_header)
+        self.assertIn(
+            "App::GetGfxScene()->IsOgreNextDemoCaptureEnabled()",
+            mesh_object,
+        )
+        self.assertIn(
+            "!ogre_next_demo_source && App::gfx_auto_lod->getBool()",
+            mesh_object,
+        )
         joined_page = terrain_source[
             terrain_source.index("Render::ValidationResult JoinNativePage(") :
         ]
@@ -348,6 +366,22 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("PreflightTextureBase(native_texture", material_source)
         self.assertIn("current_projection_key != decision->second.projection_key",
                       material_source)
+        self.assertNotIn("native_material_state_count", material_source)
+        self.assertNotIn("native_material->getStateCount()", material_source)
+        for projected_authority_token in (
+            "projection->second.native_material != native_material.get()",
+            "projection->second.native_pass != pass",
+            "projection->second.native_unit != unit",
+            "projection->second.native_sampler != native_sampler.get()",
+            "projection->second.base_color_factor != base_color_factor",
+            "projection->second.roughness_factor != roughness_factor",
+            "projection->second.emissive_factor != emissive_factor",
+            "texture->second.native_state_count !=",
+        ):
+            with self.subTest(
+                projected_authority_token=projected_authority_token
+            ):
+                self.assertIn(projected_authority_token, material_source)
         self.assertIn('"dynamic/" + BuildNativeDynamicMeshCacheKey(identity)',
                       gfx_scene)
         self.assertIn('"static/" +', gfx_scene)

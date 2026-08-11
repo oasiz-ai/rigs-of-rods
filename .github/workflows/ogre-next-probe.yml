@@ -35,6 +35,7 @@ on:
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
+      - source/main/utils/MeshObject.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*
@@ -174,6 +175,7 @@ on:
       - source/main/gfx/GfxActorCaptureInventory.h
       - source/main/gfx/RendererBackendPolicy.*
       - source/main/gfx/GfxScene.*
+      - source/main/utils/MeshObject.*
       - source/main/gfx/RendererStartupHandoff.*
       - source/main/gfx/RendererStartupPlan.*
       - source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.*

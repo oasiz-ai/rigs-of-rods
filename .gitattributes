@@ -34,6 +34,7 @@ source/main/terrain/ProceduralManager.h whitespace=cr-at-eol
 source/main/terrain/ProceduralRoad.cpp text eol=lf
 source/main/terrain/ProceduralRoad.h text eol=lf
 source/main/utils/InputEngine.cpp whitespace=cr-at-eol
+source/main/utils/MeshObject.cpp whitespace=cr-at-eol
 source/main/utils/PlatformUtils.cpp whitespace=cr-at-eol
 source/main/utils/PlatformUtils.h whitespace=cr-at-eol
 #
