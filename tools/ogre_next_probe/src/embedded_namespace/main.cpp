@@ -6,14 +6,17 @@
 
 extern "C" std::uintptr_t ror_embedded_ogre_next_root_address();
 extern "C" std::uintptr_t ror_ogre14_root_address();
+extern "C" bool ror_embedded_ogre_next_n1_session_lifecycle() noexcept;
 
 int main()
 {
     const std::uintptr_t next = ror_embedded_ogre_next_root_address();
     const std::uintptr_t legacy = ror_ogre14_root_address();
+    const bool directSession = ror_embedded_ogre_next_n1_session_lifecycle();
 
-    // Neither runtime is initialized in this bounded link smoke. Calling both
-    // exported singleton accessors proves that both ABI owners resolved and
-    // can execute in one process without creating windows or GPU state.
-    return next == 0U && legacy == 0U ? 0 : 1;
+    // Neither runtime is initialized in this bounded link smoke. Constructing
+    // the production N1 frontend behind the renderer-neutral direct session,
+    // then destroying both beside the real OGRE14 ABI owner, proves the full
+    // transport-free closure without creating a presenter or native window.
+    return next == 0U && legacy == 0U && directSession ? 0 : 1;
 }

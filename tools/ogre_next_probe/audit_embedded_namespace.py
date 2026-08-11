@@ -12,7 +12,21 @@ from pathlib import Path
 
 
 CPP_SUFFIXES = {".cc", ".cpp", ".cxx", ".mm"}
-DEFINED_GLOBAL_INTERSECTION_ALLOWLIST: frozenset[str] = frozenset()
+DEFINED_GLOBAL_INTERSECTION_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # libc++17 inline variable, emitted weakly by both runtime closures.
+        "__ZNSt3__119piecewise_constructE",
+    }
+)
+LEGACY_RUNTIME_DYLIB_PATTERN = re.compile(
+    r"^(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$"
+)
+FORBIDDEN_DIRECT_SOURCE_PATTERN = re.compile(
+    r"(?:Bridge|Transport)", re.IGNORECASE
+)
+UNREMAPPED_OGRE_MANGLED_PATTERN = re.compile(
+    r"_Z(?:N[KVRrO]*|T(?:I|S|V)N)4Ogre"
+)
 LEGACY_OBJC_CLASSES = (
     "OgreConfigWindowDelegate",
     "OgreMetalView",
@@ -84,6 +98,26 @@ def defined_global_symbols(path: Path) -> set[str]:
     return symbols
 
 
+def global_definition_linkages(
+    path: Path, definitions: set[str]
+) -> tuple[set[str], set[str]]:
+    """Partition Mach-O global definitions into weak and strong linkage."""
+    raw = output("nm", "-gm", str(path))
+    weak: set[str] = set()
+    strong: set[str] = set()
+    for line in raw.splitlines():
+        fields = line.rsplit(maxsplit=1)
+        if not fields or fields[-1] not in definitions:
+            continue
+        destination = weak if " weak " in f" {line} " else strong
+        destination.add(fields[-1])
+    require(
+        weak | strong == definitions,
+        f"could not classify every global definition in {path}",
+    )
+    return weak, strong
+
+
 def command_text(entry: dict[str, object]) -> str:
     if isinstance(entry.get("command"), str):
         return str(entry["command"])
@@ -92,13 +126,55 @@ def command_text(entry: dict[str, object]) -> str:
     return " ".join(str(value) for value in arguments)
 
 
-def one_compile_entry(entries: list[dict[str, object]], source: Path) -> dict[str, object]:
+def one_compile_entry(
+    entries: list[dict[str, object]], source: Path
+) -> dict[str, object]:
     matches = [
         entry for entry in entries
         if Path(str(entry.get("file", ""))).resolve() == source.resolve()
     ]
-    require(len(matches) == 1, f"expected one compile entry for {source}, got {len(matches)}")
+    require(
+        len(matches) == 1,
+        f"expected one compile entry for {source}, got {len(matches)}",
+    )
     return matches[0]
+
+
+def one_target_compile_entry(
+    entries: list[dict[str, object]], source: Path, target_name: str
+) -> dict[str, object]:
+    target_token = f"CMakeFiles/{target_name}.dir/"
+    matches = [
+        entry
+        for entry in entries
+        if Path(str(entry.get("file", ""))).resolve() == source.resolve()
+        and target_token in command_text(entry)
+    ]
+    require(
+        len(matches) == 1,
+        f"expected one {target_name} compile entry for {source}, got {len(matches)}",
+    )
+    return matches[0]
+
+
+def exact_regular_file(value: str, label: str) -> Path:
+    candidate = Path(value)
+    require(candidate.is_absolute(), f"{label} is not absolute: {candidate}")
+    require(
+        candidate.exists() and candidate.is_file() and not candidate.is_symlink(),
+        f"{label} is missing, indirect, or not a file: {candidate}",
+    )
+    return candidate.resolve()
+
+
+def exact_directory(value: str, label: str) -> Path:
+    candidate = Path(value)
+    require(candidate.is_absolute(), f"{label} is not absolute: {candidate}")
+    require(
+        candidate.exists() and candidate.is_dir() and not candidate.is_symlink(),
+        f"{label} is missing, indirect, or not a directory: {candidate}",
+    )
+    return candidate.resolve()
 
 
 def is_relative_to(path: Path, directory: Path) -> bool:
@@ -112,36 +188,121 @@ def is_relative_to(path: Path, directory: Path) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--next-archive", action="append", required=True)
+    parser.add_argument("--embedded-runtime-archive", required=True)
+    parser.add_argument("--direct-contract-archive", required=True)
     parser.add_argument("--plugin-object", required=True)
-    parser.add_argument("--legacy-library", required=True)
+    parser.add_argument("--legacy-main-library", required=True)
+    parser.add_argument("--legacy-library", action="append", required=True)
     parser.add_argument("--executable", required=True)
     parser.add_argument("--compile-commands", required=True)
     parser.add_argument("--next-source-root", required=True)
     parser.add_argument("--next-adapter", required=True)
     parser.add_argument("--legacy-adapter", required=True)
     parser.add_argument("--main-source", required=True)
+    parser.add_argument("--session-adapter", required=True)
+    parser.add_argument("--embedded-target-name", required=True)
+    parser.add_argument("--embedded-source", action="append", required=True)
+    parser.add_argument("--direct-target-name", required=True)
+    parser.add_argument("--direct-source", action="append", required=True)
     parser.add_argument("--remap-header", required=True)
     parser.add_argument("--legacy-include", required=True)
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
 
-    next_archives = [Path(value).resolve() for value in args.next_archive]
-    plugin_object = Path(args.plugin_object).resolve()
-    legacy_library = Path(args.legacy_library).resolve()
-    executable = Path(args.executable).resolve()
-    compile_commands = Path(args.compile_commands).resolve()
-    next_source_root = Path(args.next_source_root).resolve()
-    next_adapter = Path(args.next_adapter).resolve()
-    legacy_adapter = Path(args.legacy_adapter).resolve()
-    main_source = Path(args.main_source).resolve()
-    remap_header = Path(args.remap_header).resolve()
-    legacy_include = Path(args.legacy_include).resolve()
-    report = Path(args.report).resolve()
+    next_archives = [
+        exact_regular_file(value, "OgreNext archive")
+        for value in args.next_archive
+    ]
+    embedded_runtime_archive = exact_regular_file(
+        args.embedded_runtime_archive, "embedded N1 runtime archive"
+    )
+    direct_contract_archive = exact_regular_file(
+        args.direct_contract_archive, "direct contract archive"
+    )
+    modern_archives = [
+        *next_archives,
+        embedded_runtime_archive,
+        direct_contract_archive,
+    ]
+    legacy_libraries = [
+        exact_regular_file(value, "OGRE14 runtime library")
+        for value in args.legacy_library
+    ]
+    plugin_object = exact_regular_file(args.plugin_object, "plugin object")
+    legacy_main_library = exact_regular_file(
+        args.legacy_main_library, "OGRE14 main library"
+    )
+    executable = exact_regular_file(args.executable, "dual-runtime executable")
+    compile_commands = exact_regular_file(
+        args.compile_commands, "compile commands"
+    )
+    next_source_root = exact_directory(args.next_source_root, "OgreNext source root")
+    next_adapter = exact_regular_file(args.next_adapter, "OgreNext adapter source")
+    legacy_adapter = exact_regular_file(args.legacy_adapter, "OGRE14 adapter source")
+    main_source = exact_regular_file(args.main_source, "dual-runtime main source")
+    session_adapter = exact_regular_file(
+        args.session_adapter, "direct session adapter source"
+    )
+    embedded_sources = [
+        exact_regular_file(value, "embedded N1 source")
+        for value in args.embedded_source
+    ]
+    direct_sources = [
+        exact_regular_file(value, "direct contract source")
+        for value in args.direct_source
+    ]
+    remap_header = exact_regular_file(args.remap_header, "namespace remap header")
+    legacy_include = exact_directory(args.legacy_include, "OGRE14 include root")
+    report = Path(args.report)
+    require(report.is_absolute(), "audit report path must be absolute")
 
-    for path in [*next_archives, plugin_object, legacy_library, executable,
-                 compile_commands, next_adapter, legacy_adapter, main_source,
-                 remap_header]:
-        require(path.exists() and not path.is_symlink(), f"missing or indirect audit input: {path}")
+    require(
+        len(modern_archives) == len(set(modern_archives)),
+        "modern archive audit inputs contain duplicates",
+    )
+    require(
+        len(legacy_libraries) == len(set(legacy_libraries)),
+        "OGRE14 runtime audit inputs contain duplicates",
+    )
+    require(
+        legacy_main_library in legacy_libraries,
+        "OGRE14 runtime list does not contain its main library",
+    )
+    legacy_runtime_directories = {path.parent for path in legacy_libraries}
+    require(
+        len(legacy_runtime_directories) == 1,
+        "OGRE14 runtime libraries do not share one exact directory",
+    )
+    legacy_runtime_directory = next(iter(legacy_runtime_directories))
+    discovered_legacy_libraries = {
+        candidate.resolve()
+        for candidate in legacy_runtime_directory.iterdir()
+        if candidate.is_file()
+        and not candidate.is_symlink()
+        and LEGACY_RUNTIME_DYLIB_PATTERN.fullmatch(candidate.name)
+    }
+    require(
+        set(legacy_libraries) == discovered_legacy_libraries,
+        "OGRE14 runtime collision set is not the complete versioned dylib directory closure",
+    )
+    require(
+        all(source.suffix.lower() in CPP_SUFFIXES for source in embedded_sources),
+        "embedded N1 source list contains a non-translation-unit entry",
+    )
+    require(
+        all(source.suffix.lower() in CPP_SUFFIXES for source in direct_sources),
+        "direct contract source list contains a non-translation-unit entry",
+    )
+    forbidden_direct_sources = [
+        source.name
+        for source in direct_sources
+        if FORBIDDEN_DIRECT_SOURCE_PATTERN.search(source.name)
+    ]
+    require(
+        not forbidden_direct_sources,
+        "direct contract imported Bridge/Transport source names: "
+        + ", ".join(sorted(forbidden_direct_sources)),
+    )
 
     next_raw_parts: list[str] = []
     next_demangled_parts: list[str] = []
@@ -155,8 +316,39 @@ def main() -> int:
             "OgreNext archives contain no RoROgreNext C++ owner")
     require("Ogre::" not in next_demangled,
             "an Ogre namespace symbol remains in the namespaced OgreNext archives")
-    require(not re.search(r"_Z\S*4Ogre", next_raw),
+    require(not UNREMAPPED_OGRE_MANGLED_PATTERN.search(next_raw),
             "an Itanium Ogre namespace symbol remains in the OgreNext archives")
+
+    embedded_raw, embedded_demangled = nm(embedded_runtime_archive)
+    require(
+        "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend" in
+        embedded_demangled,
+        "the embedded runtime archive lacks the production N1 frontend",
+    )
+    require(
+        "Ogre::" not in embedded_demangled
+        and not UNREMAPPED_OGRE_MANGLED_PATTERN.search(embedded_raw),
+        "an unremapped Ogre owner remains in the embedded N1 runtime archive",
+    )
+
+    _, direct_demangled = nm(direct_contract_archive)
+    require(
+        "RoR::RendererInProcessSession::RendererInProcessSession" in
+        direct_demangled,
+        "the direct contract archive lacks RendererInProcessSession",
+    )
+    require(
+        "Ogre::" not in direct_demangled
+        and "RoROgreNext::" not in direct_demangled,
+        "the renderer-neutral direct contract archive imports an Ogre ABI owner",
+    )
+    require(
+        not any(
+            FORBIDDEN_DIRECT_SOURCE_PATTERN.search(line)
+            for line in direct_demangled.splitlines()
+        ),
+        "the direct contract archive imports a Bridge/Transport symbol",
+    )
 
     for old_name in LEGACY_OBJC_CLASSES:
         require(f"$_{old_name}" not in next_raw,
@@ -183,29 +375,63 @@ def main() -> int:
             "RoROgreNext_dllStopPlugin" in archive_strings,
             "OgreNext Root did not compile the prefixed dynamic lookup names")
 
-    legacy_raw, legacy_demangled = nm(legacy_library)
-    require("Ogre::Root::getSingletonPtr()" in legacy_demangled,
+    _, legacy_main_demangled = nm(legacy_main_library)
+    require("Ogre::Root::getSingletonPtr()" in legacy_main_demangled,
             "the explicit legacy runtime lacks Ogre::Root")
-    require("RoROgreNext::" not in legacy_demangled,
-            "the explicit legacy runtime was modified by the namespace fork")
-
-    legacy_definitions = defined_global_symbols(legacy_library)
-    require(legacy_definitions,
-            "the explicit legacy runtime has no global definitions to audit")
+    legacy_definitions: set[str] = set()
+    legacy_strong_definitions: set[str] = set()
+    legacy_library_reports: list[dict[str, object]] = []
+    for legacy_library in legacy_libraries:
+        _, legacy_demangled = nm(legacy_library)
+        require(
+            "RoROgreNext::" not in legacy_demangled,
+            f"legacy runtime was modified by the namespace fork: {legacy_library}",
+        )
+        definitions = defined_global_symbols(legacy_library)
+        require(
+            definitions,
+            f"legacy runtime has no global definitions to audit: {legacy_library}",
+        )
+        _, strong_definitions = global_definition_linkages(
+            legacy_library, definitions
+        )
+        legacy_definitions.update(definitions)
+        legacy_strong_definitions.update(strong_definitions)
+        legacy_library_reports.append(
+            {
+                "path": str(legacy_library),
+                "sha256": digest(legacy_library),
+                "defined_globals": len(definitions),
+            }
+        )
+    require(legacy_definitions, "OGRE14 runtime closure has no global definitions")
     global_intersections: list[dict[str, object]] = []
-    for archive in next_archives:
-        next_definitions = defined_global_symbols(archive)
-        require(next_definitions,
-                f"the OgreNext archive has no global definitions to audit: {archive}")
-        intersection = next_definitions & legacy_definitions
+    for archive in modern_archives:
+        modern_definitions = defined_global_symbols(archive)
+        require(modern_definitions,
+                f"the modern archive has no global definitions to audit: {archive}")
+        intersection = modern_definitions & legacy_definitions
         unexpected = intersection - DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
         require(not unexpected,
                 f"global definitions collide with OGRE14 in {archive}: " +
                 ", ".join(sorted(unexpected)))
+        reviewed_weak = intersection & DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
+        modern_weak, modern_strong = global_definition_linkages(
+            archive, modern_definitions
+        )
+        require(
+            reviewed_weak <= modern_weak
+            and not (
+                reviewed_weak
+                & (modern_strong | legacy_strong_definitions)
+            ),
+            f"reviewed weak collision became strong in {archive}: "
+            + ", ".join(sorted(reviewed_weak)),
+        )
         global_intersections.append({
-            "next_archive": str(archive),
-            "next_defined_globals": len(next_definitions),
-            "legacy_defined_globals": len(legacy_definitions),
+            "modern_archive": str(archive),
+            "modern_defined_globals": len(modern_definitions),
+            "legacy_closure_defined_globals": len(legacy_definitions),
             "intersection": sorted(intersection),
             "reviewed_allowlist": sorted(
                 DEFINED_GLOBAL_INTERSECTION_ALLOWLIST),
@@ -214,12 +440,26 @@ def main() -> int:
     # OgreNext is linked statically with hidden visibility, so its resolved
     # symbols are local in the final Mach-O.  Inspect the complete final symbol
     # table here; the archive/plugin rejection gates above remain global-only.
-    executable_raw, executable_demangled = nm(executable, global_only=False)
+    _, executable_demangled = nm(executable, global_only=False)
     require("Ogre::Root::getSingletonPtr()" in executable_demangled and
             "RoROgreNext::Root::getSingletonPtr()" in executable_demangled,
             "dual-runtime executable does not resolve both Root ABI owners")
+    require(
+        "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend" in
+        executable_demangled
+        and "RoR::RendererInProcessSession::RendererInProcessSession" in
+        executable_demangled,
+        "dual-runtime executable does not contain the production N1/direct session lifecycle",
+    )
+    require(
+        "RoR::Render::OgreNextN1Frontend::~OgreNextN1Frontend" in
+        executable_demangled
+        and "RoR::RendererInProcessSession::~RendererInProcessSession" in
+        executable_demangled,
+        "dual-runtime executable does not contain both production destructors",
+    )
     linked_libraries = output("otool", "-L", str(executable))
-    require(legacy_library.name in linked_libraries,
+    require(legacy_main_library.name in linked_libraries,
             "dual-runtime executable has no load command for OGRE14")
 
     payload = json.loads(compile_commands.read_text(encoding="utf-8"))
@@ -240,6 +480,11 @@ def main() -> int:
     next_command = command_text(one_compile_entry(entries, next_adapter))
     legacy_command = command_text(one_compile_entry(entries, legacy_adapter))
     main_command = command_text(one_compile_entry(entries, main_source))
+    session_command = command_text(
+        one_target_compile_entry(
+            entries, session_adapter, "ror_ogre_next_dual_runtime_link_smoke"
+        )
+    )
     require(str(remap_header) in next_command,
             "the OgreNext adapter does not receive the fork remap")
     require(str(remap_header) not in legacy_command and
@@ -247,21 +492,74 @@ def main() -> int:
             "the fork remap leaked into the OGRE14 adapter")
     require(str(remap_header) not in main_command,
             "the fork remap leaked into the dual-runtime main TU")
+    require(
+        str(remap_header) not in session_command
+        and "Ogre=RoROgreNext" not in session_command,
+        "the fork remap leaked into the renderer-neutral session adapter",
+    )
     require(str(legacy_include) not in next_command,
             "the OgreNext adapter sees OGRE14 headers")
     require(str(next_source_root) not in legacy_command,
             "the OGRE14 adapter sees OgreNext headers")
 
+    embedded_commands = [
+        command_text(
+            one_target_compile_entry(
+                entries, source, args.embedded_target_name
+            )
+        )
+        for source in embedded_sources
+    ]
+    require(
+        all(str(remap_header) in command for command in embedded_commands),
+        "a production embedded N1 translation unit lacks the namespace remap",
+    )
+    require(
+        all(
+            "ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM" not in command
+            for command in embedded_commands
+        ),
+        "the production embedded N1 target imported a test seam",
+    )
+    direct_commands = [
+        command_text(
+            one_target_compile_entry(entries, source, args.direct_target_name)
+        )
+        for source in direct_sources
+    ]
+    require(
+        all(
+            str(remap_header) not in command
+            and "Ogre=RoROgreNext" not in command
+            for command in direct_commands
+        ),
+        "the OgreNext namespace remap leaked into the direct contract closure",
+    )
+
     result = {
-        "schema": "ror.ogre_next.embedded_namespace_audit.v1",
+        "schema": "ror.ogre_next.embedded_namespace_audit.v2",
         "status": "passed",
         "namespace": "RoROgreNext",
         "upstream_compile_entries": len(upstream_entries),
         "next_archives": [
             {"path": str(path), "sha256": digest(path)} for path in next_archives
         ],
+        "embedded_runtime_archive": {
+            "path": str(embedded_runtime_archive),
+            "sha256": digest(embedded_runtime_archive),
+        },
+        "direct_contract_archive": {
+            "path": str(direct_contract_archive),
+            "sha256": digest(direct_contract_archive),
+            "bridge_transport_symbols": 0,
+        },
         "plugin_object": {"path": str(plugin_object), "sha256": digest(plugin_object)},
-        "legacy_library": {"path": str(legacy_library), "sha256": digest(legacy_library)},
+        "legacy_main_library": {
+            "path": str(legacy_main_library),
+            "sha256": digest(legacy_main_library),
+        },
+        "legacy_runtime_libraries": legacy_library_reports,
+        "legacy_runtime_directory": str(legacy_runtime_directory),
         "executable": {"path": str(executable), "sha256": digest(executable)},
         "compile_commands_sha256": digest(compile_commands),
         "defined_global_intersections": global_intersections,
@@ -269,6 +567,10 @@ def main() -> int:
             "next_adapter_forced_remap": True,
             "ogre14_adapter_forced_remap": False,
             "main_forced_remap": False,
+            "session_adapter_forced_remap": False,
+            "embedded_n1_sources_forced_remap": len(embedded_commands),
+            "direct_contract_sources_forced_remap": 0,
+            "direct_contract_sources": len(direct_commands),
         },
     }
     report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",

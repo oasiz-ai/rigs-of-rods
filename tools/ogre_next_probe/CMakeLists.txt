@@ -37,6 +37,11 @@ set(
     CACHE FILEPATH
     "OGRE14 main library used only by the dual-runtime link smoke")
 set(
+    ROR_OGRE14_DUAL_RUNTIME_LIBRARIES
+    ""
+    CACHE STRING
+    "Semicolon-separated complete OGRE14 runtime dylib set audited by the dual-runtime smoke")
+set(
     ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT
     "${CMAKE_BINARY_DIR}/ror-ogre-next-product-stage"
     CACHE PATH
@@ -893,21 +898,61 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         message(FATAL_ERROR
             "The first dual-runtime smoke is the reviewed macOS/Metal seam")
     endif ()
-    foreach (_ror_ogre14_path IN ITEMS
-            ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR
-            ROR_OGRE14_DUAL_RUNTIME_LIBRARY)
-        if (NOT IS_ABSOLUTE "${${_ror_ogre14_path}}" OR
-                NOT EXISTS "${${_ror_ogre14_path}}")
-            message(FATAL_ERROR
-                "${_ror_ogre14_path} must be an existing absolute path")
-        endif ()
-    endforeach ()
-    if (NOT EXISTS
-            "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}/OgreRoot.h" OR
-            IS_SYMLINK "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}")
+    if (NOT IS_ABSOLUTE "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}" OR
+            NOT EXISTS
+                "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}/OgreRoot.h" OR
+            NOT IS_ABSOLUTE "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}" OR
+            NOT EXISTS "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}" OR
+            IS_SYMLINK "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}" OR
+            NOT ROR_OGRE14_DUAL_RUNTIME_LIBRARIES)
         message(FATAL_ERROR
             "The dual-runtime OGRE14 include/library boundary is invalid")
     endif ()
+    list(FIND ROR_OGRE14_DUAL_RUNTIME_LIBRARIES
+        "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}"
+        _ror_ogre14_main_runtime_index)
+    if (_ror_ogre14_main_runtime_index EQUAL -1)
+        message(FATAL_ERROR
+            "The complete OGRE14 runtime list must contain its main library")
+    endif ()
+    set(_ror_ogre14_runtime_directory "")
+    set(_ror_ogre14_runtime_names "")
+    foreach (_ror_ogre14_runtime_library IN LISTS
+            ROR_OGRE14_DUAL_RUNTIME_LIBRARIES)
+        if (NOT IS_ABSOLUTE "${_ror_ogre14_runtime_library}" OR
+                NOT EXISTS "${_ror_ogre14_runtime_library}" OR
+                IS_DIRECTORY "${_ror_ogre14_runtime_library}" OR
+                IS_SYMLINK "${_ror_ogre14_runtime_library}")
+            message(FATAL_ERROR
+                "Every OGRE14 runtime library must be an exact regular file: "
+                "${_ror_ogre14_runtime_library}")
+        endif ()
+        get_filename_component(_ror_ogre14_runtime_name
+            "${_ror_ogre14_runtime_library}" NAME)
+        get_filename_component(_ror_ogre14_runtime_parent
+            "${_ror_ogre14_runtime_library}" DIRECTORY)
+        if (NOT _ror_ogre14_runtime_name MATCHES
+                "^(libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$")
+            message(FATAL_ERROR
+                "Unexpected non-OGRE dylib in the runtime collision set: "
+                "${_ror_ogre14_runtime_name}")
+        endif ()
+        if (_ror_ogre14_runtime_directory STREQUAL "")
+            set(_ror_ogre14_runtime_directory
+                "${_ror_ogre14_runtime_parent}")
+        elseif (NOT _ror_ogre14_runtime_directory STREQUAL
+                "${_ror_ogre14_runtime_parent}")
+            message(FATAL_ERROR
+                "OGRE14 runtime collision inputs must share one directory")
+        endif ()
+        if (_ror_ogre14_runtime_name IN_LIST _ror_ogre14_runtime_names)
+            message(FATAL_ERROR
+                "Duplicate OGRE14 runtime basename: "
+                "${_ror_ogre14_runtime_name}")
+        endif ()
+        list(APPEND _ror_ogre14_runtime_names
+            "${_ror_ogre14_runtime_name}")
+    endforeach ()
 
     add_library(ror_ogre14_dual_runtime_main UNKNOWN IMPORTED)
     set_target_properties(
@@ -957,26 +1002,175 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
     ror_ogre_next_enable_embedded_namespace(
         ror_ogre_next_embedded_plugin_export_probe)
 
+    set(_ror_render_root
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../source/main/gfx/render")
+    set(_ror_system_root
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../source/main/system")
+    set(_ror_embedded_direct_contract_sources
+        "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
+        "${_ror_render_root}/HdrReference.cpp"
+        "${_ror_render_root}/MaterialDescriptor.cpp"
+        "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
+        "${_ror_render_root}/ReflectionProbeRuntime.cpp"
+        "${_ror_render_root}/RenderAssetId.cpp"
+        "${_ror_render_root}/RenderAssetRegistry.cpp"
+        "${_ror_render_root}/RenderFrame.cpp"
+        "${_ror_render_root}/RendererFrontend.cpp"
+        "${_ror_render_root}/RendererFrontendDirectDispatcher.cpp"
+        "${_ror_render_root}/RendererFrontendPresentationPolicy.cpp"
+        "${_ror_render_root}/RenderResourceDescriptors.cpp"
+        "${_ror_render_root}/ResourceHandle.cpp"
+        "${_ror_render_root}/SceneSnapshot.cpp"
+        "${_ror_system_root}/RendererInProcessSession.cpp")
+    foreach (_ror_embedded_direct_source IN LISTS
+            _ror_embedded_direct_contract_sources)
+        get_filename_component(_ror_embedded_direct_name
+            "${_ror_embedded_direct_source}" NAME)
+        if (_ror_embedded_direct_name MATCHES "(Bridge|Transport)")
+            message(FATAL_ERROR
+                "Embedded direct runtime imported forbidden source: "
+                "${_ror_embedded_direct_name}")
+        endif ()
+    endforeach ()
+    add_library(
+        ror_ogre_next_embedded_direct_contract STATIC
+        ${_ror_embedded_direct_contract_sources})
+    target_include_directories(
+        ror_ogre_next_embedded_direct_contract
+        PUBLIC
+            "${_ror_render_root}/.."
+            "${_ror_render_root}"
+            "${_ror_system_root}")
+    set_target_properties(
+        ror_ogre_next_embedded_direct_contract
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+
+    set(_ror_embedded_n1_sources
+        "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
+    add_library(
+        ror_ogre_next_embedded_n1_runtime STATIC
+        ${_ror_embedded_n1_sources})
+    target_compile_definitions(
+        ror_ogre_next_embedded_n1_runtime
+        PRIVATE ROR_OGRE_NEXT_N1_METAL=1)
+    target_compile_options(
+        ror_ogre_next_embedded_n1_runtime
+        PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_include_directories(
+        ror_ogre_next_embedded_n1_runtime
+        PUBLIC
+            "${_ror_render_root}"
+            "${_ror_render_root}/ogrenext"
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_include_directories(
+        ror_ogre_next_embedded_n1_runtime
+        SYSTEM PRIVATE
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
+            "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+    target_link_libraries(
+        ror_ogre_next_embedded_n1_runtime
+        PUBLIC ror_ogre_next_embedded_direct_contract
+        PRIVATE
+            OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
+            RenderSystem_Metal
+            OgreNextMain
+            Threads::Threads)
+    set_target_properties(
+        ror_ogre_next_embedded_n1_runtime
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+    add_dependencies(
+        ror_ogre_next_embedded_n1_runtime
+        ror_ogre_next_pssm_source_closure_verify)
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_embedded_n1_runtime)
+    get_target_property(_ror_embedded_n1_namespace_applied
+        ror_ogre_next_embedded_n1_runtime
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_APPLIED)
+    get_target_property(_ror_embedded_n1_definitions
+        ror_ogre_next_embedded_n1_runtime COMPILE_DEFINITIONS)
+    if (NOT _ror_embedded_n1_namespace_applied OR
+            "ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM=1" IN_LIST
+                _ror_embedded_n1_definitions OR
+            "ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM" IN_LIST
+                _ror_embedded_n1_definitions)
+        message(FATAL_ERROR
+            "Embedded N1 must use the namespace remap and production sources")
+    endif ()
+
     add_executable(
         ror_ogre_next_dual_runtime_link_smoke
         src/embedded_namespace/main.cpp
+        src/embedded_namespace/n1_session_adapter.cpp
         $<TARGET_OBJECTS:ror_ogre_next_dual_runtime_next_adapter>
         $<TARGET_OBJECTS:ror_ogre_next_dual_runtime_ogre14_adapter>)
+    target_include_directories(
+        ror_ogre_next_dual_runtime_link_smoke
+        PRIVATE
+            "${_ror_render_root}/.."
+            "${_ror_render_root}"
+            "${_ror_system_root}")
     target_link_libraries(
         ror_ogre_next_dual_runtime_link_smoke
         PRIVATE
+            ror_ogre_next_embedded_n1_runtime
+            ror_ogre_next_embedded_direct_contract
+            OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
+            RenderSystem_Metal
             OgreNextMain
             ror_ogre14_dual_runtime_main
+            Threads::Threads
             "-framework AppKit"
-            "-framework CoreFoundation")
-    get_filename_component(_ror_ogre14_dual_runtime_library_directory
-        "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}" DIRECTORY)
+            "-framework CoreFoundation"
+            "-framework Metal"
+            "-framework QuartzCore")
     set_target_properties(
         ror_ogre_next_dual_runtime_link_smoke
         PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
             BUILD_RPATH
-                "${_ror_ogre14_dual_runtime_library_directory}")
+                "${_ror_ogre14_runtime_directory}")
+
+    set(_ror_ogre14_audit_arguments "")
+    foreach (_ror_ogre14_runtime_library IN LISTS
+            ROR_OGRE14_DUAL_RUNTIME_LIBRARIES)
+        list(APPEND _ror_ogre14_audit_arguments
+            --legacy-library "${_ror_ogre14_runtime_library}")
+    endforeach ()
+    set(_ror_embedded_source_audit_arguments "")
+    foreach (_ror_embedded_n1_source IN LISTS _ror_embedded_n1_sources)
+        list(APPEND _ror_embedded_source_audit_arguments
+            --embedded-source "${_ror_embedded_n1_source}")
+    endforeach ()
+    set(_ror_direct_source_audit_arguments "")
+    foreach (_ror_embedded_direct_source IN LISTS
+            _ror_embedded_direct_contract_sources)
+        list(APPEND _ror_direct_source_audit_arguments
+            --direct-source "${_ror_embedded_direct_source}")
+    endforeach ()
 
     set(_ror_embedded_namespace_audit_report
         "${CMAKE_BINARY_DIR}/ror-ogre-next-embedded-namespace-audit.json")
@@ -988,9 +1182,18 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             "${CMAKE_CURRENT_SOURCE_DIR}/audit_embedded_namespace.py"
             --next-archive "$<TARGET_FILE:OgreNextMain>"
             --next-archive "$<TARGET_FILE:RenderSystem_Metal>"
+            --next-archive "$<TARGET_FILE:OgreNextHlmsPbs>"
+            --next-archive "$<TARGET_FILE:OgreNextHlmsUnlit>"
+            --next-archive "$<TARGET_FILE:OgreNextOverlay>"
+            --embedded-runtime-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_n1_runtime>"
+            --direct-contract-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_direct_contract>"
             --plugin-object
                 "$<TARGET_OBJECTS:ror_ogre_next_embedded_plugin_export_probe>"
-            --legacy-library "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}"
+            --legacy-main-library
+                "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}"
+            ${_ror_ogre14_audit_arguments}
             --executable
                 "$<TARGET_FILE:ror_ogre_next_dual_runtime_link_smoke>"
             --compile-commands "${CMAKE_BINARY_DIR}/compile_commands.json"
@@ -1001,15 +1204,28 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/ogre14_adapter.cpp"
             --main-source
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/main.cpp"
+            --session-adapter
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/n1_session_adapter.cpp"
+            --embedded-target-name
+                ror_ogre_next_embedded_n1_runtime
+            ${_ror_embedded_source_audit_arguments}
+            --direct-target-name
+                ror_ogre_next_embedded_direct_contract
+            ${_ror_direct_source_audit_arguments}
             --remap-header "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
             --legacy-include "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}"
             --report "${_ror_embedded_namespace_audit_report}"
         DEPENDS
             ror_ogre_next_dual_runtime_link_smoke
+            ror_ogre_next_embedded_n1_runtime
+            ror_ogre_next_embedded_direct_contract
             ror_ogre_next_embedded_plugin_export_probe
             RenderSystem_Metal
+            OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
         COMMENT
-            "Auditing the namespaced OgreNext and OGRE14 dual-runtime link"
+            "Auditing the full embedded N1 and OGRE14 dual-runtime link"
         COMMAND_EXPAND_LISTS
         VERBATIM)
 endif ()
@@ -3296,6 +3512,14 @@ add_custom_target(
     VERBATIM)
 
 enable_testing()
+if (TARGET ror_ogre_next_dual_runtime_link_smoke)
+    add_test(
+        NAME ror_ogre_next_embedded_n1_direct_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_dual_runtime_link_smoke>)
+    set_tests_properties(
+        ror_ogre_next_embedded_n1_direct_runtime
+        PROPERTIES TIMEOUT 30)
+endif ()
 if (TARGET ror_renderer_backend_policy_tests)
     add_test(NAME ror_renderer_backend_policy
         COMMAND $<TARGET_FILE:ror_renderer_backend_policy_tests>)
