@@ -362,10 +362,13 @@ public:
     Ogre::Vector3     GetFFbBodyForces() const          { return m_force_sensors.out_body_forces; }
     GfxActor*         GetGfxActor()                     { return m_gfx_actor.get(); }
     /// Captures the actor's immutable, renderer-neutral managed-material
-    /// declarations. A successful snapshot still requires frame-reachable
-    /// source revalidation immediately before renderer publication.
+    /// declarations. Before publishing the snapshot, lazily and independently
+    /// refreshes stale retained runtime bindings against current texture
+    /// authority so later spawn-time wheel/prop/flexbody loads cannot strand
+    /// them on an old COW registry state. A failed refresh remains stale and is
+    /// rejected only if its source-backed projection becomes frame-reachable.
     Render::ValidationResult CaptureManagedMaterialDeclarationSnapshot(
-        Render::ManagedMaterialDeclarationSnapshot& output) const;
+        Render::ManagedMaterialDeclarationSnapshot& output);
     /// Checks the immutable actor publication only. Renderer source authority
     /// is intentionally excluded so an unused invalidated binding cannot
     /// poison an independent frame transaction.

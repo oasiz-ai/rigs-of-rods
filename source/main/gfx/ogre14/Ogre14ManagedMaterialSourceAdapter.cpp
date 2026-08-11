@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <new>
+#include <type_traits>
 #include <utility>
 
 namespace RoR::Render {
@@ -367,6 +368,298 @@ bool Ogre14ManagedMaterialDeclarationBinding::Revalidate(
 bool Ogre14ManagedMaterialDeclarationBinding::SharesImmutableStateWith(
     const Ogre14ManagedMaterialDeclarationBinding &other) const noexcept {
   return state_ != nullptr && state_ == other.state_;
+}
+
+ValidationResult Ogre14ManagedMaterialSourceAdapter::
+    BuildFreshAuthorityBatch(
+        const std::array<Ogre::TexturePtr,
+                         kManagedMaterialTextureSlotCount> &exact_textures,
+        const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+        const IOgre14SelectedTextureSourceResolver &selected_resolver,
+        const ManagedMaterialDeclarationRegistryConfiguration &configuration,
+        const std::array<ManagedMaterialTextureSourceReceipt,
+                         kManagedMaterialTextureSlotCount> &reusable_receipts,
+        std::array<ManagedMaterialTextureSourceReceipt,
+                   kManagedMaterialTextureSlotCount> &receipt_outputs,
+        std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+                   kManagedMaterialTextureSlotCount> &binding_outputs,
+        IManagedMaterialDeclarationFaultInjector *fault_injector) {
+  try {
+    const ValidationResult configuration_validation =
+        ValidateManagedMaterialDeclarationRegistryConfiguration(configuration);
+    if (!configuration_validation) {
+      return configuration_validation;
+    }
+
+    std::array<ManagedMaterialTextureSourceReceipt,
+               kManagedMaterialTextureSlotCount>
+        staged_receipts{};
+    std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+               kManagedMaterialTextureSlotCount>
+        staged_bindings{};
+    for (std::size_t slot = 0U; slot < kManagedMaterialTextureSlotCount;
+         ++slot) {
+      const Ogre::TexturePtr &texture = exact_textures[slot];
+      if (!texture) {
+        continue;
+      }
+
+      const ManagedMaterialTextureSourceReceipt *reusable =
+          reusable_receipts[slot].initialized() ? &reusable_receipts[slot]
+                                                : nullptr;
+      for (std::size_t prior_slot = 0U; prior_slot < slot; ++prior_slot) {
+        const ManagedMaterialTextureSourceIdentity *prior_identity =
+            staged_receipts[prior_slot].identity();
+        if (prior_identity != nullptr &&
+            prior_identity->effective_resource_group == texture->getGroup() &&
+            prior_identity->exact_resource_name == texture->getName()) {
+          reusable = &staged_receipts[prior_slot];
+          break;
+        }
+      }
+
+      ValidationResult result = ValidationResult::Success();
+      if (authenticated_resolver.RequiresAuthenticatedTextureSource(
+              *texture)) {
+        Ogre14AuthenticatedTextureResolution resolution;
+        result = authenticated_resolver.ResolveAuthenticatedTexture(
+            *texture, resolution);
+        if (result) {
+          result = BuildAuthenticated(
+              texture, authenticated_resolver, resolution, configuration,
+              staged_receipts[slot], staged_bindings[slot], reusable,
+              fault_injector);
+        }
+      } else {
+        Ogre14SelectedTextureSourceResolution resolution;
+        result = selected_resolver.ResolveSelectedTextureSource(*texture,
+                                                                 resolution);
+        if (result) {
+          result = BuildSelected(
+              texture, authenticated_resolver, selected_resolver, resolution,
+              configuration, staged_receipts[slot], staged_bindings[slot],
+              reusable, fault_injector);
+        }
+      }
+      if (!result) {
+        return result;
+      }
+    }
+
+    // ContentManager serializes these resolver calls with texture lifecycle.
+    // Rechecking the complete staged set here proves that an intervening COW
+    // receipt commit, reload, teardown, or authority-mode change invalidates
+    // the batch instead of publishing a mixture of registry generations.
+    for (std::size_t slot = 0U; slot < kManagedMaterialTextureSlotCount;
+         ++slot) {
+      if (exact_textures[slot] &&
+          !staged_bindings[slot].Revalidate(authenticated_resolver,
+                                             selected_resolver)) {
+        return Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "managed_material_ogre14.batch_revalidation",
+            "texture source authority changed during final batch binding");
+      }
+    }
+
+    static_assert(std::is_nothrow_move_assignable_v<decltype(receipt_outputs)>);
+    static_assert(std::is_nothrow_move_assignable_v<decltype(binding_outputs)>);
+    receipt_outputs = std::move(staged_receipts);
+    binding_outputs = std::move(staged_bindings);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "managed_material_ogre14.batch_allocation",
+                   "allocation failed before final source batch publication");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "managed_material_ogre14.batch_exception",
+                   "unexpected exception before final source batch publication");
+  }
+}
+
+ValidationResult Ogre14ManagedMaterialSourceAdapter::
+    RefreshDeclarationAuthorityBatch(
+        const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+            &retained_bindings,
+        const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+        const IOgre14SelectedTextureSourceResolver &selected_resolver,
+        const ManagedMaterialDeclarationRegistryConfiguration &configuration,
+        std::vector<Ogre14ManagedMaterialDeclarationBinding> &output,
+        IManagedMaterialDeclarationFaultInjector *fault_injector) {
+  try {
+    const ValidationResult configuration_validation =
+        ValidateManagedMaterialDeclarationRegistryConfiguration(configuration);
+    if (!configuration_validation) {
+      return configuration_validation;
+    }
+    std::vector<Ogre14ManagedMaterialDeclarationBinding> staged;
+    staged.reserve(retained_bindings.size());
+    for (const Ogre14ManagedMaterialDeclarationBinding &retained :
+         retained_bindings) {
+      if (retained.state_ == nullptr || !retained.state_->material ||
+          retained.state_->declaration.metadata() == nullptr) {
+        return Failure(ValidationCode::MISSING_REFERENCE,
+                       "managed_material_ogre14.retained_binding",
+                       "retained declaration binding is incomplete");
+      }
+      if (!retained.MatchesExactMaterial(retained.state_->material)) {
+        return Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "managed_material_ogre14.retained_material",
+            "retained exact material changed before source refresh");
+      }
+      const ManagedMaterialDeclarationMetadata &metadata =
+          *retained.state_->declaration.metadata();
+      std::array<Ogre::TexturePtr, kManagedMaterialTextureSlotCount> textures{};
+      std::array<ManagedMaterialTextureSourceReceipt,
+                 kManagedMaterialTextureSlotCount>
+          reusable{};
+      for (std::size_t slot = 0U; slot < kManagedMaterialTextureSlotCount;
+           ++slot) {
+        const bool source_present =
+            metadata.textures[slot].source_receipt_present;
+        const Ogre14ManagedMaterialSourceAuthorityBinding &source_binding =
+            retained.state_->source_bindings[slot];
+        const ManagedMaterialTextureSourceReceipt *source_receipt =
+            retained.state_->declaration.source_receipt(
+                static_cast<ManagedMaterialTextureSlot>(slot));
+        if (!source_present) {
+          if (source_binding.initialized() || source_receipt != nullptr) {
+            return Failure(
+                ValidationCode::REVISION_MISMATCH,
+                "managed_material_ogre14.retained_source_set",
+                "retained declaration and source binding sets differ");
+          }
+          continue;
+        }
+        if (source_receipt == nullptr || source_binding.state_ == nullptr ||
+            !source_binding.state_->texture ||
+            source_binding.neutral_source_identity_sha256() !=
+                source_receipt->canonical_identity_sha256()) {
+          return Failure(ValidationCode::MISSING_REFERENCE,
+                         "managed_material_ogre14.retained_source",
+                         "retained source has no exact texture authority");
+        }
+        textures[slot] = source_binding.state_->texture;
+        reusable[slot] = *source_receipt;
+      }
+
+      std::array<ManagedMaterialTextureSourceReceipt,
+                 kManagedMaterialTextureSlotCount>
+          refreshed_receipts{};
+      std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+                 kManagedMaterialTextureSlotCount>
+          refreshed_sources{};
+      ValidationResult result = BuildFreshAuthorityBatch(
+          textures, authenticated_resolver, selected_resolver, configuration,
+          reusable, refreshed_receipts, refreshed_sources, fault_injector);
+      if (!result) {
+        return result;
+      }
+      for (std::size_t slot = 0U; slot < kManagedMaterialTextureSlotCount;
+           ++slot) {
+        const ManagedMaterialTextureSourceReceipt *source_receipt =
+            retained.state_->declaration.source_receipt(
+                static_cast<ManagedMaterialTextureSlot>(slot));
+        if ((source_receipt == nullptr) !=
+                !refreshed_receipts[slot].initialized() ||
+            (source_receipt != nullptr &&
+             !refreshed_receipts[slot].SharesImmutableStateWith(
+                 *source_receipt))) {
+          return Failure(
+              ValidationCode::REVISION_MISMATCH,
+              "managed_material_ogre14.retained_neutral_source",
+              "current source no longer matches the sealed neutral receipt");
+        }
+      }
+
+      Ogre14ManagedMaterialDeclarationBinding refreshed;
+      result = Ogre14ManagedMaterialDeclarationBinding::Build(
+          retained.state_->material, retained.state_->declaration,
+          refreshed_sources, authenticated_resolver, selected_resolver,
+          refreshed);
+      if (!result) {
+        return result;
+      }
+      staged.push_back(std::move(refreshed));
+    }
+
+    for (const Ogre14ManagedMaterialDeclarationBinding &binding : staged) {
+      if (!binding.Revalidate(authenticated_resolver, selected_resolver)) {
+        return Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "managed_material_ogre14.declaration_batch_revalidation",
+            "source authority changed during retained declaration refresh");
+      }
+    }
+    output.swap(staged);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(
+        ValidationCode::EMPTY_PAYLOAD,
+        "managed_material_ogre14.declaration_batch_allocation",
+        "allocation failed before retained declaration refresh publication");
+  } catch (...) {
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "managed_material_ogre14.declaration_batch_exception",
+        "unexpected exception before retained declaration refresh publication");
+  }
+}
+
+ValidationResult Ogre14ManagedMaterialSourceAdapter::
+    RefreshStaleDeclarationAuthorityBestEffort(
+        const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+            &retained_bindings,
+        const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+        const IOgre14SelectedTextureSourceResolver &selected_resolver,
+        const ManagedMaterialDeclarationRegistryConfiguration &configuration,
+        std::vector<Ogre14ManagedMaterialDeclarationBinding> &output,
+        IManagedMaterialDeclarationFaultInjector *fault_injector) {
+  try {
+    const ValidationResult configuration_validation =
+        ValidateManagedMaterialDeclarationRegistryConfiguration(configuration);
+    if (!configuration_validation) {
+      return configuration_validation;
+    }
+
+    // Copy the complete publication before attempting any repair. Individual
+    // failures deliberately retain their old immutable binding in this staged
+    // vector; only the one final swap below can change caller-visible state.
+    std::vector<Ogre14ManagedMaterialDeclarationBinding> staged =
+        retained_bindings;
+    for (std::size_t index = 0U; index < retained_bindings.size(); ++index) {
+      const Ogre14ManagedMaterialDeclarationBinding &retained =
+          retained_bindings[index];
+      if (retained.Revalidate(authenticated_resolver, selected_resolver)) {
+        continue;
+      }
+
+      const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+          single_retained{retained};
+      std::vector<Ogre14ManagedMaterialDeclarationBinding> single_refreshed;
+      const ValidationResult refresh = RefreshDeclarationAuthorityBatch(
+          single_retained, authenticated_resolver, selected_resolver,
+          configuration, single_refreshed, fault_injector);
+      if (refresh && single_refreshed.size() == 1U) {
+        staged[index] = std::move(single_refreshed.front());
+      }
+    }
+
+    output.swap(staged);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(
+        ValidationCode::EMPTY_PAYLOAD,
+        "managed_material_ogre14.best_effort_refresh_allocation",
+        "allocation failed before best-effort authority refresh publication");
+  } catch (...) {
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "managed_material_ogre14.best_effort_refresh_exception",
+        "unexpected exception before best-effort authority refresh publication");
+  }
 }
 
 ValidationResult ValidateOgre14ReachableManagedMaterialBindings(

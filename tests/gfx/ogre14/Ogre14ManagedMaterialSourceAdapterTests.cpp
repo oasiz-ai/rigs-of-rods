@@ -8,8 +8,11 @@
 #include "gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
 
 #include <OgreMaterial.h>
+#include <OgrePass.h>
 #include <OgreRoot.h>
+#include <OgreTechnique.h>
 #include <OgreTexture.h>
+#include <OgreTextureUnitState.h>
 
 #include <array>
 #include <cstdint>
@@ -287,6 +290,41 @@ ManagedMaterialDeclaration BuildDeclaration(
   return declaration;
 }
 
+ManagedMaterialDeclaration BuildTwoSourceDeclaration(
+    const std::string &name,
+    const ManagedMaterialTextureSourceReceipt &diffuse_source,
+    const ManagedMaterialTextureSourceReceipt &specular_source) {
+  ManagedMaterialDeclarationInput input;
+  input.actor_generation = 7U;
+  input.definition_generation = 1U;
+  input.exact_material_name = name;
+  input.declared_type = ManagedMaterialSemanticType::MESH_STANDARD;
+  input.resolved_type = ManagedMaterialSemanticType::MESH_STANDARD;
+  const std::array<const ManagedMaterialTextureSourceReceipt *, 2U> sources{
+      {&diffuse_source, &specular_source}};
+  for (std::size_t slot = 0U; slot < sources.size(); ++slot) {
+    const ManagedMaterialTextureSourceIdentity *identity =
+        sources[slot]->identity();
+    Require(identity != nullptr, "two-source declaration input is empty");
+    ManagedMaterialTextureBindingInput &binding = input.textures[slot];
+    binding.slot = static_cast<ManagedMaterialTextureSlot>(slot);
+    binding.configured = true;
+    binding.declared_texture_name = identity->exact_resource_name;
+    binding.resolved_texture_name = identity->exact_resource_name;
+    binding.effective_texture_name = identity->exact_resource_name;
+    binding.requested_resource_group = identity->effective_resource_group;
+    binding.effective_resource_group = identity->effective_resource_group;
+    binding.source_receipt = *sources[slot];
+  }
+  input.textures[2U].slot = ManagedMaterialTextureSlot::DAMAGED_DIFFUSE;
+  ManagedMaterialDeclaration declaration;
+  RequireOk(BuildManagedMaterialDeclaration(
+                ManagedMaterialDeclarationRegistryConfiguration{}, input,
+                declaration),
+            "build two-source neutral declaration");
+  return declaration;
+}
+
 void TestSelectedAuthorityReuseReloadAndTeardown() {
   const std::vector<std::uint8_t> bytes{'o', 'r', 'd'};
   Ogre14SelectedTextureSourceReceiptRegistry registry;
@@ -363,6 +401,321 @@ void TestSelectedAuthorityReuseReloadAndTeardown() {
             "teardown selected group");
   Require(!reloaded_binding.Revalidate(resolver, resolver),
           "selected binding survived group teardown");
+}
+
+void TestFreshBatchAfterSuccessiveReceiptAndTusSetupMutations() {
+  const std::vector<std::uint8_t> diffuse_bytes{'d', 'i', 'f', 'f'};
+  const std::vector<std::uint8_t> specular_bytes{'s', 'p', 'e', 'c'};
+  Ogre14SelectedTextureSourceReceiptRegistry registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({}, registry),
+            "initialize final-batch selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, registry),
+            "activate final-batch selected group");
+
+  Ogre::TexturePtr diffuse =
+      std::make_shared<TestTexture>("AlexisSaberChassis.png", 171U);
+  Ogre::TexturePtr specular =
+      std::make_shared<TestTexture>("AlexisSaberChassisSpec.png", 172U);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*diffuse, 0U, diffuse_bytes), registry),
+            "commit first source receipt");
+  diffuse->load();
+
+  Resolver resolver;
+  resolver.selected_registry = &registry;
+  Ogre14SelectedTextureSourceResolution pre_setup_resolution;
+  RequireOk(resolver.ResolveSelectedTextureSource(*diffuse,
+                                                   pre_setup_resolution),
+            "resolve source before material setup");
+  ManagedMaterialTextureSourceReceipt pre_setup_receipt;
+  Ogre14ManagedMaterialSourceAuthorityBinding pre_setup_binding;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                diffuse, resolver, resolver, pre_setup_resolution, {},
+                pre_setup_receipt, pre_setup_binding),
+            "adapt source before material setup");
+  Ogre::MaterialPtr retained_material = std::make_shared<Ogre::Material>(
+      nullptr, "actor/alexis/retained", 180U, kGroup);
+  const ManagedMaterialDeclaration retained_declaration =
+      BuildDeclaration(retained_material->getName(), pre_setup_receipt);
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      retained_sources{};
+  retained_sources[0U] = pre_setup_binding;
+  Ogre14ManagedMaterialDeclarationBinding retained_binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                retained_material, retained_declaration, retained_sources,
+                resolver, resolver, retained_binding),
+            "build retained declaration before later source commit");
+
+  // Mirror the actor's template/TUS work between semantic texture staging and
+  // final authority publication. The second texture's successful load commits
+  // a new COW registry snapshot, making the earlier diffuse resolution stale.
+  Ogre::MaterialPtr material = std::make_shared<Ogre::Material>(
+      nullptr, "actor/alexis/final-batch", 181U, kGroup);
+  Ogre::Technique *technique = material->createTechnique();
+  technique->setName("BaseTechnique");
+  Ogre::Pass *base_pass = technique->createPass();
+  base_pass->setName("BaseRender");
+  base_pass->createTextureUnitState()->setName("Diffuse_Map");
+  Ogre::Pass *specular_pass = technique->createPass();
+  specular_pass->setName("SpecularMapping1");
+  specular_pass->createTextureUnitState()->setName("SpecularMapping1_Tex");
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*specular, 0U, specular_bytes), registry),
+            "commit second source receipt during TUS setup");
+  specular->load();
+  Require(!pre_setup_binding.Revalidate(resolver, resolver) &&
+              !retained_binding.Revalidate(resolver, resolver),
+          "successive source commit did not stale pre-setup authority");
+
+  std::array<Ogre::TexturePtr, kManagedMaterialTextureSlotCount> textures{};
+  textures[0U] = diffuse;
+  textures[1U] = specular;
+  std::array<ManagedMaterialTextureSourceReceipt,
+             kManagedMaterialTextureSlotCount>
+      reusable{};
+  std::array<ManagedMaterialTextureSourceReceipt,
+             kManagedMaterialTextureSlotCount>
+      receipts{};
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      bindings{};
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildFreshAuthorityBatch(
+                textures, resolver, resolver, {}, reusable, receipts,
+                bindings),
+            "fresh-bind two sources after material setup");
+  Require(receipts[0U].identity() != nullptr &&
+              receipts[1U].identity() != nullptr &&
+              receipts[0U].identity()->exact_resource_name ==
+                  diffuse->getName() &&
+              receipts[1U].identity()->exact_resource_name ==
+                  specular->getName() &&
+              bindings[0U].Revalidate(resolver, resolver) &&
+              bindings[1U].Revalidate(resolver, resolver) &&
+              !receipts[2U].initialized() && !bindings[2U].initialized(),
+          "final batch did not publish the exact two-source current set");
+
+  const ManagedMaterialDeclaration declaration =
+      BuildTwoSourceDeclaration(material->getName(), receipts[0U],
+                                receipts[1U]);
+  Ogre14ManagedMaterialDeclarationBinding material_binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                material, declaration, bindings, resolver, resolver,
+                material_binding),
+            "bind material after all TUS setup and final source refresh");
+  Require(material_binding.Revalidate(resolver, resolver),
+          "fresh two-source material binding was not live");
+
+  const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+      retained_publication{retained_binding, material_binding};
+  std::vector<Ogre14ManagedMaterialDeclarationBinding>
+      refreshed_publication;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::
+                RefreshDeclarationAuthorityBatch(
+                    retained_publication, resolver, resolver, {},
+                    refreshed_publication),
+            "refresh complete retained actor publication");
+  Require(refreshed_publication.size() == 2U &&
+              refreshed_publication[0U].ReferencesExactMaterial(
+                  retained_material) &&
+              refreshed_publication[1U].ReferencesExactMaterial(material) &&
+              refreshed_publication[0U].Revalidate(resolver, resolver) &&
+              refreshed_publication[1U].Revalidate(resolver, resolver) &&
+              refreshed_publication[0U]
+                  .declaration()
+                  ->SharesImmutableStateWith(retained_declaration) &&
+              refreshed_publication[1U]
+                  .declaration()
+                  ->SharesImmutableStateWith(declaration),
+          "retained actor refresh changed neutral identity or exact owners");
+
+  Ogre::TexturePtr missing =
+      std::make_shared<TestTexture>("unregistered-damage.png", 173U);
+  missing->load();
+  std::array<Ogre::TexturePtr, kManagedMaterialTextureSlotCount>
+      failing_textures = textures;
+  failing_textures[2U] = missing;
+  auto retained_receipts = receipts;
+  auto retained_bindings = bindings;
+  const ValidationResult partial_failure =
+      Ogre14ManagedMaterialSourceAdapter::BuildFreshAuthorityBatch(
+          failing_textures, resolver, resolver, {}, reusable,
+          retained_receipts, retained_bindings);
+  Require(!partial_failure &&
+              retained_receipts[0U].SharesImmutableStateWith(receipts[0U]) &&
+              retained_receipts[1U].SharesImmutableStateWith(receipts[1U]) &&
+              retained_bindings[0U].SharesImmutableStateWith(bindings[0U]) &&
+              retained_bindings[1U].SharesImmutableStateWith(bindings[1U]) &&
+              !retained_receipts[2U].initialized() &&
+              !retained_bindings[2U].initialized(),
+          "partial final-batch failure changed either output array");
+
+  diffuse->reload();
+  const std::vector<std::uint8_t> changed_diffuse{'n', 'e', 'w', 'd'};
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*diffuse, 1U, changed_diffuse), registry),
+            "commit authority change after final bind");
+  Require(!material_binding.Revalidate(resolver, resolver) &&
+              !bindings[0U].Revalidate(resolver, resolver) &&
+              !bindings[1U].Revalidate(resolver, resolver) &&
+              !refreshed_publication[0U].Revalidate(resolver, resolver) &&
+              !refreshed_publication[1U].Revalidate(resolver, resolver),
+          "authority change after final bind escaped fail-closed validation");
+  auto unchanged_after_refresh_failure = refreshed_publication;
+  const ValidationResult changed_source_refresh =
+      Ogre14ManagedMaterialSourceAdapter::RefreshDeclarationAuthorityBatch(
+          refreshed_publication, resolver, resolver, {},
+          unchanged_after_refresh_failure);
+  Require(!changed_source_refresh &&
+              unchanged_after_refresh_failure[0U].SharesImmutableStateWith(
+                  refreshed_publication[0U]) &&
+              unchanged_after_refresh_failure[1U].SharesImmutableStateWith(
+                  refreshed_publication[1U]),
+          "changed neutral source rewrote retained actor publication");
+}
+
+void TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads() {
+  const std::vector<std::uint8_t> managed_bytes{'b', 'o', 'd', 'y'};
+  Ogre14SelectedTextureSourceReceiptRegistry registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({}, registry),
+            "initialize capture-boundary selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, registry),
+            "activate capture-boundary selected group");
+  Ogre::TexturePtr managed =
+      std::make_shared<TestTexture>("managed-body.png", 271U);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*managed, 0U, managed_bytes), registry),
+            "commit capture-boundary managed source");
+  managed->load();
+  Resolver resolver;
+  resolver.selected_registry = &registry;
+  Ogre14SelectedTextureSourceResolution resolution;
+  RequireOk(resolver.ResolveSelectedTextureSource(*managed, resolution),
+            "resolve capture-boundary managed source");
+  ManagedMaterialTextureSourceReceipt neutral;
+  Ogre14ManagedMaterialSourceAuthorityBinding source_binding;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                managed, resolver, resolver, resolution, {}, neutral,
+                source_binding),
+            "adapt capture-boundary managed source");
+  Ogre::MaterialPtr material = std::make_shared<Ogre::Material>(
+      nullptr, "actor/capture-boundary", 281U, kGroup);
+  const ManagedMaterialDeclaration declaration =
+      BuildDeclaration(material->getName(), neutral);
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      sources{};
+  sources[0U] = source_binding;
+  Ogre14ManagedMaterialDeclarationBinding binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                material, declaration, sources, resolver, resolver, binding),
+            "build capture-boundary managed binding");
+  std::vector<Ogre14ManagedMaterialDeclarationBinding> publication{binding};
+
+  auto commit_unrelated_and_refresh =
+      [&](const char *name, Ogre::ResourceHandle handle,
+          const std::vector<std::uint8_t> &bytes,
+          const std::string &stale_message,
+          const std::string &refresh_message) {
+        Ogre::TexturePtr unrelated =
+            std::make_shared<TestTexture>(name, handle);
+        RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                      BuildSelectedReceipt(*unrelated, 0U, bytes), registry),
+                  "commit unrelated capture-boundary source");
+        unrelated->load();
+        Require(!publication[0U].Revalidate(resolver, resolver),
+                stale_message);
+        std::vector<Ogre14ManagedMaterialDeclarationBinding> refreshed;
+        RequireOk(Ogre14ManagedMaterialSourceAdapter::
+                      RefreshStaleDeclarationAuthorityBestEffort(
+                          publication, resolver, resolver, {}, refreshed),
+                  refresh_message);
+        Require(refreshed.size() == 1U &&
+                    refreshed[0U].Revalidate(resolver, resolver) &&
+                    refreshed[0U].ReferencesExactMaterial(material) &&
+                    refreshed[0U]
+                        .declaration()
+                        ->SharesImmutableStateWith(declaration),
+                "capture-boundary refresh changed the retained publication");
+        publication.swap(refreshed);
+      };
+
+  commit_unrelated_and_refresh(
+      "failed-new-managed.png", 272U, {'f', 'a', 'i', 'l'},
+      "new source load plus later material failure did not stale prior binding",
+      "capture boundary did not recover prior binding after later failure");
+  commit_unrelated_and_refresh(
+      "post-managed-wheel.png", 273U, {'w', 'h', 'e', 'e', 'l'},
+      "post-managed actor texture COW did not stale prior binding",
+      "capture boundary did not recover after post-managed actor texture COW");
+
+  ManagedMaterialDeclarationRegistry declaration_registry;
+  RequireOk(InitializeManagedMaterialDeclarationRegistry(
+                {}, 7U, declaration_registry),
+            "initialize capture-boundary declaration registry");
+  RequireOk(CommitManagedMaterialDeclaration(declaration,
+                                              declaration_registry),
+            "commit capture-boundary neutral declaration");
+  ManagedMaterialDeclarationSnapshot snapshot;
+  RequireOk(CaptureManagedMaterialDeclarationSnapshot(declaration_registry,
+                                                       snapshot),
+            "capture neutral snapshot before unavailable source gate");
+
+  // An unavailable resolver is not evidence that the immutable neutral actor
+  // publication changed. Capture-boundary repair therefore retains the stale
+  // binding, allowing an unprojected snapshot while projected reachability
+  // remains fail-closed.
+  resolver.selected_registry = nullptr;
+  std::vector<Ogre14ManagedMaterialDeclarationBinding> unavailable_capture;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::
+                RefreshStaleDeclarationAuthorityBestEffort(
+                    publication, resolver, resolver, {},
+                    unavailable_capture),
+            "best-effort capture rejected unavailable unprojected source");
+  Require(unavailable_capture.size() == 1U &&
+              unavailable_capture[0U].SharesImmutableStateWith(
+                  publication[0U]) &&
+              !unavailable_capture[0U].Revalidate(resolver, resolver),
+          "unavailable best-effort capture did not retain stale binding");
+  RequireOk(ValidateOgre14ReachableManagedMaterialBindings(
+                snapshot, unavailable_capture, {}, resolver, resolver),
+            "unavailable stale unprojected snapshot was rejected");
+  const ValidationResult unavailable_projected =
+      ValidateOgre14ReachableManagedMaterialBindings(
+          snapshot, unavailable_capture, unavailable_capture, resolver,
+          resolver);
+  Require(!unavailable_projected &&
+              unavailable_projected.field ==
+                  "managed_material_ogre14.reachable_source_authority",
+          "unavailable stale projected root escaped fail-closed validation");
+  resolver.selected_registry = &registry;
+
+  managed->reload();
+  const std::vector<std::uint8_t> changed_bytes{'c', 'h', 'a', 'n', 'g', 'e'};
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*managed, 1U, changed_bytes), registry),
+            "commit changed managed source at capture boundary");
+  std::vector<Ogre14ManagedMaterialDeclarationBinding> changed_capture;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::
+                RefreshStaleDeclarationAuthorityBestEffort(
+                    publication, resolver, resolver, {}, changed_capture),
+            "best-effort capture rejected changed unprojected source");
+  Require(changed_capture.size() == 1U &&
+              changed_capture[0U].SharesImmutableStateWith(publication[0U]) &&
+              !changed_capture[0U].Revalidate(resolver, resolver),
+          "capture boundary rewrote a changed neutral managed source");
+  RequireOk(ValidateOgre14ReachableManagedMaterialBindings(
+                snapshot, changed_capture, {}, resolver, resolver),
+            "changed stale unprojected snapshot was rejected");
+  const ValidationResult changed_projected =
+      ValidateOgre14ReachableManagedMaterialBindings(
+          snapshot, changed_capture, changed_capture, resolver, resolver);
+  Require(!changed_projected &&
+              changed_projected.field ==
+                  "managed_material_ogre14.reachable_source_authority",
+          "changed stale projected root escaped fail-closed validation");
 }
 
 void TestAuthenticatedArchiveGeneratedAndMaterialBinding() {
@@ -553,19 +906,44 @@ void TestFrameReachabilityIgnoresOnlyStaleUnreachableBindings() {
                   unreachable_material),
           "exact material reference route accepted a substitute");
 
+  // One changed source commits a new COW registry snapshot, staling both
+  // bindings. Best-effort repair must update the byte-identical reachable
+  // source while retaining the changed unreachable binding in one atomic
+  // vector publication.
   unreachable_texture->reload();
-  Require(reachable_binding.Revalidate(resolver, resolver) &&
+  const std::vector<std::uint8_t> changed_bytes{'c', 'h', 'a', 'n', 'g', 'e'};
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*unreachable_texture, 1U, changed_bytes),
+                source_registry),
+            "commit changed unreachable source");
+  Require(!reachable_binding.Revalidate(resolver, resolver) &&
               !unreachable_binding.Revalidate(resolver, resolver),
-          "fixture did not isolate stale unreachable authority");
+          "changed source COW did not stale the complete publication");
+  std::vector<Ogre14ManagedMaterialDeclarationBinding> mixed_refresh;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::
+                RefreshStaleDeclarationAuthorityBestEffort(
+                    published, resolver, resolver, {}, mixed_refresh),
+            "best-effort mixed publication refresh failed");
+  Require(mixed_refresh.size() == 2U &&
+              mixed_refresh[0U].Revalidate(resolver, resolver) &&
+              !mixed_refresh[0U].SharesImmutableStateWith(
+                  reachable_binding) &&
+              !mixed_refresh[1U].Revalidate(resolver, resolver) &&
+              mixed_refresh[1U].SharesImmutableStateWith(
+                  unreachable_binding),
+          "mixed refresh did not repair benign COW and retain changed source");
+  const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+      refreshed_reachable_only{mixed_refresh[0U]};
   RequireOk(ValidateOgre14ReachableManagedMaterialBindings(
-                snapshot, published, reachable_only, resolver, resolver),
+                snapshot, mixed_refresh, refreshed_reachable_only, resolver,
+                resolver),
             "stale unreachable binding poisoned reachable frame");
 
   const std::vector<Ogre14ManagedMaterialDeclarationBinding> both_reachable{
-      reachable_binding, unreachable_binding};
+      mixed_refresh[0U], mixed_refresh[1U]};
   const ValidationResult stale_reachable =
       ValidateOgre14ReachableManagedMaterialBindings(
-          snapshot, published, both_reachable, resolver, resolver);
+          snapshot, mixed_refresh, both_reachable, resolver, resolver);
   Require(!stale_reachable &&
               stale_reachable.code == ValidationCode::REVISION_MISMATCH &&
               stale_reachable.field ==
@@ -590,6 +968,8 @@ int main() {
   Ogre::Root root("", "", "");
   (void)root;
   TestSelectedAuthorityReuseReloadAndTeardown();
+  TestFreshBatchAfterSuccessiveReceiptAndTusSetupMutations();
+  TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads();
   TestAuthenticatedArchiveGeneratedAndMaterialBinding();
   TestFrameReachabilityIgnoresOnlyStaleUnreachableBindings();
   return EXIT_SUCCESS;

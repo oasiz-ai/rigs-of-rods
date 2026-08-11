@@ -2771,14 +2771,16 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
             m_actor->getWorkingTuneupDef(), def.name);
 
 #if OGRE_VERSION_MAJOR >= 14
-    Render::ManagedMaterialDeclaration staged_declaration;
-    std::array<Render::Ogre14ManagedMaterialSourceAuthorityBinding,
+    Render::ManagedMaterialDeclarationInput declaration_input;
+    std::array<Ogre::TexturePtr,
                Render::kManagedMaterialTextureSlotCount>
-        staged_source_bindings{};
-    bool declaration_ready = false;
+        staged_source_textures{};
+    std::array<Render::ManagedMaterialTextureSourceReceipt,
+               Render::kManagedMaterialTextureSlotCount>
+        reusable_source_receipts{};
+    bool declaration_semantics_ready = false;
     if (m_actor->m_managed_material_declaration_registry.active())
     {
-        Render::ManagedMaterialDeclarationInput declaration_input;
         declaration_input.actor_generation =
             m_actor->m_managed_material_declaration_registry.actor_generation();
         declaration_input.definition_generation =
@@ -2882,76 +2884,11 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
                 }
                 binding.effective_texture_name = texture->getName();
                 binding.effective_resource_group = texture->getGroup();
-
-                Render::ManagedMaterialTextureSourceReceipt reusable_receipt;
-                const Render::ManagedMaterialTextureSourceReceipt*
-                    reusable_receipt_ptr = nullptr;
-                for (std::size_t prior_slot = 0U; prior_slot < slot;
-                     ++prior_slot)
-                {
-                    const Render::ManagedMaterialTextureSourceReceipt& prior =
-                        declaration_input.textures[prior_slot].source_receipt;
-                    const Render::ManagedMaterialTextureSourceIdentity* identity =
-                        prior.identity();
-                    if (identity != nullptr &&
-                        identity->effective_resource_group ==
-                            binding.effective_resource_group &&
-                        identity->exact_resource_name ==
-                            binding.effective_texture_name)
-                    {
-                        reusable_receipt = prior;
-                        reusable_receipt_ptr = &reusable_receipt;
-                        break;
-                    }
-                }
-                if (reusable_receipt_ptr == nullptr &&
-                    m_actor->FindReusableManagedMaterialSourceReceipt(
-                        binding.effective_resource_group,
-                        binding.effective_texture_name, reusable_receipt))
-                {
-                    reusable_receipt_ptr = &reusable_receipt;
-                }
-
-                if (content_manager->RequiresAuthenticatedTextureSource(
-                        *texture))
-                {
-                    Render::Ogre14AuthenticatedTextureResolution resolution;
-                    declaration_result =
-                        content_manager->ResolveAuthenticatedTexture(
-                            *texture, resolution);
-                    if (declaration_result)
-                    {
-                        declaration_result =
-                            Render::Ogre14ManagedMaterialSourceAdapter::
-                                BuildAuthenticated(
-                                    texture, *content_manager, resolution,
-                                    Render::
-                                        ManagedMaterialDeclarationRegistryConfiguration{},
-                                    binding.source_receipt,
-                                    staged_source_bindings[slot],
-                                    reusable_receipt_ptr);
-                    }
-                }
-                else
-                {
-                    Render::Ogre14SelectedTextureSourceResolution resolution;
-                    declaration_result =
-                        content_manager->ResolveSelectedTextureSource(
-                            *texture, resolution);
-                    if (declaration_result)
-                    {
-                        declaration_result =
-                            Render::Ogre14ManagedMaterialSourceAdapter::
-                                BuildSelected(
-                                    texture, *content_manager,
-                                    *content_manager, resolution,
-                                    Render::
-                                        ManagedMaterialDeclarationRegistryConfiguration{},
-                                    binding.source_receipt,
-                                    staged_source_bindings[slot],
-                                    reusable_receipt_ptr);
-                    }
-                }
+                staged_source_textures[slot] = texture;
+                (void)m_actor->FindReusableManagedMaterialSourceReceipt(
+                    binding.effective_resource_group,
+                    binding.effective_texture_name,
+                    reusable_source_receipts[slot]);
             }
             catch (const Ogre::Exception& e)
             {
@@ -2971,13 +2908,7 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
 
         if (declaration_result)
         {
-            declaration_result = Render::BuildManagedMaterialDeclaration(
-                Render::ManagedMaterialDeclarationRegistryConfiguration{},
-                declaration_input, staged_declaration);
-        }
-        if (declaration_result)
-        {
-            declaration_ready = true;
+            declaration_semantics_ready = true;
         }
         else
         {
@@ -3168,18 +3099,63 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
         m_managed_materials.insert(std::make_pair(def.name, material));
     (void)inserted;
 #if OGRE_VERSION_MAJOR >= 14
-    if (inserted.second && declaration_ready)
+    if (inserted.second && declaration_semantics_ready)
     {
-        const Render::ValidationResult publication =
-            m_actor->PublishManagedMaterialDeclaration(
+        Render::ValidationResult publication =
+            Render::ValidationResult::Success();
+        std::array<Render::ManagedMaterialTextureSourceReceipt,
+                   Render::kManagedMaterialTextureSlotCount>
+            staged_source_receipts{};
+        std::array<Render::Ogre14ManagedMaterialSourceAuthorityBinding,
+                   Render::kManagedMaterialTextureSlotCount>
+            staged_source_bindings{};
+        ContentManager* const content_manager = App::GetContentManager();
+        if (!removed_by_tuneup && content_manager == nullptr)
+        {
+            publication = Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "managed_material_actor.content_manager",
+                "ContentManager is unavailable for final source binding");
+        }
+        if (publication && !removed_by_tuneup)
+        {
+            publication = Render::Ogre14ManagedMaterialSourceAdapter::
+                BuildFreshAuthorityBatch(
+                    staged_source_textures, *content_manager,
+                    *content_manager,
+                    Render::
+                        ManagedMaterialDeclarationRegistryConfiguration{},
+                    reusable_source_receipts, staged_source_receipts,
+                    staged_source_bindings);
+        }
+        if (publication)
+        {
+            for (std::size_t slot = 0U;
+                 slot < Render::kManagedMaterialTextureSlotCount; ++slot)
+            {
+                declaration_input.textures[slot].source_receipt =
+                    staged_source_receipts[slot];
+            }
+        }
+        Render::ManagedMaterialDeclaration staged_declaration;
+        if (publication)
+        {
+            publication = Render::BuildManagedMaterialDeclaration(
+                Render::ManagedMaterialDeclarationRegistryConfiguration{},
+                declaration_input, staged_declaration);
+        }
+        if (publication)
+        {
+            publication = m_actor->PublishManagedMaterialDeclaration(
                 staged_declaration, material, staged_source_bindings);
+        }
         if (!publication)
         {
             this->AddMessage(
                 Message::TYPE_ERROR,
                 fmt::format(
                     "Managed material '{}': neutral declaration publication "
-                    "rolled back ({}: {}). Legacy material remains active.",
+                    "rejected ({}: {}). Legacy material remains active.",
                     source_def.name,
                     publication.field,
                     publication.detail));

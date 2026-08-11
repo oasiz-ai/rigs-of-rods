@@ -124,10 +124,93 @@ void Actor::RevokeManagedMaterialDeclarationState() noexcept
 }
 
 Render::ValidationResult Actor::CaptureManagedMaterialDeclarationSnapshot(
-    Render::ManagedMaterialDeclarationSnapshot& output) const
+    Render::ManagedMaterialDeclarationSnapshot& output)
 {
-    return Render::CaptureManagedMaterialDeclarationSnapshot(
-        m_managed_material_declaration_registry, output);
+    Render::ManagedMaterialDeclarationSnapshot staged_snapshot;
+    Render::ValidationResult result =
+        Render::CaptureManagedMaterialDeclarationSnapshot(
+            m_managed_material_declaration_registry, staged_snapshot);
+    if (!result)
+    {
+        return result;
+    }
+#if OGRE_VERSION_MAJOR >= 14
+    if (staged_snapshot.size() !=
+        m_managed_material_declaration_bindings.size())
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::SIZE_MISMATCH,
+            "managed_material_actor.capture_publication_set",
+            "neutral declarations and runtime bindings differ at capture");
+    }
+    if (!m_managed_material_declaration_bindings.empty())
+    {
+        for (const Render::Ogre14ManagedMaterialDeclarationBinding& binding:
+             m_managed_material_declaration_bindings)
+        {
+            const Render::ManagedMaterialDeclaration* declaration =
+                binding.declaration();
+            const Render::ManagedMaterialDeclarationMetadata* metadata =
+                declaration != nullptr ? declaration->metadata() : nullptr;
+            const Render::ManagedMaterialDeclaration* published =
+                metadata != nullptr
+                    ? staged_snapshot.Find(metadata->exact_material_name)
+                    : nullptr;
+            if (published == nullptr ||
+                !published->SharesImmutableStateWith(*declaration))
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::REVISION_MISMATCH,
+                    "managed_material_actor.capture_declaration",
+                    "runtime binding is outside the captured publication");
+            }
+        }
+
+        // Source authority is deliberately not a neutral-snapshot gate. Later
+        // actor texture loads can stale every retained COW resolution, while a
+        // revoked or changed source may belong only to an unreachable material.
+        // Refresh each stale binding independently and atomically publish the
+        // staged vector; any failed repair remains stale so projected closure
+        // validation rejects it if and only if it becomes frame-reachable.
+        ContentManager* const content_manager = App::GetContentManager();
+        if (content_manager != nullptr)
+        {
+            std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
+                refreshed_bindings;
+            result = Render::Ogre14ManagedMaterialSourceAdapter::
+                RefreshStaleDeclarationAuthorityBestEffort(
+                    m_managed_material_declaration_bindings,
+                    *content_manager, *content_manager,
+                    Render::
+                        ManagedMaterialDeclarationRegistryConfiguration{},
+                    refreshed_bindings);
+            if (result)
+            {
+                if (!Render::IsManagedMaterialDeclarationSnapshotCurrent(
+                        m_managed_material_declaration_registry,
+                        staged_snapshot))
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::REVISION_MISMATCH,
+                        "managed_material_actor.capture_snapshot",
+                        "neutral publication changed during authority refresh");
+                }
+                m_managed_material_declaration_bindings.swap(
+                    refreshed_bindings);
+            }
+        }
+    }
+#endif
+    if (!Render::IsManagedMaterialDeclarationSnapshotCurrent(
+            m_managed_material_declaration_registry, staged_snapshot))
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "managed_material_actor.capture_snapshot",
+            "neutral publication changed during authority refresh");
+    }
+    output = std::move(staged_snapshot);
+    return Render::ValidationResult::Success();
 }
 
 bool Actor::IsManagedMaterialDeclarationSnapshotCurrent(
@@ -397,6 +480,19 @@ Render::ValidationResult Actor::PublishManagedMaterialDeclaration(
             }
         }
         candidate_bindings.push_back(std::move(staged_binding));
+
+        std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
+            refreshed_bindings;
+        result = Render::Ogre14ManagedMaterialSourceAdapter::
+            RefreshDeclarationAuthorityBatch(
+                candidate_bindings, *content_manager, *content_manager,
+                Render::ManagedMaterialDeclarationRegistryConfiguration{},
+                refreshed_bindings);
+        if (!result)
+        {
+            return result;
+        }
+        candidate_bindings.swap(refreshed_bindings);
 
         Render::ManagedMaterialDeclarationRegistry candidate_registry =
             m_managed_material_declaration_registry;

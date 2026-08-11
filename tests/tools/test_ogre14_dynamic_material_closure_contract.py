@@ -13,6 +13,7 @@ SCENE_HEADER = RENDER / "Ogre14GraphicsSceneSource.h"
 SCENE_SOURCE = SCENE_HEADER.with_suffix(".cpp")
 GFX_SCENE_SOURCE = REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp"
 ACTOR_SOURCE = REPOSITORY_ROOT / "source/main/physics/Actor.cpp"
+ACTOR_SPAWNER_SOURCE = REPOSITORY_ROOT / "source/main/physics/ActorSpawner.cpp"
 CPP_TEST = (
     REPOSITORY_ROOT
     / "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
@@ -20,6 +21,10 @@ CPP_TEST = (
 MANAGED_SOURCE_CPP_TEST = (
     REPOSITORY_ROOT
     / "tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp"
+)
+MANAGED_SOURCE_ADAPTER = (
+    REPOSITORY_ROOT
+    / "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp"
 )
 MATERIAL_SOURCE_NATIVE_CPP_TEST = (
     REPOSITORY_ROOT
@@ -42,8 +47,14 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
         cls.scene_source = SCENE_SOURCE.read_text(encoding="utf-8")
         cls.gfx_scene_source = GFX_SCENE_SOURCE.read_text(encoding="utf-8")
         cls.actor_source = ACTOR_SOURCE.read_text(encoding="utf-8")
+        cls.actor_spawner_source = ACTOR_SPAWNER_SOURCE.read_text(
+            encoding="utf-8"
+        )
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
         cls.managed_source_cpp_test = MANAGED_SOURCE_CPP_TEST.read_text(
+            encoding="utf-8"
+        )
+        cls.managed_source_adapter = MANAGED_SOURCE_ADAPTER.read_text(
             encoding="utf-8"
         )
         cls.material_source_native_cpp_test = (
@@ -336,6 +347,111 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.material_source_native_cpp_test)
+
+    def test_actor_final_batches_authority_after_material_setup(self) -> None:
+        method = self.actor_spawner_source[
+            self.actor_spawner_source.index(
+                "void ActorSpawner::ProcessManagedMaterial("
+            ) : self.actor_spawner_source.index(
+                "void ActorSpawner::ProcessCollisionBox("
+            )
+        ]
+        semantic_stage = method.index("staged_source_textures[slot] = texture")
+        compile_material = method.index("material->compile();")
+        fresh_batch = method.index("BuildFreshAuthorityBatch(")
+        seal_declaration = method.index("BuildManagedMaterialDeclaration(")
+        publish = method.index("PublishManagedMaterialDeclaration(")
+        self.assertLess(semantic_stage, compile_material)
+        self.assertLess(compile_material, fresh_batch)
+        self.assertLess(fresh_batch, seal_declaration)
+        self.assertLess(seal_declaration, publish)
+        self.assertNotIn("ResolveSelectedTextureSource(",
+                         method[:compile_material])
+        self.assertNotIn("BuildSelected(", method[:compile_material])
+        actor_publish = self.actor_source[
+            self.actor_source.index(
+                "Actor::PublishManagedMaterialDeclaration("
+            ) : self.actor_source.index("#endif", self.actor_source.index(
+                "Actor::PublishManagedMaterialDeclaration("))
+        ]
+        refresh_retained = actor_publish.index(
+            "RefreshDeclarationAuthorityBatch("
+        )
+        neutral_commit = actor_publish.index(
+            "CommitManagedMaterialDeclaration("
+        )
+        actor_swap = actor_publish.index(
+            "m_managed_material_declaration_bindings.swap("
+        )
+        self.assertLess(refresh_retained, neutral_commit)
+        self.assertLess(neutral_commit, actor_swap)
+        capture_boundary = self.actor_source[
+            self.actor_source.index(
+                "Actor::CaptureManagedMaterialDeclarationSnapshot("
+            ) : self.actor_source.index(
+                "bool Actor::IsManagedMaterialDeclarationSnapshotCurrent("
+            )
+        ]
+        capture_neutral = capture_boundary.index(
+            "Render::CaptureManagedMaterialDeclarationSnapshot("
+        )
+        best_effort_refresh = capture_boundary.index(
+            "RefreshStaleDeclarationAuthorityBestEffort("
+        )
+        refresh_swap = capture_boundary.index(
+            "m_managed_material_declaration_bindings.swap("
+        )
+        snapshot_publish = capture_boundary.index(
+            "output = std::move(staged_snapshot)"
+        )
+        self.assertLess(capture_neutral, best_effort_refresh)
+        self.assertLess(best_effort_refresh, refresh_swap)
+        self.assertLess(refresh_swap, snapshot_publish)
+        self.assertIn(
+            "IsManagedMaterialDeclarationSnapshotCurrent(", capture_boundary
+        )
+        self.assertIn("if (content_manager != nullptr)", capture_boundary)
+        self.assertIn("if (result)", capture_boundary)
+        best_effort = self.managed_source_adapter[
+            self.managed_source_adapter.index(
+                "RefreshStaleDeclarationAuthorityBestEffort("
+            ) : self.managed_source_adapter.index(
+                "ValidationResult ValidateOgre14ReachableManagedMaterialBindings("
+            )
+        ]
+        stage_complete_set = best_effort.index(
+            "staged =\n        retained_bindings"
+        )
+        refresh_single = best_effort.index(
+            "RefreshDeclarationAuthorityBatch("
+        )
+        retain_on_failure = best_effort.index(
+            "if (refresh && single_refreshed.size() == 1U)"
+        )
+        atomic_swap = best_effort.index("output.swap(staged)")
+        self.assertLess(stage_complete_set, refresh_single)
+        self.assertLess(refresh_single, retain_on_failure)
+        self.assertLess(retain_on_failure, atomic_swap)
+        self.assertEqual(best_effort.count("output.swap(staged)"), 1)
+        for marker in (
+            "TestFreshBatchAfterSuccessiveReceiptAndTusSetupMutations",
+            "successive source commit did not stale pre-setup authority",
+            "refresh complete retained actor publication",
+            "changed neutral source rewrote retained actor publication",
+            "authority change after final bind escaped fail-closed validation",
+            "TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads",
+            "new source load plus later material failure did not stale prior binding",
+            "post-managed actor texture COW did not stale prior binding",
+            "unavailable stale unprojected snapshot was rejected",
+            "unavailable stale projected root escaped fail-closed validation",
+            "capture boundary rewrote a changed neutral managed source",
+            "changed stale unprojected snapshot was rejected",
+            "changed stale projected root escaped fail-closed validation",
+            "changed source COW did not stale the complete publication",
+            "mixed refresh did not repair benign COW and retain changed source",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.managed_source_cpp_test)
 
     def test_resolved_closure_is_not_a_domain_tombstone(self) -> None:
         self.assertNotIn(

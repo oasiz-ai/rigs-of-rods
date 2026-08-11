@@ -116,6 +116,8 @@ private:
   explicit Ogre14ManagedMaterialDeclarationBinding(
       std::shared_ptr<const State> state) noexcept;
   std::shared_ptr<const State> state_;
+
+  friend class Ogre14ManagedMaterialSourceAdapter;
 };
 
 /// Revalidates one immutable actor publication against only the bindings whose
@@ -141,6 +143,59 @@ private:
 /// revalidation; failure leaves both untouched.
 class Ogre14ManagedMaterialSourceAdapter final {
 public:
+  /// Resolves every retained exact texture only after caller-owned OGRE
+  /// material/TUS construction is complete. All neutral receipts and runtime
+  /// bindings are staged locally, then every staged binding is revalidated
+  /// against the one current resolver publication before either output array
+  /// changes. Empty texture slots publish empty outputs. Failure leaves both
+  /// output arrays untouched.
+  [[nodiscard]] static ValidationResult BuildFreshAuthorityBatch(
+      const std::array<Ogre::TexturePtr, kManagedMaterialTextureSlotCount>
+          &exact_textures,
+      const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+      const IOgre14SelectedTextureSourceResolver &selected_resolver,
+      const ManagedMaterialDeclarationRegistryConfiguration &configuration,
+      const std::array<ManagedMaterialTextureSourceReceipt,
+                       kManagedMaterialTextureSlotCount> &reusable_receipts,
+      std::array<ManagedMaterialTextureSourceReceipt,
+                 kManagedMaterialTextureSlotCount> &receipt_outputs,
+      std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+                 kManagedMaterialTextureSlotCount> &binding_outputs,
+      IManagedMaterialDeclarationFaultInjector *fault_injector = nullptr);
+
+  /// Rebinds every source retained by a complete actor publication against
+  /// the current resolver state. Existing neutral receipts must be reused by
+  /// immutable state; a changed source identity may not silently rewrite a
+  /// declaration. The refreshed vector is published only after the entire set
+  /// passes one final authority revalidation. Failure leaves output untouched.
+  [[nodiscard]] static ValidationResult RefreshDeclarationAuthorityBatch(
+      const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+          &retained_bindings,
+      const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+      const IOgre14SelectedTextureSourceResolver &selected_resolver,
+      const ManagedMaterialDeclarationRegistryConfiguration &configuration,
+      std::vector<Ogre14ManagedMaterialDeclarationBinding> &output,
+      IManagedMaterialDeclarationFaultInjector *fault_injector = nullptr);
+
+  /// Opportunistically refreshes each stale binding in an immutable actor
+  /// publication independently. A binding is replaced only when its exact
+  /// material and sealed neutral receipts can be rebound to current source
+  /// authority; otherwise its prior immutable binding is retained so an
+  /// unreachable declaration cannot poison neutral snapshot capture. The
+  /// complete staged vector is swapped into `output` once, after every
+  /// candidate has been considered. Allocation failure leaves `output`
+  /// untouched. Frame-reachable retained failures remain fail-closed through
+  /// ValidateOgre14ReachableManagedMaterialBindings().
+  [[nodiscard]] static ValidationResult
+  RefreshStaleDeclarationAuthorityBestEffort(
+      const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+          &retained_bindings,
+      const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+      const IOgre14SelectedTextureSourceResolver &selected_resolver,
+      const ManagedMaterialDeclarationRegistryConfiguration &configuration,
+      std::vector<Ogre14ManagedMaterialDeclarationBinding> &output,
+      IManagedMaterialDeclarationFaultInjector *fault_injector = nullptr);
+
   [[nodiscard]] static ValidationResult BuildSelected(
       const Ogre::TexturePtr &texture,
       const IOgre14AuthenticatedTextureResolver &authenticated_classifier,
