@@ -20,6 +20,8 @@ class RendererGameInputEngineTarget final
     : public IRendererGameInputTarget {
 public:
   bool ActivateInput() noexcept override;
+  bool DisplayMetricsChanged(
+      const RendererGameDisplayMetrics &metrics) noexcept override;
   void KeyChanged(RendererGameKey key,
                   bool pressed) noexcept override;
   void MouseMoved(std::int32_t x, std::int32_t y, std::int32_t delta_x,
@@ -32,6 +34,10 @@ public:
   void WindowCloseRequested() noexcept override;
   bool Reconcile(
       const RendererGameInputState &state) noexcept override;
+
+private:
+  bool direct_display_metrics_active_ = false;
+  bool direct_transition_failed_ = false;
 };
 
 } // namespace RoR

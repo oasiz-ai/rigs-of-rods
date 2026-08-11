@@ -908,6 +908,39 @@ public:
       std::fill(device.relative_axes.begin(), device.relative_axes.end(), 0);
     }
     SDL_PumpEvents();
+    int logical_width = 0;
+    int logical_height = 0;
+    int pixel_width = 0;
+    int pixel_height = 0;
+    SDL_GetWindowSize(static_cast<SDL_Window *>(sdl_window), &logical_width,
+                      &logical_height);
+    SDL_GetWindowSizeInPixels(static_cast<SDL_Window *>(sdl_window),
+                              &pixel_width, &pixel_height);
+    const RendererOgreNextWindowMetrics *const committed_metrics =
+        host.Metrics();
+    RendererGameDisplayMetrics game_metrics;
+    game_metrics.logical_width = logical_width > 0
+        ? static_cast<std::uint32_t>(logical_width)
+        : committed_metrics == nullptr ? 0U : committed_metrics->logical_width;
+    game_metrics.logical_height = logical_height > 0
+        ? static_cast<std::uint32_t>(logical_height)
+        : committed_metrics == nullptr ? 0U : committed_metrics->logical_height;
+    // Minimized Cocoa windows may report a zero drawable. Keep the last
+    // committed nonzero backing domain while input is suppressed; restore or
+    // resize will publish the newly queried domain before callbacks resume.
+    game_metrics.pixel_width = pixel_width > 0
+        ? static_cast<std::uint32_t>(pixel_width)
+        : committed_metrics == nullptr ? 0U : committed_metrics->drawable_width;
+    game_metrics.pixel_height = pixel_height > 0
+        ? static_cast<std::uint32_t>(pixel_height)
+        : committed_metrics == nullptr ? 0U : committed_metrics->drawable_height;
+    if (!game_metrics.valid() ||
+        !target->DisplayMetricsChanged(game_metrics)) {
+      return Failure(ValidationCode::INVALID_DIMENSIONS,
+                     "in_process_presenter.game_display_metrics",
+                     "game input target rejected the visible presentation "
+                     "coordinate domains");
+    }
     SDL_Event event{};
     while (SDL_PollEvent(&event) != 0) {
       ++window_events.polled_events;
@@ -1202,24 +1235,24 @@ public:
         }
         break;
       case SDL_MOUSEMOTION: {
-        const RendererOgreNextWindowMetrics *metrics = host.Metrics();
-        if (metrics == nullptr) {
-          return Failure(ValidationCode::INVALID_DIMENSIONS,
-                         "in_process_presenter.window_metrics",
-                         "native presentation metrics are unavailable");
-        }
+        const float content_scale_x =
+            static_cast<float>(game_metrics.pixel_width) /
+            static_cast<float>(game_metrics.logical_width);
+        const float content_scale_y =
+            static_cast<float>(game_metrics.pixel_height) /
+            static_cast<float>(game_metrics.logical_height);
         const std::int32_t delta_x =
-            ScaledPixels(event.motion.xrel, metrics->content_scale_x);
+            ScaledPixels(event.motion.xrel, content_scale_x);
         const std::int32_t delta_y =
-            ScaledPixels(event.motion.yrel, metrics->content_scale_y);
+            ScaledPixels(event.motion.yrel, content_scale_y);
         ValidationResult result = AdvanceInputEventOrFailure();
         if (!result) {
           return result;
         }
         mouse_x_pixels =
-            ScaledPixels(event.motion.x, metrics->content_scale_x);
+            ScaledPixels(event.motion.x, content_scale_x);
         mouse_y_pixels =
-            ScaledPixels(event.motion.y, metrics->content_scale_y);
+            ScaledPixels(event.motion.y, content_scale_y);
         state.mouse_delta_x_pixels =
             SaturatingAdd(state.mouse_delta_x_pixels, delta_x);
         state.mouse_delta_y_pixels =

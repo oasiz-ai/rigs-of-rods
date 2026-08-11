@@ -17,6 +17,7 @@
 namespace {
 
 using InputGate = RoR::Detail::RendererOgreNextInProcessInputGate;
+using MouseCallbackState = RoR::Detail::RendererGameMouseCallbackState;
 
 enum class Signal {
   SHOWN,
@@ -111,6 +112,60 @@ void TestRestoreRequiresFocusBeforeInputResumes() {
           "focused visible policy did not reactivate physical input");
 }
 
+void TestDirectMouseCallbacksSeeOnlyTheirCurrentTransition() {
+  MouseCallbackState state;
+  state.x_absolute = 20;
+  state.y_absolute = 30;
+  state.x_relative = 9;
+  state.y_relative = -7;
+  state.wheel_relative = 120;
+
+  RoR::Detail::StageRendererGameMouseMotion(state, 100, 120, 4, -3);
+  Require(state.x_absolute == 100 && state.y_absolute == 120 &&
+              state.x_relative == 4 && state.y_relative == -3 &&
+              state.wheel_relative == 0,
+          "motion callback observed stale position, motion, or wheel state");
+
+  RoR::Detail::StageRendererGameMouseWheel(state, 0.5F);
+  Require(state.x_relative == 0 && state.y_relative == 0 &&
+              state.wheel_relative == 60,
+          "wheel callback replayed prior camera motion or lost wheel units");
+
+  Require(RoR::Detail::StageRendererGameMouseButton(state, 0U, true) &&
+              (state.buttons & 1U) != 0U,
+          "button-down callback did not observe its pressed edge");
+  Require(RoR::Detail::StageRendererGameMouseButton(state, 0U, false) &&
+              (state.buttons & 1U) == 0U,
+          "button-up callback did not observe its released edge");
+  Require(!RoR::Detail::StageRendererGameMouseButton(state, 5U, true),
+          "out-of-contract mouse button was staged");
+}
+
+void TestVisibleRetinaMetricsKeepLogicalAndPixelDomainsPaired() {
+  RoR::RendererGameDisplayMetrics metrics;
+  metrics.logical_width = 1280U;
+  metrics.logical_height = 720U;
+  metrics.pixel_width = 2560U;
+  metrics.pixel_height = 1440U;
+  Require(metrics.valid(), "valid Retina presentation metrics were rejected");
+  Require(RoR::RendererGameLogicalCoordinate(
+              1280, metrics.logical_width, metrics.pixel_width) == 640 &&
+              RoR::RendererGameLogicalCoordinate(
+              720, metrics.logical_height, metrics.pixel_height) == 360 &&
+              RoR::RendererGameLogicalCoordinate(
+              2, metrics.logical_width, metrics.pixel_width) == 1 &&
+              RoR::RendererGameLogicalCoordinate(
+              -2, metrics.logical_height, metrics.pixel_height) == -1,
+          "backing-pixel pointer input did not enter the visible logical "
+          "ImGui domain at Retina scale");
+  Require(RoR::RendererGameLogicalCoordinate(375, 1000U, 1500U) == 250,
+          "fractional backing scale changed direct pointer coordinates");
+  metrics.pixel_width = 0U;
+  Require(!metrics.valid(), "zero drawable extent was admitted as interactive");
+  metrics.pixel_width = 32769U;
+  Require(!metrics.valid(), "hostile visible drawable extent was admitted");
+}
+
 } // namespace
 
 int main() {
@@ -124,8 +179,13 @@ int main() {
   static_assert(noexcept(std::declval<const InputGate &>()
                              .AcceptsKeyboardTextMouse()),
                 "input admission query must remain non-throwing");
+  static_assert(noexcept(RoR::Detail::StageRendererGameMouseMotion(
+                    std::declval<MouseCallbackState &>(), 0, 0, 0, 0)),
+                "direct mouse staging must remain non-throwing");
   TestFocusTransitionsGateFollowingFifoEvents();
   TestRestoreRequiresFocusBeforeInputResumes();
+  TestDirectMouseCallbacksSeeOnlyTheirCurrentTransition();
+  TestVisibleRetinaMetricsKeepLogicalAndPixelDomainsPaired();
   std::cout << "renderer Ogre-Next in-process input policy tests passed\n";
   return EXIT_SUCCESS;
 }

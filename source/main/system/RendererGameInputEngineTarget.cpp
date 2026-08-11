@@ -23,8 +23,18 @@ static_assert(static_cast<std::uint8_t>(
               static_cast<std::uint8_t>(OIS::MB_Button4));
 
 bool RendererGameInputEngineTarget::ActivateInput() noexcept {
+  direct_display_metrics_active_ = false;
+  direct_transition_failed_ = false;
   InputEngine *const input = App::GetInputEngine();
   return input != nullptr && input->EnableRendererInput();
+}
+
+bool RendererGameInputEngineTarget::DisplayMetricsChanged(
+    const RendererGameDisplayMetrics &metrics) noexcept {
+  direct_transition_failed_ = false;
+  direct_display_metrics_active_ =
+      App::GetAppContext()->InjectRendererInputDisplayMetrics(metrics);
+  return direct_display_metrics_active_;
 }
 
 void RendererGameInputEngineTarget::KeyChanged(RendererGameKey key,
@@ -36,19 +46,29 @@ void RendererGameInputEngineTarget::KeyChanged(RendererGameKey key,
 void RendererGameInputEngineTarget::MouseMoved(
     std::int32_t x, std::int32_t y, std::int32_t delta_x,
     std::int32_t delta_y) noexcept {
-  App::GetAppContext()->InjectRendererInputMouseMotion(x, y, delta_x,
-                                                        delta_y);
+  const bool delivered = App::GetAppContext()->InjectRendererInputMouseMotion(
+      x, y, delta_x, delta_y);
+  direct_transition_failed_ =
+      direct_transition_failed_ ||
+      (direct_display_metrics_active_ && !delivered);
 }
 
 void RendererGameInputEngineTarget::MouseButtonChanged(
     RendererGameMouseButton button, bool pressed) noexcept {
-  App::GetAppContext()->InjectRendererInputMouseButton(
+  const bool delivered = App::GetAppContext()->InjectRendererInputMouseButton(
       static_cast<OIS::MouseButtonID>(button), pressed);
+  direct_transition_failed_ =
+      direct_transition_failed_ ||
+      (direct_display_metrics_active_ && !delivered);
 }
 
 void RendererGameInputEngineTarget::MouseWheel(float delta_x,
                                                  float delta_y) noexcept {
-  App::GetAppContext()->InjectRendererInputMouseWheel(delta_x, delta_y);
+  const bool delivered =
+      App::GetAppContext()->InjectRendererInputMouseWheel(delta_x, delta_y);
+  direct_transition_failed_ =
+      direct_transition_failed_ ||
+      (direct_display_metrics_active_ && !delivered);
 }
 
 void RendererGameInputEngineTarget::TextInput(
@@ -67,7 +87,7 @@ void RendererGameInputEngineTarget::WindowCloseRequested() noexcept {
 bool RendererGameInputEngineTarget::Reconcile(
     const RendererGameInputState &state) noexcept {
   InputEngine *const input = App::GetInputEngine();
-  return input != nullptr &&
+  return !direct_transition_failed_ && input != nullptr &&
          (input->IsRendererInputActive() ||
           input->EnableRendererInput()) &&
          input->ApplyRendererInput(state);

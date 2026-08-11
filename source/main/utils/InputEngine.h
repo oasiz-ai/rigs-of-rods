@@ -48,6 +48,7 @@
 
 namespace RoR {
 
+struct RendererGameDisplayMetrics;
 struct RendererGameInputState;
 
 /// @addtogroup Input
@@ -506,10 +507,26 @@ public:
     /// Renderer-owned input becomes the authoritative physical device source
     /// only in an adopted Ogre-Next game-host process.
     bool                EnableRendererInput() noexcept;
+    /// Adopt the sole visible direct-presenter coordinate domain. This is a
+    /// separate opt-in from renderer input so the temporary bridge keeps its
+    /// historical hidden-host metrics until it is removed.
+    bool                SetRendererInputDisplayMetrics(
+                            const RendererGameDisplayMetrics& metrics) noexcept;
+    bool                StageRendererInputMouseMotion(
+                            int x, int y, int dx, int dy,
+                            OIS::MouseState& callback_state) noexcept;
+    bool                StageRendererInputMouseButton(
+                            OIS::MouseButtonID button, bool pressed,
+                            OIS::MouseState& callback_state) noexcept;
+    bool                StageRendererInputMouseWheel(
+                            float delta_y,
+                            OIS::MouseState& callback_state) noexcept;
     bool                ApplyRendererInput(
                             const RendererGameInputState& state) noexcept;
     bool                IsRendererInputActive() const noexcept
                             { return m_renderer_input_active; }
+    bool                UsesRendererDisplayMetrics() const noexcept
+                            { return m_renderer_display_metrics_active; }
     bool                OwnsPhysicalInputDevices() const noexcept
                             { return m_physical_input_enabled; }
     void                resetKeysAndMouseButtons();
@@ -633,6 +650,11 @@ protected:
     RendererInputJoystickMetadata
         m_renderer_input_joysticks[MAX_JOYSTICKS];
     bool m_renderer_input_active = false;
+    bool m_renderer_display_metrics_active = false;
+    std::uint32_t m_renderer_logical_width = 0U;
+    std::uint32_t m_renderer_logical_height = 0U;
+    std::uint32_t m_renderer_pixel_width = 0U;
+    std::uint32_t m_renderer_pixel_height = 0U;
     int m_renderer_input_slot_limit = 0;
     bool m_physical_input_enabled = true;
 

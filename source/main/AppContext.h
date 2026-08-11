@@ -61,6 +61,8 @@ class SGTechniqueResolverListener;
 
 namespace RoR {
 
+struct RendererGameDisplayMetrics;
+
 /// @addtogroup Application
 /// @{
 
@@ -93,10 +95,11 @@ public:
     // Ordered injections from the renderer-owned physical input source. They
     // reuse the same GUI/camera callbacks as local OIS/SDL events; InputEngine
     // held state is reconciled atomically after each renderer poll.
+    bool                 InjectRendererInputDisplayMetrics(const RendererGameDisplayMetrics& metrics) noexcept;
     void                 InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept;
-    void                 InjectRendererInputMouseMotion(int x, int y, int dx, int dy) noexcept;
-    void                 InjectRendererInputMouseButton(OIS::MouseButtonID button, bool down) noexcept;
-    void                 InjectRendererInputMouseWheel(float x, float y) noexcept;
+    bool                 InjectRendererInputMouseMotion(int x, int y, int dx, int dy) noexcept;
+    bool                 InjectRendererInputMouseButton(OIS::MouseButtonID button, bool down) noexcept;
+    bool                 InjectRendererInputMouseWheel(float x, float y) noexcept;
     void                 InjectRendererInputText(std::string_view utf8) noexcept;
     void                 InjectRendererInputFocus(bool focused) noexcept;
     void                 InjectRendererInputWindowClose() noexcept;
@@ -149,6 +152,7 @@ private:
 
     // Rendering and window management
     void                 SetRenderWindowIcon(Ogre::RenderWindow* rw);
+    void                 ResetInputStateForFocusTransition();
     void                 RefreshRenderDisplayMetrics(bool log_change);
     void                 FinishPendingScreenshot() noexcept;
 #if OGRE_VERSION_MAJOR >= 14

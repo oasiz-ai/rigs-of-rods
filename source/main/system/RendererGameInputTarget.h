@@ -12,7 +12,10 @@
 #pragma once
 
 #include <cstddef>
+#include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -22,6 +25,54 @@ namespace RoR {
 
 constexpr std::size_t kRendererGameJoystickSlots = 10U;
 constexpr std::size_t kRendererGameMaximumJoystickButtons = 128U;
+
+/// Exact visible-window coordinate domains used by direct game input. SDL
+/// reports pointer positions in logical window coordinates while RoR's direct
+/// renderer contract publishes backing pixels. Keeping both extents prevents
+/// the hidden Ogre 14 resource host from becoming an accidental input/UI
+/// authority in the combined process.
+struct RendererGameDisplayMetrics final {
+  std::uint32_t logical_width = 0U;
+  std::uint32_t logical_height = 0U;
+  std::uint32_t pixel_width = 0U;
+  std::uint32_t pixel_height = 0U;
+
+  [[nodiscard]] bool valid() const noexcept {
+    constexpr std::uint32_t kMaximumExtent = 32768U;
+    return logical_width > 0U && logical_height > 0U && pixel_width > 0U &&
+           pixel_height > 0U && logical_width <= kMaximumExtent &&
+           logical_height <= kMaximumExtent && pixel_width <= kMaximumExtent &&
+           pixel_height <= kMaximumExtent;
+  }
+};
+
+/// Convert a renderer backing-pixel coordinate into the logical window domain
+/// consumed by OIS callbacks and Dear ImGui. The presenter state intentionally
+/// remains in backing pixels; conversion happens only at the direct game seam
+/// so the temporary bridge contract is unchanged.
+inline std::int32_t RendererGameLogicalCoordinate(
+    std::int32_t pixel_coordinate, std::uint32_t logical_extent,
+    std::uint32_t pixel_extent) noexcept {
+  if (logical_extent == 0U || pixel_extent == 0U) {
+    return 0;
+  }
+  const std::int64_t numerator =
+      static_cast<std::int64_t>(pixel_coordinate) *
+      static_cast<std::int64_t>(logical_extent);
+  const std::int64_t half = static_cast<std::int64_t>(pixel_extent / 2U);
+  const std::int64_t rounded = numerator >= 0
+      ? (numerator + half) / static_cast<std::int64_t>(pixel_extent)
+      : (numerator - half) / static_cast<std::int64_t>(pixel_extent);
+  if (rounded <=
+      static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::min)())) {
+    return (std::numeric_limits<std::int32_t>::min)();
+  }
+  if (rounded >=
+      static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::max)())) {
+    return (std::numeric_limits<std::int32_t>::max)();
+  }
+  return static_cast<std::int32_t>(rounded);
+}
 
 /// Numeric values are the stable OIS/DirectInput scan identities consumed by
 /// existing RoR input.map files. The direct renderer translates physical SDL
@@ -110,12 +161,91 @@ struct RendererGameInputState final {
   std::vector<RendererGameJoystickState> joysticks;
 };
 
+namespace Detail {
+
+/// OIS-free state policy used by InputEngine immediately before invoking the
+/// historical AppContext mouse callbacks. The final full-state reconciliation
+/// remains authoritative; this staging exists only so synchronous camera,
+/// scene-picking, and overlay callbacks observe the transition being delivered
+/// instead of the preceding frame.
+struct RendererGameMouseCallbackState final {
+  std::int32_t x_absolute = 0;
+  std::int32_t y_absolute = 0;
+  std::int32_t x_relative = 0;
+  std::int32_t y_relative = 0;
+  std::int32_t wheel_relative = 0;
+  std::uint32_t buttons = 0U;
+};
+
+inline void StageRendererGameMouseMotion(
+    RendererGameMouseCallbackState &state, std::int32_t x, std::int32_t y,
+    std::int32_t delta_x, std::int32_t delta_y) noexcept {
+  state.x_absolute = x;
+  state.y_absolute = y;
+  state.x_relative = delta_x;
+  state.y_relative = delta_y;
+  // A motion callback must not replay a preceding wheel transition.
+  state.wheel_relative = 0;
+}
+
+inline bool StageRendererGameMouseButton(
+    RendererGameMouseCallbackState &state, std::uint8_t button,
+    bool pressed) noexcept {
+  if (button > 4U) {
+    return false;
+  }
+  const std::uint32_t mask = std::uint32_t{1U} << button;
+  if (pressed) {
+    state.buttons |= mask;
+  } else {
+    state.buttons &= ~mask;
+  }
+  return true;
+}
+
+inline std::int32_t RendererGameWheelUnits(float delta) noexcept {
+  static_assert(sizeof(float) == sizeof(std::uint32_t),
+                "direct wheel input requires IEEE-754 binary32");
+  std::uint32_t bits = 0U;
+  std::memcpy(&bits, &delta, sizeof(bits));
+  if ((bits & 0x7f800000U) == 0x7f800000U) {
+    return 0;
+  }
+  constexpr double kUnitsPerStep = 120.0;
+  const double units = static_cast<double>(delta) * kUnitsPerStep;
+  if (units <= static_cast<double>((std::numeric_limits<std::int32_t>::min)())) {
+    return (std::numeric_limits<std::int32_t>::min)();
+  }
+  if (units >= static_cast<double>((std::numeric_limits<std::int32_t>::max)())) {
+    return (std::numeric_limits<std::int32_t>::max)();
+  }
+  return static_cast<std::int32_t>(std::llround(units));
+}
+
+inline void StageRendererGameMouseWheel(
+    RendererGameMouseCallbackState &state, float delta_y) noexcept {
+  // A wheel callback must not replay preceding camera motion. The final
+  // authoritative reconciliation restores the poll-wide accumulated deltas.
+  state.x_relative = 0;
+  state.y_relative = 0;
+  state.wheel_relative = RendererGameWheelUnits(delta_y);
+}
+
+} // namespace Detail
+
 /// Product input callbacks shared by the direct in-process renderer and the
 /// temporary decoded bridge. Implementations must not retain string_view.
 class IRendererGameInputTarget {
 public:
   virtual ~IRendererGameInputTarget() = default;
   virtual bool ActivateInput() noexcept = 0;
+  /// Called by the direct presenter after SDL has refreshed native state and
+  /// before it drains any transition callbacks. Temporary bridge targets do
+  /// not call this seam and therefore retain their existing coordinate path.
+  virtual bool DisplayMetricsChanged(
+      const RendererGameDisplayMetrics &metrics) noexcept {
+    return metrics.valid();
+  }
   virtual void KeyChanged(RendererGameKey key, bool pressed) noexcept = 0;
   virtual void MouseMoved(std::int32_t x, std::int32_t y,
                           std::int32_t delta_x,

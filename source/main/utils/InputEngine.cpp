@@ -476,6 +476,11 @@ InputEngine::~InputEngine()
 void InputEngine::destroy()
 {
     m_renderer_input_active = false;
+    m_renderer_display_metrics_active = false;
+    m_renderer_logical_width = 0U;
+    m_renderer_logical_height = 0U;
+    m_renderer_pixel_width = 0U;
+    m_renderer_pixel_height = 0U;
     m_renderer_input_slot_limit = 0;
     for (RendererInputJoystickMetadata& metadata :
          m_renderer_input_joysticks)
@@ -894,6 +899,11 @@ bool InputEngine::EnableRendererInput() noexcept
         }
         m_renderer_input_slot_limit = 0;
         m_renderer_input_active = true;
+        m_renderer_display_metrics_active = false;
+        m_renderer_logical_width = 0U;
+        m_renderer_logical_height = 0U;
+        m_renderer_pixel_width = 0U;
+        m_renderer_pixel_height = 0U;
         this->resetKeysAndMouseButtons();
         mouseState.X.rel = 0;
         mouseState.Y.rel = 0;
@@ -906,6 +916,88 @@ bool InputEngine::EnableRendererInput() noexcept
         m_renderer_input_slot_limit = 0;
         return false;
     }
+}
+
+bool InputEngine::SetRendererInputDisplayMetrics(
+    const RendererGameDisplayMetrics& metrics) noexcept
+{
+    if (!m_renderer_input_active || !metrics.valid())
+        return false;
+    mouseState.width = static_cast<int>(metrics.logical_width);
+    mouseState.height = static_cast<int>(metrics.logical_height);
+    m_renderer_logical_width = metrics.logical_width;
+    m_renderer_logical_height = metrics.logical_height;
+    m_renderer_pixel_width = metrics.pixel_width;
+    m_renderer_pixel_height = metrics.pixel_height;
+    m_renderer_display_metrics_active = true;
+    return true;
+}
+
+bool InputEngine::StageRendererInputMouseMotion(
+    int x, int y, int dx, int dy,
+    OIS::MouseState& callback_state) noexcept
+{
+    if (!m_renderer_input_active || !m_renderer_display_metrics_active)
+        return false;
+    Detail::RendererGameMouseCallbackState staged;
+    staged.x_absolute = mouseState.X.abs;
+    staged.y_absolute = mouseState.Y.abs;
+    staged.x_relative = mouseState.X.rel;
+    staged.y_relative = mouseState.Y.rel;
+    staged.wheel_relative = mouseState.Z.rel;
+    staged.buttons = static_cast<std::uint32_t>(mouseState.buttons);
+    Detail::StageRendererGameMouseMotion(
+        staged,
+        RendererGameLogicalCoordinate(
+            x, m_renderer_logical_width, m_renderer_pixel_width),
+        RendererGameLogicalCoordinate(
+            y, m_renderer_logical_height, m_renderer_pixel_height),
+        RendererGameLogicalCoordinate(
+            dx, m_renderer_logical_width, m_renderer_pixel_width),
+        RendererGameLogicalCoordinate(
+            dy, m_renderer_logical_height, m_renderer_pixel_height));
+    mouseState.X.abs = staged.x_absolute;
+    mouseState.Y.abs = staged.y_absolute;
+    mouseState.X.rel = staged.x_relative;
+    mouseState.Y.rel = staged.y_relative;
+    mouseState.Z.rel = staged.wheel_relative;
+    callback_state = mouseState;
+    return true;
+}
+
+bool InputEngine::StageRendererInputMouseButton(
+    OIS::MouseButtonID button, bool pressed,
+    OIS::MouseState& callback_state) noexcept
+{
+    if (!m_renderer_input_active || !m_renderer_display_metrics_active)
+        return false;
+    Detail::RendererGameMouseCallbackState staged;
+    staged.buttons = static_cast<std::uint32_t>(mouseState.buttons);
+    const int button_index = static_cast<int>(button);
+    if (button_index < 0 ||
+        !Detail::StageRendererGameMouseButton(
+            staged, static_cast<std::uint8_t>(button_index), pressed))
+        return false;
+    mouseState.buttons = staged.buttons;
+    callback_state = mouseState;
+    return true;
+}
+
+bool InputEngine::StageRendererInputMouseWheel(
+    float delta_y, OIS::MouseState& callback_state) noexcept
+{
+    if (!m_renderer_input_active || !m_renderer_display_metrics_active)
+        return false;
+    Detail::RendererGameMouseCallbackState staged;
+    staged.x_relative = mouseState.X.rel;
+    staged.y_relative = mouseState.Y.rel;
+    staged.wheel_relative = mouseState.Z.rel;
+    Detail::StageRendererGameMouseWheel(staged, delta_y);
+    mouseState.X.rel = staged.x_relative;
+    mouseState.Y.rel = staged.y_relative;
+    mouseState.Z.rel = staged.wheel_relative;
+    callback_state = mouseState;
+    return true;
 }
 
 bool InputEngine::ApplyRendererInput(
@@ -937,10 +1029,30 @@ bool InputEngine::ApplyRendererInput(
 #endif
 
         OIS::MouseState next_mouse_state = mouseState;
-        next_mouse_state.X.abs = state.mouse_x_pixels;
-        next_mouse_state.Y.abs = state.mouse_y_pixels;
-        next_mouse_state.X.rel = state.mouse_delta_x_pixels;
-        next_mouse_state.Y.rel = state.mouse_delta_y_pixels;
+        next_mouse_state.X.abs = m_renderer_display_metrics_active
+            ? RendererGameLogicalCoordinate(
+                  state.mouse_x_pixels,
+                  m_renderer_logical_width,
+                  m_renderer_pixel_width)
+            : state.mouse_x_pixels;
+        next_mouse_state.Y.abs = m_renderer_display_metrics_active
+            ? RendererGameLogicalCoordinate(
+                  state.mouse_y_pixels,
+                  m_renderer_logical_height,
+                  m_renderer_pixel_height)
+            : state.mouse_y_pixels;
+        next_mouse_state.X.rel = m_renderer_display_metrics_active
+            ? RendererGameLogicalCoordinate(
+                  state.mouse_delta_x_pixels,
+                  m_renderer_logical_width,
+                  m_renderer_pixel_width)
+            : state.mouse_delta_x_pixels;
+        next_mouse_state.Y.rel = m_renderer_display_metrics_active
+            ? RendererGameLogicalCoordinate(
+                  state.mouse_delta_y_pixels,
+                  m_renderer_logical_height,
+                  m_renderer_pixel_height)
+            : state.mouse_delta_y_pixels;
         const double wheel_units =
             static_cast<double>(state.wheel_delta_y) * 120.0;
         next_mouse_state.Z.rel = static_cast<int>(std::max<double>(

@@ -21,6 +21,13 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         cls.context = (ROOT / "source/main/AppContext.cpp").read_text(
             encoding="utf-8"
         )
+        cls.presenter = (
+            ROOT
+            / "source/main/system/RendererOgreNextInProcessPresenter.cpp"
+        ).read_text(encoding="utf-8")
+        cls.input_engine = (
+            ROOT / "source/main/utils/InputEngine.cpp"
+        ).read_text(encoding="utf-8")
         cls.loading = (
             ROOT / "source/main/gui/panels/GUI_LoadingWindow.cpp"
         ).read_text(encoding="utf-8")
@@ -184,6 +191,67 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         )
         self.assertLess(gate, legacy_present)
         self.assertIn("#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)", loading)
+
+    def test_visible_metrics_and_mouse_state_precede_direct_callbacks(self) -> None:
+        poll_start = self.presenter.index("ValidationResult PollOrderedSdl(")
+        poll_end = self.presenter.index("ValidationResult Poll(", poll_start)
+        poll = self.presenter[poll_start:poll_end]
+        pump = poll.index("SDL_PumpEvents();")
+        metrics = poll.index("target->DisplayMetricsChanged(game_metrics)")
+        drain = poll.index("while (SDL_PollEvent(&event) != 0)")
+        callback = poll.index("target->MouseMoved(")
+        reconcile = poll.index("target->Reconcile(state)")
+        self.assertLess(pump, metrics)
+        self.assertLess(metrics, drain)
+        self.assertLess(drain, callback)
+        self.assertLess(callback, reconcile)
+        self.assertIn("game_metrics.pixel_width", poll)
+        self.assertIn("game_metrics.logical_width", poll)
+
+        metric_injection = self.context[
+            self.context.index("InjectRendererInputDisplayMetrics(") :
+            self.context.index("void AppContext::InjectRendererInputKey")
+        ]
+        self.assertIn("ResolveRenderDisplayMetrics(", metric_injection)
+        self.assertIn("m_display_metrics = next", metric_injection)
+
+        stage = self.input_engine[
+            self.input_engine.index("StageRendererInputMouseMotion(") :
+            self.input_engine.index("bool InputEngine::ApplyRendererInput(")
+        ]
+        self.assertIn("Detail::StageRendererGameMouseMotion", stage)
+        self.assertIn("Detail::StageRendererGameMouseButton", stage)
+        self.assertIn("Detail::StageRendererGameMouseWheel", stage)
+        self.assertIn("RendererGameLogicalCoordinate(", stage)
+        self.assertIn("callback_state = mouseState", stage)
+        reconcile = self.input_engine[
+            self.input_engine.index("bool InputEngine::ApplyRendererInput(") :
+            self.input_engine.index("void InputEngine::ProcessKeyPress")
+        ]
+        self.assertIn("m_renderer_display_metrics_active", reconcile)
+        self.assertIn("RendererGameLogicalCoordinate(", reconcile)
+
+    def test_renderer_focus_loss_uses_the_native_imgui_reset(self) -> None:
+        reset_start = self.context.index(
+            "void AppContext::ResetInputStateForFocusTransition()"
+        )
+        reset_end = self.context.index(
+            "void AppContext::windowFocusChange", reset_start
+        )
+        reset = self.context[reset_start:reset_end]
+        self.assertIn("ResetAllMouseButtons()", reset)
+        self.assertIn("io.KeysDown", reset)
+        self.assertIn("io.KeyCtrl = false", reset)
+        focus_start = self.context.index(
+            "void AppContext::InjectRendererInputFocus"
+        )
+        focus_end = self.context.index(
+            "void AppContext::InjectRendererInputWindowClose", focus_start
+        )
+        self.assertIn(
+            "this->ResetInputStateForFocusTransition()",
+            self.context[focus_start:focus_end],
+        )
 
 
 if __name__ == "__main__":

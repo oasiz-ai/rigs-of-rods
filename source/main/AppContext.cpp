@@ -39,6 +39,7 @@
 #include "InputEngine.h"
 #include "Language.h"
 #include "PlatformUtils.h"
+#include "RendererGameInputTarget.h"
 #if defined(_WIN32)
     #include "WindowsRuntimePath.h"
 #endif
@@ -217,6 +218,30 @@ bool AppContext::SetUpInput(
     return true;
 }
 
+bool AppContext::InjectRendererInputDisplayMetrics(
+    const RendererGameDisplayMetrics& metrics) noexcept
+{
+    try
+    {
+        InputEngine* const input = App::GetInputEngine();
+        if (input == nullptr || !metrics.valid())
+            return false;
+        const RenderDisplayMetrics next = ResolveRenderDisplayMetrics(
+            metrics.pixel_width,
+            metrics.pixel_height,
+            metrics.logical_width,
+            metrics.logical_height);
+        if (!next.valid || !input->SetRendererInputDisplayMetrics(metrics))
+            return false;
+        m_display_metrics = next;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 void AppContext::InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept
 {
     try
@@ -233,62 +258,103 @@ void AppContext::InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept
     }
 }
 
-void AppContext::InjectRendererInputMouseMotion(
+bool AppContext::InjectRendererInputMouseMotion(
     int x, int y, int dx, int dy) noexcept
 {
     try
     {
-        OIS::MouseState state = App::GetInputEngine()->getMouseState();
-        state.X.abs = x;
-        state.Y.abs = y;
-        state.X.rel = dx;
-        state.Y.rel = dy;
-        state.Z.rel = 0;
+        InputEngine* const input = App::GetInputEngine();
+        if (input == nullptr)
+            return false;
+        OIS::MouseState state = input->getMouseState();
+        if (input->UsesRendererDisplayMetrics())
+        {
+            if (!input->StageRendererInputMouseMotion(
+                    x, y, dx, dy, state))
+                return false;
+        }
+        else
+        {
+            state.X.abs = x;
+            state.Y.abs = y;
+            state.X.rel = dx;
+            state.Y.rel = dy;
+            state.Z.rel = 0;
+        }
         const OIS::MouseEvent event(nullptr, state);
         (void)this->mouseMoved(event);
+        return true;
     }
     catch (...)
     {
+        return false;
     }
 }
 
-void AppContext::InjectRendererInputMouseButton(
+bool AppContext::InjectRendererInputMouseButton(
     OIS::MouseButtonID button, bool down) noexcept
 {
     try
     {
-        OIS::MouseState state = App::GetInputEngine()->getMouseState();
-        const int bit = 1 << static_cast<int>(button);
-        if (down)
-            state.buttons |= bit;
+        InputEngine* const input = App::GetInputEngine();
+        if (input == nullptr)
+            return false;
+        OIS::MouseState state = input->getMouseState();
+        if (input->UsesRendererDisplayMetrics())
+        {
+            if (!input->StageRendererInputMouseButton(
+                    button, down, state))
+                return false;
+        }
         else
-            state.buttons &= ~bit;
+        {
+            const int bit = 1 << static_cast<int>(button);
+            if (down)
+                state.buttons |= bit;
+            else
+                state.buttons &= ~bit;
+        }
         const OIS::MouseEvent event(nullptr, state);
         if (down)
             (void)this->mousePressed(event, button);
         else
             (void)this->mouseReleased(event, button);
+        return true;
     }
     catch (...)
     {
+        return false;
     }
 }
 
-void AppContext::InjectRendererInputMouseWheel(float x, float y) noexcept
+bool AppContext::InjectRendererInputMouseWheel(float x, float y) noexcept
 {
     (void)x; // Legacy OIS has one wheel axis; horizontal state is reconciled.
     try
     {
-        OIS::MouseState state = App::GetInputEngine()->getMouseState();
-        state.X.rel = 0;
-        state.Y.rel = 0;
-        state.Z.rel = static_cast<int>(y * 120.0F);
-        state.Z.abs += state.Z.rel;
+        InputEngine* const input = App::GetInputEngine();
+        if (input == nullptr)
+            return false;
+        OIS::MouseState state = input->getMouseState();
+        if (input->UsesRendererDisplayMetrics())
+        {
+            if (!input->StageRendererInputMouseWheel(y, state))
+                return false;
+        }
+        else
+        {
+            state.X.rel = 0;
+            state.Y.rel = 0;
+            state.Z.rel = static_cast<int>(y * 120.0F);
+            state.Z.abs += state.Z.rel;
+        }
         const OIS::MouseEvent event(nullptr, state);
         (void)this->mouseMoved(event);
+        return true;
     }
     catch (...)
     {
+        return false;
     }
 }
 
@@ -309,8 +375,16 @@ void AppContext::InjectRendererInputText(std::string_view utf8) noexcept
 
 void AppContext::InjectRendererInputFocus(bool focused) noexcept
 {
-    if (!focused && App::GetInputEngine() != nullptr)
-        App::GetInputEngine()->resetKeysAndMouseButtons();
+    if (!focused)
+    {
+        try
+        {
+            this->ResetInputStateForFocusTransition();
+        }
+        catch (...)
+        {
+        }
+    }
 }
 
 void AppContext::InjectRendererInputWindowClose() noexcept
@@ -445,7 +519,7 @@ void AppContext::windowResized(Ogre::RenderWindow* rw)
     }
 }
 
-void AppContext::windowFocusChange(Ogre::RenderWindow* rw)
+void AppContext::ResetInputStateForFocusTransition()
 {
     // If you alt+TAB out of the window while any mouse button is down, OIS will not release it until you click in the window again.
     // See https://github.com/RigsOfRods/rigs-of-rods/issues/2468
@@ -468,6 +542,12 @@ void AppContext::windowFocusChange(Ogre::RenderWindow* rw)
         io.KeySuper = false;
     }
 #endif
+}
+
+void AppContext::windowFocusChange(Ogre::RenderWindow* rw)
+{
+    (void)rw;
+    this->ResetInputStateForFocusTransition();
 }
 
 // --------------------------
