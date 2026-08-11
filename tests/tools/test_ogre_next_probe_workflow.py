@@ -1096,6 +1096,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp",
             "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp",
             "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h",
+            "source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp",
+            "source/main/gfx/ogre14/Ogre14SelectedTextureSource.h",
             "conanfile.py",
             "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock",
             "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock",
@@ -1114,6 +1116,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp",
             "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
             "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp",
+            "tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp",
             "tests/resources/TerrainBundleArchiveVerifierTests.cpp",
             "tests/tools/assert_ogre_recipe_graph.py",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
@@ -2042,6 +2045,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             )
             self.assertIn(
                 "ror_ogre14_authenticated_texture_receipt_tests", cmake
+            )
+            self.assertIn(
+                "ror_ogre14_selected_texture_source_tests", cmake
             )
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :

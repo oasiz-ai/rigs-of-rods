@@ -56,6 +56,7 @@ on:
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/gfx/ogre14/Ogre14SelectedTextureSource.*
       - source/main/gfx/ogre14/Ogre14TerrainComposite*
       - source/main/gfx/ogre14/detail/OgreNextDemo*
       - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
@@ -145,6 +146,7 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
       - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
       - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
@@ -214,6 +216,7 @@ on:
       - source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.*
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
+      - source/main/gfx/ogre14/Ogre14SelectedTextureSource.*
       - source/main/gfx/ogre14/Ogre14TerrainComposite*
       - source/main/gfx/ogre14/detail/OgreNextDemo*
       - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
@@ -303,6 +306,7 @@ on:
       - tests/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinatorTests.cpp
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
+      - tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
       - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
       - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
@@ -625,6 +629,7 @@ jobs:
           ror_ogre14_live_material_coordinator_tests
           ror_ogre14_graphics_scene_prepared_material_binding_tests
           ror_ogre14_authenticated_texture_receipt_tests
+          ror_ogre14_selected_texture_source_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
           --parallel ${{ matrix.jobs }}
@@ -692,6 +697,14 @@ jobs:
           --build-config Release
           --output-on-failure
           -R '^ror_ogre14_authenticated_texture_receipt$'
+
+      - name: Prove ordinary selected source-texture receipts on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          -R '^ror_ogre14_selected_texture_source$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

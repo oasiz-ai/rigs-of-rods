@@ -90,7 +90,7 @@ struct Ogre14SelectedTextureSourceCaptureInput final {
   std::uint64_t file_info_compressed_size = 0U;
   std::uint64_t file_info_uncompressed_size = 0U;
 
-  /// Exact stream returned by opening file_info_filename.
+  /// Exact stream returned by opening exact_member_name.
   std::uintptr_t opened_stream_pointer_token = 0U;
   std::string opened_stream_name;
   std::uint64_t opened_stream_size = 0U;

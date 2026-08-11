@@ -182,6 +182,9 @@ set(_ror_n2_relevant_source_paths
     tests/CMakeLists.txt
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp
     source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h
+    source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp
+    source/main/gfx/ogre14/Ogre14SelectedTextureSource.h
+    tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
     source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
@@ -486,6 +489,9 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/CMakeLists.txt"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+    "source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
+    "source/main/gfx/ogre14/Ogre14SelectedTextureSource.h"
+    "tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
