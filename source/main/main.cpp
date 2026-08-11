@@ -326,6 +326,8 @@ public:
 
 constexpr std::uint64_t kCombinedRendererAssetRegistryId =
     0x524f52434f4d4231ULL; // "RORCOMB1", process-local and transport-free.
+constexpr std::uint64_t kCombinedRendererShutdownAttemptNanoseconds =
+    500'000'000ULL;
 
 bool ResolveCombinedPresenterConfiguration(
     RoR::RendererOgreNextInProcessPresenterConfiguration& configuration,
@@ -880,6 +882,10 @@ int main(int argc, char *argv[])
             renderer_combined_presenter.InitialFrontendRequest();
         combined_session_config.producer.registry_id =
             kCombinedRendererAssetRegistryId;
+        // Keep each frontend shutdown attempt below the outer five-second
+        // close budget so a typed retryable TIMEOUT can actually be retried.
+        combined_session_config.shutdown_timeout_nanoseconds =
+            kCombinedRendererShutdownAttemptNanoseconds;
         const RendererInProcessSessionResult session_started =
             renderer_combined_session->Start(combined_session_config);
         if (!session_started)

@@ -135,6 +135,16 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         )
         self.assertIn("Render::RenderOperationCode::TIMEOUT", close_helper)
         self.assertIn("session.Shutdown()", close_helper)
+        self.assertIn(
+            "kCombinedRendererShutdownAttemptNanoseconds =\n"
+            "    500'000'000ULL;",
+            self.main,
+        )
+        self.assertIn(
+            "combined_session_config.shutdown_timeout_nanoseconds =\n"
+            "            kCombinedRendererShutdownAttemptNanoseconds;",
+            self.main,
+        )
         normal = self.main[
             self.main.index("[RoR|RendererCombined|Shutdown]") :
             self.main.index("App::ShutdownWorldModelCapture();", self.main.index("[RoR|RendererCombined|Shutdown]"))
