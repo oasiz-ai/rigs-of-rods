@@ -81,7 +81,7 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererOgre14GameHostSession.*
-      - source/main/system/RendererGameInputTarget.h
+      - source/main/system/RendererGameInputTarget.*
       - source/main/system/RendererOgre14InputAdapter.*
       - source/main/system/RendererGameInputEngineTarget.*
       - source/main/utils/InputEngine.*
@@ -229,7 +229,7 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererOgre14GameHostSession.*
-      - source/main/system/RendererGameInputTarget.h
+      - source/main/system/RendererGameInputTarget.*
       - source/main/system/RendererOgre14InputAdapter.*
       - source/main/system/RendererGameInputEngineTarget.*
       - source/main/utils/InputEngine.*

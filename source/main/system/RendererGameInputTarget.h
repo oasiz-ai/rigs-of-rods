@@ -129,4 +129,11 @@ public:
   virtual bool Reconcile(const RendererGameInputState &state) noexcept = 0;
 };
 
+/// Translate the pinned SDL 2.32.10 numeric physical identities without
+/// importing SDL or the temporary transport schema into the game target.
+[[nodiscard]] RendererGameKey
+TranslateRendererSdlScancodeToGame(std::uint16_t scancode) noexcept;
+[[nodiscard]] bool TryTranslateRendererSdlMouseButtonToGame(
+    std::uint8_t button, RendererGameMouseButton &translated) noexcept;
+
 } // namespace RoR

@@ -50,6 +50,7 @@ DEFORMABLE_CAPTURE_PROVENANCE_PATHS = (
     "source/main/physics/flex/Flexable.h",
     "source/main/system/RendererOgre14InputAdapter.cpp",
     "source/main/system/RendererOgre14InputAdapter.h",
+    "source/main/system/RendererGameInputTarget.cpp",
     "source/main/system/RendererGameInputTarget.h",
     "source/main/system/RendererGameInputEngineTarget.cpp",
     "source/main/system/RendererGameInputEngineTarget.h",
@@ -1615,6 +1616,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "source/main/system/RendererGameInputTarget.h"
         ).read_text(encoding="utf-8")
+        game_input_source = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererGameInputTarget.cpp"
+        ).read_text(encoding="utf-8")
         engine_target = (
             REPOSITORY_ROOT
             / "source/main/system/RendererGameInputEngineTarget.h"
@@ -1623,6 +1628,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("virtual bool ActivateInput()", game_input)
         self.assertNotIn("Transport", game_input)
         self.assertNotIn("Bridge", game_input)
+        self.assertIn("TranslateRendererSdlScancodeToGame", game_input)
+        self.assertIn("TryTranslateRendererSdlMouseButtonToGame", game_input)
+        self.assertIn("case 4U: return RendererGameKey::A", game_input_source)
+        self.assertNotIn("Transport", game_input_source)
+        self.assertNotIn("Bridge", game_input_source)
         self.assertIn('#include "RendererGameInputTarget.h"', engine_target)
         self.assertNotIn("RendererOgre14InputAdapter.h", engine_target)
         self.assertNotIn("InputEventTransport", engine_target)

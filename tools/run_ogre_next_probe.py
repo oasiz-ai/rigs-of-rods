@@ -198,6 +198,7 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/system/RendererOgre14GameBridge.h",
     "source/main/system/RendererOgre14GameHostSession.cpp",
     "source/main/system/RendererOgre14GameHostSession.h",
+    "source/main/system/RendererGameInputTarget.cpp",
     "source/main/system/RendererGameInputTarget.h",
     "source/main/system/RendererOgre14InputAdapter.cpp",
     "source/main/system/RendererOgre14InputAdapter.h",

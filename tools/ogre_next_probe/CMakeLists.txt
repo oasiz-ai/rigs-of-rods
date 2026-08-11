@@ -210,6 +210,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererOgre14GameHostSession.cpp"
     "source/main/system/RendererOgre14GameHostSession.h"
+    "source/main/system/RendererGameInputTarget.cpp"
     "source/main/system/RendererGameInputTarget.h"
     "source/main/system/RendererOgre14InputAdapter.cpp"
     "source/main/system/RendererOgre14InputAdapter.h"
@@ -2691,6 +2692,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgre14GameBridge.h
             source/main/system/RendererOgre14GameHostSession.cpp
             source/main/system/RendererOgre14GameHostSession.h
+            source/main/system/RendererGameInputTarget.cpp
             source/main/system/RendererGameInputTarget.h
             source/main/system/RendererOgre14InputAdapter.cpp
             source/main/system/RendererOgre14InputAdapter.h

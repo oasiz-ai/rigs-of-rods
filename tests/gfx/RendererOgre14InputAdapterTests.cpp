@@ -7,6 +7,7 @@
 
 #include "RendererOgre14InputAdapter.h"
 
+#include <array>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -94,6 +95,53 @@ public:
       mouse_buttons;
   RendererGameInputState state;
 };
+
+void TestRendererNeutralSdlMapping() {
+  Require(TranslateRendererSdlScancodeToGame(4U) ==
+                  RendererGameKey::A &&
+              TranslateRendererSdlScancodeToGame(230U) ==
+                  RendererGameKey::RIGHT_ALT &&
+              TranslateRendererSdlScancodeToGame(257U) ==
+                  RendererGameKey::RIGHT_ALT &&
+              TranslateRendererSdlScancodeToGame(40U) ==
+                  RendererGameKey::RETURN &&
+              TranslateRendererSdlScancodeToGame(158U) ==
+                  RendererGameKey::RETURN &&
+              TranslateRendererSdlScancodeToGame(0U) ==
+                  RendererGameKey::UNASSIGNED &&
+              TranslateRendererSdlScancodeToGame(
+                  (std::numeric_limits<std::uint16_t>::max)()) ==
+                  RendererGameKey::UNASSIGNED,
+          "renderer-neutral numeric SDL key mapping changed");
+
+  const std::array<std::pair<std::uint8_t, RendererGameMouseButton>, 5U>
+      mouse_buttons{{
+          {1U, RendererGameMouseButton::LEFT},
+          {2U, RendererGameMouseButton::MIDDLE},
+          {3U, RendererGameMouseButton::RIGHT},
+          {4U, RendererGameMouseButton::X1},
+          {5U, RendererGameMouseButton::X2},
+      }};
+  for (const auto &entry : mouse_buttons) {
+    RendererGameMouseButton translated = RendererGameMouseButton::LEFT;
+    Require(TryTranslateRendererSdlMouseButtonToGame(entry.first,
+                                                      translated) &&
+                translated == entry.second,
+            "renderer-neutral numeric SDL mouse mapping changed");
+  }
+  RendererGameMouseButton invalid = RendererGameMouseButton::X2;
+  Require(!TryTranslateRendererSdlMouseButtonToGame(0U, invalid) &&
+              invalid == RendererGameMouseButton::X2,
+          "invalid SDL mouse input mutated the target value");
+
+  Require(TranslateRendererSdl2ScancodeToGame(
+              Sdl2PhysicalScancode::A) ==
+                  TranslateRendererSdlScancodeToGame(4U) &&
+              TranslateRendererSdl2MouseButtonToGame(
+                  Sdl2MouseButton::RIGHT) ==
+                  RendererGameMouseButton::RIGHT,
+          "temporary transport adapter diverged from neutral SDL mapping");
+}
 
 InputTransportBatch KeyboardMouseBatch() {
   InputTransportBatch batch;
@@ -345,6 +393,7 @@ void TestTargetFailuresDoNotAdvanceAppliedLineage() {
 } // namespace
 
 int main() {
+  TestRendererNeutralSdlMapping();
   TestMappingsTransitionsReconciliationAndLineage();
   TestTargetFailuresDoNotAdvanceAppliedLineage();
   return EXIT_SUCCESS;

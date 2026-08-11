@@ -1466,6 +1466,7 @@ endif ()
 add_executable(
     ror_renderer_ogre14_input_adapter_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererOgre14InputAdapterTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererGameInputTarget.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
 )
 
@@ -1501,6 +1502,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererGameInputTarget.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoFrameNormalization.cpp"

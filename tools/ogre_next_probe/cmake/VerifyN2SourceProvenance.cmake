@@ -100,6 +100,7 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgre14GameBridge.h
     source/main/system/RendererOgre14GameHostSession.cpp
     source/main/system/RendererOgre14GameHostSession.h
+    source/main/system/RendererGameInputTarget.cpp
     source/main/system/RendererGameInputTarget.h
     source/main/system/RendererOgre14InputAdapter.cpp
     source/main/system/RendererOgre14InputAdapter.h
@@ -384,6 +385,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererOgre14GameHostSession.cpp"
     "source/main/system/RendererOgre14GameHostSession.h"
+    "source/main/system/RendererGameInputTarget.cpp"
     "source/main/system/RendererGameInputTarget.h"
     "source/main/system/RendererOgre14InputAdapter.cpp"
     "source/main/system/RendererOgre14InputAdapter.h"
