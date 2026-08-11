@@ -12,9 +12,22 @@ RENDER = REPOSITORY_ROOT / "source/main/gfx/render"
 SCENE_HEADER = RENDER / "Ogre14GraphicsSceneSource.h"
 SCENE_SOURCE = SCENE_HEADER.with_suffix(".cpp")
 GFX_SCENE_SOURCE = REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp"
+ACTOR_SOURCE = REPOSITORY_ROOT / "source/main/physics/Actor.cpp"
 CPP_TEST = (
     REPOSITORY_ROOT
     / "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
+)
+MANAGED_SOURCE_CPP_TEST = (
+    REPOSITORY_ROOT
+    / "tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp"
+)
+MATERIAL_SOURCE_NATIVE_CPP_TEST = (
+    REPOSITORY_ROOT
+    / "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
+)
+MATERIAL_SOURCE = (
+    REPOSITORY_ROOT
+    / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
 )
 README = RENDER / "README.md"
 PRODUCER_DOC = (
@@ -28,7 +41,15 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
         cls.scene_header = SCENE_HEADER.read_text(encoding="utf-8")
         cls.scene_source = SCENE_SOURCE.read_text(encoding="utf-8")
         cls.gfx_scene_source = GFX_SCENE_SOURCE.read_text(encoding="utf-8")
+        cls.actor_source = ACTOR_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
+        cls.managed_source_cpp_test = MANAGED_SOURCE_CPP_TEST.read_text(
+            encoding="utf-8"
+        )
+        cls.material_source_native_cpp_test = (
+            MATERIAL_SOURCE_NATIVE_CPP_TEST.read_text(encoding="utf-8")
+        )
+        cls.material_source = MATERIAL_SOURCE.read_text(encoding="utf-8")
 
     def test_dynamic_input_reuses_the_static_exact_closure_contract(self) -> None:
         for token in (
@@ -220,6 +241,101 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
         self.assertLess(material_capture, section_winding)
         self.assertLess(section_winding, cpu_winding)
         self.assertLess(cpu_winding, publish)
+
+    def test_managed_source_authority_is_frame_reachability_scoped(self) -> None:
+        snapshot_current = self.actor_source[
+            self.actor_source.index(
+                "bool Actor::IsManagedMaterialDeclarationSnapshotCurrent("
+            ) : self.actor_source.index(
+                "Actor::ValidateManagedMaterialDeclarationSnapshotReachability("
+            )
+        ]
+        self.assertIn("SharesImmutableStateWith", snapshot_current)
+        self.assertNotIn("binding.Revalidate", snapshot_current)
+
+        exact_resolution = self.actor_source[
+            self.actor_source.index(
+                "Actor::ResolveManagedMaterialDeclarationBinding("
+            ) : self.actor_source.index(
+                "bool Actor::FindReusableManagedMaterialSourceReceipt("
+            )
+        ]
+        for token in (
+            "ReferencesExactMaterial(exact_material)",
+            "output_found = true",
+            "output_found = false",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, exact_resolution)
+        self.assertNotIn("binding.Revalidate", exact_resolution)
+
+        capture = self.gfx_scene_source[
+            self.gfx_scene_source.index(
+                "ValidationResult CaptureOgre14DynamicEntitySections"
+            ) : self.gfx_scene_source.index(
+                "ValidationResult CaptureOgre14StaticMeshObjects"
+            )
+        ]
+        for token in (
+            "projected_managed_material_bindings",
+            "managed_binding_found",
+            "if (projected && managed_binding_ptr != nullptr)",
+            "candidate.SharesImmutableStateWith(",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, capture)
+        self.assertLess(
+            capture.index("material_source.TryProject("),
+            capture.index("if (projected && managed_binding_ptr != nullptr)"),
+        )
+        projection = self.material_source[
+            self.material_source.index(
+                "bool OgreNextDemoMaterialSource::TryProjectCurrent("
+            ) : self.material_source.index(
+                "Render::ValidationResult OgreNextDemoMaterialSource::TryProject("
+            )
+        ]
+        structural_reference = projection.index(
+            "managed_binding->ReferencesExactMaterial(native_material)"
+        )
+        semantic_exclusion = projection.index(
+            "MANAGED_MATERIAL_SEMANTIC_UNSUPPORTED"
+        )
+        selected_source_authority = projection.index(
+            "managed_binding->MatchesExactMaterial(native_material)"
+        )
+        self.assertLess(structural_reference, semantic_exclusion)
+        self.assertLess(semantic_exclusion, selected_source_authority)
+        inventory = self.gfx_scene_source[
+            self.gfx_scene_source.index(
+                "GfxScene::CaptureOgre14DynamicActorInventory("
+            ) : self.gfx_scene_source.index(
+                "GfxScene::CaptureOgre14GraphicsScene("
+            )
+        ]
+        self.assertIn(
+            "ValidateManagedMaterialDeclarationSnapshotReachability(",
+            inventory,
+        )
+        self.assertNotIn(
+            "IsManagedMaterialDeclarationSnapshotCurrent(", inventory
+        )
+        for marker in (
+            "TestFrameReachabilityIgnoresOnlyStaleUnreachableBindings",
+            "stale unreachable binding poisoned reachable frame",
+            "stale frame-reachable binding escaped fail-closed validation",
+            "reachability weakened the immutable publication-set invariant",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.managed_source_cpp_test)
+        for marker in (
+            "begin unprojected managed matte gate",
+            "unprojected managed binding entered the source-backed closure",
+            "source-backed stale managed binding escaped fail-closed projection",
+            "restored managed authority did not recover after matte gate",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.material_source_native_cpp_test)
 
     def test_resolved_closure_is_not_a_domain_tombstone(self) -> None:
         self.assertNotIn(

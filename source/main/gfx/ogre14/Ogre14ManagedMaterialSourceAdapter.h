@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace RoR::Render {
 
@@ -86,6 +87,12 @@ public:
 
   [[nodiscard]] bool initialized() const noexcept;
   [[nodiscard]] const ManagedMaterialDeclaration *declaration() const noexcept;
+  /// Tests only whether this binding owns the same exact Material object.
+  /// Unlike MatchesExactMaterial(), this remains true after that object's
+  /// state changes so a stale frame-reachable binding cannot be mistaken for
+  /// an unmanaged material and routed through a generic fallback.
+  [[nodiscard]] bool ReferencesExactMaterial(
+      const Ogre::MaterialPtr &material) const noexcept;
   [[nodiscard]] bool MatchesExactMaterial(
       const Ogre::MaterialPtr &material) const noexcept;
   [[nodiscard]] bool Revalidate(
@@ -110,6 +117,23 @@ private:
       std::shared_ptr<const State> state) noexcept;
   std::shared_ptr<const State> state_;
 };
+
+/// Revalidates one immutable actor publication against only the bindings whose
+/// source-backed projections are roots of the current frame transaction. The
+/// complete published binding set must still match the neutral snapshot
+/// structurally, but source authority is deliberately checked only for
+/// `reachable_bindings`. This prevents an unused or matte-only declaration
+/// invalidated by a resource reload from rejecting an otherwise independent
+/// frame while retaining fail-closed validation for every managed source that
+/// can escape in that frame.
+[[nodiscard]] ValidationResult ValidateOgre14ReachableManagedMaterialBindings(
+    const ManagedMaterialDeclarationSnapshot &snapshot,
+    const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+        &published_bindings,
+    const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+        &reachable_bindings,
+    const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+    const IOgre14SelectedTextureSourceResolver &selected_resolver);
 
 /// The only selected/authenticated issuer for neutral V1 source receipts. Inputs must
 /// be opaque resolutions minted by the current ContentManager resolver. Both

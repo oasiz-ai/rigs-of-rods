@@ -362,13 +362,23 @@ public:
     Ogre::Vector3     GetFFbBodyForces() const          { return m_force_sensors.out_body_forces; }
     GfxActor*         GetGfxActor()                     { return m_gfx_actor.get(); }
     /// Captures the actor's immutable, renderer-neutral managed-material
-    /// declarations. A successful snapshot still requires the current-source
-    /// revalidation gate below immediately before renderer use.
+    /// declarations. A successful snapshot still requires frame-reachable
+    /// source revalidation immediately before renderer publication.
     Render::ValidationResult CaptureManagedMaterialDeclarationSnapshot(
         Render::ManagedMaterialDeclarationSnapshot& output) const;
+    /// Checks the immutable actor publication only. Renderer source authority
+    /// is intentionally excluded so an unused invalidated binding cannot
+    /// poison an independent frame transaction.
     [[nodiscard]] bool IsManagedMaterialDeclarationSnapshotCurrent(
         const Render::ManagedMaterialDeclarationSnapshot& snapshot) const noexcept;
 #if OGRE_VERSION_MAJOR >= 14
+    /// Revalidates the complete structural publication and only source-backed
+    /// runtime bindings projected into the current frame transaction.
+    [[nodiscard]] Render::ValidationResult
+    ValidateManagedMaterialDeclarationSnapshotReachability(
+        const Render::ManagedMaterialDeclarationSnapshot& snapshot,
+        const std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>&
+            reachable_bindings) const;
     /// Resolves only the exact live actor-composed material pointer. No OGRE
     /// pointer or handle is exposed as stable neutral identity.
     [[nodiscard]] bool ResolveManagedMaterialDeclaration(
@@ -378,10 +388,12 @@ public:
     /// Retains the opaque live authority edge needed by the renderer. The
     /// returned binding still requires final resolver revalidation immediately
     /// before publication.
-    [[nodiscard]] bool ResolveManagedMaterialDeclarationBinding(
+    [[nodiscard]] Render::ValidationResult
+    ResolveManagedMaterialDeclarationBinding(
         const Render::ManagedMaterialDeclarationSnapshot& snapshot,
         const Ogre::MaterialPtr& exact_material,
-        Render::Ogre14ManagedMaterialDeclarationBinding& output) const noexcept;
+        Render::Ogre14ManagedMaterialDeclarationBinding& output,
+        bool& output_found) const;
 #endif
     void              RequestUpdateHudFeatures()        { m_hud_features_ok = false; }
     Ogre::Real        getMinimalCameraRadius();

@@ -141,9 +141,7 @@ bool Actor::IsManagedMaterialDeclarationSnapshotCurrent(
 #if OGRE_VERSION_MAJOR >= 14
     try
     {
-        const ContentManager* const content_manager = App::GetContentManager();
-        if (content_manager == nullptr ||
-            snapshot.size() != m_managed_material_declaration_bindings.size())
+        if (snapshot.size() != m_managed_material_declaration_bindings.size())
         {
             return false;
         }
@@ -158,8 +156,7 @@ bool Actor::IsManagedMaterialDeclarationSnapshotCurrent(
                 metadata != nullptr ? snapshot.Find(metadata->exact_material_name)
                                     : nullptr;
             if (published == nullptr ||
-                !published->SharesImmutableStateWith(*declaration) ||
-                !binding.Revalidate(*content_manager, *content_manager))
+                !published->SharesImmutableStateWith(*declaration))
             {
                 return false;
             }
@@ -174,6 +171,42 @@ bool Actor::IsManagedMaterialDeclarationSnapshotCurrent(
 }
 
 #if OGRE_VERSION_MAJOR >= 14
+Render::ValidationResult
+Actor::ValidateManagedMaterialDeclarationSnapshotReachability(
+    const Render::ManagedMaterialDeclarationSnapshot& snapshot,
+    const std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>&
+        reachable_bindings) const
+{
+    if (!Render::IsManagedMaterialDeclarationSnapshotCurrent(
+            m_managed_material_declaration_registry, snapshot))
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "managed_material_actor.snapshot",
+            "neutral declaration publication changed during capture");
+    }
+    if (reachable_bindings.empty())
+    {
+        return this->IsManagedMaterialDeclarationSnapshotCurrent(snapshot)
+            ? Render::ValidationResult::Success()
+            : Render::ValidationResult::Failure(
+                  Render::ValidationCode::REVISION_MISMATCH,
+                  "managed_material_actor.publication_set",
+                  "runtime bindings differ from the neutral publication");
+    }
+    ContentManager* const content_manager = App::GetContentManager();
+    if (content_manager == nullptr)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::MISSING_REFERENCE,
+            "managed_material_actor.content_manager",
+            "ContentManager is unavailable for reachable source validation");
+    }
+    return Render::ValidateOgre14ReachableManagedMaterialBindings(
+        snapshot, m_managed_material_declaration_bindings,
+        reachable_bindings, *content_manager, *content_manager);
+}
+
 bool Actor::ResolveManagedMaterialDeclaration(
     const Render::ManagedMaterialDeclarationSnapshot& snapshot,
     const Ogre::MaterialPtr& exact_material,
@@ -188,7 +221,7 @@ bool Actor::ResolveManagedMaterialDeclaration(
         for (const Render::Ogre14ManagedMaterialDeclarationBinding& binding:
              m_managed_material_declaration_bindings)
         {
-            if (!binding.MatchesExactMaterial(exact_material))
+            if (!binding.ReferencesExactMaterial(exact_material))
             {
                 continue;
             }
@@ -199,8 +232,11 @@ bool Actor::ResolveManagedMaterialDeclaration(
             const Render::ManagedMaterialDeclaration* published =
                 metadata != nullptr ? snapshot.Find(metadata->exact_material_name)
                                     : nullptr;
-            if (published == nullptr ||
-                !published->SharesImmutableStateWith(*declaration))
+            const ContentManager* const content_manager =
+                App::GetContentManager();
+            if (published == nullptr || content_manager == nullptr ||
+                !published->SharesImmutableStateWith(*declaration) ||
+                !binding.Revalidate(*content_manager, *content_manager))
             {
                 return false;
             }
@@ -214,21 +250,26 @@ bool Actor::ResolveManagedMaterialDeclaration(
     return false;
 }
 
-bool Actor::ResolveManagedMaterialDeclarationBinding(
+Render::ValidationResult Actor::ResolveManagedMaterialDeclarationBinding(
     const Render::ManagedMaterialDeclarationSnapshot& snapshot,
     const Ogre::MaterialPtr& exact_material,
-    Render::Ogre14ManagedMaterialDeclarationBinding& output) const noexcept
+    Render::Ogre14ManagedMaterialDeclarationBinding& output,
+    bool& output_found) const
 {
     try
     {
-        if (!this->IsManagedMaterialDeclarationSnapshotCurrent(snapshot))
+        if (!Render::IsManagedMaterialDeclarationSnapshotCurrent(
+                m_managed_material_declaration_registry, snapshot))
         {
-            return false;
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "managed_material_actor.snapshot",
+                "neutral declaration publication changed during resolution");
         }
         for (const Render::Ogre14ManagedMaterialDeclarationBinding& binding:
              m_managed_material_declaration_bindings)
         {
-            if (!binding.MatchesExactMaterial(exact_material))
+            if (!binding.ReferencesExactMaterial(exact_material))
             {
                 continue;
             }
@@ -242,16 +283,33 @@ bool Actor::ResolveManagedMaterialDeclarationBinding(
             if (published == nullptr ||
                 !published->SharesImmutableStateWith(*declaration))
             {
-                return false;
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::REVISION_MISMATCH,
+                    "managed_material_actor.declaration_binding",
+                    "exact material binding is outside the neutral snapshot");
             }
-            output = binding;
-            return true;
+            Render::Ogre14ManagedMaterialDeclarationBinding staged = binding;
+            output = std::move(staged);
+            output_found = true;
+            return Render::ValidationResult::Success();
         }
+        output_found = false;
+        return Render::ValidationResult::Success();
+    }
+    catch (const std::bad_alloc&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::EMPTY_PAYLOAD,
+            "managed_material_actor.resolution_allocation",
+            "allocation failed during managed-material resolution");
     }
     catch (...)
     {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "managed_material_actor.resolution_exception",
+            "unexpected exception during managed-material resolution");
     }
-    return false;
 }
 
 bool Actor::FindReusableManagedMaterialSourceReceipt(

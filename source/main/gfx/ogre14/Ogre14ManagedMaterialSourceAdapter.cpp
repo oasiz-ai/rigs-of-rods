@@ -7,6 +7,7 @@
 
 #include "Ogre14ManagedMaterialSourceAdapter.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <new>
 #include <utility>
@@ -295,11 +296,16 @@ Ogre14ManagedMaterialDeclarationBinding::declaration() const noexcept {
   return state_ != nullptr ? &state_->declaration : nullptr;
 }
 
+bool Ogre14ManagedMaterialDeclarationBinding::ReferencesExactMaterial(
+    const Ogre::MaterialPtr &material) const noexcept {
+  return state_ != nullptr && state_->material && material &&
+         state_->material.get() == material.get();
+}
+
 bool Ogre14ManagedMaterialDeclarationBinding::MatchesExactMaterial(
     const Ogre::MaterialPtr &material) const noexcept {
   try {
-    if (state_ == nullptr || !state_->material || !material ||
-        state_->material.get() != material.get()) {
+    if (!ReferencesExactMaterial(material)) {
       return false;
     }
     const std::size_t native_state_count = material->getStateCount();
@@ -361,6 +367,80 @@ bool Ogre14ManagedMaterialDeclarationBinding::Revalidate(
 bool Ogre14ManagedMaterialDeclarationBinding::SharesImmutableStateWith(
     const Ogre14ManagedMaterialDeclarationBinding &other) const noexcept {
   return state_ != nullptr && state_ == other.state_;
+}
+
+ValidationResult ValidateOgre14ReachableManagedMaterialBindings(
+    const ManagedMaterialDeclarationSnapshot &snapshot,
+    const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+        &published_bindings,
+    const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+        &reachable_bindings,
+    const IOgre14AuthenticatedTextureResolver &authenticated_resolver,
+    const IOgre14SelectedTextureSourceResolver &selected_resolver) {
+  try {
+    if (snapshot.size() != published_bindings.size()) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "managed_material_ogre14.publication_set",
+                     "neutral declarations and runtime bindings differ");
+    }
+    for (const Ogre14ManagedMaterialDeclarationBinding &published_binding :
+         published_bindings) {
+      const ManagedMaterialDeclaration *declaration =
+          published_binding.declaration();
+      const ManagedMaterialDeclarationMetadata *metadata =
+          declaration != nullptr ? declaration->metadata() : nullptr;
+      const ManagedMaterialDeclaration *published =
+          metadata != nullptr
+              ? snapshot.Find(metadata->exact_material_name)
+              : nullptr;
+      if (published == nullptr ||
+          !published->SharesImmutableStateWith(*declaration)) {
+        return Failure(ValidationCode::REVISION_MISMATCH,
+                       "managed_material_ogre14.publication_declaration",
+                       "runtime binding is outside the neutral publication");
+      }
+    }
+    for (const Ogre14ManagedMaterialDeclarationBinding &reachable_binding :
+         reachable_bindings) {
+      const auto owner = std::find_if(
+          published_bindings.begin(), published_bindings.end(),
+          [&reachable_binding](
+              const Ogre14ManagedMaterialDeclarationBinding &candidate) {
+            return candidate.SharesImmutableStateWith(reachable_binding);
+          });
+      if (owner == published_bindings.end()) {
+        return Failure(ValidationCode::INVALID_ASSET_REFERENCE,
+                       "managed_material_ogre14.reachable_owner",
+                       "reachable binding is outside the actor publication");
+      }
+      const ManagedMaterialDeclaration *declaration =
+          reachable_binding.declaration();
+      const ManagedMaterialDeclarationMetadata *metadata =
+          declaration != nullptr ? declaration->metadata() : nullptr;
+      const ManagedMaterialDeclaration *published =
+          metadata != nullptr
+              ? snapshot.Find(metadata->exact_material_name)
+              : nullptr;
+      if (published == nullptr ||
+          !published->SharesImmutableStateWith(*declaration) ||
+          !reachable_binding.Revalidate(authenticated_resolver,
+                                        selected_resolver)) {
+        return Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "managed_material_ogre14.reachable_source_authority",
+            "frame-reachable managed material changed before publication");
+      }
+    }
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "managed_material_ogre14.reachability_allocation",
+                   "allocation failed during reachable-binding validation");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "managed_material_ogre14.reachability_exception",
+                   "unexpected exception during reachable-binding validation");
+  }
 }
 
 ValidationResult Ogre14ManagedMaterialDeclarationBinding::Build(

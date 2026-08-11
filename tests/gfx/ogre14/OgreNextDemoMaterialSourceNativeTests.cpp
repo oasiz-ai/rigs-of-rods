@@ -868,6 +868,66 @@ void TestManagedSpecularProjectionAndRollback() {
       source_bindings,
       "transparent managed declaration was accepted with opaque native state");
 
+  // A structurally referenced actor declaration is not a source-authority
+  // root until this section actually selects a source-backed projection. The
+  // configured damaged source makes this otherwise eligible Alexis material
+  // semantically matte-only, so stale authority must not poison its frame.
+  const ManagedMaterialDeclaration matte_only_declaration =
+      BuildManagedSpecularDeclaration(
+          diffuse_receipt, specular_receipt, kAlexisMaterialName,
+          ManagedMaterialSemanticType::FLEXMESH_STANDARD, &diffuse_receipt);
+  Ogre14ManagedMaterialDeclarationBinding matte_only_binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                native.base.material, matte_only_declaration,
+                damaged_bindings, trust_resolver, selected_resolver,
+                matte_only_binding),
+            "bind stale matte-only managed declaration");
+  const Ogre14SelectedTextureSourceReceiptRegistry
+      stable_unprojected_registry = selected_registry;
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*specular_texture, 1U, 0U, 0x5201U, bytes),
+                selected_registry),
+            "invalidate unprojected managed source authority");
+  Require(!matte_only_binding.Revalidate(trust_resolver, selected_resolver),
+          "unprojected managed binding fixture remained current");
+  Require(source.BeginCapture(), "begin unprojected managed matte gate");
+  Ogre14GraphicsSceneMaterialCaptureInput unprojected_input =
+      AlexisCaptureInput();
+  const Ogre14GraphicsSceneMaterialCaptureInput unprojected_before =
+      unprojected_input;
+  bool unprojected = true;
+  RequireOk(source.TryProject("dynamic/unprojected-managed",
+                              native.base.material, true, true,
+                              &matte_only_binding, unprojected_input,
+                              unprojected),
+            "evaluate unprojected stale managed binding");
+  const OgreNextDemoMaterialSourceCounters unprojected_counters =
+      source.CurrentCaptureCounters();
+  Require(!unprojected &&
+              SameCaptureInput(unprojected_input, unprojected_before) &&
+              unprojected_counters.exclusions_by_reason[static_cast<
+                  std::size_t>(OgreNextDemoTextureProjectionExclusion::
+                                  MANAGED_MATERIAL_SEMANTIC_UNSUPPORTED)] ==
+                  1U,
+          "unprojected managed binding entered the source-backed closure");
+  Ogre14GraphicsSceneMaterialCaptureInput stale_projected_input =
+      AlexisCaptureInput();
+  bool stale_projected = true;
+  const ValidationResult stale_projected_result = source.TryProject(
+      "dynamic/projected-stale-managed", native.base.material, true, true,
+      &material_binding, stale_projected_input, stale_projected);
+  Require(!stale_projected_result &&
+              stale_projected_result.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              stale_projected_result.field ==
+                  "ogre_next_demo.material.managed.authority" &&
+              !stale_projected,
+          "source-backed stale managed binding escaped fail-closed projection");
+  source.Discard();
+  selected_registry = stable_unprojected_registry;
+  Require(matte_only_binding.Revalidate(trust_resolver, selected_resolver),
+          "restored managed authority did not recover after matte gate");
+
   Require(source.BeginCapture(), "begin managed-specular projection");
   Ogre14GraphicsSceneMaterialCaptureInput input = AlexisCaptureInput();
   bool projected = false;

@@ -257,7 +257,8 @@ Ogre14AuthenticatedTextureReceipt BuildAuthenticatedReceipt(
 
 ManagedMaterialDeclaration BuildDeclaration(
     const std::string &name,
-    const ManagedMaterialTextureSourceReceipt &source) {
+    const ManagedMaterialTextureSourceReceipt &source,
+    std::uint64_t definition_generation = 1U) {
   ManagedMaterialTextureBindingInput diffuse;
   diffuse.slot = ManagedMaterialTextureSlot::DIFFUSE;
   diffuse.configured = true;
@@ -271,7 +272,7 @@ ManagedMaterialDeclaration BuildDeclaration(
   diffuse.source_receipt = source;
   ManagedMaterialDeclarationInput input;
   input.actor_generation = 7U;
-  input.definition_generation = 1U;
+  input.definition_generation = definition_generation;
   input.exact_material_name = name;
   input.declared_type = ManagedMaterialSemanticType::MESH_STANDARD;
   input.resolved_type = ManagedMaterialSemanticType::MESH_STANDARD;
@@ -448,6 +449,139 @@ void TestAuthenticatedArchiveGeneratedAndMaterialBinding() {
           "authenticated teardown left source/material authority live");
 }
 
+void TestFrameReachabilityIgnoresOnlyStaleUnreachableBindings() {
+  const std::vector<std::uint8_t> bytes{'r', 'e', 'a', 'c', 'h'};
+  Ogre14SelectedTextureSourceReceiptRegistry source_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({}, source_registry),
+            "initialize reachability source registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, source_registry),
+            "activate reachability source group");
+
+  Ogre::TexturePtr reachable_texture =
+      std::make_shared<TestTexture>("reachable.png", 101U);
+  Ogre::TexturePtr unreachable_texture =
+      std::make_shared<TestTexture>("unreachable.png", 102U);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*reachable_texture, 0U, bytes),
+                source_registry),
+            "commit reachable source receipt");
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildSelectedReceipt(*unreachable_texture, 0U, bytes),
+                source_registry),
+            "commit unreachable source receipt");
+  reachable_texture->load();
+  unreachable_texture->load();
+
+  Resolver resolver;
+  resolver.selected_registry = &source_registry;
+  Ogre14SelectedTextureSourceResolution reachable_resolution;
+  Ogre14SelectedTextureSourceResolution unreachable_resolution;
+  RequireOk(resolver.ResolveSelectedTextureSource(
+                *reachable_texture, reachable_resolution),
+            "resolve reachable source");
+  RequireOk(resolver.ResolveSelectedTextureSource(
+                *unreachable_texture, unreachable_resolution),
+            "resolve unreachable source");
+
+  ManagedMaterialTextureSourceReceipt reachable_source;
+  ManagedMaterialTextureSourceReceipt unreachable_source;
+  Ogre14ManagedMaterialSourceAuthorityBinding reachable_source_binding;
+  Ogre14ManagedMaterialSourceAuthorityBinding unreachable_source_binding;
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                reachable_texture, resolver, resolver, reachable_resolution,
+                {}, reachable_source, reachable_source_binding),
+            "adapt reachable source");
+  RequireOk(Ogre14ManagedMaterialSourceAdapter::BuildSelected(
+                unreachable_texture, resolver, resolver,
+                unreachable_resolution, {}, unreachable_source,
+                unreachable_source_binding),
+            "adapt unreachable source");
+
+  const ManagedMaterialDeclaration reachable_declaration =
+      BuildDeclaration("actor/reachable", reachable_source);
+  const ManagedMaterialDeclaration unreachable_declaration =
+      BuildDeclaration("actor/unreachable", unreachable_source, 2U);
+  Ogre::MaterialPtr reachable_material = std::make_shared<Ogre::Material>(
+      nullptr, "actor/reachable/native", 111U, kGroup);
+  Ogre::MaterialPtr unreachable_material = std::make_shared<Ogre::Material>(
+      nullptr, "actor/unreachable/native", 112U, kGroup);
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      reachable_sources{};
+  std::array<Ogre14ManagedMaterialSourceAuthorityBinding,
+             kManagedMaterialTextureSlotCount>
+      unreachable_sources{};
+  reachable_sources[0U] = reachable_source_binding;
+  unreachable_sources[0U] = unreachable_source_binding;
+  Ogre14ManagedMaterialDeclarationBinding reachable_binding;
+  Ogre14ManagedMaterialDeclarationBinding unreachable_binding;
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                reachable_material, reachable_declaration, reachable_sources,
+                resolver, resolver, reachable_binding),
+            "build reachable declaration binding");
+  RequireOk(Ogre14ManagedMaterialDeclarationBinding::Build(
+                unreachable_material, unreachable_declaration,
+                unreachable_sources, resolver, resolver,
+                unreachable_binding),
+            "build unreachable declaration binding");
+
+  ManagedMaterialDeclarationRegistry declaration_registry;
+  RequireOk(InitializeManagedMaterialDeclarationRegistry(
+                {}, 7U, declaration_registry),
+            "initialize reachability declaration registry");
+  RequireOk(CommitManagedMaterialDeclaration(reachable_declaration,
+                                              declaration_registry),
+            "commit reachable declaration");
+  RequireOk(CommitManagedMaterialDeclaration(unreachable_declaration,
+                                              declaration_registry),
+            "commit unreachable declaration");
+  ManagedMaterialDeclarationSnapshot snapshot;
+  RequireOk(CaptureManagedMaterialDeclarationSnapshot(declaration_registry,
+                                                       snapshot),
+            "capture reachability declaration snapshot");
+
+  const std::vector<Ogre14ManagedMaterialDeclarationBinding> published{
+      reachable_binding, unreachable_binding};
+  const std::vector<Ogre14ManagedMaterialDeclarationBinding> reachable_only{
+      reachable_binding};
+  RequireOk(ValidateOgre14ReachableManagedMaterialBindings(
+                snapshot, published, reachable_only, resolver, resolver),
+            "validate initial reachable binding");
+  Require(reachable_binding.ReferencesExactMaterial(reachable_material) &&
+              !reachable_binding.ReferencesExactMaterial(
+                  unreachable_material),
+          "exact material reference route accepted a substitute");
+
+  unreachable_texture->reload();
+  Require(reachable_binding.Revalidate(resolver, resolver) &&
+              !unreachable_binding.Revalidate(resolver, resolver),
+          "fixture did not isolate stale unreachable authority");
+  RequireOk(ValidateOgre14ReachableManagedMaterialBindings(
+                snapshot, published, reachable_only, resolver, resolver),
+            "stale unreachable binding poisoned reachable frame");
+
+  const std::vector<Ogre14ManagedMaterialDeclarationBinding> both_reachable{
+      reachable_binding, unreachable_binding};
+  const ValidationResult stale_reachable =
+      ValidateOgre14ReachableManagedMaterialBindings(
+          snapshot, published, both_reachable, resolver, resolver);
+  Require(!stale_reachable &&
+              stale_reachable.code == ValidationCode::REVISION_MISMATCH &&
+              stale_reachable.field ==
+                  "managed_material_ogre14.reachable_source_authority",
+          "stale frame-reachable binding escaped fail-closed validation");
+
+  const std::vector<Ogre14ManagedMaterialDeclarationBinding>
+      incomplete_publication{reachable_binding};
+  const ValidationResult incomplete =
+      ValidateOgre14ReachableManagedMaterialBindings(
+          snapshot, incomplete_publication, reachable_only, resolver,
+          resolver);
+  Require(!incomplete && incomplete.code == ValidationCode::SIZE_MISMATCH,
+          "reachability weakened the immutable publication-set invariant");
+}
+
 } // namespace
 
 int main() {
@@ -457,5 +591,6 @@ int main() {
   (void)root;
   TestSelectedAuthorityReuseReloadAndTeardown();
   TestAuthenticatedArchiveGeneratedAndMaterialBinding();
+  TestFrameReachabilityIgnoresOnlyStaleUnreachableBindings();
   return EXIT_SUCCESS;
 }

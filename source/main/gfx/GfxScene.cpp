@@ -2047,6 +2047,8 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     const RoR::Actor* managed_material_owner,
     const RoR::Render::ManagedMaterialDeclarationSnapshot*
         managed_material_snapshot,
+    std::vector<RoR::Render::Ogre14ManagedMaterialDeclarationBinding>&
+        projected_managed_material_bindings,
     RoR::Gfx::Detail::OgreNextDemoMaterialSource& material_source,
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
@@ -2197,12 +2199,22 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
         const RoR::Render::Ogre14ManagedMaterialDeclarationBinding*
             managed_binding_ptr = nullptr;
         if (managed_material_owner != nullptr &&
-            managed_material_snapshot != nullptr &&
-            managed_material_owner->ResolveManagedMaterialDeclarationBinding(
-                *managed_material_snapshot, sub_entity->getMaterial(),
-                managed_binding))
+            managed_material_snapshot != nullptr)
         {
-            managed_binding_ptr = &managed_binding;
+            bool managed_binding_found = false;
+            validation =
+                managed_material_owner->ResolveManagedMaterialDeclarationBinding(
+                    *managed_material_snapshot, sub_entity->getMaterial(),
+                    managed_binding, managed_binding_found);
+            if (!validation)
+            {
+                validation.field = "dynamic_meshes." + validation.field;
+                return validation;
+            }
+            if (managed_binding_found)
+            {
+                managed_binding_ptr = &managed_binding;
+            }
         }
         bool projected = false;
         validation = material_source.TryProject(
@@ -2211,6 +2223,23 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             section.material, projected);
         if (!validation)
             return validation;
+        if (projected && managed_binding_ptr != nullptr)
+        {
+            const auto already_reachable = std::find_if(
+                projected_managed_material_bindings.begin(),
+                projected_managed_material_bindings.end(),
+                [&managed_binding](const auto& candidate)
+                {
+                    return candidate.SharesImmutableStateWith(
+                        managed_binding);
+                });
+            if (already_reachable ==
+                projected_managed_material_bindings.end())
+            {
+                projected_managed_material_bindings.push_back(
+                    managed_binding);
+            }
+        }
         section.mesh_reverse_winding = reverse_winding;
         section.receives_shadows =
             sub_entity->getMaterial()->getReceiveShadows();
@@ -3206,6 +3235,8 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         std::vector<Ogre::Vector3> positions;
         std::vector<Ogre::Vector3> normals;
         std::vector<Ogre::Vector2> texcoords0;
+        std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
+            projected_managed_material_bindings;
 
         if ((actor->m_cab_mesh == nullptr) !=
             (actor->m_cab_entity == nullptr))
@@ -3235,6 +3266,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     positions, normals, texcoords0,
                     actor->m_cab_mesh->getCpuTopologySections(), false,
                     managed_material_owner.GetRef(), &managed_material_snapshot,
+                    projected_managed_material_bindings,
                     m_ogre_next_demo_material_source, mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -3283,6 +3315,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     flexbody->getCpuTopologySections(),
                     flexbody->hasDynamicTextureBlend(),
                     managed_material_owner.GetRef(), &managed_material_snapshot,
+                    projected_managed_material_bindings,
                     m_ogre_next_demo_material_source, mesh_cache, sections);
             if (!validation)
                 return validation;
@@ -3354,19 +3387,22 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     *topology,
                     false, managed_material_owner.GetRef(),
                     &managed_material_snapshot,
+                    projected_managed_material_bindings,
                     m_ogre_next_demo_material_source,
                     mesh_cache, sections);
             if (!validation)
                 return validation;
         }
-        if (!managed_material_owner->IsManagedMaterialDeclarationSnapshotCurrent(
-                managed_material_snapshot))
+        managed_snapshot_validation =
+            managed_material_owner->
+                ValidateManagedMaterialDeclarationSnapshotReachability(
+                    managed_material_snapshot,
+                    projected_managed_material_bindings);
+        if (!managed_snapshot_validation)
         {
-            return Render::ValidationResult::Failure(
-                Render::ValidationCode::REVISION_MISMATCH,
-                "dynamic_meshes.managed_material_snapshot",
-                "managed-material declaration or source authority changed "
-                "during actor capture");
+            managed_snapshot_validation.field =
+                "dynamic_meshes." + managed_snapshot_validation.field;
+            return managed_snapshot_validation;
         }
     }
 

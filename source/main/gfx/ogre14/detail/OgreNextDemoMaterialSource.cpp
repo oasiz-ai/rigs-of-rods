@@ -2222,15 +2222,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   ManagedSpecularNativeFacts managed_specular_native;
   if (managed_binding != nullptr) {
     if (!managed_binding->initialized() ||
-        !managed_binding->MatchesExactMaterial(native_material) ||
-        texture_resolver_ == nullptr ||
-        ordinary_texture_source_resolver_ == nullptr ||
-        !managed_binding->Revalidate(*texture_resolver_,
-                                     *ordinary_texture_source_resolver_)) {
+        !managed_binding->ReferencesExactMaterial(native_material)) {
       failure = Failure(
           Render::ValidationCode::REVISION_MISMATCH,
-          "ogre_next_demo.material.managed.authority",
-          "managed declaration binding is not current for the exact material");
+          "ogre_next_demo.material.managed.binding",
+          "managed declaration binding does not own the exact material");
       return false;
     }
     managed_declaration = managed_binding->declaration();
@@ -2282,7 +2278,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       return false;
     }
     if (managed_specular != nullptr) {
-      if (!ObserveManagedSpecularNativeFacts(
+      if (texture_resolver_ == nullptr ||
+          ordinary_texture_source_resolver_ == nullptr ||
+          !ObserveManagedSpecularNativeFacts(
               native_material, *managed_specular, *texture_resolver_,
               *ordinary_texture_source_resolver_, managed_specular_native)) {
         exclusion = OgreNextDemoTextureProjectionExclusion::
@@ -2735,6 +2733,18 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         failure = std::move(cache_validation);
         return false;
       }
+    }
+    if (managed_binding != nullptr &&
+        (texture_resolver_ == nullptr ||
+         ordinary_texture_source_resolver_ == nullptr ||
+         !managed_binding->MatchesExactMaterial(native_material) ||
+         !managed_binding->Revalidate(
+             *texture_resolver_, *ordinary_texture_source_resolver_))) {
+      failure = Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.managed.authority",
+          "managed declaration binding is not current for a selected source");
+      return false;
     }
     if (managed_diffuse != nullptr &&
         (!ManagedReceiptMatchesNativeTexture(*managed_diffuse,
