@@ -72,6 +72,8 @@ set(SOURCE_FILES
         gfx/render/RenderTransportEnvelope.{h,cpp}
         gfx/render/RenderTransportStream.{h,cpp}
         gfx/render/RendererFrontend.{h,cpp}
+        gfx/render/RendererFrontendDirectDispatcher.{h,cpp}
+        gfx/render/RendererFrontendPresentationPolicy.{h,cpp}
         gfx/render/RendererFrontendTransportDispatcher.{h,cpp}
         gfx/render/RenderValidation.h
         gfx/render/ResourceHandle.{h,cpp}
@@ -451,6 +453,8 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
+        gfx/render/RendererFrontendDirectDispatcher.cpp
+        gfx/render/RendererFrontendPresentationPolicy.cpp
         gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
@@ -488,6 +492,8 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RenderTransportStream.cpp
         gfx/render/RendererFrontend.cpp
+        gfx/render/RendererFrontendDirectDispatcher.cpp
+        gfx/render/RendererFrontendPresentationPolicy.cpp
         gfx/render/RendererFrontendTransportDispatcher.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp

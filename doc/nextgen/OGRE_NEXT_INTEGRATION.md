@@ -21,6 +21,13 @@ platform's reviewed hidden or null-window surface, initializes the logical
 device and Compositor2 workspace, renders one PBR triangle, and performs an
 independently validated UI-free GPU readback.
 
+The next product architecture is the opt-in single-process combined runtime in
+`OGRE_NEXT_COMBINED_RUNTIME.md`. Its first landed boundary is direct typed
+frontend dispatch shared by the compatibility transport consumer. The
+namespaced OgreNext fork, one-window runtime owner, and combined product target
+remain implementation gates; this checkpoint does not claim they are already
+linked or shipping.
+
 The third executable exercises the first renderer-neutral frontend slice. It
 imports a real `RenderAssetRegistry` catalog into immutable Ogre v2 vertex and
 index buffers plus a `VertexArrayObject`, maps a texture-free material into an

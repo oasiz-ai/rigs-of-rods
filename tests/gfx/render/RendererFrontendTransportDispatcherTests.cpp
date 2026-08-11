@@ -6,6 +6,7 @@
     published by the Free Software Foundation.
 */
 
+#include "RendererFrontendDirectDispatcher.h"
 #include "RendererFrontendTransportDispatcher.h"
 
 #include <array>
@@ -14,6 +15,8 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -27,6 +30,8 @@ static_assert(
     !std::is_copy_constructible_v<RendererFrontendTransportDispatcher>);
 static_assert(
     !std::is_move_constructible_v<RendererFrontendTransportDispatcher>);
+static_assert(!std::is_copy_constructible_v<RendererFrontendDirectDispatcher>);
+static_assert(!std::is_move_constructible_v<RendererFrontendDirectDispatcher>);
 
 void Require(bool condition, const char *message) {
   if (!condition) {
@@ -41,6 +46,17 @@ void RequireStatus(RendererFrontendTransportDispatchStatus actual,
                    const char *message) {
   if (actual != expected) {
     std::cerr << "frontend transport dispatcher test failed: " << message
+              << " (actual=" << ToString(actual)
+              << ", expected=" << ToString(expected) << ")\n";
+    std::exit(EXIT_FAILURE);
+  }
+}
+
+void RequireDirectStatus(RendererFrontendDirectDispatchStatus actual,
+                         RendererFrontendDirectDispatchStatus expected,
+                         const char *message) {
+  if (actual != expected) {
+    std::cerr << "frontend direct dispatcher test failed: " << message
               << " (actual=" << ToString(actual)
               << ", expected=" << ToString(expected) << ")\n";
     std::exit(EXIT_FAILURE);
@@ -285,6 +301,9 @@ public:
     calls.emplace_back("synchronize-assets");
     synchronized_registry_ids.push_back(delta.registry_id);
     synchronized_asset_sequences.push_back(delta.sequence);
+    if (throw_bad_alloc_synchronize) {
+      throw std::bad_alloc();
+    }
     if (fail_synchronize) {
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE, "injected asset failure");
@@ -296,6 +315,9 @@ public:
       std::uint64_t next_generation) override {
     calls.emplace_back("reset-scene-generation");
     reset_generations.push_back(next_generation);
+    if (throw_length_error_scene_generation_reset) {
+      throw std::length_error("injected reset allocation failure");
+    }
     if (fail_scene_generation_reset) {
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
@@ -329,6 +351,9 @@ public:
     }
     if (!fail_render || populate_before_render_failure) {
       PopulateOutput(request, output);
+    }
+    if (throw_bad_alloc_render) {
+      throw std::bad_alloc();
     }
     if (fail_render) {
       return RenderOperationResult::Failure(
@@ -370,10 +395,13 @@ public:
   std::vector<ResourceHandle> release_attempts;
   std::vector<std::uint64_t> reset_generations;
   bool fail_synchronize = false;
+  bool throw_bad_alloc_synchronize = false;
   bool fail_render = false;
   bool populate_before_render_failure = false;
+  bool throw_bad_alloc_render = false;
   bool fail_wait = false;
   bool fail_scene_generation_reset = false;
+  bool throw_length_error_scene_generation_reset = false;
   bool simulation_lineage_initialized = false;
   double last_simulation_time_seconds = 0.0;
   bool invalid_output = false;
@@ -1009,6 +1037,23 @@ void TestFrontendFailuresAfterDecoderCommit() {
   }
   {
     FakeFrontend frontend;
+    frontend.throw_bad_alloc_synchronize = true;
+    RendererFrontendTransportDispatcher dispatcher(frontend, Session(63U));
+    const auto asset =
+        AssetFrame(1U, AssetDelta(dispatcher.registry_id(), 1U, true));
+    const RendererFrontendTransportDispatchResult rejected =
+        dispatcher.Dispatch(asset, OffscreenPolicy());
+    RequireStatus(rejected.status,
+                  RendererFrontendTransportDispatchStatus::FAILED_INTERNAL,
+                  "transport asset allocation exception changed status");
+    Require(rejected.transport_status ==
+                    RenderTransportStatus::ALLOCATION_FAILURE &&
+                rejected.frontend_code == RenderOperationCode::OUT_OF_MEMORY &&
+                dispatcher.asset_registry().sequence() == 1U,
+            "transport asset allocation failure lost decode commit or code");
+  }
+  {
+    FakeFrontend frontend;
     RendererFrontendTransportDispatcher dispatcher(frontend, Session(62U));
     const auto asset =
         AssetFrame(1U, AssetDelta(dispatcher.registry_id(), 1U, true));
@@ -1229,6 +1274,245 @@ void TestReservedAssetV1KindFailsWithoutMutation() {
           "post-terminal dispatch mutated sequence, catalog, or frontend");
 }
 
+void TestDirectDispatcherTypedLifecycle() {
+  FakeFrontend frontend;
+  constexpr std::uint64_t registry_id = 0xD1EC700000000001ULL;
+  RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+
+  const RendererFrontendDirectDispatchResult synchronized =
+      dispatcher.SynchronizeAssets(AssetDelta(registry_id, 1U, true));
+  RequireDirectStatus(
+      synchronized.status,
+      RendererFrontendDirectDispatchStatus::ASSET_DELTA_SYNCHRONIZED,
+      "typed asset catalog did not synchronize");
+  Require(synchronized.asset_sequence == 1U &&
+              frontend.synchronized_registry_ids ==
+                  std::vector<std::uint64_t>{registry_id},
+          "typed asset catalog lost its exact registry lineage");
+
+  const RendererFrontendDirectDispatchResult first = dispatcher.RenderScene(
+      Scene(101U, registry_id, 1U), Camera(), PresentedPolicy());
+  RequireDirectStatus(
+      first.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
+      "typed presented scene did not complete");
+  Require(first.scene_snapshot_id == 101U && first.frontend_frame_id == 1U &&
+              first.resources_released == 2U && !first.terminal &&
+              frontend.rendered_requests.size() == 1U &&
+              frontend.rendered_requests.front().frame_id == 1U &&
+              frontend.rendered_requests.front().scene_snapshot->snapshot_id() ==
+                  101U,
+          "typed scene was copied, renumbered, or incompletely drained");
+
+  RendererFrontendPresentationPolicy resized = PresentedPolicy();
+  resized.presentation_drawable_width = 1280U;
+  resized.presentation_drawable_height = 720U;
+  const RendererFrontendDirectDispatchResult retired = dispatcher.RenderScene(
+      Scene(102U, registry_id, 1U), Camera(), resized);
+  RequireDirectStatus(
+      retired.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_RETIRED,
+      "stale typed scene was not retired before frontend submission");
+  Require(retired.scene_snapshot_id == 102U &&
+              retired.frontend_frame_id == 0U &&
+              dispatcher.last_frontend_frame_id() == 1U &&
+              frontend.rendered_requests.size() == 1U,
+          "retired typed scene consumed frontend work or a frame identity");
+
+  Require(dispatcher
+              .SynchronizeAssets(AssetDelta(registry_id, 2U, false))
+              .ok(),
+          "typed incremental asset transaction did not synchronize");
+  const RendererFrontendDirectDispatchResult second = dispatcher.RenderScene(
+      Scene(103U, registry_id, 2U, 2000U), Camera(8U), OffscreenPolicy());
+  RequireDirectStatus(
+      second.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
+      "typed post-retirement scene did not complete");
+  Require(second.frontend_frame_id == 2U &&
+              dispatcher.last_frontend_frame_id() == 2U &&
+              frontend.rendered_requests.size() == 2U &&
+              frontend.rendered_requests.back().frame_id == 2U,
+          "typed dispatcher introduced a sparse frontend frame identity");
+
+  const RendererFrontendDirectDispatchResult reset =
+      dispatcher.ResetSceneGeneration();
+  RequireDirectStatus(
+      reset.status,
+      RendererFrontendDirectDispatchStatus::SCENE_GENERATION_RESET,
+      "typed final-empty scene did not authorize generation reset");
+  Require(dispatcher.scene_generation() == 2U &&
+              dispatcher.last_frontend_frame_id() == 2U &&
+              frontend.reset_generations == std::vector<std::uint64_t>{2U},
+          "typed generation reset changed process-lifetime frame lineage");
+
+  const RendererFrontendDirectDispatchResult next_generation =
+      dispatcher.RenderScene(Scene(104U, registry_id, 2U, 0U), Camera(9U),
+                             OffscreenPolicy());
+  RequireDirectStatus(
+      next_generation.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
+      "typed dispatcher did not accept the next map generation");
+  Require(next_generation.frontend_frame_id == 3U &&
+              dispatcher.last_consumed_scene_snapshot_id() == 104U,
+          "typed generation reset reused a process-lifetime identity");
+}
+
+void TestDirectDispatcherFailuresAreTerminal() {
+  {
+    FakeFrontend frontend;
+    RendererFrontendDirectDispatcher dispatcher(frontend, 0U);
+    Require(dispatcher.terminal() &&
+                dispatcher.terminal_cause() ==
+                    RendererFrontendDirectDispatchStatus::
+                        REJECTED_INVALID_REGISTRY,
+            "zero direct registry identity did not fail at construction");
+  }
+
+  {
+    FakeFrontend frontend;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000002ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    const RendererFrontendDirectDispatchResult rejected =
+        dispatcher.RenderScene(Scene(1U, registry_id, 1U), Camera(),
+                               OffscreenPolicy());
+    RequireDirectStatus(
+        rejected.status,
+        RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
+        "typed scene was accepted before its asset catalog");
+    Require(rejected.terminal && frontend.calls.empty(),
+            "typed scene-before-assets failure touched the frontend");
+  }
+
+  {
+    FakeFrontend frontend;
+    frontend.fail_synchronize = true;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000003ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    const RendererFrontendDirectDispatchResult rejected =
+        dispatcher.SynchronizeAssets(AssetDelta(registry_id, 1U, true));
+    RequireDirectStatus(
+        rejected.status,
+        RendererFrontendDirectDispatchStatus::
+            FAILED_FRONTEND_ASSET_SYNCHRONIZATION,
+        "typed frontend asset failure was not terminal");
+    Require(rejected.terminal && dispatcher.asset_sequence() == 0U &&
+                frontend.synchronized_asset_sequences ==
+                    std::vector<std::uint64_t>{1U},
+            "failed typed asset transaction committed its logical registry");
+  }
+
+  {
+    FakeFrontend frontend;
+    frontend.throw_bad_alloc_synchronize = true;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000006ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    const RendererFrontendDirectDispatchResult rejected =
+        dispatcher.SynchronizeAssets(AssetDelta(registry_id, 1U, true));
+    RequireDirectStatus(
+        rejected.status,
+        RendererFrontendDirectDispatchStatus::FAILED_ALLOCATION,
+        "typed asset allocation exception became a backend failure");
+    Require(rejected.frontend_code == RenderOperationCode::OUT_OF_MEMORY &&
+                dispatcher.asset_sequence() == 0U,
+            "typed asset allocation failure committed or lost its code");
+  }
+
+  {
+    FakeFrontend frontend;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000005ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    Require(dispatcher
+                .SynchronizeAssets(AssetDelta(registry_id, 1U, true))
+                .ok(),
+            "typed replay fixture did not initialize");
+    Require(dispatcher
+                .RenderScene(Scene(10U, registry_id, 1U), Camera(),
+                             RetiredPolicy())
+                .ok(),
+            "typed replay fixture did not retire its first scene");
+    const RendererFrontendDirectDispatchResult replayed =
+        dispatcher.RenderScene(Scene(10U, registry_id, 1U), Camera(),
+                               OffscreenPolicy());
+    RequireDirectStatus(
+        replayed.status,
+        RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
+        "retired typed snapshot identity was replayed into the frontend");
+    Require(replayed.terminal && frontend.rendered_requests.empty() &&
+                dispatcher.last_consumed_scene_snapshot_id() == 10U,
+            "typed replay advanced or rendered an irreversible retirement");
+  }
+
+  {
+    FakeFrontend frontend;
+    frontend.fail_render = true;
+    frontend.populate_before_render_failure = true;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000004ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    Require(dispatcher
+                .SynchronizeAssets(AssetDelta(registry_id, 1U, true))
+                .ok(),
+            "typed render-failure fixture did not initialize");
+    const RendererFrontendDirectDispatchResult rejected =
+        dispatcher.RenderScene(Scene(1U, registry_id, 1U), Camera(),
+                               PresentedPolicy());
+    RequireDirectStatus(
+        rejected.status,
+        RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
+        "typed render failure changed its primary status");
+    Require(rejected.terminal && rejected.resources_released == 2U &&
+                frontend.release_attempts.size() == 2U &&
+                frontend.waited_frame_ids.empty(),
+            "typed render failure leaked transferred resources or waited");
+  }
+
+  {
+    FakeFrontend frontend;
+    frontend.throw_bad_alloc_render = true;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000007ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    Require(dispatcher
+                .SynchronizeAssets(AssetDelta(registry_id, 1U, true))
+                .ok(),
+            "typed render-allocation fixture did not initialize");
+    const RendererFrontendDirectDispatchResult rejected =
+        dispatcher.RenderScene(Scene(1U, registry_id, 1U), Camera(),
+                               PresentedPolicy());
+    RequireDirectStatus(
+        rejected.status,
+        RendererFrontendDirectDispatchStatus::FAILED_ALLOCATION,
+        "typed render allocation exception became a backend failure");
+    Require(rejected.frontend_code == RenderOperationCode::OUT_OF_MEMORY &&
+                rejected.resources_released == 2U &&
+                frontend.release_attempts.size() == 2U,
+            "typed render allocation failure leaked transferred resources");
+  }
+
+  {
+    FakeFrontend frontend;
+    frontend.throw_length_error_scene_generation_reset = true;
+    constexpr std::uint64_t registry_id = 0xD1EC700000000008ULL;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    Require(dispatcher
+                .SynchronizeAssets(AssetDelta(registry_id, 1U, true))
+                .ok() &&
+                dispatcher
+                    .RenderScene(Scene(1U, registry_id, 1U), Camera(),
+                                 OffscreenPolicy())
+                    .ok(),
+            "typed reset-allocation fixture did not initialize");
+    const RendererFrontendDirectDispatchResult rejected =
+        dispatcher.ResetSceneGeneration();
+    RequireDirectStatus(
+        rejected.status,
+        RendererFrontendDirectDispatchStatus::FAILED_ALLOCATION,
+        "typed reset length exception became a backend failure");
+    Require(rejected.frontend_code == RenderOperationCode::OUT_OF_MEMORY &&
+                dispatcher.scene_generation() == 1U,
+            "typed reset allocation failure advanced its generation");
+  }
+}
+
 } // namespace
 
 int main() {
@@ -1248,6 +1532,8 @@ int main() {
   TestReverseInputInvalidPolicyAndInvalidSession();
   TestForgedCompleteFrameMetadataFailsClosed();
   TestReservedAssetV1KindFailsWithoutMutation();
-  std::cout << "frontend transport dispatcher tests passed\n";
+  TestDirectDispatcherTypedLifecycle();
+  TestDirectDispatcherFailuresAreTerminal();
+  std::cout << "frontend direct and transport dispatcher tests passed\n";
   return EXIT_SUCCESS;
 }

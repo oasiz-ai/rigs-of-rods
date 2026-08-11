@@ -969,6 +969,8 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportEnvelope.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportStream.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendDirectDispatcher.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendPresentationPolicy.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendTransportDispatcher.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ResourceHandle.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshot.cpp"

@@ -98,6 +98,7 @@ source/main/gfx/ogre14/detail/OgreNextDemo* text eol=lf
 source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.* text eol=lf
 source/main/system/detail/OgreNextDemo* text eol=lf
 doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md text eol=lf
+doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md text eol=lf
 source/main/physics/Savegame.cpp text eol=lf
 tests/tools/test_renderer_suite_packaging_contract.py text eol=lf
 source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.* text eol=lf

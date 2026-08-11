@@ -252,6 +252,7 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h",
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp",
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
+    "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h",
     "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",

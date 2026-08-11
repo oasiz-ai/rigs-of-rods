@@ -115,6 +115,54 @@ class RendererBoundaryContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, asset_registry)
 
+    def test_direct_frontend_dispatch_is_shipped_without_transport_dependency(self) -> None:
+        production_cmake = (
+            REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        tests_cmake = (REPOSITORY_ROOT / "tests" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        probe_cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        umbrella = (BOUNDARY_ROOT / "RenderContracts.h").read_text(
+            encoding="utf-8"
+        )
+        transport = (
+            BOUNDARY_ROOT / "RendererFrontendTransportDispatcher.cpp"
+        ).read_text(encoding="utf-8")
+        direct = (BOUNDARY_ROOT / "RendererFrontendDirectDispatcher.cpp").read_text(
+            encoding="utf-8"
+        )
+
+        for stem in (
+            "RendererFrontendDirectDispatcher",
+            "RendererFrontendPresentationPolicy",
+        ):
+            self.assertIn(
+                f"gfx/render/{stem}.{{h,cpp}}",
+                _cmake_set(production_cmake, "SOURCE_FILES"),
+            )
+            for variable in (
+                "ROR_RENDER_CONTRACT_SOURCES",
+                "ROR_RENDER_CONTRACT_STRICT_FP_SOURCES",
+            ):
+                self.assertIn(
+                    f"gfx/render/{stem}.cpp",
+                    _cmake_set(production_cmake, variable),
+                )
+            self.assertIn(
+                f"source/main/gfx/render/{stem}.cpp", tests_cmake
+            )
+            self.assertIn(f"{stem}.cpp", probe_cmake)
+            self.assertIn(f'#include "{stem}.h"', umbrella)
+
+        self.assertIn("direct_dispatcher_.SynchronizeAssets", transport)
+        self.assertIn("direct_dispatcher_.RenderScene", transport)
+        self.assertIn("direct_dispatcher_.ResetSceneGeneration", transport)
+        self.assertNotRegex(
+            direct,
+            r'#\s*include\s*[<"][^>"]*(?:Transport|Bridge|Channel)[^>"]*[>"]',
+        )
+
     def test_numerical_references_are_shipping_strict_fp_sources(self) -> None:
         production_cmake = (
             REPOSITORY_ROOT / "source" / "main" / "CMakeLists.txt"

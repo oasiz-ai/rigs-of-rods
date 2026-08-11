@@ -842,7 +842,15 @@ resurrection, or input-lineage failure leave the applicable expected sequence,
 registry/state, and previously published immutable owner unchanged. One caller
 serializes operations on each decoder.
 
-`RendererFrontendTransportDispatcher` is the renderer-neutral consumer for one
+`RendererFrontendDirectDispatcher` is the renderer-neutral typed consumer for
+asset synchronization, scene submission, stale-size retirement, frontend wait,
+output validation, exact resource release, and map-generation reset. It accepts
+immutable C++ owners directly and has no envelope, codec, channel, pipe,
+acknowledgement, or child-process dependency. Retired and rendered snapshot
+identities are process-lifetime monotonic; only rendered scenes consume the
+separate contiguous frontend frame identity.
+
+`RendererFrontendTransportDispatcher` remains the compatibility consumer for one
 complete, already-envelope-validated game-to-presentation frame at a time. It
 derives a nonzero, non-maximum asset-registry identity from the 128-bit bridge
 session with the pinned SHA-256 domain
@@ -851,7 +859,8 @@ therefore agree on the registry without a new handshake. It shares one sequence
 state across both typed decoders, synchronizes every accepted asset delta before
 dependent scene submission, validates scene references against that exact
 catalog, retains the mixed envelope sequence for transport acknowledgements,
-and assigns only actually rendered scenes contiguous frontend frame IDs.
+and delegates the typed operation to `RendererFrontendDirectDispatcher`. The
+transport path therefore cannot define a second frontend lifecycle.
 
 Presentation is an explicit caller policy. A presented scene selects the sole
 transported camera, exact active surface revision, and current drawable extent.
@@ -907,14 +916,18 @@ platform IPC without changing scene, asset, or input semantics. Input version
 Force feedback is deliberately absent and requires a separate versioned
 game-to-host command message rather than overloading input state.
 
-Process isolation is required for the live migration bridge. OGRE 1.14 and
-Ogre-Next expose overlapping global `Ogre::*` C++ symbols and runtime-global
-state; loading both into one executable would make ABI resolution and teardown
-unsafe even when the public renderer boundary itself is neutral. Keeping the
+Process isolation is required for the current bridge when both engines are
+stock. OGRE 1.14 and OgreNext expose overlapping global `Ogre::*` C++ symbols
+and runtime-global state; loading both stock implementations into one executable
+would make ABI resolution and teardown unsafe even when the public renderer
+boundary itself is neutral. Keeping the
 legacy simulation/game process and modern render process in separate address
 spaces lets each link exactly one OGRE generation. Scene/camera, asset, input,
 ACK, control, bounded host back-pressure, and half-close transactions now have
-versioned contracts. The endpoint-adopted `RoR-Ogre14` role also has a real
+versioned contracts. The product migration target is instead a namespaced
+RoR-owned OgreNext fork and a direct single-process runtime; see
+`doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md`. The endpoint-adopted `RoR-Ogre14`
+role also has a real
 product owner which drains reverse traffic before gameplay, binds reconciled
 input to a transport-only `InputEngine`, retains one post-`UpdateScene`
 production across backpressure, and shuts down in dependency order. Its

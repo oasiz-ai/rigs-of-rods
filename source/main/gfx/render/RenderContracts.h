@@ -33,6 +33,8 @@
 #include "RenderTransportStream.h"
 #include "RenderValidation.h"
 #include "RendererFrontend.h"
+#include "RendererFrontendDirectDispatcher.h"
+#include "RendererFrontendPresentationPolicy.h"
 #include "RendererFrontendTransportDispatcher.h"
 #include "ResourceHandle.h"
 #include "SceneSnapshot.h"

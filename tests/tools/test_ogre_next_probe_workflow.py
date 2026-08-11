@@ -72,6 +72,7 @@ DEFORMABLE_CAPTURE_WORKFLOW_PATHS = (
 )
 OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
+    "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h",
     "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",
@@ -89,6 +90,7 @@ OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
 )
 OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
+    "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md",
     "source/main/gfx/ogre14/detail/OgreNextDemo*",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*",
     "source/main/utils/MeshObject.*",
@@ -420,6 +422,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/detail/OgreNextDemo* text eol=lf",
             "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp text eol=lf",
             "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md text eol=lf",
+            "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md text eol=lf",
             "source/main/physics/Savegame.cpp text eol=lf",
             "tests/tools/test_renderer_suite_packaging_contract.py text eol=lf",
         ):
@@ -1457,6 +1460,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "RenderBridgeSessionIdentity.cpp",
             "RenderTransportEnvelope.cpp",
             "RenderTransportStream.cpp",
+            "RendererFrontendDirectDispatcher.cpp",
+            "RendererFrontendPresentationPolicy.cpp",
             "RendererFrontendTransportDispatcher.cpp",
             "SceneSnapshotTransport.cpp",
         ):

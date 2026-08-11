@@ -249,6 +249,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md"
+    "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md"
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
     "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
@@ -895,6 +896,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/RenderTransportEnvelope.cpp"
         "${_ror_render_root}/RenderTransportStream.cpp"
         "${_ror_render_root}/RendererFrontend.cpp"
+        "${_ror_render_root}/RendererFrontendDirectDispatcher.cpp"
+        "${_ror_render_root}/RendererFrontendPresentationPolicy.cpp"
         "${_ror_render_root}/RendererFrontendTransportDispatcher.cpp"
         "${_ror_render_root}/ResourceHandle.cpp"
         "${_ror_render_root}/SceneSnapshot.cpp"
@@ -2579,6 +2582,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
             source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
             doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md
+            doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md
             source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp
             source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h
             source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp

@@ -14,7 +14,8 @@
 #include "RenderAssetDeltaTransport.h"
 #include "RenderBridgeSessionIdentity.h"
 #include "RenderTransportStream.h"
-#include "RendererFrontend.h"
+#include "RendererFrontendDirectDispatcher.h"
+#include "RendererFrontendPresentationPolicy.h"
 #include "SceneGenerationBoundaryTransport.h"
 #include "SceneSnapshotTransport.h"
 
@@ -24,35 +25,6 @@ namespace RoR::Render {
 
 constexpr std::uint32_t kRendererFrontendTransportDispatcherContractVersion =
     4U;
-constexpr std::uint32_t kRendererFrontendPresentationPolicyVersion = 3U;
-
-/// Explicit policy supplied by the native window/presentation owner for each
-/// complete transport frame. A presented scene selects its sole decoded
-/// camera and the exact active surface revision. An offscreen scene uses a
-/// zero revision. The dispatcher never adds UI and never copies CPU attachment
-/// bytes into a window; native presentation is exclusively the frontend's
-/// Render(..., present=true) operation.
-struct RendererFrontendPresentationPolicy final {
-  std::uint32_t version = kRendererFrontendPresentationPolicyVersion;
-  FrameOutputMask requested_outputs = FrameOutputMask::COLOR;
-  PixelFormat color_format = PixelFormat::RGBA8_SRGB;
-  std::uint64_t presentation_surface_revision = 0U;
-  /// Exact drawable extent of the presentation surface named above. When the
-  /// guard below is enabled, a decoded camera captured against any other
-  /// extent is consumed as retired and can never reach the frontend.
-  std::uint32_t presentation_drawable_width = 0U;
-  std::uint32_t presentation_drawable_height = 0U;
-  bool present = false;
-  bool allow_async_compute = false;
-  /// Decode and validate this scene against the exact forward/asset lineage,
-  /// then consume it without querying capabilities or invoking the frontend.
-  /// Used only for a scene already in flight when the native surface changed.
-  bool retire_scene_without_render = false;
-  /// Re-check the decoded camera against the current drawable extent. This is
-  /// required for presentable live scenes because a surface change may have
-  /// been announced by an idle poll after the game captured the scene.
-  bool retire_scene_on_presentation_extent_mismatch = false;
-};
 
 enum class RendererFrontendTransportDispatchStatus : std::uint8_t {
   ASSET_DELTA_SYNCHRONIZED = 0U,
@@ -108,8 +80,6 @@ struct RendererFrontendTransportDispatchResult final {
   explicit operator bool() const noexcept { return ok(); }
 };
 
-[[nodiscard]] ValidationResult ValidateRendererFrontendPresentationPolicy(
-    const RendererFrontendPresentationPolicy &policy);
 [[nodiscard]] bool IsKnownRendererFrontendTransportDispatchStatus(
     RendererFrontendTransportDispatchStatus status) noexcept;
 [[nodiscard]] const char *
@@ -169,11 +139,6 @@ public:
   }
 
 private:
-  struct ResourceReleaseResult final {
-    RenderOperationCode first_failure = RenderOperationCode::OK;
-    std::uint32_t released = 0U;
-  };
-
   [[nodiscard]] RendererFrontendTransportDispatchResult
   DispatchAsset(const RenderTransportStreamFrameResult &frame);
   [[nodiscard]] RendererFrontendTransportDispatchResult
@@ -182,8 +147,9 @@ private:
   [[nodiscard]] RendererFrontendTransportDispatchResult
   DispatchSceneGenerationBoundary(
       const RenderTransportStreamFrameResult &frame);
-  [[nodiscard]] ResourceReleaseResult
-  ReleaseTransferredResources(const RenderFrameOutput &output) noexcept;
+  [[nodiscard]] RendererFrontendTransportDispatchResult FailFromDirect(
+      const RendererFrontendDirectDispatchResult &direct,
+      const RenderTransportStreamFrameResult &frame) noexcept;
   [[nodiscard]] RendererFrontendTransportDispatchResult
   Fail(RendererFrontendTransportDispatchStatus status,
        const RenderTransportStreamFrameResult *frame,
@@ -195,17 +161,16 @@ private:
           const RenderTransportStreamFrameResult &frame,
           std::uint32_t resources_released = 0U) const noexcept;
 
-  IRendererFrontend *frontend_ = nullptr;
   std::uint64_t registry_id_ = 0U;
   RenderTransportSequenceState sequence_state_;
   RenderAssetDeltaTransportDecoder asset_decoder_;
   SceneSnapshotTransportDecoder scene_decoder_;
   SceneGenerationBoundaryTransportDecoder scene_generation_decoder_;
+  RendererFrontendDirectDispatcher direct_dispatcher_;
   RendererFrontendTransportDispatchStatus terminal_cause_ =
       RendererFrontendTransportDispatchStatus::FAILED_INTERNAL;
   bool terminal_ = false;
   std::uint64_t scene_generation_ = 1U;
-  std::uint64_t last_frontend_frame_id_ = 0U;
   std::uint64_t last_scene_snapshot_id_ = 0U;
   std::uint64_t last_scene_asset_sequence_ = 0U;
   bool last_scene_was_empty_ = false;
