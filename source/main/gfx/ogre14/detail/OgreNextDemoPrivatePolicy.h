@@ -36,15 +36,17 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   SOURCE_UNAVAILABLE = 1U,
   MANUAL_OR_PROCEDURAL = 2U,
   RENDER_TARGET = 3U,
-  NON_2D = 4U,
-  NON_UNIT_DEPTH = 5U,
-  NON_UNIT_FACE_COUNT = 6U,
-  DIMENSION_OUT_OF_RANGE = 7U,
-  ORDINARY_SELECTED_SOURCE_UNAVAILABLE = 8U,
-  UNSUPPORTED_SOURCE_CONTAINER = 9U,
-  UNSUPPORTED_SOURCE_SEMANTIC = 10U,
-  SOURCE_DECODE_REJECTED = 11U,
-  COUNT = 12U,
+  CUBE_TEXTURE = 4U,
+  VOLUME_TEXTURE = 5U,
+  NON_2D = 6U,
+  NON_UNIT_DEPTH = 7U,
+  NON_UNIT_FACE_COUNT = 8U,
+  DIMENSION_OUT_OF_RANGE = 9U,
+  ORDINARY_SELECTED_SOURCE_UNAVAILABLE = 10U,
+  UNSUPPORTED_SOURCE_CONTAINER = 11U,
+  UNSUPPORTED_SOURCE_SEMANTIC = 12U,
+  SOURCE_DECODE_REJECTED = 13U,
+  COUNT = 14U,
 };
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
@@ -97,6 +99,8 @@ struct OgreNextDemoTextureEligibilityObservation final {
   bool source_available = false;
   bool manually_loaded = false;
   bool render_target = false;
+  bool cube_texture = false;
+  bool volume_texture = false;
   bool texture_2d = false;
   bool unit_depth = false;
   bool unit_face_count = false;
@@ -107,6 +111,56 @@ struct OgreNextDemoTextureEligibilityObservation final {
 ClassifyOgreNextDemoTextureProjectionEligibility(
     const OgreNextDemoTextureEligibilityObservation &observation,
     OgreNextDemoTextureProjectionExclusion &output);
+
+/// Exact renderer-neutral snapshot of every OGRE sampler field observed while
+/// the native Sampler is live. Unsupported native enum values are represented
+/// explicitly and never approximated.
+enum class OgreNextDemoObservedSamplerFilter : std::uint8_t {
+  POINT = 0U,
+  LINEAR = 1U,
+  UNSUPPORTED = 2U,
+};
+
+enum class OgreNextDemoObservedSamplerAddressMode : std::uint8_t {
+  WRAP = 0U,
+  MIRROR = 1U,
+  CLAMP = 2U,
+  UNSUPPORTED = 3U,
+};
+
+struct OgreNextDemoExactSamplerObservation final {
+  OgreNextDemoObservedSamplerFilter minification_filter =
+      OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  OgreNextDemoObservedSamplerFilter magnification_filter =
+      OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  OgreNextDemoObservedSamplerFilter mip_filter =
+      OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  OgreNextDemoObservedSamplerAddressMode address_u =
+      OgreNextDemoObservedSamplerAddressMode::UNSUPPORTED;
+  OgreNextDemoObservedSamplerAddressMode address_v =
+      OgreNextDemoObservedSamplerAddressMode::UNSUPPORTED;
+  OgreNextDemoObservedSamplerAddressMode address_w =
+      OgreNextDemoObservedSamplerAddressMode::UNSUPPORTED;
+  float mip_lod_bias = 0.0F;
+  std::uint32_t maximum_anisotropy = 1U;
+  bool compare_enabled = false;
+  /// Exact OGRE CompareFunction numeric token. It is fingerprinted even though
+  /// compare_enabled must be false and the portable descriptor is canonical.
+  std::uint8_t compare_function_token = 0U;
+  std::array<float, 4U> border_color{};
+};
+
+[[nodiscard]] bool MatchOgreNextDemoExactSamplerObservation(
+    const OgreNextDemoExactSamplerObservation &left,
+    const OgreNextDemoExactSamplerObservation &right) noexcept;
+
+/// Admits only POINT/LINEAR filtering, WRAP/MIRROR/CLAMP addressing, zero LOD
+/// bias, unit anisotropy, and disabled comparison. The exact border color is
+/// retained in the portable descriptor, but border addressing is unsupported.
+[[nodiscard]] Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
+    const OgreNextDemoExactSamplerObservation &observation,
+    std::size_t mip_count, std::string_view debug_token,
+    Render::SamplerResourceDescriptor &output);
 
 struct OgreNextDemoTextureSourceSelection final {
   bool selected = false;

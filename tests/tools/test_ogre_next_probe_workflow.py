@@ -493,10 +493,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertNotIn("native_material_state_count", material_source)
         self.assertNotIn("native_material->getStateCount()", material_source)
         for projected_authority_token in (
-            "projection->second.native_material != native_material.get()",
-            "projection->second.native_pass != pass",
-            "projection->second.native_unit != unit",
-            "projection->second.native_sampler != native_sampler.get()",
+            "projection->second.native_material_pointer_token !=",
+            "projection->second.native_pass_pointer_token !=",
+            "projection->second.native_unit_pointer_token !=",
+            "projection->second.native_sampler_pointer_token !=",
+            "projection->second.sampler_observation, sampler_observation",
             "projection->second.base_color_factor != base_color_factor",
             "projection->second.roughness_factor != roughness_factor",
             "projection->second.emissive_factor != emissive_factor",
@@ -506,6 +507,39 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 projected_authority_token=projected_authority_token
             ):
                 self.assertIn(projected_authority_token, material_source)
+        for forbidden_cached_native_pointer in (
+            "const Ogre::Material *native_material =",
+            "const Ogre::Pass *native_pass =",
+            "const Ogre::TextureUnitState *native_unit =",
+            "const Ogre::Sampler *native_sampler =",
+        ):
+            with self.subTest(
+                forbidden_cached_native_pointer=forbidden_cached_native_pointer
+            ):
+                self.assertNotIn(forbidden_cached_native_pointer, material_source)
+        for exact_sampler_token in (
+            "getFiltering(Ogre::FT_MIN)",
+            "getFiltering(Ogre::FT_MAG)",
+            "getFiltering(Ogre::FT_MIP)",
+            "getMipmapBias()",
+            "getAnisotropy()",
+            "getCompareEnabled()",
+            "getCompareFunction()",
+            "getBorderColour()",
+            "AppendExactSamplerObservation",
+            "BuildOgreNextDemoSamplerDescriptor",
+        ):
+            with self.subTest(exact_sampler_token=exact_sampler_token):
+                self.assertIn(exact_sampler_token, material_source)
+        for exact_exclusion_token in (
+            "CUBE_TEXTURE",
+            "VOLUME_TEXTURE",
+            "observation.render_target",
+            "observation.cube_texture",
+            "observation.volume_texture",
+        ):
+            with self.subTest(exact_exclusion_token=exact_exclusion_token):
+                self.assertIn(exact_exclusion_token, private_policy)
         self.assertIn('"dynamic/" + BuildNativeDynamicMeshCacheKey(identity)',
                       gfx_scene)
         self.assertIn('"static/" +', gfx_scene)

@@ -27,6 +27,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -149,6 +150,10 @@ PreflightTextureIdentity(const Ogre::TexturePtr &native_texture,
     observation.manually_loaded = native_texture->isManuallyLoaded();
     observation.render_target =
         (native_texture->getUsage() & Ogre::TU_RENDERTARGET) != 0U;
+    observation.cube_texture =
+        native_texture->getTextureType() == Ogre::TEX_TYPE_CUBE_MAP;
+    observation.volume_texture =
+        native_texture->getTextureType() == Ogre::TEX_TYPE_3D;
     observation.texture_2d =
         native_texture->getTextureType() == Ogre::TEX_TYPE_2D;
     observation.unit_depth = native_texture->getDepth() == 1U;
@@ -522,20 +527,79 @@ bool IsExactAlexisDiffuseProjection(
          environment->getTextureName() == "EnvironmentTexture";
 }
 
-bool MapAddressMode(Ogre::TextureAddressingMode native,
-                    Render::SamplerAddressMode &portable) noexcept {
+OgreNextDemoObservedSamplerFilter
+ObserveFilter(Ogre::FilterOptions native) noexcept {
+  switch (native) {
+  case Ogre::FO_POINT:
+    return OgreNextDemoObservedSamplerFilter::POINT;
+  case Ogre::FO_LINEAR:
+    return OgreNextDemoObservedSamplerFilter::LINEAR;
+  default:
+    return OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  }
+}
+
+OgreNextDemoObservedSamplerAddressMode
+ObserveAddressMode(Ogre::TextureAddressingMode native) noexcept {
   switch (native) {
   case Ogre::TAM_WRAP:
-    portable = Render::SamplerAddressMode::REPEAT;
-    return true;
+    return OgreNextDemoObservedSamplerAddressMode::WRAP;
   case Ogre::TAM_MIRROR:
-    portable = Render::SamplerAddressMode::MIRRORED_REPEAT;
-    return true;
+    return OgreNextDemoObservedSamplerAddressMode::MIRROR;
   case Ogre::TAM_CLAMP:
-    portable = Render::SamplerAddressMode::CLAMP_TO_EDGE;
-    return true;
+    return OgreNextDemoObservedSamplerAddressMode::CLAMP;
   default:
-    return false;
+    return OgreNextDemoObservedSamplerAddressMode::UNSUPPORTED;
+  }
+}
+
+OgreNextDemoExactSamplerObservation
+ObserveExactSampler(const Ogre::Sampler &native) noexcept {
+  OgreNextDemoExactSamplerObservation observation;
+  observation.minification_filter =
+      ObserveFilter(native.getFiltering(Ogre::FT_MIN));
+  observation.magnification_filter =
+      ObserveFilter(native.getFiltering(Ogre::FT_MAG));
+  observation.mip_filter = ObserveFilter(native.getFiltering(Ogre::FT_MIP));
+  const Ogre::Sampler::UVWAddressingMode address = native.getAddressingMode();
+  observation.address_u = ObserveAddressMode(address.u);
+  observation.address_v = ObserveAddressMode(address.v);
+  observation.address_w = ObserveAddressMode(address.w);
+  observation.mip_lod_bias = native.getMipmapBias();
+  observation.maximum_anisotropy = native.getAnisotropy();
+  observation.compare_enabled = native.getCompareEnabled();
+  observation.compare_function_token =
+      static_cast<std::uint8_t>(native.getCompareFunction());
+  const Ogre::ColourValue border = native.getBorderColour();
+  observation.border_color = {
+      static_cast<float>(border.r), static_cast<float>(border.g),
+      static_cast<float>(border.b), static_cast<float>(border.a)};
+  return observation;
+}
+
+void AppendFloatBits(std::string &key, float value) {
+  std::uint32_t bits = 0U;
+  static_assert(sizeof(bits) == sizeof(value));
+  std::memcpy(&bits, &value, sizeof(bits));
+  AppendNumber(key, bits);
+}
+
+void AppendExactSamplerObservation(
+    std::string &key, const OgreNextDemoExactSamplerObservation &observation) {
+  AppendNumber(key,
+               static_cast<std::uint64_t>(observation.minification_filter));
+  AppendNumber(key,
+               static_cast<std::uint64_t>(observation.magnification_filter));
+  AppendNumber(key, static_cast<std::uint64_t>(observation.mip_filter));
+  AppendNumber(key, static_cast<std::uint64_t>(observation.address_u));
+  AppendNumber(key, static_cast<std::uint64_t>(observation.address_v));
+  AppendNumber(key, static_cast<std::uint64_t>(observation.address_w));
+  AppendFloatBits(key, observation.mip_lod_bias);
+  AppendNumber(key, observation.maximum_anisotropy);
+  AppendNumber(key, observation.compare_enabled ? 1U : 0U);
+  AppendNumber(key, observation.compare_function_token);
+  for (float component : observation.border_color) {
+    AppendFloatBits(key, component);
   }
 }
 
@@ -692,10 +756,11 @@ struct Projection final {
   std::string exact_name;
   std::string texture_key;
   std::string sampler_key;
-  const Ogre::Material *native_material = nullptr;
-  const Ogre::Pass *native_pass = nullptr;
-  const Ogre::TextureUnitState *native_unit = nullptr;
-  const Ogre::Sampler *native_sampler = nullptr;
+  std::uintptr_t native_material_pointer_token = 0U;
+  std::uintptr_t native_pass_pointer_token = 0U;
+  std::uintptr_t native_unit_pointer_token = 0U;
+  std::uintptr_t native_sampler_pointer_token = 0U;
+  OgreNextDemoExactSamplerObservation sampler_observation;
   std::array<float, 4U> base_color_factor{};
   float roughness_factor = 1.0F;
   std::array<float, 3U> emissive_factor{};
@@ -930,45 +995,6 @@ Render::ValidationResult TryCaptureOrdinaryTextureSource(
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult
-BuildSampler(const Ogre::Sampler::UVWAddressingMode &native_address,
-             std::size_t mip_count, std::string_view debug_token,
-             Render::SamplerResourceDescriptor &output) {
-  if (mip_count == 0U) {
-    return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
-                   "ogre_next_demo.material.sampler",
-                   "projected sampler requires a complete texture");
-  }
-  Render::SamplerResourceDescriptor candidate;
-  candidate.debug_name = "OgreNextDemoPbrSampler/" + std::string(debug_token);
-  candidate.minification_filter = Render::SamplerFilter::LINEAR;
-  candidate.magnification_filter = Render::SamplerFilter::LINEAR;
-  candidate.mip_filter = Render::SamplerFilter::LINEAR;
-  if (!MapAddressMode(native_address.u, candidate.address_u) ||
-      !MapAddressMode(native_address.v, candidate.address_v) ||
-      !MapAddressMode(native_address.w, candidate.address_w)) {
-    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
-                   "ogre_next_demo.material.sampler.address",
-                   "TUS0 uses a nonportable address mode");
-  }
-  candidate.mip_lod_bias = 0.0F;
-  candidate.minimum_lod = 0.0F;
-  candidate.maximum_lod = static_cast<float>(mip_count - 1U);
-  candidate.anisotropy_enabled = false;
-  candidate.maximum_anisotropy = 1.0F;
-  candidate.compare_enabled = false;
-  candidate.compare_operation = Render::SamplerCompareOperation::ALWAYS;
-  candidate.border_color = {};
-  Render::ValidationResult validation =
-      Render::ValidateSamplerResourceDescriptor(candidate);
-  if (!validation) {
-    validation.field = "ogre_next_demo.material.sampler." + validation.field;
-    return validation;
-  }
-  output = std::move(candidate);
-  return Render::ValidationResult::Success();
-}
-
 } // namespace
 
 struct MaterialCache final {
@@ -1120,10 +1146,6 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     exclusion = OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
     return false;
   }
-  if (unit->getTextureType() != Ogre::TEX_TYPE_2D) {
-    exclusion = OgreNextDemoTextureProjectionExclusion::NON_2D;
-    return false;
-  }
   if (unit->getNumFrames() != 1U || unit->getTextureCoordSet() != 0U ||
       unit->getProjectiveTexturingFrustum() != nullptr ||
       !unit->getEffects().empty() || unit->getUnorderedAccessMipLevel() != -1 ||
@@ -1136,7 +1158,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     return false;
   }
   const Ogre::SamplerPtr native_sampler = unit->getSampler();
-  if (!native_sampler || native_sampler->getCompareEnabled()) {
+  if (!native_sampler) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_SEMANTIC;
+    return false;
+  }
+  const OgreNextDemoExactSamplerObservation sampler_observation =
+      ObserveExactSampler(*native_sampler);
+  Render::SamplerResourceDescriptor sampler_preflight;
+  if (!BuildOgreNextDemoSamplerDescriptor(sampler_observation, 1U, "preflight",
+                                          sampler_preflight)) {
     exclusion =
         OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_SEMANTIC;
     return false;
@@ -1153,10 +1184,6 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                                        native_texture->getName()))) {
     return false;
   }
-  const Ogre::Sampler::UVWAddressingMode native_address =
-      native_sampler->getAddressingMode();
-  Render::SamplerAddressMode portable_address =
-      Render::SamplerAddressMode::REPEAT;
   Render::ValidationResult texture_preflight_validation =
       PreflightTextureIdentity(native_texture, exclusion);
   if (!texture_preflight_validation) {
@@ -1166,21 +1193,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   if (exclusion != OgreNextDemoTextureProjectionExclusion::NONE) {
     return false;
   }
-  if (!MapAddressMode(native_address.u, portable_address) ||
-      !MapAddressMode(native_address.v, portable_address) ||
-      !MapAddressMode(native_address.w, portable_address)) {
-    exclusion =
-        OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_SEMANTIC;
-    return false;
-  }
-
   std::string texture_key;
   AppendField(texture_key, native_texture->getGroup());
   AppendField(texture_key, native_texture->getName());
   std::string sampler_key = texture_key;
-  AppendNumber(sampler_key, static_cast<std::uint64_t>(native_address.u));
-  AppendNumber(sampler_key, static_cast<std::uint64_t>(native_address.v));
-  AppendNumber(sampler_key, static_cast<std::uint64_t>(native_address.w));
+  AppendExactSamplerObservation(sampler_key, sampler_observation);
   std::string projection_key;
   AppendField(projection_key, native_material->getGroup());
   AppendField(projection_key, native_material->getName());
@@ -1356,25 +1373,25 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           ordinary_texture_source_resolver_ != nullptr;
       Render::ValidationResult ordinary_resolution_validation =
           Render::ValidationResult::Success();
-        if (ordinary_resolution_attempted) {
-          ordinary_resolution_validation =
-              ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
-                  *native_texture, ordinary_resolution);
-          const Render::Ogre14SelectedTextureSourceReceipt *const receipt =
-              ordinary_resolution_validation
-                  ? ordinary_resolution.source_receipt()
-                  : nullptr;
-          if (ordinary_resolution_validation &&
-              (!ordinary_resolution.initialized() || receipt == nullptr ||
-               !receipt->initialized() || receipt->metadata() == nullptr ||
-               receipt->source_bytes() == nullptr ||
-               receipt->source_size() == 0U)) {
-            ordinary_resolution_validation = Failure(
-                Render::ValidationCode::MISSING_REFERENCE,
-                "ogre_next_demo.material.ordinary.selected_source",
-                "ordinary resolver returned no usable selected-source receipt");
-          }
+      if (ordinary_resolution_attempted) {
+        ordinary_resolution_validation =
+            ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
+                *native_texture, ordinary_resolution);
+        const Render::Ogre14SelectedTextureSourceReceipt *const receipt =
+            ordinary_resolution_validation
+                ? ordinary_resolution.source_receipt()
+                : nullptr;
+        if (ordinary_resolution_validation &&
+            (!ordinary_resolution.initialized() || receipt == nullptr ||
+             !receipt->initialized() || receipt->metadata() == nullptr ||
+             receipt->source_bytes() == nullptr ||
+             receipt->source_size() == 0U)) {
+          ordinary_resolution_validation = Failure(
+              Render::ValidationCode::MISSING_REFERENCE,
+              "ogre_next_demo.material.ordinary.selected_source",
+              "ordinary resolver returned no usable selected-source receipt");
         }
+      }
       OgreNextDemoTextureSourceSelection source_selection;
       Render::ValidationResult source_selection_validation =
           SelectOgreNextDemoTextureSourceMode(
@@ -1507,9 +1524,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       const auto &texture_descriptor =
           std::get<Render::TextureResourceDescriptor>(*texture->second.payload);
       Render::SamplerResourceDescriptor descriptor;
-      validation =
-          BuildSampler(native_address, texture_descriptor.mip_levels.size(),
-                       HexId(captured.source_id), descriptor);
+      validation = BuildOgreNextDemoSamplerDescriptor(
+          sampler_observation, texture_descriptor.mip_levels.size(),
+          HexId(captured.source_id), descriptor);
       if (!validation) {
         failure = std::move(validation);
         return false;
@@ -1541,10 +1558,13 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     captured.exact_name = "OpaqueTUS0/" + HexId(token) + "/v1";
     captured.texture_key = texture_key;
     captured.sampler_key = sampler_key;
-    captured.native_material = native_material.get();
-    captured.native_pass = pass;
-    captured.native_unit = unit;
-    captured.native_sampler = native_sampler.get();
+    captured.native_material_pointer_token =
+        reinterpret_cast<std::uintptr_t>(native_material.get());
+    captured.native_pass_pointer_token = reinterpret_cast<std::uintptr_t>(pass);
+    captured.native_unit_pointer_token = reinterpret_cast<std::uintptr_t>(unit);
+    captured.native_sampler_pointer_token =
+        reinterpret_cast<std::uintptr_t>(native_sampler.get());
+    captured.sampler_observation = sampler_observation;
     validation = Render::DeriveOgre14GraphicsSceneMaterialAssetId(
         kMaterialGroup, captured.exact_name, captured.material_source_id);
     if (!validation) {
@@ -1637,10 +1657,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         {static_cast<float>(native_emissive.r),
          static_cast<float>(native_emissive.g),
          static_cast<float>(native_emissive.b)}};
-    if (projection->second.native_material != native_material.get() ||
-        projection->second.native_pass != pass ||
-        projection->second.native_unit != unit ||
-        projection->second.native_sampler != native_sampler.get() ||
+    if (projection->second.native_material_pointer_token !=
+            reinterpret_cast<std::uintptr_t>(native_material.get()) ||
+        projection->second.native_pass_pointer_token !=
+            reinterpret_cast<std::uintptr_t>(pass) ||
+        projection->second.native_unit_pointer_token !=
+            reinterpret_cast<std::uintptr_t>(unit) ||
+        projection->second.native_sampler_pointer_token !=
+            reinterpret_cast<std::uintptr_t>(native_sampler.get()) ||
+        !MatchOgreNextDemoExactSamplerObservation(
+            projection->second.sampler_observation, sampler_observation) ||
         projection->second.base_color_factor != base_color_factor ||
         projection->second.roughness_factor != roughness_factor ||
         projection->second.emissive_factor != emissive_factor) {

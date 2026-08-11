@@ -143,8 +143,8 @@ Render::ValidationResult RecordOgreNextDemoTextureProjectionExclusion(
       SaturatingAdd(candidate.exclusions_by_reason[index], 1U);
   if (exclusion ==
           OgreNextDemoTextureProjectionExclusion::SOURCE_DECODE_REJECTED ||
-      exclusion ==
-          OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_CONTAINER) {
+      exclusion == OgreNextDemoTextureProjectionExclusion::
+                       UNSUPPORTED_SOURCE_CONTAINER) {
     candidate.source_decode_rejections =
         SaturatingAdd(candidate.source_decode_rejections, 1U);
   }
@@ -199,12 +199,16 @@ Render::ValidationResult ClassifyOgreNextDemoTextureProjectionEligibility(
       OgreNextDemoTextureProjectionExclusion::NONE;
   if (!observation.source_available) {
     candidate = OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
-  } else if (observation.manually_loaded) {
-    candidate = OgreNextDemoTextureProjectionExclusion::MANUAL_OR_PROCEDURAL;
   } else if (observation.render_target) {
     candidate = OgreNextDemoTextureProjectionExclusion::RENDER_TARGET;
+  } else if (observation.cube_texture) {
+    candidate = OgreNextDemoTextureProjectionExclusion::CUBE_TEXTURE;
+  } else if (observation.volume_texture) {
+    candidate = OgreNextDemoTextureProjectionExclusion::VOLUME_TEXTURE;
   } else if (!observation.texture_2d) {
     candidate = OgreNextDemoTextureProjectionExclusion::NON_2D;
+  } else if (observation.manually_loaded) {
+    candidate = OgreNextDemoTextureProjectionExclusion::MANUAL_OR_PROCEDURAL;
   } else if (!observation.unit_depth) {
     candidate = OgreNextDemoTextureProjectionExclusion::NON_UNIT_DEPTH;
   } else if (!observation.unit_face_count) {
@@ -213,6 +217,115 @@ Render::ValidationResult ClassifyOgreNextDemoTextureProjectionEligibility(
     candidate = OgreNextDemoTextureProjectionExclusion::DIMENSION_OUT_OF_RANGE;
   }
   output = candidate;
+  return Render::ValidationResult::Success();
+}
+
+bool MatchOgreNextDemoExactSamplerObservation(
+    const OgreNextDemoExactSamplerObservation &left,
+    const OgreNextDemoExactSamplerObservation &right) noexcept {
+  return left.minification_filter == right.minification_filter &&
+         left.magnification_filter == right.magnification_filter &&
+         left.mip_filter == right.mip_filter &&
+         left.address_u == right.address_u &&
+         left.address_v == right.address_v &&
+         left.address_w == right.address_w &&
+         left.mip_lod_bias == right.mip_lod_bias &&
+         left.maximum_anisotropy == right.maximum_anisotropy &&
+         left.compare_enabled == right.compare_enabled &&
+         left.compare_function_token == right.compare_function_token &&
+         left.border_color == right.border_color;
+}
+
+Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
+    const OgreNextDemoExactSamplerObservation &observation,
+    std::size_t mip_count, std::string_view debug_token,
+    Render::SamplerResourceDescriptor &output) {
+  if (mip_count == 0U) {
+    return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                   "ogre_next_demo.material.sampler",
+                   "projected sampler requires a complete texture");
+  }
+  const auto map_filter = [](OgreNextDemoObservedSamplerFilter source,
+                             Render::SamplerFilter &destination) noexcept {
+    switch (source) {
+    case OgreNextDemoObservedSamplerFilter::POINT:
+      destination = Render::SamplerFilter::NEAREST;
+      return true;
+    case OgreNextDemoObservedSamplerFilter::LINEAR:
+      destination = Render::SamplerFilter::LINEAR;
+      return true;
+    default:
+      return false;
+    }
+  };
+  const auto map_address =
+      [](OgreNextDemoObservedSamplerAddressMode source,
+         Render::SamplerAddressMode &destination) noexcept {
+        switch (source) {
+        case OgreNextDemoObservedSamplerAddressMode::WRAP:
+          destination = Render::SamplerAddressMode::REPEAT;
+          return true;
+        case OgreNextDemoObservedSamplerAddressMode::MIRROR:
+          destination = Render::SamplerAddressMode::MIRRORED_REPEAT;
+          return true;
+        case OgreNextDemoObservedSamplerAddressMode::CLAMP:
+          destination = Render::SamplerAddressMode::CLAMP_TO_EDGE;
+          return true;
+        default:
+          return false;
+        }
+      };
+
+  Render::SamplerResourceDescriptor candidate;
+  candidate.debug_name = "OgreNextDemoPbrSampler/" + std::string(debug_token);
+  if (!map_filter(observation.minification_filter,
+                  candidate.minification_filter) ||
+      !map_filter(observation.magnification_filter,
+                  candidate.magnification_filter) ||
+      !map_filter(observation.mip_filter, candidate.mip_filter)) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.material.sampler.filter",
+                   "TUS0 sampler requires exact POINT or LINEAR filtering");
+  }
+  if (!map_address(observation.address_u, candidate.address_u) ||
+      !map_address(observation.address_v, candidate.address_v) ||
+      !map_address(observation.address_w, candidate.address_w)) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.material.sampler.address",
+                   "TUS0 sampler uses border or unknown addressing");
+  }
+  if (observation.mip_lod_bias != 0.0F) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.material.sampler.mip_lod_bias",
+                   "TUS0 sampler requires zero mip LOD bias");
+  }
+  if (observation.maximum_anisotropy != 1U) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.material.sampler.anisotropy",
+                   "TUS0 sampler requires unit anisotropy");
+  }
+  if (observation.compare_enabled) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.material.sampler.compare",
+                   "TUS0 sampler comparison must be disabled");
+  }
+  candidate.mip_lod_bias = 0.0F;
+  candidate.minimum_lod = 0.0F;
+  candidate.maximum_lod = static_cast<float>(mip_count - 1U);
+  candidate.anisotropy_enabled = false;
+  candidate.maximum_anisotropy = 1.0F;
+  candidate.compare_enabled = false;
+  candidate.compare_operation = Render::SamplerCompareOperation::ALWAYS;
+  candidate.border_color = {
+      observation.border_color[0U], observation.border_color[1U],
+      observation.border_color[2U], observation.border_color[3U]};
+  Render::ValidationResult validation =
+      Render::ValidateSamplerResourceDescriptor(candidate);
+  if (!validation) {
+    validation.field = "ogre_next_demo.material.sampler." + validation.field;
+    return validation;
+  }
+  output = std::move(candidate);
   return Render::ValidationResult::Success();
 }
 
@@ -443,7 +556,24 @@ Render::ValidationResult SelectOgreNextDemoTextureSourceMode(
   OgreNextDemoTextureSourceSelection candidate;
   candidate.mode =
       OgreNextDemoTextureSourceMode::ORDINARY_OBSERVED_SOURCE_BYTES;
-  if (!ordinary_resolution_attempted || !ordinary_resolution_result) {
+  if (!ordinary_resolution_attempted) {
+    candidate.selected = false;
+    candidate.exclusion = OgreNextDemoTextureProjectionExclusion::
+        ORDINARY_SELECTED_SOURCE_UNAVAILABLE;
+    output = candidate;
+    return Render::ValidationResult::Success();
+  }
+  if (!ordinary_resolution_result) {
+    const bool honestly_absent =
+        ordinary_resolution_result.code ==
+            Render::ValidationCode::MISSING_REFERENCE &&
+        (ordinary_resolution_result.field ==
+             "selected_texture_registry.resource_lookup" ||
+         ordinary_resolution_result.field ==
+             "selected_texture_resolution.group_generation");
+    if (!honestly_absent) {
+      return ordinary_resolution_result;
+    }
     candidate.selected = false;
     candidate.exclusion = OgreNextDemoTextureProjectionExclusion::
         ORDINARY_SELECTED_SOURCE_UNAVAILABLE;

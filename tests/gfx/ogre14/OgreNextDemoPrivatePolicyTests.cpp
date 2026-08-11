@@ -323,11 +323,67 @@ void CheckTextureSourceSelectionContract() {
       SelectOgreNextDemoTextureSourceMode(
           false, false, ValidationResult::Success(),
           OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
-          true, missing_receipt, selection);
+          true,
+          ValidationResult::Failure(
+              ValidationCode::MISSING_REFERENCE,
+              "selected_texture_registry.resource_lookup",
+              "active group has no exact selected-source receipt"),
+          selection);
   Require(ordinary_missing_receipt.ok() && !selection.selected &&
               selection.exclusion == OgreNextDemoTextureProjectionExclusion::
                                          ORDINARY_SELECTED_SOURCE_UNAVAILABLE,
-          "failed ordinary selected-source resolution was not explicitly matted");
+          "honestly absent ordinary selected source was not explicitly matted");
+
+  const ValidationResult ordinary_group_absent =
+      SelectOgreNextDemoTextureSourceMode(
+          false, false, ValidationResult::Success(),
+          OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES,
+          true,
+          ValidationResult::Failure(
+              ValidationCode::MISSING_REFERENCE,
+              "selected_texture_resolution.group_generation",
+              "resource group is not registered"),
+          selection);
+  Require(ordinary_group_absent.ok() && !selection.selected &&
+              selection.exclusion == OgreNextDemoTextureProjectionExclusion::
+                                         ORDINARY_SELECTED_SOURCE_UNAVAILABLE,
+          "honestly unregistered ordinary group was not explicitly matted");
+
+  const std::array<ValidationResult, 7U> terminal_ordinary_failures{{
+      missing_receipt,
+      ValidationResult::Failure(ValidationCode::SEQUENCE_MISMATCH,
+                                "selected_texture_resolution.group_generation",
+                                "selected-source group generation changed"),
+      ValidationResult::Failure(ValidationCode::INVALID_HANDLE,
+                                "selected_texture_resolution.loaded",
+                                "loaded resource identity changed"),
+      ValidationResult::Failure(ValidationCode::REVISION_MISMATCH,
+                                "selected_texture_registry.resource_lookup",
+                                "selected-source receipt changed"),
+      ValidationResult::Failure(ValidationCode::EMPTY_PAYLOAD,
+                                "selected_texture_resolution.source_bytes",
+                                "selected source is empty"),
+      ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "ogre_next_demo.material.ordinary.selected_source",
+          "resolver returned an unusable successful receipt"),
+      ValidationResult::Failure(ValidationCode::MISSING_REFERENCE,
+                                "selected_texture_registry",
+                                "registry is unavailable"),
+  }};
+  for (const ValidationResult &terminal_failure : terminal_ordinary_failures) {
+    selection = sentinel;
+    const ValidationResult result = SelectOgreNextDemoTextureSourceMode(
+        false, false, ValidationResult::Success(),
+        OgreNextDemoTextureSourceMode::AUTHENTICATED_ARCHIVE_SOURCE_BYTES, true,
+        terminal_failure, selection);
+    Require(!result.ok() && result.code == terminal_failure.code &&
+                result.field == terminal_failure.field &&
+                selection.selected == sentinel.selected &&
+                selection.mode == sentinel.mode &&
+                selection.exclusion == sentinel.exclusion,
+            "terminal ordinary resolver failure was flattened or committed");
+  }
 
   const ValidationResult required_archive = SelectOgreNextDemoTextureSourceMode(
       true, true, ValidationResult::Success(),
@@ -454,29 +510,29 @@ void CheckSourceAccountingAndEligibility() {
   Require(RecordOgreNextDemoTextureProjectionExclusion(
               OgreNextDemoTextureProjectionExclusion::SOURCE_DECODE_REJECTED,
               counters)
-              .ok() &&
+                  .ok() &&
               counters.source_decode_rejections == 1U &&
               counters.source_exclusions == 1U,
           "decode rejection was not retained as a bounded matte exclusion");
-  Require(RecordOgreNextDemoTextureProjectionExclusion(
+  Require(
+      RecordOgreNextDemoTextureProjectionExclusion(
+          OgreNextDemoTextureProjectionExclusion::UNSUPPORTED_SOURCE_CONTAINER,
+          counters)
+              .ok() &&
+          RecordOgreNextDemoTextureProjectionExclusion(
               OgreNextDemoTextureProjectionExclusion::
-                  UNSUPPORTED_SOURCE_CONTAINER,
+                  UNSUPPORTED_SOURCE_SEMANTIC,
               counters)
               .ok() &&
-              RecordOgreNextDemoTextureProjectionExclusion(
-                  OgreNextDemoTextureProjectionExclusion::
-                      UNSUPPORTED_SOURCE_SEMANTIC,
-                  counters)
-                  .ok() &&
-              counters.source_decode_rejections == 2U &&
-              counters.source_exclusions == 3U &&
-              counters.exclusions_by_reason[static_cast<std::size_t>(
-                  OgreNextDemoTextureProjectionExclusion::
-                      UNSUPPORTED_SOURCE_CONTAINER)] == 1U &&
-              counters.exclusions_by_reason[static_cast<std::size_t>(
-                  OgreNextDemoTextureProjectionExclusion::
-                      UNSUPPORTED_SOURCE_SEMANTIC)] == 1U,
-          "unsupported ordinary sources lost bounded exclusion accounting");
+          counters.source_decode_rejections == 2U &&
+          counters.source_exclusions == 3U &&
+          counters.exclusions_by_reason[static_cast<std::size_t>(
+              OgreNextDemoTextureProjectionExclusion::
+                  UNSUPPORTED_SOURCE_CONTAINER)] == 1U &&
+          counters.exclusions_by_reason[static_cast<std::size_t>(
+              OgreNextDemoTextureProjectionExclusion::
+                  UNSUPPORTED_SOURCE_SEMANTIC)] == 1U,
+      "unsupported ordinary sources lost bounded exclusion accounting");
 
   OgreNextDemoTextureEligibilityObservation eligible;
   eligible.source_available = true;
@@ -510,8 +566,25 @@ void CheckSourceAccountingAndEligibility() {
   mutation.render_target = true;
   require_exclusion(mutation,
                     OgreNextDemoTextureProjectionExclusion::RENDER_TARGET);
+  mutation.manually_loaded = true;
+  require_exclusion(mutation,
+                    OgreNextDemoTextureProjectionExclusion::RENDER_TARGET);
   mutation = eligible;
   mutation.texture_2d = false;
+  mutation.cube_texture = true;
+  mutation.unit_face_count = false;
+  require_exclusion(mutation,
+                    OgreNextDemoTextureProjectionExclusion::CUBE_TEXTURE);
+  mutation = eligible;
+  mutation.texture_2d = false;
+  mutation.volume_texture = true;
+  mutation.unit_depth = false;
+  require_exclusion(mutation,
+                    OgreNextDemoTextureProjectionExclusion::VOLUME_TEXTURE);
+  mutation = eligible;
+  mutation.texture_2d = false;
+  require_exclusion(mutation, OgreNextDemoTextureProjectionExclusion::NON_2D);
+  mutation.manually_loaded = true;
   require_exclusion(mutation, OgreNextDemoTextureProjectionExclusion::NON_2D);
   mutation = eligible;
   mutation.unit_depth = false;
@@ -541,6 +614,83 @@ void CheckSourceAccountingAndEligibility() {
               before.ordinary_observed_source_decodes &&
           committed.gpu_readbacks == 0U,
       "GPU-readback accounting bypassed the zero gate or partially committed");
+}
+
+void CheckExactSamplerMappingAndFingerprint() {
+  OgreNextDemoExactSamplerObservation observation;
+  observation.minification_filter = OgreNextDemoObservedSamplerFilter::POINT;
+  observation.magnification_filter = OgreNextDemoObservedSamplerFilter::LINEAR;
+  observation.mip_filter = OgreNextDemoObservedSamplerFilter::POINT;
+  observation.address_u = OgreNextDemoObservedSamplerAddressMode::WRAP;
+  observation.address_v = OgreNextDemoObservedSamplerAddressMode::MIRROR;
+  observation.address_w = OgreNextDemoObservedSamplerAddressMode::CLAMP;
+  observation.compare_function_token = 7U;
+  observation.border_color = {0.0F, 0.25F, 0.5F, 1.0F};
+
+  SamplerResourceDescriptor descriptor;
+  Require(
+      BuildOgreNextDemoSamplerDescriptor(observation, 4U, "exact", descriptor)
+              .ok() &&
+          descriptor.minification_filter == SamplerFilter::NEAREST &&
+          descriptor.magnification_filter == SamplerFilter::LINEAR &&
+          descriptor.mip_filter == SamplerFilter::NEAREST &&
+          descriptor.address_u == SamplerAddressMode::REPEAT &&
+          descriptor.address_v == SamplerAddressMode::MIRRORED_REPEAT &&
+          descriptor.address_w == SamplerAddressMode::CLAMP_TO_EDGE &&
+          descriptor.mip_lod_bias == 0.0F && descriptor.minimum_lod == 0.0F &&
+          descriptor.maximum_lod == 3.0F && !descriptor.anisotropy_enabled &&
+          descriptor.maximum_anisotropy == 1.0F &&
+          !descriptor.compare_enabled &&
+          descriptor.compare_operation == SamplerCompareOperation::ALWAYS &&
+          descriptor.border_color == Float4{0.0F, 0.25F, 0.5F, 1.0F},
+      "exact supported sampler did not map without approximation");
+  Require(MatchOgreNextDemoExactSamplerObservation(observation, observation),
+          "identical exact sampler observations did not fingerprint equally");
+
+  const auto reject = [&observation](
+                          OgreNextDemoExactSamplerObservation mutation,
+                          const char *expected_field) {
+    SamplerResourceDescriptor sentinel;
+    sentinel.debug_name = "unchanged";
+    const ValidationResult result =
+        BuildOgreNextDemoSamplerDescriptor(mutation, 4U, "rejected", sentinel);
+    Require(
+        !result.ok() && result.field == expected_field &&
+            sentinel.debug_name == "unchanged" &&
+            !MatchOgreNextDemoExactSamplerObservation(observation, mutation),
+        "unsupported sampler state was approximated or partially committed");
+  };
+  OgreNextDemoExactSamplerObservation mutation = observation;
+  mutation.minification_filter = OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  reject(mutation, "ogre_next_demo.material.sampler.filter");
+  mutation = observation;
+  mutation.magnification_filter =
+      OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  reject(mutation, "ogre_next_demo.material.sampler.filter");
+  mutation = observation;
+  mutation.mip_filter = OgreNextDemoObservedSamplerFilter::UNSUPPORTED;
+  reject(mutation, "ogre_next_demo.material.sampler.filter");
+  mutation = observation;
+  mutation.address_u = OgreNextDemoObservedSamplerAddressMode::UNSUPPORTED;
+  reject(mutation, "ogre_next_demo.material.sampler.address");
+  mutation = observation;
+  mutation.mip_lod_bias = 0.25F;
+  reject(mutation, "ogre_next_demo.material.sampler.mip_lod_bias");
+  mutation = observation;
+  mutation.maximum_anisotropy = 2U;
+  reject(mutation, "ogre_next_demo.material.sampler.anisotropy");
+  mutation = observation;
+  mutation.compare_enabled = true;
+  reject(mutation, "ogre_next_demo.material.sampler.compare");
+
+  mutation = observation;
+  mutation.compare_function_token = 6U;
+  Require(!MatchOgreNextDemoExactSamplerObservation(observation, mutation),
+          "dormant exact compare function escaped sampler fingerprint");
+  mutation = observation;
+  mutation.border_color[2U] = 0.75F;
+  Require(!MatchOgreNextDemoExactSamplerObservation(observation, mutation),
+          "exact border color escaped sampler fingerprint");
 }
 
 struct FrozenPublicationCatalog final {
@@ -1069,6 +1219,7 @@ int main() {
   CheckTextureSourceSelectionContract();
   CheckCachedSourceReachabilitySequence();
   CheckSourceAccountingAndEligibility();
+  CheckExactSamplerMappingAndFingerprint();
   CheckCachedPublicationTransactionSequence();
   CheckSamplingRejectionsAndMutation();
   CheckIdentityCollisionAndRollback();
