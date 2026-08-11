@@ -2015,6 +2015,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << result.texture_allocations.live_source_textures << ",\n"
            << "    \"sampled_rgba_allocations\": "
            << result.texture_allocations.sampled_rgba_allocations << ",\n"
+           << "    \"linear_rgba_allocations\": "
+           << result.texture_allocations.linear_rgba_allocations << ",\n"
            << "    \"roughness_r8_allocations\": "
            << result.texture_allocations.roughness_r8_allocations << ",\n"
            << "    \"metallic_r8_allocations\": "
@@ -2525,6 +2527,7 @@ RunDisplayDomainUsageTransitionProof(const std::string &media_root) {
          std::uint64_t live, const char *label) {
         Require(audit.version == 2U && audit.live_source_textures == 1U &&
                     audit.sampled_rgba_allocations == 1U &&
+                    audit.linear_rgba_allocations == 0U &&
                     audit.roughness_r8_allocations == 0U &&
                     audit.metallic_r8_allocations == 0U &&
                     audit.normal_rg8_allocations == 0U &&
@@ -2610,6 +2613,7 @@ RunDisplayDomainUnlitProof(const std::string &media_root) {
   evidence.complete_unorm_mips_uploaded =
       allocations.version == 2U && allocations.live_source_textures == 1U &&
       allocations.sampled_rgba_allocations == 1U &&
+      allocations.linear_rgba_allocations == 0U &&
       allocations.roughness_r8_allocations == 0U &&
       allocations.metallic_r8_allocations == 0U &&
       allocations.normal_rg8_allocations == 0U &&
@@ -2875,6 +2879,7 @@ void RequireRetirementAudit(const OgreNextN1TextureAllocationAudit &audit,
   Require(audit.version == 2U &&
               audit.live_source_textures == (live > 0U ? 1U : 0U) &&
               audit.sampled_rgba_allocations == 0U &&
+              audit.linear_rgba_allocations == 0U &&
               audit.roughness_r8_allocations == 0U &&
               audit.metallic_r8_allocations == 0U &&
               audit.normal_rg8_allocations == live &&
@@ -3570,6 +3575,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
     Require(result.texture_allocations.version == 2U &&
                 result.texture_allocations.live_source_textures == 4U &&
                 result.texture_allocations.sampled_rgba_allocations == 2U &&
+                result.texture_allocations.linear_rgba_allocations == 0U &&
                 result.texture_allocations.roughness_r8_allocations == 1U &&
                 result.texture_allocations.metallic_r8_allocations == 1U &&
                 result.texture_allocations.normal_rg8_allocations == 1U &&
@@ -3736,6 +3742,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
           frontend.QueryTextureAllocationAudit();
       Require(audit.version == 2U && audit.live_source_textures == 4U &&
                   audit.sampled_rgba_allocations == 2U &&
+                  audit.linear_rgba_allocations == 0U &&
                   audit.roughness_r8_allocations == 1U &&
                   audit.metallic_r8_allocations == 1U &&
                   audit.normal_rg8_allocations == 1U &&

@@ -1496,7 +1496,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "relevant_source_manifest_sha256": self.ror_manifest,
         }
         report = {
-            "schema": "ror.ogre_next_metal_rt_n3.v2",
+            "schema": "ror.ogre_next_metal_rt_n3.v3",
             "status": status,
             "provenance": {
                 **source,
@@ -1539,16 +1539,20 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         "ray_material_parity_claimed": False,
                         "texture_allocations": {
                             "live": {
+                                "version": 2,
                                 "source_textures": 1,
                                 "sampled_rgba": 1,
+                                "linear_rgba": 0,
                                 "roughness_r8": 0,
                                 "metallic_r8": 0,
+                                "normal_rg8": 0,
                                 "creates": 1,
                                 "destroys": 0,
                                 "live": 1,
                                 "exact_usage": True,
                             },
                             "after_shutdown": {
+                                "version": 2,
                                 "creates": 1,
                                 "destroys": 1,
                                 "live": 0,
@@ -2797,9 +2801,13 @@ class OgreNextArtifactSetTests(unittest.TestCase):
 
     def test_metal_n3_gate_requires_exact_texture_allocation_audit(self) -> None:
         paths = (
+            ("live", "version", 1),
             ("live", "source_textures", 0),
             ("live", "sampled_rgba", 0),
+            ("live", "linear_rgba", 1),
+            ("live", "normal_rg8", 1),
             ("live", "exact_usage", False),
+            ("after_shutdown", "version", 1),
             ("after_shutdown", "destroys", 0),
             ("after_shutdown", "live", 1),
             ("after_shutdown", "retired_name_rejections", 0),
@@ -2822,13 +2830,17 @@ class OgreNextArtifactSetTests(unittest.TestCase):
 
     def test_metal_n3_gate_rejects_boolean_allocation_count_aliases(self) -> None:
         paths = (
+            ("live", "version", True),
             ("live", "source_textures", True),
             ("live", "sampled_rgba", True),
+            ("live", "linear_rgba", False),
             ("live", "roughness_r8", False),
             ("live", "metallic_r8", False),
+            ("live", "normal_rg8", False),
             ("live", "creates", True),
             ("live", "destroys", False),
             ("live", "live", True),
+            ("after_shutdown", "version", True),
             ("after_shutdown", "creates", True),
             ("after_shutdown", "destroys", True),
             ("after_shutdown", "live", False),

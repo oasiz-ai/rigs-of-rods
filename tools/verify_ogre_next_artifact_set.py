@@ -545,9 +545,10 @@ RT4_EXPECTED_RETIREMENT = {
     },
 }
 RT4_EXPECTED_TEXTURE_ALLOCATIONS = {
-    "version": 1,
+    "version": 2,
     "live_source_textures": 4,
     "sampled_rgba_allocations": 2,
+    "linear_rgba_allocations": 0,
     "roughness_r8_allocations": 1,
     "metallic_r8_allocations": 1,
     "normal_rg8_allocations": 1,
@@ -4518,10 +4519,13 @@ def _verify_metal_n3_pass_semantics(
         and _json_exact(
             live_allocations,
             {
+                "version": 2,
                 "source_textures": 1,
                 "sampled_rgba": 1,
+                "linear_rgba": 0,
                 "roughness_r8": 0,
                 "metallic_r8": 0,
+                "normal_rg8": 0,
                 "creates": 1,
                 "destroys": 0,
                 "live": 1,
@@ -4532,6 +4536,7 @@ def _verify_metal_n3_pass_semantics(
         and _json_exact(
             shutdown_allocations,
             {
+                "version": 2,
                 "creates": 1,
                 "destroys": 1,
                 "live": 0,
@@ -4678,7 +4683,7 @@ def _verify_metal_n3(
     report = _read_json_object(report_path, "Metal N3 report")
     attestation = _read_json_object(attestation_path, "Metal N3 attestation")
     status = report.get("status")
-    if report.get("schema") != "ror.ogre_next_metal_rt_n3.v2" or status not in (
+    if report.get("schema") != "ror.ogre_next_metal_rt_n3.v3" or status not in (
         "pass",
         "skip",
     ):

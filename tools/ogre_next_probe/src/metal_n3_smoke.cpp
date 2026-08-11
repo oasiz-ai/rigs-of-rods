@@ -530,7 +530,7 @@ std::string SkipReport(const OgreNextMetalRayTracingEvidence &evidence,
                        const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v2\",\n"
+         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v3\",\n"
          << "  \"status\": \"skip\",\n"
          << "  \"scope\": \"same-device Metal primary-ray hybrid HDR contribution; no GI, reflection, denoising, or material parity claim\",\n"
          << "  \"reason\": \"" << JsonEscape(initialization.detail) << "\",\n"
@@ -570,7 +570,7 @@ std::string PassReport(
     const FileDigest &executable) {
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v2\",\n"
+         << "  \"schema\": \"ror.ogre_next_metal_rt_n3.v3\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"scope\": \"same-device Metal primary-ray hit contribution composited into exact UI-free Ogre-Next HDR target; no GI, reflection, denoising, multi-bounce, or material parity claim\",\n"
          << "  \"provenance\": {\n"
@@ -608,14 +608,19 @@ std::string PassReport(
          << "    \"directional_light_lux\": 1024,\n"
          << "    \"ray_material_parity_claimed\": false,\n"
          << "    \"texture_allocations\": {\n"
-         << "      \"live\": {\"source_textures\": "
+         << "      \"live\": {\"version\": "
+         << live_texture_audit.version << ", \"source_textures\": "
          << live_texture_audit.live_source_textures
          << ", \"sampled_rgba\": "
          << live_texture_audit.sampled_rgba_allocations
+         << ", \"linear_rgba\": "
+         << live_texture_audit.linear_rgba_allocations
          << ", \"roughness_r8\": "
          << live_texture_audit.roughness_r8_allocations
          << ", \"metallic_r8\": "
          << live_texture_audit.metallic_r8_allocations
+         << ", \"normal_rg8\": "
+         << live_texture_audit.normal_rg8_allocations
          << ", \"creates\": "
          << live_texture_audit.native_allocation_creates
          << ", \"destroys\": "
@@ -624,7 +629,8 @@ std::string PassReport(
          << live_texture_audit.live_native_allocations
          << ", \"exact_usage\": "
          << (live_texture_audit.exact_usage ? "true" : "false") << "},\n"
-         << "      \"after_shutdown\": {\"creates\": "
+         << "      \"after_shutdown\": {\"version\": "
+         << shutdown_texture_audit.version << ", \"creates\": "
          << shutdown_texture_audit.native_allocation_creates
          << ", \"destroys\": "
          << shutdown_texture_audit.native_allocation_destroys
@@ -746,11 +752,13 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
                  "frontend SynchronizeAssets");
   const OgreNextN1TextureAllocationAudit live_texture_audit =
       frontend.QueryTextureAllocationAudit();
-  Require(live_texture_audit.version == 1U &&
+  Require(live_texture_audit.version == 2U &&
               live_texture_audit.live_source_textures == 1U &&
               live_texture_audit.sampled_rgba_allocations == 1U &&
+              live_texture_audit.linear_rgba_allocations == 0U &&
               live_texture_audit.roughness_r8_allocations == 0U &&
               live_texture_audit.metallic_r8_allocations == 0U &&
+              live_texture_audit.normal_rg8_allocations == 0U &&
               live_texture_audit.native_allocation_creates == 1U &&
               live_texture_audit.native_allocation_destroys == 0U &&
               live_texture_audit.live_native_allocations == 1U &&
@@ -895,7 +903,14 @@ std::pair<std::string, int> Run(const Arguments &arguments) {
                  "frontend Shutdown");
   const OgreNextN1TextureAllocationAudit shutdown_texture_audit =
       frontend.QueryTextureAllocationAudit();
-  Require(shutdown_texture_audit.native_allocation_creates == 1U &&
+  Require(shutdown_texture_audit.version == 2U &&
+              shutdown_texture_audit.live_source_textures == 0U &&
+              shutdown_texture_audit.sampled_rgba_allocations == 0U &&
+              shutdown_texture_audit.linear_rgba_allocations == 0U &&
+              shutdown_texture_audit.roughness_r8_allocations == 0U &&
+              shutdown_texture_audit.metallic_r8_allocations == 0U &&
+              shutdown_texture_audit.normal_rg8_allocations == 0U &&
+              shutdown_texture_audit.native_allocation_creates == 1U &&
               shutdown_texture_audit.native_allocation_destroys == 1U &&
               shutdown_texture_audit.live_native_allocations == 0U &&
               shutdown_texture_audit.retired_name_lookups == 1U &&
@@ -937,7 +952,7 @@ int main(int argc, char **argv) {
     return result.second;
   } catch (const std::exception &error) {
     std::ostringstream report;
-    report << "{\n  \"schema\": \"ror.ogre_next_metal_rt_n3.v2\",\n"
+    report << "{\n  \"schema\": \"ror.ogre_next_metal_rt_n3.v3\",\n"
            << "  \"status\": \"fail\",\n"
            << "  \"error\": \"" << JsonEscape(error.what()) << "\"\n}\n";
     try {

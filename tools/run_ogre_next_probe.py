@@ -617,6 +617,31 @@ def _require_sha256(value: object, label: str) -> None:
         raise ProbeError(f"{label} is not a lowercase SHA-256")
 
 
+def _json_exact(actual: object, expected: object) -> bool:
+    """Compare JSON values without Python's bool/int or int/float aliases."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return (
+            isinstance(actual, dict)
+            and actual.keys() == expected.keys()
+            and all(
+                _json_exact(actual[key], value)
+                for key, value in expected.items()
+            )
+        )
+    if isinstance(expected, list):
+        return (
+            isinstance(actual, list)
+            and len(actual) == len(expected)
+            and all(
+                _json_exact(actual_value, expected_value)
+                for actual_value, expected_value in zip(actual, expected)
+            )
+        )
+    return actual == expected
+
+
 def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -2900,17 +2925,20 @@ def validate_n1_checkpoint(
                 )
                 == 1
                 and catalog.get("live_replacement_count") == 6,
-                "rt4_exact_allocations": texture_allocations
-                == {
-                    "version": 1,
+                "rt4_exact_allocations": _json_exact(
+                    texture_allocations,
+                    {
+                    "version": 2,
                     "live_source_textures": 4,
                     "sampled_rgba_allocations": 2,
+                    "linear_rgba_allocations": 0,
                     "roughness_r8_allocations": 1,
                     "metallic_r8_allocations": 1,
                     "normal_rg8_allocations": 1,
                     "unused_packed_rgba_allocations": 0,
                     "exact_usage": True,
-                },
+                    },
+                ),
                 "rt4_live_replacement": lifecycle.get(
                     "live_texture_replacement_retirement"
                 )
@@ -3490,6 +3518,25 @@ def write_rt4_attestation(
     return attestation
 
 
+def _shader_media_manifest_from_entries(
+    entries: list[tuple[str, int, str]],
+) -> dict[str, Any]:
+    ordered = sorted(entries, key=lambda entry: entry[0])
+    if not ordered:
+        raise ProbeError("OGRE-Next N1 HLMS tree is empty")
+    if len({entry[0] for entry in ordered}) != len(ordered):
+        raise ProbeError("OGRE-Next N1 HLMS manifest contains duplicate paths")
+    serialized = "".join(
+        f"{relative}|{size}|{digest}\n"
+        for relative, size, digest in ordered
+    ).encode("utf-8")
+    return {
+        "sha256": hashlib.sha256(serialized).hexdigest(),
+        "file_count": len(ordered),
+        "entries": ordered,
+    }
+
+
 def shader_media_manifest(root: Path) -> dict[str, Any]:
     if not root.is_dir():
         raise ProbeError(f"OGRE-Next N1 HLMS tree is missing: {root}")
@@ -3514,17 +3561,7 @@ def shader_media_manifest(root: Path) -> dict[str, Any]:
                 sha256_file(path),
             )
         )
-    if not entries:
-        raise ProbeError("OGRE-Next N1 HLMS tree is empty")
-    serialized = "".join(
-        f"{relative}|{size}|{digest}\n"
-        for relative, size, digest in entries
-    ).encode("utf-8")
-    return {
-        "sha256": hashlib.sha256(serialized).hexdigest(),
-        "file_count": len(entries),
-        "entries": entries,
-    }
+    return _shader_media_manifest_from_entries(entries)
 
 
 def hdr_media_manifest(media_root: Path) -> dict[str, Any]:
@@ -3623,9 +3660,34 @@ def validate_n1_package(
     )
     source_manifest = shader_media_manifest(source_media_root / "Hlms")
     package_manifest = shader_media_manifest(package_media_root / "Hlms")
-    if package_manifest != source_manifest:
+    display_relative = PurePosixPath(DISPLAY_DOMAIN_MEDIA_RELATIVE)
+    if display_relative.parts[:1] != ("Hlms",):
+        raise ProbeError("RoR display-domain media escaped the HLMS package root")
+    if (
+        DISPLAY_DOMAIN_MEDIA_PATH.is_symlink()
+        or not DISPLAY_DOMAIN_MEDIA_PATH.is_file()
+    ):
         raise ProbeError(
-            "OGRE-Next N1 staged HLMS tree differs from the pinned source manifest"
+            "reviewed RoR display-domain media is missing or symbolic"
+        )
+    display_hlms_relative = PurePosixPath(*display_relative.parts[1:]).as_posix()
+    expected_entries = [
+        entry
+        for entry in source_manifest["entries"]
+        if entry[0] != display_hlms_relative
+    ]
+    expected_entries.append(
+        (
+            display_hlms_relative,
+            DISPLAY_DOMAIN_MEDIA_PATH.stat().st_size,
+            sha256_file(DISPLAY_DOMAIN_MEDIA_PATH),
+        )
+    )
+    expected_manifest = _shader_media_manifest_from_entries(expected_entries)
+    if package_manifest != expected_manifest:
+        raise ProbeError(
+            "OGRE-Next N1 staged HLMS tree differs from the pinned source plus "
+            "reviewed RoR display-domain manifest"
         )
     source_hdr_manifest = hdr_media_manifest(source_media_root)
     package_hdr_manifest = hdr_media_manifest(package_media_root)
@@ -3633,7 +3695,7 @@ def validate_n1_package(
         raise ProbeError(
             "OGRE-Next N1 staged HDR media differs from the pinned source manifest"
         )
-    combined = dict(source_manifest)
+    combined = dict(expected_manifest)
     combined["hdr_sha256"] = source_hdr_manifest["sha256"]
     combined["hdr_file_count"] = source_hdr_manifest["file_count"]
     return combined
@@ -4473,7 +4535,7 @@ def validate_n3_checkpoint(
     provenance = object_field("provenance")
     status = report.get("status")
     common_checks = {
-        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n3.v2",
+        "schema": report.get("schema") == "ror.ogre_next_metal_rt_n3.v3",
         "status": status in ("pass", "skip"),
         "scope": report.get("scope")
         == (
@@ -4625,28 +4687,33 @@ def validate_n3_checkpoint(
         and type(raster_contract.get("directional_light_lux")) is int
         and raster_contract.get("directional_light_lux") == 1024
         and raster_contract.get("ray_material_parity_claimed") is False,
-        "texture_allocation_contract": isinstance(live_allocations, dict)
-        and live_allocations
-        == {
+        "texture_allocation_contract": _json_exact(
+            live_allocations,
+            {
+            "version": 2,
             "source_textures": 1,
             "sampled_rgba": 1,
+            "linear_rgba": 0,
             "roughness_r8": 0,
             "metallic_r8": 0,
+            "normal_rg8": 0,
             "creates": 1,
             "destroys": 0,
             "live": 1,
             "exact_usage": True,
-        }
-        and live_allocations.get("exact_usage") is True
-        and isinstance(shutdown_allocations, dict)
-        and shutdown_allocations
-        == {
+            },
+        )
+        and _json_exact(
+            shutdown_allocations,
+            {
+            "version": 2,
             "creates": 1,
             "destroys": 1,
             "live": 0,
             "retired_name_lookups": 1,
             "retired_name_rejections": 1,
-        },
+            },
+        ),
         "distinct_artifacts": len(
             {
                 raster_metrics["sha256"],

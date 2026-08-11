@@ -1468,6 +1468,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             def fake_sha256(path: Path) -> str:
                 if path == REPOSITORY_ROOT / "COPYING":
                     return ror_hash
+                if path == RUNNER.DISPLAY_DOMAIN_MEDIA_PATH:
+                    return "7" * 64
                 return paths[path.name]
 
             manifest = {
@@ -1475,26 +1477,52 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "file_count": 107,
                 "entries": [("file", 1, "4" * 64)],
             }
+            package_manifest = RUNNER._shader_media_manifest_from_entries(
+                [
+                    *manifest["entries"],
+                    (
+                        "RoR/DisplayDomain/DisplayDomain_piece_ps.any",
+                        RUNNER.DISPLAY_DOMAIN_MEDIA_PATH.stat().st_size,
+                        "7" * 64,
+                    ),
+                ]
+            )
             hdr_manifest = {
                 "sha256": "5" * 64,
                 "file_count": 137,
                 "entries": [("2.0/scripts/file", 1, "6" * 64)],
             }
             expected = {
-                **manifest,
+                **package_manifest,
                 "hdr_sha256": hdr_manifest["sha256"],
                 "hdr_file_count": hdr_manifest["file_count"],
             }
             with mock.patch.object(
                 RUNNER, "sha256_file", side_effect=fake_sha256
             ), mock.patch.object(
-                RUNNER, "shader_media_manifest", return_value=manifest
-            ), mock.patch.object(
+                RUNNER,
+                "shader_media_manifest",
+                side_effect=[manifest, package_manifest],
+            ) as media_manifest, mock.patch.object(
                 RUNNER, "hdr_media_manifest", return_value=hdr_manifest
             ):
                 self.assertEqual(
                     RUNNER.validate_n1_package(Path(temp), lock), expected
                 )
+                indirect_media = Path(temp) / "indirect-display-domain.any"
+                indirect_media.symlink_to(RUNNER.DISPLAY_DOMAIN_MEDIA_PATH)
+                media_manifest.side_effect = [manifest, package_manifest]
+                with mock.patch.object(
+                    RUNNER, "DISPLAY_DOMAIN_MEDIA_PATH", indirect_media
+                ), self.assertRaisesRegex(
+                    RUNNER.ProbeError, "missing or symbolic"
+                ):
+                    RUNNER.validate_n1_package(Path(temp), lock)
+                media_manifest.side_effect = [manifest, manifest]
+                with self.assertRaisesRegex(
+                    RUNNER.ProbeError, "reviewed RoR display-domain manifest"
+                ):
+                    RUNNER.validate_n1_package(Path(temp), lock)
                 (package / "RapidJSON-license.txt").unlink()
                 with self.assertRaisesRegex(
                     RUNNER.ProbeError, "missing licenses/RapidJSON-license.txt"

@@ -87,7 +87,7 @@ class MetalN3ContractTests(unittest.TestCase):
         for metrics in (raster_metrics, contribution_metrics, hybrid_metrics):
             metrics["format"] = "RGBA16_FLOAT"
         self.report = {
-            "schema": "ror.ogre_next_metal_rt_n3.v2",
+            "schema": "ror.ogre_next_metal_rt_n3.v3",
             "status": "pass",
             "scope": (
                 "same-device Metal primary-ray hit contribution composited into "
@@ -129,16 +129,20 @@ class MetalN3ContractTests(unittest.TestCase):
                 "ray_material_parity_claimed": False,
                 "texture_allocations": {
                     "live": {
+                        "version": 2,
                         "source_textures": 1,
                         "sampled_rgba": 1,
+                        "linear_rgba": 0,
                         "roughness_r8": 0,
                         "metallic_r8": 0,
+                        "normal_rg8": 0,
                         "creates": 1,
                         "destroys": 0,
                         "live": 1,
                         "exact_usage": True,
                     },
                     "after_shutdown": {
+                        "version": 2,
                         "creates": 1,
                         "destroys": 1,
                         "live": 0,
@@ -226,6 +230,25 @@ class MetalN3ContractTests(unittest.TestCase):
                 with self.assertRaises(RUNNER.ProbeError):
                     self.validate(report)
 
+    def test_texture_allocation_audit_is_type_exact(self) -> None:
+        mutations = (
+            ("live", "version", True),
+            ("live", "source_textures", True),
+            ("live", "linear_rgba", False),
+            ("live", "normal_rg8", False),
+            ("after_shutdown", "version", True),
+            ("after_shutdown", "creates", True),
+            ("after_shutdown", "live", False),
+        )
+        for phase, field, replacement in mutations:
+            with self.subTest(phase=phase, field=field):
+                report = copy.deepcopy(self.report)
+                report["raster_contract"]["texture_allocations"][phase][
+                    field
+                ] = replacement
+                with self.assertRaises(RUNNER.ProbeError):
+                    self.validate(report)
+
     def test_float_does_not_impersonate_image_contract_version(self) -> None:
         report = copy.deepcopy(self.report)
         report["contract"]["image_version"] = 2.0
@@ -275,7 +298,7 @@ class MetalN3ContractTests(unittest.TestCase):
 
     def test_capability_skip_is_attested_without_image_artifacts(self) -> None:
         report = {
-            "schema": "ror.ogre_next_metal_rt_n3.v2",
+            "schema": "ror.ogre_next_metal_rt_n3.v3",
             "status": "skip",
             "scope": "same-device Metal primary-ray hybrid HDR contribution",
             "reason": "test device is below Apple family 9",
@@ -354,6 +377,19 @@ class MetalN3ContractTests(unittest.TestCase):
         ]
         for axis in ("0U", "5U", "10U"):
             self.assertIn(f"transform.elements[{axis}] = 3.0F;", off_axis)
+
+    def test_n3_smoke_uses_texture_allocation_audit_v2(self) -> None:
+        for token in (
+            "live_texture_audit.version == 2U",
+            "live_texture_audit.linear_rgba_allocations == 0U",
+            "live_texture_audit.normal_rg8_allocations == 0U",
+            "shutdown_texture_audit.version == 2U",
+            "shutdown_texture_audit.linear_rgba_allocations == 0U",
+            "shutdown_texture_audit.normal_rg8_allocations == 0U",
+        ):
+            self.assertIn(token, self.smoke)
+        self.assertNotIn("live_texture_audit.version == 1U", self.smoke)
+        self.assertNotIn("shutdown_texture_audit.version == 1U", self.smoke)
 
     def test_native_interop_discriminates_both_reviewed_vertex_layouts(self) -> None:
         native_interop = (
