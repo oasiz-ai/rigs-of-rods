@@ -557,6 +557,25 @@ if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2 OR
         "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41")
     message(FATAL_ERROR "The pinned OGRE-Next IBL adaptation changed")
 endif ()
+set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/patches/0006-embedded-namespace-plugin-symbols.patch")
+set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256
+    "0df3dfdd1d97848eddf04d5fe64fcd2e70f65cb9059a5d8f1dd78ff63c5d8fec")
+set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/embedded_namespace/RoROgreNextNamespaceRemap.h")
+set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256
+    "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984")
+file(SHA256 "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}"
+    _ror_embedded_namespace_patch_sha256)
+file(SHA256 "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
+    _ror_embedded_namespace_remap_sha256)
+if (NOT _ror_embedded_namespace_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256 OR
+        NOT _ror_embedded_namespace_remap_sha256 STREQUAL
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256)
+    message(FATAL_ERROR
+        "The reviewed embedded OgreNext namespace fork inputs changed")
+endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}"
     _ror_windows_dxr7_patch_sha256)
@@ -1152,6 +1171,10 @@ set(FREETYPE_LIBRARIES freetype CACHE STRING "" FORCE)
 set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}")
+if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+    list(APPEND _ror_ogre_next_patch_paths
+        "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
+endif ()
 if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "windows-x64-d3d11")
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}")
@@ -1172,6 +1195,68 @@ FetchContent_Declare(
         ${_ror_ogre_next_patch_paths}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
+
+function(ror_ogre_next_enable_embedded_namespace _ror_target)
+    if (NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+        return()
+    endif ()
+    if (NOT TARGET ${_ror_target})
+        message(FATAL_ERROR
+            "Cannot namespace missing OgreNext target: ${_ror_target}")
+    endif ()
+    get_target_property(_ror_namespace_applied ${_ror_target}
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_APPLIED)
+    if (_ror_namespace_applied)
+        return()
+    endif ()
+    if (MSVC)
+        set(_ror_force_include
+            "/FI${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}")
+    else ()
+        set(_ror_force_include
+            "-include${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}")
+    endif ()
+    target_compile_options(${_ror_target} PRIVATE
+        "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:OBJCXX>>:${_ror_force_include}>")
+    set_property(TARGET ${_ror_target} PROPERTY
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_APPLIED TRUE)
+endfunction()
+
+function(_ror_ogre_next_collect_targets _ror_directory _ror_output)
+    get_property(_ror_local_targets DIRECTORY "${_ror_directory}"
+        PROPERTY BUILDSYSTEM_TARGETS)
+    set(_ror_targets ${_ror_local_targets})
+    get_property(_ror_subdirectories DIRECTORY "${_ror_directory}"
+        PROPERTY SUBDIRECTORIES)
+    foreach (_ror_subdirectory IN LISTS _ror_subdirectories)
+        _ror_ogre_next_collect_targets("${_ror_subdirectory}"
+            _ror_nested_targets)
+        list(APPEND _ror_targets ${_ror_nested_targets})
+    endforeach ()
+    set(${_ror_output} "${_ror_targets}" PARENT_SCOPE)
+endfunction()
+
+if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+    _ror_ogre_next_collect_targets("${ogre_next_SOURCE_DIR}"
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS)
+    list(REMOVE_DUPLICATES ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS)
+    list(SORT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS)
+    if (NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS)
+        message(FATAL_ERROR
+            "No pinned OgreNext targets were found for namespace isolation")
+    endif ()
+    foreach (_ror_ogre_target IN LISTS
+            ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS)
+        get_target_property(_ror_ogre_target_type ${_ror_ogre_target} TYPE)
+        if (NOT _ror_ogre_target_type STREQUAL "UTILITY" AND
+                NOT _ror_ogre_target_type STREQUAL "INTERFACE_LIBRARY")
+            ror_ogre_next_enable_embedded_namespace(${_ror_ogre_target})
+        endif ()
+    endforeach ()
+    message(STATUS
+        "Embedded OgreNext namespace targets: "
+        "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS}")
+endif ()
 
 # Compile the exact SDL source only for the non-admitted native-window probe.
 # X11 is intentional on Linux: pinned Ogre-Next has an XCB external-window

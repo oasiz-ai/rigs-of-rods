@@ -18,6 +18,24 @@ option(
     ROR_OGRE_NEXT_PRODUCT_STAGE
     "Stage the real OgreNext child and its exact relocatable runtime closure"
     OFF)
+option(
+    ROR_OGRE_NEXT_EMBEDDED_NAMESPACE
+    "Build the pinned OgreNext fork in the private RoROgreNext namespace"
+    OFF)
+option(
+    ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE
+    "Link the namespaced OgreNext core with an explicit OGRE14 runtime"
+    OFF)
+set(
+    ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR
+    ""
+    CACHE PATH
+    "OGRE14 include directory used only by the dual-runtime link smoke")
+set(
+    ROR_OGRE14_DUAL_RUNTIME_LIBRARY
+    ""
+    CACHE FILEPATH
+    "OGRE14 main library used only by the dual-runtime link smoke")
 set(
     ROR_OGRE_NEXT_PRODUCT_STAGE_ROOT
     "${CMAKE_BINARY_DIR}/ror-ogre-next-product-stage"
@@ -27,6 +45,15 @@ if (NOT ROR_OGRE_NEXT_PROBE)
     message(FATAL_ERROR
         "The OGRE-Next probe is opt-in. Reconfigure with "
         "-DROR_OGRE_NEXT_PROBE=ON or use tools/run_ogre_next_probe.py.")
+endif ()
+if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE AND
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+    message(FATAL_ERROR
+        "ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE requires "
+        "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE=ON")
+endif ()
+if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 endif ()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -846,6 +873,132 @@ set_target_properties(
     ror_ogre_next_frame_probe
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
+    if (NOT APPLE)
+        message(FATAL_ERROR
+            "The first dual-runtime smoke is the reviewed macOS/Metal seam")
+    endif ()
+    foreach (_ror_ogre14_path IN ITEMS
+            ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR
+            ROR_OGRE14_DUAL_RUNTIME_LIBRARY)
+        if (NOT IS_ABSOLUTE "${${_ror_ogre14_path}}" OR
+                NOT EXISTS "${${_ror_ogre14_path}}")
+            message(FATAL_ERROR
+                "${_ror_ogre14_path} must be an existing absolute path")
+        endif ()
+    endforeach ()
+    if (NOT EXISTS
+            "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}/OgreRoot.h" OR
+            IS_SYMLINK "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}")
+        message(FATAL_ERROR
+            "The dual-runtime OGRE14 include/library boundary is invalid")
+    endif ()
+
+    add_library(ror_ogre14_dual_runtime_main UNKNOWN IMPORTED)
+    set_target_properties(
+        ror_ogre14_dual_runtime_main
+        PROPERTIES
+            IMPORTED_LOCATION "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}")
+
+    add_library(
+        ror_ogre_next_dual_runtime_next_adapter OBJECT
+        src/embedded_namespace/next_adapter.cpp)
+    target_link_libraries(
+        ror_ogre_next_dual_runtime_next_adapter PRIVATE OgreNextMain)
+    target_include_directories(
+        ror_ogre_next_dual_runtime_next_adapter
+        PRIVATE
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include")
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_dual_runtime_next_adapter)
+
+    add_library(
+        ror_ogre_next_dual_runtime_ogre14_adapter OBJECT
+        src/embedded_namespace/ogre14_adapter.cpp)
+    target_link_libraries(
+        ror_ogre_next_dual_runtime_ogre14_adapter
+        PRIVATE ror_ogre14_dual_runtime_main)
+    target_include_directories(
+        ror_ogre_next_dual_runtime_ogre14_adapter
+        PRIVATE "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}")
+
+    add_library(
+        ror_ogre_next_embedded_plugin_export_probe OBJECT
+        src/embedded_namespace/metal_plugin_export_probe.mm)
+    target_include_directories(
+        ror_ogre_next_embedded_plugin_export_probe
+        PRIVATE
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/src"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX"
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include")
+    target_link_libraries(
+        ror_ogre_next_embedded_plugin_export_probe
+        PRIVATE RenderSystem_Metal OgreNextMain)
+    target_compile_options(
+        ror_ogre_next_embedded_plugin_export_probe PRIVATE "-fobjc-arc")
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_embedded_plugin_export_probe)
+
+    add_executable(
+        ror_ogre_next_dual_runtime_link_smoke
+        src/embedded_namespace/main.cpp
+        $<TARGET_OBJECTS:ror_ogre_next_dual_runtime_next_adapter>
+        $<TARGET_OBJECTS:ror_ogre_next_dual_runtime_ogre14_adapter>)
+    target_link_libraries(
+        ror_ogre_next_dual_runtime_link_smoke
+        PRIVATE
+            OgreNextMain
+            ror_ogre14_dual_runtime_main
+            "-framework AppKit"
+            "-framework CoreFoundation")
+    get_filename_component(_ror_ogre14_dual_runtime_library_directory
+        "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}" DIRECTORY)
+    set_target_properties(
+        ror_ogre_next_dual_runtime_link_smoke
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+            BUILD_RPATH
+                "${_ror_ogre14_dual_runtime_library_directory}")
+
+    set(_ror_embedded_namespace_audit_report
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-embedded-namespace-audit.json")
+    add_custom_target(
+        ror_ogre_next_embedded_namespace_audit
+        COMMAND "$<TARGET_FILE:ror_ogre_next_dual_runtime_link_smoke>"
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/audit_embedded_namespace.py"
+            --next-archive "$<TARGET_FILE:OgreNextMain>"
+            --next-archive "$<TARGET_FILE:RenderSystem_Metal>"
+            --plugin-object
+                "$<TARGET_OBJECTS:ror_ogre_next_embedded_plugin_export_probe>"
+            --legacy-library "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}"
+            --executable
+                "$<TARGET_FILE:ror_ogre_next_dual_runtime_link_smoke>"
+            --compile-commands "${CMAKE_BINARY_DIR}/compile_commands.json"
+            --next-source-root "${ogre_next_SOURCE_DIR}"
+            --next-adapter
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/next_adapter.cpp"
+            --legacy-adapter
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/ogre14_adapter.cpp"
+            --main-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/main.cpp"
+            --remap-header "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
+            --legacy-include "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}"
+            --report "${_ror_embedded_namespace_audit_report}"
+        DEPENDS
+            ror_ogre_next_dual_runtime_link_smoke
+            ror_ogre_next_embedded_plugin_export_probe
+            RenderSystem_Metal
+        COMMENT
+            "Auditing the namespaced OgreNext and OGRE14 dual-runtime link"
+        COMMAND_EXPAND_LISTS
+        VERBATIM)
+endif ()
 
 option(
     ROR_OGRE_NEXT_FRONTEND_N1

@@ -1,0 +1,55 @@
+diff --git a/OgreMain/src/OgreRoot.cpp b/OgreMain/src/OgreRoot.cpp
+index 292a9b376..dfa193043 100644
+--- a/OgreMain/src/OgreRoot.cpp
++++ b/OgreMain/src/OgreRoot.cpp
+@@ -115,6 +115,14 @@ THE SOFTWARE.
+ #include <fstream>
+ #include <sstream>
+ 
++#ifndef ROR_OGRE_NEXT_DLL_START_PLUGIN_SYMBOL
++#    define ROR_OGRE_NEXT_DLL_START_PLUGIN_SYMBOL "dllStartPlugin"
++#endif
++
++#ifndef ROR_OGRE_NEXT_DLL_STOP_PLUGIN_SYMBOL
++#    define ROR_OGRE_NEXT_DLL_STOP_PLUGIN_SYMBOL "dllStopPlugin"
++#endif
++
+ namespace Ogre
+ {
+     //-----------------------------------------------------------------------
+@@ -1249,7 +1257,8 @@ namespace Ogre
+                 __extension__
+ #    endif
+                     DLL_STOP_PLUGIN pFunc =
+-                        reinterpret_cast<DLL_STOP_PLUGIN>( ( *i )->getSymbol( "dllStopPlugin" ) );
++                        reinterpret_cast<DLL_STOP_PLUGIN>(
++                            ( *i )->getSymbol( ROR_OGRE_NEXT_DLL_STOP_PLUGIN_SYMBOL ) );
+                 // this will call uninstallPlugin
+                 pFunc();
+             }
+@@ -1470,12 +1479,13 @@ namespace Ogre
+ #    ifdef __GNUC__
+                 __extension__
+ #    endif
+-                    DLL_START_PLUGIN pFunc = (DLL_START_PLUGIN)lib->getSymbol( "dllStartPlugin" );
++                    DLL_START_PLUGIN pFunc = (DLL_START_PLUGIN)lib->getSymbol(
++                        ROR_OGRE_NEXT_DLL_START_PLUGIN_SYMBOL );
+ 
+                 if( !pFunc )
+                 {
+                     OGRE_EXCEPT( Exception::ERR_ITEM_NOT_FOUND,
+-                                 "Cannot find symbol dllStartPlugin in library " + pluginName,
++                                 "Cannot find embedded plugin start symbol in library " + pluginName,
+                                  "Root::loadPlugin" );
+                 }
+ 
+@@ -1517,7 +1527,8 @@ namespace Ogre
+ #    ifdef __GNUC__
+                     __extension__
+ #    endif
+-                        DLL_STOP_PLUGIN pFunc = (DLL_STOP_PLUGIN)( *i )->getSymbol( "dllStopPlugin" );
++                        DLL_STOP_PLUGIN pFunc = (DLL_STOP_PLUGIN)( *i )->getSymbol(
++                            ROR_OGRE_NEXT_DLL_STOP_PLUGIN_SYMBOL );
+                     // this must call uninstallPlugin
+                     pFunc();
+                 }

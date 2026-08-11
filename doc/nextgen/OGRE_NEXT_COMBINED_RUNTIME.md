@@ -60,6 +60,24 @@ The RoR OgreNext fork therefore needs an embedded namespace mode:
 Link-order tricks, duplicate-symbol allowances, visibility alone, or a global
 game-target preprocessor define are not acceptable substitutes.
 
+### Downstream compile contract
+
+The fork remap is intentionally a private compile option, not an interface
+property. Every downstream target with a C++ or Objective-C++ translation unit
+that includes an OgreNext header must explicitly call:
+
+```cmake
+ror_ogre_next_enable_embedded_namespace(the_target)
+```
+
+That call belongs next to the target's OgreNext include and link declarations.
+Targets which compile Ogre14 headers must never call it. A combined adapter
+must keep the two header families in separate translation units and cross the
+boundary through renderer-neutral RoR types or a narrow C/Pimpl seam. Merely
+linking a namespaced static archive does not remap a consumer translation unit;
+omitting this call is a build-contract error even when a particular source file
+happens not to name `Ogre` directly.
+
 ## First product target
 
 The opt-in target is `RoR-Combined` until native parity gates pass. Its intended
