@@ -297,6 +297,8 @@ set(SOURCE_FILES
         system/RendererOgre14InputEngineTarget.{h,cpp}
         system/RendererOgre14ProductSession.{h,cpp}
         system/detail/OgreNextDemoFrameNormalization.{h,cpp}
+        system/RendererInProcessSession.{h,cpp}
+        system/detail/OgreNextDemoInProcessFramePolicy.{h,cpp}
         system/RendererOgre14RuntimeOwnership.{h,cpp}
         system/RendererPackageRuntimeProbe.{h,cpp}
         system/RendererOgreNextLiveSession.{h,cpp}
@@ -459,7 +461,9 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/ResourceHandle.cpp
         gfx/render/SceneSnapshot.cpp
         gfx/render/SceneSnapshotTransport.cpp
+        system/RendererInProcessSession.cpp
         system/detail/OgreNextDemoFrameNormalization.cpp
+        system/detail/OgreNextDemoInProcessFramePolicy.cpp
         )
 set_source_files_properties(
         ${ROR_RENDER_CONTRACT_SOURCES}

@@ -102,6 +102,10 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgre14InputAdapter.h
     source/main/system/RendererOgre14ProductSession.cpp
     source/main/system/RendererOgre14ProductSession.h
+    source/main/system/RendererInProcessSession.cpp
+    source/main/system/RendererInProcessSession.h
+    source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp
+    source/main/system/detail/OgreNextDemoInProcessFramePolicy.h
     source/main/system/RendererSiblingPath.cpp
     source/main/system/RendererSiblingPath.h
     source/main/system/RendererPackagedMediaPath.cpp
@@ -200,6 +204,7 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/RendererChildLauncherTests.cpp
     tests/gfx/RendererOgre14GameBridgeTests.cpp
     tests/gfx/RendererOgre14GameHostSessionTests.cpp
+    tests/gfx/RendererInProcessSessionTests.cpp
     tests/gfx/RendererSiblingPathTests.cpp
     tests/gfx/RendererPackageRuntimeProbeTests.cpp
     tests/gfx/RendererOgreNextChildTests.cpp
@@ -373,6 +378,10 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgre14InputAdapter.h"
     "source/main/system/RendererOgre14ProductSession.cpp"
     "source/main/system/RendererOgre14ProductSession.h"
+    "source/main/system/RendererInProcessSession.cpp"
+    "source/main/system/RendererInProcessSession.h"
+    "source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp"
+    "source/main/system/detail/OgreNextDemoInProcessFramePolicy.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererPackagedMediaPath.cpp"
@@ -470,6 +479,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/RendererChildLauncherTests.cpp"
     "tests/gfx/RendererOgre14GameBridgeTests.cpp"
     "tests/gfx/RendererOgre14GameHostSessionTests.cpp"
+    "tests/gfx/RendererInProcessSessionTests.cpp"
     "tests/gfx/RendererSiblingPathTests.cpp"
     "tests/gfx/RendererPackageRuntimeProbeTests.cpp"
     "tests/gfx/RendererOgreNextChildTests.cpp"

@@ -1504,6 +1504,7 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoFrameNormalization.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp"
 )
 target_include_directories(
     ror_renderer_ogre14_game_host_session_tests
@@ -1515,6 +1516,48 @@ target_include_directories(
 target_link_libraries(
     ror_renderer_ogre14_game_host_session_tests
     PRIVATE ror_render_contract Threads::Threads
+)
+
+# This executable is intentionally linked from an explicit renderer-neutral
+# source closure instead of ror_render_contract. Keeping the guard on the
+# closure list proves that the combined single-process lifecycle has no codec,
+# channel, or process-bridge object dependency hidden behind a static archive.
+set(ROR_RENDERER_IN_PROCESS_LINK_CLOSURE_SOURCES
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeRuntime.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendDirectDispatcher.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendPresentationPolicy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ResourceHandle.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneSnapshot.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererInProcessSession.cpp"
+)
+foreach (in_process_closure_source IN LISTS
+         ROR_RENDERER_IN_PROCESS_LINK_CLOSURE_SOURCES)
+    get_filename_component(in_process_closure_name
+        "${in_process_closure_source}" NAME)
+    if (in_process_closure_name MATCHES "(Transport|Bridge)")
+        message(FATAL_ERROR
+            "in-process renderer link closure imported ${in_process_closure_name}")
+    endif ()
+endforeach ()
+add_executable(
+    ror_renderer_in_process_session_link_closure_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/RendererInProcessSessionTests.cpp"
+    ${ROR_RENDERER_IN_PROCESS_LINK_CLOSURE_SOURCES}
+)
+target_include_directories(
+    ror_renderer_in_process_session_link_closure_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
 )
 foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_TEST_TARGETS)
     target_link_libraries(${render_contract_test} PRIVATE ror_render_contract)
@@ -1528,6 +1571,7 @@ set(ROR_RENDER_CONTRACT_BUILD_TARGETS
     ror_renderer_ogre14_runtime_ownership_tests
     ror_renderer_ogre14_game_host_session_tests
     ror_renderer_ogre_next_live_session_tests
+    ror_renderer_in_process_session_link_closure_tests
     ror_flex_mesh_topology_tests
     ror_ogre14_metal_flex_shadow_read_contract_tests
     ror_gfx_actor_capture_inventory_tests
@@ -1569,6 +1613,7 @@ if (NOT MSVC)
         ror_renderer_ogre14_runtime_ownership_tests
         ror_renderer_ogre14_game_host_session_tests
         ror_renderer_ogre_next_live_session_tests
+        ror_renderer_in_process_session_link_closure_tests
     )
     foreach (render_contract_test IN LISTS ROR_RENDER_CONTRACT_LINK_TARGETS)
         target_link_options(
@@ -2551,6 +2596,11 @@ add_test(
 set_tests_properties(
     renderer_ogre_next_live_session
     PROPERTIES TIMEOUT 30
+)
+
+add_test(
+    NAME renderer_in_process_session_link_closure
+    COMMAND ror_renderer_in_process_session_link_closure_tests
 )
 
 add_test(

@@ -1,7 +1,8 @@
 # OgreNext combined runtime
 
-Status: **implementation in progress; direct typed dispatch exists, while the
-namespaced OgreNext fork and one-process product target remain gated**
+Status: **implementation in progress; direct typed dispatch and its
+renderer-neutral in-process lifecycle exist, while the namespaced OgreNext fork
+and one-process product target remain gated**
 
 ## Product objective
 
@@ -36,6 +37,24 @@ codec, channel, acknowledgement, pipe, process, or child-runtime dependency.
 The compatibility `RendererFrontendTransportDispatcher` decodes the existing
 wire protocol and delegates the typed operation to this same consumer, so the
 two-process regression path cannot acquire different render lifecycle rules.
+
+`RendererInProcessSession` now owns that dispatcher for one freshly initialized
+frontend lifetime. The game must obtain a one-shot pre-simulation event grant
+before advancing physics, then publish the joined graphics capture. A second
+event poll immediately before presentation catches a resize that arrived during
+capture. Surface-drain timeout retains the exact immutable production; the next
+pre-simulation pump retries it without recapturing or advancing simulation. The
+session then synchronizes an optional asset delta before its scene, preserves
+snapshot and frontend-frame IDs across map reset, and releases the frontend's
+native-window borrow before shutting down the event owner.
+
+Camera conventions and supported-light validation are injected through
+`IRendererInProcessFramePolicy`, not embedded in the reusable lifecycle. The
+first demo adapter reuses the existing drawable-pixel camera normalization and
+one-shadow-sun admission. A standalone strict-warning test links the complete
+session from an explicit source closure that rejects every file named
+`*Transport*` or `*Bridge*`; this is structural evidence only, not yet a wired
+game or OgreNext frontend.
 
 ## Why the OgreNext fork is required
 

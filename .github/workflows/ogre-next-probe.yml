@@ -81,6 +81,7 @@ on:
       - source/main/system/RendererOgre14InputAdapter.*
       - source/main/system/RendererOgre14InputEngineTarget.*
       - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/RendererInProcessSession.*
       - source/main/system/detail/OgreNextDemo*
       - source/main/system/RendererOgre14RuntimeOwnership.*
       - source/main/system/RendererSiblingPath.*
@@ -111,6 +112,7 @@ on:
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererOgre14GameHostSessionTests.cpp
+      - tests/gfx/RendererInProcessSessionTests.cpp
       - tests/gfx/RendererOgre14InputAdapterTests.cpp
       - tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp
@@ -222,6 +224,7 @@ on:
       - source/main/system/RendererOgre14InputAdapter.*
       - source/main/system/RendererOgre14InputEngineTarget.*
       - source/main/system/RendererOgre14ProductSession.*
+      - source/main/system/RendererInProcessSession.*
       - source/main/system/detail/OgreNextDemo*
       - source/main/system/RendererOgre14RuntimeOwnership.*
       - source/main/system/RendererSiblingPath.*
@@ -252,6 +255,7 @@ on:
       - tests/gfx/RendererBridge*Tests.cpp
       - tests/gfx/RendererOgre14GameBridgeTests.cpp
       - tests/gfx/RendererOgre14GameHostSessionTests.cpp
+      - tests/gfx/RendererInProcessSessionTests.cpp
       - tests/gfx/RendererOgre14InputAdapterTests.cpp
       - tests/gfx/RendererOgre14RuntimeOwnershipTests.cpp
       - tests/gfx/RendererSiblingPathTests.cpp

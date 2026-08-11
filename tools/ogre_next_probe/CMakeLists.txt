@@ -212,6 +212,10 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgre14InputAdapter.h"
     "source/main/system/RendererOgre14ProductSession.cpp"
     "source/main/system/RendererOgre14ProductSession.h"
+    "source/main/system/RendererInProcessSession.cpp"
+    "source/main/system/RendererInProcessSession.h"
+    "source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp"
+    "source/main/system/detail/OgreNextDemoInProcessFramePolicy.h"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererPackagedMediaPath.cpp"
@@ -323,6 +327,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/render/RenderBridgeControlTransportTests.cpp"
     "tests/gfx/render/RendererFrontendTransportDispatcherTests.cpp"
     "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp"
+    "tests/gfx/RendererInProcessSessionTests.cpp"
     "tests/gfx/render/Ogre14GraphicsSceneSourceTests.cpp"
     "tests/gfx/render/Ogre14LegacyAssetTranslatorTests.cpp"
     "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
@@ -2680,6 +2685,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgre14InputAdapter.h
             source/main/system/RendererOgre14ProductSession.cpp
             source/main/system/RendererOgre14ProductSession.h
+            source/main/system/RendererInProcessSession.cpp
+            source/main/system/RendererInProcessSession.h
+            source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp
+            source/main/system/detail/OgreNextDemoInProcessFramePolicy.h
             source/main/system/RendererSiblingPath.cpp
             source/main/system/RendererSiblingPath.h
             source/main/system/RendererPackagedMediaPath.cpp
@@ -2779,6 +2788,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/RendererChildLauncherTests.cpp
             tests/gfx/RendererOgre14GameBridgeTests.cpp
             tests/gfx/RendererOgre14GameHostSessionTests.cpp
+            tests/gfx/RendererInProcessSessionTests.cpp
             tests/gfx/RendererSiblingPathTests.cpp
             tests/gfx/RendererPackageRuntimeProbeTests.cpp
             tests/gfx/RendererOgreNextChildTests.cpp
