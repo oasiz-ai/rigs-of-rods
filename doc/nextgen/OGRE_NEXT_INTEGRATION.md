@@ -22,11 +22,13 @@ device and Compositor2 workspace, renders one PBR triangle, and performs an
 independently validated UI-free GPU readback.
 
 The next product architecture is the opt-in single-process combined runtime in
-`OGRE_NEXT_COMBINED_RUNTIME.md`. Its first landed boundary is direct typed
-frontend dispatch shared by the compatibility transport consumer. The
-namespaced OgreNext fork, one-window runtime owner, and combined product target
-remain implementation gates; this checkpoint does not claim they are already
-linked or shipping.
+`OGRE_NEXT_COMBINED_RUNTIME.md`. Direct typed dispatch remains shared with the
+compatibility transport consumer, but the namespaced OgreNext fork, one-window
+runtime owner, in-process session, and `RoR-Combined` product target are now
+linked and live on macOS arm64. This is still a raw build-tree, opt-in
+transition with a hidden OGRE 14 content producer. It is not a shipping/default
+cutover or evidence of visible image quality, sustained performance, native
+Windows/Linux parity, or removal of the legacy producer.
 
 The third executable exercises the first renderer-neutral frontend slice. It
 imports a real `RenderAssetRegistry` catalog into immutable Ogre v2 vertex and

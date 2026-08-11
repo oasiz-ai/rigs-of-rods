@@ -1,8 +1,9 @@
 # OgreNext combined runtime
 
-Status: **implementation in progress; direct typed dispatch, its
-renderer-neutral in-process lifecycle, and the opt-in namespaced OgreNext fork
-exist, while the complete one-process N1 product link remains gated**
+Status: **implemented as an opt-in macOS arm64 combined product; the exact
+one-process N1/Metal link and live CityWorld/Alexis path pass, while visible
+image/resize acceptance, performance, native content import, cross-platform
+parity, and default-product cutover remain gated**
 
 ## Product objective
 
@@ -53,8 +54,9 @@ Camera conventions and supported-light validation are injected through
 first demo adapter reuses the existing drawable-pixel camera normalization and
 one-shadow-sun admission. A standalone strict-warning test links the complete
 session from an explicit source closure that rejects every file named
-`*Transport*` or `*Bridge*`; this is structural evidence only, not yet a wired
-game or OgreNext frontend.
+`*Transport*` or `*Bridge*`. `RoR-Combined` now wires that same session to the
+production game loop and the namespaced N1 frontend; the standalone test
+remains the smaller lifecycle and link-closure regression.
 
 ## Why the OgreNext fork is required
 
@@ -105,11 +107,13 @@ happens not to name `Ogre` directly.
 
 The canonical lock records patch 0006 and the remap header as conditional fork
 inputs. Build-contract schema 7 records whether the mode was enabled and
-whether those inputs were applied. The embedded audit binds that contract's
-SHA-256 and exact clean RoR commit into its report. Its current link scope is
-deliberately reported as `full_n1_link_evidence: not_evaluated`: the dual-Root
-smoke is namespace evidence, not evidence for the complete N1/Metal/PBS/Unlit/
-Overlay product closure.
+whether those inputs were applied. The standalone probe deliberately reports
+`full_n1_link_evidence: not_evaluated`; its dual-Root smoke remains namespace
+evidence. The root combined provider adds a stricter audit whose evidence scope
+requires the dual Root link, renderer-neutral session, concrete presenter, and
+full N1 runtime link. The final binary verifier consumes that report, its
+compile database, the exact clean RoR commit, all contributing static archives,
+and the complete OGRE 14 dylib closure.
 
 ## First product target
 
@@ -130,6 +134,37 @@ The executable must not link the launcher, supervisor, child main, bridge
 channel, transport stream, or renderer transport codecs. The legacy
 two-process package remains a separate regression build while the combined
 target is opt-in; it is not an automatic fallback from a failed combined run.
+
+## Current macOS arm64 evidence
+
+On 2026-08-11, a fresh clean build at commit
+`d670714e9bfa44cbf8b4ca6b20e217acb62f327a` produced the arm64
+`RoR-Combined` binary with SHA-256
+`16b462a2c8dc0f41e375742cd38ec6dcaef54f26e347d6dada3c65b3fc36c57f`.
+The final closure receipt proves all 376 fetched OgreNext compile entries used
+the strict floating-point suffix, the complete namespace audit passed, required
+OgreNext and OGRE 14 contributors were present, and no bridge or transport
+object or symbol was linked. The separate staged-resource receipt proves all
+270 renderer-resource files matched their authenticated manifest.
+
+An isolated CityWorld/Alexis run then stayed alive for more than six minutes as
+one process with zero child processes and zero pipe or FIFO descriptors. It
+loaded the Metal/AGX runtime and allocated live `CAMetalLayer` drawables. The
+exact 158,845,395-byte CityWorld archive was mounted as the sole authenticated
+`EmbeddedZip` location under SHA-256
+`ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`.
+All 20 CityWorld material scripts completed without compiler errors; 23
+reviewed aliases and 11 reviewed lit fallbacks resolved the remaining legacy
+names. CityWorld missing-material diagnostics fell from 359 to zero, leaving
+only two unrelated `MeshesRG` diagnostics, while 32 opaque TUS0 projections
+remained active. The supervised exit reached
+`[RoR|RendererCombined|Shutdown] status='closed', pending=0` and produced no
+crash report.
+
+The desktop was locked during this run, so the allocated Metal drawables and
+active N1 render path are not a visual pixel-quality, input, or resize result.
+No FPS was recorded. Those visible-image and performance gates remain open,
+along with map-reset/unmount acceptance inside a continuing process.
 
 ## Acceptance gates
 

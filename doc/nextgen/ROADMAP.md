@@ -1289,17 +1289,23 @@ Gate R1:
   not claim an exact Ogre RGBA16 source, an Ogre image composite, or full native
   V1 readiness. Linux/Windows hardware execution, soft/area-light shadows, full
   production content coverage, and image/performance gates remain open.
-- The combined-runtime workstream now has one renderer-neutral typed frontend
-  consumer for exact asset synchronization, immutable scene submission,
-  resize retirement, contiguous frontend frame identity, wait/release, and
-  map-generation reset. The compatibility transport dispatcher decodes and
-  delegates to that same consumer; the direct path itself contains no wire
-  codec, channel, pipe, acknowledgement, or child-process dependency. The
-  single-process product remains gated on the `RoROgreNext` namespaced fork,
-  one shared SDL/window owner, an in-process runtime/session owner, dual-OGRE
-  symbol audits, and a native one-PID CityWorld/Metal proof. See
-  `OGRE_NEXT_COMBINED_RUNTIME.md`. This is an implemented consumer boundary,
-  not yet a linked or shipping `RoR-Combined` executable.
+- The combined-runtime workstream now links an opt-in macOS arm64
+  `RoR-Combined` executable. It contains the game, a hidden non-presenting OGRE
+  14 content producer, the renderer-neutral direct dispatcher/session, one
+  shared SDL owner, the production N1/Metal frontend, and the namespaced
+  `RoROgreNext` fork. Clean-source receipts at `d670714e9` prove the full
+  dual-OGRE closure, strict FP on 376/376 fetched OgreNext compile entries,
+  required native contributors, and zero bridge/transport objects or symbols.
+  A one-PID
+  CityWorld/Alexis run used zero child processes and pipes, mounted the exact
+  CityWorld ZIP as an authenticated `EmbeddedZip`, reduced its 359 missing
+  materials to zero through 23 reviewed aliases and 11 reviewed fallbacks,
+  retained 32 projected opaque materials, ran for more than six minutes, and
+  shut down with no pending frame or crash report. See
+  `OGRE_NEXT_COMBINED_RUNTIME.md`. The desktop was locked, so visible pixels,
+  resize/input, FPS/performance, map-reset unmount, cross-platform parity,
+  packaging/default cutover, and removal of the hidden OGRE 14 producer remain
+  open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,
