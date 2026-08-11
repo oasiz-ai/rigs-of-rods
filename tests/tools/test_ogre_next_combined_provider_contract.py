@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -149,9 +152,78 @@ class CombinedProviderContractTests(unittest.TestCase):
             self.assertIn(macro, PROVIDER)
         self.assertIn("ror-ogre-next-combined-resources", PROVIDER)
         self.assertIn("stage_ogre_next_combined_resources.py", PROVIDER)
+        self.assertIn('"${_ror_stage_relative}!|${_ror_source}', PROVIDER)
+        self.assertIn('string(REGEX REPLACE "!$"', PROVIDER)
         self.assertIn("ror_ogre_next_combined_resources", MAIN_CMAKE)
         self.assertIn('"raw_build_tree_demo": true', PROVIDER_CONTRACT)
         self.assertIn('"app_bundle_staged": false', PROVIDER_CONTRACT)
+
+    def test_prefix_media_names_have_one_canonical_stage_order(self) -> None:
+        stage_script = ROOT / "tools/stage_ogre_next_combined_resources.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            build_root = Path(temporary)
+            sources = build_root / "sources"
+            sources.mkdir()
+            base = sources / "base.bin"
+            extension = sources / "extension.bin"
+            base.write_bytes(b"base\n")
+            extension.write_bytes(b"extension\n")
+
+            def entry(path: str, source: Path) -> dict[str, object]:
+                return {
+                    "path": path,
+                    "source": str(source),
+                    "size": source.stat().st_size,
+                    "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                }
+
+            entries = [
+                entry("ShaderMedia/Test.material", base),
+                entry("ShaderMedia/Test.material.json", extension),
+            ]
+            manifest = build_root / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema": "ror.ogre_next_combined_resource_manifest.v1",
+                        "files": entries,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            output = build_root / "ror-ogre-next-combined-resources"
+            command = [
+                sys.executable,
+                str(stage_script),
+                "--manifest",
+                str(manifest),
+                "--build-root",
+                str(build_root),
+                "--output",
+                str(output),
+            ]
+            completed = subprocess.run(
+                command, check=False, capture_output=True, text=True
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                (output / "ShaderMedia/Test.material").read_bytes(), b"base\n"
+            )
+
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema": "ror.ogre_next_combined_resource_manifest.v1",
+                        "files": list(reversed(entries)),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rejected = subprocess.run(
+                command, check=False, capture_output=True, text=True
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("not strictly sorted", rejected.stderr)
 
     def test_binary_proof_is_positive_negative_and_preinvalidated(self) -> None:
         for target in (

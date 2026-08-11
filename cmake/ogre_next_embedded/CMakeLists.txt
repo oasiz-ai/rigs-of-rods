@@ -332,9 +332,18 @@ function(_ror_record_media_file _ror_source _ror_manifest_relative
         "${_ror_manifest_relative}|${_ror_media_size}|${_ror_media_sha256}\n")
     set(${_ror_serialized_variable} "${_ror_serialized}" PARENT_SCOPE)
     if (NOT "${_ror_stage_relative}" STREQUAL "")
+        if (NOT _ror_stage_relative MATCHES
+                "^[A-Za-z0-9_./+@()~-]+$")
+            message(FATAL_ERROR
+                "Combined media stage path is not canonically sortable: ${_ror_stage_relative}")
+        endif ()
         set(_ror_tuples "${_ror_stage_tuples}")
+        # CMake sorts a string which ends at a prefix after strings which
+        # continue with '.'. '!' is lower than every admitted path byte, so
+        # this non-path sentinel makes prefix names match the Python verifier's
+        # strict bytewise ordering without weakening its canonical-order gate.
         list(APPEND _ror_tuples
-            "${_ror_stage_relative}|${_ror_source}|${_ror_media_size}|${_ror_media_sha256}")
+            "${_ror_stage_relative}!|${_ror_source}|${_ror_media_size}|${_ror_media_sha256}")
         set(_ror_stage_tuples "${_ror_tuples}" PARENT_SCOPE)
         set(_ror_sources "${_ror_stage_sources}")
         list(APPEND _ror_sources "${_ror_source}")
@@ -616,7 +625,13 @@ foreach (_ror_stage_tuple IN LISTS _ror_stage_tuples)
     if (NOT _ror_stage_field_count EQUAL 4)
         message(FATAL_ERROR "Combined resource tuple shape changed")
     endif ()
-    list(GET _ror_stage_fields 0 _ror_stage_path)
+    list(GET _ror_stage_fields 0 _ror_stage_sort_key)
+    if (NOT _ror_stage_sort_key MATCHES
+            "^[A-Za-z0-9_./+@()~-]+!$")
+        message(FATAL_ERROR "Combined resource sort key changed shape")
+    endif ()
+    string(REGEX REPLACE "!$" "" _ror_stage_path
+        "${_ror_stage_sort_key}")
     list(GET _ror_stage_fields 1 _ror_stage_source)
     list(GET _ror_stage_fields 2 _ror_stage_size)
     list(GET _ror_stage_fields 3 _ror_stage_sha256)
