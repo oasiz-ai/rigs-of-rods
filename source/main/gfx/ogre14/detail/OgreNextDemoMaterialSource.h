@@ -25,6 +25,7 @@
 namespace RoR::Render {
 class IOgre14AuthenticatedTextureResolver;
 class IOgre14AuthenticatedTextureAuthorityProvider;
+class IOgre14AuthenticatedMaterialScriptResolver;
 class IOgre14SelectedTextureSourceResolver;
 class Ogre14ManagedMaterialDeclarationBinding;
 } // namespace RoR::Render
@@ -34,10 +35,21 @@ namespace RoR::Gfx::Detail {
 /// MaterialSource exposes the renderer-neutral transactional accounting type.
 using OgreNextDemoMaterialSourceCounters = OgreNextDemoTextureSourceCounters;
 
+struct OgreNextDemoCuratedCityWorldCoverage final {
+  std::size_t policy_entries =
+      kOgreNextDemoCuratedCityWorldAsiaPolicyEntryCount;
+  std::size_t observed_entries = 0U;
+  std::size_t admitted_entries = 0U;
+  std::size_t matte_entries = 0U;
+  std::size_t environment_pending_entries = 0U;
+  std::size_t uncurated_spherical_family_matte_materials = 0U;
+};
+
 /// Performance-first private bridge for the playable OgreNext demo. It is not
-/// a legacy-material API: one narrowly eligible opaque TUS0 is captured once
-/// per map generation and lowered to conventional PBR assets. Each exact
-/// section's first observation freezes generic-factor identity plus
+/// a legacy-material API: the generic path retains one narrowly eligible
+/// opaque TUS0, while the separately authenticated three-row CityWorld slice
+/// lowers exact TUS0+TUS1 source bytes and retains TUS2 as pending authority.
+/// Each section's first observation freezes generic-factor identity plus
 /// material/UV/cull state. Projected decisions and non-transient matte reasons
 /// remain immutable. Source-unavailable mattes are recounted and retried on a
 /// later capture so package/resource generation changes can promote them;
@@ -67,6 +79,14 @@ public:
   /// capture. Replacement or late first binding is rejected.
   [[nodiscard]] bool BindOrdinarySelectedTextureSourceResolver(
       const Render::IOgre14SelectedTextureSourceResolver &resolver) noexcept;
+
+  /// Binds ContentManager's material-script receipt authority. Generic TUS0
+  /// projection does not depend on this seam; the curated CityWorld exception
+  /// cannot admit anything unless the exact material-to-script resolution is
+  /// current and authenticated.
+  [[nodiscard]] bool BindAuthenticatedMaterialScriptResolver(
+      const Render::IOgre14AuthenticatedMaterialScriptResolver
+          &resolver) noexcept;
 
   /// Starts one outer GfxScene capture transaction. The joined capture must
   /// fail if this source cannot open; it must never publish a first-frame matte
@@ -108,6 +128,8 @@ public:
   CurrentCaptureCounters() const noexcept;
   [[nodiscard]] OgreNextDemoMaterialSourceCounters
   LifetimeCounters() const noexcept;
+  [[nodiscard]] OgreNextDemoCuratedCityWorldCoverage
+  CurrentCuratedCityWorldCoverage() const noexcept;
 
   void Commit() noexcept;
   void Discard() noexcept;
@@ -134,6 +156,8 @@ private:
       *texture_authority_provider_ = nullptr;
   const Render::IOgre14SelectedTextureSourceResolver
       *ordinary_texture_source_resolver_ = nullptr;
+  const Render::IOgre14AuthenticatedMaterialScriptResolver
+      *material_script_resolver_ = nullptr;
   OgreNextDemoMaterialSourceCounters lifetime_counters_;
 };
 

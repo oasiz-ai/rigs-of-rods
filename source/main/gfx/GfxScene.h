@@ -267,6 +267,8 @@ private:
         std::size_t active_material_projection_count = 0U;
         Gfx::Detail::OgreNextDemoMaterialSourceCounters
             material_source_counters;
+        Gfx::Detail::OgreNextDemoCuratedCityWorldCoverage
+            curated_cityworld_material_coverage;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 

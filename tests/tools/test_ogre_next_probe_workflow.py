@@ -89,6 +89,8 @@ OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
     "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
+    "source/main/resources/ContentManager.cpp",
+    "source/main/system/CVar.cpp",
     "source/main/utils/MeshObject.cpp",
     "source/main/utils/MeshObject.h",
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
@@ -104,6 +106,7 @@ OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
     "doc/nextgen/OGRE_NEXT_COMBINED_RUNTIME.md",
     "source/main/gfx/ogre14/detail/OgreNextDemo*",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*",
+    "source/main/system/CVar.cpp",
     "source/main/utils/MeshObject.*",
     "source/main/system/detail/OgreNextDemo*",
     "source/main/physics/Savegame.cpp",
@@ -2768,6 +2771,74 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertNotIn("FETCHCONTENT_SOURCE_DIR_OGRE_NEXT", self.workflow)
         self.assertNotIn("git clone", self.workflow)
         self.assertNotIn("ogre-next master", self.workflow.lower())
+
+    def test_curated_cityworld_sampler_matches_reviewed_a4_runtime(self) -> None:
+        cvars = (
+            REPOSITORY_ROOT / "source/main/system/CVar.cpp"
+        ).read_text(encoding="utf-8")
+        content_manager = (
+            REPOSITORY_ROOT / "source/main/resources/ContentManager.cpp"
+        ).read_text(encoding="utf-8")
+        policy_header = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
+        ).read_text(encoding="utf-8")
+        material_source = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
+        ).read_text(encoding="utf-8")
+        native_test = (
+            REPOSITORY_ROOT
+            / "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertRegex(
+            cvars,
+            r'cVarCreate\("gfx_texture_filter"[^\n]+"3"'
+            r'/\*\(int\)GfxTexFilter::ANISOTROPIC\*/\)',
+        )
+        self.assertRegex(
+            cvars,
+            r'cVarCreate\("gfx_anisotropy"[^\n]+"4"\)',
+        )
+        anisotropic_case = content_manager.index(
+            "case GfxTexFilter::ANISOTROPIC: tfo = TFO_ANISOTROPIC;"
+        )
+        set_anisotropy = content_manager.index(
+            "MaterialManager::getSingleton().setDefaultAnisotropy("
+        )
+        set_filtering = content_manager.index(
+            "MaterialManager::getSingleton().setDefaultTextureFiltering(tfo)"
+        )
+        initialize_groups = content_manager.index(
+            "initialiseAllResourceGroups()"
+        )
+        self.assertLess(anisotropic_case, set_anisotropy)
+        self.assertLess(set_anisotropy, set_filtering)
+        self.assertLess(set_filtering, initialize_groups)
+        for token in (
+            "REVIEWED_CONFIGURED_ANISOTROPIC4_V1",
+            "reviewed_configured_anisotropic_min_mag_linear_mip_anisotropy4_v1",
+            "54305f5c7f99fa6a9628337508d230f588e60d1d410f6d6fe56be3186790a57e",
+        ):
+            with self.subTest(reviewed_policy=token):
+                self.assertIn(token, policy_header)
+        for token in (
+            "OgreNextDemoObservedSamplerFilter::ANISOTROPIC",
+            "OgreNextDemoObservedSamplerFilter::LINEAR",
+            "observation.maximum_anisotropy == 4U",
+            "Ogre::CMPF_GREATER_EQUAL",
+        ):
+            with self.subTest(native_sampler_gate=token):
+                self.assertIn(token, material_source)
+        fixture = native_test[
+            native_test.index("BuildReviewedConfiguredSampler()") :
+            native_test.index("std::vector<std::uint8_t> ReadCuratedFixtureBytes")
+        ]
+        self.assertIn("Ogre::FO_ANISOTROPIC", fixture)
+        self.assertIn("Ogre::FO_LINEAR", fixture)
+        self.assertIn("setAnisotropy(4U)", fixture)
+        self.assertNotIn("setCompareFunction", fixture)
 
     def test_in_process_presenter_has_direct_namespaced_closure(self) -> None:
         header = (

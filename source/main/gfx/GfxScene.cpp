@@ -175,7 +175,8 @@ std::string FormatOgreNextDemoMaterialExclusions(
 
 std::string BuildOgreNextDemoMaterialCoverageSnapshot(
     std::size_t active_projections,
-    const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters)
+    const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters,
+    const RoR::Gfx::Detail::OgreNextDemoCuratedCityWorldCoverage& curated)
 {
     return fmt::format(
         "active={};candidates={};projected={};matte={};eligible_keys={};"
@@ -186,7 +187,10 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "blend_source_over={};blend_legacy_alpha={};alpha_disabled={};"
         "alpha_greater={};alpha_greater_equal={};workflow_mr={};"
         "workflow_specular={};anisotropic={};normalized_textures={};"
-        "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};reasons={}",
+        "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};"
+        "curated_cityworld={}/{};curated_observed={};curated_matte={};"
+        "curated_environment_pending={};uncurated_spherical_matte={};"
+        "reasons={}",
         active_projections, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.distinct_eligible_texture_keys,
@@ -215,6 +219,10 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         counters.active_opaque_texture_normalizations,
         counters.active_straight_alpha_texture_normalizations,
         counters.active_linear_specular_texture_normalizations,
+        curated.admitted_entries, curated.policy_entries,
+        curated.observed_entries, curated.matte_entries,
+        curated.environment_pending_entries,
+        curated.uncurated_spherical_family_matte_materials,
         FormatOgreNextDemoMaterialExclusions(counters));
 }
 
@@ -2790,14 +2798,19 @@ void GfxScene::Init()
         content_manager != nullptr &&
         m_ogre_next_demo_material_source.
             BindOrdinarySelectedTextureSourceResolver(*content_manager);
+    const bool authenticated_material_script_bound =
+        content_manager != nullptr &&
+        m_ogre_next_demo_material_source.
+            BindAuthenticatedMaterialScriptResolver(*content_manager);
     if (!authenticated_texture_authority_bound ||
-        !ordinary_texture_source_bound)
+        !ordinary_texture_source_bound ||
+        !authenticated_material_script_bound)
     {
         OGRE_EXCEPT(
             Ogre::Exception::ERR_INVALID_STATE,
             "The OgreNext material source could not bind ContentManager's "
-            "authenticated texture authority and ordinary selected-source "
-            "resolver",
+            "authenticated texture/material-script authority and ordinary "
+            "selected-source resolver",
             "GfxScene::Init");
     }
 #endif
@@ -4014,6 +4027,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     m_ogre_next_demo_material_source.UsedProjectionCount();
                 pending->material_source_counters =
                     m_ogre_next_demo_material_source.CurrentCaptureCounters();
+                pending->curated_cityworld_material_coverage =
+                    m_ogre_next_demo_material_source
+                        .CurrentCuratedCityWorldCoverage();
             }
             if (!captured_dust_systems.empty())
             {
@@ -4369,10 +4385,13 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     m_ogre_next_demo_material_source.Commit();
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;
+    const Gfx::Detail::OgreNextDemoCuratedCityWorldCoverage&
+        curated_coverage = m_ogre14_pending_capture
+            ->curated_cityworld_material_coverage;
     const std::string coverage_snapshot =
         BuildOgreNextDemoMaterialCoverageSnapshot(
             m_ogre14_pending_capture->active_material_projection_count,
-            capture_counters);
+            capture_counters, curated_coverage);
     const bool activity_event =
         m_ogre14_pending_capture->new_material_projection_count != 0U ||
         capture_counters.new_frozen_material_decisions != 0U ||
@@ -4568,6 +4587,23 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             lifetime_counters.unauthenticated_gpu_readbacks,
             lifetime_counters.projections,
             lifetime_exclusions));
+        LOG(fmt::format(
+            "[RoR|OgreNextDemo|CuratedCityWorldAsia] policy_v={} "
+            "admitted={}/{} observed={} matte={} "
+            "environment_pending={} uncurated_spherical_family_matte={} "
+            "sampler_profile={} acceptance_config_sha256={} "
+            "environment_semantics={} parity_claim=false",
+            Gfx::Detail::kOgreNextDemoCuratedCityWorldAsiaPolicyVersion,
+            curated_coverage.admitted_entries,
+            curated_coverage.policy_entries,
+            curated_coverage.observed_entries,
+            curated_coverage.matte_entries,
+            curated_coverage.environment_pending_entries,
+            curated_coverage.uncurated_spherical_family_matte_materials,
+            Gfx::Detail::kOgreNextDemoCuratedCityWorldSamplerProfile,
+            Gfx::Detail::
+                kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256,
+            Gfx::Detail::kOgreNextDemoCuratedCityWorldEnvironmentPolicy));
         m_ogre_next_demo_material_coverage_log_snapshot = coverage_snapshot;
     }
     const Ogre14ContinuousParticleCaptureState& particles =

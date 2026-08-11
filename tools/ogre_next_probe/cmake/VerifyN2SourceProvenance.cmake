@@ -154,6 +154,7 @@ set(_ror_n2_relevant_source_paths
     source/main/resources/CacheSystem.cpp
     source/main/resources/ContentManager.cpp
     source/main/resources/ContentManager.h
+    source/main/system/CVar.cpp
     source/main/resources/LegacyMaterialCompatibilityPlan.cpp
     source/main/resources/LegacyMaterialCompatibilityPlan.h
     source/main/resources/LegacyMaterialScriptSanitizer.cpp
@@ -473,6 +474,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/resources/CacheSystem.cpp"
     "source/main/resources/ContentManager.cpp"
     "source/main/resources/ContentManager.h"
+    "source/main/system/CVar.cpp"
     "source/main/resources/LegacyMaterialCompatibilityPlan.cpp"
     "source/main/resources/LegacyMaterialCompatibilityPlan.h"
     "source/main/resources/LegacyMaterialScriptSanitizer.cpp"

@@ -1541,21 +1541,28 @@ if (ROR_OGRE14 AND TARGET RoR)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
     )
     target_include_directories(
         ror_ogre_next_demo_material_source_native_tests
         PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
         SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
     )
+    target_compile_definitions(
+        ror_ogre_next_demo_material_source_native_tests
+        PRIVATE ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1
+    )
     if (TARGET OgreMain)
         target_link_libraries(
             ror_ogre_next_demo_material_source_native_tests
-            PRIVATE OgreMain
+            PRIVATE OgreMain OpenSSL::Crypto Threads::Threads
         )
     else ()
         target_link_libraries(
             ror_ogre_next_demo_material_source_native_tests
-            PRIVATE ${OGRE_LIBRARIES}
+            PRIVATE ${OGRE_LIBRARIES} OpenSSL::Crypto Threads::Threads
         )
     endif ()
     list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS

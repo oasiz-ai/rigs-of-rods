@@ -77,6 +77,108 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
 
+/// Reviewed CityWorld vertical-slice declaration. This table is intentionally
+/// tiny and content-addressed: the material name is only a lookup hint. Runtime
+/// admission additionally authenticates the exact package, script bytes,
+/// source span, derived review identity, native TUS graph, and source receipts.
+/// The third texture is observed and authority-bound but is not presented yet;
+/// its explicit pending semantic prevents the spherical environment layer from
+/// being silently mistaken for completed parity.
+enum class OgreNextDemoCuratedCityWorldWorkflow : std::uint8_t {
+  SPECULAR = 1U,
+};
+
+enum class OgreNextDemoCuratedCityWorldAlphaPolicy : std::uint8_t {
+  FORCE_OPAQUE = 1U,
+};
+
+enum class OgreNextDemoCuratedCityWorldSamplerPolicy : std::uint8_t {
+  REVIEWED_CONFIGURED_ANISOTROPIC4_V1 = 1U,
+};
+
+enum class OgreNextDemoCuratedCityWorldEnvironmentPolicy : std::uint8_t {
+  SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED = 1U,
+};
+
+struct OgreNextDemoCuratedCityWorldMaterial final {
+  std::string_view exact_material_name;
+  std::string_view review_identity_sha256;
+  std::size_t source_byte_start = 0U;
+  std::size_t source_byte_end_exclusive = 0U;
+  std::string_view source_span_sha256;
+  std::string_view base_color_texture_name;
+  std::string_view linear_specular_texture_name;
+  std::string_view spherical_environment_texture_name;
+  OgreNextDemoCuratedCityWorldWorkflow workflow =
+      OgreNextDemoCuratedCityWorldWorkflow::SPECULAR;
+  std::uint8_t base_color_texture_unit = 0U;
+  std::uint8_t linear_specular_texture_unit = 1U;
+  std::uint8_t spherical_environment_texture_unit = 2U;
+  float roughness_factor = 1.0F;
+  std::array<float, 3U> specular_factor{{1.0F, 1.0F, 1.0F}};
+  float index_of_refraction = 1.5F;
+  OgreNextDemoCuratedCityWorldAlphaPolicy alpha_policy =
+      OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE;
+  bool depth_write = true;
+  bool clockwise_cull = true;
+  OgreNextDemoCuratedCityWorldSamplerPolicy sampler_policy =
+      OgreNextDemoCuratedCityWorldSamplerPolicy::
+          REVIEWED_CONFIGURED_ANISOTROPIC4_V1;
+  OgreNextDemoCuratedCityWorldEnvironmentPolicy environment_policy =
+      OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+          SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED;
+};
+
+constexpr std::uint32_t
+    kOgreNextDemoCuratedCityWorldAsiaPolicyVersion = 1U;
+constexpr std::size_t kOgreNextDemoCuratedCityWorldAsiaPolicyEntryCount = 3U;
+constexpr std::string_view kOgreNextDemoCuratedCityWorldArchiveSha256 =
+    "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+constexpr std::string_view kOgreNextDemoCuratedCityWorldScriptMember =
+    "asia.material";
+constexpr std::string_view kOgreNextDemoCuratedCityWorldScriptSha256 =
+    "ec34c578c12989e9a1559dfb56c539da49454d5fe7bbda2763fd7e279af6bc66";
+constexpr std::string_view
+    kOgreNextDemoCuratedCityWorldEnvironmentPolicy =
+        "reviewed_spherical_environment_authority_bound_pending_not_presented_v1";
+constexpr std::string_view
+    kOgreNextDemoCuratedCityWorldSamplerProfile =
+        "reviewed_configured_anisotropic_min_mag_linear_mip_anisotropy4_v1";
+/// Acceptance-evidence identity for the isolated A4 visual-slice RoR.cfg.
+/// Runtime admission still depends on the exact observed native sampler state;
+/// this digest is not a filename/config-only authorization mechanism.
+constexpr std::string_view
+    kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256 =
+        "54305f5c7f99fa6a9628337508d230f588e60d1d410f6d6fe56be3186790a57e";
+
+struct OgreNextDemoCuratedCityWorldSourceObservation final {
+  std::string_view archive_sha256;
+  std::string_view exact_script_member;
+  std::string_view source_script_sha256;
+  const std::uint8_t *source_script_bytes = nullptr;
+  std::size_t source_script_size = 0U;
+};
+
+/// Name-only lookup for telemetry/candidate routing. The returned row confers
+/// no authority; callers must pass it to Authenticate... before lowering.
+[[nodiscard]] const OgreNextDemoCuratedCityWorldMaterial *
+FindOgreNextDemoCuratedCityWorldMaterial(
+    std::string_view exact_material_name) noexcept;
+
+/// Authenticates one candidate against the source-controlled row. SHA-256 is
+/// recomputed over both the complete script and the exact reviewed span, then
+/// the classifier's canonical material identity is independently derived.
+/// Failure leaves no partially authorized state outside the caller.
+[[nodiscard]] Render::ValidationResult
+AuthenticateOgreNextDemoCuratedCityWorldMaterial(
+    const OgreNextDemoCuratedCityWorldMaterial &policy,
+    const OgreNextDemoCuratedCityWorldSourceObservation &observation);
+
+/// Stable indexed access for tests and coverage reporting. Out-of-range
+/// indices return null.
+[[nodiscard]] const OgreNextDemoCuratedCityWorldMaterial *
+OgreNextDemoCuratedCityWorldMaterialAt(std::size_t index) noexcept;
+
 /// Transactional source accounting. The three legacy fields are retained for
 /// log compatibility; all GPU-readback fields are hard-zero invariants.
 struct OgreNextDemoTextureSourceCounters final {

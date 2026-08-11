@@ -7,11 +7,15 @@
 
 #include "OgreNextDemoPrivatePolicy.h"
 
+#include "gfx/render/RenderPayloadDigest.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <new>
+#include <string>
 #include <utility>
 
 namespace RoR::Gfx::Detail {
@@ -19,6 +23,66 @@ namespace {
 
 constexpr std::uint64_t kFnv1a64OffsetBasis = 14695981039346656037ULL;
 constexpr std::uint64_t kFnv1a64Prime = 1099511628211ULL;
+
+constexpr std::array<OgreNextDemoCuratedCityWorldMaterial,
+                     kOgreNextDemoCuratedCityWorldAsiaPolicyEntryCount>
+    kCuratedCityWorldAsiaMaterials{{
+        {"Material_#58/asiafacade",
+         "8edac31773f79238db4f836fa33642db0ef6cde614e4a8cc1dd4f5d1416ec7eb",
+         1330U, 1763U,
+         "317b5e0c7462c1e0f9d4321487e177a1ca4eb487a7c77b54e2c4e6355034157c",
+         "asiafacade.dds", "asiafacade_spec.dds", "767chrome.jpg",
+         OgreNextDemoCuratedCityWorldWorkflow::SPECULAR, 0U, 1U, 2U,
+         0.48F, {1.0F, 1.0F, 1.0F}, 1.50F,
+         OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE, true, true,
+         OgreNextDemoCuratedCityWorldSamplerPolicy::
+             REVIEWED_CONFIGURED_ANISOTROPIC4_V1,
+         OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+             SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED},
+        {"Material_#58/asiawindow",
+         "180e624782c8b4aefb966ef04ecf5d610ab753004fa40d4e87ff5ac4ee6a2137",
+         162U, 595U,
+         "fc370571849e3dee88ae7e119b5a8ea1979f0fed147c7f97b457022a849f7769",
+         "asiawindow.dds", "asiawindow_spec.dds", "767chrome.jpg",
+         OgreNextDemoCuratedCityWorldWorkflow::SPECULAR, 0U, 1U, 2U,
+         0.12F, {1.0F, 1.0F, 1.0F}, 1.52F,
+         OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE, true, true,
+         OgreNextDemoCuratedCityWorldSamplerPolicy::
+             REVIEWED_CONFIGURED_ANISOTROPIC4_V1,
+         OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+             SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED},
+        {"Material_#58/asiamarble",
+         "8e5b1d6fafd227d4a7968abc8c1dd689d09cf951ce44e513803160c7abc8928f",
+         903U, 1328U,
+         "fc25121c77de533f3e8da7d9c64915f3e228adfe23062af570d81689392bacad",
+         "marble.dds", "marble_spec.dds", "767chrome.jpg",
+         OgreNextDemoCuratedCityWorldWorkflow::SPECULAR, 0U, 1U, 2U,
+         0.27F, {1.0F, 1.0F, 1.0F}, 1.50F,
+         OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE, true, true,
+         OgreNextDemoCuratedCityWorldSamplerPolicy::
+             REVIEWED_CONFIGURED_ANISOTROPIC4_V1,
+         OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+             SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED},
+    }};
+
+std::string DigestHex(const Render::RenderPayloadDigest &digest) {
+  constexpr char kHex[] = "0123456789abcdef";
+  std::string result;
+  result.resize(digest.size() * 2U);
+  for (std::size_t index = 0U; index < digest.size(); ++index) {
+    result[index * 2U] = kHex[digest[index] >> 4U];
+    result[index * 2U + 1U] = kHex[digest[index] & 0x0fU];
+  }
+  return result;
+}
+
+bool IsLowercaseSha256(std::string_view value) noexcept {
+  return value.size() == 64U &&
+         std::all_of(value.begin(), value.end(), [](char character) {
+           return (character >= '0' && character <= '9') ||
+                  (character >= 'a' && character <= 'f');
+         });
+}
 
 Render::ValidationResult
 Failure(Render::ValidationCode code, const char *field, const char *detail,
@@ -241,6 +305,175 @@ bool HasConsistentMaterialDenominators(
 }
 
 } // namespace
+
+const OgreNextDemoCuratedCityWorldMaterial *
+FindOgreNextDemoCuratedCityWorldMaterial(
+    std::string_view exact_material_name) noexcept {
+  const auto found = std::find_if(
+      kCuratedCityWorldAsiaMaterials.begin(),
+      kCuratedCityWorldAsiaMaterials.end(),
+      [exact_material_name](const auto &entry) {
+        return entry.exact_material_name == exact_material_name;
+      });
+  return found == kCuratedCityWorldAsiaMaterials.end() ? nullptr : &*found;
+}
+
+const OgreNextDemoCuratedCityWorldMaterial *
+OgreNextDemoCuratedCityWorldMaterialAt(std::size_t index) noexcept {
+  return index < kCuratedCityWorldAsiaMaterials.size()
+             ? &kCuratedCityWorldAsiaMaterials[index]
+             : nullptr;
+}
+
+Render::ValidationResult AuthenticateOgreNextDemoCuratedCityWorldMaterial(
+    const OgreNextDemoCuratedCityWorldMaterial &policy,
+    const OgreNextDemoCuratedCityWorldSourceObservation &observation) {
+  try {
+    const OgreNextDemoCuratedCityWorldMaterial *const reviewed =
+        FindOgreNextDemoCuratedCityWorldMaterial(policy.exact_material_name);
+    const bool matches_reviewed_row =
+        reviewed != nullptr &&
+        reviewed->review_identity_sha256 == policy.review_identity_sha256 &&
+        reviewed->source_byte_start == policy.source_byte_start &&
+        reviewed->source_byte_end_exclusive ==
+            policy.source_byte_end_exclusive &&
+        reviewed->source_span_sha256 == policy.source_span_sha256 &&
+        reviewed->base_color_texture_name == policy.base_color_texture_name &&
+        reviewed->linear_specular_texture_name ==
+            policy.linear_specular_texture_name &&
+        reviewed->spherical_environment_texture_name ==
+            policy.spherical_environment_texture_name &&
+        reviewed->workflow == policy.workflow &&
+        reviewed->base_color_texture_unit == policy.base_color_texture_unit &&
+        reviewed->linear_specular_texture_unit ==
+            policy.linear_specular_texture_unit &&
+        reviewed->spherical_environment_texture_unit ==
+            policy.spherical_environment_texture_unit &&
+        reviewed->roughness_factor == policy.roughness_factor &&
+        reviewed->specular_factor == policy.specular_factor &&
+        reviewed->index_of_refraction == policy.index_of_refraction &&
+        reviewed->alpha_policy == policy.alpha_policy &&
+        reviewed->depth_write == policy.depth_write &&
+        reviewed->clockwise_cull == policy.clockwise_cull &&
+        reviewed->sampler_policy == policy.sampler_policy &&
+        reviewed->environment_policy == policy.environment_policy;
+    if (!matches_reviewed_row) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.curated_cityworld.reviewed_row",
+                     "candidate policy is not the exact source-controlled reviewed row");
+    }
+    if (policy.exact_material_name.empty() ||
+        policy.review_identity_sha256.empty() ||
+        policy.source_span_sha256.empty() ||
+        policy.base_color_texture_name.empty() ||
+        policy.linear_specular_texture_name.empty() ||
+        policy.spherical_environment_texture_name.empty() ||
+        policy.workflow != OgreNextDemoCuratedCityWorldWorkflow::SPECULAR ||
+        policy.base_color_texture_unit != 0U ||
+        policy.linear_specular_texture_unit != 1U ||
+        policy.spherical_environment_texture_unit != 2U ||
+        !std::isfinite(policy.roughness_factor) ||
+        policy.roughness_factor < 1.0e-4F ||
+        policy.roughness_factor > 1.0F ||
+        !std::all_of(policy.specular_factor.begin(),
+                     policy.specular_factor.end(), [](float value) {
+                       return std::isfinite(value) && value >= 0.0F &&
+                              value <= 1.0F;
+                     }) ||
+        !std::isfinite(policy.index_of_refraction) ||
+        policy.index_of_refraction < 1.0F ||
+        policy.index_of_refraction > 3.0F ||
+        policy.alpha_policy !=
+            OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE ||
+        !policy.depth_write || !policy.clockwise_cull ||
+        policy.sampler_policy !=
+            OgreNextDemoCuratedCityWorldSamplerPolicy::
+                REVIEWED_CONFIGURED_ANISOTROPIC4_V1 ||
+        policy.environment_policy !=
+            OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+                SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED ||
+        policy.source_byte_start >= policy.source_byte_end_exclusive ||
+        !IsLowercaseSha256(policy.review_identity_sha256) ||
+        !IsLowercaseSha256(policy.source_span_sha256)) {
+      return Failure(Render::ValidationCode::INVALID_ENUM,
+                     "ogre_next_demo.curated_cityworld.policy",
+                     "reviewed CityWorld policy row is incomplete");
+    }
+    if (observation.archive_sha256 !=
+            kOgreNextDemoCuratedCityWorldArchiveSha256 ||
+        observation.exact_script_member !=
+            kOgreNextDemoCuratedCityWorldScriptMember ||
+        observation.source_script_sha256 !=
+            kOgreNextDemoCuratedCityWorldScriptSha256 ||
+        !IsLowercaseSha256(observation.archive_sha256) ||
+        !IsLowercaseSha256(observation.source_script_sha256)) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.curated_cityworld.source_identity",
+                     "authenticated package or script identity is not the reviewed CityWorld source");
+    }
+    if (observation.source_script_bytes == nullptr ||
+        observation.source_script_size == 0U ||
+        policy.source_byte_end_exclusive > observation.source_script_size) {
+      return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                     "ogre_next_demo.curated_cityworld.source_span",
+                     "reviewed material source span is outside the authenticated script");
+    }
+    const std::string script_sha256 = DigestHex(
+        Render::ComputeRenderPayloadDigest(observation.source_script_bytes,
+                                           observation.source_script_size));
+    if (script_sha256 != observation.source_script_sha256) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.curated_cityworld.script_sha256",
+                     "authenticated script bytes do not match their reviewed digest");
+    }
+    const std::uint8_t *const span =
+        observation.source_script_bytes + policy.source_byte_start;
+    const std::size_t span_size =
+        policy.source_byte_end_exclusive - policy.source_byte_start;
+    const std::string span_sha256 = DigestHex(
+        Render::ComputeRenderPayloadDigest(span, span_size));
+    if (span_sha256 != policy.source_span_sha256) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.curated_cityworld.source_span_sha256",
+                     "authenticated material declaration span changed");
+    }
+
+    // Mirrors tools/classify_cityworld_material_families.py::_material_id.
+    // This independent runtime derivation binds the reviewed identity to the
+    // authenticated member, complete script digest, exact name, byte range,
+    // and span digest instead of treating the name as an allowlist.
+    std::string canonical;
+    const auto append_field = [&canonical](std::string_view value) {
+      canonical.append(value.data(), value.size());
+      canonical.push_back('\0');
+    };
+    append_field(observation.exact_script_member);
+    append_field(observation.source_script_sha256);
+    append_field(policy.exact_material_name);
+    append_field(std::to_string(policy.source_byte_start));
+    append_field(std::to_string(policy.source_byte_end_exclusive));
+    canonical.append(policy.source_span_sha256.data(),
+                     policy.source_span_sha256.size());
+    const std::string review_identity = DigestHex(
+        Render::ComputeRenderPayloadDigest(
+            reinterpret_cast<const std::uint8_t *>(canonical.data()),
+            canonical.size()));
+    if (review_identity != policy.review_identity_sha256) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.curated_cityworld.review_identity_sha256",
+                     "derived material declaration identity is not the reviewed table entry");
+    }
+    return Render::ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                   "ogre_next_demo.curated_cityworld.allocation",
+                   "allocation failed while authenticating the reviewed material declaration");
+  } catch (...) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.curated_cityworld.exception",
+                   "unexpected failure while authenticating the reviewed material declaration");
+  }
+}
 
 bool IsOgreNextDemoAuthenticatedTextureSourceMode(
     OgreNextDemoTextureSourceMode mode) noexcept {

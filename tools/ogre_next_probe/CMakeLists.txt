@@ -276,6 +276,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/resources/CacheSystem.cpp"
     "source/main/resources/ContentManager.cpp"
     "source/main/resources/ContentManager.h"
+    "source/main/system/CVar.cpp"
     "source/main/resources/LegacyMaterialCompatibilityPlan.cpp"
     "source/main/resources/LegacyMaterialCompatibilityPlan.h"
     "source/main/resources/LegacyMaterialScriptSanitizer.cpp"
@@ -3250,6 +3251,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/resources/CacheSystem.cpp
             source/main/resources/ContentManager.cpp
             source/main/resources/ContentManager.h
+            source/main/system/CVar.cpp
             source/main/resources/LegacyMaterialCompatibilityPlan.cpp
             source/main/resources/LegacyMaterialCompatibilityPlan.h
             source/main/resources/LegacyMaterialScriptSanitizer.cpp

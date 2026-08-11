@@ -6,9 +6,14 @@
 */
 
 #include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+#include "gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
 #include "gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
 #include "gfx/ogre14/Ogre14SelectedTextureSource.h"
 #include "gfx/ogre14/detail/OgreNextDemoMaterialSource.h"
+#include "resources/LegacyMaterialScriptSanitizer.h"
+#include "resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
+
+#include <openssl/evp.h>
 
 #include <OgreHardwarePixelBuffer.h>
 #include <OgreLogManager.h>
@@ -22,6 +27,8 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -62,11 +69,85 @@ public:
 class Ogre14AuthenticatedTextureResolutionTestAccess final {
 public:
   static ValidationResult
+  Mint(const Ogre14AuthenticatedTextureReceiptRegistry &registry,
+       Ogre::Texture &texture, std::uint64_t generation,
+       const IOgre14AuthenticatedTextureResolver &resolver,
+       Ogre14AuthenticatedTextureResolution &resolution) {
+    return registry.MintLoadedResourceResolution(
+        texture.getGroup(), generation,
+        reinterpret_cast<std::uintptr_t>(&texture),
+        static_cast<std::uint64_t>(texture.getHandle()), texture.getName(),
+        static_cast<std::uint64_t>(texture.getStateCount()),
+        reinterpret_cast<std::uintptr_t>(&resolver), resolution);
+  }
+
+  static bool
+  Revalidate(const Ogre14AuthenticatedTextureReceiptRegistry &registry,
+             Ogre::Texture &texture,
+             const Ogre14AuthenticatedTextureResolution &resolution,
+             const IOgre14AuthenticatedTextureResolver &resolver) noexcept {
+    return registry.RevalidateLoadedResourceResolution(
+        resolution, reinterpret_cast<std::uintptr_t>(&resolver),
+        reinterpret_cast<std::uintptr_t>(&texture),
+        static_cast<std::uint64_t>(texture.getHandle()), texture.getGroup(),
+        texture.getName(), static_cast<std::uint64_t>(texture.getStateCount()));
+  }
+
+  static ValidationResult
   MintAuthority(const Ogre14AuthenticatedTextureReceiptRegistry &registry,
                 const IOgre14AuthenticatedTextureResolver &resolver,
                 Ogre14AuthenticatedTextureAuthoritySnapshot &snapshot) {
     return registry.MintResolverAuthoritySnapshot(
         reinterpret_cast<std::uintptr_t>(&resolver), snapshot);
+  }
+};
+
+class Ogre14AuthenticatedMaterialScriptTestAccess final {
+public:
+  static ValidationResult Initialize(
+      const Ogre14AuthenticatedMaterialScriptRegistryConfiguration &config,
+      Ogre14AuthenticatedMaterialScriptRegistry &registry) {
+    return registry.Initialize(config);
+  }
+
+  static ValidationResult Advance(
+      Ogre14AuthenticatedMaterialScriptRegistry &registry,
+      const std::string &group, std::uint64_t generation) {
+    return registry.AdvanceGroupGeneration(group, generation);
+  }
+
+  static ValidationResult Commit(
+      Ogre14AuthenticatedMaterialScriptRegistry &registry,
+      const std::string &group, std::uint64_t generation,
+      const std::vector<Ogre14AuthenticatedMaterialScriptSourceInput>
+          &sources,
+      const std::vector<Ogre14AuthenticatedMaterialScriptMaterialInput>
+          &materials) {
+    return registry.CommitWholeGroup(group, generation, sources, materials);
+  }
+
+  static ValidationResult Mint(
+      const Ogre14AuthenticatedMaterialScriptRegistry &registry,
+      const std::string &group, std::uint64_t generation,
+      Ogre::Material &material, const std::string &origin,
+      const IOgre14AuthenticatedMaterialScriptResolver &resolver,
+      Ogre14AuthenticatedMaterialScriptResolution &resolution) {
+    return registry.MintResolution(
+        group, generation, reinterpret_cast<std::uintptr_t>(&material),
+        static_cast<std::uint64_t>(material.getHandle()), material.getName(),
+        origin, reinterpret_cast<std::uintptr_t>(&resolver), resolution);
+  }
+
+  static bool Revalidate(
+      const Ogre14AuthenticatedMaterialScriptRegistry &registry,
+      const Ogre14AuthenticatedMaterialScriptResolution &resolution,
+      Ogre::Material &material, const std::string &origin,
+      const IOgre14AuthenticatedMaterialScriptResolver &resolver) noexcept {
+    return registry.RevalidateResolution(
+        resolution, reinterpret_cast<std::uintptr_t>(&resolver),
+        reinterpret_cast<std::uintptr_t>(&material),
+        static_cast<std::uint64_t>(material.getHandle()), material.getGroup(),
+        material.getName(), origin);
   }
 };
 
@@ -304,6 +385,76 @@ public:
   }
 };
 
+class AuthenticatedResolver final
+    : public IOgre14AuthenticatedTextureResolver {
+public:
+  const Ogre14AuthenticatedTextureReceiptRegistry *registry = nullptr;
+  std::uint64_t generation = 1U;
+  mutable std::size_t resolve_calls = 0U;
+
+  bool RequiresAuthenticatedTextureSource(
+      Ogre::Texture &) const noexcept override {
+    return true;
+  }
+
+  ValidationResult ResolveAuthenticatedTexture(
+      Ogre::Texture &texture,
+      Ogre14AuthenticatedTextureResolution &resolution) const override {
+    ++resolve_calls;
+    if (registry == nullptr) {
+      return ValidationResult::Failure(ValidationCode::MISSING_REFERENCE,
+                                       "curated_test.texture_registry",
+                                       "authenticated registry is absent");
+    }
+    return RoR::Render::Testing::
+        Ogre14AuthenticatedTextureResolutionTestAccess::Mint(
+            *registry, texture, generation, *this, resolution);
+  }
+
+  bool RevalidateAuthenticatedTexture(
+      Ogre::Texture &texture,
+      const Ogre14AuthenticatedTextureResolution &resolution) const
+      noexcept override {
+    return registry != nullptr &&
+           RoR::Render::Testing::
+               Ogre14AuthenticatedTextureResolutionTestAccess::Revalidate(
+                   *registry, texture, resolution, *this);
+  }
+};
+
+class MaterialScriptResolver final
+    : public IOgre14AuthenticatedMaterialScriptResolver {
+public:
+  const Ogre14AuthenticatedMaterialScriptRegistry *registry = nullptr;
+  std::uint64_t generation = 1U;
+  std::string origin = "asia.material";
+
+  ValidationResult ResolveAuthenticatedMaterialScript(
+      Ogre::Material &material,
+      Ogre14AuthenticatedMaterialScriptResolution &resolution) const override {
+    if (registry == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "curated_test.material_script_registry",
+          "material-script registry is absent");
+    }
+    return RoR::Render::Testing::
+        Ogre14AuthenticatedMaterialScriptTestAccess::Mint(
+            *registry, material.getGroup(), generation, material, origin,
+            *this, resolution);
+  }
+
+  bool RevalidateAuthenticatedMaterialScript(
+      Ogre::Material &material,
+      const Ogre14AuthenticatedMaterialScriptResolution &resolution) const
+      noexcept override {
+    return registry != nullptr &&
+           RoR::Render::Testing::
+               Ogre14AuthenticatedMaterialScriptTestAccess::Revalidate(
+                   *registry, resolution, material, origin, *this);
+  }
+};
+
 struct NativeMaterial final {
   explicit NativeMaterial(const Ogre::TexturePtr &texture,
                           Ogre::ResourceHandle handle = 101U)
@@ -322,7 +473,6 @@ struct NativeMaterial final {
     sampler->setMipmapBias(0.0F);
     sampler->setAnisotropy(1U);
     sampler->setCompareEnabled(false);
-    sampler->setCompareFunction(Ogre::CMPF_ALWAYS_PASS);
     sampler->setBorderColour(Ogre::ColourValue::Black);
     unit->setSampler(sampler);
     unit->setTexture(texture);
@@ -378,6 +528,154 @@ struct AlexisNativeMaterial final {
   Ogre::TextureUnitState *specular_unit = nullptr;
   Ogre::SamplerPtr specular_sampler;
 };
+
+struct SphericalNativeMaterial final {
+  SphericalNativeMaterial(const Ogre::TexturePtr &base_texture,
+                          const Ogre::TexturePtr &specular_texture,
+                          const Ogre::TexturePtr &environment_texture,
+                          std::string material_name,
+                          Ogre::ResourceHandle material_handle)
+      : base(base_texture, material_handle, std::move(material_name), kGroup) {
+    base.material->setReceiveShadows(true);
+    base.sampler = BuildReviewedConfiguredSampler();
+    base.unit->setSampler(base.sampler);
+    specular_unit = base.pass->createTextureUnitState();
+    specular_unit->setColourOperationEx(
+        Ogre::LBX_BLEND_TEXTURE_ALPHA, Ogre::LBS_TEXTURE, Ogre::LBS_CURRENT);
+    specular_sampler = BuildReviewedConfiguredSampler();
+    specular_unit->setSampler(specular_sampler);
+    specular_unit->setTexture(specular_texture);
+
+    environment_unit = base.pass->createTextureUnitState();
+    environment_unit->setColourOperationEx(
+        Ogre::LBX_BLEND_CURRENT_ALPHA, Ogre::LBS_TEXTURE, Ogre::LBS_CURRENT);
+    environment_unit->setEnvironmentMap(true,
+                                        Ogre::TextureUnitState::ENV_CURVED);
+    environment_sampler = BuildReviewedConfiguredSampler();
+    environment_unit->setSampler(environment_sampler);
+    environment_unit->setTexture(environment_texture);
+  }
+
+  static Ogre::SamplerPtr BuildReviewedConfiguredSampler() {
+    Ogre::SamplerPtr sampler = std::make_shared<Ogre::Sampler>();
+    sampler->setFiltering(Ogre::FO_ANISOTROPIC,
+                          Ogre::FO_ANISOTROPIC, Ogre::FO_LINEAR);
+    sampler->setAddressingMode(Ogre::TAM_WRAP);
+    sampler->setMipmapBias(0.0F);
+    sampler->setAnisotropy(4U);
+    sampler->setCompareEnabled(false);
+    sampler->setBorderColour(Ogre::ColourValue::Black);
+    return sampler;
+  }
+
+  NativeMaterial base;
+  Ogre::TextureUnitState *specular_unit = nullptr;
+  Ogre::TextureUnitState *environment_unit = nullptr;
+  Ogre::SamplerPtr specular_sampler;
+  Ogre::SamplerPtr environment_sampler;
+};
+
+std::vector<std::uint8_t> ReadCuratedFixtureBytes(
+    const std::filesystem::path &path, std::uint64_t maximum_bytes) {
+  std::error_code error;
+  const std::uint64_t size = std::filesystem::file_size(path, error);
+  Require(!error && size > 0U && size <= maximum_bytes,
+          "curated local fixture is missing, empty, or oversized");
+  std::ifstream stream(path, std::ios::binary);
+  Require(stream.good(), "curated local fixture could not be opened");
+  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+  stream.read(reinterpret_cast<char *>(bytes.data()),
+              static_cast<std::streamsize>(bytes.size()));
+  Require(stream.good(), "curated local fixture could not be read exactly");
+  return bytes;
+}
+
+std::string Sha256(const std::vector<std::uint8_t> &bytes) {
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int digest_size = 0U;
+  Require(EVP_Digest(bytes.data(), bytes.size(), digest.data(), &digest_size,
+                     EVP_sha256(), nullptr) == 1 &&
+              digest_size == 32U,
+          "curated fixture SHA-256 failed");
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string output(64U, '0');
+  for (std::size_t index = 0U; index < 32U; ++index) {
+    output[index * 2U] = kHex[digest[index] >> 4U];
+    output[index * 2U + 1U] = kHex[digest[index] & 0x0fU];
+  }
+  return output;
+}
+
+Ogre14AuthenticatedTextureReceipt BuildCuratedAuthenticatedReceipt(
+    Ogre::Texture &texture, const std::vector<std::uint8_t> &bytes,
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot &archive,
+    std::uintptr_t archive_pointer_token) {
+  Ogre14AuthenticatedTextureCaptureInput input;
+  input.source_kind = Ogre14AuthenticatedTextureSourceKind::
+      AUTHENTICATED_ARCHIVE_MEMBER;
+  input.effective_resource_group = texture.getGroup();
+  input.group_generation = 1U;
+  input.archive_identity = archive.source_archive_identity();
+  input.archive_name = "CityWorld.zip";
+  input.archive_type = "EmbeddedZip";
+  input.archive_sha256 = archive.archive_sha256();
+  input.archive_pointer_token = archive_pointer_token;
+  input.exact_member_name = texture.getName();
+  input.binding.kind = Ogre14AuthenticatedTextureBindingKind::RESOURCE;
+  input.binding.resource_pointer_token =
+      reinterpret_cast<std::uintptr_t>(&texture);
+  input.binding.resource_handle =
+      static_cast<std::uint64_t>(texture.getHandle());
+  input.binding.resource_state_count =
+      static_cast<std::uint64_t>(texture.getStateCount());
+  input.binding.exact_resource_name = texture.getName();
+  Ogre14AuthenticatedTextureReceipt receipt;
+  RequireOk(BuildOgre14AuthenticatedTextureReceipt(
+                Ogre14AuthenticatedTextureRegistryConfiguration{}, input,
+                bytes.data(), bytes.size(), receipt),
+            "build curated authenticated texture receipt");
+  return receipt;
+}
+
+Ogre14AuthenticatedMaterialScriptSourceInput BuildCuratedScriptSource(
+    const std::vector<std::uint8_t> &bytes,
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot &archive) {
+  Ogre14AuthenticatedMaterialScriptSourceInput input;
+  input.original_bytes =
+      std::make_shared<const std::vector<std::uint8_t>>(bytes);
+  input.effective_bytes = input.original_bytes;
+  auto &metadata = input.metadata;
+  metadata.source_role = Ogre14MaterialScriptSourceRole::ROOT_SCRIPT;
+  metadata.parse_token = 1U;
+  metadata.source_open_ordinal = 1U;
+  metadata.group_generation = 1U;
+  metadata.effective_group = kGroup;
+  metadata.root_script_request = kOgreNextDemoCuratedCityWorldScriptMember;
+  metadata.compiler_file_identity =
+      kOgreNextDemoCuratedCityWorldScriptMember;
+  metadata.archive_source_identity = archive.source_archive_identity();
+  metadata.selected_archive_name = "CityWorld.zip";
+  metadata.selected_archive_type = "EmbeddedZip";
+  metadata.archive_sha256 = archive.archive_sha256();
+  metadata.archive_pointer_token = 0xc170U;
+  metadata.file_info_filename = kOgreNextDemoCuratedCityWorldScriptMember;
+  metadata.file_info_basename = kOgreNextDemoCuratedCityWorldScriptMember;
+  metadata.exact_member_name = kOgreNextDemoCuratedCityWorldScriptMember;
+  metadata.compressed_size = bytes.size();
+  metadata.uncompressed_size = bytes.size();
+  metadata.original_byte_count = bytes.size();
+  metadata.effective_byte_count = bytes.size();
+  metadata.original_sha256 = Sha256(bytes);
+  metadata.effective_sha256 = metadata.original_sha256;
+  metadata.repair_plan_version =
+      RoR::kLegacyMaterialScriptRepairPlanVersion;
+  Require(RoR::ComputeLegacyMaterialScriptNoRepairPlanSha256(
+              metadata.archive_sha256, metadata.exact_member_name,
+              metadata.original_sha256, metadata.repair_plan_sha256),
+          "hash curated no-repair material-script plan");
+  input.authenticated_archive_snapshot = archive;
+  return input;
+}
 
 Ogre14SelectedTextureSourceReceipt
 BuildReceipt(Ogre::Texture &texture, std::uint64_t generation,
@@ -643,6 +941,419 @@ void CaptureAndCommit(OgreNextDemoMaterialSource &source,
   RequireZeroReadback(source, *readbacks);
   source.Commit();
   RequireZeroReadback(source, *readbacks);
+}
+
+void TestCuratedCityWorldNativeGateStaysSelective() {
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize curated-gate authenticated authority");
+  AuthenticatedResolver unavailable_texture_resolver;
+  unavailable_texture_resolver.registry = &authenticated_registry;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &unavailable_texture_resolver;
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry(
+                Ogre14SelectedTextureSourceRegistryConfiguration{},
+                selected_registry),
+            "initialize curated-gate selected authority");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+  MaterialScriptResolver unavailable_script_resolver;
+
+  Ogre::TexturePtr base_texture = std::make_shared<TestTexture>(
+      "asiafacade.dds", 181U, kGroup, readbacks);
+  Ogre::TexturePtr specular_texture = std::make_shared<TestTexture>(
+      "asiafacade_spec.dds", 182U, kGroup, readbacks);
+  Ogre::TexturePtr environment_texture = std::make_shared<TestTexture>(
+      "767chrome.jpg", 183U, kGroup, readbacks);
+
+  SphericalNativeMaterial reviewed_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/asiafacade", 191U);
+  SphericalNativeMaterial unreviewed_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/unreviewed-same-shape", 192U);
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(
+              unavailable_texture_resolver, authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver) &&
+              source.BindAuthenticatedMaterialScriptResolver(
+                  unavailable_script_resolver),
+          "bind curated native-gate authorities");
+  Require(source.BeginCapture(),
+          "begin unavailable curated native-gate capture");
+
+  Ogre14GraphicsSceneMaterialCaptureInput input = CaptureInput();
+  bool projected = true;
+  RequireOk(source.TryProject("static/asia/reviewed", reviewed_shape.base.material,
+                              true, true, input, projected),
+            "evaluate temporarily unavailable authenticated authority");
+  const OgreNextDemoMaterialSourceCounters unavailable =
+      source.CurrentCaptureCounters();
+  Require(!projected &&
+              unavailable.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE)] ==
+                  1U,
+          "temporarily unavailable authenticated authority froze a terminal matte");
+  source.Commit();
+
+  Require(source.BeginCapture(), "begin curated authority retry capture");
+  input = CaptureInput();
+  projected = true;
+  RequireOk(source.TryProject("static/asia/reviewed", reviewed_shape.base.material,
+                              true, true, input, projected),
+            "retry reviewed name without script/texture authority");
+  Require(!projected && unavailable_texture_resolver.resolve_calls == 2U,
+          "retryable curated authority decision did not re-resolve");
+  reviewed_shape.base.sampler->setAnisotropy(2U);
+  input = CaptureInput();
+  projected = true;
+  RequireOk(source.TryProject("static/asia/reviewed-mutated-sampler",
+                              reviewed_shape.base.material, true, true,
+                              input, projected),
+            "reject mutated reviewed sampler state");
+  const OgreNextDemoMaterialSourceCounters mutated_sampler =
+      source.CurrentCaptureCounters();
+  Require(!projected && unavailable_texture_resolver.resolve_calls == 2U &&
+              mutated_sampler.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_STATE_UNSUPPORTED)] == 1U,
+          "nondefault curated sampler retained reviewed authority");
+  input = CaptureInput();
+  projected = true;
+  RequireOk(source.TryProject("static/asia/unreviewed",
+                              unreviewed_shape.base.material, true, true,
+                              input, projected),
+            "evaluate unreviewed material with matching native shape");
+  const OgreNextDemoCuratedCityWorldCoverage coverage =
+      source.CurrentCuratedCityWorldCoverage();
+  Require(!projected && coverage.policy_entries == 3U &&
+              coverage.observed_entries == 1U &&
+              coverage.admitted_entries == 0U &&
+              coverage.matte_entries == 1U &&
+              coverage.environment_pending_entries == 0U &&
+              coverage.uncurated_spherical_family_matte_materials == 1U,
+          "curated/uncurated native matte coverage lost its exact partition");
+  RequireZeroReadback(source, *readbacks);
+  source.Discard();
+}
+
+void TestCuratedCityWorldLocalAuthenticatedAdmission(
+    const std::filesystem::path &archive_path,
+    const std::filesystem::path &extracted_members) {
+  RoR::TerrainBundleAuthenticatedArchiveSnapshot archive;
+  std::string observed_archive_sha256;
+  std::string archive_error;
+  Require(RoR::LoadAndVerifyTerrainBundleArchiveSnapshot(
+              archive_path.string(),
+              std::string(kOgreNextDemoCuratedCityWorldArchiveSha256),
+              512ULL * 1024ULL * 1024ULL, archive,
+              observed_archive_sha256, archive_error),
+          "authenticate local CityWorld archive fixture");
+  Require(observed_archive_sha256 ==
+              kOgreNextDemoCuratedCityWorldArchiveSha256,
+          "local CityWorld archive digest drifted");
+
+  struct TextureFixtureSpec final {
+    const char *name;
+    Ogre::ResourceHandle handle;
+    std::uint32_t width;
+    std::uint32_t height;
+    Ogre::PixelFormat format;
+    bool hardware_generated_mips;
+  };
+  const std::array<TextureFixtureSpec, 7U> texture_specs{{
+      {"asiafacade.dds", 201U, 1024U, 256U, Ogre::PF_DXT1, false},
+      {"asiafacade_spec.dds", 202U, 1024U, 256U, Ogre::PF_DXT5, false},
+      {"asiawindow.dds", 203U, 256U, 256U, Ogre::PF_DXT1, false},
+      {"asiawindow_spec.dds", 204U, 256U, 256U, Ogre::PF_DXT5, false},
+      {"marble.dds", 205U, 256U, 256U, Ogre::PF_DXT1, false},
+      {"marble_spec.dds", 206U, 256U, 256U, Ogre::PF_DXT5, false},
+      {"767chrome.jpg", 207U, 1024U, 263U, Ogre::PF_R8G8B8, true},
+  }};
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  std::array<Ogre::TexturePtr, 7U> textures{};
+  std::array<std::vector<std::uint8_t>, 7U> texture_bytes{};
+  Ogre14AuthenticatedTextureReceiptRegistry texture_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                texture_registry),
+            "initialize curated authenticated texture registry");
+  RequireOk(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+                kGroup, 1U, texture_registry),
+            "advance curated authenticated texture group");
+  for (std::size_t index = 0U; index < texture_specs.size(); ++index) {
+    const TextureFixtureSpec &spec = texture_specs[index];
+    texture_bytes[index] = ReadCuratedFixtureBytes(
+        extracted_members / spec.name, 64ULL * 1024ULL * 1024ULL);
+    textures[index] = std::make_shared<TestTexture>(
+        spec.name, spec.handle, kGroup, readbacks);
+    auto *const texture = static_cast<TestTexture *>(textures[index].get());
+    texture->MutateSourceState(spec.width, spec.height, 1U, spec.format);
+    texture->MutateOutputState(spec.width, spec.height, 1U, spec.format);
+    texture->MutateMipState(5U, spec.hardware_generated_mips);
+    RequireOk(CommitOgre14AuthenticatedTextureReceipt(
+                  BuildCuratedAuthenticatedReceipt(
+                      *texture, texture_bytes[index], archive,
+                      0xc180U + index),
+                  texture_registry),
+              "commit curated authenticated texture receipt");
+    texture->load();
+  }
+
+  const std::array<std::size_t, 3U> base_indices{{0U, 2U, 4U}};
+  const std::array<std::size_t, 3U> specular_indices{{1U, 3U, 5U}};
+  std::array<std::unique_ptr<SphericalNativeMaterial>, 3U> materials{};
+  for (std::size_t index = 0U; index < materials.size(); ++index) {
+    const OgreNextDemoCuratedCityWorldMaterial *const policy =
+        OgreNextDemoCuratedCityWorldMaterialAt(index);
+    Require(policy != nullptr, "curated policy row disappeared");
+    materials[index] = std::make_unique<SphericalNativeMaterial>(
+        textures[base_indices[index]], textures[specular_indices[index]],
+        textures[6U], std::string(policy->exact_material_name),
+        301U + index);
+  }
+
+  const std::vector<std::uint8_t> script_bytes = ReadCuratedFixtureBytes(
+      extracted_members / kOgreNextDemoCuratedCityWorldScriptMember,
+      1024ULL * 1024ULL);
+  Require(Sha256(script_bytes) ==
+              kOgreNextDemoCuratedCityWorldScriptSha256,
+          "local asia.material digest drifted");
+  Ogre14AuthenticatedMaterialScriptRegistry script_registry;
+  RequireOk(RoR::Render::Testing::
+                Ogre14AuthenticatedMaterialScriptTestAccess::Initialize(
+                    Ogre14AuthenticatedMaterialScriptRegistryConfiguration{},
+                    script_registry),
+            "initialize curated material-script registry");
+  RequireOk(RoR::Render::Testing::
+                Ogre14AuthenticatedMaterialScriptTestAccess::Advance(
+                    script_registry, kGroup, 1U),
+            "advance curated material-script group");
+  std::vector<Ogre14AuthenticatedMaterialScriptSourceInput> script_sources;
+  script_sources.push_back(
+      BuildCuratedScriptSource(script_bytes, archive));
+  std::vector<Ogre14AuthenticatedMaterialScriptMaterialInput>
+      script_materials;
+  for (std::size_t index = 0U; index < materials.size(); ++index) {
+    Ogre14AuthenticatedMaterialScriptMaterialInput input;
+    input.source_index = 0U;
+    input.binding.event_ordinal = index + 1U;
+    input.binding.material_pointer_token = reinterpret_cast<std::uintptr_t>(
+        materials[index]->base.material.get());
+    input.binding.material_handle = static_cast<std::uint64_t>(
+        materials[index]->base.material->getHandle());
+    input.binding.exact_material_name =
+        materials[index]->base.material->getName();
+    input.binding.exact_group = kGroup;
+    input.binding.exact_origin =
+        kOgreNextDemoCuratedCityWorldScriptMember;
+    script_materials.push_back(std::move(input));
+  }
+  AuthenticatedResolver texture_resolver;
+  texture_resolver.registry = &texture_registry;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &texture_registry;
+  authority_provider.resolver = &texture_resolver;
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry(
+                Ogre14SelectedTextureSourceRegistryConfiguration{},
+                selected_registry),
+            "initialize curated selected-source registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, selected_registry),
+            "advance curated selected-source group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+  MaterialScriptResolver script_resolver;
+  script_resolver.registry = &script_registry;
+
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(texture_resolver,
+                                                    authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver) &&
+              source.BindAuthenticatedMaterialScriptResolver(
+                  script_resolver),
+          "bind all curated CityWorld authorities");
+
+  Require(source.BeginCapture(),
+          "begin curated capture before script authority publication");
+  for (std::size_t index = 0U; index < materials.size(); ++index) {
+    Ogre14GraphicsSceneMaterialCaptureInput input;
+    input.exact_resource_group = kGroup;
+    input.exact_name = materials[index]->base.material->getName();
+    input.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+    bool projected = true;
+    RequireOk(source.TryProject(
+                  "static/asia/" + std::to_string(index),
+                  materials[index]->base.material, true, true, input,
+                  projected),
+              "record retryable missing curated script authority");
+    Require(!projected,
+            "missing curated script authority admitted a material");
+  }
+  const OgreNextDemoMaterialSourceCounters before_script =
+      source.CurrentCaptureCounters();
+  Require(before_script.exclusions_by_reason[static_cast<std::size_t>(
+              OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE)] ==
+              3U,
+          "missing curated script authority was not retryable");
+  source.Commit();
+
+  RequireOk(RoR::Render::Testing::
+                Ogre14AuthenticatedMaterialScriptTestAccess::Commit(
+                    script_registry, kGroup, 1U, script_sources,
+                    script_materials),
+            "publish exact curated material-script authorities");
+
+  const auto capture_three = [&](
+      std::vector<GraphicsSceneAssetInput> &assets,
+      std::array<std::uint64_t, 3U> &material_ids, const char *phase) {
+    Require(source.BeginCapture(), "begin curated CityWorld capture");
+    for (std::size_t index = 0U; index < materials.size(); ++index) {
+      Ogre14GraphicsSceneMaterialCaptureInput input;
+      input.exact_resource_group = kGroup;
+      input.exact_name = materials[index]->base.material->getName();
+      input.cull = Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+      bool projected = false;
+      RequireOk(source.TryProject(
+                    "static/asia/" + std::to_string(index),
+                    materials[index]->base.material, true, true, input,
+                    projected),
+                phase);
+      Require(projected,
+              "authenticated curated CityWorld row remained matte");
+      std::vector<GraphicsSceneAssetInput> placeholder =
+          BuildPlaceholderAssets(input);
+      material_ids[index] = placeholder.front().source_asset_id;
+      assets.push_back(std::move(placeholder.front()));
+    }
+    RequireOk(source.Apply(assets), phase);
+    const OgreNextDemoCuratedCityWorldCoverage coverage =
+        source.CurrentCuratedCityWorldCoverage();
+    Require(coverage.policy_entries == 3U &&
+                coverage.observed_entries == 3U &&
+                coverage.admitted_entries == 3U &&
+                coverage.matte_entries == 0U &&
+                coverage.environment_pending_entries == 3U &&
+                coverage.uncurated_spherical_family_matte_materials == 0U,
+            "curated CityWorld 3/3 coverage or environment-pending state "
+            "drifted");
+  };
+
+  std::vector<GraphicsSceneAssetInput> first_assets;
+  std::array<std::uint64_t, 3U> first_material_ids{};
+  capture_three(first_assets, first_material_ids,
+                "apply first curated CityWorld capture");
+  std::size_t material_count = 0U;
+  std::size_t texture_count = 0U;
+  std::size_t sampler_count = 0U;
+  for (const GraphicsSceneAssetInput &asset : first_assets) {
+    if (asset.payload == nullptr) {
+      continue;
+    }
+    if (const auto *material =
+            std::get_if<MaterialDescriptor>(asset.payload.get())) {
+      ++material_count;
+      const auto &base = asset.material_bindings[static_cast<std::size_t>(
+          MaterialTextureSlot::BASE_COLOR)];
+      const auto &specular = asset.material_bindings[static_cast<std::size_t>(
+          MaterialTextureSlot::SPECULAR)];
+      Require(material->pbr_workflow == MaterialPbrWorkflow::SPECULAR &&
+                  material->metallic_factor == 0.0F &&
+                  material->base_color_transfer ==
+                      BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER &&
+                  material->blend_mode == MaterialBlendMode::REPLACE &&
+                  material->alpha_test_mode ==
+                      MaterialAlphaTestMode::DISABLED &&
+                  material->depth_write && !material->double_sided &&
+                  base.texture_source_asset_id != 0U &&
+                  base.sampler_source_asset_id != 0U &&
+                  specular.texture_source_asset_id != 0U &&
+                  specular.sampler_source_asset_id != 0U,
+              "curated material lost reviewed PBR/alpha/depth/cull semantics");
+      const TextureResourceDescriptor *const base_texture =
+          FindTextureBySourceId(first_assets,
+                                base.texture_source_asset_id);
+      const TextureResourceDescriptor *const specular_texture =
+          FindTextureBySourceId(first_assets,
+                                specular.texture_source_asset_id);
+      Require(base_texture != nullptr && specular_texture != nullptr &&
+                  base_texture->color_space == TextureColorSpace::SRGB &&
+                  specular_texture->color_space == TextureColorSpace::LINEAR,
+              "curated base/specular color-space lowering drifted");
+    } else if (std::get_if<TextureResourceDescriptor>(asset.payload.get()) !=
+               nullptr) {
+      ++texture_count;
+    } else if (std::get_if<SamplerResourceDescriptor>(asset.payload.get()) !=
+               nullptr) {
+      ++sampler_count;
+    }
+  }
+  const OgreNextDemoMaterialSourceCounters first_counters =
+      source.CurrentCaptureCounters();
+  Require(first_assets.size() == 15U && material_count == 3U &&
+              texture_count == 6U && sampler_count == 6U &&
+              source.NewProjectionCount() == 3U &&
+              first_counters.active_specular_workflow_projections == 3U &&
+              first_counters.active_linear_specular_texture_normalizations ==
+                  3U,
+          "curated output did not contain exactly base+specular without TUS2");
+  for (std::size_t index = 0U; index < first_material_ids.size(); ++index) {
+    const auto asset = std::find_if(
+        first_assets.begin(), first_assets.end(), [&](const auto &candidate) {
+          return candidate.source_asset_id == first_material_ids[index];
+        });
+    const MaterialDescriptor *const material =
+        asset != first_assets.end() && asset->payload != nullptr
+            ? std::get_if<MaterialDescriptor>(asset->payload.get())
+            : nullptr;
+    const OgreNextDemoCuratedCityWorldMaterial *const policy =
+        OgreNextDemoCuratedCityWorldMaterialAt(index);
+    Require(material != nullptr && policy != nullptr &&
+                material->roughness_factor == policy->roughness_factor &&
+                material->specular_factor ==
+                    Float3{policy->specular_factor[0U],
+                           policy->specular_factor[1U],
+                           policy->specular_factor[2U]} &&
+                material->index_of_refraction ==
+                    policy->index_of_refraction,
+            "curated row lost its reviewed roughness/specular/Fresnel values");
+    for (std::size_t slot = 0U; slot < asset->material_bindings.size();
+         ++slot) {
+      if (slot == static_cast<std::size_t>(MaterialTextureSlot::BASE_COLOR) ||
+          slot == static_cast<std::size_t>(MaterialTextureSlot::SPECULAR)) {
+        continue;
+      }
+      Require(asset->material_bindings[slot].texture_source_asset_id == 0U &&
+                  asset->material_bindings[slot].sampler_source_asset_id == 0U,
+              "curated output published an unreviewed/TUS2 texture binding");
+    }
+  }
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  RequireOk(RoR::Render::Testing::
+                Ogre14AuthenticatedMaterialScriptTestAccess::Advance(
+                    script_registry, "UnrelatedMaterialGroup", 2U),
+            "mutate unrelated material-script registry group");
+  std::vector<GraphicsSceneAssetInput> reuse_assets;
+  std::array<std::uint64_t, 3U> reuse_material_ids{};
+  capture_three(reuse_assets, reuse_material_ids,
+                "apply curated cache after unrelated registry mutation");
+  Require(source.NewProjectionCount() == 0U &&
+              source.UsedProjectionCount() == 3U &&
+              first_material_ids == reuse_material_ids &&
+              SameAssetOwners(first_assets, reuse_assets),
+          "unrelated registry mutation invalidated exact curated cache reuse");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
 }
 
 void TestRetryableOrdinaryAbsencePromotion() {
@@ -1688,10 +2399,19 @@ void TestNativeMaterialSourceLifecycle() {
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
   Ogre::LogManager log_manager;
   log_manager.createLog("MaterialSourceNativeTests", true, false, true);
   Ogre::Root root("", "", "");
+  TestCuratedCityWorldNativeGateStaysSelective();
+  if (argc == 4 && std::string(argv[1]) == "--cityworld-curated-fixture") {
+    TestCuratedCityWorldLocalAuthenticatedAdmission(argv[2], argv[3]);
+  } else {
+    Require(argc == 1,
+            "usage: --cityworld-curated-fixture <archive> <extracted-dir>");
+    std::cout << "CityWorld curated local admission skipped (private fixture "
+                 "not supplied)\n";
+  }
   TestRetryableOrdinaryAbsencePromotion();
   TestManagedSpecularProjectionAndRollback();
   TestAlphaStateAndAnisotropicProjection();

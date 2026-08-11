@@ -68,6 +68,7 @@ on:
       - source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
       - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
       - source/main/resources/ContentManager.*
+      - source/main/system/CVar.cpp
       - source/main/resources/CacheSystem.cpp
       - source/main/resources/LegacyMaterialCompatibilityPlan.*
       - source/main/resources/LegacyMaterialScriptSanitizer.cpp
@@ -235,6 +236,7 @@ on:
       - source/main/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosure.h
       - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
       - source/main/resources/ContentManager.*
+      - source/main/system/CVar.cpp
       - source/main/resources/CacheSystem.cpp
       - source/main/resources/LegacyMaterialCompatibilityPlan.*
       - source/main/resources/LegacyMaterialScriptSanitizer.cpp

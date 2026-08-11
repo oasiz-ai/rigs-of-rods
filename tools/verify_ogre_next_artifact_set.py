@@ -265,6 +265,7 @@ RELEVANT_SOURCE_PATHS = (
     "source/main/resources/CacheSystem.cpp",
     "source/main/resources/ContentManager.cpp",
     "source/main/resources/ContentManager.h",
+    "source/main/system/CVar.cpp",
     "source/main/resources/LegacyMaterialCompatibilityPlan.cpp",
     "source/main/resources/LegacyMaterialCompatibilityPlan.h",
     "source/main/resources/LegacyMaterialScriptSanitizer.cpp",

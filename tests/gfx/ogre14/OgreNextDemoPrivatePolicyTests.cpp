@@ -29,6 +29,80 @@ void Require(bool condition, const char *message) {
   }
 }
 
+void CheckCuratedCityWorldAsiaPolicy() {
+  Require(kOgreNextDemoCuratedCityWorldAsiaPolicyVersion == 1U &&
+              kOgreNextDemoCuratedCityWorldAsiaPolicyEntryCount == 3U &&
+              kOgreNextDemoCuratedCityWorldSamplerProfile ==
+                  "reviewed_configured_anisotropic_min_mag_linear_mip_"
+                  "anisotropy4_v1" &&
+              kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256 ==
+                  "54305f5c7f99fa6a9628337508d230f588e60d1d410f6d6fe56be3186790a57e" &&
+              kOgreNextDemoCuratedCityWorldEnvironmentPolicy ==
+                  "reviewed_spherical_environment_authority_bound_pending_not_presented_v1",
+          "curated CityWorld policy version or pending environment semantic changed");
+  const std::array<std::string_view, 3U> names{{
+      "Material_#58/asiafacade", "Material_#58/asiawindow",
+      "Material_#58/asiamarble"}};
+  const std::array<std::string_view, 3U> bases{{
+      "asiafacade.dds", "asiawindow.dds", "marble.dds"}};
+  const std::array<std::string_view, 3U> speculars{{
+      "asiafacade_spec.dds", "asiawindow_spec.dds", "marble_spec.dds"}};
+  const std::array<float, 3U> roughness{{0.48F, 0.12F, 0.27F}};
+  const std::array<float, 3U> ior{{1.50F, 1.52F, 1.50F}};
+  for (std::size_t index = 0U; index < names.size(); ++index) {
+    const OgreNextDemoCuratedCityWorldMaterial *const policy =
+        OgreNextDemoCuratedCityWorldMaterialAt(index);
+    Require(policy != nullptr &&
+                FindOgreNextDemoCuratedCityWorldMaterial(names[index]) ==
+                    policy &&
+                policy->exact_material_name == names[index] &&
+                policy->base_color_texture_name == bases[index] &&
+                policy->linear_specular_texture_name == speculars[index] &&
+                policy->spherical_environment_texture_name ==
+                    "767chrome.jpg" &&
+                policy->workflow ==
+                    OgreNextDemoCuratedCityWorldWorkflow::SPECULAR &&
+                policy->base_color_texture_unit == 0U &&
+                policy->linear_specular_texture_unit == 1U &&
+                policy->spherical_environment_texture_unit == 2U &&
+                policy->roughness_factor == roughness[index] &&
+                policy->specular_factor ==
+                    std::array<float, 3U>{1.0F, 1.0F, 1.0F} &&
+                policy->index_of_refraction == ior[index] &&
+                policy->alpha_policy ==
+                    OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE &&
+                policy->depth_write && policy->clockwise_cull &&
+                policy->sampler_policy ==
+                    OgreNextDemoCuratedCityWorldSamplerPolicy::
+                        REVIEWED_CONFIGURED_ANISOTROPIC4_V1 &&
+                policy->environment_policy ==
+                    OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+                        SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED,
+            "one exact curated CityWorld reviewed row changed");
+  }
+  Require(OgreNextDemoCuratedCityWorldMaterialAt(3U) == nullptr &&
+              FindOgreNextDemoCuratedCityWorldMaterial(
+                  "Material_#58/not-reviewed") == nullptr,
+          "curated CityWorld lookup broadened beyond three reviewed rows");
+
+  OgreNextDemoCuratedCityWorldMaterial modified =
+      *OgreNextDemoCuratedCityWorldMaterialAt(0U);
+  modified.roughness_factor = 0.49F;
+  const std::array<std::uint8_t, 1U> unauthenticated_bytes{{0U}};
+  const OgreNextDemoCuratedCityWorldSourceObservation incomplete_observation{
+      kOgreNextDemoCuratedCityWorldArchiveSha256,
+      kOgreNextDemoCuratedCityWorldScriptMember,
+      kOgreNextDemoCuratedCityWorldScriptSha256,
+      unauthenticated_bytes.data(), unauthenticated_bytes.size()};
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldMaterial(
+               modified, incomplete_observation),
+          "unauthored PBR parameter change retained reviewed authority");
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldMaterial(
+              *OgreNextDemoCuratedCityWorldMaterialAt(0U),
+              incomplete_observation),
+          "incomplete private source bytes retained reviewed authority");
+}
+
 TextureMipLevelDescriptor MakeMip(std::uint32_t width, std::uint32_t height,
                                   std::vector<std::uint8_t> bytes) {
   TextureMipLevelDescriptor mip;
@@ -1604,6 +1678,7 @@ void CheckMatteMeshNormalization() {
 } // namespace
 
 int main() {
+  CheckCuratedCityWorldAsiaPolicy();
   CheckFullMipOpaqueLowering();
   CheckMalformedMipRollback();
   CheckConventionalSrgbPbrMipChain();

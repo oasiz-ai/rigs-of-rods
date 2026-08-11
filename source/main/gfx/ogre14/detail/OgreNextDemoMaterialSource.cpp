@@ -9,6 +9,7 @@
 
 #include "OgreNextDemoPrivatePolicy.h"
 
+#include "gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
 #include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
 #include "gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
 #include "gfx/ogre14/Ogre14SelectedTextureSource.h"
@@ -59,6 +60,8 @@ constexpr char kSamplerIdDomain[] =
     "RoR/OgreNextDemo/ProjectedPbr/SamplerSourceAsset/v1";
 constexpr char kManagedSpecularTextureIdDomain[] =
     "RoR/OgreNextDemo/ManagedSpecular/TextureSourceAsset/v1";
+constexpr char kCuratedCityWorldSpecularTextureIdDomain[] =
+    "RoR/OgreNextDemo/CuratedCityWorldAsia/LinearSpecularTextureSourceAsset/v1";
 constexpr char kAuthenticatedDecoderPolicy[] =
     "RoR/OgreNextDemo/AuthenticatedSourceDecoder/v2";
 constexpr char kOrdinarySelectedDecoderPolicy[] =
@@ -71,6 +74,8 @@ constexpr char kLossyMaterialNormalizationPolicy[] =
 constexpr char kManagedSpecularPbrLoweringPolicy[] =
     "RoR/OgreNextDemo/ManagedSpecularPbrLowering/"
     "LinearRgbSpecularWorkflowDielectricIor1p5F0p04NoMetallicSynthesis/v1";
+constexpr char kCuratedCityWorldPbrLoweringPolicy[] =
+    "RoR/OgreNextDemo/CuratedCityWorldAsia/ReviewedSpecularWorkflow/v1";
 constexpr std::uint32_t kMaximumTextureDimension = 8192U;
 constexpr std::uint64_t kMaximumTextureBaseBytes = 256ULL * 1024ULL * 1024ULL;
 
@@ -668,6 +673,68 @@ bool IsCanonicalTextureUnitSemantic(
          IsIdentityTextureTransform(unit.getTextureTransform()) &&
          IsCanonicalModulate(unit.getColourBlendMode(), Ogre::LBT_COLOUR) &&
          IsCanonicalModulate(unit.getAlphaBlendMode(), Ogre::LBT_ALPHA);
+}
+
+bool IsExactCuratedCityWorldSpecularUnit(
+    const Ogre::TextureUnitState &unit) noexcept {
+  const Ogre::LayerBlendModeEx &colour = unit.getColourBlendMode();
+  return unit.getNumFrames() == 1U && unit.getTextureCoordSet() == 0U &&
+         unit.getProjectiveTexturingFrustum() == nullptr &&
+         unit.getEffects().empty() && unit.getUnorderedAccessMipLevel() == -1 &&
+         IsIdentityTextureTransform(unit.getTextureTransform()) &&
+         colour.blendType == Ogre::LBT_COLOUR &&
+         colour.operation == Ogre::LBX_BLEND_TEXTURE_ALPHA &&
+         colour.source1 == Ogre::LBS_TEXTURE &&
+         colour.source2 == Ogre::LBS_CURRENT &&
+         IsCanonicalModulate(unit.getAlphaBlendMode(), Ogre::LBT_ALPHA);
+}
+
+bool IsExactCuratedCityWorldSphericalEnvironmentUnit(
+    const Ogre::TextureUnitState &unit) noexcept {
+  const Ogre::LayerBlendModeEx &colour = unit.getColourBlendMode();
+  const Ogre::TextureUnitState::EffectMap &effects = unit.getEffects();
+  if (unit.getNumFrames() != 1U || unit.getTextureCoordSet() != 0U ||
+      unit.getProjectiveTexturingFrustum() != nullptr ||
+      unit.getUnorderedAccessMipLevel() != -1 ||
+      !IsIdentityTextureTransform(unit.getTextureTransform()) ||
+      colour.blendType != Ogre::LBT_COLOUR ||
+      colour.operation != Ogre::LBX_BLEND_CURRENT_ALPHA ||
+      colour.source1 != Ogre::LBS_TEXTURE ||
+      colour.source2 != Ogre::LBS_CURRENT ||
+      !IsCanonicalModulate(unit.getAlphaBlendMode(), Ogre::LBT_ALPHA) ||
+      effects.size() != 1U) {
+    return false;
+  }
+  const auto effect = effects.begin();
+  return effect->first == Ogre::TextureUnitState::ET_ENVIRONMENT_MAP &&
+         effect->second.type == Ogre::TextureUnitState::ET_ENVIRONMENT_MAP &&
+         effect->second.subtype == Ogre::TextureUnitState::ENV_CURVED;
+}
+
+bool HasCuratedCityWorldSphericalFamilyShape(
+    const Ogre::MaterialPtr &material) noexcept {
+  try {
+    if (!material || material->getNumTechniques() != 1U) {
+      return false;
+    }
+    Ogre::Technique *const technique = material->getTechnique(0U);
+    Ogre::Pass *const pass =
+        technique != nullptr && technique->getNumPasses() == 1U
+            ? technique->getPass(0U)
+            : nullptr;
+    if (pass == nullptr || pass->getNumTextureUnitStates() != 3U) {
+      return false;
+    }
+    Ogre::TextureUnitState *const base = pass->getTextureUnitState(0U);
+    Ogre::TextureUnitState *const specular = pass->getTextureUnitState(1U);
+    Ogre::TextureUnitState *const environment = pass->getTextureUnitState(2U);
+    return base != nullptr && specular != nullptr && environment != nullptr &&
+           IsCanonicalTextureUnitSemantic(*base) &&
+           IsExactCuratedCityWorldSpecularUnit(*specular) &&
+           IsExactCuratedCityWorldSphericalEnvironmentUnit(*environment);
+  } catch (...) {
+    return false;
+  }
 }
 
 bool IsExactManagedSpecularTextureUnitSemantic(
@@ -1366,12 +1433,424 @@ struct CapturedSampler final {
   std::shared_ptr<const Render::RenderAssetPayload> payload;
 };
 
+struct CuratedCityWorldNativeFacts final {
+  const OgreNextDemoCuratedCityWorldMaterial *policy = nullptr;
+  Ogre::MaterialPtr material;
+  std::uint64_t material_state_count = 0U;
+  Ogre::Pass *pass = nullptr;
+  std::array<Ogre::TextureUnitState *, 3U> units{};
+  std::array<Ogre::SamplerPtr, 3U> samplers{};
+  std::array<Ogre::TexturePtr, 3U> textures{};
+  ExactPassObservation pass_observation;
+  std::array<OgreNextDemoExactSamplerObservation, 3U>
+      sampler_observations{};
+  std::array<OgreNextDemoExactTextureObservation, 3U>
+      texture_observations{};
+  Render::Ogre14AuthenticatedMaterialScriptResolution script_resolution;
+  std::array<Render::Ogre14AuthenticatedTextureResolution, 3U>
+      texture_resolutions{};
+  Render::ManagedMaterialTextureSourceReceipt specular_receipt;
+  Render::Ogre14ManagedMaterialSourceAuthorityBinding specular_binding;
+};
+
+bool IsReviewedCuratedCityWorldSampler(
+    const OgreNextDemoExactSamplerObservation &observation) noexcept {
+  return observation.minification_filter ==
+             OgreNextDemoObservedSamplerFilter::ANISOTROPIC &&
+         observation.magnification_filter ==
+             OgreNextDemoObservedSamplerFilter::ANISOTROPIC &&
+         observation.mip_filter ==
+             OgreNextDemoObservedSamplerFilter::LINEAR &&
+         observation.address_u ==
+             OgreNextDemoObservedSamplerAddressMode::WRAP &&
+         observation.address_v ==
+             OgreNextDemoObservedSamplerAddressMode::WRAP &&
+         observation.address_w ==
+             OgreNextDemoObservedSamplerAddressMode::WRAP &&
+         observation.mip_lod_bias == 0.0F &&
+         observation.maximum_anisotropy == 4U &&
+         !observation.compare_enabled &&
+         observation.compare_function_token ==
+             static_cast<std::uint8_t>(Ogre::CMPF_GREATER_EQUAL) &&
+         observation.border_color ==
+             std::array<float, 4U>{{0.0F, 0.0F, 0.0F, 1.0F}};
+}
+
+bool ResolveReviewedCuratedCityWorldTexture(
+    const Ogre::TexturePtr &texture, std::string_view expected_name,
+    const Render::IOgre14AuthenticatedTextureResolver &resolver,
+    Render::Ogre14AuthenticatedTextureResolution &output,
+    bool &temporarily_unavailable) noexcept {
+  try {
+    if (!texture || !texture->isLoaded()) {
+      temporarily_unavailable = true;
+      return false;
+    }
+    if (texture->getName() != expected_name ||
+        !resolver.RequiresAuthenticatedTextureSource(*texture)) {
+      return false;
+    }
+    Render::Ogre14AuthenticatedTextureResolution resolution;
+    const Render::ValidationResult result =
+        resolver.ResolveAuthenticatedTexture(*texture, resolution);
+    if (!result &&
+        (result.code == Render::ValidationCode::MISSING_REFERENCE ||
+         result.code == Render::ValidationCode::SEQUENCE_MISMATCH)) {
+      temporarily_unavailable = true;
+      return false;
+    }
+    const Render::Ogre14AuthenticatedTextureReceipt *const receipt =
+        result ? resolution.source_receipt() : nullptr;
+    const Render::Ogre14AuthenticatedTextureReceiptMetadata *const metadata =
+        receipt != nullptr ? receipt->metadata() : nullptr;
+    const std::size_t state_count = texture->getStateCount();
+    if (!result || !resolution.initialized() || receipt == nullptr ||
+        metadata == nullptr || !receipt->initialized() ||
+        receipt->source_bytes() == nullptr || receipt->source_size() == 0U ||
+        metadata->source.source_kind !=
+            Render::Ogre14AuthenticatedTextureSourceKind::
+                AUTHENTICATED_ARCHIVE_MEMBER ||
+        metadata->source.archive_sha256 !=
+            kOgreNextDemoCuratedCityWorldArchiveSha256 ||
+        metadata->source.exact_member_name != expected_name ||
+        metadata->source.effective_resource_group != texture->getGroup() ||
+        metadata->source.binding.kind !=
+            Render::Ogre14AuthenticatedTextureBindingKind::RESOURCE ||
+        metadata->source.binding.exact_resource_name != texture->getName() ||
+        metadata->byte_count != receipt->source_size() ||
+        !resolution.MatchesResolver(resolver) ||
+        !resolution.MatchesLoadedResourceIdentity(
+            reinterpret_cast<std::uintptr_t>(texture.get()),
+            static_cast<std::uint64_t>(texture->getHandle()),
+            texture->getGroup(), texture->getName(),
+            static_cast<std::uint64_t>(state_count)) ||
+        !resolver.RevalidateAuthenticatedTexture(*texture, resolution)) {
+      return false;
+    }
+    output = std::move(resolution);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool ResolveReviewedCuratedCityWorldScript(
+    const Ogre::MaterialPtr &material,
+    const OgreNextDemoCuratedCityWorldMaterial &policy,
+    const Render::IOgre14AuthenticatedMaterialScriptResolver &resolver,
+    Render::Ogre14AuthenticatedMaterialScriptResolution &output,
+    bool &temporarily_unavailable) noexcept {
+  try {
+    if (!material) {
+      return false;
+    }
+    Render::Ogre14AuthenticatedMaterialScriptResolution resolution;
+    const Render::ValidationResult result =
+        resolver.ResolveAuthenticatedMaterialScript(*material, resolution);
+    if (!result &&
+        (result.code == Render::ValidationCode::MISSING_REFERENCE ||
+         result.code == Render::ValidationCode::SEQUENCE_MISMATCH)) {
+      temporarily_unavailable = true;
+      return false;
+    }
+    const Render::Ogre14AuthenticatedMaterialScriptReceipt *const receipt =
+        result ? resolution.receipt() : nullptr;
+    const Render::Ogre14AuthenticatedMaterialScriptSourceMetadata *const
+        source = receipt != nullptr ? receipt->source_metadata() : nullptr;
+    const Render::Ogre14AuthenticatedMaterialScriptBindingMetadata *const
+        binding = receipt != nullptr ? receipt->binding_metadata() : nullptr;
+    if (!result || !resolution.initialized() || receipt == nullptr ||
+        !receipt->initialized() || source == nullptr || binding == nullptr ||
+        receipt->source_count() != 1U ||
+        receipt->primary_source_index() != 0U ||
+        source->source_role !=
+            Render::Ogre14MaterialScriptSourceRole::ROOT_SCRIPT ||
+        source->archive_sha256 !=
+            kOgreNextDemoCuratedCityWorldArchiveSha256 ||
+        source->exact_member_name !=
+            kOgreNextDemoCuratedCityWorldScriptMember ||
+        source->original_sha256 !=
+            kOgreNextDemoCuratedCityWorldScriptSha256 ||
+        source->effective_sha256 != source->original_sha256 ||
+        source->repair_state !=
+            Render::Ogre14MaterialScriptRepairState::NONE ||
+        source->applied_edit_count != 0U ||
+        source->original_byte_count != receipt->original_size() ||
+        source->effective_byte_count != receipt->effective_size() ||
+        receipt->original_bytes() == nullptr ||
+        receipt->effective_bytes() == nullptr ||
+        receipt->original_size() != receipt->effective_size() ||
+        std::memcmp(receipt->original_bytes(), receipt->effective_bytes(),
+                    receipt->original_size()) != 0 ||
+        binding->material_pointer_token !=
+            reinterpret_cast<std::uintptr_t>(material.get()) ||
+        binding->material_handle !=
+            static_cast<std::uint64_t>(material->getHandle()) ||
+        binding->exact_material_name != material->getName() ||
+        binding->exact_group != material->getGroup()) {
+      return false;
+    }
+    const OgreNextDemoCuratedCityWorldSourceObservation observation{
+        source->archive_sha256, source->exact_member_name,
+        source->original_sha256, receipt->original_bytes(),
+        receipt->original_size()};
+    if (!AuthenticateOgreNextDemoCuratedCityWorldMaterial(policy,
+                                                           observation) ||
+        !resolver.RevalidateAuthenticatedMaterialScript(*material,
+                                                        resolution)) {
+      return false;
+    }
+    output = std::move(resolution);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool SharesCuratedCityWorldTextureReceipt(
+    const Render::Ogre14AuthenticatedTextureResolution &first,
+    const Render::Ogre14AuthenticatedTextureResolution &second) noexcept {
+  const Render::Ogre14AuthenticatedTextureReceipt *const first_receipt =
+      first.source_receipt();
+  const Render::Ogre14AuthenticatedTextureReceipt *const second_receipt =
+      second.source_receipt();
+  return first.initialized() && second.initialized() &&
+         first_receipt != nullptr && second_receipt != nullptr &&
+         first_receipt->initialized() && second_receipt->initialized() &&
+         first_receipt->SharesImmutableStateWith(*second_receipt);
+}
+
+bool SharesCuratedCityWorldScriptReceipt(
+    const Render::Ogre14AuthenticatedMaterialScriptResolution &first,
+    const Render::Ogre14AuthenticatedMaterialScriptResolution &second)
+    noexcept {
+  const Render::Ogre14AuthenticatedMaterialScriptReceipt *const
+      first_receipt = first.receipt();
+  const Render::Ogre14AuthenticatedMaterialScriptReceipt *const
+      second_receipt = second.receipt();
+  return first.initialized() && second.initialized() &&
+         first_receipt != nullptr && second_receipt != nullptr &&
+         first_receipt->initialized() && second_receipt->initialized() &&
+         first_receipt->SharesImmutableStateWith(*second_receipt);
+}
+
+bool ObserveCuratedCityWorldNativeFacts(
+    const Ogre::MaterialPtr &material,
+    const OgreNextDemoCuratedCityWorldMaterial &policy,
+    Render::Ogre14GraphicsSceneMaterialCull section_cull,
+    const Render::IOgre14AuthenticatedMaterialScriptResolver &script_resolver,
+    const Render::IOgre14AuthenticatedTextureResolver &texture_resolver,
+    const Render::IOgre14SelectedTextureSourceResolver &selected_resolver,
+    CuratedCityWorldNativeFacts &output,
+    bool *temporarily_unavailable = nullptr,
+    const Render::ManagedMaterialTextureSourceReceipt
+        *reusable_specular_receipt = nullptr) noexcept {
+  try {
+    bool ignored_temporarily_unavailable = false;
+    if (temporarily_unavailable != nullptr) {
+      *temporarily_unavailable = false;
+    }
+    bool &source_unavailable = temporarily_unavailable != nullptr
+                                   ? *temporarily_unavailable
+                                   : ignored_temporarily_unavailable;
+    if (!material || material->getName() != policy.exact_material_name ||
+        material->getNumTechniques() != 1U ||
+        !material->getReceiveShadows() ||
+        section_cull !=
+            Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE ||
+        policy.workflow != OgreNextDemoCuratedCityWorldWorkflow::SPECULAR ||
+        policy.alpha_policy !=
+            OgreNextDemoCuratedCityWorldAlphaPolicy::FORCE_OPAQUE ||
+        !policy.depth_write || !policy.clockwise_cull ||
+        policy.sampler_policy !=
+            OgreNextDemoCuratedCityWorldSamplerPolicy::
+                REVIEWED_CONFIGURED_ANISOTROPIC4_V1 ||
+        policy.environment_policy !=
+            OgreNextDemoCuratedCityWorldEnvironmentPolicy::
+                SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED) {
+      return false;
+    }
+    Ogre::Technique *const technique = material->getTechnique(0U);
+    Ogre::Pass *const pass =
+        technique != nullptr && technique->getNumPasses() == 1U
+            ? technique->getPass(0U)
+            : nullptr;
+    if (pass == nullptr || pass->getNumTextureUnitStates() != 3U ||
+        HasAuthoredProgram(*pass) ||
+        !HasCuratedCityWorldSphericalFamilyShape(material)) {
+      return false;
+    }
+    const ExactPassObservation pass_observation = ObserveExactPass(*pass);
+    Render::MaterialBlendMode blend = Render::MaterialBlendMode::REPLACE;
+    Render::MaterialAlphaTestMode alpha =
+        Render::MaterialAlphaTestMode::DISABLED;
+    if (!ClassifyCanonicalPass(pass_observation, false, blend, alpha) ||
+        blend != Render::MaterialBlendMode::REPLACE ||
+        alpha != Render::MaterialAlphaTestMode::DISABLED ||
+        !pass_observation.depth_write ||
+        pass_observation.cull_mode != Ogre::CULL_CLOCKWISE) {
+      return false;
+    }
+
+    CuratedCityWorldNativeFacts candidate;
+    candidate.policy = &policy;
+    candidate.material = material;
+    const std::size_t material_state_count = material->getStateCount();
+    candidate.material_state_count =
+        static_cast<std::uint64_t>(material_state_count);
+    if (static_cast<std::size_t>(candidate.material_state_count) !=
+        material_state_count) {
+      return false;
+    }
+    candidate.pass = pass;
+    candidate.pass_observation = pass_observation;
+    const std::array<std::string_view, 3U> expected_names{{
+        policy.base_color_texture_name, policy.linear_specular_texture_name,
+        policy.spherical_environment_texture_name}};
+    for (std::size_t index = 0U; index < expected_names.size(); ++index) {
+      Ogre::TextureUnitState *const unit = pass->getTextureUnitState(index);
+      const Ogre::SamplerPtr sampler =
+          unit != nullptr ? unit->getSampler() : Ogre::SamplerPtr{};
+      const Ogre::TexturePtr texture =
+          unit != nullptr ? unit->_getTexturePtr() : Ogre::TexturePtr{};
+      if (unit == nullptr || !sampler ||
+          unit->getTextureName() != expected_names[index] ||
+          unit->getTextureType() != Ogre::TEX_TYPE_2D ||
+          (texture && texture->getName() != expected_names[index]) ||
+          (texture && texture->getGroup() != material->getGroup())) {
+        return false;
+      }
+      if (!texture || !texture->isLoaded()) {
+        if (temporarily_unavailable != nullptr) {
+          *temporarily_unavailable = true;
+        }
+        return false;
+      }
+      if (!HasAvailableNamedTextureSource(*unit)) {
+        return false;
+      }
+      const OgreNextDemoExactSamplerObservation sampler_observation =
+          ObserveExactSampler(*sampler);
+      if (!IsReviewedCuratedCityWorldSampler(sampler_observation)) {
+        return false;
+      }
+      Render::SamplerResourceDescriptor sampler_preflight;
+      if (!BuildOgreNextDemoSamplerDescriptor(
+              sampler_observation, 1U, "curated-cityworld-preflight",
+              sampler_preflight)) {
+        return false;
+      }
+      OgreNextDemoTextureProjectionExclusion texture_exclusion =
+          OgreNextDemoTextureProjectionExclusion::NONE;
+      if (!PreflightTextureIdentity(texture, texture_exclusion) ||
+          texture_exclusion != OgreNextDemoTextureProjectionExclusion::NONE) {
+        return false;
+      }
+      OgreNextDemoExactTextureObservation texture_observation;
+      if (!ObserveExactTexture(*unit, *texture, texture_observation) ||
+          !ResolveReviewedCuratedCityWorldTexture(
+              texture, expected_names[index], texture_resolver,
+              candidate.texture_resolutions[index],
+              source_unavailable)) {
+        return false;
+      }
+      candidate.units[index] = unit;
+      candidate.samplers[index] = sampler;
+      candidate.textures[index] = texture;
+      candidate.sampler_observations[index] = sampler_observation;
+      candidate.texture_observations[index] = texture_observation;
+    }
+    if (!ResolveReviewedCuratedCityWorldScript(
+            material, policy, script_resolver,
+            candidate.script_resolution,
+            source_unavailable)) {
+      return false;
+    }
+    const Render::ValidationResult specular_receipt =
+        Render::Ogre14ManagedMaterialSourceAdapter::BuildAuthenticated(
+            candidate.textures[1U], texture_resolver,
+            candidate.texture_resolutions[1U],
+            Render::ManagedMaterialDeclarationRegistryConfiguration{},
+            candidate.specular_receipt, candidate.specular_binding,
+            reusable_specular_receipt);
+    if (!specular_receipt || !candidate.specular_receipt.initialized() ||
+        !candidate.specular_binding.initialized() ||
+        !candidate.specular_binding.Revalidate(texture_resolver,
+                                               selected_resolver)) {
+      return false;
+    }
+    output = std::move(candidate);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+bool MatchCuratedCityWorldNativeFacts(
+    const CuratedCityWorldNativeFacts &expected,
+    const CuratedCityWorldNativeFacts &observed) noexcept {
+  try {
+    if (expected.policy == nullptr || observed.policy == nullptr ||
+        expected.policy->review_identity_sha256 !=
+            observed.policy->review_identity_sha256 ||
+        expected.material.get() != observed.material.get() ||
+        expected.material_state_count != observed.material_state_count ||
+        expected.pass != observed.pass ||
+        !MatchExactPassObservation(expected.pass_observation,
+                                   observed.pass_observation) ||
+        !SharesCuratedCityWorldScriptReceipt(observed.script_resolution,
+                                             expected.script_resolution) ||
+        !observed.specular_receipt.SharesImmutableStateWith(
+            expected.specular_receipt)) {
+      return false;
+    }
+    for (std::size_t index = 0U; index < expected.units.size(); ++index) {
+      if (expected.units[index] != observed.units[index] ||
+          expected.samplers[index].get() != observed.samplers[index].get() ||
+          expected.textures[index].get() != observed.textures[index].get() ||
+          !SharesCuratedCityWorldTextureReceipt(
+              observed.texture_resolutions[index],
+              expected.texture_resolutions[index]) ||
+          !MatchOgreNextDemoExactSamplerObservation(
+              expected.sampler_observations[index],
+              observed.sampler_observations[index]) ||
+          !MatchOgreNextDemoExactTextureObservation(
+              expected.texture_observations[index],
+              observed.texture_observations[index])) {
+        return false;
+      }
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 struct Projection final {
   std::string exact_name;
   std::string texture_key;
   std::string sampler_key;
   std::string managed_specular_texture_key;
   std::string managed_specular_sampler_key;
+  bool curated_cityworld = false;
+  std::string curated_review_identity_sha256;
+  Ogre::MaterialPtr curated_native_material_owner;
+  std::uint64_t curated_material_state_count = 0U;
+  std::uintptr_t curated_pass_pointer_token = 0U;
+  std::array<std::uintptr_t, 3U> curated_unit_pointer_tokens{};
+  std::array<std::uintptr_t, 3U> curated_sampler_pointer_tokens{};
+  std::array<std::uintptr_t, 3U> curated_texture_pointer_tokens{};
+  std::array<OgreNextDemoExactSamplerObservation, 3U>
+      curated_sampler_observations{};
+  std::array<OgreNextDemoExactTextureObservation, 3U>
+      curated_texture_observations{};
+  Render::Ogre14AuthenticatedMaterialScriptResolution
+      curated_script_resolution;
+  std::array<Render::Ogre14AuthenticatedTextureResolution, 3U>
+      curated_texture_resolutions{};
+  Render::ManagedMaterialTextureSourceReceipt curated_specular_receipt;
+  Render::Ogre14ManagedMaterialSourceAuthorityBinding
+      curated_specular_binding;
   Render::Ogre14ManagedMaterialDeclarationBinding managed_binding;
   Render::RenderPayloadDigest managed_declaration_digest{};
   std::uintptr_t native_material_pointer_token = 0U;
@@ -1506,6 +1985,77 @@ bool RevalidateManagedSpecularNativeProjection(
          MatchOgreNextDemoExactTextureObservation(
              projection.managed_specular_texture_observation,
              fresh.texture_observation);
+}
+
+bool RevalidateCuratedCityWorldProjection(
+    const Projection &projection,
+    const Render::IOgre14AuthenticatedMaterialScriptResolver &script_resolver,
+    const Render::IOgre14AuthenticatedTextureResolver &texture_resolver,
+    const Render::IOgre14SelectedTextureSourceResolver &selected_resolver)
+    noexcept {
+  try {
+    const OgreNextDemoCuratedCityWorldMaterial *const policy =
+        FindOgreNextDemoCuratedCityWorldMaterial(
+            projection.curated_native_material_owner
+                ? projection.curated_native_material_owner->getName()
+                : std::string{});
+    if (!projection.curated_cityworld || policy == nullptr ||
+        policy->review_identity_sha256 !=
+            projection.curated_review_identity_sha256 ||
+        !projection.curated_native_material_owner ||
+        static_cast<std::uint64_t>(
+            projection.curated_native_material_owner->getStateCount()) !=
+            projection.curated_material_state_count ||
+        !projection.curated_script_resolution.initialized() ||
+        !projection.curated_specular_receipt.initialized() ||
+        !projection.curated_specular_binding.initialized()) {
+      return false;
+    }
+    CuratedCityWorldNativeFacts fresh;
+    const bool observed =
+        ObserveCuratedCityWorldNativeFacts(
+            projection.curated_native_material_owner, *policy,
+            Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE,
+            script_resolver, texture_resolver, selected_resolver, fresh,
+            nullptr, &projection.curated_specular_receipt);
+    const bool pass_pointer = reinterpret_cast<std::uintptr_t>(fresh.pass) ==
+                              projection.curated_pass_pointer_token;
+    const bool pass_observation = MatchExactPassObservation(
+        projection.pass_observation, fresh.pass_observation);
+    const bool script_receipt = SharesCuratedCityWorldScriptReceipt(
+        fresh.script_resolution, projection.curated_script_resolution);
+    const bool specular_receipt =
+        fresh.specular_receipt.SharesImmutableStateWith(
+            projection.curated_specular_receipt);
+    const bool stored_binding = projection.curated_specular_binding.Revalidate(
+        texture_resolver, selected_resolver);
+    if (!observed || !pass_pointer || !pass_observation || !script_receipt ||
+        !specular_receipt || !stored_binding) {
+      return false;
+    }
+    for (std::size_t index = 0U; index < fresh.units.size(); ++index) {
+      if (reinterpret_cast<std::uintptr_t>(fresh.units[index]) !=
+              projection.curated_unit_pointer_tokens[index] ||
+          reinterpret_cast<std::uintptr_t>(fresh.samplers[index].get()) !=
+              projection.curated_sampler_pointer_tokens[index] ||
+          reinterpret_cast<std::uintptr_t>(fresh.textures[index].get()) !=
+              projection.curated_texture_pointer_tokens[index] ||
+          !SharesCuratedCityWorldTextureReceipt(
+              fresh.texture_resolutions[index],
+              projection.curated_texture_resolutions[index]) ||
+          !MatchOgreNextDemoExactSamplerObservation(
+              projection.curated_sampler_observations[index],
+              fresh.sampler_observations[index]) ||
+          !MatchOgreNextDemoExactTextureObservation(
+              projection.curated_texture_observations[index],
+              fresh.texture_observations[index])) {
+        return false;
+      }
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 struct ProjectionDecision final {
@@ -1852,6 +2402,7 @@ struct PendingNativeTextureOwner final {
   ExactPassObservation pass_observation;
   bool allow_alexis_approximation = false;
   bool exact_continuous_dust = false;
+  bool curated_cityworld = false;
   std::size_t technique_pass_count = 0U;
   std::size_t pass_texture_unit_count = 0U;
   std::array<float, 4U> diffuse{};
@@ -1907,6 +2458,9 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         technique != nullptr && pass != nullptr &&
         IsExactContinuousDustPass(*technique, *pass,
                                   *owner.native_material);
+    const bool observed_curated_cityworld =
+        owner.curated_cityworld &&
+        HasCuratedCityWorldSphericalFamilyShape(owner.native_material);
     if (pass == nullptr || unit == nullptr || !sampler ||
         reinterpret_cast<std::uintptr_t>(pass) !=
             owner.native_pass_pointer_token ||
@@ -1925,10 +2479,11 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         (owner.exact_continuous_dust &&
          (native_texture->getName() != "smoke.dds" ||
           !IsExactContinuousDustSampler(ObserveExactSampler(*sampler)))) ||
-        (!owner.allow_alexis_approximation &&
+        (!owner.curated_cityworld && !owner.allow_alexis_approximation &&
          (technique->getNumPasses() != 1U ||
           pass->getNumTextureUnitStates() != 1U ||
           HasAuthoredProgram(*pass))) ||
+        (owner.curated_cityworld && !observed_curated_cityworld) ||
         (owner.allow_alexis_approximation &&
          !IsExactAlexisDiffuseProjection(*technique, *pass,
                                          owner.native_material->getName(),
@@ -1985,6 +2540,10 @@ struct OgreNextDemoMaterialSource::State final {
   std::map<std::string, OgreNextDemoTextureNormalizationObservation,
            std::less<>>
       active_normalization_observations;
+  std::set<std::string, std::less<>> curated_cityworld_observed;
+  std::set<std::string, std::less<>> curated_cityworld_admitted;
+  std::set<std::string, std::less<>> curated_cityworld_matte;
+  std::set<std::string, std::less<>> uncurated_spherical_family_matte;
   OgreNextDemoMaterialSourceCounters counters;
 };
 
@@ -2029,6 +2588,23 @@ bool OgreNextDemoMaterialSource::BindOrdinarySelectedTextureSourceResolver(
   return true;
 }
 
+bool OgreNextDemoMaterialSource::BindAuthenticatedMaterialScriptResolver(
+    const Render::IOgre14AuthenticatedMaterialScriptResolver &resolver)
+    noexcept {
+  if (material_script_resolver_ == &resolver) {
+    return true;
+  }
+  if (material_script_resolver_ != nullptr || pending_ != nullptr ||
+      committed_ == nullptr || !committed_->cache ||
+      !committed_->cache->textures.empty() ||
+      !committed_->cache->projections.empty() ||
+      !committed_->cache->decisions.empty()) {
+    return false;
+  }
+  material_script_resolver_ = &resolver;
+  return true;
+}
+
 bool OgreNextDemoMaterialSource::BeginCapture() noexcept {
   if (pending_ != nullptr || committed_ == nullptr ||
       texture_resolver_ == nullptr || texture_authority_provider_ == nullptr) {
@@ -2047,6 +2623,10 @@ bool OgreNextDemoMaterialSource::BeginCapture() noexcept {
     pending_->projected_texture_keys.clear();
     pending_->active_native_texture_observations.clear();
     pending_->active_normalization_observations.clear();
+    pending_->curated_cityworld_observed.clear();
+    pending_->curated_cityworld_admitted.clear();
+    pending_->curated_cityworld_matte.clear();
+    pending_->uncurated_spherical_family_matte.clear();
     pending_->counters = {};
     return true;
   } catch (...) {
@@ -2099,6 +2679,26 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   const bool allow_alexis_approximation =
       OgreNextDemoAllowsAlexisTUS0Approximation(native_material->getGroup(),
                                                 native_material->getName());
+  const OgreNextDemoCuratedCityWorldMaterial *const curated_policy =
+      FindOgreNextDemoCuratedCityWorldMaterial(native_material->getName());
+  const bool allow_curated_cityworld = curated_policy != nullptr;
+  CuratedCityWorldNativeFacts curated_native;
+  bool curated_source_temporarily_unavailable = false;
+  if (allow_curated_cityworld &&
+      (managed_binding != nullptr || material_script_resolver_ == nullptr ||
+       texture_resolver_ == nullptr ||
+       ordinary_texture_source_resolver_ == nullptr ||
+       !ObserveCuratedCityWorldNativeFacts(
+           native_material, *curated_policy, input.cull,
+           *material_script_resolver_, *texture_resolver_,
+           *ordinary_texture_source_resolver_, curated_native,
+           &curated_source_temporarily_unavailable))) {
+    exclusion = curated_source_temporarily_unavailable
+                    ? OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE
+                    : OgreNextDemoTextureProjectionExclusion::
+                          MATERIAL_STATE_UNSUPPORTED;
+    return false;
+  }
   if (pass == nullptr || pass->getNumTextureUnitStates() == 0U) {
     exclusion =
         OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
@@ -2126,7 +2726,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         OgreNextDemoTextureProjectionExclusion::MATERIAL_STATE_UNSUPPORTED;
     return false;
   }
-  if (!allow_alexis_approximation &&
+  if (!allow_alexis_approximation && !allow_curated_cityworld &&
       (technique->getNumPasses() != 1U ||
        pass->getNumTextureUnitStates() != 1U || HasAuthoredProgram(*pass))) {
     exclusion =
@@ -2220,6 +2820,19 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   const Render::ManagedMaterialTextureSourceReceipt *managed_specular = nullptr;
   const Render::ManagedMaterialTextureSourceReceipt *managed_damaged = nullptr;
   ManagedSpecularNativeFacts managed_specular_native;
+  if (allow_curated_cityworld) {
+    managed_specular = &curated_native.specular_receipt;
+    managed_specular_native.pass = curated_native.pass;
+    managed_specular_native.unit = curated_native.units[1U];
+    managed_specular_native.sampler = curated_native.samplers[1U];
+    managed_specular_native.texture = curated_native.textures[1U];
+    managed_specular_native.pass_observation =
+        curated_native.pass_observation;
+    managed_specular_native.sampler_observation =
+        curated_native.sampler_observations[1U];
+    managed_specular_native.texture_observation =
+        curated_native.texture_observations[1U];
+  }
   if (managed_binding != nullptr) {
     if (!managed_binding->initialized() ||
         !managed_binding->ReferencesExactMaterial(native_material)) {
@@ -2303,6 +2916,20 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       }
     }
   }
+  const auto curated_authority_is_current = [&]() noexcept {
+    if (!allow_curated_cityworld) {
+      return true;
+    }
+    CuratedCityWorldNativeFacts fresh;
+    return curated_native.specular_binding.Revalidate(
+               *texture_resolver_, *ordinary_texture_source_resolver_) &&
+           ObserveCuratedCityWorldNativeFacts(
+               native_material, *curated_policy, input.cull,
+               *material_script_resolver_, *texture_resolver_,
+               *ordinary_texture_source_resolver_, fresh, nullptr,
+               &curated_native.specular_receipt) &&
+           MatchCuratedCityWorldNativeFacts(curated_native, fresh);
+  };
   std::string texture_key;
   AppendField(texture_key, native_texture->getGroup());
   AppendField(texture_key, native_texture->getName());
@@ -2359,6 +2986,45 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           projection_key, managed_specular_native.texture_observation);
     }
   }
+  if (allow_curated_cityworld) {
+    AppendField(projection_key, kCuratedCityWorldPbrLoweringPolicy);
+    AppendNumber(projection_key,
+                 kOgreNextDemoCuratedCityWorldAsiaPolicyVersion);
+    AppendField(projection_key, curated_policy->review_identity_sha256);
+    AppendField(projection_key,
+                kOgreNextDemoCuratedCityWorldEnvironmentPolicy);
+    AppendField(projection_key,
+                kOgreNextDemoCuratedCityWorldSamplerProfile);
+    AppendField(
+        projection_key,
+        kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256);
+    AppendNumber(projection_key, curated_native.material_state_count);
+    AppendFloatBits(projection_key, curated_policy->roughness_factor);
+    for (const float factor : curated_policy->specular_factor) {
+      AppendFloatBits(projection_key, factor);
+    }
+    AppendFloatBits(projection_key, curated_policy->index_of_refraction);
+    for (std::size_t index = 0U;
+         index < curated_native.texture_resolutions.size(); ++index) {
+      const Render::Ogre14AuthenticatedTextureReceipt *const receipt =
+          curated_native.texture_resolutions[index].source_receipt();
+      const Render::Ogre14AuthenticatedTextureReceiptMetadata *const
+          metadata = receipt != nullptr ? receipt->metadata() : nullptr;
+      if (metadata == nullptr) {
+        failure = Failure(
+            Render::ValidationCode::MISSING_REFERENCE,
+            "ogre_next_demo.material.curated_cityworld.texture_receipt",
+            "reviewed CityWorld texture authority disappeared before identity");
+        return false;
+      }
+      AppendField(projection_key, metadata->source.exact_member_name);
+      AppendField(projection_key, metadata->bytes_sha256);
+      AppendExactSamplerObservation(
+          projection_key, curated_native.sampler_observations[index]);
+      AppendExactTextureObservation(
+          projection_key, curated_native.texture_observations[index]);
+    }
+  }
 
   const auto make_pending_native_owner = [&]() {
     PendingNativeTextureOwner owner;
@@ -2372,6 +3038,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     owner.pass_observation = pass_observation;
     owner.allow_alexis_approximation = allow_alexis_approximation;
     owner.exact_continuous_dust = exact_continuous_dust;
+    owner.curated_cityworld = allow_curated_cityworld;
     owner.technique_pass_count = technique->getNumPasses();
     owner.pass_texture_unit_count = pass->getNumTextureUnitStates();
     owner.diffuse = ObserveColourComponents(pass->getDiffuse());
@@ -2757,6 +3424,22 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           "managed diffuse declaration does not own the exact decoded TUS0 bytes");
       return false;
     }
+    if (allow_curated_cityworld) {
+      const Render::Ogre14AuthenticatedTextureReceipt *const reviewed_base =
+          curated_native.texture_resolutions[0U].source_receipt();
+      if (reviewed_base == nullptr ||
+          !IsOgreNextDemoAuthenticatedTextureSourceMode(
+              texture->second.source) ||
+          !texture->second.authenticated_receipt.SharesImmutableStateWith(
+              *reviewed_base) ||
+          !curated_authority_is_current()) {
+        failure = Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "ogre_next_demo.material.curated_cityworld.base_authority",
+            "reviewed CityWorld TUS0 or declaration authority changed during decode");
+        return false;
+      }
+    }
     const auto active_normalization =
         pending_->active_normalization_observations.emplace(
             texture_key, texture->second.normalization_observation);
@@ -2817,14 +3500,21 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     std::string managed_specular_texture_key;
     std::string managed_specular_sampler_key;
     if (managed_specular != nullptr) {
+      const char *const specular_texture_id_domain =
+          allow_curated_cityworld
+              ? kCuratedCityWorldSpecularTextureIdDomain
+              : kManagedSpecularTextureIdDomain;
       const Render::ManagedMaterialTextureSourceIdentity *const identity =
           managed_specular->identity();
       if (identity == nullptr || !managed_specular->initialized() ||
           managed_specular->source_bytes() == nullptr ||
           managed_specular->source_size() == 0U ||
-          managed_binding == nullptr ||
-          !managed_binding->Revalidate(*texture_resolver_,
-                                       *ordinary_texture_source_resolver_)) {
+          (allow_curated_cityworld
+               ? !curated_authority_is_current()
+               : managed_binding == nullptr ||
+                     !managed_binding->Revalidate(
+                         *texture_resolver_,
+                         *ordinary_texture_source_resolver_))) {
         failure = Failure(
             Render::ValidationCode::REVISION_MISMATCH,
             "ogre_next_demo.material.managed.specular_authority",
@@ -2832,7 +3522,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         return false;
       }
       AppendField(managed_specular_texture_key,
-                  kManagedSpecularTextureIdDomain);
+                  specular_texture_id_domain);
+      if (allow_curated_cityworld) {
+        AppendField(managed_specular_texture_key,
+                    curated_policy->review_identity_sha256);
+      }
       AppendDigest(managed_specular_texture_key,
                    managed_specular->canonical_identity_sha256());
       auto specular_texture = pending_->cache->managed_specular_textures.find(
@@ -2842,7 +3536,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         CapturedManagedSpecularTexture captured_specular;
         Render::ValidationResult managed_validation =
             DeriveOgreNextDemoSourceId(
-                kManagedSpecularTextureIdDomain,
+                specular_texture_id_domain,
                 managed_specular_texture_key, captured_specular.source_id);
         if (!managed_validation) {
           failure = std::move(managed_validation);
@@ -2853,8 +3547,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
             *managed_specular, HexId(captured_specular.source_id), descriptor,
             captured_specular.normalization_observation);
         if (!managed_validation ||
-            !managed_binding->Revalidate(
-                *texture_resolver_, *ordinary_texture_source_resolver_)) {
+            (allow_curated_cityworld
+                 ? !curated_authority_is_current()
+                 : !managed_binding->Revalidate(
+                       *texture_resolver_,
+                       *ordinary_texture_source_resolver_))) {
           failure = managed_validation
                         ? Failure(Render::ValidationCode::REVISION_MISMATCH,
                                   "ogre_next_demo.material.managed.specular_"
@@ -2864,7 +3561,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                         : std::move(managed_validation);
           return false;
         }
-        std::string specular_identity(kManagedSpecularTextureIdDomain);
+        std::string specular_identity(specular_texture_id_domain);
         specular_identity.push_back('\0');
         specular_identity.append(managed_specular_texture_key);
         managed_validation = pending_->cache->identities.Register(
@@ -2990,7 +3687,10 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       return false;
     }
     Projection captured;
-    captured.exact_name = preserves_opaque_v2_identity
+    captured.exact_name = allow_curated_cityworld
+                              ? "CuratedCityWorldAsia/" + HexId(token) +
+                                    "/v1"
+                          : preserves_opaque_v2_identity
                               ? "OpaqueTUS0/" + HexId(token) + "/v1"
                               : "AutomaticTUS0/" + HexId(token) + "/v3";
     captured.texture_key = texture_key;
@@ -3001,25 +3701,60 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       captured.managed_binding = *managed_binding;
       captured.managed_declaration_digest =
           managed_metadata->canonical_identity_sha256;
-      if (managed_specular != nullptr) {
+    }
+    if (managed_specular != nullptr) {
+      captured.managed_specular_pass_pointer_token =
+          reinterpret_cast<std::uintptr_t>(managed_specular_native.pass);
+      captured.managed_specular_unit_pointer_token =
+          reinterpret_cast<std::uintptr_t>(managed_specular_native.unit);
+      captured.managed_specular_sampler_pointer_token =
+          reinterpret_cast<std::uintptr_t>(
+              managed_specular_native.sampler.get());
+      captured.managed_specular_texture_pointer_token =
+          reinterpret_cast<std::uintptr_t>(
+              managed_specular_native.texture.get());
+      captured.managed_specular_pass_observation =
+          managed_specular_native.pass_observation;
+      captured.managed_specular_sampler_observation =
+          managed_specular_native.sampler_observation;
+      captured.managed_specular_texture_observation =
+          managed_specular_native.texture_observation;
+      if (!allow_curated_cityworld) {
         captured.managed_native_material_owner = native_material;
-        captured.managed_specular_pass_pointer_token =
-            reinterpret_cast<std::uintptr_t>(managed_specular_native.pass);
-        captured.managed_specular_unit_pointer_token =
-            reinterpret_cast<std::uintptr_t>(managed_specular_native.unit);
-        captured.managed_specular_sampler_pointer_token =
-            reinterpret_cast<std::uintptr_t>(
-                managed_specular_native.sampler.get());
-        captured.managed_specular_texture_pointer_token =
-            reinterpret_cast<std::uintptr_t>(
-                managed_specular_native.texture.get());
-        captured.managed_specular_pass_observation =
-            managed_specular_native.pass_observation;
-        captured.managed_specular_sampler_observation =
-            managed_specular_native.sampler_observation;
-        captured.managed_specular_texture_observation =
-            managed_specular_native.texture_observation;
       }
+    }
+    if (allow_curated_cityworld) {
+      captured.curated_cityworld = true;
+      captured.curated_review_identity_sha256 =
+          std::string(curated_policy->review_identity_sha256);
+      captured.curated_native_material_owner = native_material;
+      captured.curated_material_state_count =
+          curated_native.material_state_count;
+      captured.curated_pass_pointer_token =
+          reinterpret_cast<std::uintptr_t>(curated_native.pass);
+      for (std::size_t index = 0U; index < curated_native.units.size();
+           ++index) {
+        captured.curated_unit_pointer_tokens[index] =
+            reinterpret_cast<std::uintptr_t>(curated_native.units[index]);
+        captured.curated_sampler_pointer_tokens[index] =
+            reinterpret_cast<std::uintptr_t>(
+                curated_native.samplers[index].get());
+        captured.curated_texture_pointer_tokens[index] =
+            reinterpret_cast<std::uintptr_t>(
+                curated_native.textures[index].get());
+      }
+      captured.curated_sampler_observations =
+          curated_native.sampler_observations;
+      captured.curated_texture_observations =
+          curated_native.texture_observations;
+      captured.curated_script_resolution =
+          curated_native.script_resolution;
+      captured.curated_texture_resolutions =
+          curated_native.texture_resolutions;
+      captured.curated_specular_receipt =
+          curated_native.specular_receipt;
+      captured.curated_specular_binding =
+          curated_native.specular_binding;
     }
     captured.native_material_pointer_token =
         reinterpret_cast<std::uintptr_t>(native_material.get());
@@ -3081,11 +3816,24 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     material.metallic_factor = 0.0F;
     if (!managed_specular_texture_key.empty()) {
       material.pbr_workflow = Render::MaterialPbrWorkflow::SPECULAR;
-      material.specular_factor = {1.0F, 1.0F, 1.0F};
+      material.specular_factor =
+          allow_curated_cityworld
+              ? Render::Float3{curated_policy->specular_factor[0U],
+                               curated_policy->specular_factor[1U],
+                               curated_policy->specular_factor[2U]}
+              : Render::Float3{1.0F, 1.0F, 1.0F};
+      if (allow_curated_cityworld) {
+        material.index_of_refraction =
+            curated_policy->index_of_refraction;
+      }
       material.specular_texture.texture_coordinate_set = 0U;
     }
-    captured.roughness_factor = static_cast<float>(
-        std::sqrt(2.0 / (static_cast<double>(pass->getShininess()) + 2.0)));
+    captured.roughness_factor =
+        allow_curated_cityworld
+            ? curated_policy->roughness_factor
+            : static_cast<float>(std::sqrt(
+                  2.0 /
+                  (static_cast<double>(pass->getShininess()) + 2.0)));
     material.roughness_factor = captured.roughness_factor;
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
     captured.emissive_factor = {static_cast<float>(native_emissive.r),
@@ -3135,6 +3883,37 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
                      .emplace(projection_key, std::move(captured))
                      .first;
   } else {
+    if (projection->second.curated_cityworld != allow_curated_cityworld) {
+      failure = Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.curated_cityworld.cache_kind",
+          "cached projection changed curated CityWorld authority class");
+      return false;
+    }
+    if (allow_curated_cityworld) {
+      const auto specular_texture =
+          pending_->cache->managed_specular_textures.find(
+              projection->second.managed_specular_texture_key);
+      const auto specular_sampler = pending_->cache->samplers.find(
+          projection->second.managed_specular_sampler_key);
+      if (projection->second.curated_review_identity_sha256 !=
+              curated_policy->review_identity_sha256 ||
+          specular_texture ==
+              pending_->cache->managed_specular_textures.end() ||
+          specular_sampler == pending_->cache->samplers.end() ||
+          managed_specular == nullptr ||
+          !specular_texture->second.receipt.SharesImmutableStateWith(
+              projection->second.curated_specular_receipt) ||
+          !RevalidateCuratedCityWorldProjection(
+              projection->second, *material_script_resolver_,
+              *texture_resolver_, *ordinary_texture_source_resolver_)) {
+        failure = Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "ogre_next_demo.material.curated_cityworld.cache_authority",
+            "cached reviewed CityWorld declaration, TUS, sampler, or source authority changed");
+        return false;
+      }
+    }
     if (!projection->second.managed_binding.initialized() &&
         managed_binding != nullptr && managed_metadata != nullptr) {
       // Diffuse-only managed authority is output-equivalent to the existing
@@ -3253,8 +4032,12 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
          static_cast<float>(native_specular.g),
          static_cast<float>(native_specular.b),
          static_cast<float>(native_specular.a)}};
-    const float roughness_factor = static_cast<float>(
-        std::sqrt(2.0 / (static_cast<double>(pass->getShininess()) + 2.0)));
+    const float roughness_factor =
+        allow_curated_cityworld
+            ? curated_policy->roughness_factor
+            : static_cast<float>(std::sqrt(
+                  2.0 /
+                  (static_cast<double>(pass->getShininess()) + 2.0)));
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
     const std::array<float, 3U> emissive_factor{
         {static_cast<float>(native_emissive.r),
@@ -3356,6 +4139,22 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
           "material projection requires one named section and native owner");
     }
 
+    const OgreNextDemoCuratedCityWorldMaterial *const curated_policy =
+        FindOgreNextDemoCuratedCityWorldMaterial(native_material->getName());
+    if (curated_policy != nullptr) {
+      pending_->curated_cityworld_observed.insert(
+          std::string(curated_policy->exact_material_name));
+      if (pending_->curated_cityworld_admitted.find(
+              std::string(curated_policy->exact_material_name)) ==
+          pending_->curated_cityworld_admitted.end()) {
+        pending_->curated_cityworld_matte.insert(
+            std::string(curated_policy->exact_material_name));
+      }
+    } else if (HasCuratedCityWorldSphericalFamilyShape(native_material)) {
+      pending_->uncurated_spherical_family_matte.insert(
+          native_material->getName());
+    }
+
     std::string decision_key;
     AppendField(decision_key, exact_section_key);
     const bool allow_continuous_dust =
@@ -3371,6 +4170,12 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
         }
         return RecordOgreNextDemoTextureProjectionExclusion(reason,
                                                             pending_->counters);
+      }
+      if (curated_policy != nullptr) {
+        pending_->curated_cityworld_admitted.insert(
+            std::string(curated_policy->exact_material_name));
+        pending_->curated_cityworld_matte.erase(
+            std::string(curated_policy->exact_material_name));
       }
       const std::size_t maximum = (std::numeric_limits<std::size_t>::max)();
       if (pending_->counters.candidate_sections != maximum) {
@@ -3837,6 +4642,21 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
               ? pending_->cache->samplers.end()
               : pending_->cache->samplers.find(
                     projection->second.managed_specular_sampler_key);
+      const bool projection_reachable =
+          pending_->used_projections.find(owner.projection_key) !=
+          pending_->used_projections.end();
+      if (projection_reachable && projection->second.curated_cityworld &&
+          (material_script_resolver_ == nullptr ||
+           texture_resolver_ == nullptr ||
+           ordinary_texture_source_resolver_ == nullptr ||
+           !RevalidateCuratedCityWorldProjection(
+               projection->second, *material_script_resolver_,
+               *texture_resolver_, *ordinary_texture_source_resolver_))) {
+        return Failure(
+            Render::ValidationCode::REVISION_MISMATCH,
+            "ogre_next_demo.material.curated_cityworld.final_authority",
+            "reviewed CityWorld declaration, TUS2 pending environment, or texture authority changed before publication");
+      }
       if (projection->second.managed_binding.initialized() &&
           (texture_resolver_ == nullptr ||
            ordinary_texture_source_resolver_ == nullptr ||
@@ -4144,6 +4964,23 @@ OgreNextDemoMaterialSource::CurrentCaptureCounters() const noexcept {
   return counters;
 }
 
+OgreNextDemoCuratedCityWorldCoverage
+OgreNextDemoMaterialSource::CurrentCuratedCityWorldCoverage() const noexcept {
+  OgreNextDemoCuratedCityWorldCoverage coverage;
+  if (pending_ == nullptr || !pending_->capture_open) {
+    return coverage;
+  }
+  coverage.observed_entries = pending_->curated_cityworld_observed.size();
+  coverage.admitted_entries = pending_->curated_cityworld_admitted.size();
+  coverage.matte_entries = pending_->curated_cityworld_matte.size();
+  // Every admitted row deliberately retains its authenticated spherical TUS2
+  // as pending authority. No environment binding is published in this slice.
+  coverage.environment_pending_entries = coverage.admitted_entries;
+  coverage.uncurated_spherical_family_matte_materials =
+      pending_->uncurated_spherical_family_matte.size();
+  return coverage;
+}
+
 OgreNextDemoMaterialSourceCounters
 OgreNextDemoMaterialSource::LifetimeCounters() const noexcept {
   return lifetime_counters_;
@@ -4166,6 +5003,10 @@ void OgreNextDemoMaterialSource::Commit() noexcept {
     pending_->projected_texture_keys.clear();
     pending_->active_native_texture_observations.clear();
     pending_->active_normalization_observations.clear();
+    pending_->curated_cityworld_observed.clear();
+    pending_->curated_cityworld_admitted.clear();
+    pending_->curated_cityworld_matte.clear();
+    pending_->uncurated_spherical_family_matte.clear();
     committed_.swap(pending_);
     pending_.reset();
   }
