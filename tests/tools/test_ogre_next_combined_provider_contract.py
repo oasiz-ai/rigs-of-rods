@@ -805,6 +805,10 @@ class CombinedProviderContractTests(unittest.TestCase):
                         "# Sections:",
                         "# Symbols:",
                         "0x1000 0x10 [  2] __ZL15stbi__load_mainP",
+                        (
+                            "0x1008 0x08 [  2] "
+                            "l___const._ZL22stbi__create_png_imageP9stbi__pngPhjiiii.xorig"
+                        ),
                     ]
                 )
                 if extra_owner:
