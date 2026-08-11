@@ -344,11 +344,87 @@ class CombinedProviderContractTests(unittest.TestCase):
             "verified_audited_legacy",
             "isolated_consumers",
             "REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST",
+            "_verify_strict_fp_receipts",
         ):
             self.assertIn(evidence, VERIFIER)
         self.assertIn("if receipt.exists() or receipt.is_symlink():", VERIFIER)
         self.assertIn('"provider_contract":', EXECUTABLE_CONTRACT)
         self.assertIn('"namespace_audit_report":', EXECUTABLE_CONTRACT)
+
+    def test_binary_proof_rejects_hostile_strict_fp_receipts(self) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_strict_fp", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        provider = {
+            "ogre_next_upstream_strict_fp": True,
+            "ogre_next_upstream_strict_fp_target_count": 8,
+        }
+        namespace = {
+            "upstream_strict_fp_required": True,
+            "upstream_compile_entries": 127,
+            "upstream_strict_fp_compile_entries": 127,
+        }
+        self.assertEqual(
+            module._verify_strict_fp_receipts(provider, namespace),
+            {
+                "provider_required": True,
+                "provider_target_count": 8,
+                "upstream_compile_entries": 127,
+                "strict_fp_compile_entries": 127,
+            },
+        )
+
+        provider_flag_cases = (
+            ("missing", {}),
+            ("false", {"ogre_next_upstream_strict_fp": False}),
+            ("integer true", {"ogre_next_upstream_strict_fp": 1}),
+        )
+        for label, replacement in provider_flag_cases:
+            hostile = dict(provider)
+            hostile.pop("ogre_next_upstream_strict_fp")
+            hostile.update(replacement)
+            with self.subTest(provider_flag=label):
+                with self.assertRaisesRegex(ValueError, "does not require"):
+                    module._verify_strict_fp_receipts(hostile, namespace)
+
+        for hostile_count in (None, 0, -1, True, 1.0, "1"):
+            hostile = dict(provider)
+            hostile["ogre_next_upstream_strict_fp_target_count"] = hostile_count
+            with self.subTest(provider_target_count=hostile_count):
+                with self.assertRaisesRegex(ValueError, "target count"):
+                    module._verify_strict_fp_receipts(hostile, namespace)
+
+        namespace_flag_cases = (
+            ("missing", {}),
+            ("false", {"upstream_strict_fp_required": False}),
+            ("integer true", {"upstream_strict_fp_required": 1}),
+        )
+        for label, replacement in namespace_flag_cases:
+            hostile = dict(namespace)
+            hostile.pop("upstream_strict_fp_required")
+            hostile.update(replacement)
+            with self.subTest(namespace_flag=label):
+                with self.assertRaisesRegex(ValueError, "did not require"):
+                    module._verify_strict_fp_receipts(provider, hostile)
+
+        for hostile_count in (None, 0, -1, True, 1.0, "127"):
+            hostile = dict(namespace)
+            hostile["upstream_compile_entries"] = hostile_count
+            with self.subTest(upstream_compile_entries=hostile_count):
+                with self.assertRaisesRegex(ValueError, "compile-entry count"):
+                    module._verify_strict_fp_receipts(provider, hostile)
+
+        for hostile_count in (None, 0, 126, 128, True, 127.0, "127"):
+            hostile = dict(namespace)
+            hostile["upstream_strict_fp_compile_entries"] = hostile_count
+            with self.subTest(strict_fp_compile_entries=hostile_count):
+                with self.assertRaisesRegex(ValueError, "do not cover every"):
+                    module._verify_strict_fp_receipts(provider, hostile)
 
     def test_overlay_remains_audited_without_fabricated_runtime_use(self) -> None:
         production_n1_link = block(

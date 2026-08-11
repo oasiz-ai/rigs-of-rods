@@ -230,6 +230,46 @@ def _verify_source_manifest(
     }
 
 
+def _verify_strict_fp_receipts(
+    provider_contract: dict[str, object],
+    namespace_audit: dict[str, object],
+) -> dict[str, int | bool]:
+    if provider_contract.get("ogre_next_upstream_strict_fp") is not True:
+        raise ValueError(
+            "combined provider contract does not require OgreNext upstream strict FP"
+        )
+    target_count = provider_contract.get(
+        "ogre_next_upstream_strict_fp_target_count"
+    )
+    if type(target_count) is not int or target_count < 1:
+        raise ValueError(
+            "combined provider contract strict-FP target count is not positive"
+        )
+
+    if namespace_audit.get("upstream_strict_fp_required") is not True:
+        raise ValueError("namespace audit did not require upstream strict FP")
+    upstream_compile_entries = namespace_audit.get("upstream_compile_entries")
+    if type(upstream_compile_entries) is not int or upstream_compile_entries < 1:
+        raise ValueError("namespace audit upstream compile-entry count is not positive")
+    strict_fp_compile_entries = namespace_audit.get(
+        "upstream_strict_fp_compile_entries"
+    )
+    if (
+        type(strict_fp_compile_entries) is not int
+        or strict_fp_compile_entries != upstream_compile_entries
+    ):
+        raise ValueError(
+            "namespace audit strict-FP compile entries do not cover every upstream entry"
+        )
+
+    return {
+        "provider_required": True,
+        "provider_target_count": target_count,
+        "upstream_compile_entries": upstream_compile_entries,
+        "strict_fp_compile_entries": strict_fp_compile_entries,
+    }
+
+
 def _write_receipt(path: Path, document: dict[str, object]) -> None:
     if not path.is_absolute() or path.parent.is_symlink():
         raise ValueError(f"receipt path must be direct and absolute: {path}")
@@ -363,6 +403,9 @@ def main() -> int:
             != provider_contract_document.get("ror_commit")
         ):
             raise ValueError("combined namespace audit is not an exact passing proof")
+        strict_fp_report = _verify_strict_fp_receipts(
+            provider_contract_document, namespace_audit_document
+        )
         namespace_build_contract_record = namespace_audit_document.get(
             "build_contract"
         )
@@ -679,6 +722,7 @@ def main() -> int:
                     "audited_archives": verified_audited_archives,
                     "audited_ogre14_dylibs": verified_audited_legacy,
                 },
+                "ogre_next_upstream_strict_fp": strict_fp_report,
                 "provider_source_manifest": provider_manifest_report,
                 "selected_game_source_manifest": selected_manifest_report,
                 "defined_external_symbol_count": len(symbol_lines),
