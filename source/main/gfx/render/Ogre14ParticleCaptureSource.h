@@ -13,6 +13,7 @@
 
 #include "SceneSnapshot.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -24,6 +25,41 @@ namespace RoR::Render {
 constexpr std::uint32_t kOgre14ParticleCaptureVersion = 1U;
 constexpr std::uint32_t kOgre14ParticleCapturedFrameVersion = 1U;
 constexpr std::uint32_t kOgre14ParticleMaterialClosureReceiptVersion = 1U;
+
+/// Returns true only across exactly one native OGRE update when the active
+/// particle's prior remaining lifetime proves that its pool slot could not
+/// have expired. The interval is the exact native Real value passed to
+/// _expire(); skipped/multiple updates deliberately mint a new monotonic ID.
+/// This function never dereferences or retains the native pointer.
+[[nodiscard]] bool CanRetainOgre14ParticlePoolIdentity(
+    float prior_age_seconds, float prior_lifetime_seconds,
+    float prior_remaining_seconds, std::uint64_t prior_native_update_count,
+    float current_age_seconds, float current_lifetime_seconds,
+    float current_remaining_seconds, std::uint64_t current_native_update_count,
+    float latest_native_effective_interval_seconds) noexcept;
+
+/// Decodes the four bytes in native Particle::mColour storage order. OGRE's
+/// emitters write ColourValue::getAsBYTE(), whose supported little-endian
+/// memory representation is R, G, B, A even though the packed integer value
+/// is numerically ABGR. Callers must copy the bytes, never reinterpret that
+/// integer through ColourValue::setAsRGBA().
+[[nodiscard]] Float4 DecodeOgre14ParticleColourBytes(
+    const std::array<std::uint8_t, 4U> &rgba_bytes) noexcept;
+
+enum class ContinuousParticleBlendMode : std::uint8_t {
+  LEGACY_STRAIGHT_ALPHA = 0U,
+  ADDITIVE = 1U,
+};
+
+enum class ContinuousParticleAlphaReject : std::uint8_t {
+  ALWAYS_PASS = 0U,
+  GREATER = 1U,
+};
+
+enum class ContinuousParticleSortPolicy : std::uint8_t {
+  STABLE_PARTICLE_ID = 0U,
+  BACK_TO_FRONT = 1U,
+};
 
 /// Canonical logical byte accounting excludes container padding and allocator
 /// metadata. The named terms make the version-one sums auditable on every ABI.
@@ -38,7 +74,9 @@ constexpr std::uint64_t kOgre14ParticleLogicalAssetReferenceBytes =
     kOgre14ParticleLogicalU64Bytes;
 constexpr std::uint64_t kOgre14ParticleLogicalClosureReceiptBytes =
     kOgre14ParticleLogicalU32Bytes + 2U * kOgre14ParticleLogicalU64Bytes +
-    kOgre14ParticleLogicalAssetReferenceBytes + kOgre14ParticleLogicalU64Bytes;
+    3U * kOgre14ParticleLogicalAssetReferenceBytes +
+    kOgre14ParticleLogicalU64Bytes + 11U * kOgre14ParticleLogicalU8Bytes +
+    kOgre14ParticleLogicalU32Bytes;
 constexpr std::uint64_t kOgre14ParticleLogicalStateBytes =
     kOgre14ParticleLogicalU64Bytes + 3U * kOgre14ParticleLogicalFloat3Bytes +
     kOgre14ParticleLogicalFloat4Bytes + kOgre14ParticleLogicalFloat2Bytes +
@@ -46,14 +84,15 @@ constexpr std::uint64_t kOgre14ParticleLogicalStateBytes =
 constexpr std::uint64_t kOgre14ParticleLogicalSystemBytes =
     kOgre14ParticleLogicalU32Bytes + kOgre14ParticleLogicalU64Bytes +
     kOgre14ParticleLogicalU8Bytes + kOgre14ParticleLogicalClosureReceiptBytes +
-    kOgre14ParticleLogicalU8Bytes + 8U * kOgre14ParticleLogicalU8Bytes +
+    2U * kOgre14ParticleLogicalU8Bytes +
+    8U * kOgre14ParticleLogicalU8Bytes +
     kOgre14ParticleLogicalU64Bytes;
 constexpr std::uint64_t kOgre14ParticleLogicalEventBytes =
     2U * kOgre14ParticleLogicalU64Bytes + kOgre14ParticleLogicalU8Bytes;
 static_assert(kOgre14ParticleLogicalAssetReferenceBytes == 25U);
-static_assert(kOgre14ParticleLogicalClosureReceiptBytes == 53U);
+static_assert(kOgre14ParticleLogicalClosureReceiptBytes == 118U);
 static_assert(kOgre14ParticleLogicalStateBytes == 80U);
-static_assert(kOgre14ParticleLogicalSystemBytes == 83U);
+static_assert(kOgre14ParticleLogicalSystemBytes == 149U);
 static_assert(kOgre14ParticleLogicalEventBytes == 17U);
 
 class RenderAssetRegistry;
@@ -67,6 +106,14 @@ enum class Ogre14ParticleBillboardMode : std::uint8_t {
   ORIENTED_SELF = 2U,
   PERPENDICULAR_COMMON = 3U,
   PERPENDICULAR_SELF = 4U,
+};
+
+/// Rotation placement is independent of billboard facing. Shipped
+/// tracks/Dust uses OGRE's default texture-coordinate rotation so its Rotator
+/// affector changes UVs while the camera-facing quad axes remain fixed.
+enum class Ogre14ParticleBillboardRotationMode : std::uint8_t {
+  TEXTURE_COORDINATES = 0U,
+  VERTICES = 1U,
 };
 
 /// Explicit delta semantics for one stable particle-system identity.
@@ -90,6 +137,8 @@ struct Ogre14ParticleState {
   Float3 velocity{};
   Float4 color_linear{1.0F, 1.0F, 1.0F, 1.0F};
   Float2 size_meters{0.1F, 0.1F};
+  /// Realized Rotator angle. In the admitted BBR_TEXCOORD mode it rotates the
+  /// full texture rectangle, not the camera-facing vertex axes.
   float rotation_radians = 0.0F;
   float age_seconds = 0.0F;
   float lifetime_seconds = 1.0F;
@@ -107,7 +156,48 @@ struct Ogre14ParticleMaterialClosureReceipt {
   std::uint64_t material_catalog_registry_id = 0U;
   std::uint64_t material_catalog_sequence = 0U;
   RenderAssetReference material;
+  RenderAssetReference source_texture;
+  RenderAssetReference sampler;
   std::uint64_t translation_source_sequence = 0U;
+  ContinuousParticleBlendMode blend =
+      ContinuousParticleBlendMode::LEGACY_STRAIGHT_ALPHA;
+  ContinuousParticleAlphaReject alpha_reject =
+      ContinuousParticleAlphaReject::ALWAYS_PASS;
+  float alpha_reject_threshold = 0.0F;
+  ContinuousParticleSortPolicy sort_policy =
+      ContinuousParticleSortPolicy::STABLE_PARTICLE_ID;
+  bool depth_check = true;
+  bool depth_write = false;
+  bool lighting_enabled = false;
+  bool receives_shadows = false;
+  bool casts_shadows = false;
+  bool vertex_color_modulation = true;
+  bool source_backed_texture = false;
+  bool gpu_readback_used = false;
+};
+
+/// Graphics-side source identities before GraphicsSceneSnapshotProducer owns
+/// portable asset IDs. The producer resolves and revalidates all three
+/// references against the exact candidate catalog before Capture().
+struct Ogre14ParticleMaterialSourceClosure {
+  std::uint64_t material_source_asset_id = 0U;
+  std::uint64_t texture_source_asset_id = 0U;
+  std::uint64_t sampler_source_asset_id = 0U;
+  ContinuousParticleBlendMode blend =
+      ContinuousParticleBlendMode::LEGACY_STRAIGHT_ALPHA;
+  ContinuousParticleAlphaReject alpha_reject =
+      ContinuousParticleAlphaReject::ALWAYS_PASS;
+  float alpha_reject_threshold = 0.0F;
+  ContinuousParticleSortPolicy sort_policy =
+      ContinuousParticleSortPolicy::STABLE_PARTICLE_ID;
+  bool depth_check = true;
+  bool depth_write = false;
+  bool lighting_enabled = false;
+  bool receives_shadows = false;
+  bool casts_shadows = false;
+  bool vertex_color_modulation = true;
+  bool source_backed_texture = false;
+  bool gpu_readback_used = false;
 };
 
 /// Complete post-physics value snapshot for one live native particle system.
@@ -123,6 +213,27 @@ struct Ogre14ParticleSystemCapture {
   Ogre14ParticleMaterialClosureReceipt material_closure;
   Ogre14ParticleBillboardMode billboard_mode =
       Ogre14ParticleBillboardMode::CAMERA_FACING_POINT;
+  Ogre14ParticleBillboardRotationMode billboard_rotation_mode =
+      Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES;
+  bool particles_are_world_space = true;
+  bool requires_frontend_emitter_evaluation = false;
+  bool requires_frontend_affector_evaluation = false;
+  bool requires_frontend_sorting = false;
+  bool requires_texture_animation = false;
+  bool system_visible = true;
+  bool parent_visible = true;
+  bool emitting = true;
+  std::vector<Ogre14ParticleState> particles;
+};
+
+struct Ogre14ParticleSourceSystemCapture {
+  std::uint64_t system_id = 0U;
+  ParticleEffect effect = ParticleEffect::DUST;
+  Ogre14ParticleMaterialSourceClosure material_closure;
+  Ogre14ParticleBillboardMode billboard_mode =
+      Ogre14ParticleBillboardMode::CAMERA_FACING_POINT;
+  Ogre14ParticleBillboardRotationMode billboard_rotation_mode =
+      Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES;
   bool particles_are_world_space = true;
   bool requires_frontend_emitter_evaluation = false;
   bool requires_frontend_affector_evaluation = false;
@@ -164,6 +275,21 @@ struct Ogre14JoinedParticleFrame {
   std::vector<Ogre14ParticleLifecycleEvent> events;
 };
 
+/// Complete graphics-side inventory using producer-owned source IDs. This is
+/// never submitted to a renderer; Produce() resolves it into the portable
+/// Ogre14JoinedParticleFrame against the exact catalog publication.
+struct Ogre14JoinedParticleSourceFrame {
+  std::uint64_t source_sequence = 0U;
+  std::uint64_t simulation_tick = 0U;
+  double simulation_time_seconds = 0.0;
+  Double3 absolute_world_origin_meters{};
+  std::uint64_t joined_buffer_epoch = 0U;
+  std::uint64_t post_physics_epoch = 0U;
+  bool complete_inventory = false;
+  std::vector<Ogre14ParticleSourceSystemCapture> systems;
+  std::vector<Ogre14ParticleLifecycleEvent> events;
+};
+
 /// Portable full state carried by CREATE, UPDATE, and STOP. Effective
 /// visibility is the logical AND of system and every captured parent node.
 struct Ogre14CapturedParticleSystem {
@@ -172,6 +298,8 @@ struct Ogre14CapturedParticleSystem {
   Ogre14ParticleMaterialClosureReceipt material_closure;
   Ogre14ParticleBillboardMode billboard_mode =
       Ogre14ParticleBillboardMode::CAMERA_FACING_POINT;
+  Ogre14ParticleBillboardRotationMode billboard_rotation_mode =
+      Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES;
   bool effective_visible = true;
   bool emitting = true;
   std::vector<Ogre14ParticleState> particles;
@@ -255,6 +383,17 @@ public:
   Capture(const Ogre14JoinedParticleFrame &frame,
           const RenderAssetRegistry &material_catalog,
           Ogre14ParticleCapturedFrame &captured);
+
+  /// Closes one map-scoped capture lifetime by synthesizing exactly one
+  /// DESTROY command for every still-live system against the already prepared
+  /// final catalog sequence. Success resets source/event/system identity so
+  /// the next scene generation may begin at first_source_sequence. Failure is
+  /// transactional and leaves both source state and caller output unchanged.
+  [[nodiscard]] ValidationResult FinalizeSceneGeneration(
+      const RenderAssetRegistry &final_material_catalog,
+      std::uint64_t simulation_tick, double simulation_time_seconds,
+      const Double3 &absolute_world_origin_meters,
+      Ogre14ParticleCapturedFrame &captured);
 
   [[nodiscard]] std::uint64_t last_source_sequence() const noexcept;
   [[nodiscard]] std::uint64_t highest_event_id() const noexcept;

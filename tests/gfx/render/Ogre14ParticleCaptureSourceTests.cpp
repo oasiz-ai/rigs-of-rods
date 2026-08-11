@@ -9,6 +9,8 @@
 #include "Ogre14ParticleCaptureSource.h"
 #include "RenderAssetRegistry.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -31,11 +33,74 @@ void Require(bool condition, const char *message) {
   }
 }
 
+void TestPoolIdentityRequiresExpirationSurvivalProof() {
+  using RoR::Render::CanRetainOgre14ParticlePoolIdentity;
+  Require(CanRetainOgre14ParticlePoolIdentity(
+              1.0F, 5.0F, 4.0F, 10U, 1.25F, 5.0F, 3.75F, 11U, 0.25F),
+          "a surviving monotonic particle must retain its ID");
+  Require(CanRetainOgre14ParticlePoolIdentity(
+              4.75F, 5.0F, 0.25F, 10U, 5.0F, 5.0F, 0.0F, 11U, 0.25F),
+          "OGRE expires on remaining < elapsed, so exact equality survives");
+  Require(!CanRetainOgre14ParticlePoolIdentity(
+              4.95F, 5.0F, 0.05F, 10U, 0.20F, 5.0F, 4.80F, 11U, 0.10F),
+          "a slot that could expire must get a new monotonic ID");
+  Require(!CanRetainOgre14ParticlePoolIdentity(
+              1.0F, 5.0F, 4.0F, 10U, 1.1F, 5.0F, 4.1F, 11U, 0.1F),
+          "remaining lifetime must not increase for a retained particle");
+  Require(!CanRetainOgre14ParticlePoolIdentity(
+              1.0F, 5.0F, 4.0F, 10U, 1.1F, 5.0F, 3.9F, 12U, 0.1F),
+          "multiple native updates must force a new ID");
+  Require(!CanRetainOgre14ParticlePoolIdentity(
+              1.0F, 5.0F, 4.0F, 10U, 1.1F, 6.0F, 4.9F, 11U, 0.1F),
+          "changed authored lifetime must force a new ID");
+  Require(!CanRetainOgre14ParticlePoolIdentity(
+              1.0F, 5.0F, 4.0F, 10U,
+              (std::numeric_limits<float>::quiet_NaN)(), 5.0F, 3.9F, 11U,
+              0.1F),
+          "non-finite identity evidence must fail closed");
+  const float frame_interval = 1.0F / 60.0F;
+  const float speed_factor = 0.1F;
+  const float native_effective_interval = frame_interval * speed_factor;
+  Require(!CanRetainOgre14ParticlePoolIdentity(
+              0.99F, 1.0F, std::nextafter(native_effective_interval, 0.0F),
+              10U, 0.0F, 1.0F, 1.0F, 11U,
+              native_effective_interval),
+          "exact native Real multiplication must not be replaced by an understated interval");
+}
+
+void TestNativeParticleColourByteDecode() {
+  using namespace RoR::Render;
+  constexpr std::array<std::uint8_t, 4U> native_rgba = {
+      17U, 67U, 149U, 203U};
+  const Float4 decoded = DecodeOgre14ParticleColourBytes(native_rgba);
+  Require(decoded ==
+              Float4{17.0F / 255.0F, 67.0F / 255.0F,
+                     149.0F / 255.0F, 203.0F / 255.0F},
+          "native RGBA bytes changed channel order or particle alpha");
+  Require(decoded.x != decoded.w && decoded.x < decoded.y &&
+              decoded.y < decoded.z && decoded.z < decoded.w,
+          "asymmetric colour golden cannot detect a red/alpha swap");
+}
+
 RoR::Render::RenderAssetReference Material(std::uint64_t low = 7U,
                                            std::uint64_t revision = 1U) {
   using namespace RoR::Render;
   return RenderAssetReference::Create(
       RenderAssetKind::MATERIAL, RenderAssetId::FromWords(9U, low), revision);
+}
+
+RoR::Render::RenderAssetReference Texture(std::uint64_t low = 7U,
+                                          std::uint64_t revision = 1U) {
+  using namespace RoR::Render;
+  return RenderAssetReference::Create(
+      RenderAssetKind::TEXTURE, RenderAssetId::FromWords(10U, low), revision);
+}
+
+RoR::Render::RenderAssetReference Sampler(std::uint64_t low = 7U,
+                                          std::uint64_t revision = 1U) {
+  using namespace RoR::Render;
+  return RenderAssetReference::Create(
+      RenderAssetKind::SAMPLER, RenderAssetId::FromWords(11U, low), revision);
 }
 
 const RoR::Render::RenderAssetRegistry &Catalog() {
@@ -47,19 +112,80 @@ const RoR::Render::RenderAssetRegistry &Catalog() {
     delta.sequence = 3U;
     delta.full_snapshot = true;
     for (const std::uint64_t id : {1U, 5U, 10U, 20U}) {
+      RenderAssetMutation texture_mutation;
+      texture_mutation.type = RenderAssetMutationType::UPSERT;
+      texture_mutation.asset = Texture(id);
+      TextureResourceDescriptor texture;
+      texture.debug_name = "particle texture " + std::to_string(id);
+      texture.format = TextureResourceFormat::RGBA8_UNORM;
+      texture.color_space = TextureColorSpace::SRGB;
+      texture.width = 1U;
+      texture.height = 1U;
+      TextureMipLevelDescriptor mip;
+      mip.width = 1U;
+      mip.height = 1U;
+      mip.row_pitch_bytes = 4U;
+      mip.layer_pitch_bytes = 4U;
+      mip.bytes = {255U, 255U, 255U, 128U};
+      texture.mip_levels.push_back(std::move(mip));
+      texture_mutation.payload = std::move(texture);
+      delta.mutations.push_back(std::move(texture_mutation));
+
+      RenderAssetMutation sampler_mutation;
+      sampler_mutation.type = RenderAssetMutationType::UPSERT;
+      sampler_mutation.asset = Sampler(id);
+      SamplerResourceDescriptor sampler;
+      sampler.debug_name = "particle sampler " + std::to_string(id);
+      sampler_mutation.payload = std::move(sampler);
+      delta.mutations.push_back(std::move(sampler_mutation));
+
       RenderAssetMutation mutation;
       mutation.type = RenderAssetMutationType::UPSERT;
       mutation.asset = Material(id);
       MaterialDescriptor descriptor;
       descriptor.debug_name = "particle material " + std::to_string(id);
+      descriptor.base_color_texture.texture = Texture(id);
+      descriptor.base_color_texture.sampler = Sampler(id);
       mutation.payload = std::move(descriptor);
       delta.mutations.push_back(std::move(mutation));
     }
+    std::sort(delta.mutations.begin(), delta.mutations.end(),
+              [](const RenderAssetMutation &left,
+                 const RenderAssetMutation &right) {
+                return left.asset.id < right.asset.id;
+              });
     const ValidationResult result = registry->Apply(delta);
     Require(result.ok(), "test particle material catalog was invalid");
     return registry;
   }();
   return *catalog;
+}
+
+RoR::Render::RenderAssetRegistry AdvancedCatalog() {
+  using namespace RoR::Render;
+  RenderAssetRegistry registry = Catalog();
+  RenderAssetDelta advance;
+  advance.registry_id = registry.registry_id();
+  advance.base_sequence = registry.sequence();
+  advance.sequence = registry.sequence() + 1U;
+  Require(registry.Apply(advance).ok() && registry.sequence() == 4U,
+          "receipt-only particle catalog advance was invalid");
+  return registry;
+}
+
+RoR::Render::RenderAssetRegistry EmptyFinalCatalog() {
+  using namespace RoR::Render;
+  RenderAssetRegistry registry = Catalog();
+  RenderAssetDelta delta = registry.BuildFullSnapshot();
+  delta.sequence = 4U;
+  for (RenderAssetMutation &mutation : delta.mutations) {
+    mutation.type = RenderAssetMutationType::DESTROY;
+    ++mutation.asset.revision;
+    mutation.payload = std::monostate{};
+  }
+  Require(registry.Apply(delta).ok() && registry.live_count() == 0U,
+          "empty final particle catalog was invalid");
+  return registry;
 }
 
 RoR::Render::Ogre14ParticleState Particle(std::uint64_t id) {
@@ -86,7 +212,13 @@ RoR::Render::Ogre14ParticleSystemCapture System(
   system.material_closure.material_catalog_registry_id = 51U;
   system.material_closure.material_catalog_sequence = 3U;
   system.material_closure.material = Material(id);
+  system.material_closure.source_texture = Texture(id);
+  system.material_closure.sampler = Sampler(id);
   system.material_closure.translation_source_sequence = 1U;
+  system.material_closure.alpha_reject =
+      ContinuousParticleAlphaReject::GREATER;
+  system.material_closure.alpha_reject_threshold = 2.0F / 255.0F;
+  system.material_closure.source_backed_texture = true;
   system.particles = std::move(particles);
   return system;
 }
@@ -149,6 +281,8 @@ void TestCanonicalCreateAndEffectiveVisibility() {
           output.commands[0U]
                   .system->material_closure.translation_source_sequence ==
               first.material_closure.translation_source_sequence &&
+          output.commands[0U].system->billboard_rotation_mode ==
+              Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES &&
           output.commands[0U].system->particles[0U].direction ==
               first.particles[0U].direction &&
           output.commands[0U].system->particles[0U].rotation_radians ==
@@ -244,6 +378,59 @@ void TestReplayUnchangedStopDestroyAndResurrection() {
               source.last_source_sequence() == 5U &&
               source.live_system_count() == 0U,
           "destroyed system was resurrected or failure was not transactional");
+}
+
+void TestSceneGenerationFinalizationDestroysAndResets() {
+  using namespace RoR::Render;
+  Ogre14ParticleCaptureSource source;
+  Ogre14ParticleCapturedFrame output;
+  ValidationResult result = source.Capture(
+      Frame(1U, 8U, {System(10U), System(20U)},
+            {Event(7U, 10U, Ogre14ParticleLifecycleOperation::CREATE),
+             Event(8U, 20U, Ogre14ParticleLifecycleOperation::CREATE)}),
+      Catalog(), output);
+  Require(result.ok() && source.live_system_count() == 2U,
+          "generation-finalization seed failed");
+
+  Ogre14ParticleCapturedFrame sentinel;
+  sentinel.source_sequence = 999U;
+  result = source.FinalizeSceneGeneration(
+      Catalog(), 2U, 1.0 / 48.0, {1000.0, 20.0, -3000.0}, sentinel);
+  Require(!result && sentinel.source_sequence == 999U &&
+              source.last_source_sequence() == 1U &&
+              source.live_system_count() == 2U,
+          "nonempty final catalog mutated particle generation state");
+
+  RenderAssetRegistry final_catalog = EmptyFinalCatalog();
+  result = source.FinalizeSceneGeneration(
+      final_catalog, 2U, 1.0 / 48.0, {1000.0, 20.0, -3000.0}, output);
+  Require(result.ok() && output.source_sequence == 2U &&
+              output.material_catalog_sequence == 4U &&
+              output.joined_buffer_epoch == 8U &&
+              output.commands.size() == 2U &&
+              output.commands[0U].event_id == 9U &&
+              output.commands[0U].system_id == 10U &&
+              output.commands[0U].operation ==
+                  Ogre14ParticleLifecycleOperation::DESTROY &&
+              output.commands[0U].system == nullptr &&
+              output.commands[1U].event_id == 10U &&
+              output.commands[1U].system_id == 20U &&
+              output.commands[1U].operation ==
+                  Ogre14ParticleLifecycleOperation::DESTROY &&
+              source.last_source_sequence() == 0U &&
+              source.highest_event_id() == 0U &&
+              source.highest_system_id() == 0U &&
+              source.known_system_count() == 0U &&
+              source.live_system_count() == 0U,
+          "final particle tombstones or per-generation reset were incomplete");
+
+  result = source.Capture(
+      Frame(1U, 1U, {System(1U)},
+            {Event(1U, 1U, Ogre14ParticleLifecycleOperation::CREATE)}),
+      Catalog(), output);
+  Require(result.ok() && source.last_source_sequence() == 1U &&
+              source.highest_system_id() == 1U,
+          "next scene generation did not reopen particle identity at one");
 }
 
 void TestParticleRemovalAndIdentityResurrection() {
@@ -497,6 +684,8 @@ void TestMaterialClosureReceiptAndCatalogLineage() {
         Catalog(), output);
     Require(result.ok(), "material translator lineage seed failed");
     system.material_closure.material = Material(5U);
+    system.material_closure.source_texture = Texture(5U);
+    system.material_closure.sampler = Sampler(5U);
     system.material_closure.translation_source_sequence = 1U;
     result = source.Capture(
         Frame(2U, 2U, {system},
@@ -506,6 +695,63 @@ void TestMaterialClosureReceiptAndCatalogLineage() {
                 source.last_source_sequence() == 1U,
             "changed material closure regressed translator lineage");
   }
+}
+
+void TestReceiptOnlyCatalogAdvanceDoesNotInventUpdate() {
+  using namespace RoR::Render;
+  Ogre14ParticleCaptureSource source;
+  Ogre14ParticleSystemCapture system = System(1U);
+  Ogre14ParticleCapturedFrame output;
+  ValidationResult result = source.Capture(
+      Frame(1U, 1U, {system},
+            {Event(1U, 1U, Ogre14ParticleLifecycleOperation::CREATE)}),
+      Catalog(), output);
+  Require(result.ok() && output.commands.size() == 1U,
+          "receipt-only lineage seed failed");
+
+  RenderAssetRegistry advanced = AdvancedCatalog();
+  system.material_closure.material_catalog_sequence = advanced.sequence();
+  system.material_closure.translation_source_sequence = 2U;
+  Ogre14JoinedParticleFrame receipt_only = Frame(2U, 2U, {system}, {});
+  receipt_only.material_catalog_sequence = advanced.sequence();
+  result = source.Capture(receipt_only, advanced, output);
+  Require(result.ok() && output.commands.empty() &&
+              output.material_catalog_sequence == advanced.sequence() &&
+              source.last_source_sequence() == 2U &&
+              source.highest_event_id() == 1U,
+          "catalog/translator receipt advance invented a particle UPDATE");
+
+  system.material_closure.material = Material(5U);
+  system.material_closure.source_texture = Texture(5U);
+  system.material_closure.sampler = Sampler(5U);
+  Ogre14JoinedParticleFrame stale_translation = Frame(
+      3U, 3U, {system},
+      {Event(2U, 1U, Ogre14ParticleLifecycleOperation::UPDATE)});
+  stale_translation.material_catalog_sequence = advanced.sequence();
+  result = source.Capture(stale_translation, advanced, output);
+  Require(!result && result.code == ValidationCode::SEQUENCE_MISMATCH &&
+              source.last_source_sequence() == 2U,
+          "changed exact asset references reused translator lineage");
+
+  system.material_closure.translation_source_sequence = 3U;
+  Ogre14JoinedParticleFrame missing_update =
+      Frame(3U, 3U, {system}, {});
+  missing_update.material_catalog_sequence = advanced.sequence();
+  result = source.Capture(missing_update, advanced, output);
+  Require(!result && result.code == ValidationCode::SIZE_MISMATCH &&
+              source.last_source_sequence() == 2U,
+          "changed exact asset references did not require UPDATE");
+
+  Ogre14JoinedParticleFrame exact_update = Frame(
+      3U, 3U, {system},
+      {Event(2U, 1U, Ogre14ParticleLifecycleOperation::UPDATE)});
+  exact_update.material_catalog_sequence = advanced.sequence();
+  result = source.Capture(exact_update, advanced, output);
+  Require(result.ok() && output.commands.size() == 1U &&
+              output.commands.front().system != nullptr &&
+              output.commands.front().system->material_closure.material ==
+                  Material(5U),
+          "exact asset-reference UPDATE failed after receipt-only advance");
 }
 
 void TestHostileNumericFeatureAndCapValidation() {
@@ -533,6 +779,18 @@ void TestHostileNumericFeatureAndCapValidation() {
         Catalog(), output);
     Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE,
             "unsupported billboard mode was guessed as camera-facing");
+  }
+  {
+    Ogre14ParticleCaptureSource source;
+    Ogre14ParticleSystemCapture system = System(1U);
+    system.billboard_rotation_mode =
+        Ogre14ParticleBillboardRotationMode::VERTICES;
+    ValidationResult result = source.Capture(
+        Frame(1U, 1U, {system},
+              {Event(1U, 1U, Ogre14ParticleLifecycleOperation::CREATE)}),
+        Catalog(), output);
+    Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE,
+            "vertex-rotated billboard was guessed as shipped Dust UV rotation");
   }
   {
     Ogre14ParticleCaptureSource source;
@@ -817,6 +1075,8 @@ bool SameSentinelOutput(const RoR::Render::Ogre14ParticleCapturedFrame &lhs,
          lhs_system.material_closure.translation_source_sequence ==
              rhs_system.material_closure.translation_source_sequence &&
          lhs_system.billboard_mode == rhs_system.billboard_mode &&
+         lhs_system.billboard_rotation_mode ==
+             rhs_system.billboard_rotation_mode &&
          lhs_system.effective_visible == rhs_system.effective_visible &&
          lhs_system.emitting == rhs_system.emitting &&
          lhs_system.particles.size() == 1U &&
@@ -932,12 +1192,16 @@ void TestInjectedFailureIsStronglyTransactional() {
 } // namespace
 
 int main() {
+  TestPoolIdentityRequiresExpirationSurvivalProof();
+  TestNativeParticleColourByteDecode();
   TestCanonicalCreateAndEffectiveVisibility();
   TestReplayUnchangedStopDestroyAndResurrection();
+  TestSceneGenerationFinalizationDestroysAndResets();
   TestParticleRemovalAndIdentityResurrection();
   TestInitialStoppedCreateAndSameIdentityRestart();
   TestHostileIdentifiersEventsAndLineage();
   TestMaterialClosureReceiptAndCatalogLineage();
+  TestReceiptOnlyCatalogAdvanceDoesNotInventUpdate();
   TestHostileNumericFeatureAndCapValidation();
   TestInjectedFailureIsStronglyTransactional();
   std::cout << "OGRE 14 particle capture source tests passed\n";

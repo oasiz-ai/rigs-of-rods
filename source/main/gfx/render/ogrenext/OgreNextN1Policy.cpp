@@ -786,6 +786,7 @@ BuildOgreNextN1CapabilityReport(RasterGraphicsApi raster_api,
   // after the frame (or retains it with the same-device interop lease). It
   // never aliases or incrementally reads mutable solver memory.
   report.supports_dynamic_mesh_updates = true;
+  report.supports_continuous_particles = true;
   report.raster_ready = raster_api == RasterGraphicsApi::METAL ||
                         raster_api == RasterGraphicsApi::DIRECT3D11 ||
                         raster_api == RasterGraphicsApi::VULKAN;

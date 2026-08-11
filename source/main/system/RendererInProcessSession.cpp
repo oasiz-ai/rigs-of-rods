@@ -502,7 +502,8 @@ public:
 
     const Render::RendererFrontendDirectDispatchResult dispatched =
         dispatcher->RenderScene(retained.production.scene_snapshot,
-                                retained.production.camera, policy);
+                                retained.production.camera, policy,
+                                retained.production.continuous_particles);
     if (dispatched.status ==
         Render::RendererFrontendDirectDispatchStatus::
             SCENE_FRAME_PRESENTATION_SURFACE_STALE) {

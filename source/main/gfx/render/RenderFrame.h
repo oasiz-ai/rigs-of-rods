@@ -15,6 +15,7 @@
 #include "RenderValidation.h"
 #include "ResourceHandle.h"
 #include "SceneSnapshot.h"
+#include "Ogre14ParticleCaptureSource.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -125,6 +126,9 @@ struct RenderFrameRequest {
   /// Strictly increasing and never reused per initialized frontend lifetime.
   std::uint64_t frame_id = 0U;
   std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  /// In-process continuous-particle delta aligned to scene_snapshot. The
+  /// established SceneSnapshot particle_events field remains discrete bursts.
+  std::shared_ptr<const Ogre14ParticleCapturedFrame> continuous_particles;
   std::vector<CameraViewRequest> views;
   FrameOutputMask requested_outputs = FrameOutputMask::COLOR;
   /// Exact color attachment encoding. RGBA16_FLOAT is linear scene-referred

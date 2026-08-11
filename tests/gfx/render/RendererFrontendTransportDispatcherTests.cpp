@@ -133,6 +133,21 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
   return created.snapshot;
 }
 
+std::shared_ptr<const Ogre14ParticleCapturedFrame> ParticleFrameFor(
+    const std::shared_ptr<const SceneSnapshot> &scene,
+    std::uint64_t source_sequence) {
+  auto particles = std::make_shared<Ogre14ParticleCapturedFrame>();
+  particles->source_sequence = source_sequence;
+  particles->material_catalog_registry_id = scene->asset_registry_id();
+  particles->material_catalog_sequence = scene->asset_sequence();
+  particles->simulation_tick = scene->simulation_tick();
+  particles->simulation_time_seconds = scene->simulation_time_seconds();
+  particles->absolute_world_origin_meters =
+      scene->absolute_world_origin_meters();
+  particles->joined_buffer_epoch = source_sequence;
+  return particles;
+}
+
 RenderTransportStreamFrameResult
 CompleteFrame(const std::vector<std::uint8_t> &bytes) {
   RenderTransportStreamDecoder stream(
@@ -278,6 +293,7 @@ public:
     capabilities_.supports_async_compute = true;
     capabilities_.supports_dynamic_mesh_updates = true;
     capabilities_.supports_particle_events = true;
+    capabilities_.supports_continuous_particles = true;
     Require(ValidateFrontendCapabilityReport(capabilities_).ok(),
             "fake frontend capabilities must be valid");
   }
@@ -365,7 +381,24 @@ public:
     return RenderOperationResult::Success();
   }
 
-  bool IsFrameComplete(std::uint64_t) const noexcept override { return true; }
+  RenderOperationResult
+  RetireFrameState(const RenderFrameRequest &request) override {
+    calls.emplace_back("retire-frame-state");
+    retired_requests.push_back(request);
+    if (fail_retire_frame_state) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "injected retired-frame state failure");
+    }
+    last_completed_frame_id = request.frame_id;
+    return RenderOperationResult::Success();
+  }
+
+  bool IsFrameComplete(std::uint64_t frame_id) const noexcept override {
+    return frame_id <= last_completed_frame_id ||
+           (!rendered_requests.empty() &&
+            frame_id <= rendered_requests.back().frame_id);
+  }
 
   RenderOperationResult WaitForFrame(std::uint64_t frame_id,
                                      std::uint64_t timeout) override {
@@ -390,6 +423,7 @@ public:
   std::vector<std::uint64_t> synchronized_registry_ids;
   std::vector<std::uint64_t> synchronized_asset_sequences;
   std::vector<RenderFrameRequest> rendered_requests;
+  std::vector<RenderFrameRequest> retired_requests;
   std::vector<std::uint64_t> waited_frame_ids;
   std::vector<std::uint64_t> waited_timeouts;
   std::vector<ResourceHandle> release_attempts;
@@ -399,6 +433,7 @@ public:
   bool fail_render = false;
   bool populate_before_render_failure = false;
   bool throw_bad_alloc_render = false;
+  bool fail_retire_frame_state = false;
   bool fail_wait = false;
   bool fail_scene_generation_reset = false;
   bool throw_length_error_scene_generation_reset = false;
@@ -407,6 +442,7 @@ public:
   bool invalid_output = false;
   bool duplicate_output_resource = false;
   std::size_t fail_release_attempt = 0U;
+  std::uint64_t last_completed_frame_id = 0U;
 
 private:
   void PopulateOutput(const RenderFrameRequest &request,
@@ -1358,6 +1394,72 @@ void TestDirectDispatcherTypedLifecycle() {
           "typed generation reset reused a process-lifetime identity");
 }
 
+void TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce() {
+  FakeFrontend frontend;
+  constexpr std::uint64_t registry_id = 0xD1EC700000000011ULL;
+  RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+  Require(dispatcher
+              .SynchronizeAssets(AssetDelta(registry_id, 1U, true))
+              .ok(),
+          "particle retirement fixture did not synchronize assets");
+
+  const auto retired_scene = Scene(201U, registry_id, 1U);
+  const RendererFrontendDirectDispatchResult retired = dispatcher.RenderScene(
+      retired_scene, Camera(), RetiredPolicy(),
+      ParticleFrameFor(retired_scene, 1U));
+  RequireDirectStatus(
+      retired.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_RETIRED,
+      "continuous-particle scene was not retired through frontend state");
+  Require(retired.frontend_frame_id == 1U &&
+              dispatcher.last_frontend_frame_id() == 1U &&
+              frontend.rendered_requests.empty() &&
+              frontend.retired_requests.size() == 1U &&
+              frontend.retired_requests.front().frame_id == 1U &&
+              frontend.retired_requests.front().scene_snapshot.get() ==
+                  retired_scene.get() &&
+              frontend.retired_requests.front().continuous_particles !=
+                  nullptr &&
+              frontend.waited_frame_ids == std::vector<std::uint64_t>{1U},
+          "retired particle state was dropped, rendered, copied, or incomplete");
+
+  const RendererFrontendDirectDispatchResult rendered =
+      dispatcher.RenderScene(Scene(202U, registry_id, 1U), Camera(8U),
+                             OffscreenPolicy());
+  RequireDirectStatus(
+      rendered.status,
+      RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
+      "render after particle-state retirement did not complete");
+  Require(rendered.frontend_frame_id == 2U &&
+              dispatcher.last_frontend_frame_id() == 2U &&
+              frontend.rendered_requests.size() == 1U &&
+              frontend.rendered_requests.front().frame_id == 2U,
+          "particle-state retirement left sparse or reused frontend IDs");
+
+  FakeFrontend failing_frontend;
+  failing_frontend.fail_retire_frame_state = true;
+  RendererFrontendDirectDispatcher failing_dispatcher(failing_frontend,
+                                                       registry_id + 1U);
+  Require(failing_dispatcher
+              .SynchronizeAssets(AssetDelta(registry_id + 1U, 1U, true))
+              .ok(),
+          "failed-retirement fixture did not synchronize assets");
+  const auto failing_scene = Scene(301U, registry_id + 1U, 1U);
+  const RendererFrontendDirectDispatchResult failed =
+      failing_dispatcher.RenderScene(
+          failing_scene, Camera(), RetiredPolicy(),
+          ParticleFrameFor(failing_scene, 1U));
+  RequireDirectStatus(
+      failed.status,
+      RendererFrontendDirectDispatchStatus::
+          FAILED_FRONTEND_FRAME_RETIREMENT,
+      "failed particle-state retirement was reported as successful");
+  Require(failed.terminal && failed.frontend_frame_id == 0U &&
+              failing_dispatcher.last_frontend_frame_id() == 0U &&
+              failing_dispatcher.last_consumed_scene_snapshot_id() == 0U,
+          "failed particle-state retirement consumed dispatcher lineage");
+}
+
 void TestDirectDispatcherFailuresAreTerminal() {
   {
     FakeFrontend frontend;
@@ -1533,6 +1635,7 @@ int main() {
   TestForgedCompleteFrameMetadataFailsClosed();
   TestReservedAssetV1KindFailsWithoutMutation();
   TestDirectDispatcherTypedLifecycle();
+  TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce();
   TestDirectDispatcherFailuresAreTerminal();
   std::cout << "frontend direct and transport dispatcher tests passed\n";
   return EXIT_SUCCESS;

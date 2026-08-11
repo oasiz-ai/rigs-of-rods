@@ -487,6 +487,7 @@ void TestCapabilitiesFailClosed() {
               metal.supported_outputs == FrameOutputMask::COLOR &&
               metal.maximum_views == 1U && metal.supports_hdr_output &&
               metal.supports_dynamic_mesh_updates &&
+              metal.supports_continuous_particles &&
               metal.maximum_texture_dimension_2d ==
                   kOgreNextN1ConservativeMaximumTextureDimension,
           "N1 did not report its admitted raster surface");

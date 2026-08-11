@@ -384,6 +384,9 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp"
     "tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp"
     "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
+    "tests/gfx/render/OgreNextN1ParticleRuntimeTests.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.h"
     "tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
     "tests/tools/test_ogre14_particle_capture_contract.py"
     "tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp"
@@ -1094,6 +1097,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp"
@@ -1523,6 +1527,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.h"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp")
@@ -1920,6 +1925,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_ogre14_particle_capture_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_ogre_next_n1_particle_runtime_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/OgreNextN1ParticleRuntimeTests.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp")
+    target_include_directories(
+        ror_ogre_next_n1_particle_runtime_tests
+        PRIVATE "${_ror_render_root}")
+    target_link_libraries(
+        ror_ogre_next_n1_particle_runtime_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_ogre_next_n1_particle_runtime_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -2791,6 +2810,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_application_fatal_shutdown_contract_tests
         ror_ogre14_graphics_scene_source_tests
         ror_ogre14_particle_capture_source_tests
+        ror_ogre_next_n1_particle_runtime_tests
         ror_ogre14_procedural_road_source_tests
         ror_ogre14_road_material_transaction_tests
         ror_ogre14_dynamic_material_closure_tests
@@ -3545,6 +3565,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_renderer_ogre_next_child_tests
         ror_ogre14_graphics_scene_source_tests
         ror_ogre14_particle_capture_source_tests
+        ror_ogre_next_n1_particle_runtime_tests
         ror_ogre14_procedural_road_source_tests
         ror_ogre14_road_material_transaction_tests
         ror_ogre14_dynamic_material_closure_tests
@@ -3909,6 +3930,10 @@ endif ()
 if (TARGET ror_ogre14_particle_capture_source_tests)
     add_test(NAME ror_ogre14_particle_capture_source
         COMMAND $<TARGET_FILE:ror_ogre14_particle_capture_source_tests>)
+endif ()
+if (TARGET ror_ogre_next_n1_particle_runtime_tests)
+    add_test(NAME ror_ogre_next_n1_particle_runtime
+        COMMAND $<TARGET_FILE:ror_ogre_next_n1_particle_runtime_tests>)
 endif ()
 if (TARGET ror_ogre14_procedural_road_source_tests)
     add_test(NAME ror_ogre14_procedural_road_source

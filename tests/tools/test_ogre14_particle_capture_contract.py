@@ -13,6 +13,10 @@ HEADER = (
     / "source/main/gfx/render/Ogre14ParticleCaptureSource.h"
 )
 SOURCE = HEADER.with_suffix(".cpp")
+SNAPSHOT_PRODUCER = (
+    REPOSITORY_ROOT
+    / "source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
+)
 CPP_TEST = (
     REPOSITORY_ROOT
     / "tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
@@ -22,6 +26,21 @@ MAIN_CMAKE = REPOSITORY_ROOT / "source/main/CMakeLists.txt"
 TEST_CMAKE = REPOSITORY_ROOT / "tests/CMakeLists.txt"
 PROBE_CMAKE = REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt"
 WORKFLOW = REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
+OGRE14_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/ogre14-native.yml"
+MACOS_WORKFLOW = REPOSITORY_ROOT / ".github/workflows/macos-native.yml"
+GFX_SCENE = REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp"
+DUST_SCRIPT = REPOSITORY_ROOT / "resources/particles/dust.particle"
+MATERIAL_SOURCE = (
+    REPOSITORY_ROOT
+    / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
+)
+PRESENTER_HEADER = (
+    REPOSITORY_ROOT
+    / "source/main/system/RendererOgreNextInProcessPresenter.h"
+)
+PRESENTER_SOURCE = PRESENTER_HEADER.with_suffix(".cpp")
+MAIN_SOURCE = REPOSITORY_ROOT / "source/main/main.cpp"
+EMBEDDED_CMAKE = REPOSITORY_ROOT / "cmake/ogre_next_embedded/CMakeLists.txt"
 RENDER_CONTRACTS = REPOSITORY_ROOT / "source/main/gfx/render/RenderContracts.h"
 PROVENANCE_FILES = (
     REPOSITORY_ROOT / "tools/run_ogre_next_probe.py",
@@ -36,12 +55,24 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.header = HEADER.read_text(encoding="utf-8")
         cls.source = SOURCE.read_text(encoding="utf-8")
+        cls.snapshot_producer = SNAPSHOT_PRODUCER.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
         cls.readme = README.read_text(encoding="utf-8")
         cls.main_cmake = MAIN_CMAKE.read_text(encoding="utf-8")
         cls.test_cmake = TEST_CMAKE.read_text(encoding="utf-8")
         cls.probe_cmake = PROBE_CMAKE.read_text(encoding="utf-8")
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.ogre14_workflow = OGRE14_WORKFLOW.read_text(encoding="utf-8")
+        cls.macos_workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
+        cls.gfx_scene = GFX_SCENE.read_text(encoding="utf-8")
+        cls.dust_script = DUST_SCRIPT.read_text(encoding="utf-8")
+        cls.material_source = MATERIAL_SOURCE.read_text(encoding="utf-8")
+        cls.presenter = (
+            PRESENTER_HEADER.read_text(encoding="utf-8")
+            + PRESENTER_SOURCE.read_text(encoding="utf-8")
+        )
+        cls.main_source = MAIN_SOURCE.read_text(encoding="utf-8")
+        cls.embedded_cmake = EMBEDDED_CMAKE.read_text(encoding="utf-8")
 
     def test_boundary_is_versioned_and_renderer_sdk_free(self) -> None:
         for token in (
@@ -100,9 +131,17 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
             "maximum_payload_bytes_per_frame",
             "impl_.swap(candidate)",
             "BEFORE_COMMIT",
+            "FinalizeSceneGeneration",
+            "final particle tombstones exceed the event identity cap",
         ):
             with self.subTest(production_token=token):
                 self.assertIn(token, self.header + self.source)
+        for token in (
+            "particle_capture_source.FinalizeSceneGeneration(",
+            "explicit particle tombstones against that new empty catalog sequence",
+        ):
+            with self.subTest(finalization_token=token):
+                self.assertIn(token, self.snapshot_producer)
         for token in (
             "THROW_BAD_ALLOC",
             "THROW_UNEXPECTED",
@@ -123,9 +162,9 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
         for token in (
             "kOgre14ParticleLogicalAssetReferenceBytes",
             "kOgre14ParticleLogicalClosureReceiptBytes",
-            "static_assert(kOgre14ParticleLogicalClosureReceiptBytes == 53U)",
+            "static_assert(kOgre14ParticleLogicalClosureReceiptBytes == 118U)",
             "static_assert(kOgre14ParticleLogicalStateBytes == 80U)",
-            "static_assert(kOgre14ParticleLogicalSystemBytes == 83U)",
+            "static_assert(kOgre14ParticleLogicalSystemBytes == 149U)",
             "static_assert(kOgre14ParticleLogicalEventBytes == 17U)",
             "AddMultipliedChecked",
         ):
@@ -160,6 +199,20 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
         self.assertIn(
             "-R '^ror_ogre14_particle_capture_source$'", self.workflow
         )
+        self.assertIn(
+            "-R '^ror_ogre_next_n1_particle_runtime$'", self.workflow
+        )
+        for native_workflow in (
+            self.ogre14_workflow,
+            self.macos_workflow,
+        ):
+            self.assertIn(
+                "-R '^ogre_next_n1_particle_runtime$'", native_workflow
+            )
+        self.assertIn(
+            '"${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"',
+            self.embedded_cmake,
+        )
         for token in (
             "Continuous OGRE 14 particle capture v1",
             "cannot represent a continuously retained particle",
@@ -170,7 +223,9 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
             "previously stopped but not destroyed",
             "`UPDATE`, not a second `CREATE`",
             "checked arithmetic",
-            "not yet wired",
+            "no emitter definition",
+            "Sparks, ripple,",
+            "texture pixels are never read back",
         ):
             with self.subTest(doc_token=token):
                 self.assertIn(token, self.readme)
@@ -185,6 +240,106 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
                     "tests/tools/test_ogre14_particle_capture_contract.py",
                     text,
                 )
+
+    def test_live_gfx_scene_capture_is_realized_and_joined(self) -> None:
+        update_begin = self.gfx_scene.index("void GfxScene::UpdateScene(")
+        capture_begin = self.gfx_scene.index(
+            "GfxScene::CaptureOgre14GraphicsScene(", update_begin
+        )
+        update = self.gfx_scene[update_begin:capture_begin]
+        particle_update = update.index(
+            "particle_system->_update(particle_frame_seconds);"
+        )
+        joined_publish = update.index(
+            "m_ogre14_post_update_scene_epoch = "
+            "m_ogre14_joined_buffer_epoch;"
+        )
+        self.assertLess(particle_update, joined_publish)
+        for token in (
+            "getMovableObjects(Ogre::MOT_PARTICLE_SYSTEM)",
+            '"Dust tracks/Dust "',
+            '"tracks/SmokeMat"',
+            "Ogre::BBT_POINT",
+            "Ogre::BBR_TEXCOORD",
+            "getUseAccurateFacing()",
+            "getKeepParticlesInLocalSpace()",
+            "getTextureStacksAndSlices()",
+            "excluded_sparks_systems",
+            "excluded_ripple_systems",
+            "excluded_timing_modes",
+            "m_ogre14_particle_update_timings",
+            "latest_effective_interval_seconds",
+            "getDefaultIterationInterval()",
+            "CanRetainOgre14ParticlePoolIdentity(",
+            "native_particle->mTimeToLive",
+            "DecodeOgre14ParticleColourBytes(",
+            "candidate.frame.continuous_particles",
+        ):
+            with self.subTest(gfx_token=token):
+                self.assertIn(token, self.gfx_scene)
+        for token in (
+            'exact_section_key == "particle/tracks/Dust"',
+            "allow_continuous_dust",
+            "owner.exact_continuous_dust != observed_continuous_dust",
+        ):
+            with self.subTest(material_source_token=token):
+                self.assertIn(token, self.material_source)
+        self.assertNotIn(
+            "setAsRGBA(native_particle->mColour)", self.gfx_scene
+        )
+
+    def test_shipped_dust_fixture_uses_default_texcoord_rotator(self) -> None:
+        dust = self.dust_script.split(
+            "particle_system tracks/Dust", 1
+        )[1].split("// sparks", 1)[0]
+        self.assertRegex(dust, r"billboard_type\s+point")
+        self.assertIn("affector Rotator", dust)
+        self.assertNotIn("billboard_rotation_type", dust)
+        runtime_source = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/ogrenext/"
+            "OgreNextN1ParticleRuntime.cpp"
+        ).read_text(encoding="utf-8")
+        runtime_test = (
+            REPOSITORY_ROOT
+            / "tests/gfx/render/OgreNextN1ParticleRuntimeTests.cpp"
+        ).read_text(encoding="utf-8")
+        proof = (
+            self.header
+            + self.source
+            + self.cpp_test
+            + self.gfx_scene
+            + runtime_source
+            + runtime_test
+        )
+        for token in (
+            "Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES",
+            "BuildOgre14ParticleTextureCoordinateQuad(",
+            "native RGBA bytes changed channel order or particle alpha",
+            "asymmetric Rotator UV golden changed",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, proof)
+
+    def test_combined_frontend_exposes_actual_lifetime_audit(self) -> None:
+        for token in (
+            "ContinuousParticleAudit() const noexcept",
+            "frontend->QueryParticleRuntimeAudit()",
+            "native_batch_creates",
+            "native_particles_submitted",
+            "native_state_readbacks",
+        ):
+            with self.subTest(presenter_token=token):
+                self.assertIn(token, self.presenter)
+        for token in (
+            ".ContinuousParticleAudit()",
+            '"distinct_source_textures={} "',
+            '"native_batch_creates={} "',
+            '"native_state_readbacks={} "',
+        ):
+            with self.subTest(main_token=token):
+                self.assertIn(token, self.main_source)
+        self.assertNotIn("reported_by_frontend", self.main_source)
 
 
 if __name__ == "__main__":

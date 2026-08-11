@@ -165,6 +165,7 @@ RendererFrontendTransportDispatcher::FailFromDirect(
         RendererFrontendTransportDispatchStatus::FAILED_FRONTEND_CAPABILITIES;
     break;
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER:
+  case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_FRAME_RETIREMENT:
   case RendererFrontendDirectDispatchStatus::
       SCENE_FRAME_PRESENTATION_SURFACE_STALE:
     mapped = RendererFrontendTransportDispatchStatus::FAILED_FRONTEND_RENDER;

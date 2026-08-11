@@ -20,7 +20,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kRendererFrontendDirectDispatcherContractVersion = 1U;
+constexpr std::uint32_t kRendererFrontendDirectDispatcherContractVersion = 2U;
 
 enum class RendererFrontendDirectDispatchStatus : std::uint8_t {
   ASSET_DELTA_SYNCHRONIZED = 0U,
@@ -39,6 +39,7 @@ enum class RendererFrontendDirectDispatchStatus : std::uint8_t {
   FAILED_SCENE_VALIDATION,
   FAILED_FRONTEND_CAPABILITIES,
   FAILED_FRONTEND_RENDER,
+  FAILED_FRONTEND_FRAME_RETIREMENT,
   FAILED_FRONTEND_WAIT,
   FAILED_FRONTEND_OUTPUT,
   FAILED_RESOURCE_RELEASE,
@@ -114,7 +115,9 @@ public:
   [[nodiscard]] RendererFrontendDirectDispatchResult RenderScene(
       std::shared_ptr<const SceneSnapshot> scene,
       const CameraViewRequest &camera,
-      const RendererFrontendPresentationPolicy &presentation_policy) noexcept;
+      const RendererFrontendPresentationPolicy &presentation_policy,
+      std::shared_ptr<const Ogre14ParticleCapturedFrame>
+          continuous_particles = nullptr) noexcept;
   /// Opens the next map-scoped generation after the most recently accepted
   /// scene was authoritative and empty and the registry contains no live
   /// assets. Process-lifetime asset, snapshot, and frontend-frame identities
@@ -171,7 +174,9 @@ private:
   [[nodiscard]] RendererFrontendDirectDispatchResult RenderSceneImpl(
       std::shared_ptr<const SceneSnapshot> scene,
       const CameraViewRequest &camera,
-      const RendererFrontendPresentationPolicy &presentation_policy);
+      const RendererFrontendPresentationPolicy &presentation_policy,
+      std::shared_ptr<const Ogre14ParticleCapturedFrame>
+          continuous_particles);
   [[nodiscard]] RendererFrontendDirectDispatchResult
   ResetSceneGenerationImpl();
 

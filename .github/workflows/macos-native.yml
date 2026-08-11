@@ -143,6 +143,12 @@ jobs:
             --output-on-failure \
             --no-tests=error \
             -R '^ogre_next_n1_policy$'
+          ctest \
+            --test-dir "build-macos-ogre14" \
+            --build-config Release \
+            --output-on-failure \
+            --no-tests=error \
+            -R '^ogre_next_n1_particle_runtime$'
 
       - name: Stage application bundle
         run: >-

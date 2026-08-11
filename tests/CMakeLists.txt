@@ -1090,6 +1090,15 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14ParticleCaptureSourceTests.cpp"
 )
 add_executable(
+    ror_ogre_next_n1_particle_runtime_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextN1ParticleRuntimeTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp"
+)
+target_include_directories(
+    ror_ogre_next_n1_particle_runtime_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render"
+)
+add_executable(
     ror_ogre14_procedural_road_source_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/Ogre14ProceduralRoadSourceTests.cpp"
 )
@@ -1383,6 +1392,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_legacy_asset_translator_tests
     ror_ogre14_legacy_material_closure_tests
     ror_ogre14_particle_capture_source_tests
+    ror_ogre_next_n1_particle_runtime_tests
     ror_ogre14_procedural_road_source_tests
     ror_ogre14_road_material_transaction_tests
     ror_ogre14_dynamic_material_closure_tests
@@ -2875,6 +2885,11 @@ add_test(
 add_test(
     NAME ogre14_particle_capture_source
     COMMAND ror_ogre14_particle_capture_source_tests
+)
+
+add_test(
+    NAME ogre_next_n1_particle_runtime
+    COMMAND ror_ogre_next_n1_particle_runtime_tests
 )
 
 if (TARGET ror_ogre14_legacy_native_asset_extractor_compile_tests)

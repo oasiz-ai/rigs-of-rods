@@ -119,6 +119,7 @@ private:
   [[nodiscard]] bool TryProjectCurrent(
       const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
       const Render::Ogre14ManagedMaterialDeclarationBinding *managed_binding,
+      bool allow_continuous_dust,
       Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
       std::string &selected_projection_key, bool allow_new_projection,
       OgreNextDemoTextureProjectionExclusion &exclusion,

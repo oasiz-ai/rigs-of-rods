@@ -561,6 +561,7 @@ int main(int argc, char *argv[])
     std::unique_ptr<RendererInProcessSession>
         renderer_combined_session;
     std::string renderer_combined_scene_failure_signature;
+    std::string renderer_combined_particle_audit_signature;
 #else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
@@ -3399,6 +3400,60 @@ int main(int argc, char *argv[])
                     else
                     {
                         renderer_combined_scene_failure_signature.clear();
+                        if (scene_result.status ==
+                            RendererInProcessSessionStatus::FRAME_COMPLETED)
+                        {
+                            const RendererContinuousParticleAudit audit =
+                                renderer_combined_presenter
+                                    .ContinuousParticleAudit();
+                            const std::string audit_signature = fmt::format(
+                                "available={} committed_source_sequence={} "
+                                "create_commands={} update_commands={} "
+                                "stop_commands={} destroy_commands={} "
+                                "live_systems={} live_particles={} "
+                                "lifetime_max_live_systems={} "
+                                "lifetime_max_live_particles={} "
+                                "distinct_source_textures={} "
+                                "source_alpha_textures={} "
+                                "lifetime_max_source_backed_textures={} "
+                                "lifetime_max_source_alpha_textures={} "
+                                "gpu_readbacks={} "
+                                "native_batch_creates={} "
+                                "native_batch_destroys={} "
+                                "native_particles_submitted={} "
+                                "native_state_readbacks={} "
+                                "native_state_verifications={}",
+                                audit.available,
+                                audit.committed_source_sequence,
+                                audit.create_commands,
+                                audit.update_commands,
+                                audit.stop_commands,
+                                audit.destroy_commands,
+                                audit.live_systems,
+                                audit.live_particles,
+                                audit.lifetime_max_live_systems,
+                                audit.lifetime_max_live_particles,
+                                audit.source_backed_textures,
+                                audit.source_alpha_textures,
+                                audit.lifetime_max_source_backed_textures,
+                                audit.lifetime_max_source_alpha_textures,
+                                audit.gpu_readbacks,
+                                audit.native_batch_creates,
+                                audit.native_batch_destroys,
+                                audit.native_particles_submitted,
+                                audit.native_state_readbacks,
+                                audit.native_state_verifications);
+                            if (audit_signature !=
+                                renderer_combined_particle_audit_signature)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|"
+                                    "ContinuousParticles] {}",
+                                    audit_signature));
+                                renderer_combined_particle_audit_signature =
+                                    audit_signature;
+                            }
+                        }
                     }
                 }
 #else

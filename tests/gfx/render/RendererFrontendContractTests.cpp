@@ -8,6 +8,7 @@
 
 #include "RendererFrontend.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -15,7 +16,7 @@
 
 namespace {
 
-static_assert(RoR::Render::kRendererFrontendContractVersion == 4U,
+static_assert(RoR::Render::kRendererFrontendContractVersion == 5U,
               "native interop vtable changes require frontend contract v3");
 static_assert(RoR::Render::kNativeImageInteropContractVersion == 2U,
               "exact raster identity requires native image contract v2");
@@ -1005,6 +1006,41 @@ void TestCapabilitiesFailClosedUntilEveryProofExists() {
                                                         particle_report)
               .ok(),
           "particle snapshot was rejected after capability proof");
+  capability_request = MakeFrameRequest();
+  capability_request.requested_outputs = FrameOutputMask::COLOR;
+  auto continuous_particles =
+      std::make_shared<Ogre14ParticleCapturedFrame>();
+  continuous_particles->source_sequence = 1U;
+  continuous_particles->material_catalog_registry_id =
+      capability_request.scene_snapshot->asset_registry_id();
+  continuous_particles->material_catalog_sequence =
+      capability_request.scene_snapshot->asset_sequence();
+  continuous_particles->simulation_tick =
+      capability_request.scene_snapshot->simulation_tick();
+  continuous_particles->simulation_time_seconds =
+      capability_request.scene_snapshot->simulation_time_seconds();
+  continuous_particles->absolute_world_origin_meters =
+      capability_request.scene_snapshot->absolute_world_origin_meters();
+  continuous_particles->joined_buffer_epoch = 1U;
+  capability_request.continuous_particles = continuous_particles;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        report)
+                  .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "continuous particles were accepted without frontend support");
+  FrontendCapabilityReport continuous_report = report;
+  continuous_report.supports_continuous_particles = true;
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        continuous_report)
+              .ok(),
+          "continuous particles were rejected after capability proof");
+  continuous_particles->simulation_time_seconds =
+      std::nextafter(continuous_particles->simulation_time_seconds, 1.0);
+  Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,
+                                                        continuous_report)
+              .code == ValidationCode::SEQUENCE_MISMATCH,
+          "continuous particles from a different simulation time were accepted");
+  continuous_particles->simulation_time_seconds =
+      capability_request.scene_snapshot->simulation_time_seconds();
   FrontendCapabilityReport unavailable_report = report;
   unavailable_report.raster_ready = false;
   Require(ValidateRenderFrameRequestAgainstCapabilities(capability_request,

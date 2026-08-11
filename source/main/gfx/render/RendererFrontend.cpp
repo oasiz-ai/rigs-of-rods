@@ -80,6 +80,8 @@ bool SameFrontendCapabilities(const FrontendCapabilityReport &lhs,
          lhs.supports_dynamic_mesh_updates ==
              rhs.supports_dynamic_mesh_updates &&
          lhs.supports_particle_events == rhs.supports_particle_events &&
+         lhs.supports_continuous_particles ==
+             rhs.supports_continuous_particles &&
          lhs.supports_native_interop == rhs.supports_native_interop &&
          lhs.supports_native_ray_tracing_api ==
              rhs.supports_native_ray_tracing_api &&
@@ -216,6 +218,13 @@ ValidationResult ValidateSliceCapacity(const NativeBufferSlice &slice,
 }
 
 } // namespace
+
+RenderOperationResult
+IRendererFrontend::RetireFrameState(const RenderFrameRequest &) {
+  return RenderOperationResult::Failure(
+      RenderOperationCode::UNSUPPORTED,
+      "frontend does not support state-only frame retirement");
+}
 
 bool IsKnownRendererFrontendKind(RendererFrontendKind kind) noexcept {
   switch (kind) {
@@ -489,6 +498,12 @@ ValidationResult ValidateRenderFrameRequestAgainstCapabilities(
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "particle_events",
         "snapshot contains particle events unsupported by the frontend");
+  }
+  if (request.continuous_particles != nullptr &&
+      !capabilities.supports_continuous_particles) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "continuous_particles",
+        "frame contains continuous particles unsupported by the frontend");
   }
   return ValidationResult::Success();
 }

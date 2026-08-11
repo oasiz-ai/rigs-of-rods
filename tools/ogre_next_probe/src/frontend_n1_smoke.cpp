@@ -3545,6 +3545,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
               capabilities.native_api == NativeGraphicsApi::NONE &&
               !capabilities.supports_compute &&
               capabilities.supports_dynamic_mesh_updates &&
+              capabilities.supports_continuous_particles &&
               !capabilities.supports_particle_events &&
               !capabilities.supports_native_interop &&
               !capabilities.supports_native_ray_tracing_api,

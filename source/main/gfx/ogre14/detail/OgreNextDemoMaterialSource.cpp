@@ -1007,6 +1007,52 @@ bool IsCanonicalPass(const Ogre::Pass &pass,
                                alpha_test_mode);
 }
 
+bool IsExactContinuousDustPass(const Ogre::Technique &technique,
+                               const Ogre::Pass &pass,
+                               const Ogre::Material &material) noexcept {
+  const ExactPassObservation observation = ObserveExactPass(pass);
+  return material.getName() == "tracks/SmokeMat" &&
+         !material.getReceiveShadows() && technique.getNumPasses() == 1U &&
+         pass.getNumTextureUnitStates() == 1U && !HasAuthoredProgram(pass) &&
+         observation.diffuse ==
+             std::array<float, 4U>{1.0F, 1.0F, 1.0F, 1.0F} &&
+         observation.source_color == Ogre::SBF_SOURCE_ALPHA &&
+         observation.destination_color ==
+             Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+         observation.source_alpha == Ogre::SBF_SOURCE_ALPHA &&
+         observation.destination_alpha ==
+             Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+         observation.color_operation == Ogre::SBO_ADD &&
+         observation.alpha_operation == Ogre::SBO_ADD &&
+         observation.alpha_reject == Ogre::CMPF_GREATER &&
+         observation.alpha_reject_value == 2U && observation.write_red &&
+         observation.write_green && observation.write_blue &&
+         observation.write_alpha && !observation.lighting_enabled &&
+         !observation.alpha_to_coverage && observation.depth_check &&
+         !observation.depth_write &&
+         observation.depth_function == Ogre::CMPF_LESS_EQUAL &&
+         observation.depth_bias_constant == 0.0F &&
+         observation.depth_bias_slope_scale == 0.0F &&
+         observation.iteration_depth_bias == 0.0F &&
+         observation.cull_mode == Ogre::CULL_CLOCKWISE &&
+         observation.manual_cull_mode == Ogre::MANUAL_CULL_BACK &&
+         observation.polygon_mode == Ogre::PM_SOLID &&
+         observation.polygon_mode_overrideable &&
+         observation.vertex_colour_tracking == Ogre::TVC_NONE &&
+         !observation.fog_override && observation.pass_iteration_count == 1U &&
+         !observation.iterate_per_light;
+}
+
+bool IsExactContinuousDustSampler(
+    const OgreNextDemoExactSamplerObservation &observation) noexcept {
+  return observation.address_u ==
+             OgreNextDemoObservedSamplerAddressMode::CLAMP &&
+         observation.address_v ==
+             OgreNextDemoObservedSamplerAddressMode::CLAMP &&
+         observation.address_w ==
+             OgreNextDemoObservedSamplerAddressMode::CLAMP;
+}
+
 bool UsesTextureAlphaCombine(const Ogre::TextureUnitState &unit) noexcept {
   return unit.getColourBlendMode().operation ==
              Ogre::LBX_BLEND_TEXTURE_ALPHA ||
@@ -1805,6 +1851,7 @@ struct PendingNativeTextureOwner final {
   OgreNextDemoExactTextureObservation texture_observation;
   ExactPassObservation pass_observation;
   bool allow_alexis_approximation = false;
+  bool exact_continuous_dust = false;
   std::size_t technique_pass_count = 0U;
   std::size_t pass_texture_unit_count = 0U;
   std::array<float, 4U> diffuse{};
@@ -1856,6 +1903,10 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
             : nullptr;
     const Ogre::SamplerPtr sampler =
         unit != nullptr ? unit->getSampler() : Ogre::SamplerPtr{};
+    const bool observed_continuous_dust =
+        technique != nullptr && pass != nullptr &&
+        IsExactContinuousDustPass(*technique, *pass,
+                                  *owner.native_material);
     if (pass == nullptr || unit == nullptr || !sampler ||
         reinterpret_cast<std::uintptr_t>(pass) !=
             owner.native_pass_pointer_token ||
@@ -1866,9 +1917,14 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         unit->_getTexturePtr().get() != native_texture.get() ||
         technique->getNumPasses() != owner.technique_pass_count ||
         pass->getNumTextureUnitStates() != owner.pass_texture_unit_count ||
-        !IsCanonicalPass(*pass, owner.allow_alexis_approximation) ||
+        owner.exact_continuous_dust != observed_continuous_dust ||
+        (!owner.exact_continuous_dust &&
+         !IsCanonicalPass(*pass, owner.allow_alexis_approximation)) ||
         !HasAvailableNamedTextureSource(*unit) ||
         !IsCanonicalTextureUnitSemantic(*unit) ||
+        (owner.exact_continuous_dust &&
+         (native_texture->getName() != "smoke.dds" ||
+          !IsExactContinuousDustSampler(ObserveExactSampler(*sampler)))) ||
         (!owner.allow_alexis_approximation &&
          (technique->getNumPasses() != 1U ||
           pass->getNumTextureUnitStates() != 1U ||
@@ -2011,6 +2067,7 @@ void OgreNextDemoMaterialSource::EnsurePendingCacheWritable() {
 bool OgreNextDemoMaterialSource::TryProjectCurrent(
     const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
     const Render::Ogre14ManagedMaterialDeclarationBinding *managed_binding,
+    bool allow_continuous_dust,
     Render::Ogre14GraphicsSceneMaterialCaptureInput &input,
     std::string &selected_projection_key, bool allow_new_projection,
     OgreNextDemoTextureProjectionExclusion &exclusion,
@@ -2048,11 +2105,23 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     return false;
   }
   const ExactPassObservation pass_observation = ObserveExactPass(*pass);
+  const bool exact_continuous_dust =
+      allow_continuous_dust &&
+      IsExactContinuousDustPass(*technique, *pass, *native_material);
   Render::MaterialBlendMode blend_mode = Render::MaterialBlendMode::REPLACE;
   Render::MaterialAlphaTestMode alpha_test_mode =
       Render::MaterialAlphaTestMode::DISABLED;
-  if (!ClassifyCanonicalPass(pass_observation, allow_alexis_approximation,
-                             blend_mode, alpha_test_mode)) {
+  if (allow_continuous_dust && !exact_continuous_dust) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STATE_UNSUPPORTED;
+    return false;
+  }
+  if (exact_continuous_dust) {
+    blend_mode = Render::MaterialBlendMode::LEGACY_STRAIGHT_ALPHA;
+    alpha_test_mode = Render::MaterialAlphaTestMode::GREATER;
+  } else if (!ClassifyCanonicalPass(pass_observation,
+                                    allow_alexis_approximation, blend_mode,
+                                    alpha_test_mode)) {
     exclusion =
         OgreNextDemoTextureProjectionExclusion::MATERIAL_STATE_UNSUPPORTED;
     return false;
@@ -2090,6 +2159,12 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   }
   const OgreNextDemoExactSamplerObservation sampler_observation =
       ObserveExactSampler(*native_sampler);
+  if (exact_continuous_dust &&
+      !IsExactContinuousDustSampler(sampler_observation)) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::SAMPLER_STATE_UNSUPPORTED;
+    return false;
+  }
   Render::SamplerResourceDescriptor sampler_preflight;
   if (!BuildOgreNextDemoSamplerDescriptor(sampler_observation, 1U, "preflight",
                                           sampler_preflight)) {
@@ -2100,6 +2175,13 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   const Ogre::TexturePtr native_texture = unit->_getTexturePtr();
   if (!native_texture || native_texture->getName().empty()) {
     exclusion = OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
+    return false;
+  }
+  if (exact_continuous_dust &&
+      (native_texture->getName() != "smoke.dds" ||
+       managed_binding != nullptr)) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STATE_UNSUPPORTED;
     return false;
   }
   if (allow_alexis_approximation &&
@@ -2291,6 +2373,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     owner.texture_observation = exact_texture_observation;
     owner.pass_observation = pass_observation;
     owner.allow_alexis_approximation = allow_alexis_approximation;
+    owner.exact_continuous_dust = exact_continuous_dust;
     owner.technique_pass_count = technique->getNumPasses();
     owner.pass_texture_unit_count = pass->getNumTextureUnitStates();
     owner.diffuse = ObserveColourComponents(pass->getDiffuse());
@@ -3265,6 +3348,8 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
 
     std::string decision_key;
     AppendField(decision_key, exact_section_key);
+    const bool allow_continuous_dust =
+        exact_section_key == "particle/tracks/Dust";
     const auto record_candidate_outcome =
         [&](bool selected, OgreNextDemoTextureProjectionExclusion reason)
         -> Render::ValidationResult {
@@ -3327,7 +3412,8 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
           Render::ValidationResult current_failure =
               Render::ValidationResult::Success();
           const bool current_projected = TryProjectCurrent(
-              native_material, has_authored_uv0, managed_binding, input,
+              native_material, has_authored_uv0, managed_binding,
+              allow_continuous_dust, input,
               current_projection_key, true, current_exclusion,
               current_failure);
           if (!current_failure) {
@@ -3373,8 +3459,9 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
         }
       }
       if (!TryProjectCurrent(native_material, has_authored_uv0,
-                             managed_binding, input, current_projection_key,
-                             false, current_exclusion, current_failure) ||
+                             managed_binding, allow_continuous_dust, input,
+                             current_projection_key, false, current_exclusion,
+                             current_failure) ||
           current_projection_key != decision->second.projection_key) {
         if (!current_failure) {
           return current_failure;
@@ -3406,7 +3493,8 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
       Render::ValidationResult current_failure =
           Render::ValidationResult::Success();
       new_decision.projected = TryProjectCurrent(
-          native_material, has_authored_uv0, managed_binding, input,
+          native_material, has_authored_uv0, managed_binding,
+          allow_continuous_dust, input,
           new_decision.projection_key, true, current_exclusion,
           current_failure);
       if (!current_failure) {

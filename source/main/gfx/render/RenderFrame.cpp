@@ -145,6 +145,28 @@ ValidationResult ValidateRenderFrameRequest(const RenderFrameRequest &request) {
                                      "scene_snapshot",
                                      "frame requires an immutable snapshot");
   }
+  if (request.continuous_particles != nullptr) {
+    const Ogre14ParticleCapturedFrame &particles =
+        *request.continuous_particles;
+    if (particles.version != kOgre14ParticleCapturedFrameVersion) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_VERSION, "continuous_particles.version",
+          "unsupported continuous-particle frame version");
+    }
+    if (particles.material_catalog_registry_id !=
+            request.scene_snapshot->asset_registry_id() ||
+        particles.material_catalog_sequence !=
+            request.scene_snapshot->asset_sequence() ||
+        particles.simulation_tick != request.scene_snapshot->simulation_tick() ||
+        particles.simulation_time_seconds !=
+            request.scene_snapshot->simulation_time_seconds() ||
+        particles.absolute_world_origin_meters !=
+            request.scene_snapshot->absolute_world_origin_meters()) {
+      return ValidationResult::Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "continuous_particles.lineage",
+          "continuous particles must name the exact scene and catalog boundary");
+    }
+  }
   const std::uint32_t outputs =
       static_cast<std::uint32_t>(request.requested_outputs);
   if (outputs == 0U || (outputs & ~kKnownOutputBits) != 0U) {

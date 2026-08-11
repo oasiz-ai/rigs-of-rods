@@ -75,6 +75,33 @@ enum class RendererOgreNextInProcessPresenterStatus : std::uint8_t {
   FAILED_INTERNAL,
 };
 
+/// Renderer-neutral copy of the combined frontend's continuous-particle
+/// lifetime counters. `native_state_readbacks` counts GPU/native texture
+/// readbacks and must remain zero; `native_state_verifications` counts
+/// read-only datablock/ownership checks performed after native construction.
+struct RendererContinuousParticleAudit final {
+  std::uint64_t committed_source_sequence = 0U;
+  std::uint64_t create_commands = 0U;
+  std::uint64_t update_commands = 0U;
+  std::uint64_t stop_commands = 0U;
+  std::uint64_t destroy_commands = 0U;
+  std::uint64_t live_systems = 0U;
+  std::uint64_t live_particles = 0U;
+  std::uint64_t lifetime_max_live_systems = 0U;
+  std::uint64_t lifetime_max_live_particles = 0U;
+  std::uint64_t source_backed_textures = 0U;
+  std::uint64_t source_alpha_textures = 0U;
+  std::uint64_t lifetime_max_source_backed_textures = 0U;
+  std::uint64_t lifetime_max_source_alpha_textures = 0U;
+  std::uint64_t gpu_readbacks = 0U;
+  std::uint64_t native_batch_creates = 0U;
+  std::uint64_t native_batch_destroys = 0U;
+  std::uint64_t native_particles_submitted = 0U;
+  std::uint64_t native_state_readbacks = 0U;
+  std::uint64_t native_state_verifications = 0U;
+  bool available = false;
+};
+
 /// Owns the sole visible SDL/Metal presentation window and an uninitialized
 /// OgreNext N1 frontend. The public boundary is renderer-neutral; the Pimpl
 /// implementation is the only translation unit that includes OgreNext or SDL.
@@ -117,6 +144,8 @@ public:
   [[nodiscard]] Render::FrontendInitializationRequest
   InitialFrontendRequest() const noexcept;
   [[nodiscard]] Render::FrontendSurfaceUpdate CurrentSurface() const noexcept;
+  [[nodiscard]] RendererContinuousParticleAudit
+  ContinuousParticleAudit() const noexcept;
 
   [[nodiscard]] Render::ValidationResult PollEvents(
       RendererInProcessEventPollPoint point,

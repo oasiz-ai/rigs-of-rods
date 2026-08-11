@@ -13,6 +13,7 @@
 
 #include "RenderAssetRegistry.h"
 #include "RenderFrame.h"
+#include "Ogre14ParticleCaptureSource.h"
 
 #include <array>
 #include <cstddef>
@@ -159,6 +160,10 @@ struct GraphicsSceneFrameInput {
   /// canonicalizes them, enforces content-revision lineage, and permanently
   /// tombstones removed identities before publishing snapshot version 4.
   std::vector<ReflectionProbeRuntimeDescriptor> reflection_probes;
+  /// Optional complete post-physics continuous-particle inventory. OGRE 14
+  /// source identities are resolved only after this frame's exact candidate
+  /// asset catalog has been validated.
+  std::optional<Ogre14JoinedParticleSourceFrame> continuous_particles;
   GraphicsSceneCameraInput camera;
 };
 
@@ -222,6 +227,7 @@ struct GraphicsSceneSnapshotProduction {
   /// preceding asset sequence and carry no delta.
   std::optional<RenderAssetDelta> asset_delta;
   std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  std::shared_ptr<const Ogre14ParticleCapturedFrame> continuous_particles;
   CameraViewRequest camera;
   Diagnostics diagnostics;
 };

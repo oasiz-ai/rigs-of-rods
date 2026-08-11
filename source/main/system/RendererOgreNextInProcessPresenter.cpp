@@ -214,6 +214,39 @@ public:
     std::vector<std::uint8_t> hats;
   };
 
+  [[nodiscard]] RendererContinuousParticleAudit
+  ContinuousParticleAudit() const noexcept {
+    RendererContinuousParticleAudit output;
+    if (frontend == nullptr) {
+      return output;
+    }
+    const OgreNextN1ParticleRuntimeAudit audit =
+        frontend->QueryParticleRuntimeAudit();
+    output.committed_source_sequence = audit.committed_source_sequence;
+    output.create_commands = audit.create_commands;
+    output.update_commands = audit.update_commands;
+    output.stop_commands = audit.stop_commands;
+    output.destroy_commands = audit.destroy_commands;
+    output.live_systems = audit.live_systems;
+    output.live_particles = audit.live_particles;
+    output.lifetime_max_live_systems = audit.lifetime_max_live_systems;
+    output.lifetime_max_live_particles = audit.lifetime_max_live_particles;
+    output.source_backed_textures = audit.source_backed_textures;
+    output.source_alpha_textures = audit.source_alpha_textures;
+    output.lifetime_max_source_backed_textures =
+        audit.lifetime_max_source_backed_textures;
+    output.lifetime_max_source_alpha_textures =
+        audit.lifetime_max_source_alpha_textures;
+    output.gpu_readbacks = audit.gpu_readbacks;
+    output.native_batch_creates = audit.native_batch_creates;
+    output.native_batch_destroys = audit.native_batch_destroys;
+    output.native_particles_submitted = audit.native_particles_submitted;
+    output.native_state_readbacks = audit.native_state_readbacks;
+    output.native_state_verifications = audit.native_state_verifications;
+    output.available = true;
+    return output;
+  }
+
   static constexpr std::size_t kMaximumAxes = 32U;
   static constexpr std::size_t kMaximumHats = 4U;
 
@@ -1498,6 +1531,11 @@ RendererOgreNextInProcessPresenter::InitialFrontendRequest() const noexcept {
 FrontendSurfaceUpdate
 RendererOgreNextInProcessPresenter::CurrentSurface() const noexcept {
   return impl_->surface;
+}
+
+RendererContinuousParticleAudit
+RendererOgreNextInProcessPresenter::ContinuousParticleAudit() const noexcept {
+  return impl_->ContinuousParticleAudit();
 }
 
 ValidationResult RendererOgreNextInProcessPresenter::PollEvents(

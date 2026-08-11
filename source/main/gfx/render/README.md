@@ -341,10 +341,14 @@ therefore incorrect to flatten the native smoke, exhaust, dust, fire, or water
 systems into a fresh burst on every frame. `Ogre14ParticleCaptureSource` adds a
 version-one, wire-adjacent continuous-state delta without changing the
 established scene-snapshot-v4 transport layout. Transport and frontend
-consumption are still a downstream milestone, so this source is not yet wired
-into `GfxScene` or advertised as shipping particle support.
+consumption are carried as the version-one continuous-particle adjunct in
+`RenderFrame`. `GfxScene` enumerates the realized native inventory only after
+its copied simulation buffer, asynchronous flex work, and hidden OGRE14
+particle update have joined. The direct dispatcher then commits the same
+transaction to the N1 frontend; no emitter definition or frontend simulation
+crosses that boundary.
 
-The future native tap supplies a complete value-only inventory after the
+The native tap supplies a complete value-only inventory after the
 copied simulation buffer and graphics update epochs have joined. It must issue
 monotonic never-reused system, per-system particle, and transition-event IDs;
 copy realized render-space position, unit direction, velocity, linear color,
@@ -366,9 +370,13 @@ move. The caller must serialize `Apply()` and keep the view quiescent for the
 call; the registry type remains mutable and this is not a thread-safe immutable
 snapshot. A forged, stale, missing, wrong-kind, or cross-catalog receipt rejects
 the whole frame. Version one accepts only already-realized, world-space,
-camera-facing-point billboards. It fails closed if a frontend would need to
-evaluate native emitter or affector definitions, sort particles, animate a
-texture, apply a local-space transform, or reinterpret another billboard mode.
+camera-facing-point billboards using OGRE's default `BBR_TEXCOORD` rotation
+with accurate facing disabled. A realized Rotator angle rotates the full-rect
+UVs by the pinned `BillboardSet::genQuadVertices` equations while quad axes
+remain on the common camera-right/camera-up basis. It fails closed if a
+frontend would need to evaluate native emitter or affector definitions, sort
+particles, animate a texture, apply a local-space transform, or reinterpret
+another billboard mode.
 
 All configured per-system, per-frame, lifetime-identity, event, and logical
 payload-byte limits are nonzero. The logical byte sum is derived from named
@@ -377,13 +385,38 @@ uses checked arithmetic before candidate allocation. Registry and output
 publication use a candidate copy and non-throwing final moves: malformed
 values, identity collisions, sequence gaps/regressions, cap exhaustion,
 allocation exceptions, and injected pre-commit faults leave both the durable
-registry and caller output unchanged. The remaining native work is to assign
-stable IDs at the owners in `DustPool`, actor exhaust/custom-particle creation,
-terrain particle objects, turboprop/turbojet smoke, and extinguishable fire;
-copy the post-update realized particle arrays without hardware-buffer reads;
-and submit the resulting adjunct transaction alongside the same joined scene
-and catalog snapshot. Signed-zero floating values are folded to canonical
-positive zero before replay comparison and publication.
+registry and caller output unchanged. `tracks/Dust` v1 derives stable system
+identity from the exact OGRE object name. A pooled particle pointer token keeps
+its ID only across exactly one native update when the prior remaining TTL is at
+least the exact speed-adjusted `Ogre::Real` interval used by the strict-less
+expiry test. Skipped or multiple updates mint a new monotonic ID instead of
+summarizing repeated rounded TTL subtraction. Nonzero custom/default particle
+iteration intervals are a named timing-mode exclusion because their hidden
+remainder would invalidate that proof. No stale native pointer is retained or
+dereferenced. The lighting-off `tracks/SmokeMat` exception is additionally
+gated to the synthetic exact section `particle/tracks/Dust`, so a mesh or mod
+section cannot enter the particle-only path. Signed-zero floating values are
+folded to canonical positive zero before replay comparison and publication.
+Packed `Particle::mColour` is copied in its native RGBA byte layout before
+normalization; interpreting the numeric `getAsBYTE()` storage with
+`setAsRGBA()` is forbidden because it swaps channels on supported
+little-endian builds. Sparks, ripple, vertex-rotated or accurate-facing point
+billboards, oriented/perpendicular billboards, animated texture stacks,
+locally simulated
+systems, and every non-`tracks/Dust` material remain named exclusions. They are
+never converted to matte particles, guessed emitters, or GPU-readback payloads.
+
+The N1 consumer retains system/tombstone state and builds one camera-facing
+Unlit quad batch for each nonempty admitted frame. Native quad positions stay
+unrotated while exact per-particle Rotator angles are applied to UVs. Its
+material is the exact
+source-backed `tracks/SmokeMat` closure: `smoke.dds`, clamp addressing, authored
+anisotropy, legacy straight-alpha blend factors, `GREATER 2/255` rejection,
+depth test on, depth write off, vertex RGBA enabled, and shadow casting off.
+Datablock, sampler, vertex-layout, ownership, and batch state are read back
+after construction; texture pixels are never read back. Capture and frontend
+telemetry retain lifetime maxima so a short dust burst remains auditable after
+its particles age out.
 
 A system first observed with emission disabled is still created explicitly with
 `CREATE` and a stopped complete state. A previously stopped but not destroyed

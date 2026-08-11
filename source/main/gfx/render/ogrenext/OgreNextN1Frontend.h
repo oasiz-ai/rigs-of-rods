@@ -14,6 +14,7 @@
 #include "../RendererFrontend.h"
 #include "OgreNextHdrTemporalContract.h"
 #include "OgreNextPssmShadowPolicy.h"
+#include "OgreNextN1ParticleRuntime.h"
 #include "RasterFeatureTier.h"
 
 #include <array>
@@ -368,6 +369,8 @@ public:
   QueryTextureAllocationAudit() const noexcept;
   [[nodiscard]] OgreNextReflectionProbeAudit
   QueryReflectionProbeAudit() const noexcept;
+  [[nodiscard]] OgreNextN1ParticleRuntimeAudit
+  QueryParticleRuntimeAudit() const noexcept;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
   [[nodiscard]] OgreNextN1NormalUploadAudit
   QueryNormalUploadAudit() const noexcept;
@@ -396,6 +399,8 @@ public:
   RenderOperationResult ReleaseResource(ResourceHandle resource) override;
   RenderOperationResult Render(const RenderFrameRequest &request,
                                RenderFrameOutput &output) override;
+  RenderOperationResult
+  RetireFrameState(const RenderFrameRequest &request) override;
   [[nodiscard]] bool
   IsFrameComplete(std::uint64_t frame_id) const noexcept override;
   RenderOperationResult

@@ -48,6 +48,7 @@ bool IsKnownRendererFrontendDirectDispatchStatus(
   case RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION:
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_CAPABILITIES:
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER:
+  case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_FRAME_RETIREMENT:
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_WAIT:
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_OUTPUT:
   case RendererFrontendDirectDispatchStatus::FAILED_RESOURCE_RELEASE:
@@ -91,6 +92,8 @@ const char *ToString(RendererFrontendDirectDispatchStatus status) noexcept {
     return "failed_frontend_capabilities";
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER:
     return "failed_frontend_render";
+  case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_FRAME_RETIREMENT:
+    return "failed_frontend_frame_retirement";
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_WAIT:
     return "failed_frontend_wait";
   case RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_OUTPUT:
@@ -259,12 +262,15 @@ RendererFrontendDirectDispatchResult
 RendererFrontendDirectDispatcher::RenderScene(
     std::shared_ptr<const SceneSnapshot> scene,
     const CameraViewRequest &camera,
-    const RendererFrontendPresentationPolicy &presentation_policy) noexcept {
+    const RendererFrontendPresentationPolicy &presentation_policy,
+    std::shared_ptr<const Ogre14ParticleCapturedFrame>
+        continuous_particles) noexcept {
   if (terminal_) {
     return Fail(RendererFrontendDirectDispatchStatus::REJECTED_TERMINAL);
   }
   try {
-    return RenderSceneImpl(std::move(scene), camera, presentation_policy);
+    return RenderSceneImpl(std::move(scene), camera, presentation_policy,
+                           std::move(continuous_particles));
   } catch (const std::bad_alloc &) {
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_ALLOCATION,
                 ValidationCode::OK, RenderOperationCode::OUT_OF_MEMORY);
@@ -281,7 +287,9 @@ RendererFrontendDirectDispatchResult
 RendererFrontendDirectDispatcher::RenderSceneImpl(
     std::shared_ptr<const SceneSnapshot> scene,
     const CameraViewRequest &camera,
-    const RendererFrontendPresentationPolicy &presentation_policy) {
+    const RendererFrontendPresentationPolicy &presentation_policy,
+    std::shared_ptr<const Ogre14ParticleCapturedFrame>
+        continuous_particles) {
   const ValidationResult policy_validation =
       ValidateRendererFrontendPresentationPolicy(presentation_policy);
   if (!policy_validation) {
@@ -316,8 +324,14 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
       presentation_policy.retire_scene_on_presentation_extent_mismatch &&
       (camera.width != presentation_policy.presentation_drawable_width ||
        camera.height != presentation_policy.presentation_drawable_height);
-  if (presentation_policy.retire_scene_without_render ||
-      stale_presentation_extent) {
+  const bool retire_without_render =
+      presentation_policy.retire_scene_without_render ||
+      stale_presentation_extent;
+
+  // Ordinary retired scenes retain the historical no-frontend-work path.
+  // Continuous particle frames cannot: lifecycle commands are deltas, so
+  // dropping one CREATE/STOP/DESTROY would permanently corrupt N1 state.
+  if (retire_without_render && continuous_particles == nullptr) {
     last_consumed_scene_snapshot_id_ = scene_snapshot_id;
     last_scene_snapshot_id_ = scene_snapshot_id;
     last_scene_asset_sequence_ = scene->asset_sequence();
@@ -336,6 +350,7 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
   RenderFrameRequest request;
   request.frame_id = last_frontend_frame_id_ + 1U;
   request.scene_snapshot = std::move(scene);
+  request.continuous_particles = std::move(continuous_particles);
   request.views.push_back(camera);
   request.requested_outputs = presentation_policy.requested_outputs;
   request.color_format = presentation_policy.color_format;
@@ -354,6 +369,51 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
     return Fail(
         RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_CAPABILITIES,
         capability_validation.code, RenderOperationCode::UNSUPPORTED);
+  }
+
+  if (retire_without_render) {
+    RenderOperationResult retired;
+    try {
+      retired = frontend_->RetireFrameState(request);
+    } catch (const std::bad_alloc &) {
+      return Fail(RendererFrontendDirectDispatchStatus::FAILED_ALLOCATION,
+                  ValidationCode::OK, RenderOperationCode::OUT_OF_MEMORY);
+    } catch (const std::length_error &) {
+      return Fail(RendererFrontendDirectDispatchStatus::FAILED_ALLOCATION,
+                  ValidationCode::OK, RenderOperationCode::OUT_OF_MEMORY);
+    } catch (...) {
+      return Fail(
+          RendererFrontendDirectDispatchStatus::
+              FAILED_FRONTEND_FRAME_RETIREMENT,
+          ValidationCode::OK, RenderOperationCode::BACKEND_FAILURE);
+    }
+    if (!retired || !frontend_->IsFrameComplete(request.frame_id)) {
+      return Fail(
+          RendererFrontendDirectDispatchStatus::
+              FAILED_FRONTEND_FRAME_RETIREMENT,
+          ValidationCode::OK,
+          retired ? RenderOperationCode::BACKEND_FAILURE : retired.code);
+    }
+    RenderOperationResult waited;
+    try {
+      waited = frontend_->WaitForFrame(request.frame_id,
+                                       kInfiniteRenderTimeoutNanoseconds);
+    } catch (...) {
+      waited = RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "state-only retired frame wait threw an exception");
+    }
+    if (!waited) {
+      return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_WAIT,
+                  ValidationCode::OK, waited.code);
+    }
+    last_frontend_frame_id_ = request.frame_id;
+    last_consumed_scene_snapshot_id_ = scene_snapshot_id;
+    last_scene_snapshot_id_ = scene_snapshot_id;
+    last_scene_asset_sequence_ = request.scene_snapshot->asset_sequence();
+    last_scene_was_empty_ = IsFinalEmptyScene(*request.scene_snapshot);
+    return Success(RendererFrontendDirectDispatchStatus::SCENE_FRAME_RETIRED,
+                   scene_snapshot_id, request.frame_id);
   }
 
   RenderFrameOutput output;

@@ -154,6 +154,17 @@ private:
     std::uint64_t                      m_ogre14_post_update_scene_epoch = 0U;
     std::uint64_t                      m_ogre14_simulation_tick = 0U;
     double                             m_ogre14_simulation_time_seconds = 0.0;
+    struct Ogre14ParticleUpdateTiming
+    {
+        std::uint64_t native_update_count = 0U;
+        float latest_effective_interval_seconds = 0.0F;
+        bool valid = true;
+    };
+    // Exact per-system native update count plus the one-update Ogre::Real
+    // interval. Multiple updates between captures mint new particle
+    // IDs; no repeated float subtraction is summarized as ordinary doubles.
+    std::map<std::string, Ogre14ParticleUpdateTiming, std::less<>>
+                                       m_ogre14_particle_update_timings;
     bool                               m_ogre14_joined_buffer_ready = false;
     bool                               m_ogre14_joined_buffer_atomic = false;
     bool                               m_ogre_next_demo_capture_enabled = false;
@@ -192,6 +203,51 @@ private:
     std::map<std::string,
              Render::Ogre14GraphicsSceneDynamicMeshCacheEntry, std::less<>>
                                        m_ogre14_dynamic_mesh_cache;
+    struct Ogre14DustParticleIdentity
+    {
+        std::uint64_t particle_id = 0U;
+        float age_seconds = 0.0F;
+        float lifetime_seconds = 0.0F;
+        float remaining_seconds = 0.0F;
+    };
+    struct Ogre14DustSystemIdentity
+    {
+        std::uint64_t system_id = 0U;
+        std::uint64_t next_particle_id = 1U;
+        std::uint64_t last_native_update_count = 0U;
+        std::map<std::uintptr_t, Ogre14DustParticleIdentity> active_particles;
+    };
+    struct Ogre14ContinuousParticleCaptureState
+    {
+        std::uint64_t next_source_sequence = 1U;
+        std::uint64_t next_system_id = 1U;
+        std::uint64_t next_event_id = 1U;
+        std::map<std::string, Ogre14DustSystemIdentity, std::less<>> systems;
+        std::map<std::uint64_t,
+                 Render::Ogre14ParticleSourceSystemCapture> live_systems;
+        std::uint64_t captured_systems = 0U;
+        std::uint64_t captured_particles = 0U;
+        std::uint64_t observed_systems = 0U;
+        std::uint64_t observed_particles = 0U;
+        std::uint64_t excluded_systems = 0U;
+        std::uint64_t excluded_particles = 0U;
+        std::uint64_t excluded_non_dust_systems = 0U;
+        std::uint64_t excluded_sparks_systems = 0U;
+        std::uint64_t excluded_ripple_systems = 0U;
+        std::uint64_t excluded_other_non_dust_systems = 0U;
+        std::uint64_t excluded_billboard_modes = 0U;
+        std::uint64_t excluded_local_space_systems = 0U;
+        std::uint64_t excluded_animated_systems = 0U;
+        std::uint64_t excluded_sorted_systems = 0U;
+        std::uint64_t excluded_timing_modes = 0U;
+        std::uint64_t source_backed_textures = 0U;
+        std::uint64_t source_alpha_textures = 0U;
+        std::uint64_t gpu_readbacks = 0U;
+        std::uint64_t lifetime_max_captured_systems = 0U;
+        std::uint64_t lifetime_max_captured_particles = 0U;
+    };
+    Ogre14ContinuousParticleCaptureState m_ogre14_particle_capture_state;
+    std::string m_ogre14_particle_coverage_log_snapshot;
     struct Ogre14PendingCaptureState
     {
         Render::Ogre14GraphicsSceneLightIdentityRegistry light_registry;
@@ -207,6 +263,7 @@ private:
         std::map<std::string,
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
                  std::less<>> dynamic_mesh_cache;
+        Ogre14ContinuousParticleCaptureState particle_capture_state;
         std::size_t new_material_projection_count = 0U;
         std::size_t active_material_projection_count = 0U;
         Gfx::Detail::OgreNextDemoMaterialSourceCounters

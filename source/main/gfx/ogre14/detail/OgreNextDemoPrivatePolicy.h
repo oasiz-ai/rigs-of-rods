@@ -257,11 +257,11 @@ struct OgreNextDemoExactSamplerObservation final {
     const OgreNextDemoExactSamplerObservation &left,
     const OgreNextDemoExactSamplerObservation &right) noexcept;
 
-/// Admits POINT/LINEAR filtering or the exact all-three-filter ANISOTROPIC
-/// state, WRAP/MIRROR/CLAMP addressing, zero LOD bias, and disabled comparison.
-/// Anisotropy retains the exact authored maximum in (1, 16]. The exact border
-/// color is retained in the portable descriptor, but border addressing is
-/// unsupported.
+/// Admits POINT/LINEAR filtering or pinned TFO_ANISOTROPIC's exact min/mag
+/// ANISOTROPIC plus mip LINEAR tuple, WRAP/MIRROR/CLAMP addressing, zero LOD
+/// bias, and disabled comparison. Anisotropy retains the exact authored
+/// maximum in (1, 16]. The exact border color is retained in the portable
+/// descriptor, but border addressing is unsupported.
 [[nodiscard]] Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
     const OgreNextDemoExactSamplerObservation &observation,
     std::size_t mip_count, std::string_view debug_token,

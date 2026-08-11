@@ -51,6 +51,21 @@ bool IsKnownOperation(Ogre14ParticleLifecycleOperation operation) noexcept {
   return false;
 }
 
+bool IsKnownBlend(ContinuousParticleBlendMode blend) noexcept {
+  return blend == ContinuousParticleBlendMode::LEGACY_STRAIGHT_ALPHA ||
+         blend == ContinuousParticleBlendMode::ADDITIVE;
+}
+
+bool IsKnownAlphaReject(ContinuousParticleAlphaReject reject) noexcept {
+  return reject == ContinuousParticleAlphaReject::ALWAYS_PASS ||
+         reject == ContinuousParticleAlphaReject::GREATER;
+}
+
+bool IsKnownSortPolicy(ContinuousParticleSortPolicy policy) noexcept {
+  return policy == ContinuousParticleSortPolicy::STABLE_PARTICLE_ID ||
+         policy == ContinuousParticleSortPolicy::BACK_TO_FRONT;
+}
+
 bool AddChecked(std::uint64_t amount, std::uint64_t &total) noexcept {
   if (amount > (std::numeric_limits<std::uint64_t>::max)() - total) {
     return false;
@@ -315,18 +330,63 @@ ValidationResult ValidateSystem(Ogre14ParticleSystemCapture &system,
         "continuous particles require an exact material asset reference",
         system_index);
   }
-  if (material_catalog.ResolveMaterial(closure.material) == nullptr) {
+  const MaterialDescriptor *const material =
+      material_catalog.ResolveMaterial(closure.material);
+  if (material == nullptr) {
     return Failure(ValidationCode::MISSING_REFERENCE,
                    "particle_system.material_closure.material",
                    "material-closure receipt does not resolve to a live exact "
                    "material revision",
                    system_index);
   }
+  if (!closure.source_texture.valid() ||
+      closure.source_texture.kind != RenderAssetKind::TEXTURE ||
+      !closure.sampler.valid() ||
+      closure.sampler.kind != RenderAssetKind::SAMPLER ||
+      material_catalog.ResolveTexture(closure.source_texture) == nullptr ||
+      material_catalog.ResolveSampler(closure.sampler) == nullptr) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "particle_system.material_closure.source_assets",
+                   "continuous particles require live exact texture and sampler revisions",
+                   system_index);
+  }
+  if (material->base_color_texture.texture != closure.source_texture ||
+      material->base_color_texture.sampler != closure.sampler) {
+    return Failure(ValidationCode::REVISION_MISMATCH,
+                   "particle_system.material_closure.source_assets",
+                   "particle texture and sampler must be the material's exact base-colour binding",
+                   system_index);
+  }
+  if (!IsKnownBlend(closure.blend) ||
+      !IsKnownAlphaReject(closure.alpha_reject) ||
+      !IsKnownSortPolicy(closure.sort_policy)) {
+    return Failure(ValidationCode::INVALID_ENUM,
+                   "particle_system.material_closure.render_state",
+                   "particle blend, alpha rejection, or sort policy is invalid",
+                   system_index);
+  }
+  if (!IsFinite(closure.alpha_reject_threshold) ||
+      closure.alpha_reject_threshold < 0.0F ||
+      closure.alpha_reject_threshold > 1.0F ||
+      (closure.alpha_reject == ContinuousParticleAlphaReject::ALWAYS_PASS &&
+       closure.alpha_reject_threshold != 0.0F) ||
+      !closure.depth_check || closure.depth_write ||
+      closure.lighting_enabled || closure.receives_shadows ||
+      closure.casts_shadows || !closure.vertex_color_modulation ||
+      !closure.source_backed_texture || closure.gpu_readback_used) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "particle_system.material_closure.render_state",
+                   "v1 requires source-backed zero-readback particles with depth test on, depth writes off, and exact alpha state",
+                   system_index);
+  }
   if (system.billboard_mode !=
-      Ogre14ParticleBillboardMode::CAMERA_FACING_POINT) {
+          Ogre14ParticleBillboardMode::CAMERA_FACING_POINT ||
+      system.billboard_rotation_mode !=
+          Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES) {
     return Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "particle_system.billboard_mode",
-        "particle capture v1 supports only camera-facing point billboards",
+        "particle capture v1 supports only camera-facing point billboards "
+        "with texture-coordinate rotation",
         system_index);
   }
   if (!system.particles_are_world_space) {
@@ -399,7 +459,44 @@ bool EqualClosure(const Ogre14ParticleMaterialClosureReceipt &lhs,
          lhs.material_catalog_registry_id == rhs.material_catalog_registry_id &&
          lhs.material_catalog_sequence == rhs.material_catalog_sequence &&
          lhs.material == rhs.material &&
-         lhs.translation_source_sequence == rhs.translation_source_sequence;
+         lhs.source_texture == rhs.source_texture &&
+         lhs.sampler == rhs.sampler &&
+         lhs.translation_source_sequence == rhs.translation_source_sequence &&
+         lhs.blend == rhs.blend && lhs.alpha_reject == rhs.alpha_reject &&
+         lhs.alpha_reject_threshold == rhs.alpha_reject_threshold &&
+         lhs.sort_policy == rhs.sort_policy &&
+         lhs.depth_check == rhs.depth_check &&
+         lhs.depth_write == rhs.depth_write &&
+         lhs.lighting_enabled == rhs.lighting_enabled &&
+         lhs.receives_shadows == rhs.receives_shadows &&
+         lhs.casts_shadows == rhs.casts_shadows &&
+         lhs.vertex_color_modulation == rhs.vertex_color_modulation &&
+         lhs.source_backed_texture == rhs.source_backed_texture &&
+         lhs.gpu_readback_used == rhs.gpu_readback_used;
+}
+
+// Catalog and translator sequences are receipts for the exact asset references
+// below; advancing either receipt does not change the realized render state.
+// Keeping this comparison separate from EqualClosure is important: exact
+// same-source-sequence replay still compares every receipt bit, while lifecycle
+// UPDATE derivation observes only state that the frontend must actually change.
+bool EqualClosureRenderState(
+    const Ogre14ParticleMaterialClosureReceipt &lhs,
+    const Ogre14ParticleMaterialClosureReceipt &rhs) noexcept {
+  return lhs.version == rhs.version && lhs.material == rhs.material &&
+         lhs.source_texture == rhs.source_texture &&
+         lhs.sampler == rhs.sampler && lhs.blend == rhs.blend &&
+         lhs.alpha_reject == rhs.alpha_reject &&
+         lhs.alpha_reject_threshold == rhs.alpha_reject_threshold &&
+         lhs.sort_policy == rhs.sort_policy &&
+         lhs.depth_check == rhs.depth_check &&
+         lhs.depth_write == rhs.depth_write &&
+         lhs.lighting_enabled == rhs.lighting_enabled &&
+         lhs.receives_shadows == rhs.receives_shadows &&
+         lhs.casts_shadows == rhs.casts_shadows &&
+         lhs.vertex_color_modulation == rhs.vertex_color_modulation &&
+         lhs.source_backed_texture == rhs.source_backed_texture &&
+         lhs.gpu_readback_used == rhs.gpu_readback_used;
 }
 
 bool EqualSystemInput(const Ogre14ParticleSystemCapture &lhs,
@@ -408,6 +505,7 @@ bool EqualSystemInput(const Ogre14ParticleSystemCapture &lhs,
          lhs.effect == rhs.effect &&
          EqualClosure(lhs.material_closure, rhs.material_closure) &&
          lhs.billboard_mode == rhs.billboard_mode &&
+         lhs.billboard_rotation_mode == rhs.billboard_rotation_mode &&
          lhs.particles_are_world_space == rhs.particles_are_world_space &&
          lhs.requires_frontend_emitter_evaluation ==
              rhs.requires_frontend_emitter_evaluation &&
@@ -459,8 +557,10 @@ bool EqualJoinedFrame(const Ogre14JoinedParticleFrame &lhs,
 bool EqualCapturedState(const Ogre14CapturedParticleSystem &lhs,
                         const Ogre14ParticleSystemCapture &rhs) noexcept {
   return lhs.system_id == rhs.system_id && lhs.effect == rhs.effect &&
-         EqualClosure(lhs.material_closure, rhs.material_closure) &&
+         EqualClosureRenderState(lhs.material_closure,
+                                 rhs.material_closure) &&
          lhs.billboard_mode == rhs.billboard_mode &&
+         lhs.billboard_rotation_mode == rhs.billboard_rotation_mode &&
          lhs.effective_visible == (rhs.system_visible && rhs.parent_visible) &&
          lhs.emitting == rhs.emitting &&
          EqualParticles(lhs.particles, rhs.particles);
@@ -473,6 +573,7 @@ BuildCapturedState(const Ogre14ParticleSystemCapture &source) {
   candidate->effect = source.effect;
   candidate->material_closure = source.material_closure;
   candidate->billboard_mode = source.billboard_mode;
+  candidate->billboard_rotation_mode = source.billboard_rotation_mode;
   candidate->effective_visible = source.system_visible && source.parent_visible;
   candidate->emitting = source.emitting;
   candidate->particles = source.particles;
@@ -480,6 +581,52 @@ BuildCapturedState(const Ogre14ParticleSystemCapture &source) {
 }
 
 } // namespace
+
+Float4 DecodeOgre14ParticleColourBytes(
+    const std::array<std::uint8_t, 4U> &rgba_bytes) noexcept {
+  return {static_cast<float>(rgba_bytes[0U]) / 255.0F,
+          static_cast<float>(rgba_bytes[1U]) / 255.0F,
+          static_cast<float>(rgba_bytes[2U]) / 255.0F,
+          static_cast<float>(rgba_bytes[3U]) / 255.0F};
+}
+
+bool CanRetainOgre14ParticlePoolIdentity(
+    float prior_age_seconds, float prior_lifetime_seconds,
+    float prior_remaining_seconds, std::uint64_t prior_native_update_count,
+    float current_age_seconds, float current_lifetime_seconds,
+    float current_remaining_seconds, std::uint64_t current_native_update_count,
+    float latest_native_effective_interval_seconds) noexcept {
+  if (!std::isfinite(prior_age_seconds) ||
+      !std::isfinite(prior_lifetime_seconds) ||
+      !std::isfinite(prior_remaining_seconds) ||
+      !std::isfinite(current_age_seconds) ||
+      !std::isfinite(current_lifetime_seconds) ||
+      !std::isfinite(current_remaining_seconds) ||
+      !std::isfinite(latest_native_effective_interval_seconds) ||
+      prior_age_seconds < 0.0F || prior_lifetime_seconds <= 0.0F ||
+      prior_remaining_seconds < 0.0F || current_age_seconds < 0.0F ||
+      current_lifetime_seconds <= 0.0F || current_remaining_seconds < 0.0F ||
+      latest_native_effective_interval_seconds < 0.0F ||
+      prior_age_seconds > prior_lifetime_seconds ||
+      prior_remaining_seconds > prior_lifetime_seconds ||
+      current_age_seconds > current_lifetime_seconds ||
+      current_remaining_seconds > current_lifetime_seconds ||
+      prior_native_update_count ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      current_native_update_count != prior_native_update_count + 1U ||
+      current_lifetime_seconds != prior_lifetime_seconds ||
+      current_age_seconds < prior_age_seconds ||
+      current_remaining_seconds > prior_remaining_seconds ||
+      prior_remaining_seconds < latest_native_effective_interval_seconds) {
+    return false;
+  }
+  // With exactly one update, native expiry compares the prior observed TTL
+  // directly with this interval before doing any rounded subtraction. Its
+  // strict-less comparison means equality survives; repeated subtraction
+  // rounding is outside this admitted path because a count delta above one
+  // already returned false.
+  return true;
+}
 
 class Ogre14ParticleCaptureSource::Impl final {
 public:
@@ -722,7 +869,7 @@ ValidationResult Ogre14ParticleCaptureSource::Capture(
           prior->second.state->material_closure;
       if (system.material_closure.translation_source_sequence <
               prior_closure.translation_source_sequence ||
-          (!EqualClosure(system.material_closure, prior_closure) &&
+          (!EqualClosureRenderState(system.material_closure, prior_closure) &&
            system.material_closure.translation_source_sequence <=
                prior_closure.translation_source_sequence)) {
         return Failure(
@@ -792,6 +939,12 @@ ValidationResult Ogre14ParticleCaptureSource::Capture(
                 ? Ogre14ParticleLifecycleOperation::STOP
                 : Ogre14ParticleLifecycleOperation::UPDATE;
         required_operations.emplace(system.system_id, operation);
+        durable->second.state = BuildCapturedState(system);
+      } else if (!EqualClosure(system.material_closure, prior_closure)) {
+        // Receipt-only catalog/translator lineage advances are committed
+        // without inventing a native UPDATE command. The frontend retains the
+        // prior exact revisioned references and revalidates them against every
+        // current catalog before drawing.
         durable->second.state = BuildCapturedState(system);
       }
       durable->second.highest_particle_id = new_highest;
@@ -917,6 +1070,117 @@ ValidationResult Ogre14ParticleCaptureSource::Capture(
     return Failure(ValidationCode::UNSUPPORTED_FEATURE,
                    "particle_capture.exception",
                    "particle candidate construction failed before commit");
+  }
+}
+
+ValidationResult Ogre14ParticleCaptureSource::FinalizeSceneGeneration(
+    const RenderAssetRegistry &final_material_catalog,
+    std::uint64_t simulation_tick, double simulation_time_seconds,
+    const Double3 &absolute_world_origin_meters,
+    Ogre14ParticleCapturedFrame &captured) {
+  if (!impl_->has_frame) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "particle_capture.finalize",
+                   "particle capture has no scene generation to finalize");
+  }
+  if (final_material_catalog.registry_id() !=
+          impl_->material_catalog_registry_id ||
+      final_material_catalog.sequence() <= impl_->material_catalog_sequence ||
+      final_material_catalog.live_count() != 0U) {
+    return Failure(
+        ValidationCode::SEQUENCE_MISMATCH,
+        "particle_capture.finalize.material_catalog",
+        "particle finalization requires the exact newer empty catalog state");
+  }
+  if (impl_->last_source_sequence_value ==
+      (std::numeric_limits<std::uint64_t>::max)()) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "particle_capture.finalize",
+                   "particle source identity is exhausted");
+  }
+  const std::size_t live_systems = live_system_count();
+  if (live_systems > impl_->configuration.maximum_events_per_frame ||
+      static_cast<std::uint64_t>(live_systems) >
+          (std::numeric_limits<std::uint64_t>::max)() -
+              impl_->highest_event_id_value ||
+      static_cast<std::uint64_t>(live_systems) >
+          impl_->configuration.maximum_lifetime_events -
+              impl_->lifetime_event_count ||
+      live_systems > impl_->configuration.maximum_payload_bytes_per_frame /
+                         kOgre14ParticleLogicalEventBytes) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "particle_capture.finalize.events",
+                   "final particle tombstones exceed the event identity cap");
+  }
+  if (!IsFinite(simulation_time_seconds) ||
+      simulation_time_seconds < impl_->last_simulation_time_seconds ||
+      simulation_tick < impl_->last_simulation_tick ||
+      !IsFinite(absolute_world_origin_meters)) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "particle_capture.finalize.simulation_state",
+                   "final particle state must not regress or become nonfinite");
+  }
+
+  try {
+    Ogre14ParticleCapturedFrame candidate;
+    candidate.source_sequence = impl_->last_source_sequence_value + 1U;
+    candidate.material_catalog_registry_id =
+        final_material_catalog.registry_id();
+    candidate.material_catalog_sequence = final_material_catalog.sequence();
+    candidate.simulation_tick = simulation_tick;
+    candidate.simulation_time_seconds = simulation_time_seconds;
+    candidate.absolute_world_origin_meters = absolute_world_origin_meters;
+    // This is a lifecycle close, not a fabricated native simulation tap. Keep
+    // the exact last observed joined epoch while the source sequence advances.
+    candidate.joined_buffer_epoch = impl_->last_joined_buffer_epoch;
+    candidate.commands.reserve(live_systems);
+    std::uint64_t next_event_id = impl_->highest_event_id_value;
+    for (const auto &entry : impl_->systems) {
+      if (entry.second.lifecycle == Impl::SystemLifecycle::DESTROYED) {
+        continue;
+      }
+      Ogre14CapturedParticleCommand command;
+      command.event_id = ++next_event_id;
+      command.system_id = entry.first;
+      command.operation = Ogre14ParticleLifecycleOperation::DESTROY;
+      candidate.commands.push_back(std::move(command));
+    }
+    if (impl_->configuration.fault_injector != nullptr &&
+        impl_->configuration.fault_injector->ShouldFail(
+            Ogre14ParticleCaptureFaultPoint::BEFORE_COMMIT)) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "particle_capture.injected_failure",
+                     "fault injected before particle finalization commit");
+    }
+    static_assert(
+        std::is_nothrow_move_assignable<Ogre14JoinedParticleFrame>::value &&
+            std::is_nothrow_move_assignable<
+                Ogre14ParticleCapturedFrame>::value,
+        "particle generation reset must be allocation-free after commit");
+    impl_->systems.clear();
+    impl_->highest_system_id = 0U;
+    impl_->highest_event_id_value = 0U;
+    impl_->lifetime_particle_count_value = 0U;
+    impl_->lifetime_event_count = 0U;
+    impl_->last_source_sequence_value = 0U;
+    impl_->material_catalog_registry_id = 0U;
+    impl_->material_catalog_sequence = 0U;
+    impl_->last_simulation_tick = 0U;
+    impl_->last_simulation_time_seconds = 0.0;
+    impl_->last_joined_buffer_epoch = 0U;
+    impl_->has_frame = false;
+    impl_->last_input = Ogre14JoinedParticleFrame{};
+    impl_->last_output = Ogre14ParticleCapturedFrame{};
+    captured = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "particle_capture.finalize.allocation",
+                   "final particle tombstone allocation failed before commit");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "particle_capture.finalize.exception",
+                   "final particle tombstone construction failed before commit");
   }
 }
 

@@ -54,8 +54,10 @@
 #include "imgui_internal.h"
 
 #include <Ogre.h>
+#include <OgreBillboardParticleRenderer.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -68,6 +70,88 @@ using namespace RoR;
 
 namespace
 {
+
+constexpr std::uint64_t kOgreNextDemoMaximumObservedParticleSystems = 4096U;
+constexpr std::uint64_t kOgreNextDemoMaximumParticlesPerSystem = 16384U;
+constexpr std::uint64_t kOgreNextDemoMaximumObservedParticles = 65536U;
+
+bool IsFiniteOgreRealBits(Ogre::Real value) noexcept
+{
+    static_assert(sizeof(Ogre::Real) == sizeof(std::uint32_t) ||
+                  sizeof(Ogre::Real) == sizeof(std::uint64_t),
+                  "native Real must be IEEE binary32 or binary64");
+    if constexpr (sizeof(Ogre::Real) == sizeof(std::uint32_t))
+    {
+        std::uint32_t bits = 0U;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return (bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000);
+    }
+    else
+    {
+        std::uint64_t bits = 0U;
+        std::memcpy(&bits, &value, sizeof(bits));
+        return (bits & UINT64_C(0x7ff0000000000000)) !=
+               UINT64_C(0x7ff0000000000000);
+    }
+}
+
+bool HasOgreNextDemoDustSourceAlpha(
+    const RoR::Render::TextureResourceDescriptor& texture) noexcept
+{
+    if (texture.type != RoR::Render::TextureResourceType::TEXTURE_2D ||
+        texture.format != RoR::Render::TextureResourceFormat::RGBA8_UNORM ||
+        texture.color_space != RoR::Render::TextureColorSpace::SRGB ||
+        texture.array_layers != 1U)
+    {
+        return false;
+    }
+    for (const auto& mip : texture.mip_levels)
+    {
+        for (std::uint32_t y = 0U; y < mip.height; ++y)
+        {
+            const std::uint64_t row = static_cast<std::uint64_t>(y) *
+                mip.row_pitch_bytes;
+            for (std::uint32_t x = 0U; x < mip.width; ++x)
+            {
+                const std::uint64_t alpha = row +
+                    static_cast<std::uint64_t>(x) * 4U + 3U;
+                if (alpha >= mip.bytes.size())
+                    return false;
+                if (mip.bytes[static_cast<std::size_t>(alpha)] != 255U)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool IsOgreNextDemoDustSampler(
+    const RoR::Render::SamplerResourceDescriptor& sampler,
+    std::size_t mip_count) noexcept
+{
+    if (mip_count == 0U ||
+        sampler.address_u !=
+            RoR::Render::SamplerAddressMode::CLAMP_TO_EDGE ||
+        sampler.address_v !=
+            RoR::Render::SamplerAddressMode::CLAMP_TO_EDGE ||
+        sampler.address_w !=
+            RoR::Render::SamplerAddressMode::CLAMP_TO_EDGE ||
+        sampler.mip_lod_bias != 0.0F || sampler.minimum_lod != 0.0F ||
+        sampler.maximum_lod != static_cast<float>(mip_count - 1U) ||
+        sampler.compare_enabled)
+    {
+        return false;
+    }
+    if (!sampler.anisotropy_enabled)
+        return sampler.maximum_anisotropy == 1.0F;
+    return sampler.minification_filter == RoR::Render::SamplerFilter::LINEAR &&
+        sampler.magnification_filter == RoR::Render::SamplerFilter::LINEAR &&
+        sampler.mip_filter == RoR::Render::SamplerFilter::LINEAR &&
+        sampler.maximum_anisotropy >= 2.0F &&
+        sampler.maximum_anisotropy <= 16.0F &&
+        std::floor(sampler.maximum_anisotropy) ==
+            sampler.maximum_anisotropy;
+}
 
 std::string FormatOgreNextDemoMaterialExclusions(
     const RoR::Gfx::Detail::OgreNextDemoMaterialSourceCounters& counters)
@@ -898,6 +982,77 @@ bool IsOgreNextDemoInvisibleCabMaterial(const Ogre::MaterialPtr& material)
     return RoR::Gfx::Detail::OgreNextDemoOmitsInvisibleCab(
         material->getName(), static_cast<float>(diffuse.a),
         resolved.pass->getDepthWriteEnabled());
+}
+
+bool EqualOgre14ContinuousParticleState(
+    const RoR::Render::Ogre14ParticleState& lhs,
+    const RoR::Render::Ogre14ParticleState& rhs) noexcept
+{
+    return lhs.particle_id == rhs.particle_id &&
+        lhs.position == rhs.position && lhs.direction == rhs.direction &&
+        lhs.velocity == rhs.velocity &&
+        lhs.color_linear == rhs.color_linear &&
+        lhs.size_meters == rhs.size_meters &&
+        lhs.rotation_radians == rhs.rotation_radians &&
+        lhs.age_seconds == rhs.age_seconds &&
+        lhs.lifetime_seconds == rhs.lifetime_seconds;
+}
+
+bool EqualOgre14ContinuousParticleSystem(
+    const RoR::Render::Ogre14ParticleSourceSystemCapture& lhs,
+    const RoR::Render::Ogre14ParticleSourceSystemCapture& rhs) noexcept
+{
+    if (lhs.system_id != rhs.system_id || lhs.effect != rhs.effect ||
+        lhs.billboard_mode != rhs.billboard_mode ||
+        lhs.billboard_rotation_mode != rhs.billboard_rotation_mode ||
+        lhs.particles_are_world_space != rhs.particles_are_world_space ||
+        lhs.requires_frontend_emitter_evaluation !=
+            rhs.requires_frontend_emitter_evaluation ||
+        lhs.requires_frontend_affector_evaluation !=
+            rhs.requires_frontend_affector_evaluation ||
+        lhs.requires_frontend_sorting != rhs.requires_frontend_sorting ||
+        lhs.requires_texture_animation != rhs.requires_texture_animation ||
+        lhs.system_visible != rhs.system_visible ||
+        lhs.parent_visible != rhs.parent_visible ||
+        lhs.emitting != rhs.emitting ||
+        lhs.material_closure.material_source_asset_id !=
+            rhs.material_closure.material_source_asset_id ||
+        lhs.material_closure.texture_source_asset_id !=
+            rhs.material_closure.texture_source_asset_id ||
+        lhs.material_closure.sampler_source_asset_id !=
+            rhs.material_closure.sampler_source_asset_id ||
+        lhs.material_closure.blend != rhs.material_closure.blend ||
+        lhs.material_closure.alpha_reject !=
+            rhs.material_closure.alpha_reject ||
+        lhs.material_closure.alpha_reject_threshold !=
+            rhs.material_closure.alpha_reject_threshold ||
+        lhs.material_closure.sort_policy !=
+            rhs.material_closure.sort_policy ||
+        lhs.material_closure.depth_check !=
+            rhs.material_closure.depth_check ||
+        lhs.material_closure.depth_write !=
+            rhs.material_closure.depth_write ||
+        lhs.material_closure.lighting_enabled !=
+            rhs.material_closure.lighting_enabled ||
+        lhs.material_closure.receives_shadows !=
+            rhs.material_closure.receives_shadows ||
+        lhs.material_closure.casts_shadows !=
+            rhs.material_closure.casts_shadows ||
+        lhs.material_closure.vertex_color_modulation !=
+            rhs.material_closure.vertex_color_modulation ||
+        lhs.material_closure.source_backed_texture !=
+            rhs.material_closure.source_backed_texture ||
+        lhs.material_closure.gpu_readback_used !=
+            rhs.material_closure.gpu_readback_used ||
+        lhs.particles.size() != rhs.particles.size())
+        return false;
+    for (std::size_t index = 0U; index < lhs.particles.size(); ++index)
+    {
+        if (!EqualOgre14ContinuousParticleState(
+                lhs.particles[index], rhs.particles[index]))
+            return false;
+    }
+    return true;
 }
 
 RoR::Render::ValidationResult ValidateOgre14StaticVertexDeclaration(
@@ -2576,6 +2731,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_post_update_scene_epoch = 0U;
     m_ogre14_simulation_tick = 0U;
     m_ogre14_simulation_time_seconds = 0.0;
+    m_ogre14_particle_update_timings.clear();
     m_ogre14_light_identity_registry.Reset();
     m_ogre14_static_identity_registry.Reset();
     m_ogre14_dynamic_identity_registry.Reset();
@@ -2588,6 +2744,8 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre_next_demo_admitted_static_objects.clear();
     m_ogre14_terrain_page_cache.clear();
     m_ogre14_dynamic_mesh_cache.clear();
+    m_ogre14_particle_capture_state = {};
+    m_ogre14_particle_coverage_log_snapshot.clear();
 }
 
 void GfxScene::Init()
@@ -2793,8 +2951,55 @@ void GfxScene::UpdateScene(float dt)
         gfx_actor->FinishWheelUpdates();
         gfx_actor->FinishFlexbodyTasks();
     }
+    if (m_ogre_next_demo_capture_enabled)
+    {
+        // In capture ownership the legacy Ogre Root never renders a frame, so
+        // its frame-time controller cannot advance ParticleSystem. Reconstruct
+        // the controller's real-frame input from simulation time; _update()
+        // then applies each native system's already-authored speed factor once.
+        // This runs after every emitter mutation above and before the joined
+        // epoch is published, making the captured particles realized OGRE14
+        // simulation state rather than frontend emitter guesses.
+        const float simulation_speed = m_simbuf.simbuf_sim_speed;
+        const float particle_frame_seconds =
+            dt > 0.0F && std::isfinite(dt) && simulation_speed > 0.0F &&
+                    std::isfinite(simulation_speed)
+                ? dt / simulation_speed
+                : 0.0F;
+        const Ogre::SceneManager::MovableObjectMap& particle_objects =
+            m_scene_manager->getMovableObjects(Ogre::MOT_PARTICLE_SYSTEM);
+        for (const auto& entry : particle_objects)
+        {
+            Ogre::ParticleSystem* const particle_system =
+                dynamic_cast<Ogre::ParticleSystem*>(entry.second);
+            if (particle_system != nullptr)
+            {
+                Ogre14ParticleUpdateTiming& timing =
+                    m_ogre14_particle_update_timings[
+                        particle_system->getName()];
+                Ogre::Real effective_seconds = particle_frame_seconds;
+                effective_seconds *= particle_system->getSpeedFactor();
+                if (!timing.valid ||
+                    timing.native_update_count ==
+                        (std::numeric_limits<std::uint64_t>::max)() ||
+                    !IsFiniteOgreRealBits(effective_seconds) ||
+                    effective_seconds < 0.0F)
+                {
+                    timing.valid = false;
+                }
+                else
+                {
+                    ++timing.native_update_count;
+                    timing.latest_effective_interval_seconds =
+                        effective_seconds;
+                }
+                particle_system->_update(particle_frame_seconds);
+            }
+        }
+    }
     // Publish the epoch only after every asynchronous FlexBody/Flexable task
-    // has joined and flexitFinal()/updateFlexbodyVertexBuffers() has completed.
+    // has joined, flexitFinal()/updateFlexbodyVertexBuffers() has completed,
+    // and the hidden OGRE14 particle simulation has reached this same frame.
     // Capture rejects any BufferSimulationData()/UpdateScene mismatch.
     if (m_ogre_next_demo_capture_enabled &&
         m_ogre14_joined_buffer_ready && m_ogre14_joined_buffer_atomic)
@@ -3202,6 +3407,25 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         m_ogre_next_demo_admitted_static_objects;
     pending->dynamic_registry = m_ogre14_dynamic_identity_registry;
     pending->dynamic_mesh_cache = m_ogre14_dynamic_mesh_cache;
+    pending->particle_capture_state = m_ogre14_particle_capture_state;
+    pending->particle_capture_state.captured_systems = 0U;
+    pending->particle_capture_state.captured_particles = 0U;
+    pending->particle_capture_state.observed_systems = 0U;
+    pending->particle_capture_state.observed_particles = 0U;
+    pending->particle_capture_state.excluded_systems = 0U;
+    pending->particle_capture_state.excluded_particles = 0U;
+    pending->particle_capture_state.excluded_non_dust_systems = 0U;
+    pending->particle_capture_state.excluded_sparks_systems = 0U;
+    pending->particle_capture_state.excluded_ripple_systems = 0U;
+    pending->particle_capture_state.excluded_other_non_dust_systems = 0U;
+    pending->particle_capture_state.excluded_billboard_modes = 0U;
+    pending->particle_capture_state.excluded_local_space_systems = 0U;
+    pending->particle_capture_state.excluded_animated_systems = 0U;
+    pending->particle_capture_state.excluded_sorted_systems = 0U;
+    pending->particle_capture_state.excluded_timing_modes = 0U;
+    pending->particle_capture_state.source_backed_textures = 0U;
+    pending->particle_capture_state.source_alpha_textures = 0U;
+    pending->particle_capture_state.gpu_readbacks = 0U;
 
     Render::Ogre14GraphicsSceneCapture candidate;
     candidate.joined_buffer_epoch = m_ogre14_joined_buffer_epoch;
@@ -3339,6 +3563,369 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 nonterrain_assets);
             if (!dynamic_validation)
                 return dynamic_validation;
+
+            std::vector<Render::Ogre14ParticleSourceSystemCapture>
+                captured_dust_systems;
+            std::uint64_t dust_material_source_id = 0U;
+            if (m_scene_manager != nullptr)
+            {
+                const Ogre::SceneManager::MovableObjectMap& particle_objects =
+                    m_scene_manager->getMovableObjects(
+                        Ogre::MOT_PARTICLE_SYSTEM);
+                for (const auto& entry : particle_objects)
+                {
+                    Ogre::ParticleSystem* const psys =
+                        dynamic_cast<Ogre::ParticleSystem*>(entry.second);
+                    if (psys == nullptr)
+                        continue;
+                    const std::uint64_t native_particle_count =
+                        psys->_getActiveParticles().size();
+                    if (pending->particle_capture_state.observed_systems >=
+                            kOgreNextDemoMaximumObservedParticleSystems ||
+                        native_particle_count >
+                            kOgreNextDemoMaximumParticlesPerSystem ||
+                        pending->particle_capture_state.observed_particles >
+                            kOgreNextDemoMaximumObservedParticles -
+                                native_particle_count)
+                    {
+                        return Render::ValidationResult::Failure(
+                            Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                            "continuous_particles.observed_limits",
+                            "OGRE14 particle inventory exceeds the bounded joined capture limits");
+                    }
+                    ++pending->particle_capture_state.observed_systems;
+                    pending->particle_capture_state.observed_particles +=
+                        native_particle_count;
+                    const std::string& native_name = psys->getName();
+                    if (native_name.rfind("Dust tracks/Dust ", 0U) != 0U ||
+                        psys->getMaterialName() != "tracks/SmokeMat")
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_non_dust_systems;
+                        if (native_name.rfind("Dust tracks/Sparks ", 0U) ==
+                            0U)
+                        {
+                            ++pending->particle_capture_state
+                                  .excluded_sparks_systems;
+                        }
+                        else if (native_name.rfind(
+                                     "Dust tracks/Ripple ", 0U) == 0U)
+                        {
+                            ++pending->particle_capture_state
+                                  .excluded_ripple_systems;
+                        }
+                        else
+                        {
+                            ++pending->particle_capture_state
+                                  .excluded_other_non_dust_systems;
+                        }
+                        continue;
+                    }
+                    Ogre::BillboardParticleRenderer* const renderer =
+                        dynamic_cast<Ogre::BillboardParticleRenderer*>(
+                            psys->getRenderer());
+                    if (renderer == nullptr ||
+                        renderer->getBillboardType() != Ogre::BBT_POINT ||
+                        renderer->isPointRenderingEnabled() ||
+                        renderer->getBillboardOrigin() != Ogre::BBO_CENTER ||
+                        renderer->getBillboardRotationType() !=
+                            Ogre::BBR_TEXCOORD ||
+                        renderer->getUseAccurateFacing())
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_billboard_modes;
+                        continue;
+                    }
+                    if (psys->getKeepParticlesInLocalSpace())
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_local_space_systems;
+                        continue;
+                    }
+                    const Ogre::Vector2 stacks_slices =
+                        renderer->getTextureStacksAndSlices();
+                    if (stacks_slices.x != 1.0F || stacks_slices.y != 1.0F)
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_animated_systems;
+                        continue;
+                    }
+                    if (psys->getSortingEnabled())
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_sorted_systems;
+                        continue;
+                    }
+                    const auto timing_observation =
+                        m_ogre14_particle_update_timings.find(
+                            native_name);
+                    if (psys->getIterationInterval() != 0.0F ||
+                        Ogre::ParticleSystem::getDefaultIterationInterval() !=
+                            0.0F ||
+                        !IsFiniteOgreRealBits(psys->getSpeedFactor()) ||
+                        psys->getSpeedFactor() < 0.0F ||
+                        timing_observation ==
+                            m_ogre14_particle_update_timings.end() ||
+                        !timing_observation->second.valid)
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_timing_modes;
+                        continue;
+                    }
+                    const std::uint64_t current_native_update_count =
+                        timing_observation->second.native_update_count;
+                    const float latest_native_effective_interval_seconds =
+                        timing_observation->second
+                            .latest_effective_interval_seconds;
+
+                    auto system_identity =
+                        pending->particle_capture_state.systems.find(
+                            native_name);
+                    if (system_identity ==
+                        pending->particle_capture_state.systems.end())
+                    {
+                        if (pending->particle_capture_state.next_system_id ==
+                            (std::numeric_limits<std::uint64_t>::max)())
+                        {
+                            return Render::ValidationResult::Failure(
+                                Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                                "continuous_particles.system_id",
+                                "Dust system identity space is exhausted");
+                        }
+                        GfxScene::Ogre14DustSystemIdentity identity;
+                        identity.system_id = pending->particle_capture_state
+                                                 .next_system_id++;
+                        identity.last_native_update_count =
+                            current_native_update_count;
+                        system_identity = pending->particle_capture_state
+                                              .systems.emplace(
+                                                  native_name,
+                                                  std::move(identity))
+                                              .first;
+                    }
+
+                    Render::Ogre14ParticleSourceSystemCapture system;
+                    system.system_id = system_identity->second.system_id;
+                    system.effect = Render::ParticleEffect::DUST;
+                    system.billboard_mode = Render::
+                        Ogre14ParticleBillboardMode::CAMERA_FACING_POINT;
+                    system.billboard_rotation_mode = Render::
+                        Ogre14ParticleBillboardRotationMode::
+                            TEXTURE_COORDINATES;
+                    system.particles_are_world_space = true;
+                    system.requires_frontend_emitter_evaluation = false;
+                    system.requires_frontend_affector_evaluation = false;
+                    system.requires_frontend_sorting = false;
+                    system.requires_texture_animation = false;
+                    system.system_visible = psys->getVisible();
+                    Ogre::SceneNode* const parent =
+                        psys->getParentSceneNode();
+                    system.parent_visible = parent != nullptr &&
+                        parent->isInSceneGraph();
+                    system.emitting = false;
+                    for (unsigned short emitter_index = 0U;
+                         emitter_index < psys->getNumEmitters();
+                         ++emitter_index)
+                    {
+                        Ogre::ParticleEmitter* const emitter =
+                            psys->getEmitter(emitter_index);
+                        system.emitting = system.emitting ||
+                            (emitter != nullptr && emitter->getEnabled());
+                    }
+
+                    std::map<std::uintptr_t,
+                             GfxScene::Ogre14DustParticleIdentity>
+                        active_particle_identities;
+                    const std::vector<Ogre::Particle*>& native_particles =
+                        psys->_getActiveParticles();
+                    system.particles.reserve(native_particles.size());
+                    bool animated_particle = false;
+                    for (Ogre::Particle* const native_particle :
+                         native_particles)
+                    {
+                        if (native_particle == nullptr ||
+                            native_particle->mParticleType !=
+                                Ogre::Particle::Visual ||
+                            native_particle->mTexcoordIndex != 0U ||
+                            native_particle->mRandomTexcoordOffset != 0U)
+                        {
+                            animated_particle = true;
+                            break;
+                        }
+                        const float lifetime = static_cast<float>(
+                            native_particle->mTotalTimeToLive);
+                        const float age = lifetime - static_cast<float>(
+                            native_particle->mTimeToLive);
+                        const float remaining = static_cast<float>(
+                            native_particle->mTimeToLive);
+                        const std::uintptr_t pointer_token =
+                            reinterpret_cast<std::uintptr_t>(native_particle);
+                        auto prior_particle = system_identity->second
+                                                  .active_particles.find(
+                                                      pointer_token);
+                        std::uint64_t particle_id = 0U;
+                        if (prior_particle != system_identity->second
+                                                  .active_particles.end() &&
+                            Render::CanRetainOgre14ParticlePoolIdentity(
+                                prior_particle->second.age_seconds,
+                                prior_particle->second.lifetime_seconds,
+                                prior_particle->second.remaining_seconds,
+                                system_identity->second
+                                    .last_native_update_count,
+                                age, lifetime, remaining,
+                                current_native_update_count,
+                                latest_native_effective_interval_seconds))
+                        {
+                            particle_id =
+                                prior_particle->second.particle_id;
+                        }
+                        else
+                        {
+                            if (system_identity->second.next_particle_id ==
+                                (std::numeric_limits<std::uint64_t>::max)())
+                            {
+                                return Render::ValidationResult::Failure(
+                                    Render::ValidationCode::
+                                        VALUE_OUT_OF_RANGE,
+                                    "continuous_particles.particle_id",
+                                    "Dust particle identity space is exhausted");
+                            }
+                            particle_id = system_identity->second
+                                              .next_particle_id++;
+                        }
+                        active_particle_identities.emplace(
+                            pointer_token,
+                            GfxScene::Ogre14DustParticleIdentity{
+                                particle_id, age, lifetime, remaining});
+
+                        const Ogre::Vector3 velocity =
+                            native_particle->mDirection;
+                        Ogre::Vector3 direction = velocity;
+                        if (direction.squaredLength() > 0.0F)
+                            direction.normalise();
+                        else
+                            direction = Ogre::Vector3::UNIT_Y;
+                        std::array<std::uint8_t, 4U> native_colour_bytes{};
+                        static_assert(sizeof(native_particle->mColour) ==
+                                      sizeof(native_colour_bytes));
+                        std::memcpy(native_colour_bytes.data(),
+                                    &native_particle->mColour,
+                                    sizeof(native_particle->mColour));
+                        Render::Ogre14ParticleState particle;
+                        particle.particle_id = particle_id;
+                        particle.position = {
+                            static_cast<float>(native_particle->mPosition.x),
+                            static_cast<float>(native_particle->mPosition.y),
+                            static_cast<float>(native_particle->mPosition.z)};
+                        particle.direction = {
+                            static_cast<float>(direction.x),
+                            static_cast<float>(direction.y),
+                            static_cast<float>(direction.z)};
+                        particle.velocity = {
+                            static_cast<float>(velocity.x),
+                            static_cast<float>(velocity.y),
+                            static_cast<float>(velocity.z)};
+                        particle.color_linear = Render::
+                            DecodeOgre14ParticleColourBytes(
+                                native_colour_bytes);
+                        particle.size_meters = {
+                            static_cast<float>(native_particle->mWidth),
+                            static_cast<float>(native_particle->mHeight)};
+                        particle.rotation_radians = static_cast<float>(
+                            native_particle->mRotation.valueRadians());
+                        particle.age_seconds = age;
+                        particle.lifetime_seconds = lifetime;
+                        system.particles.push_back(particle);
+                    }
+                    if (animated_particle)
+                    {
+                        ++pending->particle_capture_state.excluded_systems;
+                        pending->particle_capture_state.excluded_particles +=
+                            native_particle_count;
+                        ++pending->particle_capture_state
+                              .excluded_animated_systems;
+                        continue;
+                    }
+                    system_identity->second.active_particles =
+                        std::move(active_particle_identities);
+                    system_identity->second.last_native_update_count =
+                        current_native_update_count;
+                    std::sort(system.particles.begin(),
+                              system.particles.end(),
+                        [](const auto& lhs, const auto& rhs)
+                        {
+                            return lhs.particle_id < rhs.particle_id;
+                        });
+                    captured_dust_systems.push_back(std::move(system));
+                }
+            }
+
+            if (!captured_dust_systems.empty())
+            {
+                Ogre::MaterialPtr dust_material =
+                    Ogre::MaterialManager::getSingleton().getByName(
+                        "tracks/SmokeMat");
+                Render::Ogre14GraphicsSceneMaterialCaptureInput
+                    placeholder_input;
+                bool reverse_winding = false;
+                bool used_matte = false;
+                dynamic_validation = CaptureOgreNextDemoMaterialInput(
+                    dust_material, placeholder_input, reverse_winding,
+                    used_matte);
+                if (!dynamic_validation)
+                    return dynamic_validation;
+                bool projected = false;
+                dynamic_validation = m_ogre_next_demo_material_source
+                    .TryProject("particle/tracks/Dust", dust_material,
+                                used_matte, true, placeholder_input,
+                                projected);
+                if (!dynamic_validation)
+                    return dynamic_validation;
+                if (!projected)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::UNSUPPORTED_FEATURE,
+                        "continuous_particles.tracks_Dust.material",
+                        "tracks/Dust requires exact source-backed tracks/SmokeMat; matte and GPU readback are forbidden");
+                }
+                dynamic_validation = Render::
+                    DeriveOgre14GraphicsSceneMaterialAssetId(
+                        placeholder_input.exact_resource_group,
+                        placeholder_input.exact_name,
+                        dust_material_source_id);
+                if (!dynamic_validation)
+                    return dynamic_validation;
+                Render::MaterialDescriptor placeholder;
+                dynamic_validation = Render::
+                    BuildOgre14GraphicsSceneMaterialFallback(
+                        placeholder_input, placeholder);
+                if (!dynamic_validation)
+                    return dynamic_validation;
+                Render::GraphicsSceneAssetInput material_asset;
+                material_asset.source_asset_id = dust_material_source_id;
+                material_asset.payload =
+                    std::make_shared<const Render::RenderAssetPayload>(
+                        std::move(placeholder));
+                nonterrain_assets.push_back(std::move(material_asset));
+            }
             if (material_capture_open)
             {
                 dynamic_validation =
@@ -3353,6 +3940,235 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 pending->material_source_counters =
                     m_ogre_next_demo_material_source.CurrentCaptureCounters();
             }
+            if (!captured_dust_systems.empty())
+            {
+                const auto dust_material_asset = std::find_if(
+                    nonterrain_assets.begin(), nonterrain_assets.end(),
+                    [dust_material_source_id](const auto& asset)
+                    {
+                        return asset.source_asset_id ==
+                            dust_material_source_id;
+                    });
+                if (dust_material_asset == nonterrain_assets.end() ||
+                    dust_material_asset->payload == nullptr ||
+                    Render::RenderAssetPayloadKind(
+                        *dust_material_asset->payload) !=
+                        Render::RenderAssetKind::MATERIAL)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::MISSING_REFERENCE,
+                        "continuous_particles.tracks_Dust.material",
+                        "projected SmokeMat asset disappeared before joined publication");
+                }
+                const Render::GraphicsSceneAssetBinding& base_binding =
+                    dust_material_asset->material_bindings[
+                        static_cast<std::size_t>(
+                            Render::MaterialTextureSlot::BASE_COLOR)];
+                if (base_binding.texture_source_asset_id == 0U ||
+                    base_binding.sampler_source_asset_id == 0U)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::MISSING_REFERENCE,
+                        "continuous_particles.tracks_Dust.source_assets",
+                        "SmokeMat did not retain exact smoke.dds and clamp sampler source identities");
+                }
+                const auto dust_texture_asset = std::find_if(
+                    nonterrain_assets.begin(), nonterrain_assets.end(),
+                    [&base_binding](const auto& asset)
+                    {
+                        return asset.source_asset_id ==
+                            base_binding.texture_source_asset_id;
+                    });
+                const Render::TextureResourceDescriptor* dust_texture =
+                    dust_texture_asset != nonterrain_assets.end() &&
+                            dust_texture_asset->payload != nullptr
+                        ? std::get_if<Render::TextureResourceDescriptor>(
+                              dust_texture_asset->payload.get())
+                        : nullptr;
+                const auto dust_sampler_asset = std::find_if(
+                    nonterrain_assets.begin(), nonterrain_assets.end(),
+                    [&base_binding](const auto& asset)
+                    {
+                        return asset.source_asset_id ==
+                            base_binding.sampler_source_asset_id;
+                    });
+                const Render::SamplerResourceDescriptor* dust_sampler =
+                    dust_sampler_asset != nonterrain_assets.end() &&
+                            dust_sampler_asset->payload != nullptr
+                        ? std::get_if<Render::SamplerResourceDescriptor>(
+                              dust_sampler_asset->payload.get())
+                        : nullptr;
+                if (dust_texture == nullptr ||
+                    dust_sampler == nullptr ||
+                    !HasOgreNextDemoDustSourceAlpha(*dust_texture) ||
+                    !IsOgreNextDemoDustSampler(
+                        *dust_sampler, dust_texture->mip_levels.size()))
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::REVISION_MISMATCH,
+                        "continuous_particles.tracks_Dust.source_alpha",
+                        "source-backed smoke.dds lost exact sRGB alpha or clamp/anisotropy state during normalization");
+                }
+                for (Render::Ogre14ParticleSourceSystemCapture& system :
+                     captured_dust_systems)
+                {
+                    system.material_closure.material_source_asset_id =
+                        dust_material_source_id;
+                    system.material_closure.texture_source_asset_id =
+                        base_binding.texture_source_asset_id;
+                    system.material_closure.sampler_source_asset_id =
+                        base_binding.sampler_source_asset_id;
+                    system.material_closure.blend = Render::
+                        ContinuousParticleBlendMode::
+                            LEGACY_STRAIGHT_ALPHA;
+                    system.material_closure.alpha_reject = Render::
+                        ContinuousParticleAlphaReject::GREATER;
+                    system.material_closure.alpha_reject_threshold =
+                        2.0F / 255.0F;
+                    system.material_closure.sort_policy = Render::
+                        ContinuousParticleSortPolicy::STABLE_PARTICLE_ID;
+                    system.material_closure.depth_check = true;
+                    system.material_closure.depth_write = false;
+                    system.material_closure.lighting_enabled = false;
+                    system.material_closure.receives_shadows = false;
+                    system.material_closure.casts_shadows = false;
+                    system.material_closure.vertex_color_modulation = true;
+                    system.material_closure.source_backed_texture = true;
+                    system.material_closure.gpu_readback_used = false;
+                }
+                pending->particle_capture_state.source_backed_textures = 1U;
+                pending->particle_capture_state.source_alpha_textures = 1U;
+            }
+
+            std::sort(captured_dust_systems.begin(),
+                      captured_dust_systems.end(),
+                [](const auto& lhs, const auto& rhs)
+                {
+                    return lhs.system_id < rhs.system_id;
+                });
+            Render::Ogre14JoinedParticleSourceFrame particle_frame;
+            particle_frame.source_sequence =
+                pending->particle_capture_state.next_source_sequence;
+            particle_frame.simulation_tick =
+                candidate.frame.simulation_tick;
+            particle_frame.simulation_time_seconds =
+                candidate.frame.simulation_time_seconds;
+            particle_frame.absolute_world_origin_meters =
+                candidate.frame.absolute_world_origin_meters;
+            particle_frame.joined_buffer_epoch =
+                candidate.joined_buffer_epoch;
+            particle_frame.post_physics_epoch =
+                candidate.post_update_scene_epoch;
+            particle_frame.complete_inventory = true;
+            particle_frame.systems = captured_dust_systems;
+            std::map<std::uint64_t,
+                     Render::Ogre14ParticleSourceSystemCapture> current_systems;
+            for (const auto& system : captured_dust_systems)
+            {
+                const auto prior = pending->particle_capture_state
+                                       .live_systems.find(system.system_id);
+                if (prior == pending->particle_capture_state
+                                 .live_systems.end() ||
+                    !EqualOgre14ContinuousParticleSystem(
+                        prior->second, system))
+                {
+                    if (pending->particle_capture_state.next_event_id ==
+                        (std::numeric_limits<std::uint64_t>::max)())
+                    {
+                        return Render::ValidationResult::Failure(
+                            Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                            "continuous_particles.event_id",
+                            "Dust event identity space is exhausted");
+                    }
+                    Render::Ogre14ParticleLifecycleEvent event;
+                    event.event_id = pending->particle_capture_state
+                                         .next_event_id++;
+                    event.system_id = system.system_id;
+                    event.operation =
+                        prior == pending->particle_capture_state
+                                     .live_systems.end()
+                            ? Render::Ogre14ParticleLifecycleOperation::CREATE
+                        : prior->second.emitting && !system.emitting
+                            ? Render::Ogre14ParticleLifecycleOperation::STOP
+                            : Render::Ogre14ParticleLifecycleOperation::UPDATE;
+                    particle_frame.events.push_back(event);
+                }
+                current_systems.emplace(system.system_id, system);
+                ++pending->particle_capture_state.captured_systems;
+                pending->particle_capture_state.captured_particles +=
+                    system.particles.size();
+            }
+            for (const auto& prior :
+                 pending->particle_capture_state.live_systems)
+            {
+                if (current_systems.find(prior.first) !=
+                    current_systems.end())
+                    continue;
+                if (pending->particle_capture_state.next_event_id ==
+                    (std::numeric_limits<std::uint64_t>::max)())
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                        "continuous_particles.event_id",
+                        "Dust event identity space is exhausted");
+                }
+                particle_frame.events.push_back({
+                    pending->particle_capture_state.next_event_id++,
+                    prior.first,
+                    Render::Ogre14ParticleLifecycleOperation::DESTROY});
+            }
+            pending->particle_capture_state.live_systems =
+                std::move(current_systems);
+            pending->particle_capture_state.lifetime_max_captured_systems =
+                (std::max)(pending->particle_capture_state
+                               .lifetime_max_captured_systems,
+                           pending->particle_capture_state.captured_systems);
+            pending->particle_capture_state.lifetime_max_captured_particles =
+                (std::max)(pending->particle_capture_state
+                               .lifetime_max_captured_particles,
+                           pending->particle_capture_state.captured_particles);
+            if (pending->particle_capture_state.captured_systems +
+                        pending->particle_capture_state.excluded_systems !=
+                    pending->particle_capture_state.observed_systems ||
+                pending->particle_capture_state.captured_particles +
+                        pending->particle_capture_state.excluded_particles !=
+                    pending->particle_capture_state.observed_particles ||
+                pending->particle_capture_state.excluded_sparks_systems +
+                        pending->particle_capture_state
+                            .excluded_ripple_systems +
+                        pending->particle_capture_state
+                            .excluded_other_non_dust_systems !=
+                    pending->particle_capture_state
+                        .excluded_non_dust_systems ||
+                pending->particle_capture_state.excluded_non_dust_systems +
+                        pending->particle_capture_state
+                            .excluded_billboard_modes +
+                        pending->particle_capture_state
+                            .excluded_local_space_systems +
+                        pending->particle_capture_state
+                            .excluded_animated_systems +
+                        pending->particle_capture_state
+                            .excluded_sorted_systems +
+                        pending->particle_capture_state
+                            .excluded_timing_modes !=
+                    pending->particle_capture_state.excluded_systems)
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::SIZE_MISMATCH,
+                    "continuous_particles.coverage_denominators",
+                    "admitted and named-exclusion system/particle counts do not exactly recount the observed OGRE14 inventory");
+            }
+            if (pending->particle_capture_state.next_source_sequence ==
+                (std::numeric_limits<std::uint64_t>::max)())
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                    "continuous_particles.source_sequence",
+                    "Dust source sequence space is exhausted");
+            }
+            ++pending->particle_capture_state.next_source_sequence;
+            candidate.frame.continuous_particles =
+                std::move(particle_frame);
             dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
                 nonterrain_assets, empty_assets, terrain_capture.assets,
                 candidate.frame.assets);
@@ -3474,6 +4290,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->dynamic_registry);
     swap(m_ogre14_dynamic_mesh_cache,
          m_ogre14_pending_capture->dynamic_mesh_cache);
+    swap(m_ogre14_particle_capture_state,
+         m_ogre14_pending_capture->particle_capture_state);
     m_ogre_next_demo_terrain_source.Commit();
     m_ogre_next_demo_material_source.Commit();
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
@@ -3678,6 +4496,42 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             lifetime_counters.projections,
             lifetime_exclusions));
         m_ogre_next_demo_material_coverage_log_snapshot = coverage_snapshot;
+    }
+    const Ogre14ContinuousParticleCaptureState& particles =
+        m_ogre14_particle_capture_state;
+    const std::string particle_snapshot = fmt::format(
+        "observed_systems={} observed_particles={} admitted_systems={} "
+        "admitted_particles={} excluded_systems={} excluded_particles={} "
+        "excluded_non_dust_systems={} excluded_sparks_systems={} "
+        "excluded_ripple_systems={} excluded_other_non_dust_systems={} "
+        "excluded_billboard_modes={} "
+        "excluded_local_space_systems={} excluded_animated_systems={} "
+        "excluded_sorted_systems={} excluded_timing_modes={} "
+        "distinct_source_textures={} source_alpha_textures={} "
+        "gpu_readbacks={} lifetime_max_admitted_systems={} "
+        "lifetime_max_admitted_particles={}",
+        particles.observed_systems, particles.observed_particles,
+        particles.captured_systems, particles.captured_particles,
+        particles.excluded_systems, particles.excluded_particles,
+        particles.excluded_non_dust_systems,
+        particles.excluded_sparks_systems,
+        particles.excluded_ripple_systems,
+        particles.excluded_other_non_dust_systems,
+        particles.excluded_billboard_modes,
+        particles.excluded_local_space_systems,
+        particles.excluded_animated_systems,
+        particles.excluded_sorted_systems,
+        particles.excluded_timing_modes,
+        particles.source_backed_textures,
+        particles.source_alpha_textures, particles.gpu_readbacks,
+        particles.lifetime_max_captured_systems,
+        particles.lifetime_max_captured_particles);
+    if (particle_snapshot != m_ogre14_particle_coverage_log_snapshot)
+    {
+        LOG(fmt::format(
+            "[RoR|OgreNextDemo|ContinuousParticles|Capture] {}",
+            particle_snapshot));
+        m_ogre14_particle_coverage_log_snapshot = particle_snapshot;
     }
     m_ogre14_pending_capture.reset();
 }

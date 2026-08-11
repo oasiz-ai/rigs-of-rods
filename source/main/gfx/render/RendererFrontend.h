@@ -24,11 +24,11 @@
 
 namespace RoR::Render {
 
-/// Version 3 adds native image methods/capabilities and extends explicit frame
-/// synchronization. The NativeRenderInterop vtable and all structures carrying
-/// this value are an exact whole-program ABI; version 2 consumers must fail
-/// closed rather than calling a version 3 object.
-constexpr std::uint32_t kRendererFrontendContractVersion = 4U;
+/// Version 5 adds renderer-neutral continuous-particle state and an explicit
+/// state-only retirement operation. The NativeRenderInterop vtable and all
+/// structures carrying this value are an exact whole-program ABI; older
+/// consumers must fail closed rather than calling a version 5 object.
+constexpr std::uint32_t kRendererFrontendContractVersion = 5U;
 /// Native image exchange evolves independently from the geometry payload.
 /// Version 2 binds every borrowed image to the exact immutable SceneSnapshot
 /// owner and complete CameraViewRequest that produced it. A caller must reject
@@ -242,6 +242,7 @@ struct FrontendCapabilityReport {
   bool supports_async_compute = false;
   bool supports_dynamic_mesh_updates = false;
   bool supports_particle_events = false;
+  bool supports_continuous_particles = false;
   bool supports_native_interop = false;
   bool supports_native_ray_tracing_api = false;
   bool native_ray_tracing_hardware_accelerated = false;
@@ -718,6 +719,15 @@ public:
   /// ValidateRenderFrameOutput(request, output) overload.
   virtual RenderOperationResult Render(const RenderFrameRequest &request,
                                        RenderFrameOutput &output) = 0;
+  /// Consumes only immutable frame/snapshot and continuous-particle lifecycle
+  /// state for a scene the host deliberately retired before raster submission.
+  /// Success consumes the frame and snapshot identities, is synchronously
+  /// complete, creates no native geometry or output, and preserves the exact
+  /// particle delta for the next rendered frame. Frontends advertising
+  /// supports_continuous_particles must override this operation; the default
+  /// fails closed.
+  virtual RenderOperationResult
+  RetireFrameState(const RenderFrameRequest &request);
   [[nodiscard]] virtual bool
   IsFrameComplete(std::uint64_t frame_id) const noexcept = 0;
   /// A zero timeout polls; kInfiniteRenderTimeoutNanoseconds waits without a

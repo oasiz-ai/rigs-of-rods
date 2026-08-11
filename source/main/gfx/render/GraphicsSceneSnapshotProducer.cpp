@@ -2052,15 +2052,165 @@ public:
       return result;
     }
 
+    // Allocate the only remaining fallible finalization owner before the
+    // particle source commits its replay-protected durable lifecycle. After
+    // Capture() succeeds, publication below consists only of nonthrowing
+    // clears, scalar assignments, and moves.
+    if (finalize_scene_generation && staged_asset_catalog == nullptr) {
+      staged_asset_catalog =
+          std::make_shared<AssetCatalog>(*candidate_asset_catalog);
+      candidate_asset_catalog = staged_asset_catalog;
+    }
+
+    std::shared_ptr<Ogre14ParticleCapturedFrame> captured_particles;
+    if (frame.continuous_particles.has_value()) {
+      const Ogre14JoinedParticleSourceFrame &source_particles =
+          *frame.continuous_particles;
+      if (source_particles.simulation_tick != frame.simulation_tick ||
+          source_particles.simulation_time_seconds !=
+              frame.simulation_time_seconds ||
+          source_particles.absolute_world_origin_meters !=
+              frame.absolute_world_origin_meters) {
+        result.validation = Failure(
+            ValidationCode::SEQUENCE_MISMATCH,
+            "continuous_particles.simulation_state",
+            "continuous particles must come from the exact joined scene boundary");
+        return result;
+      }
+      Ogre14JoinedParticleFrame joined;
+      joined.source_sequence = source_particles.source_sequence;
+      joined.material_catalog_registry_id =
+          candidate_catalog.registry.registry_id();
+      joined.material_catalog_sequence = candidate_catalog.registry.sequence();
+      joined.simulation_tick = source_particles.simulation_tick;
+      joined.simulation_time_seconds =
+          source_particles.simulation_time_seconds;
+      joined.absolute_world_origin_meters =
+          source_particles.absolute_world_origin_meters;
+      joined.joined_buffer_epoch = source_particles.joined_buffer_epoch;
+      joined.post_physics_epoch = source_particles.post_physics_epoch;
+      joined.complete_inventory = source_particles.complete_inventory;
+      joined.events = source_particles.events;
+      joined.systems.reserve(source_particles.systems.size());
+      for (std::size_t index = 0U;
+           index < source_particles.systems.size(); ++index) {
+        const Ogre14ParticleSourceSystemCapture &source_system =
+            source_particles.systems[index];
+        const Ogre14ParticleMaterialSourceClosure &source_closure =
+            source_system.material_closure;
+        const auto material = candidate_catalog.assets.find(
+            source_closure.material_source_asset_id);
+        const auto texture = candidate_catalog.assets.find(
+            source_closure.texture_source_asset_id);
+        const auto sampler = candidate_catalog.assets.find(
+            source_closure.sampler_source_asset_id);
+        if (material == candidate_catalog.assets.end() ||
+            texture == candidate_catalog.assets.end() ||
+            sampler == candidate_catalog.assets.end() ||
+            !material->second.live || !texture->second.live ||
+            !sampler->second.live ||
+            material->second.asset.kind != RenderAssetKind::MATERIAL ||
+            texture->second.asset.kind != RenderAssetKind::TEXTURE ||
+            sampler->second.asset.kind != RenderAssetKind::SAMPLER) {
+          result.validation = Failure(
+              ValidationCode::MISSING_REFERENCE,
+              "continuous_particles.material_closure",
+              "particle material, source texture, or sampler is absent from the candidate catalog",
+              index);
+          return result;
+        }
+        const GraphicsSceneAssetBinding &base_binding =
+            material->second.material_bindings[static_cast<std::size_t>(
+                MaterialTextureSlot::BASE_COLOR)];
+        if (base_binding.texture_source_asset_id !=
+                source_closure.texture_source_asset_id ||
+            base_binding.sampler_source_asset_id !=
+                source_closure.sampler_source_asset_id) {
+          result.validation = Failure(
+              ValidationCode::REVISION_MISMATCH,
+              "continuous_particles.material_closure",
+              "particle source texture and sampler differ from the exact material binding",
+              index);
+          return result;
+        }
+        Ogre14ParticleSystemCapture system;
+        system.system_id = source_system.system_id;
+        system.effect = source_system.effect;
+        system.billboard_mode = source_system.billboard_mode;
+        system.billboard_rotation_mode =
+            source_system.billboard_rotation_mode;
+        system.particles_are_world_space =
+            source_system.particles_are_world_space;
+        system.requires_frontend_emitter_evaluation =
+            source_system.requires_frontend_emitter_evaluation;
+        system.requires_frontend_affector_evaluation =
+            source_system.requires_frontend_affector_evaluation;
+        system.requires_frontend_sorting =
+            source_system.requires_frontend_sorting;
+        system.requires_texture_animation =
+            source_system.requires_texture_animation;
+        system.system_visible = source_system.system_visible;
+        system.parent_visible = source_system.parent_visible;
+        system.emitting = source_system.emitting;
+        system.particles = source_system.particles;
+        system.material_closure.material_catalog_registry_id =
+            joined.material_catalog_registry_id;
+        system.material_closure.material_catalog_sequence =
+            joined.material_catalog_sequence;
+        system.material_closure.material = material->second.asset;
+        system.material_closure.source_texture = texture->second.asset;
+        system.material_closure.sampler = sampler->second.asset;
+        system.material_closure.translation_source_sequence =
+            source_particles.source_sequence;
+        system.material_closure.blend = source_closure.blend;
+        system.material_closure.alpha_reject = source_closure.alpha_reject;
+        system.material_closure.alpha_reject_threshold =
+            source_closure.alpha_reject_threshold;
+        system.material_closure.sort_policy = source_closure.sort_policy;
+        system.material_closure.depth_check = source_closure.depth_check;
+        system.material_closure.depth_write = source_closure.depth_write;
+        system.material_closure.lighting_enabled =
+            source_closure.lighting_enabled;
+        system.material_closure.receives_shadows =
+            source_closure.receives_shadows;
+        system.material_closure.casts_shadows =
+            source_closure.casts_shadows;
+        system.material_closure.vertex_color_modulation =
+            source_closure.vertex_color_modulation;
+        system.material_closure.source_backed_texture =
+            source_closure.source_backed_texture;
+        system.material_closure.gpu_readback_used =
+            source_closure.gpu_readback_used;
+        joined.systems.push_back(std::move(system));
+      }
+      captured_particles = std::make_shared<Ogre14ParticleCapturedFrame>();
+      validation = particle_capture_source.Capture(
+          joined, candidate_catalog.registry, *captured_particles);
+      if (!validation) {
+        result.validation = std::move(validation);
+        return result;
+      }
+    } else if (finalize_scene_generation &&
+               particle_capture_source.last_source_sequence() != 0U) {
+      // The asset delta is synchronized before this final scene. Publish
+      // explicit particle tombstones against that new empty catalog sequence
+      // so N1 never retains a live SmokeMat reference after its assets retire.
+      captured_particles = std::make_shared<Ogre14ParticleCapturedFrame>();
+      validation = particle_capture_source.FinalizeSceneGeneration(
+          candidate_catalog.registry, frame.simulation_tick,
+          frame.simulation_time_seconds, frame.absolute_world_origin_meters,
+          *captured_particles);
+      if (!validation) {
+        result.validation = std::move(validation);
+        return result;
+      }
+    }
+
     if (finalize_scene_generation) {
       // Even an already-empty source generation may still alias the producer's
-      // original const catalog owner. Allocate a fresh candidate before any
-      // state commits; never cast away constness after publication.
-      if (staged_asset_catalog == nullptr) {
-        staged_asset_catalog =
-            std::make_shared<AssetCatalog>(*candidate_asset_catalog);
-        candidate_asset_catalog = staged_asset_catalog;
-      }
+      // original const catalog owner. The fresh candidate was allocated above
+      // before the particle lifecycle could commit; never cast away constness
+      // after publication.
       staged_asset_catalog->assets.clear();
       candidate_objects.clear();
       candidate_lights.clear();
@@ -2108,6 +2258,7 @@ public:
 
     result.production.asset_delta = std::move(asset_delta);
     result.production.scene_snapshot = created.snapshot;
+    result.production.continuous_particles = std::move(captured_particles);
     result.production.camera = camera;
     result.validation = ValidationResult::Success();
     std::atomic_store_explicit(&published_snapshot, created.snapshot,
@@ -2154,6 +2305,7 @@ public:
   bool dynamic_update_sequence_exhausted = false;
   bool asset_compatibility_cache_initialized = false;
   std::shared_ptr<const SceneSnapshot> published_snapshot;
+  Ogre14ParticleCaptureSource particle_capture_source;
 };
 
 GraphicsSceneSnapshotProducer::GraphicsSceneSnapshotProducer(

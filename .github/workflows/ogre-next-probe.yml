@@ -610,7 +610,17 @@ jobs:
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
           --build-config Release
           --output-on-failure
+          --no-tests=error
           -R '^ror_ogre14_particle_capture_source$'
+
+      - name: Prove continuous particle frontend lifecycle on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          --no-tests=error
+          -R '^ror_ogre_next_n1_particle_runtime$'
 
       - name: Prove procedural-road capture and lifecycle on the host ABI
         run: >-

@@ -10,6 +10,7 @@
 
 #include "OgreNextDisplayDomainUnlit.h"
 #include "OgreNextN1MediaIntegrity.h"
+#include "OgreNextN1ParticleRuntime.h"
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
 #include "OgreNextReflectionProbeRuntime.h"
@@ -44,6 +45,7 @@
 #include "OgreLight.h"
 #include "OgreMaterial.h"
 #include "OgreMaterialManager.h"
+#include "OgreManualObject2.h"
 #include "OgreMatrix4.h"
 #include "OgreMesh2.h"
 #include "OgreMeshManager2.h"
@@ -3798,6 +3800,11 @@ public:
       owns_root_claim = false;
     }
     submission_state.Reset();
+    particle_runtime.Reset();
+    particle_native_batch_creates = 0U;
+    particle_native_batch_destroys = 0U;
+    particle_native_particles_submitted = 0U;
+    particle_native_state_verifications = 0U;
     scene_generation = 1U;
     maximum_texture_dimension =
         kOgreNextN1ConservativeMaximumTextureDimension;
@@ -3830,6 +3837,11 @@ public:
   Ogre::TextureGpu *retained_output_target = nullptr;
   std::shared_ptr<OgreNextN1NativeInteropBridge> native_interop;
   std::unique_ptr<OgreNextReflectionProbeRuntime> reflection_probe_runtime;
+  OgreNextN1ParticleRuntime particle_runtime;
+  std::uint64_t particle_native_batch_creates = 0U;
+  std::uint64_t particle_native_batch_destroys = 0U;
+  std::uint64_t particle_native_particles_submitted = 0U;
+  std::uint64_t particle_native_state_verifications = 0U;
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
       OgreNextNativeFeatureTier::RASTER_N1;
@@ -3943,6 +3955,19 @@ OgreNextN1Frontend::QueryReflectionProbeAudit() const noexcept {
   return impl_->reflection_probe_runtime
              ? impl_->reflection_probe_runtime->QueryAudit()
              : OgreNextReflectionProbeAudit{};
+}
+
+OgreNextN1ParticleRuntimeAudit
+OgreNextN1Frontend::QueryParticleRuntimeAudit() const noexcept {
+  OgreNextN1ParticleRuntimeAudit audit = impl_->particle_runtime.audit();
+  audit.native_batch_creates = impl_->particle_native_batch_creates;
+  audit.native_batch_destroys = impl_->particle_native_batch_destroys;
+  audit.native_particles_submitted =
+      impl_->particle_native_particles_submitted;
+  audit.native_state_readbacks = 0U;
+  audit.native_state_verifications =
+      impl_->particle_native_state_verifications;
+  return audit;
 }
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -4890,6 +4915,7 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
       return probes;
     }
   }
+  impl_->particle_runtime.Reset();
   if (impl_->hdr_enabled) {
     const ValidationResult temporal =
         impl_->hdr_temporal_state.ResetSceneGeneration();
@@ -5114,7 +5140,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
   std::string target_text;
   bool hdr_native_frame_executed = false;
   bool hdr_commit_prepared = false;
+  bool particle_frame_prepared = false;
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
+  std::vector<std::pair<Ogre::ManualObject *, Ogre::SceneNode *>>
+      particle_batches;
+  Ogre::HlmsUnlitDatablock *particle_datablock = nullptr;
+  std::string particle_datablock_name;
+  std::uint64_t particle_native_batch_creates = 0U;
+  std::uint64_t particle_native_batch_destroys = 0U;
+  std::uint64_t particle_native_particles_submitted = 0U;
+  std::uint64_t particle_native_state_verifications = 0U;
   std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
   std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
   struct ReceiverDatablock final {
@@ -5284,6 +5319,46 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       target_text.clear();
     }
+    for (auto iterator = particle_batches.rbegin();
+         iterator != particle_batches.rend(); ++iterator) {
+      if (iterator->second != nullptr && iterator->first != nullptr) {
+        try {
+          iterator->second->detachObject(iterator->first);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (iterator->first != nullptr) {
+        try {
+          impl_->scene_manager->destroyManualObject(iterator->first);
+          ++particle_native_batch_destroys;
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (iterator->second != nullptr) {
+        try {
+          impl_->scene_manager->destroySceneNode(iterator->second);
+        } catch (...) {
+          clean = false;
+        }
+      }
+    }
+    particle_batches.clear();
+    if (particle_datablock != nullptr) {
+      try {
+        impl_->unlit->destroyDatablock(
+            Ogre::IdString(particle_datablock_name));
+        if (impl_->unlit->getDatablock(
+                Ogre::IdString(particle_datablock_name)) != nullptr) {
+          clean = false;
+        }
+      } catch (...) {
+        clean = false;
+      }
+      particle_datablock = nullptr;
+      particle_datablock_name.clear();
+    }
     for (auto iterator = items.rbegin(); iterator != items.rend(); ++iterator) {
       if (iterator->second != nullptr) {
         try {
@@ -5388,6 +5463,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
     reflection_frame_prepared = false;
     return clean;
   };
+  const auto abort_particle_frame = [&]() noexcept {
+    if (particle_frame_prepared) {
+      impl_->particle_runtime.Abort(request.frame_id);
+      particle_frame_prepared = false;
+    }
+    return true;
+  };
   const auto abort_submission_commit = [&]() noexcept {
     if (submission_commit_prepared) {
       impl_->submission_state.AbortPrepared();
@@ -5419,7 +5501,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     return released;
   };
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
-    bool clean = abort_reflection_frame();
+    bool clean = abort_particle_frame();
+    clean = abort_reflection_frame() && clean;
     clean = abort_submission_commit() && clean;
     clean = abort_interop_commit() && clean;
     clean = abort_hdr_commit() && clean;
@@ -5441,6 +5524,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const auto cpu_start = std::chrono::steady_clock::now();
     const SceneSnapshot &snapshot = *request.scene_snapshot;
     const CameraViewRequest &view = request.views.front();
+    ValidationResult particle_validation = impl_->particle_runtime.Prepare(
+        request.frame_id, request.continuous_particles, *impl_->registry,
+        snapshot.simulation_tick(), snapshot.absolute_world_origin_meters());
+    if (!particle_validation) {
+      return fail_after_cleanup(
+          OgreNextN1OperationFromValidation(particle_validation));
+    }
+    particle_frame_prepared = true;
     const std::uint32_t native_authored_visibility_mask =
         impl_->raster_feature_tier ==
                 OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1
@@ -5861,6 +5952,269 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->camera->setCustomProjectionMatrix(true, native_projection, false);
     }
 
+    const auto &continuous_systems =
+        impl_->particle_runtime.prepared_systems();
+    std::size_t visible_particle_count = 0U;
+    RenderAssetReference particle_material_asset;
+    RenderAssetReference particle_texture_asset;
+    RenderAssetReference particle_sampler_asset;
+    const Impl::NativeTexture *particle_texture = nullptr;
+    const SamplerResourceDescriptor *particle_sampler = nullptr;
+    for (const auto &system : continuous_systems) {
+      if (system == nullptr || !system->effective_visible) {
+        continue;
+      }
+      if (system->billboard_mode !=
+              Ogre14ParticleBillboardMode::CAMERA_FACING_POINT ||
+          system->billboard_rotation_mode !=
+              Ogre14ParticleBillboardRotationMode::TEXTURE_COORDINATES) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 native Dust batch requires common-facing point quads with "
+            "pinned BBR_TEXCOORD rotation"));
+      }
+      const MaterialDescriptor *const material = impl_->registry->ResolveMaterial(
+          system->material_closure.material);
+      const auto native_texture = impl_->textures.find(
+          system->material_closure.source_texture.id);
+      const SamplerResourceDescriptor *const sampler =
+          impl_->registry->ResolveSampler(system->material_closure.sampler);
+      if (material == nullptr || native_texture == impl_->textures.end() ||
+          native_texture->second.asset !=
+              system->material_closure.source_texture ||
+          native_texture->second.sampled == nullptr ||
+          !native_texture->second.usage.sampled_rgba ||
+          native_texture->second.usage.display_domain_rgba ||
+          native_texture->second.usage.roughness_g ||
+          native_texture->second.usage.metallic_b ||
+          native_texture->second.usage.normal_rg || sampler == nullptr ||
+          material->base_color_texture.texture !=
+              system->material_closure.source_texture ||
+          material->base_color_texture.sampler !=
+              system->material_closure.sampler) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "N1 particle source texture, sampler, or material closure is missing from the exact live catalog"));
+      }
+      if (particle_texture != nullptr &&
+          (particle_material_asset != system->material_closure.material ||
+           particle_texture_asset != system->material_closure.source_texture ||
+           particle_sampler_asset != system->material_closure.sampler)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 particle v1 admits one exact tracks/SmokeMat batch"));
+      }
+      particle_material_asset = system->material_closure.material;
+      particle_texture_asset = system->material_closure.source_texture;
+      particle_sampler_asset = system->material_closure.sampler;
+      particle_texture = &native_texture->second;
+      particle_sampler = sampler;
+      if (visible_particle_count >
+          (std::numeric_limits<std::size_t>::max)() -
+              system->particles.size()) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::OUT_OF_MEMORY,
+            "N1 particle vertex count overflowed"));
+      }
+      visible_particle_count += system->particles.size();
+    }
+    if (particle_texture != nullptr && visible_particle_count != 0U) {
+      if (impl_->particle_native_batch_creates ==
+              (std::numeric_limits<std::uint64_t>::max)() ||
+          impl_->particle_native_batch_destroys ==
+              (std::numeric_limits<std::uint64_t>::max)() ||
+          impl_->particle_native_state_verifications ==
+              (std::numeric_limits<std::uint64_t>::max)() ||
+          visible_particle_count >
+              (std::numeric_limits<std::uint64_t>::max)() -
+                  impl_->particle_native_particles_submitted) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 continuous-particle lifetime telemetry exhausted"));
+      }
+      Ogre::HlmsMacroblock particle_macroblock;
+      particle_macroblock.mDepthCheck = true;
+      particle_macroblock.mDepthWrite = false;
+      particle_macroblock.mDepthFunc = Ogre::CMPF_LESS_EQUAL;
+      particle_macroblock.mCullMode = Ogre::CULL_CLOCKWISE;
+      Ogre::HlmsBlendblock particle_blendblock;
+      // Exact legacy `scene_blend alpha_blend`: RGB and alpha both use
+      // SRC_ALPHA, ONE_MINUS_SRC_ALPHA. This is not Porter-Duff source-over.
+      particle_blendblock.setBlendType(Ogre::SBT_TRANSPARENT_ALPHA);
+      const Ogre::HlmsSamplerblock native_particle_sampler =
+          ToOgreSampler(*particle_sampler);
+      particle_datablock_name =
+          "RoRContinuousDust_f" + std::to_string(request.frame_id);
+      particle_datablock = static_cast<Ogre::HlmsUnlitDatablock *>(
+          impl_->unlit->createDatablock(
+              particle_datablock_name, particle_datablock_name,
+              particle_macroblock, particle_blendblock,
+              Ogre::HlmsParamVec()));
+      particle_datablock->setUseColour(true);
+      particle_datablock->setColour(Ogre::ColourValue::White);
+      particle_datablock->setTexture(
+          0U, particle_texture->sampled, &native_particle_sampler);
+      particle_datablock->setTextureUvSource(0U, 0U);
+      // Pinned HLMS discards when threshold OP sampled alpha. Portable
+      // GREATER therefore lowers to the inverse GREATER_EQUAL discard test.
+      particle_datablock->setAlphaTest(Ogre::CMPF_GREATER_EQUAL, false, true);
+      particle_datablock->setAlphaTestThreshold(2.0F / 255.0F);
+
+      const Ogre::HlmsMacroblock *const macroblock =
+          particle_datablock->getMacroblock();
+      const Ogre::HlmsBlendblock *const blendblock =
+          particle_datablock->getBlendblock();
+      const Ogre::HlmsSamplerblock *const sampler_readback =
+          particle_datablock->getSamplerblock(0U);
+      bool exact_unlit_layers = true;
+      for (Ogre::uint8 slot = 0U; slot < Ogre::NUM_UNLIT_TEXTURE_TYPES;
+           ++slot) {
+        exact_unlit_layers =
+            exact_unlit_layers &&
+            (slot == 0U || particle_datablock->getTexture(slot) == nullptr) &&
+            particle_datablock->getTextureUvSource(slot) == 0U &&
+            particle_datablock->getBlendMode(slot) ==
+                Ogre::UNLIT_BLEND_NORMAL_NON_PREMUL &&
+            !particle_datablock->getEnableAnimationMatrix(slot) &&
+            !particle_datablock->getEnablePlanarReflection(slot);
+      }
+      const Ogre::String *const particle_datablock_name_readback =
+          particle_datablock->getNameStr();
+      if (particle_datablock->getCreator() != impl_->unlit ||
+          particle_datablock_name_readback == nullptr ||
+          *particle_datablock_name_readback != particle_datablock_name ||
+          !particle_datablock->hasColour() ||
+          particle_datablock->getColour() != Ogre::ColourValue::White ||
+          particle_datablock->getTexture(0U) != particle_texture->sampled ||
+          particle_datablock->getTextureUvSource(0U) != 0U ||
+          sampler_readback == nullptr ||
+          *sampler_readback != native_particle_sampler ||
+          macroblock == nullptr || blendblock == nullptr ||
+          !macroblock->mDepthCheck || macroblock->mDepthWrite ||
+          macroblock->mDepthFunc != Ogre::CMPF_LESS_EQUAL ||
+          macroblock->mCullMode != Ogre::CULL_CLOCKWISE ||
+          blendblock->mSourceBlendFactor != Ogre::SBF_SOURCE_ALPHA ||
+          blendblock->mDestBlendFactor !=
+              Ogre::SBF_ONE_MINUS_SOURCE_ALPHA ||
+          blendblock->mSourceBlendFactorAlpha != Ogre::SBF_SOURCE_ALPHA ||
+          blendblock->mDestBlendFactorAlpha !=
+              Ogre::SBF_ONE_MINUS_SOURCE_ALPHA ||
+          blendblock->mBlendOperation != Ogre::SBO_ADD ||
+          blendblock->mBlendOperationAlpha != Ogre::SBO_ADD ||
+          particle_datablock->getAlphaTest() != Ogre::CMPF_GREATER_EQUAL ||
+          particle_datablock->getAlphaTestShadowCasterOnly() ||
+          !exact_unlit_layers ||
+          !NearlyEqual(particle_datablock->getAlphaTestThreshold(),
+                       2.0F / 255.0F)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "N1 native Dust Unlit readback differs from legacy straight-alpha, portable GREATER 2/255, depth-write-off, vertex-colour source policy"));
+      }
+      ++particle_native_state_verifications;
+
+      const Ogre::Matrix4 render_from_view = native_view.inverseAffine();
+      const Ogre::Vector3 camera_right(render_from_view[0U][0U],
+                                       render_from_view[1U][0U],
+                                       render_from_view[2U][0U]);
+      const Ogre::Vector3 camera_up(render_from_view[0U][1U],
+                                    render_from_view[1U][1U],
+                                    render_from_view[2U][1U]);
+      if (!NearlyEqual(camera_right.squaredLength(), 1.0F) ||
+          !NearlyEqual(camera_up.squaredLength(), 1.0F) ||
+          !NearlyEqual(camera_right.dotProduct(camera_up), 0.0F)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 particle camera basis is not rigid and orthonormal"));
+      }
+
+      // Establish the rollback record before allocating any native object.
+      // If vector growth fails there is nothing native to release; every later
+      // throw is covered by fail_after_cleanup's reverse ownership walk.
+      particle_batches.emplace_back(nullptr, nullptr);
+      Ogre::ManualObject *batch =
+          impl_->scene_manager->createManualObject(Ogre::SCENE_DYNAMIC);
+      if (batch == nullptr) {
+        throw std::logic_error("N1 native particle batch creation returned null");
+      }
+      particle_batches.back().first = batch;
+      ++particle_native_batch_creates;
+      Ogre::SceneNode *node =
+          impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
+      particle_batches.back().second = node;
+      batch->estimateVertexCount(visible_particle_count * 4U);
+      batch->estimateIndexCount(visible_particle_count * 6U);
+      batch->begin(particle_datablock_name, Ogre::OT_TRIANGLE_LIST);
+      std::uint32_t vertex_base = 0U;
+      for (const auto &system : continuous_systems) {
+        if (system == nullptr || !system->effective_visible) {
+          continue;
+        }
+        for (const Ogre14ParticleState &particle : system->particles) {
+          const Ogre::Vector3 right =
+              camera_right * (0.5F * particle.size_meters.x);
+          const Ogre::Vector3 up =
+              camera_up * (0.5F * particle.size_meters.y);
+          const Ogre::Vector3 center(particle.position.x,
+                                     particle.position.y,
+                                     particle.position.z);
+          const Ogre::ColourValue colour(
+              particle.color_linear.x, particle.color_linear.y,
+              particle.color_linear.z, particle.color_linear.w);
+          const Ogre::Vector3 vertices[4U] = {
+              center - right + up, center - right - up,
+              center + right - up, center + right + up};
+          const std::array<Float2, 4U> portable_uvs =
+              BuildOgre14ParticleTextureCoordinateQuad(
+                  particle.rotation_radians);
+          for (std::size_t corner = 0U; corner < 4U; ++corner) {
+            batch->position(vertices[corner]);
+            batch->textureCoord(portable_uvs[corner].x,
+                                portable_uvs[corner].y);
+            batch->colour(colour);
+          }
+          batch->quad(vertex_base, vertex_base + 1U, vertex_base + 2U,
+                      vertex_base + 3U);
+          vertex_base += 4U;
+        }
+      }
+      Ogre::ManualObject::ManualObjectSection *const section = batch->end();
+      bool exact_vertex_colour_layout = false;
+      if (section != nullptr) {
+        const Ogre::VertexArrayObjectArray &vaos =
+            section->getVaos(Ogre::VpNormal);
+        if (vaos.size() == 1U && vaos.front() != nullptr &&
+            vaos.front()->getVertexBuffers().size() == 1U &&
+            vaos.front()->getVertexBuffers().front() != nullptr) {
+          const Ogre::VertexElement2Vec &elements =
+              vaos.front()->getVertexBuffers().front()->getVertexElements();
+          exact_vertex_colour_layout =
+              elements.size() == 3U &&
+              elements[0U].mSemantic == Ogre::VES_POSITION &&
+              elements[1U].mSemantic == Ogre::VES_TEXTURE_COORDINATES &&
+              elements[2U].mSemantic == Ogre::VES_DIFFUSE;
+        }
+      }
+      if (section == nullptr || batch->getNumSections() != 1U ||
+          section->getDatablock() != particle_datablock ||
+          !exact_vertex_colour_layout ||
+          vertex_base != visible_particle_count * 4U) {
+        throw std::logic_error(
+            "N1 native particle batch ownership/readback was incomplete");
+      }
+      batch->setVisibilityFlags(authored_view_visibility);
+      batch->setCastShadows(false);
+      node->attachObject(batch);
+      if (!batch->isAttached() || batch->getParentSceneNode() != node) {
+        throw std::logic_error(
+            "N1 native particle batch did not retain its exact scene owner");
+      }
+      if (batch->getCastShadows()) {
+        throw std::logic_error(
+            "N1 native particle batch unexpectedly casts shadows");
+      }
+      particle_native_particles_submitted += visible_particle_count;
+    }
+
     if (impl_->reflection_probe_runtime) {
       const RenderOperationResult reflection_capture =
           impl_->reflection_probe_runtime->PrepareFrame(
@@ -6261,6 +6615,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
           RenderOperationCode::BACKEND_FAILURE,
           "N1 prepared submission identity changed before publication"));
     }
+    if (!impl_->particle_runtime.CanCommit(request.frame_id)) {
+      impl_->faulted = true;
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "N1 prepared particle state changed before publication"));
+    }
     if (impl_->native_interop &&
         !impl_->native_interop->CanCommitPreparedFrame(
             request.frame_id, snapshot.snapshot_id())) {
@@ -6306,6 +6666,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     impl_->submission_state.CommitPrepared(request);
     submission_commit_prepared = false;
+    if (!impl_->particle_runtime.Commit(request.frame_id)) {
+      impl_->faulted = true;
+      return FrameCleanupFailure();
+    }
+    particle_frame_prepared = false;
+    impl_->particle_native_batch_creates += particle_native_batch_creates;
+    impl_->particle_native_batch_destroys += particle_native_batch_destroys;
+    impl_->particle_native_particles_submitted +=
+        particle_native_particles_submitted;
+    impl_->particle_native_state_verifications +=
+        particle_native_state_verifications;
     if (request.present) {
       if (impl_->presentation_audit.presented_frames == 0U) {
         impl_->presentation_audit.first_presented_frame_id = request.frame_id;
@@ -6354,6 +6725,114 @@ RenderOperationResult OgreNextN1Frontend::Render(
   } catch (const std::exception &error) {
     return fail_after_cleanup(RenderOperationResult::Failure(
         RenderOperationCode::BACKEND_FAILURE, error.what()));
+  }
+}
+
+RenderOperationResult
+OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
+  if (!impl_->initialized) {
+    return NotInitialized();
+  }
+  if (!impl_->OnOwnerThread()) {
+    return WrongThread();
+  }
+  if (impl_->faulted) {
+    return FaultedFrontend();
+  }
+  if (!impl_->registry) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::RESOURCE_STALE,
+        "Ogre-Next N1 requires an asset snapshot before retiring frame state");
+  }
+  if (request.continuous_particles == nullptr) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::INVALID_ARGUMENT,
+        "state-only retirement requires a continuous-particle frame");
+  }
+  ValidationResult validation =
+      ValidateRenderFrameRequestAgainstCapabilities(request,
+                                                    impl_->Capabilities());
+  if (!validation) {
+    return OgreNextN1OperationFromValidation(validation);
+  }
+  if (request.scene_snapshot->asset_registry_id() !=
+          impl_->registry->registry_id() ||
+      request.scene_snapshot->asset_sequence() != impl_->registry->sequence()) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::RESOURCE_STALE,
+        "retired frame requires a different synchronized asset catalog");
+  }
+  validation =
+      ValidateSceneSnapshotAssets(*request.scene_snapshot, *impl_->registry);
+  if (!validation) {
+    return OgreNextN1OperationFromValidation(validation);
+  }
+
+  bool particle_prepared = false;
+  bool submission_prepared = false;
+  const auto abort = [&]() noexcept {
+    if (submission_prepared) {
+      impl_->submission_state.AbortPrepared();
+      submission_prepared = false;
+    }
+    if (particle_prepared) {
+      impl_->particle_runtime.Abort(request.frame_id);
+      particle_prepared = false;
+    }
+  };
+  try {
+    validation = impl_->particle_runtime.Prepare(
+        request.frame_id, request.continuous_particles, *impl_->registry,
+        request.scene_snapshot->simulation_tick(),
+        request.scene_snapshot->absolute_world_origin_meters());
+    if (!validation) {
+      return OgreNextN1OperationFromValidation(validation);
+    }
+    particle_prepared = true;
+    const RenderOperationResult submission =
+        impl_->submission_state.PrepareCommit(request);
+    if (!submission) {
+      abort();
+      return submission;
+    }
+    submission_prepared = true;
+    if (!impl_->particle_runtime.CanCommit(request.frame_id) ||
+        !impl_->submission_state.CanCommitPrepared(request)) {
+      abort();
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "prepared N1 retired-frame state changed before publication");
+    }
+    // Both publications are allocation-free. Particle commit is checked first
+    // so a failed particle transaction can never consume frame identity.
+    if (!impl_->particle_runtime.Commit(request.frame_id)) {
+      particle_prepared = false;
+      impl_->submission_state.AbortPrepared();
+      submission_prepared = false;
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "prepared N1 retired particle state failed to commit");
+    }
+    particle_prepared = false;
+    impl_->submission_state.CommitPrepared(request);
+    submission_prepared = false;
+    return RenderOperationResult::Success();
+  } catch (const std::bad_alloc &) {
+    abort();
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "N1 retired-frame state allocation ran out of memory");
+  } catch (const std::exception &error) {
+    abort();
+    return RenderOperationResult::Failure(RenderOperationCode::BACKEND_FAILURE,
+                                          error.what());
+  } catch (...) {
+    abort();
+    return RenderOperationResult::Failure(
+        RenderOperationCode::BACKEND_FAILURE,
+        "N1 retired-frame state failed with an unknown exception");
   }
 }
 
