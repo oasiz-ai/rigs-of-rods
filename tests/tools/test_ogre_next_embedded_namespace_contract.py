@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Hostile offline contract tests for the private OgreNext namespace fork."""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import importlib.util
+import json
+import re
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+PROBE_ROOT = REPOSITORY_ROOT / "tools" / "ogre_next_probe"
+
+
+def load_module(name: str, relative: str):
+    path = REPOSITORY_ROOT / relative
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+AUDIT = load_module(
+    "ror_audit_embedded_namespace",
+    "tools/ogre_next_probe/audit_embedded_namespace.py",
+)
+RUNNER = load_module("ror_run_ogre_next_probe", "tools/run_ogre_next_probe.py")
+VERIFIER = load_module(
+    "ror_verify_ogre_next_artifact_set",
+    "tools/verify_ogre_next_artifact_set.py",
+)
+
+
+EMBEDDED_PROVENANCE_PATHS = (
+    "tools/ogre_next_probe/audit_embedded_namespace.py",
+    "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h",
+    "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch",
+    "tools/ogre_next_probe/src/embedded_namespace/main.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm",
+    "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp",
+)
+
+
+class EmbeddedNamespaceContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.lock = json.loads(
+            (PROBE_ROOT / "ogre-next.lock.json").read_text(encoding="utf-8")
+        )
+        cls.cmake = (PROBE_ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        cls.pinned = (PROBE_ROOT / "cmake/PinnedOgreNext.cmake").read_text(
+            encoding="utf-8"
+        )
+        cls.template = (PROBE_ROOT / "ogre_next_build_contract.json.in").read_text(
+            encoding="utf-8"
+        )
+        cls.audit_source = (PROBE_ROOT / "audit_embedded_namespace.py").read_text(
+            encoding="utf-8"
+        )
+        cls.n2_prelink = (
+            PROBE_ROOT / "cmake/VerifyN2SourceProvenance.cmake"
+        ).read_text(encoding="utf-8")
+        cls.workflow = (
+            REPOSITORY_ROOT / ".github/workflows/ogre-next-probe.yml"
+        ).read_text(encoding="utf-8")
+
+    def test_canonical_lock_binds_conditional_fork_inputs(self) -> None:
+        self.assertEqual(self.lock["schema_version"], 6)
+        embedded = self.lock["embedded_namespace"]
+        self.assertEqual(embedded["namespace"], "RoROgreNext")
+        self.assertEqual(
+            embedded["cmake_option"], "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE"
+        )
+        self.assertIs(embedded["default_enabled"], False)
+        for key in ("patch", "remap_header"):
+            entry = embedded[key]
+            path = PROBE_ROOT / entry["path"]
+            self.assertTrue(path.is_file())
+            self.assertFalse(path.is_symlink())
+            self.assertEqual(
+                hashlib.sha256(path.read_bytes()).hexdigest(), entry["sha256"]
+            )
+
+    def test_build_contract_binds_mode_and_does_not_claim_full_n1_link(self) -> None:
+        self.assertIn('"schema_version": 7', self.template)
+        for token in (
+            '"enabled": @ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON@',
+            '"namespace": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME@"',
+            '"path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256@"',
+            '"path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256@"',
+            '"full_n1_link_evidence": "not_evaluated"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.template)
+        self.assertIn(
+            'set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON "false")',
+            self.cmake,
+        )
+
+    def test_every_ogrenext_header_target_explicitly_registers_helper(self) -> None:
+        targets = (
+            "ror_ogre_next_probe",
+            "ror_ogre_next_frame_probe",
+            "ror_ogre_next_dual_runtime_next_adapter",
+            "ror_ogre_next_embedded_plugin_export_probe",
+            "ror_ogre_next_frontend_n1",
+            "ror_ogre_next_frontend_n1_runtime",
+            "ror_renderer_ogre_next_sdl_window_runtime",
+            "ror_ogre_next_vulkan_rt5_smoke",
+            "ror_ogre_next_vulkan_rt6_smoke",
+            "ror_ogre_next_windows_dxr7_smoke",
+        )
+        for target in targets:
+            with self.subTest(target=target):
+                self.assertRegex(
+                    self.cmake,
+                    re.compile(
+                        r"ror_ogre_next_enable_embedded_namespace\(\s*"
+                        + re.escape(target)
+                        + r"(?:\s+LANGUAGES\s+OBJCXX)?\s*\)",
+                        re.MULTILINE,
+                    ),
+                )
+        self.assertRegex(
+            self.cmake,
+            re.compile(
+                r"ror_ogre_next_enable_embedded_namespace\(\s*"
+                r"ror_renderer_ogre_next_sdl_window_runtime\s+"
+                r"LANGUAGES\s+OBJCXX\s*\)",
+                re.MULTILINE,
+            ),
+        )
+
+    def test_neutral_and_ogre14_targets_are_not_registered(self) -> None:
+        for target in (
+            "ror_ogre_next_n1_contract",
+            "ror_ogre_next_dual_runtime_ogre14_adapter",
+            "ror_ogre_next_dual_runtime_link_smoke",
+            "ror_ogre_next_frontend_n1_smoke",
+            "ror_renderer_ogre_next_child_runtime",
+        ):
+            with self.subTest(target=target):
+                self.assertNotRegex(
+                    self.cmake,
+                    re.compile(
+                        r"ror_ogre_next_enable_embedded_namespace\(\s*"
+                        + re.escape(target)
+                        + r"\s*\)",
+                        re.MULTILINE,
+                    ),
+                )
+
+    def test_helper_preserves_off_noop_and_supports_narrow_language_scope(self) -> None:
+        start = self.pinned.index(
+            "function(ror_ogre_next_enable_embedded_namespace"
+        )
+        end = self.pinned.index("endfunction()", start)
+        helper = self.pinned[start:end]
+        return_offset = helper.index("return()")
+        target_mutation_offset = helper.index("target_compile_options")
+        self.assertLess(return_offset, target_mutation_offset)
+        self.assertIn("cmake_parse_arguments(PARSE_ARGV 1", helper)
+        self.assertIn("_ror_namespace_LANGUAGES CXX OBJCXX", helper)
+        self.assertIn("$<COMPILE_LANGUAGE:${_ror_namespace_language_expression}>", helper)
+
+    def test_compile_database_boundary_check_rejects_both_leak_directions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            remap = root / "RoROgreNextNamespaceRemap.h"
+            next_source = root / "next.cpp"
+            neutral_source = root / "neutral.cpp"
+            for path in (remap, next_source, neutral_source):
+                path.write_text("// fixture\n", encoding="utf-8")
+            entries = [
+                {
+                    "file": str(next_source),
+                    "command": f"clang++ -include{remap} -c {next_source}",
+                },
+                {
+                    "file": str(neutral_source),
+                    "command": f"clang++ -c {neutral_source}",
+                },
+            ]
+            namespaced = AUDIT.audit_compile_sources(
+                entries,
+                [next_source],
+                remap,
+                expect_remap=True,
+                require_entries=True,
+            )
+            neutral = AUDIT.audit_compile_sources(
+                entries,
+                [neutral_source],
+                remap,
+                expect_remap=False,
+                require_entries=True,
+            )
+            self.assertEqual(namespaced[0]["forced_remap"], True)
+            self.assertEqual(neutral[0]["forced_remap"], False)
+
+            missing = copy.deepcopy(entries)
+            missing[0]["command"] = f"clang++ -c {next_source}"
+            with self.assertRaisesRegex(RuntimeError, "lacks forced namespace remap"):
+                AUDIT.audit_compile_sources(
+                    missing,
+                    [next_source],
+                    remap,
+                    expect_remap=True,
+                    require_entries=True,
+                )
+            leaked = copy.deepcopy(entries)
+            leaked[1]["command"] = f"clang++ -include{remap} -c {neutral_source}"
+            with self.assertRaisesRegex(RuntimeError, "leaked into neutral/OGRE14"):
+                AUDIT.audit_compile_sources(
+                    leaked,
+                    [neutral_source],
+                    remap,
+                    expect_remap=False,
+                    require_entries=True,
+                )
+
+    def test_audit_binds_exact_contract_inputs_and_source_commit(self) -> None:
+        embedded = self.lock["embedded_namespace"]
+        contract = {
+            "schema_version": 7,
+            "ror_source": {"commit": "a" * 40},
+            "patches": copy.deepcopy(self.lock["patches"]),
+            "embedded_namespace": {
+                "enabled": True,
+                "namespace": embedded["namespace"],
+                "cmake_option": embedded["cmake_option"],
+                "default_enabled": embedded["default_enabled"],
+                "patch": {**embedded["patch"], "applied": True},
+                "remap_header": {
+                    **embedded["remap_header"],
+                    "forced_include": True,
+                },
+                "full_n1_link_evidence": "not_evaluated",
+            },
+        }
+        validated = AUDIT.validate_embedded_build_contract(
+            contract,
+            self.lock,
+            REPOSITORY_ROOT,
+            "a" * 40,
+            PROBE_ROOT / embedded["patch"]["path"],
+            PROBE_ROOT / embedded["remap_header"]["path"],
+        )
+        self.assertIs(validated["enabled"], True)
+        tampered = copy.deepcopy(contract)
+        tampered["embedded_namespace"]["full_n1_link_evidence"] = "passed"
+        with self.assertRaisesRegex(RuntimeError, "not canonical"):
+            AUDIT.validate_embedded_build_contract(
+                tampered,
+                self.lock,
+                REPOSITORY_ROOT,
+                "a" * 40,
+                PROBE_ROOT / embedded["patch"]["path"],
+                PROBE_ROOT / embedded["remap_header"]["path"],
+            )
+
+    def test_provenance_and_workflow_closures_include_embedded_sources(self) -> None:
+        test_path = "tests/tools/test_ogre_next_embedded_namespace_contract.py"
+        for path in (*EMBEDDED_PROVENANCE_PATHS, test_path):
+            with self.subTest(path=path):
+                self.assertIn(path, RUNNER.RELEVANT_SOURCE_PATHS)
+                self.assertIn(path, VERIFIER.RELEVANT_SOURCE_PATHS)
+                self.assertIn(path, self.cmake)
+                self.assertIn(path, self.n2_prelink)
+        self.assertIn("- tools/ogre_next_probe/**", self.workflow)
+        self.assertIn("- tests/tools/test_ogre_next_*.py", self.workflow)
+        self.assertIn(f"python {test_path}", self.workflow)
+        self.assertIn(f"python -O {test_path}", self.workflow)
+
+    def test_audit_command_requires_contract_digest_and_exact_commit_inputs(self) -> None:
+        for token in (
+            "--source-root",
+            "--expected-source-commit",
+            "--build-contract",
+            "--canonical-lock",
+            "--patch",
+            "--namespaced-source",
+            "--neutral-source",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.cmake)
+                self.assertIn(token, self.audit_source)
+        self.assertIn('"sha256": digest(build_contract)', self.audit_source)
+        self.assertIn('"ror_source_commit": actual_source_commit', self.audit_source)
+        self.assertIn(
+            '== "tools/ogre_next_probe/ogre-next.lock.json"',
+            self.audit_source,
+        )
+        self.assertIn('"full_n1_runtime_link":', self.audit_source)
+        self.assertIn('"not_evaluated"', self.audit_source)
+        for source in (
+            "OgreNextVulkanExternalDeviceBootstrap.cpp",
+            "OgreNextVulkanRayTracingBootstrap.cpp",
+            "OgreNextD3D12DxrBootstrap.cpp",
+            "vulkan_rt5_smoke.cpp",
+            "vulkan_rt6_smoke.cpp",
+            "windows_dxr7_smoke.cpp",
+            "RendererFrontendDirectDispatcher.cpp",
+            "RendererFrontendPresentationPolicy.cpp",
+        ):
+            with self.subTest(source=source):
+                self.assertIn(source, self.cmake)
+
+
+if __name__ == "__main__":
+    unittest.main()

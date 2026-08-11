@@ -11,6 +11,14 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
     source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
     tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
+    tools/ogre_next_probe/audit_embedded_namespace.py
+    tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h
+    tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch
+    tools/ogre_next_probe/src/embedded_namespace/main.cpp
+    tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm
+    tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp
+    tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp
+    tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp
     CMakeLists.txt
     doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
     cmake/OgreNextProductionPackage.cmake
@@ -240,6 +248,7 @@ set(_ror_n2_relevant_source_paths
     tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp
     tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp
     tests/tools/test_ogre_next_child_runtime_contract.py
+    tests/tools/test_ogre_next_embedded_namespace_contract.py
     tests/tools/test_ogre14_legacy_asset_translator_contract.py
     tests/tools/test_ogre14_legacy_material_closure_contract.py
     tests/tools/test_ogre14_road_material_transaction_contract.py
@@ -296,6 +305,14 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
     "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+    "tools/ogre_next_probe/audit_embedded_namespace.py"
+    "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h"
+    "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch"
+    "tools/ogre_next_probe/src/embedded_namespace/main.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm"
+    "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp"
     "CMakeLists.txt"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"
@@ -524,6 +541,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
     "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre_next_embedded_namespace_contract.py"
     "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
     "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"

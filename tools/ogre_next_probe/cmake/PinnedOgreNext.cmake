@@ -151,6 +151,24 @@ string(JSON ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 1 source_sha256)
 string(JSON ROR_OGRE_NEXT_IBL_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 1 patched_sha256)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
+    "${_ror_lock_json}" embedded_namespace namespace)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
+    "${_ror_lock_json}" embedded_namespace cmake_option)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_DEFAULT_TYPE TYPE
+    "${_ror_lock_json}" embedded_namespace default_enabled)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_DEFAULT GET
+    "${_ror_lock_json}" embedded_namespace default_enabled)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH GET
+    "${_ror_lock_json}" embedded_namespace patch path)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256 GET
+    "${_ror_lock_json}" embedded_namespace patch sha256)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_REASON GET
+    "${_ror_lock_json}" embedded_namespace patch reason)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH GET
+    "${_ror_lock_json}" embedded_namespace remap_header path)
+string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256 GET
+    "${_ror_lock_json}" embedded_namespace remap_header sha256)
 string(JSON ROR_RAPIDJSON_REPOSITORY GET "${_ror_lock_json}" dependencies rapidjson repository)
 string(JSON ROR_RAPIDJSON_TAG GET "${_ror_lock_json}" dependencies rapidjson tag)
 string(JSON ROR_RAPIDJSON_ARCHIVE_URL GET "${_ror_lock_json}" dependencies rapidjson archive_url)
@@ -404,13 +422,30 @@ string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_PATH GET
 string(JSON ROR_LINUX_SPIRV_REFLECT_HEADER_SHA256 GET
     "${_ror_linux_toolchain_lock_json}" ogre_embedded_components spirv_reflect header_sha256)
 
-if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 5 OR
+if (NOT ROR_OGRE_NEXT_LOCK_SCHEMA EQUAL 6 OR
         NOT ROR_OGRE_NEXT_REPOSITORY STREQUAL
         "https://github.com/OGRECave/ogre-next" OR
         NOT ROR_OGRE_NEXT_BRANCH STREQUAL "v3-0" OR
         NOT ROR_OGRE_NEXT_COMMIT STREQUAL
         "37149a802de747f6806996fa3067b0748ecc1084")
     message(FATAL_ERROR "The OGRE-Next lock moved without an integration review")
+endif ()
+if (NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME STREQUAL "RoROgreNext" OR
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION STREQUAL
+            "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE" OR
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_DEFAULT_TYPE STREQUAL
+            "BOOLEAN" OR
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_DEFAULT OR
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH STREQUAL
+            "patches/0006-embedded-namespace-plugin-symbols.patch" OR
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256 STREQUAL
+            "0df3dfdd1d97848eddf04d5fe64fcd2e70f65cb9059a5d8f1dd78ff63c5d8fec" OR
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH STREQUAL
+            "embedded_namespace/RoROgreNextNamespaceRemap.h" OR
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256 STREQUAL
+            "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984")
+    message(FATAL_ERROR
+        "The reviewed embedded OgreNext namespace contract changed")
 endif ()
 if (NOT ROR_WINDOWS_DXR7_LOCK_SCHEMA STREQUAL
         "ror.ogre_next_windows_dxr7_toolchain.v3" OR
@@ -558,13 +593,9 @@ if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2 OR
     message(FATAL_ERROR "The pinned OGRE-Next IBL adaptation changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/patches/0006-embedded-namespace-plugin-symbols.patch")
-set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256
-    "0df3dfdd1d97848eddf04d5fe64fcd2e70f65cb9059a5d8f1dd78ff63c5d8fec")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/embedded_namespace/RoROgreNextNamespaceRemap.h")
-set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256
-    "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH}")
 file(SHA256 "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}"
     _ror_embedded_namespace_patch_sha256)
 file(SHA256 "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
@@ -1204,10 +1235,32 @@ function(ror_ogre_next_enable_embedded_namespace _ror_target)
         message(FATAL_ERROR
             "Cannot namespace missing OgreNext target: ${_ror_target}")
     endif ()
+    cmake_parse_arguments(PARSE_ARGV 1 _ror_namespace "" "" "LANGUAGES")
+    if (_ror_namespace_UNPARSED_ARGUMENTS OR
+            _ror_namespace_KEYWORDS_MISSING_VALUES)
+        message(FATAL_ERROR
+            "Invalid embedded namespace arguments for ${_ror_target}")
+    endif ()
+    if (NOT _ror_namespace_LANGUAGES)
+        set(_ror_namespace_LANGUAGES CXX OBJCXX)
+    endif ()
+    foreach (_ror_namespace_language IN LISTS _ror_namespace_LANGUAGES)
+        if (NOT _ror_namespace_language STREQUAL "CXX" AND
+                NOT _ror_namespace_language STREQUAL "OBJCXX")
+            message(FATAL_ERROR
+                "Unsupported namespace language for ${_ror_target}: "
+                "${_ror_namespace_language}")
+        endif ()
+    endforeach ()
+    list(REMOVE_DUPLICATES _ror_namespace_LANGUAGES)
+    list(SORT _ror_namespace_LANGUAGES)
+    string(JOIN "," _ror_namespace_language_expression
+        ${_ror_namespace_LANGUAGES})
     get_target_property(_ror_namespace_applied ${_ror_target}
         ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_APPLIED)
     if (_ror_namespace_applied)
-        return()
+        message(FATAL_ERROR
+            "Embedded namespace was registered twice for ${_ror_target}")
     endif ()
     if (MSVC)
         set(_ror_force_include
@@ -1217,9 +1270,12 @@ function(ror_ogre_next_enable_embedded_namespace _ror_target)
             "-include${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}")
     endif ()
     target_compile_options(${_ror_target} PRIVATE
-        "$<$<OR:$<COMPILE_LANGUAGE:CXX>,$<COMPILE_LANGUAGE:OBJCXX>>:${_ror_force_include}>")
+        "$<$<COMPILE_LANGUAGE:${_ror_namespace_language_expression}>:${_ror_force_include}>")
     set_property(TARGET ${_ror_target} PROPERTY
         ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_APPLIED TRUE)
+    set_property(TARGET ${_ror_target} PROPERTY
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_LANGUAGES
+        "${_ror_namespace_LANGUAGES}")
 endfunction()
 
 function(_ror_ogre_next_collect_targets _ror_directory _ror_output)

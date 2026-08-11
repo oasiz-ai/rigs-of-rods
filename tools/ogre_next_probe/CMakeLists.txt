@@ -22,6 +22,11 @@ option(
     ROR_OGRE_NEXT_EMBEDDED_NAMESPACE
     "Build the pinned OgreNext fork in the private RoROgreNext namespace"
     OFF)
+if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+    set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON "true")
+else ()
+    set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON "false")
+endif ()
 option(
     ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE
     "Link the namespaced OgreNext core with an explicit OGRE14 runtime"
@@ -127,6 +132,14 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
     "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+    "tools/ogre_next_probe/audit_embedded_namespace.py"
+    "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h"
+    "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch"
+    "tools/ogre_next_probe/src/embedded_namespace/main.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm"
+    "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp"
     "CMakeLists.txt"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"
@@ -355,6 +368,7 @@ list(APPEND _ror_relevant_source_files
     "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp"
     "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp"
     "tests/tools/test_ogre_next_child_runtime_contract.py"
+    "tests/tools/test_ogre_next_embedded_namespace_contract.py"
     "tests/tools/test_ogre14_legacy_asset_translator_contract.py"
     "tests/tools/test_ogre14_legacy_material_closure_contract.py"
     "tests/tools/test_ogre14_road_material_transaction_contract.py"
@@ -866,6 +880,7 @@ set_target_properties(
     ror_ogre_next_probe
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+ror_ogre_next_enable_embedded_namespace(ror_ogre_next_probe)
 
 add_executable(ror_ogre_next_frame_probe src/frame_main.cpp)
 target_compile_definitions(
@@ -892,6 +907,7 @@ set_target_properties(
     ror_ogre_next_frame_probe
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+ror_ogre_next_enable_embedded_namespace(ror_ogre_next_frame_probe)
 
 if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
     if (NOT APPLE)
@@ -1198,6 +1214,13 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
                 "$<TARGET_FILE:ror_ogre_next_dual_runtime_link_smoke>"
             --compile-commands "${CMAKE_BINARY_DIR}/compile_commands.json"
             --next-source-root "${ogre_next_SOURCE_DIR}"
+            --source-root "${ROR_REPOSITORY_ROOT}"
+            --expected-source-commit "${ROR_SOURCE_COMMIT}"
+            --build-contract
+                "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+            --canonical-lock
+                "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next.lock.json"
+            --patch "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}"
             --next-adapter
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/next_adapter.cpp"
             --legacy-adapter
@@ -1214,6 +1237,51 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             ${_ror_direct_source_audit_arguments}
             --remap-header "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
             --legacy-include "${ROR_OGRE14_DUAL_RUNTIME_INCLUDE_DIR}"
+            --namespaced-source "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+            --namespaced-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/frame_main.cpp"
+            --namespaced-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/next_adapter.cpp"
+            --namespaced-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/metal_plugin_export_probe.mm"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN1Frontend.cpp"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextReflectionProbeRuntime.cpp"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextMetalInterop.mm"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextVulkanExternalDeviceBootstrap.cpp"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextVulkanRayTracingBootstrap.cpp"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextD3D12DxrBootstrap.cpp"
+            --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+            --namespaced-source-if-present
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan_rt5_smoke.cpp"
+            --namespaced-source-if-present
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan_rt6_smoke.cpp"
+            --namespaced-source-if-present
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/windows_dxr7_smoke.cpp"
+            --neutral-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/ogre14_adapter.cpp"
+            --neutral-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/main.cpp"
+            --neutral-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
+            --neutral-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendDirectDispatcher.cpp"
+            --neutral-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendPresentationPolicy.cpp"
+            --neutral-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
+            --neutral-source-if-present
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/frontend_n1_smoke.cpp"
+            --neutral-source-if-present
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/n1_session_adapter.cpp"
             --report "${_ror_embedded_namespace_audit_report}"
         DEPENDS
             ror_ogre_next_dual_runtime_link_smoke
@@ -1224,6 +1292,11 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             OgreNextHlmsPbs
             OgreNextHlmsUnlit
             OgreNextOverlay
+            "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-build-contract.json"
+            "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next.lock.json"
+            "${CMAKE_CURRENT_SOURCE_DIR}/audit_embedded_namespace.py"
+            "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}"
+            "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
         COMMENT
             "Auditing the full embedded N1 and OGRE14 dual-runtime link"
         COMMAND_EXPAND_LISTS
@@ -1358,6 +1431,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             OgreNextOverlay
             ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextMain)
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_frontend_n1)
     set_target_properties(
         ror_ogre_next_frontend_n1
         PROPERTIES
@@ -1407,6 +1482,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             OgreNextOverlay
             ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextMain)
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_frontend_n1_runtime)
     set_target_properties(
         ror_ogre_next_frontend_n1_runtime
         PROPERTIES
@@ -1938,6 +2015,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         target_link_libraries(
             ror_renderer_ogre_next_sdl_window_runtime
             PRIVATE ${ROR_OGRE_NEXT_RENDERER_TARGET})
+        ror_ogre_next_enable_embedded_namespace(
+            ror_renderer_ogre_next_sdl_window_runtime
+            LANGUAGES OBJCXX)
     endif ()
     target_include_directories(
         ror_renderer_ogre_next_sdl_window_runtime
@@ -2584,6 +2664,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         target_link_libraries(
             ror_ogre_next_vulkan_rt5_smoke
             PRIVATE RenderSystem_Vulkan OgreNextMain)
+        ror_ogre_next_enable_embedded_namespace(
+            ror_ogre_next_vulkan_rt5_smoke)
         set_target_properties(
             ror_ogre_next_vulkan_rt5_smoke
             PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -2618,6 +2700,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 RenderSystem_Vulkan
                 OgreNextMain
                 shaderc_combined)
+        ror_ogre_next_enable_embedded_namespace(
+            ror_ogre_next_vulkan_rt6_smoke)
         set_target_properties(
             ror_ogre_next_vulkan_rt6_smoke
             PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -2808,6 +2892,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
                 d3d12
                 d3dcompiler
                 dxgi)
+        ror_ogre_next_enable_embedded_namespace(
+            ror_ogre_next_windows_dxr7_smoke)
         set_target_properties(
             ror_ogre_next_windows_dxr7_smoke
             PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
@@ -2821,6 +2907,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
             source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
             tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
+            tools/ogre_next_probe/audit_embedded_namespace.py
+            tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h
+            tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch
+            tools/ogre_next_probe/src/embedded_namespace/main.cpp
+            tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm
+            tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp
+            tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp
+            tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp
             CMakeLists.txt
             doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
             cmake/OgreNextProductionPackage.cmake
@@ -3050,6 +3144,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp
             tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp
             tests/tools/test_ogre_next_child_runtime_contract.py
+            tests/tools/test_ogre_next_embedded_namespace_contract.py
             tests/tools/test_ogre14_legacy_asset_translator_contract.py
             tests/tools/test_ogre14_legacy_material_closure_contract.py
             tests/tools/test_ogre14_road_material_transaction_contract.py

@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "name": "OGRE-Next",
   "repository": "https://github.com/OGRECave/ogre-next",
   "branch": "v3-0",
@@ -52,6 +52,20 @@
       "patched_sha256": "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41"
     }
   ],
+  "embedded_namespace": {
+    "namespace": "RoROgreNext",
+    "cmake_option": "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE",
+    "default_enabled": false,
+    "patch": {
+      "path": "patches/0006-embedded-namespace-plugin-symbols.patch",
+      "sha256": "0df3dfdd1d97848eddf04d5fe64fcd2e70f65cb9059a5d8f1dd78ff63c5d8fec",
+      "reason": "Prefix OgreNext plugin entry points and dynamic lookup names for private in-process ownership"
+    },
+    "remap_header": {
+      "path": "embedded_namespace/RoROgreNextNamespaceRemap.h",
+      "sha256": "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984"
+    }
+  },
   "dependencies": {
     "freetype": {
       "repository": "https://gitlab.freedesktop.org/freetype/freetype",

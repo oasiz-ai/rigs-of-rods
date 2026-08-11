@@ -160,6 +160,43 @@ class OgreNextProductPackagerTests(unittest.TestCase):
                 strict_root=True,
             )
 
+    def test_stage_preserves_schema7_embedded_namespace_contract(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogrenext-product-schema7-"
+        ) as temp:
+            root = Path(temp).resolve()
+            child, n1, presentation, contract, identity = self.make_inputs(root)
+            payload = json.loads(contract.read_text(encoding="utf-8"))
+            payload["schema_version"] = 7
+            payload["embedded_namespace"] = {
+                "enabled": False,
+                "full_n1_link_evidence": "not_evaluated",
+            }
+            contract.write_text(
+                json.dumps(payload, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            output = root / "product"
+            PACKAGER.stage_package(
+                child=child,
+                n1_package=n1,
+                presentation_root=presentation,
+                build_contract=contract,
+                output=output,
+                identity=identity,
+                policy="macos-arm64-metal",
+            )
+            product_contract = json.loads(
+                (output / PACKAGER.BUILD_CONTRACT_RELATIVE).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(product_contract["schema_version"], 7)
+            self.assertEqual(
+                product_contract["embedded_namespace"],
+                payload["embedded_namespace"],
+            )
+
     def test_stage_rejects_display_domain_shader_provenance_drift(self) -> None:
         with tempfile.TemporaryDirectory(
             prefix="ror-ogrenext-display-domain-provenance-"

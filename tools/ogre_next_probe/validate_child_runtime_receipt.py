@@ -292,8 +292,10 @@ def validate_receipt(
     receipt_path = _regular_file(root, RECEIPT_NAME, "child receipt")
     build_contract = _read_json_object(contract_path, "build contract")
     receipt = _read_json_object(receipt_path, "child receipt")
-    if build_contract.get("schema_version") != 6:
-        raise ReceiptValidationError("child receipt requires build contract schema 6")
+    if build_contract.get("schema_version") not in (6, 7):
+        raise ReceiptValidationError(
+            "child receipt requires build contract schema 6 or 7"
+        )
     components = build_contract.get("components")
     expected_scope = expected_receipt_scope(build_contract)
     if not isinstance(components, dict) or not (

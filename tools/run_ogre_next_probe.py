@@ -339,6 +339,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp",
     "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp",
     "tests/tools/test_ogre_next_child_runtime_contract.py",
+    "tests/tools/test_ogre_next_embedded_namespace_contract.py",
     "tests/tools/test_ogre14_legacy_asset_translator_contract.py",
     "tests/tools/test_ogre14_legacy_material_closure_contract.py",
     "tests/tools/test_ogre14_particle_capture_contract.py",
@@ -362,6 +363,14 @@ RELEVANT_SOURCE_PATHS = (
     "tests/tools/test_ogre_next_window_presentation_contract.py",
     "tests/tools/test_ogre_next_window_run_loop_contract.py",
     "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any",
+    "tools/ogre_next_probe/audit_embedded_namespace.py",
+    "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h",
+    "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch",
+    "tools/ogre_next_probe/src/embedded_namespace/main.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm",
+    "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp",
     "tools/ogre_next_probe",
     "tools/ogre14_runtime_audit.py",
     "tools/compile_ogre14_material_semantic_catalog_v2.py",
@@ -784,7 +793,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_ibl_patch_sha256 = (
         "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f"
     )
-    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 5:
+    if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
         raise ProbeError("OGRE-Next repository contract changed")
@@ -973,6 +982,45 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
             raise ProbeError(
                 f"pinned patch SHA-256 mismatch for {patch_path.name}: "
                 f"expected {patch.get('sha256')}, got {actual_hash}"
+            )
+    expected_embedded_namespace = {
+        "namespace": "RoROgreNext",
+        "cmake_option": "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE",
+        "default_enabled": False,
+        "patch": {
+            "path": "patches/0006-embedded-namespace-plugin-symbols.patch",
+            "sha256": (
+                "0df3dfdd1d97848eddf04d5fe64fcd2e70f65cb9059a5d8f1dd78ff63c5d8fec"
+            ),
+            "reason": (
+                "Prefix OgreNext plugin entry points and dynamic lookup names "
+                "for private in-process ownership"
+            ),
+        },
+        "remap_header": {
+            "path": "embedded_namespace/RoROgreNextNamespaceRemap.h",
+            "sha256": (
+                "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984"
+            ),
+        },
+    }
+    embedded_namespace = lock.get("embedded_namespace")
+    if embedded_namespace != expected_embedded_namespace:
+        raise ProbeError("the reviewed embedded namespace contract changed")
+    for embedded_input in (
+        embedded_namespace["patch"],
+        embedded_namespace["remap_header"],
+    ):
+        embedded_path = path.parent / embedded_input["path"]
+        if embedded_path.is_symlink() or not embedded_path.is_file():
+            raise ProbeError(
+                f"embedded namespace input is missing or indirect: {embedded_path}"
+            )
+        actual_hash = sha256_file(embedded_path)
+        if actual_hash != embedded_input["sha256"]:
+            raise ProbeError(
+                f"embedded namespace SHA-256 mismatch for {embedded_path.name}: "
+                f"expected {embedded_input['sha256']}, got {actual_hash}"
             )
     expected_abi = {
         "cxx_standard": 17,
@@ -1521,7 +1569,7 @@ def validate_build_contract(
         "dds_codec": True,
         "native_ray_tracing": "not_evaluated",
     }
-    if schema_version in (4, 5, 6):
+    if schema_version in (4, 5, 6, 7):
         expected_components.update(
             {
                 "hlms_unlit": True,
@@ -1534,7 +1582,7 @@ def validate_build_contract(
                 "hdr_visual_evidence_version": 1,
             }
         )
-    if schema_version in (5, 6):
+    if schema_version in (5, 6, 7):
         expected_components.update(
             {
                 "headless_child_bootstrap": True,
@@ -1543,7 +1591,7 @@ def validate_build_contract(
                 "headless_child_production_admitted": False,
             }
         )
-    if schema_version == 6:
+    if schema_version in (6, 7):
         expected_components.update(
             {
                 "headless_child_execution_receipt_schema": (
@@ -1562,9 +1610,10 @@ def validate_build_contract(
         # schema 3 remains the reflection/IBL lineage contract, and schema 4
         # remains the original HDR contract. Every newly generated contract
         # with the pinned static FreeType/Overlay closure is schema 5; schema 6
-        # adds upload-bound execution evidence for the non-admitted child.
+        # adds upload-bound child evidence and schema 7 binds the optional
+        # private embedded-namespace fork without changing its OFF default.
         "schema_version": type(schema_version) is int
-        and schema_version in (2, 3, 4, 5, 6),
+        and schema_version in (2, 3, 4, 5, 6, 7),
         "repository": provenance.get("repository") == lock["repository"],
         "branch": provenance.get("branch") == lock["branch"],
         "commit": provenance.get("commit") == lock["commit"],
@@ -1616,18 +1665,18 @@ def validate_build_contract(
                     "disabled_optional_dependencies"
                 ],
             }
-            if schema_version in (5, 6)
+            if schema_version in (5, 6, 7)
             else {}
         ),
         "shader_media": contract.get("shader_media") == shader_media,
         "reflection_shader_media": contract.get("reflection_shader_media")
         == (
             reflection_shader_media
-            if schema_version in (3, 4, 5, 6)
+            if schema_version in (3, 4, 5, 6, 7)
             else None
         ),
         "patches": contract.get("patches")
-        == (lock["patches"] if schema_version in (3, 4, 5, 6) else None),
+        == (lock["patches"] if schema_version in (3, 4, 5, 6, 7) else None),
         "platform_policy": platform_contract.get("policy") == policy["name"],
         "renderer_target": platform_contract.get("renderer_target")
         == policy["renderer_target"],
@@ -1645,6 +1694,28 @@ def validate_build_contract(
         and bool(compiler["version"]),
         "build_type": compiler.get("build_type") == REQUIRED_CONFIG,
     }
+    if schema_version == 7:
+        embedded = lock["embedded_namespace"]
+        enabled = contract.get("embedded_namespace", {}).get("enabled")
+        checks["embedded_namespace"] = type(enabled) is bool and contract.get(
+            "embedded_namespace"
+        ) == {
+            "enabled": enabled,
+            "namespace": embedded["namespace"],
+            "cmake_option": embedded["cmake_option"],
+            "default_enabled": embedded["default_enabled"],
+            "patch": {
+                **embedded["patch"],
+                "applied": enabled,
+            },
+            "remap_header": {
+                **embedded["remap_header"],
+                "forced_include": enabled,
+            },
+            "full_n1_link_evidence": "not_evaluated",
+        }
+    else:
+        checks["embedded_namespace"] = "embedded_namespace" not in contract
     if source_identity is not None:
         checks["ror_source"] = contract.get("ror_source") == source_identity
     failed = [name for name, passed in checks.items() if not passed]

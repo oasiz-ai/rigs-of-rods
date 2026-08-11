@@ -221,8 +221,11 @@ def _product_build_contract(
     forbidden_prefixes: Iterable[Path],
 ) -> dict[str, Any]:
     contract = _load_json(source, "OgreNext build contract")
-    if not isinstance(contract, dict) or contract.get("schema_version") != 6:
-        raise PackageError("OgreNext build contract schema changed")
+    if (
+        not isinstance(contract, dict)
+        or contract.get("schema_version") not in (6, 7)
+    ):
+        raise PackageError("OgreNext build contract schema must be 6 or 7")
     platform = contract.get("platform")
     components = contract.get("components")
     if not isinstance(platform, dict) or platform.get("policy") != policy:

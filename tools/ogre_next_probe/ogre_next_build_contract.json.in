@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "ror_source": {
     "repository": "@ROR_SOURCE_REPOSITORY@",
     "ref": "@ROR_SOURCE_REF@",
@@ -30,6 +30,24 @@
       "patched_sha256": "@ROR_OGRE_NEXT_IBL_PATCHED_SHA256@"
     }
   ],
+  "embedded_namespace": {
+    "enabled": @ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON@,
+    "namespace": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME@",
+    "cmake_option": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION@",
+    "default_enabled": false,
+    "patch": {
+      "path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_REASON@",
+      "applied": @ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON@
+    },
+    "remap_header": {
+      "path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256@",
+      "forced_include": @ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_ENABLED_JSON@
+    },
+    "full_n1_link_evidence": "not_evaluated"
+  },
   "dependencies": {
     "freetype": {
       "repository": "@ROR_FREETYPE_REPOSITORY@",

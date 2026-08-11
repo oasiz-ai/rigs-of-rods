@@ -361,6 +361,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/physics/Ogre14MetalFlexShadowReadContractTests.cpp",
     "tests/gfx/render/Ogre14DynamicMaterialClosureTests.cpp",
     "tests/tools/test_ogre_next_child_runtime_contract.py",
+    "tests/tools/test_ogre_next_embedded_namespace_contract.py",
     "tests/tools/test_ogre14_legacy_asset_translator_contract.py",
     "tests/tools/test_ogre14_legacy_material_closure_contract.py",
     "tests/tools/test_ogre14_particle_capture_contract.py",
@@ -384,6 +385,14 @@ RELEVANT_SOURCE_PATHS = (
     "tests/tools/test_ogre_next_window_presentation_contract.py",
     "tests/tools/test_ogre_next_window_run_loop_contract.py",
     "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any",
+    "tools/ogre_next_probe/audit_embedded_namespace.py",
+    "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h",
+    "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch",
+    "tools/ogre_next_probe/src/embedded_namespace/main.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm",
+    "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp",
     "tools/ogre_next_probe",
     "tools/ogre14_runtime_audit.py",
     "tools/compile_ogre14_material_semantic_catalog_v2.py",
@@ -924,10 +933,43 @@ def _read_pinned_lock() -> dict[str, object]:
     lock = _read_json_object(PINNED_LOCK_PATH, "pinned OGRE-Next lock")
     if (
         type(lock.get("schema_version")) is not int
-        or lock.get("schema_version") != 5
+        or lock.get("schema_version") != 6
         or lock.get("name") != "OGRE-Next"
     ):
         raise ArtifactSetError("pinned OGRE-Next lock identity is invalid")
+    expected_embedded = {
+        "namespace": "RoROgreNext",
+        "cmake_option": "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE",
+        "default_enabled": False,
+        "patch": {
+            "path": "patches/0006-embedded-namespace-plugin-symbols.patch",
+            "sha256": (
+                "0df3dfdd1d97848eddf04d5fe64fcd2e70f65cb9059a5d8f1dd78ff63c5d8fec"
+            ),
+            "reason": (
+                "Prefix OgreNext plugin entry points and dynamic lookup names "
+                "for private in-process ownership"
+            ),
+        },
+        "remap_header": {
+            "path": "embedded_namespace/RoROgreNextNamespaceRemap.h",
+            "sha256": (
+                "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984"
+            ),
+        },
+    }
+    embedded = lock.get("embedded_namespace")
+    if embedded != expected_embedded:
+        raise ArtifactSetError("pinned embedded namespace identity is invalid")
+    for key in ("patch", "remap_header"):
+        value = embedded.get(key)
+        if not isinstance(value, dict) or not isinstance(value.get("path"), str):
+            raise ArtifactSetError("pinned embedded namespace input is invalid")
+        path = PINNED_LOCK_PATH.parent / value["path"]
+        if path.is_symlink() or not path.is_file():
+            raise ArtifactSetError("pinned embedded namespace input is indirect")
+        if not _is_sha256(value.get("sha256")) or sha256_file(path) != value["sha256"]:
+            raise ArtifactSetError("pinned embedded namespace input hash mismatch")
     return lock
 
 
@@ -937,21 +979,25 @@ def _read_build_contract(
     contract = _read_json_object(
         root / REQUIRED_ARTIFACTS[0], "OGRE-Next build contract"
     )
+    schema_version = contract.get("schema_version")
+    expected_contract_keys = {
+        "schema_version",
+        "ror_source",
+        "provenance",
+        "patches",
+        "dependencies",
+        "shader_media",
+        "reflection_shader_media",
+        "platform",
+        "abi",
+        "components",
+        "compiler",
+    }
+    if schema_version == 7:
+        expected_contract_keys.add("embedded_namespace")
     _require_exact_keys(
         contract,
-        {
-            "schema_version",
-            "ror_source",
-            "provenance",
-            "patches",
-            "dependencies",
-            "shader_media",
-            "reflection_shader_media",
-            "platform",
-            "abi",
-            "components",
-            "compiler",
-        },
+        expected_contract_keys,
         "OGRE-Next build contract",
     )
     ror_source = contract.get("ror_source")
@@ -971,7 +1017,7 @@ def _read_build_contract(
     )
     if (
         type(contract.get("schema_version")) is not int
-        or contract.get("schema_version") not in (5, 6)
+        or contract.get("schema_version") not in (5, 6, 7)
         or not isinstance(ror_source, dict)
         or not isinstance(ogre_source, dict)
         or not isinstance(ror_source.get("repository"), str)
@@ -1082,7 +1128,7 @@ def _read_build_contract(
         "headless_child_production_admitted": False,
         "native_ray_tracing": "not_evaluated",
     }
-    if contract.get("schema_version") == 6:
+    if contract.get("schema_version") in (6, 7):
         expected_components.update(
             {
                 "headless_child_execution_receipt_schema": (
@@ -1137,6 +1183,35 @@ def _read_build_contract(
         "components": _json_exact(components, expected_components),
         "compiler": compiler_valid,
     }
+    if contract.get("schema_version") == 7:
+        embedded = lock.get("embedded_namespace", {})
+        embedded_contract = contract.get("embedded_namespace")
+        enabled = (
+            embedded_contract.get("enabled")
+            if isinstance(embedded_contract, dict)
+            else None
+        )
+        exact_checks["embedded_namespace"] = (
+            type(enabled) is bool
+            and _json_exact(
+                embedded_contract,
+                {
+                    "enabled": enabled,
+                    "namespace": embedded.get("namespace"),
+                    "cmake_option": embedded.get("cmake_option"),
+                    "default_enabled": embedded.get("default_enabled"),
+                    "patch": {
+                        **embedded.get("patch", {}),
+                        "applied": enabled,
+                    },
+                    "remap_header": {
+                        **embedded.get("remap_header", {}),
+                        "forced_include": enabled,
+                    },
+                    "full_n1_link_evidence": "not_evaluated",
+                },
+            )
+        )
     failed = sorted(name for name, passed in exact_checks.items() if not passed)
     if failed:
         raise ArtifactSetError(
@@ -5233,7 +5308,7 @@ def verify_artifact_set(
         expected_commit=expected_ror_commit,
     )
     build_contract = _read_build_contract(root, expected_source)
-    if build_contract.get("schema_version") == 6:
+    if build_contract.get("schema_version") in (6, 7):
         _verify_child_runtime_receipt(root, manifest, build_contract)
     _verify_pssm(root, manifest, build_contract)
     _verify_rt4(root, manifest, build_contract)

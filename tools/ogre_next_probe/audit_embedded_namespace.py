@@ -66,6 +66,27 @@ def digest(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def json_object(path: Path, label: str) -> dict[str, object]:
+    def reject_duplicate_keys(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            require(key not in result, f"{label} contains duplicate key: {key}")
+            result[key] = value
+        return result
+
+    try:
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"could not read {label}: {error}") from error
+    require(isinstance(payload, dict), f"{label} is not a JSON object")
+    return payload
+
+
 def nm(path: Path, *, global_only: bool = True) -> tuple[str, str]:
     argv = ["nm"]
     if global_only:
@@ -126,6 +147,15 @@ def command_text(entry: dict[str, object]) -> str:
     return " ".join(str(value) for value in arguments)
 
 
+def compile_entries_for_source(
+    entries: list[dict[str, object]], source: Path
+) -> list[dict[str, object]]:
+    return [
+        entry for entry in entries
+        if Path(str(entry.get("file", ""))).resolve() == source.resolve()
+    ]
+
+
 def one_compile_entry(
     entries: list[dict[str, object]], source: Path
 ) -> dict[str, object]:
@@ -177,6 +207,109 @@ def exact_directory(value: str, label: str) -> Path:
     return candidate.resolve()
 
 
+def audit_compile_sources(
+    entries: list[dict[str, object]],
+    sources: list[Path],
+    remap_header: Path,
+    *,
+    expect_remap: bool,
+    require_entries: bool,
+) -> list[dict[str, object]]:
+    audited: list[dict[str, object]] = []
+    for source in sources:
+        matches = compile_entries_for_source(entries, source)
+        if require_entries:
+            require(matches, f"no compile entry for required source: {source}")
+        if not matches:
+            continue
+        for entry in matches:
+            command = command_text(entry)
+            if expect_remap:
+                require(
+                    str(remap_header) in command,
+                    f"OgreNext consumer lacks forced namespace remap: {source}",
+                )
+            else:
+                require(
+                    str(remap_header) not in command
+                    and remap_header.name not in command
+                    and "Ogre=RoROgreNext" not in command,
+                    f"namespace remap leaked into neutral/OGRE14 source: {source}",
+                )
+        audited.append(
+            {
+                "path": str(source),
+                "compile_entries": len(matches),
+                "forced_remap": expect_remap,
+            }
+        )
+    return audited
+
+
+def validate_embedded_build_contract(
+    contract: dict[str, object],
+    lock: dict[str, object],
+    source_root: Path,
+    expected_source_commit: str,
+    patch: Path,
+    remap_header: Path,
+) -> dict[str, object]:
+    require(contract.get("schema_version") == 7,
+            "embedded namespace audit requires build-contract schema 7")
+    require(lock.get("schema_version") == 6,
+            "embedded namespace audit requires canonical lock schema 6")
+    ror_source = contract.get("ror_source")
+    require(isinstance(ror_source, dict),
+            "build contract has no RoR source identity")
+    require(ror_source.get("commit") == expected_source_commit,
+            "build-contract RoR source commit differs from audited commit")
+    require(contract.get("patches") == lock.get("patches"),
+            "build-contract base patch set differs from the canonical lock")
+
+    lock_embedded = lock.get("embedded_namespace")
+    require(isinstance(lock_embedded, dict),
+            "canonical lock has no embedded namespace contract")
+    lock_patch = lock_embedded.get("patch")
+    lock_remap = lock_embedded.get("remap_header")
+    require(isinstance(lock_patch, dict) and isinstance(lock_remap, dict),
+            "canonical embedded namespace inputs are incomplete")
+    try:
+        patch_relative = patch.relative_to(source_root).as_posix()
+        remap_relative = remap_header.relative_to(source_root).as_posix()
+    except ValueError as error:
+        raise RuntimeError(
+            "embedded namespace input escaped the audited source root"
+        ) from error
+    require(patch_relative == f"tools/ogre_next_probe/{lock_patch.get('path')}",
+            "audited embedded namespace patch path differs from the lock")
+    require(remap_relative ==
+            f"tools/ogre_next_probe/{lock_remap.get('path')}",
+            "audited namespace remap path differs from the lock")
+    require(digest(patch) == lock_patch.get("sha256"),
+            "audited embedded namespace patch hash differs from the lock")
+    require(digest(remap_header) == lock_remap.get("sha256"),
+            "audited namespace remap hash differs from the lock")
+
+    expected_embedded = {
+        "enabled": True,
+        "namespace": lock_embedded.get("namespace"),
+        "cmake_option": lock_embedded.get("cmake_option"),
+        "default_enabled": lock_embedded.get("default_enabled"),
+        "patch": {
+            **lock_patch,
+            "applied": True,
+        },
+        "remap_header": {
+            **lock_remap,
+            "forced_include": True,
+        },
+        "full_n1_link_evidence": "not_evaluated",
+    }
+    require(contract.get("embedded_namespace") == expected_embedded,
+            "build-contract embedded namespace identity is not canonical")
+    return expected_embedded
+
+
 def is_relative_to(path: Path, directory: Path) -> bool:
     try:
         path.relative_to(directory)
@@ -196,6 +329,11 @@ def main() -> int:
     parser.add_argument("--executable", required=True)
     parser.add_argument("--compile-commands", required=True)
     parser.add_argument("--next-source-root", required=True)
+    parser.add_argument("--source-root", required=True)
+    parser.add_argument("--expected-source-commit", required=True)
+    parser.add_argument("--build-contract", required=True)
+    parser.add_argument("--canonical-lock", required=True)
+    parser.add_argument("--patch", required=True)
     parser.add_argument("--next-adapter", required=True)
     parser.add_argument("--legacy-adapter", required=True)
     parser.add_argument("--main-source", required=True)
@@ -206,6 +344,14 @@ def main() -> int:
     parser.add_argument("--direct-source", action="append", required=True)
     parser.add_argument("--remap-header", required=True)
     parser.add_argument("--legacy-include", required=True)
+    parser.add_argument("--namespaced-source", action="append", default=[])
+    parser.add_argument(
+        "--namespaced-source-if-present", action="append", default=[]
+    )
+    parser.add_argument("--neutral-source", action="append", default=[])
+    parser.add_argument(
+        "--neutral-source-if-present", action="append", default=[]
+    )
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
 
@@ -302,6 +448,61 @@ def main() -> int:
         not forbidden_direct_sources,
         "direct contract imported Bridge/Transport source names: "
         + ", ".join(sorted(forbidden_direct_sources)),
+    )
+
+    source_root = exact_directory(args.source_root, "RoR source root")
+    build_contract = exact_regular_file(args.build_contract, "build contract")
+    canonical_lock = exact_regular_file(args.canonical_lock, "canonical lock")
+    patch = exact_regular_file(args.patch, "embedded namespace patch")
+    namespaced_sources = [
+        exact_regular_file(value, "required namespaced source")
+        for value in args.namespaced_source
+    ]
+    neutral_sources = [
+        exact_regular_file(value, "required neutral source")
+        for value in args.neutral_source
+    ]
+    optional_namespaced_sources = [
+        Path(value).resolve() for value in args.namespaced_source_if_present
+    ]
+    optional_neutral_sources = [
+        Path(value).resolve() for value in args.neutral_source_if_present
+    ]
+
+    try:
+        canonical_lock_relative = canonical_lock.relative_to(source_root)
+    except ValueError as error:
+        raise RuntimeError(
+            "canonical lock escaped the audited source root"
+        ) from error
+    require(
+        canonical_lock_relative.as_posix()
+        == "tools/ogre_next_probe/ogre-next.lock.json",
+        "canonical lock path differs from the reviewed source contract",
+    )
+    require(re.fullmatch(r"[0-9a-f]{40}", args.expected_source_commit) is not None,
+            "expected source commit is not canonical")
+    actual_source_commit = output(
+        "git", "-C", str(source_root), "rev-parse", "HEAD"
+    ).strip()
+    require(actual_source_commit == args.expected_source_commit,
+            "audited checkout differs from the expected source commit")
+    source_status = output(
+        "git", "-C", str(source_root), "status", "--porcelain=v1",
+        "--untracked-files=all"
+    ).strip()
+    require(not source_status,
+            "exact source-commit evidence requires a clean checkout")
+
+    contract = json_object(build_contract, "build contract")
+    lock = json_object(canonical_lock, "canonical lock")
+    embedded_contract = validate_embedded_build_contract(
+        contract,
+        lock,
+        source_root,
+        args.expected_source_commit,
+        patch,
+        remap_header,
     )
 
     next_raw_parts: list[str] = []
@@ -477,6 +678,39 @@ def main() -> int:
         require(str(remap_header) in command_text(entry),
                 f"OgreNext source lacks forced namespace remap: {entry.get('file')}")
 
+    namespaced_audit = audit_compile_sources(
+        entries,
+        namespaced_sources,
+        remap_header,
+        expect_remap=True,
+        require_entries=True,
+    )
+    namespaced_audit.extend(
+        audit_compile_sources(
+            entries,
+            optional_namespaced_sources,
+            remap_header,
+            expect_remap=True,
+            require_entries=False,
+        )
+    )
+    neutral_audit = audit_compile_sources(
+        entries,
+        neutral_sources,
+        remap_header,
+        expect_remap=False,
+        require_entries=True,
+    )
+    neutral_audit.extend(
+        audit_compile_sources(
+            entries,
+            optional_neutral_sources,
+            remap_header,
+            expect_remap=False,
+            require_entries=False,
+        )
+    )
+
     next_command = command_text(one_compile_entry(entries, next_adapter))
     legacy_command = command_text(one_compile_entry(entries, legacy_adapter))
     main_command = command_text(one_compile_entry(entries, main_source))
@@ -540,6 +774,23 @@ def main() -> int:
         "schema": "ror.ogre_next.embedded_namespace_audit.v2",
         "status": "passed",
         "namespace": "RoROgreNext",
+        "ror_source_commit": actual_source_commit,
+        "canonical_lock": {
+            "path": str(canonical_lock),
+            "sha256": digest(canonical_lock),
+        },
+        "build_contract": {
+            "path": str(build_contract),
+            "sha256": digest(build_contract),
+            "embedded_namespace": embedded_contract,
+        },
+        "embedded_namespace_inputs": {
+            "patch": {"path": str(patch), "sha256": digest(patch)},
+            "remap_header": {
+                "path": str(remap_header),
+                "sha256": digest(remap_header),
+            },
+        },
         "upstream_compile_entries": len(upstream_entries),
         "next_archives": [
             {"path": str(path), "sha256": digest(path)} for path in next_archives
@@ -571,6 +822,13 @@ def main() -> int:
             "embedded_n1_sources_forced_remap": len(embedded_commands),
             "direct_contract_sources_forced_remap": 0,
             "direct_contract_sources": len(direct_commands),
+            "namespaced_sources": namespaced_audit,
+            "neutral_sources": neutral_audit,
+        },
+        "evidence_scope": {
+            "namespace_and_dual_root_link": True,
+            "full_n1_runtime_link": True,
+            "renderer_neutral_in_process_session_link": True,
         },
     }
     report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",

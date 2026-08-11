@@ -201,7 +201,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         }
 
     def test_exact_upstream_and_dependency_pins(self) -> None:
-        self.assertEqual(self.lock["schema_version"], 5)
+        self.assertEqual(self.lock["schema_version"], 6)
         self.assertEqual(
             self.lock["commit"],
             "37149a802de747f6806996fa3067b0748ecc1084",
@@ -662,6 +662,23 @@ class OgreNextProbeContractTests(unittest.TestCase):
         PROBE.validate_build_contract(
             current_contract, self.lock, self.policy
         )
+        current_contract["schema_version"] = 7
+        embedded = self.lock["embedded_namespace"]
+        current_contract["embedded_namespace"] = {
+            "enabled": False,
+            "namespace": embedded["namespace"],
+            "cmake_option": embedded["cmake_option"],
+            "default_enabled": embedded["default_enabled"],
+            "patch": {**embedded["patch"], "applied": False},
+            "remap_header": {
+                **embedded["remap_header"],
+                "forced_include": False,
+            },
+            "full_n1_link_evidence": "not_evaluated",
+        }
+        PROBE.validate_build_contract(
+            current_contract, self.lock, self.policy
+        )
         for name, mutate in (
             (
                 "simd",
@@ -770,7 +787,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         build_contract = (
             PROBE_DIR / "ogre_next_build_contract.json.in"
         ).read_text(encoding="utf-8")
-        self.assertIn('"schema_version": 6', build_contract)
+        self.assertIn('"schema_version": 7', build_contract)
         self.assertIn(
             '"target_type": "@ROR_FREETYPE_TARGET_TYPE@"',
             build_contract,

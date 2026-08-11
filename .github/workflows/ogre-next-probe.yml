@@ -434,6 +434,7 @@ jobs:
           python tests/tools/test_ogre_next_frontend_n1_contract.py
           python tests/tools/test_ogre_next_pssm_shadow_contract.py
           python tests/tools/test_ogre_next_child_runtime_contract.py
+          python tests/tools/test_ogre_next_embedded_namespace_contract.py
           python tests/tools/test_ogre_next_product_packaging_contract.py
           python tests/tools/test_ogre_next_window_host_contract.py
           python tests/tools/test_ogre_next_window_presentation_contract.py
@@ -456,6 +457,7 @@ jobs:
           python -O tests/tools/test_ogre_next_frontend_n1_contract.py
           python -O tests/tools/test_ogre_next_pssm_shadow_contract.py
           python -O tests/tools/test_ogre_next_child_runtime_contract.py
+          python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
           python -O tests/tools/test_ogre_next_product_packaging_contract.py
           python -O tests/tools/test_ogre_next_window_host_contract.py
           python -O tests/tools/test_ogre_next_window_presentation_contract.py

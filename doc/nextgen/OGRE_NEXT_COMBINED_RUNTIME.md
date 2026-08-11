@@ -1,8 +1,8 @@
 # OgreNext combined runtime
 
-Status: **implementation in progress; direct typed dispatch and its
-renderer-neutral in-process lifecycle exist, while the namespaced OgreNext fork
-and one-process product target remain gated**
+Status: **implementation in progress; direct typed dispatch, its
+renderer-neutral in-process lifecycle, and the opt-in namespaced OgreNext fork
+exist, while the complete one-process N1 product link remains gated**
 
 ## Product objective
 
@@ -89,6 +89,12 @@ that includes an OgreNext header must explicitly call:
 ror_ogre_next_enable_embedded_namespace(the_target)
 ```
 
+Mixed-language targets may narrow the helper to the exact language that owns
+the OgreNext header boundary, for example `LANGUAGES OBJCXX` for the Cocoa
+Metal-view adapter. The compile-database audit must then prove both halves: all
+OgreNext consumers receive the forced include, while renderer-neutral and
+Ogre14 translation units do not.
+
 That call belongs next to the target's OgreNext include and link declarations.
 Targets which compile Ogre14 headers must never call it. A combined adapter
 must keep the two header families in separate translation units and cross the
@@ -96,6 +102,14 @@ boundary through renderer-neutral RoR types or a narrow C/Pimpl seam. Merely
 linking a namespaced static archive does not remap a consumer translation unit;
 omitting this call is a build-contract error even when a particular source file
 happens not to name `Ogre` directly.
+
+The canonical lock records patch 0006 and the remap header as conditional fork
+inputs. Build-contract schema 7 records whether the mode was enabled and
+whether those inputs were applied. The embedded audit binds that contract's
+SHA-256 and exact clean RoR commit into its report. Its current link scope is
+deliberately reported as `full_n1_link_evidence: not_evaluated`: the dual-Root
+smoke is namespace evidence, not evidence for the complete N1/Metal/PBS/Unlit/
+Overlay product closure.
 
 ## First product target
 

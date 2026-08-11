@@ -596,6 +596,37 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
                     RECEIPT_VALIDATOR.TIMESTAMP_POLICY,
                 )
 
+    def test_receipt_wrapper_accepts_canonical_schema7_contract(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-child-receipt-schema7-"
+        ) as temp:
+            root = Path(temp).resolve()
+            child = self.make_receipt_fixture(root)
+            contract_path = root / RECEIPT_VALIDATOR.BUILD_CONTRACT_NAME
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract["schema_version"] = 7
+            contract["embedded_namespace"] = {
+                "enabled": False,
+                "full_n1_link_evidence": "not_evaluated",
+            }
+            contract_path.write_text(
+                json.dumps(contract, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            ending = b"\r\n" if platform.system() == "Windows" else b"\n"
+            result = self.run_receipt_observation(
+                root,
+                child,
+                0,
+                RECEIPT_VALIDATOR.SUCCESS_LINE + ending,
+                b"",
+            )
+            self.assertEqual(result, 0)
+            receipt = RECEIPT_VALIDATOR.validate_receipt(
+                root, require_pass_or_skip=True
+            )
+            self.assertEqual(receipt["outcome"], "pass")
+
     def test_receipt_scope_tracks_non_admitted_product_stage(self) -> None:
         with tempfile.TemporaryDirectory(
             prefix="ror-child-product-receipt-pass-"
@@ -831,7 +862,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
         self.assertIn("@ROR_SOURCE_COMMIT@", self.config)
         self.assertIn("@ROR_OGRE_NEXT_COMMIT@", self.config)
         for token in (
-            '"schema_version": 6',
+            '"schema_version": 7',
             '"headless_child_bootstrap": true',
             '"headless_child_output_name": "RoR-OgreNext"',
             '"headless_child_execution_receipt_schema": '
@@ -923,7 +954,7 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
     def test_receipt_validator_is_exact_and_fail_closed(self) -> None:
         for token in (
             "duplicate JSON key",
-            "build contract schema 6",
+            "build contract schema 6 or 7",
             "child binary artifact binding mismatch",
             "child execution log binding mismatch",
             "child receipt outcome classification mismatch",
