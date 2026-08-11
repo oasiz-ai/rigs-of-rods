@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,6 +38,18 @@ TextureMipLevelDescriptor MakeMip(
   mip.row_pitch_bytes = static_cast<std::uint64_t>(width) * 4U;
   mip.layer_pitch_bytes = mip.row_pitch_bytes * height;
   mip.bytes = std::move(bytes);
+  return mip;
+}
+
+Ogre14DecodedSourceTextureMip MakeDecodedMip(std::uint32_t width,
+                                             std::uint32_t height,
+                                             std::vector<std::uint8_t> bytes) {
+  Ogre14DecodedSourceTextureMip mip;
+  mip.width = width;
+  mip.height = height;
+  mip.row_pitch_bytes = static_cast<std::uint64_t>(width) * 4U;
+  mip.slice_pitch_bytes = mip.row_pitch_bytes * height;
+  mip.rgba8_unorm = std::move(bytes);
   return mip;
 }
 
@@ -196,6 +209,385 @@ void CheckConventionalSrgbPbrRollback() {
               texture.mip_levels[1U].bytes ==
                   extra_before.mip_levels[1U].bytes,
           "authored sRGB PBR nonzero mip was consumed or rewritten");
+}
+
+Ogre14DecodedSourceTexture DecodedSrgbMipPrefix() {
+  const TextureResourceDescriptor native = NativeBaseLevel();
+  Ogre14DecodedSourceTexture decoded;
+  decoded.width = native.width;
+  decoded.height = native.height;
+  // Model the generic decoder's canonical output for one authored multi-mip
+  // legacy DXT1 source. The product validates every decoded level but consumes
+  // only this base when regenerating its deterministic chain.
+  decoded.source_format = Ogre14SourceTextureFormat::BC1_UNORM;
+  decoded.color_semantic = Ogre14SourceTextureColorSemantic::SRGB_COLOR;
+  decoded.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+  decoded.source_has_alpha = false;
+  decoded.mip_levels.push_back(
+      MakeDecodedMip(4U, 4U, native.mip_levels.front().bytes));
+  decoded.mip_levels.push_back(
+      MakeDecodedMip(2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 7U)));
+  decoded.mip_levels.push_back(
+      MakeDecodedMip(1U, 1U, std::vector<std::uint8_t>(4U, 19U)));
+  return decoded;
+}
+
+void CheckDecodedSourceUsesOnlyDeterministicBase() {
+  TextureResourceDescriptor expected = NativeBaseLevel();
+  Require(CompleteOgreNextDemoSrgbPbrMipChain(expected).ok(),
+          "test deterministic PBR chain could not be built");
+
+  Ogre14DecodedSourceTexture decoded = DecodedSrgbMipPrefix();
+  const std::vector<std::uint8_t> authored_second =
+      decoded.mip_levels[1U].rgba8_unorm;
+  TextureResourceDescriptor output;
+  const ValidationResult result =
+      BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+          std::move(decoded), 4U, 4U, "decoded/multi-mip", output);
+  Require(result.ok() && output.debug_name == "decoded/multi-mip" &&
+              output.mip_levels.size() == expected.mip_levels.size(),
+          "valid decoded multi-mip source was not lowered");
+  for (std::size_t level = 0U; level < output.mip_levels.size(); ++level) {
+    Require(output.mip_levels[level].bytes == expected.mip_levels[level].bytes,
+            "authored nonzero source mip changed deterministic PBR output");
+    for (std::size_t alpha = 3U; alpha < output.mip_levels[level].bytes.size();
+         alpha += 4U) {
+      Require(output.mip_levels[level].bytes[alpha] == 255U,
+              "decoded-source PBR output retained nonopaque alpha");
+    }
+  }
+  Require(output.mip_levels[1U].bytes != authored_second,
+          "authored nonzero source mip was published instead of regenerated");
+}
+
+void CheckDecodedSourceFailureRollback() {
+  TextureResourceDescriptor output = NativeBaseLevel();
+  const TextureResourceDescriptor before = output;
+  Ogre14DecodedSourceTexture malformed = DecodedSrgbMipPrefix();
+  malformed.mip_levels[1U].width = 3U;
+  const ValidationResult malformed_result =
+      BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+          std::move(malformed), 4U, 4U, "decoded/malformed", output);
+  Require(!malformed_result.ok() && output.debug_name == before.debug_name &&
+              output.width == before.width && output.height == before.height &&
+              output.mip_levels.size() == before.mip_levels.size() &&
+              output.mip_levels.front().bytes ==
+                  before.mip_levels.front().bytes,
+          "malformed decoded lower mip changed product output");
+
+  Ogre14DecodedSourceTexture wrong_dimensions = DecodedSrgbMipPrefix();
+  const ValidationResult dimension_result =
+      BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+          std::move(wrong_dimensions), 8U, 4U,
+          "decoded/wrong-native-dimensions", output);
+  Require(!dimension_result.ok() && output.debug_name == before.debug_name &&
+              output.width == before.width && output.height == before.height &&
+              output.mip_levels.size() == before.mip_levels.size() &&
+              output.mip_levels.front().bytes ==
+                  before.mip_levels.front().bytes,
+          "decoded/native dimension mismatch changed product output");
+}
+
+void CheckTextureSourceSelectionContract() {
+  OgreNextDemoTextureSourceMode mode =
+      OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+  const ValidationResult missing_receipt = ValidationResult::Failure(
+      ValidationCode::MISSING_REFERENCE, "texture_registry.resource_lookup",
+      "exact authenticated texture resource is absent");
+  const ValidationResult required_missing =
+      SelectOgreNextDemoTextureSourceMode(true, true, missing_receipt, mode);
+  std::size_t gpu_readbacks = 0U;
+  if (required_missing.ok() &&
+      mode == OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK) {
+    ++gpu_readbacks;
+  }
+  Require(
+      !required_missing.ok() && gpu_readbacks == 0U &&
+          mode == OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK,
+      "authenticated-required missing receipt fell through to GPU readback");
+
+  const ValidationResult ordinary = SelectOgreNextDemoTextureSourceMode(
+      false, false, ValidationResult::Success(), mode);
+  if (ordinary.ok() &&
+      mode == OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK) {
+    ++gpu_readbacks;
+  }
+  Require(ordinary.ok() && gpu_readbacks == 1U,
+          "ordinary texture did not select exactly one GPU readback");
+
+  mode = OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+  const ValidationResult required = SelectOgreNextDemoTextureSourceMode(
+      true, true, ValidationResult::Success(), mode);
+  Require(required.ok() &&
+              mode == OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES,
+          "successful authenticated resolution did not select source bytes");
+
+  const ValidationResult ordinary_probe = SelectOgreNextDemoTextureSourceMode(
+      false, true, ValidationResult::Success(), mode);
+  Require(!ordinary_probe.ok(),
+          "ordinary texture was allowed to probe authenticated authority");
+}
+
+void CheckAuthenticatedCacheReachabilitySequence() {
+  constexpr OgreNextDemoTextureSourceMode authenticated =
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES;
+  std::size_t authenticated_gpu_readbacks = 0U;
+
+  const ValidationResult frame_n =
+      ValidateOgreNextDemoCachedTextureSourceAuthority(
+          authenticated, true, true, true, ValidationResult::Success(), true);
+  Require(frame_n.ok() && authenticated_gpu_readbacks == 0U,
+          "frame N authenticated cache observation was rejected or read back");
+
+  // N+1 has no reachable instance after same-map bundle unload. The immutable
+  // owner remains only to prevent source-ID resurrection and probes nothing.
+  const ValidationResult frame_n_plus_1 =
+      ValidateOgreNextDemoCachedTextureSourceAuthority(
+          authenticated, false, false, false, ValidationResult::Success(),
+          false);
+  Require(frame_n_plus_1.ok() && authenticated_gpu_readbacks == 0U,
+          "frame N+1 unreachable owner probed or read back native storage");
+
+  const ValidationResult missing_fresh_receipt = ValidationResult::Failure(
+      ValidationCode::MISSING_REFERENCE, "texture_resolution.resource_lookup",
+      "same group/name reload has no exact frozen receipt");
+  const ValidationResult frame_n_plus_2_missing =
+      ValidateOgreNextDemoCachedTextureSourceAuthority(
+          authenticated, true, true, true, missing_fresh_receipt, false);
+  Require(!frame_n_plus_2_missing.ok() && authenticated_gpu_readbacks == 0U,
+          "frame N+2 missing fresh receipt fell through to GPU readback");
+
+  const ValidationResult frame_n_plus_2_mutated =
+      ValidateOgreNextDemoCachedTextureSourceAuthority(
+          authenticated, true, true, true, ValidationResult::Success(), false);
+  Require(!frame_n_plus_2_mutated.ok() && authenticated_gpu_readbacks == 0U,
+          "frame N+2 changed immutable receipt was accepted or read back");
+
+  const ValidationResult revoked_before_reuse =
+      ValidateOgreNextDemoCachedTextureSourceAuthority(
+          authenticated, true, false, false, ValidationResult::Success(),
+          false);
+  Require(!revoked_before_reuse.ok() && authenticated_gpu_readbacks == 0U,
+          "revoked authenticated cache entry demoted to native readback");
+}
+
+struct FrozenPublicationCatalog final {
+  std::vector<OgreNextDemoCachedProjectionPublicationInput> projections;
+  std::vector<OgreNextDemoCachedTexturePublicationInput> textures;
+  std::vector<OgreNextDemoCachedSamplerPublicationInput> samplers;
+};
+
+std::string
+PublicationCatalogFingerprint(const FrozenPublicationCatalog &catalog) {
+  std::string fingerprint;
+  const auto append = [&fingerprint](std::string_view value) {
+    fingerprint.append(value.data(), value.size());
+    fingerprint.push_back('\0');
+  };
+  for (const auto &projection : catalog.projections) {
+    append(projection.projection_key);
+    append(projection.texture_key);
+    append(projection.sampler_key);
+    append(std::to_string(projection.material_source_id));
+  }
+  for (const auto &texture : catalog.textures) {
+    append(texture.texture_key);
+    append(std::to_string(texture.texture_source_id));
+    append(std::to_string(static_cast<std::uint64_t>(texture.source_mode)));
+  }
+  for (const auto &sampler : catalog.samplers) {
+    append(sampler.sampler_key);
+    append(std::to_string(sampler.sampler_source_id));
+  }
+  return fingerprint;
+}
+
+FrozenPublicationCatalog RepresentativePublicationCatalog() {
+  FrozenPublicationCatalog catalog;
+  catalog.textures.push_back(
+      {"texture/authenticated", 101U,
+       OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES});
+  catalog.textures.push_back(
+      {"texture/ordinary", 102U,
+       OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK});
+  catalog.samplers.push_back({"sampler/authenticated", 201U});
+  catalog.samplers.push_back({"sampler/ordinary", 202U});
+  catalog.projections.push_back({"projection/authenticated",
+                                 "texture/authenticated",
+                                 "sampler/authenticated", 301U});
+  catalog.projections.push_back(
+      {"projection/ordinary", "texture/ordinary", "sampler/ordinary", 302U});
+  return catalog;
+}
+
+class FakePublicationBatchValidator final
+    : public IOgreNextDemoAuthenticatedTexturePublicationBatchValidator {
+public:
+  ValidationResult ValidateReachableAuthenticatedTextureBatch(
+      const std::vector<std::string> &texture_keys) override {
+    ++batch_calls;
+    observed_texture_keys = texture_keys;
+    return result;
+  }
+
+  ValidationResult result = ValidationResult::Success();
+  std::size_t batch_calls = 0U;
+  std::size_t gpu_readback_calls = 0U;
+  std::vector<std::string> observed_texture_keys;
+};
+
+OgreNextDemoCachedProjectionPublicationTransaction SentinelTransaction() {
+  OgreNextDemoCachedProjectionPublicationTransaction sentinel;
+  sentinel.owner_catalog.push_back({"sentinel", 9991U, 9992U, 9993U, true});
+  sentinel.frame_root_material_source_ids.push_back(9991U);
+  sentinel.authenticated_texture_keys.push_back("sentinel/texture");
+  return sentinel;
+}
+
+bool IsSentinelTransaction(
+    const OgreNextDemoCachedProjectionPublicationTransaction &transaction) {
+  return transaction.owner_catalog.size() == 1U &&
+         transaction.owner_catalog.front().projection_key == "sentinel" &&
+         transaction.owner_catalog.front().material_source_id == 9991U &&
+         transaction.owner_catalog.front().texture_source_id == 9992U &&
+         transaction.owner_catalog.front().sampler_source_id == 9993U &&
+         transaction.owner_catalog.front().frame_reachable &&
+         transaction.frame_root_material_source_ids ==
+             std::vector<std::uint64_t>{9991U} &&
+         transaction.authenticated_texture_keys ==
+             std::vector<std::string>{"sentinel/texture"};
+}
+
+void CheckCachedPublicationTransactionSequence() {
+  const auto committed = std::make_shared<const FrozenPublicationCatalog>(
+      RepresentativePublicationCatalog());
+  const std::string frozen_fingerprint =
+      PublicationCatalogFingerprint(*committed);
+
+  // Frame N: the actual used-projection key roots only the authenticated
+  // material, while Apply still publishes both cached P/T/S owner triples.
+  FakePublicationBatchValidator frame_n_validator;
+  OgreNextDemoCachedProjectionPublicationTransaction frame_n;
+  Require(BuildOgreNextDemoCachedProjectionPublicationTransaction(
+              committed->projections, committed->textures, committed->samplers,
+              {"projection/authenticated"}, frame_n_validator, frame_n)
+              .ok(),
+          "frame N cached publication transaction failed");
+  Require(frame_n.owner_catalog.size() == 2U &&
+              frame_n.owner_catalog[0U].frame_reachable &&
+              !frame_n.owner_catalog[1U].frame_reachable &&
+              frame_n.frame_root_material_source_ids ==
+                  std::vector<std::uint64_t>{301U} &&
+              frame_n.authenticated_texture_keys ==
+                  std::vector<std::string>{"texture/authenticated"} &&
+              frame_n_validator.batch_calls == 1U &&
+              frame_n_validator.observed_texture_keys ==
+                  frame_n.authenticated_texture_keys &&
+              frame_n_validator.gpu_readback_calls == 0U,
+          "frame N did not retain all owners and validate exactly one rooted "
+          "authenticated texture");
+
+  // Frame N+1 represents same-map bundle unload after every instance root was
+  // removed. BeginCapture retains the same immutable COW catalog; Apply emits
+  // byte-identical P/T/S owners but no rooted closure or authority callback.
+  const auto pending_unreachable = committed;
+  FakePublicationBatchValidator frame_n_plus_1_validator;
+  OgreNextDemoCachedProjectionPublicationTransaction frame_n_plus_1;
+  Require(BuildOgreNextDemoCachedProjectionPublicationTransaction(
+              pending_unreachable->projections, pending_unreachable->textures,
+              pending_unreachable->samplers, {}, frame_n_plus_1_validator,
+              frame_n_plus_1)
+              .ok(),
+          "frame N+1 unreachable cached publication failed");
+  Require(committed.get() == pending_unreachable.get() &&
+              committed.use_count() == 2U &&
+              PublicationCatalogFingerprint(*committed) == frozen_fingerprint &&
+              frame_n_plus_1.owner_catalog.size() == 2U &&
+              !frame_n_plus_1.owner_catalog[0U].frame_reachable &&
+              !frame_n_plus_1.owner_catalog[1U].frame_reachable &&
+              frame_n_plus_1.owner_catalog[0U].material_source_id == 301U &&
+              frame_n_plus_1.owner_catalog[0U].texture_source_id == 101U &&
+              frame_n_plus_1.owner_catalog[0U].sampler_source_id == 201U &&
+              frame_n_plus_1.frame_root_material_source_ids.empty() &&
+              frame_n_plus_1.authenticated_texture_keys.empty() &&
+              frame_n_plus_1_validator.batch_calls == 0U &&
+              frame_n_plus_1_validator.gpu_readback_calls == 0U,
+          "frame N+1 changed the COW owner catalog or rooted/probed an "
+          "unreachable texture");
+
+  // Frame N+2 unchanged reuse must retain stable IDs and perform one fresh
+  // batch-authority validation before the transaction commits.
+  FakePublicationBatchValidator frame_n_plus_2_validator;
+  OgreNextDemoCachedProjectionPublicationTransaction frame_n_plus_2;
+  Require(BuildOgreNextDemoCachedProjectionPublicationTransaction(
+              committed->projections, committed->textures, committed->samplers,
+              {"projection/authenticated"}, frame_n_plus_2_validator,
+              frame_n_plus_2)
+                  .ok() &&
+              frame_n_plus_2.owner_catalog[0U].material_source_id == 301U &&
+              frame_n_plus_2.owner_catalog[0U].texture_source_id == 101U &&
+              frame_n_plus_2.owner_catalog[0U].sampler_source_id == 201U &&
+              frame_n_plus_2_validator.batch_calls == 1U &&
+              frame_n_plus_2_validator.gpu_readback_calls == 0U,
+          "frame N+2 unchanged reuse changed IDs or skipped fresh authority");
+
+  const auto require_authority_rollback = [&](ValidationCode code,
+                                              const char *field,
+                                              const char *detail) {
+    FakePublicationBatchValidator validator;
+    validator.result = ValidationResult::Failure(code, field, detail);
+    OgreNextDemoCachedProjectionPublicationTransaction output =
+        SentinelTransaction();
+    const ValidationResult result =
+        BuildOgreNextDemoCachedProjectionPublicationTransaction(
+            committed->projections, committed->textures, committed->samplers,
+            {"projection/authenticated"}, validator, output);
+    Require(
+        !result.ok() && IsSentinelTransaction(output) &&
+            PublicationCatalogFingerprint(*committed) == frozen_fingerprint &&
+            validator.batch_calls == 1U && validator.gpu_readback_calls == 0U,
+        "revoked, mutated, or missing authority partially committed or read "
+        "back");
+  };
+  require_authority_rollback(ValidationCode::MISSING_REFERENCE,
+                             "missing_receipt",
+                             "reloaded texture has no exact receipt");
+  require_authority_rollback(
+      ValidationCode::REVISION_MISMATCH, "mutated_receipt",
+      "reloaded texture receipt has different immutable state");
+  require_authority_rollback(
+      ValidationCode::REVISION_MISMATCH, "revoked_authority",
+      "authenticated group authority was revoked before reuse");
+
+  FrozenPublicationCatalog missing_dependency = *committed;
+  missing_dependency.samplers.pop_back();
+  FakePublicationBatchValidator dependency_validator;
+  OgreNextDemoCachedProjectionPublicationTransaction dependency_output =
+      SentinelTransaction();
+  Require(!BuildOgreNextDemoCachedProjectionPublicationTransaction(
+               missing_dependency.projections, missing_dependency.textures,
+               missing_dependency.samplers, {"projection/authenticated"},
+               dependency_validator, dependency_output)
+                  .ok() &&
+              IsSentinelTransaction(dependency_output) &&
+              dependency_validator.batch_calls == 0U,
+          "missing cached dependency partially committed publication output");
+
+  FrozenPublicationCatalog duplicate = *committed;
+  duplicate.projections.push_back(duplicate.projections.front());
+  FakePublicationBatchValidator duplicate_validator;
+  OgreNextDemoCachedProjectionPublicationTransaction duplicate_output =
+      SentinelTransaction();
+  Require(!BuildOgreNextDemoCachedProjectionPublicationTransaction(
+               duplicate.projections, duplicate.textures, duplicate.samplers,
+               {"projection/authenticated"}, duplicate_validator,
+               duplicate_output)
+                  .ok() &&
+              IsSentinelTransaction(duplicate_output) &&
+              duplicate_validator.batch_calls == 0U &&
+              PublicationCatalogFingerprint(*committed) == frozen_fingerprint,
+          "duplicate cached projection partially committed or mutated the "
+          "frozen cache");
 }
 
 void CheckSamplingRejectionsAndMutation() {
@@ -467,6 +859,11 @@ int main() {
   CheckMalformedMipRollback();
   CheckConventionalSrgbPbrMipChain();
   CheckConventionalSrgbPbrRollback();
+  CheckDecodedSourceUsesOnlyDeterministicBase();
+  CheckDecodedSourceFailureRollback();
+  CheckTextureSourceSelectionContract();
+  CheckAuthenticatedCacheReachabilitySequence();
+  CheckCachedPublicationTransactionSequence();
   CheckSamplingRejectionsAndMutation();
   CheckIdentityCollisionAndRollback();
   CheckStaticCaptureAdmission();

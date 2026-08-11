@@ -325,8 +325,36 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
         ).read_text(encoding="utf-8")
+        private_policy_test = (
+            REPOSITORY_ROOT
+            / "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
+        ).read_text(encoding="utf-8")
         self.assertIn("texture.mip_levels.size() != 1U", private_policy)
         self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", private_policy)
+        self.assertIn(
+            "BuildOgreNextDemoSrgbPbrTextureFromDecodedSource",
+            private_policy,
+        )
+        self.assertIn(
+            "decoded.mip_levels.front()", private_policy
+        )
+        self.assertIn(
+            "authored nonzero mips cannot change established",
+            private_policy,
+        )
+        for reachability_test_token in (
+            "CheckAuthenticatedCacheReachabilitySequence",
+            "CheckCachedPublicationTransactionSequence",
+            "Frame N+1 represents same-map bundle unload",
+            "Frame N+2 unchanged reuse",
+            "missing cached dependency",
+            "duplicate cached projection",
+            "gpu_readback_calls == 0U",
+        ):
+            with self.subTest(
+                reachability_test_token=reachability_test_token
+            ):
+                self.assertIn(reachability_test_token, private_policy_test)
         material_source = (
             REPOSITORY_ROOT
             / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
@@ -345,24 +373,43 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "native_texture->getFormat() != texture_format",
             "buffer_after->getFormat() != native_format",
             "Ogre::PixelUtil::bulkPixelConversion(native_destination, destination)",
-            "captured.native_texture_format = captured_texture_format",
+            "captured.native_texture = native_texture.get()",
+            "captured.native_texture_format = native_texture->getFormat()",
             "captured.native_buffer_format = captured_buffer_format",
-            "texture->second.native_texture_format !=",
-            "texture->second.native_buffer_format != native_base->getFormat()",
+            "captured.native_texture_format != native_texture->getFormat()",
+            "captured.native_buffer_format !=",
         ):
             with self.subTest(native_readback_token=native_readback_token):
                 self.assertIn(native_readback_token, material_source)
-        self.assertNotIn(
-            "native_texture->getFormat() != native_format", material_source
-        )
         self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", material_source)
+        for authenticated_source_token in (
+            "RequiresAuthenticatedTextureSource",
+            "ResolveAuthenticatedTexture",
+            "DecodeOgre14SourceTexture",
+            "BuildOgreNextDemoSrgbPbrTextureFromDecodedSource",
+            "SharesImmutableStateWith",
+            "authenticated_content_decode_key",
+            "authenticated_source_decodes",
+            "authenticated_gpu_readbacks",
+            "unauthenticated_gpu_readbacks",
+            "Ogre::TexturePtr native_texture",
+            "authenticated_texture_observations.clear()",
+            "unreachable anti-tombstone owners only",
+        ):
+            with self.subTest(
+                authenticated_source_token=authenticated_source_token
+            ):
+                self.assertIn(authenticated_source_token, material_source)
+        self.assertNotIn(
+            "SharesLoadedResourceAuthorityWith", material_source
+        )
         self.assertIn("OgreNextDemoAllowsAlexisTUS0Approximation", material_source)
         self.assertIn("EquivalentRenderAssetPayload", material_source)
         self.assertIn("exact_unsigned_rgb8", material_source)
         self.assertIn("std::shared_ptr<MaterialCache> cache", material_source)
         self.assertIn("pending_->cache.unique()", material_source)
         self.assertIn(
-            "for (const auto &projection_entry : pending_->cache->projections)",
+            "cached_projection_publications.reserve(",
             material_source,
         )
         apply_source = material_source[
@@ -370,11 +417,49 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "Render::ValidationResult OgreNextDemoMaterialSource::Apply("
             ) :
         ]
-        self.assertNotIn(
-            "for (const std::string &key : pending_->used_projections)",
+        self.assertIn(
+            "used_projection_keys.assign(pending_->used_projections.begin(),",
             apply_source,
         )
-        self.assertIn("PreflightTextureBase(native_texture", material_source)
+        self.assertIn(
+            "BuildOgreNextDemoCachedProjectionPublicationTransaction(",
+            apply_source,
+        )
+        self.assertIn(
+            "publication_transaction.owner_catalog", apply_source
+        )
+        publication_policy = private_policy[
+            private_policy.index(
+                "BuildOgreNextDemoCachedProjectionPublicationTransaction("
+            ) : private_policy.index(
+                "Render::ValidationResult SelectOgreNextDemoTextureSourceMode("
+            )
+        ]
+        self.assertLess(
+            publication_policy.index(
+                "ValidateReachableAuthenticatedTextureBatch("
+            ),
+            publication_policy.index("output = std::move(candidate)"),
+        )
+        self.assertLess(
+            apply_source.index("ResolveFrozenAuthenticatedTexture("),
+            apply_source.index(
+                "CaptureAuthenticatedTextureAuthoritySnapshot("
+            ),
+        )
+        self.assertLess(
+            apply_source.index(
+                "CaptureAuthenticatedTextureAuthoritySnapshot("
+            ),
+            apply_source.index("final_authority.Authenticates("),
+        )
+        self.assertLess(
+            apply_source.index("final_authority.Authenticates("),
+            apply_source.index(
+                "resolver_->RevalidateAuthenticatedTexture("
+            ),
+        )
+        self.assertIn("PreflightTextureBase(", material_source)
         self.assertIn("current_projection_key != decision->second.projection_key",
                       material_source)
         self.assertNotIn("native_material_state_count", material_source)
@@ -387,7 +472,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "projection->second.base_color_factor != base_color_factor",
             "projection->second.roughness_factor != roughness_factor",
             "projection->second.emissive_factor != emissive_factor",
-            "texture->second.native_state_count !=",
+            "captured.native_state_count !=",
         ):
             with self.subTest(
                 projected_authority_token=projected_authority_token
@@ -397,6 +482,27 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                       gfx_scene)
         self.assertIn('"static/" +', gfx_scene)
         self.assertIn("Committed {} new opaque TUS0", gfx_scene)
+        material_commit = gfx_scene[
+            gfx_scene.index(
+                "void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept"
+            ) : gfx_scene.index(
+                "void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept"
+            )
+        ]
+        activity_gate_start = material_commit.index(
+            "if (m_ogre14_pending_capture->"
+            "new_material_projection_count != 0U"
+        )
+        activity_gate = material_commit[
+            activity_gate_start : material_commit.index(
+                "{", activity_gate_start
+            )
+        ]
+        self.assertNotIn(
+            "capture_counters.projections != 0U",
+            activity_gate,
+        )
+        self.assertIn("projections={}; lifetime", material_commit)
         terrain_pages = gfx_scene[
             gfx_scene.index("CaptureOgre14TerrainPages(") :
         ]
@@ -1520,6 +1626,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         main = (REPOSITORY_ROOT / "source/main/main.cpp").read_text(
             encoding="utf-8"
         )
+        game_context = (
+            REPOSITORY_ROOT / "source/main/GameContext.cpp"
+        ).read_text(encoding="utf-8")
         gfx_header = (
             REPOSITORY_ROOT / "source/main/gfx/GfxScene.h"
         ).read_text(encoding="utf-8")
@@ -1659,6 +1768,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             main.index("case MSG_SIM_UNLOAD_TERRN_REQUESTED") :
             main.index("case MSG_SIM_LOAD_SAVEGAME_REQUESTED")
         ]
+        capture_reset = (
+            "App::GetGfxScene()->"
+            "ResetOgre14GraphicsSceneGeneration();"
+        )
+        self.assertIn(capture_reset, unload_body)
         for teardown in (
             "EndPostProcessScene();",
             "CleanUpSimulation();",
@@ -1669,6 +1783,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             with self.subTest(teardown=teardown):
                 self.assertLess(
                     unload_body.index("ResetSceneGeneration();"),
+                    unload_body.index(teardown),
+                )
+                self.assertLess(
+                    unload_body.index(capture_reset),
                     unload_body.index(teardown),
                 )
         self.assertIn("FinalizeSceneGeneration()", producer_header)
@@ -1818,6 +1936,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ]
         for reset_token in (
             "DiscardOgre14GraphicsSceneCapture();",
+            "m_ogre_next_demo_material_source.Reset();",
             "m_ogre14_joined_buffer_epoch = 0U;",
             "m_ogre14_light_identity_registry.Reset();",
             "m_ogre14_static_identity_registry.Reset();",
@@ -1830,6 +1949,37 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ):
             with self.subTest(reset_token=reset_token):
                 self.assertIn(reset_token, reset_body)
+        clear_scene_body = gfx_source[
+            gfx_source.index("void GfxScene::ClearScene()") :
+            gfx_source.index(
+                "void GfxScene::ResetOgre14GraphicsSceneGeneration()"
+            )
+        ]
+        self.assertLess(
+            clear_scene_body.index(
+                "ResetOgre14GraphicsSceneGeneration();"
+            ),
+            clear_scene_body.index("m_scene_manager->clearScene();"),
+        )
+        fatal_scene = game_context[
+            game_context.index(
+                "bool GameContext::ShutdownSceneForFatalError() noexcept"
+            ) : game_context.index(
+                "// --------------------------------\n// Actors"
+            )
+        ]
+        self.assertIn(capture_reset, fatal_scene)
+        for fatal_teardown in (
+            "m_actor_manager.CleanUpSimulation();",
+            "m_character_factory.DeleteAllCharacters();",
+            "m_terrain->DisposeForFatalShutdown()",
+            "App::GetGfxScene()->ClearScene();",
+        ):
+            with self.subTest(fatal_teardown=fatal_teardown):
+                self.assertLess(
+                    fatal_scene.index(capture_reset),
+                    fatal_scene.index(fatal_teardown),
+                )
         for terrain_contract in (
             "kOgre14TerrainCpuCaptureVersion",
             "ValidateOgre14GraphicsSceneTerrainPageSet",

@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "gfx/render/Ogre14SourceTextureDecoder.h"
 #include "gfx/render/RenderResourceDescriptors.h"
 
 #include <cstddef>
@@ -20,6 +21,98 @@
 #include <vector>
 
 namespace RoR::Gfx::Detail {
+
+enum class OgreNextDemoTextureSourceMode : std::uint8_t {
+  AUTHENTICATED_SOURCE_BYTES = 0U,
+  UNAUTHENTICATED_GPU_READBACK = 1U,
+};
+
+/// Renderer-neutral inventory rows copied from MaterialSource's actual frozen
+/// projection/texture/sampler maps immediately before Apply publication.
+struct OgreNextDemoCachedProjectionPublicationInput final {
+  std::string projection_key;
+  std::string texture_key;
+  std::string sampler_key;
+  std::uint64_t material_source_id = 0U;
+};
+
+struct OgreNextDemoCachedTexturePublicationInput final {
+  std::string texture_key;
+  std::uint64_t texture_source_id = 0U;
+  OgreNextDemoTextureSourceMode source_mode =
+      OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+};
+
+struct OgreNextDemoCachedSamplerPublicationInput final {
+  std::string sampler_key;
+  std::uint64_t sampler_source_id = 0U;
+};
+
+struct OgreNextDemoCachedProjectionPublicationOwner final {
+  std::string projection_key;
+  std::uint64_t material_source_id = 0U;
+  std::uint64_t texture_source_id = 0U;
+  std::uint64_t sampler_source_id = 0U;
+  bool frame_reachable = false;
+};
+
+/// All cached owners remain in the asset catalog to prevent source-ID
+/// resurrection. Only material IDs in frame_root_material_source_ids may be
+/// reached by current instances/environment closures.
+struct OgreNextDemoCachedProjectionPublicationTransaction final {
+  std::vector<OgreNextDemoCachedProjectionPublicationOwner> owner_catalog;
+  std::vector<std::uint64_t> frame_root_material_source_ids;
+  std::vector<std::string> authenticated_texture_keys;
+};
+
+class IOgreNextDemoAuthenticatedTexturePublicationBatchValidator {
+public:
+  virtual ~IOgreNextDemoAuthenticatedTexturePublicationBatchValidator() =
+      default;
+
+  /// Called once with the complete distinct frame-reachable authenticated
+  /// texture-key batch, and never for an empty batch. The production adapter
+  /// resolves every key, captures one common authority snapshot, then
+  /// authenticates/revalidates the whole batch. There is deliberately no GPU
+  /// readback operation in this interface.
+  [[nodiscard]] virtual Render::ValidationResult
+  ValidateReachableAuthenticatedTextureBatch(
+      const std::vector<std::string> &texture_keys) = 0;
+};
+
+/// Builds the exact all-cache Apply publication inventory and frame-root
+/// closure. Every used projection must exist in the frozen cache. Reachable
+/// authenticated textures are observed once before the transaction can
+/// escape. `output` is unchanged on any validation/authority failure.
+[[nodiscard]] Render::ValidationResult
+BuildOgreNextDemoCachedProjectionPublicationTransaction(
+    const std::vector<OgreNextDemoCachedProjectionPublicationInput>
+        &projections,
+    const std::vector<OgreNextDemoCachedTexturePublicationInput> &textures,
+    const std::vector<OgreNextDemoCachedSamplerPublicationInput> &samplers,
+    const std::vector<std::string> &used_projection_keys,
+    IOgreNextDemoAuthenticatedTexturePublicationBatchValidator &validator,
+    OgreNextDemoCachedProjectionPublicationTransaction &output);
+
+/// Renderer-neutral fail-closed decision between the two product texture
+/// capture paths. Required authentication must have one successful resolution;
+/// ordinary content must not probe the authenticated registry at all. Output is
+/// transactionally unchanged on failure.
+[[nodiscard]] Render::ValidationResult SelectOgreNextDemoTextureSourceMode(
+    bool authenticated_source_required, bool resolution_attempted,
+    const Render::ValidationResult &resolution_result,
+    OgreNextDemoTextureSourceMode &output);
+
+/// Validates one cached source-mode observation without permitting authority
+/// demotion. Unreachable entries may remain as immutable anti-tombstone owners
+/// without probing live authority. A reachable authenticated entry requires a
+/// successful fresh resolution whose receipt shares its frozen immutable state.
+[[nodiscard]] Render::ValidationResult
+ValidateOgreNextDemoCachedTextureSourceAuthority(
+    OgreNextDemoTextureSourceMode frozen_mode, bool frame_reachable,
+    bool authenticated_source_required, bool fresh_resolution_attempted,
+    const Render::ValidationResult &fresh_resolution_result,
+    bool immutable_receipt_matches);
 
 /// Canonicalized result of observing the exact OGRE terrain TUS0. Native
 /// pointer/layout identity is retained in exact_native_state; the booleans
@@ -57,9 +150,19 @@ struct OgreNextDemoSamplingObservation final {
 [[nodiscard]] Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
     Render::TextureResourceDescriptor &texture);
 
-[[nodiscard]] Render::ValidationResult DeriveOgreNextDemoSourceId(
-    std::string_view domain, std::string_view exact_key,
-    std::uint64_t &source_id);
+/// Validates a complete renderer-neutral decoded mip prefix, consumes only its
+/// canonical base level, and regenerates the established deterministic opaque
+/// sRGB PBR mip chain. Authored nonzero DDS mips are validation inputs only;
+/// they never affect product pixels. `output` is unchanged on failure.
+[[nodiscard]] Render::ValidationResult
+BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+    Render::Ogre14DecodedSourceTexture decoded,
+    std::uint32_t expected_native_width, std::uint32_t expected_native_height,
+    std::string_view debug_name, Render::TextureResourceDescriptor &output);
+
+[[nodiscard]] Render::ValidationResult
+DeriveOgreNextDemoSourceId(std::string_view domain, std::string_view exact_key,
+                           std::uint64_t &source_id);
 
 /// Canonicalizes an untextured demo-matte mesh to the exact RT4 vertex
 /// layout. Authored UV0 is retained, absent UV0 becomes deterministic zero,

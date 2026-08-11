@@ -58,6 +58,255 @@ std::uint8_t EncodeLinearSrgbByte(double linear) {
 
 } // namespace
 
+Render::ValidationResult
+BuildOgreNextDemoCachedProjectionPublicationTransaction(
+    const std::vector<OgreNextDemoCachedProjectionPublicationInput>
+        &projections,
+    const std::vector<OgreNextDemoCachedTexturePublicationInput> &textures,
+    const std::vector<OgreNextDemoCachedSamplerPublicationInput> &samplers,
+    const std::vector<std::string> &used_projection_keys,
+    IOgreNextDemoAuthenticatedTexturePublicationBatchValidator &validator,
+    OgreNextDemoCachedProjectionPublicationTransaction &output) {
+  std::map<std::string, const OgreNextDemoCachedProjectionPublicationInput *,
+           std::less<>>
+      catalog_by_key;
+  std::map<std::uint64_t, std::string> projection_keys_by_material_id;
+  for (std::size_t index = 0U; index < projections.size(); ++index) {
+    const OgreNextDemoCachedProjectionPublicationInput &input =
+        projections[index];
+    if (input.projection_key.empty() || input.texture_key.empty() ||
+        input.sampler_key.empty() || input.material_source_id == 0U) {
+      return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                     "ogre_next_demo.material.publication.projection",
+                     "cached projection publication identity is empty or zero",
+                     index);
+    }
+    if (!catalog_by_key.emplace(input.projection_key, &input).second) {
+      return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                     "ogre_next_demo.material.publication.projection_key",
+                     "cached projection key is duplicated", index);
+    }
+    const auto material_identity = projection_keys_by_material_id.emplace(
+        input.material_source_id, input.projection_key);
+    if (!material_identity.second &&
+        material_identity.first->second != input.projection_key) {
+      return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                     "ogre_next_demo.material.publication.material_id",
+                     "distinct cached projections share one material source ID",
+                     index);
+    }
+  }
+
+  std::map<std::string, const OgreNextDemoCachedTexturePublicationInput *,
+           std::less<>>
+      textures_by_key;
+  std::map<std::uint64_t, std::string> texture_keys_by_id;
+  for (std::size_t index = 0U; index < textures.size(); ++index) {
+    const OgreNextDemoCachedTexturePublicationInput &input = textures[index];
+    if (input.texture_key.empty() || input.texture_source_id == 0U) {
+      return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                     "ogre_next_demo.material.publication.texture",
+                     "cached texture publication identity is empty or zero",
+                     index);
+    }
+    if (input.source_mode !=
+            OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES &&
+        input.source_mode !=
+            OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK) {
+      return Failure(Render::ValidationCode::INVALID_ENUM,
+                     "ogre_next_demo.material.publication.texture_mode",
+                     "cached texture source mode is invalid", index);
+    }
+    if (!textures_by_key.emplace(input.texture_key, &input).second ||
+        !texture_keys_by_id.emplace(input.texture_source_id, input.texture_key)
+             .second) {
+      return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                     "ogre_next_demo.material.publication.texture",
+                     "cached texture key or source ID is duplicated", index);
+    }
+  }
+
+  std::map<std::string, const OgreNextDemoCachedSamplerPublicationInput *,
+           std::less<>>
+      samplers_by_key;
+  std::map<std::uint64_t, std::string> sampler_keys_by_id;
+  for (std::size_t index = 0U; index < samplers.size(); ++index) {
+    const OgreNextDemoCachedSamplerPublicationInput &input = samplers[index];
+    if (input.sampler_key.empty() || input.sampler_source_id == 0U) {
+      return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                     "ogre_next_demo.material.publication.sampler",
+                     "cached sampler publication identity is empty or zero",
+                     index);
+    }
+    if (!samplers_by_key.emplace(input.sampler_key, &input).second ||
+        !sampler_keys_by_id.emplace(input.sampler_source_id, input.sampler_key)
+             .second) {
+      return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                     "ogre_next_demo.material.publication.sampler",
+                     "cached sampler key or source ID is duplicated", index);
+    }
+  }
+
+  for (std::size_t index = 0U; index < projections.size(); ++index) {
+    const OgreNextDemoCachedProjectionPublicationInput &input =
+        projections[index];
+    if (textures_by_key.find(input.texture_key) == textures_by_key.end() ||
+        samplers_by_key.find(input.sampler_key) == samplers_by_key.end()) {
+      return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                     "ogre_next_demo.material.publication.dependency",
+                     "cached projection texture or sampler owner is absent",
+                     index);
+    }
+  }
+
+  std::map<std::string, bool, std::less<>> used_keys;
+  for (std::size_t index = 0U; index < used_projection_keys.size(); ++index) {
+    const std::string &key = used_projection_keys[index];
+    if (key.empty() || catalog_by_key.find(key) == catalog_by_key.end()) {
+      return Failure(
+          Render::ValidationCode::MISSING_REFERENCE,
+          "ogre_next_demo.material.publication.used_projection",
+          "frame-reachable projection is absent from the frozen cache", index);
+    }
+    if (!used_keys.emplace(key, true).second) {
+      return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                     "ogre_next_demo.material.publication.used_projection",
+                     "frame-reachable projection key is duplicated", index);
+    }
+  }
+
+  OgreNextDemoCachedProjectionPublicationTransaction candidate;
+  candidate.owner_catalog.reserve(projections.size());
+  candidate.frame_root_material_source_ids.reserve(used_keys.size());
+  std::map<std::string, bool, std::less<>> observed_authenticated_textures;
+  for (const OgreNextDemoCachedProjectionPublicationInput &input :
+       projections) {
+    const bool frame_reachable =
+        used_keys.find(input.projection_key) != used_keys.end();
+    const OgreNextDemoCachedTexturePublicationInput &texture =
+        *textures_by_key.find(input.texture_key)->second;
+    const OgreNextDemoCachedSamplerPublicationInput &sampler =
+        *samplers_by_key.find(input.sampler_key)->second;
+    OgreNextDemoCachedProjectionPublicationOwner owner;
+    owner.projection_key = input.projection_key;
+    owner.material_source_id = input.material_source_id;
+    owner.texture_source_id = texture.texture_source_id;
+    owner.sampler_source_id = sampler.sampler_source_id;
+    owner.frame_reachable = frame_reachable;
+    candidate.owner_catalog.push_back(std::move(owner));
+    if (!frame_reachable) {
+      continue;
+    }
+    candidate.frame_root_material_source_ids.push_back(
+        input.material_source_id);
+    if (texture.source_mode !=
+        OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES) {
+      continue;
+    }
+    if (!observed_authenticated_textures.emplace(input.texture_key, true)
+             .second) {
+      continue;
+    }
+    candidate.authenticated_texture_keys.push_back(input.texture_key);
+  }
+  if (!candidate.authenticated_texture_keys.empty()) {
+    Render::ValidationResult validation =
+        validator.ValidateReachableAuthenticatedTextureBatch(
+            candidate.authenticated_texture_keys);
+    if (!validation) {
+      validation.field =
+          "ogre_next_demo.material.publication." + validation.field;
+      return validation;
+    }
+  }
+  output = std::move(candidate);
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult SelectOgreNextDemoTextureSourceMode(
+    bool authenticated_source_required, bool resolution_attempted,
+    const Render::ValidationResult &resolution_result,
+    OgreNextDemoTextureSourceMode &output) {
+  if (authenticated_source_required) {
+    if (!resolution_attempted) {
+      return Failure(
+          Render::ValidationCode::MISSING_REFERENCE,
+          "ogre_next_demo.material.authenticated.resolution",
+          "authenticated-required texture has no source resolution attempt");
+    }
+    if (!resolution_result) {
+      return resolution_result;
+    }
+    output = OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES;
+    return Render::ValidationResult::Success();
+  }
+  if (resolution_attempted) {
+    return Failure(
+        Render::ValidationCode::SEQUENCE_MISMATCH,
+        "ogre_next_demo.material.unauthenticated.resolution",
+        "ordinary texture must not probe authenticated source authority");
+  }
+  if (!resolution_result) {
+    return Failure(
+        Render::ValidationCode::SEQUENCE_MISMATCH,
+        "ogre_next_demo.material.unauthenticated.resolution_result",
+        "ordinary texture received a stale source-resolution failure");
+  }
+  output = OgreNextDemoTextureSourceMode::UNAUTHENTICATED_GPU_READBACK;
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult ValidateOgreNextDemoCachedTextureSourceAuthority(
+    OgreNextDemoTextureSourceMode frozen_mode, bool frame_reachable,
+    bool authenticated_source_required, bool fresh_resolution_attempted,
+    const Render::ValidationResult &fresh_resolution_result,
+    bool immutable_receipt_matches) {
+  if (!frame_reachable) {
+    if (fresh_resolution_attempted || !fresh_resolution_result ||
+        immutable_receipt_matches) {
+      return Failure(
+          Render::ValidationCode::SEQUENCE_MISMATCH,
+          "ogre_next_demo.material.cached.unreachable",
+          "unreachable anti-tombstone owner probed live texture authority");
+    }
+    return Render::ValidationResult::Success();
+  }
+
+  if (frozen_mode ==
+      OgreNextDemoTextureSourceMode::AUTHENTICATED_SOURCE_BYTES) {
+    if (!authenticated_source_required) {
+      return Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.cached.authenticated_classification",
+          "frozen authenticated source cannot demote to GPU readback");
+    }
+    if (!fresh_resolution_attempted) {
+      return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                     "ogre_next_demo.material.cached.authenticated_resolution",
+                     "reachable authenticated source has no fresh resolution");
+    }
+    if (!fresh_resolution_result) {
+      return fresh_resolution_result;
+    }
+    if (!immutable_receipt_matches) {
+      return Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.material.cached.authenticated_receipt",
+          "fresh authenticated receipt differs from the frozen source state");
+    }
+    return Render::ValidationResult::Success();
+  }
+
+  if (authenticated_source_required || fresh_resolution_attempted ||
+      !fresh_resolution_result || immutable_receipt_matches) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.material.cached.unauthenticated_classification",
+        "cached ordinary texture changed source authority classification");
+  }
+  return Render::ValidationResult::Success();
+}
+
 Render::ValidationResult ValidateOgreNextDemoSampling(
     const OgreNextDemoSamplingObservation &observation) {
   if (!observation.ordinary_texture) {
@@ -327,9 +576,100 @@ Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult DeriveOgreNextDemoSourceId(
-    std::string_view domain, std::string_view exact_key,
-    std::uint64_t &source_id) {
+Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
+    Render::Ogre14DecodedSourceTexture decoded,
+    std::uint32_t expected_native_width, std::uint32_t expected_native_height,
+    std::string_view debug_name, Render::TextureResourceDescriptor &output) {
+  if (decoded.version != Render::kOgre14DecodedSourceTextureVersion ||
+      decoded.width == 0U || decoded.height == 0U ||
+      decoded.width != expected_native_width ||
+      decoded.height != expected_native_height || debug_name.empty() ||
+      decoded.color_semantic !=
+          Render::Ogre14SourceTextureColorSemantic::SRGB_COLOR ||
+      decoded.mip_levels.empty() ||
+      decoded.mip_levels.size() >
+          CompleteMipCount(decoded.width, decoded.height)) {
+    return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                   "ogre_next_demo.material.authenticated.decoded_identity",
+                   "decoded source schema, dimensions, semantic, or mip count "
+                   "disagrees with the loaded texture");
+  }
+  if ((decoded.source_format == Render::Ogre14SourceTextureFormat::BC1_UNORM &&
+       decoded.bc1_alpha_mode !=
+           Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE) ||
+      (decoded.source_format != Render::Ogre14SourceTextureFormat::BC1_UNORM &&
+       decoded.bc1_alpha_mode !=
+           Render::Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE)) {
+    return Failure(Render::ValidationCode::INVALID_ENUM,
+                   "ogre_next_demo.material.authenticated.bc1_alpha_mode",
+                   "opaque product projection requires the frozen BC1 opaque "
+                   "interpretation only for BC1 sources");
+  }
+
+  std::uint32_t mip_width = decoded.width;
+  std::uint32_t mip_height = decoded.height;
+  for (std::size_t level = 0U; level < decoded.mip_levels.size(); ++level) {
+    const Render::Ogre14DecodedSourceTextureMip &mip =
+        decoded.mip_levels[level];
+    const std::uint64_t row_bytes = static_cast<std::uint64_t>(mip_width) * 4U;
+    const std::uint64_t slice_bytes = row_bytes * mip_height;
+    if (mip.version != Render::kOgre14DecodedSourceTextureMipVersion ||
+        mip.width != mip_width || mip.height != mip_height ||
+        mip.row_pitch_bytes != row_bytes ||
+        mip.slice_pitch_bytes != slice_bytes ||
+        slice_bytes > static_cast<std::uint64_t>(
+                          (std::numeric_limits<std::size_t>::max)()) ||
+        mip.rgba8_unorm.size() != static_cast<std::size_t>(slice_bytes)) {
+      return Failure(
+          Render::ValidationCode::SIZE_MISMATCH,
+          "ogre_next_demo.material.authenticated.decoded_mip",
+          "decoded source mip prefix is not canonical tight RGBA8 geometry",
+          level);
+    }
+    mip_width = (std::max)(1U, mip_width / 2U);
+    mip_height = (std::max)(1U, mip_height / 2U);
+  }
+
+  Render::Ogre14DecodedSourceTextureMip &decoded_base =
+      decoded.mip_levels.front();
+  Render::TextureMipLevelDescriptor base;
+  base.width = decoded_base.width;
+  base.height = decoded_base.height;
+  base.row_pitch_bytes = decoded_base.row_pitch_bytes;
+  base.layer_pitch_bytes = decoded_base.slice_pitch_bytes;
+  base.bytes = std::move(decoded_base.rgba8_unorm);
+
+  Render::TextureResourceDescriptor candidate;
+  candidate.debug_name.assign(debug_name.data(), debug_name.size());
+  candidate.type = Render::TextureResourceType::TEXTURE_2D;
+  candidate.format = Render::TextureResourceFormat::RGBA8_UNORM;
+  candidate.color_space = Render::TextureColorSpace::SRGB;
+  candidate.width = decoded.width;
+  candidate.height = decoded.height;
+  candidate.array_layers = 1U;
+  candidate.mip_levels.push_back(std::move(base));
+
+  // The full decoded prefix above is authoritative validation input. Only the
+  // base is product input; authored nonzero mips cannot change established
+  // CityWorld/Alexis deterministic PBR filtering semantics.
+  Render::ValidationResult validation =
+      CompleteOgreNextDemoSrgbPbrMipChain(candidate);
+  if (!validation) {
+    return validation;
+  }
+  validation = Render::ValidateTextureResourceDescriptor(candidate);
+  if (!validation) {
+    validation.field =
+        "ogre_next_demo.material.authenticated.texture." + validation.field;
+    return validation;
+  }
+  output = std::move(candidate);
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult DeriveOgreNextDemoSourceId(std::string_view domain,
+                                                    std::string_view exact_key,
+                                                    std::uint64_t &source_id) {
   if (domain.empty() || exact_key.empty()) {
     return Failure(Render::ValidationCode::INVALID_IDENTIFIER,
                    "ogre_next_demo.source_id",

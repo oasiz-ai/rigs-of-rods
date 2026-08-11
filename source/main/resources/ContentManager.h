@@ -137,6 +137,8 @@ public:
     /// OGRE 14 native material extractor. Both calls must run on OGRE's
     /// serialized resource/render thread; only the registry access itself is
     /// synchronized for concurrent callers.
+    [[nodiscard]] bool RequiresAuthenticatedTextureSource(
+        Ogre::Texture& texture) const noexcept override;
     [[nodiscard]] Render::ValidationResult ResolveAuthenticatedTexture(
         Ogre::Texture& texture,
         Render::Ogre14AuthenticatedTextureResolution& resolution) const

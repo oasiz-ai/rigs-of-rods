@@ -14,12 +14,31 @@
 
 #include <OgreMaterial.h>
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
 
+namespace RoR::Render {
+class IOgre14AuthenticatedTextureResolver;
+class IOgre14AuthenticatedTextureAuthorityProvider;
+} // namespace RoR::Render
+
 namespace RoR::Gfx::Detail {
+
+/// Transactional accounting for the private product material source. A source
+/// decode/readback is counted only after its immutable texture payload and
+/// authority checks have succeeded. `projections` is the number of distinct
+/// projection identities used by the capture, not the number of mesh sections.
+struct OgreNextDemoMaterialSourceCounters final {
+  std::size_t authenticated_source_decodes = 0U;
+  /// Authenticated source bytes are never recovered from GPU storage. This
+  /// counter is explicit so product logs and acceptance tests can enforce zero.
+  std::size_t authenticated_gpu_readbacks = 0U;
+  std::size_t unauthenticated_gpu_readbacks = 0U;
+  std::size_t projections = 0U;
+};
 
 /// Performance-first private bridge for the playable OgreNext demo. It is not
 /// a legacy-material API: one narrowly eligible opaque TUS0 is captured once
@@ -36,6 +55,15 @@ public:
   OgreNextDemoMaterialSource(const OgreNextDemoMaterialSource &) = delete;
   OgreNextDemoMaterialSource &
   operator=(const OgreNextDemoMaterialSource &) = delete;
+
+  /// Binds the serialized ContentManager authority without including its
+  /// OGRE-native receipt interface in this header. Rebinding the same resolver
+  /// and provider pair is idempotent; replacement or a late first bind after
+  /// capture/cache publication is rejected.
+  [[nodiscard]] bool BindAuthenticatedTextureAuthority(
+      const Render::IOgre14AuthenticatedTextureResolver &resolver,
+      const Render::IOgre14AuthenticatedTextureAuthorityProvider
+          &provider) noexcept;
 
   /// Starts one outer GfxScene capture transaction. The joined capture must
   /// fail if this source cannot open; it must never publish a first-frame matte
@@ -64,6 +92,10 @@ public:
 
   [[nodiscard]] std::size_t NewProjectionCount() const noexcept;
   [[nodiscard]] std::size_t UsedProjectionCount() const noexcept;
+  [[nodiscard]] OgreNextDemoMaterialSourceCounters
+  CurrentCaptureCounters() const noexcept;
+  [[nodiscard]] OgreNextDemoMaterialSourceCounters
+  LifetimeCounters() const noexcept;
 
   void Commit() noexcept;
   void Discard() noexcept;
@@ -82,6 +114,11 @@ private:
   struct State;
   std::unique_ptr<State> committed_;
   std::unique_ptr<State> pending_;
+  const Render::IOgre14AuthenticatedTextureResolver *texture_resolver_ =
+      nullptr;
+  const Render::IOgre14AuthenticatedTextureAuthorityProvider
+      *texture_authority_provider_ = nullptr;
+  OgreNextDemoMaterialSourceCounters lifetime_counters_;
 };
 
 } // namespace RoR::Gfx::Detail

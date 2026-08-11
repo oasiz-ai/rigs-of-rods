@@ -25,6 +25,9 @@
 #include "system/detail/OgreNextDemoFrameNormalization.h"
 
 #include "AppContext.h"
+#if OGRE_VERSION_MAJOR >= 14
+#include "ContentManager.h"
+#endif
 #include "Actor.h"
 #include "ActorManager.h"
 #include "ApproxMath.h"
@@ -2306,6 +2309,9 @@ void GfxScene::CreateDustPools()
 
 void GfxScene::ClearScene()
 {
+    // This is deliberately idempotent: the unload/fatal coordinator must have
+    // released capture authority before native owners begin teardown, while
+    // ClearScene keeps a final local guard before SceneManager::clearScene().
     ResetOgre14GraphicsSceneGeneration();
 
     // Delete dustpools
@@ -2330,6 +2336,10 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
 {
     DiscardOgre14GraphicsSceneCapture();
     m_ogre_next_demo_terrain_source.Reset();
+    // Authenticated material cache entries are immutable anti-tombstone owners
+    // only while their map generation is alive. Full-scene teardown releases
+    // them here; same-map bundle reload retains only unreachable payload owners
+    // and must pass a fresh exact authenticated observation before reuse.
     m_ogre_next_demo_material_source.Reset();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
@@ -2354,6 +2364,19 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
 void GfxScene::Init()
 {
     ROR_ASSERT(!m_scene_manager);
+#if OGRE_VERSION_MAJOR >= 14
+    ContentManager* const content_manager = App::GetContentManager();
+    if (content_manager == nullptr ||
+        !m_ogre_next_demo_material_source.BindAuthenticatedTextureAuthority(
+            *content_manager, *content_manager))
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "The OgreNext material source could not bind ContentManager's "
+            "authenticated texture resolver and authority provider",
+            "GfxScene::Init");
+    }
+#endif
     m_scene_manager = App::GetAppContext()->GetOgreRoot()->createSceneManager();
     App::GetAppContext()->RegisterRTShaderSceneManager(m_scene_manager);
     m_gfx_freebeams_grouping_node = m_scene_manager->getRootSceneNode()->createChildSceneNode("FreeBeam Visuals");
@@ -3059,6 +3082,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     m_ogre_next_demo_material_source.NewProjectionCount();
                 pending->active_material_projection_count =
                     m_ogre_next_demo_material_source.UsedProjectionCount();
+                pending->material_source_counters =
+                    m_ogre_next_demo_material_source.CurrentCaptureCounters();
             }
             dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
                 nonterrain_assets, empty_assets, terrain_capture.assets,
@@ -3183,13 +3208,33 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->dynamic_mesh_cache);
     m_ogre_next_demo_terrain_source.Commit();
     m_ogre_next_demo_material_source.Commit();
-    if (m_ogre14_pending_capture->new_material_projection_count != 0U)
+    const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
+        m_ogre14_pending_capture->material_source_counters;
+    if (m_ogre14_pending_capture->new_material_projection_count != 0U ||
+        capture_counters.authenticated_source_decodes != 0U ||
+        capture_counters.unauthenticated_gpu_readbacks != 0U)
     {
+        const Gfx::Detail::OgreNextDemoMaterialSourceCounters
+            lifetime_counters =
+                m_ogre_next_demo_material_source.LifetimeCounters();
         LOG(fmt::format(
-            "[RoR|OgreNextDemo] Committed {} new opaque TUS0 "
-            "projection(s); {} projected material(s) are active",
+            "[RoR|OgreNextDemo|MaterialSource] Committed {} new opaque TUS0 "
+            "projection(s); {} projected material(s) are active; capture "
+            "authenticated_source_decodes={} "
+            "authenticated_gpu_readbacks={} "
+            "unauthenticated_gpu_readbacks={} projections={}; lifetime "
+            "authenticated_source_decodes={} authenticated_gpu_readbacks={} "
+            "unauthenticated_gpu_readbacks={} projections={}",
             m_ogre14_pending_capture->new_material_projection_count,
-            m_ogre14_pending_capture->active_material_projection_count));
+            m_ogre14_pending_capture->active_material_projection_count,
+            capture_counters.authenticated_source_decodes,
+            capture_counters.authenticated_gpu_readbacks,
+            capture_counters.unauthenticated_gpu_readbacks,
+            capture_counters.projections,
+            lifetime_counters.authenticated_source_decodes,
+            lifetime_counters.authenticated_gpu_readbacks,
+            lifetime_counters.unauthenticated_gpu_readbacks,
+            lifetime_counters.projections));
     }
     m_ogre14_pending_capture.reset();
 }

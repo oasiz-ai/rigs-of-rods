@@ -76,6 +76,13 @@ public:
     void           DrawNetLabel(Ogre::Vector3 pos, float cam_dist, std::string const& nick, int colornum);
     void           UpdateScene(float dt);
     void           ClearScene();
+    /// Releases every map-scoped capture owner after the renderer product has
+    /// accepted the authoritative empty scene (or closed terminally), before
+    /// full-scene actor/terrain/resource teardown. ClearScene() repeats this
+    /// idempotently as the final native wipe guard. Same-map bundle reloads
+    /// instead remove every reachable instance first; retained cache owners
+    /// are inert until an exact fresh authenticated observation succeeds.
+    void           ResetOgre14GraphicsSceneGeneration() noexcept;
     bool           RegisterGfxActor(RoR::GfxActor* gfx_actor);
     bool           HideGfxActor(RoR::GfxActor* gfx_actor);
     bool           UnhideGfxActor(RoR::GfxActor* gfx_actor);
@@ -121,11 +128,6 @@ public:
 
 private:
 
-    /// Clears every map-scoped capture identity/cache/inventory. ClearScene()
-    /// calls this only after ProductSession admits the prior empty scene;
-    /// global child/input transport ownership remains outside GfxScene.
-    void ResetOgre14GraphicsSceneGeneration() noexcept;
-
     Render::ValidationResult CaptureOgre14DynamicActorInventory(
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
         std::map<std::string,
@@ -159,8 +161,9 @@ private:
                                        m_ogre_next_demo_terrain_source;
     Gfx::Detail::OgreNextDemoMaterialSource
                                        m_ogre_next_demo_material_source;
-    // Map-generation identities reset only at ClearScene(), after the product
-    // session has sequenced the preceding authoritative empty scene.
+    // Map-generation identities reset at the explicit full-scene generation
+    // release (and idempotently again in ClearScene), after the product session
+    // has sequenced the preceding authoritative empty scene or terminal close.
     Render::Ogre14GraphicsSceneLightIdentityRegistry
                                        m_ogre14_light_identity_registry;
     Render::Ogre14GraphicsSceneStaticIdentityRegistry
@@ -202,6 +205,8 @@ private:
                  std::less<>> dynamic_mesh_cache;
         std::size_t new_material_projection_count = 0U;
         std::size_t active_material_projection_count = 0U;
+        Gfx::Detail::OgreNextDemoMaterialSourceCounters
+            material_source_counters;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 

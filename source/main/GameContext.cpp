@@ -343,6 +343,16 @@ bool GameContext::ShutdownSceneForFatalError() noexcept
         }
     };
 
+    // The fatal coordinator closes the renderer product before this gate. Drop
+    // all capture-side authenticated owners before any native actor, terrain,
+    // texture, group, or SceneManager owner can be destroyed below.
+    if (!run_step([]() {
+            App::GetGfxScene()->ResetOgre14GraphicsSceneGeneration();
+        }))
+    {
+        return false;
+    }
+
     // Avoid the ordinary ChangePlayerActor() callback graph during fatal
     // propagation. ActorManager still owns every live actor while these
     // secondary references are released on the main thread.

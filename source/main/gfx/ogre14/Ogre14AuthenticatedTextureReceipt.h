@@ -459,6 +459,14 @@ class IOgre14AuthenticatedTextureResolver {
 public:
   virtual ~IOgre14AuthenticatedTextureResolver() = default;
 
+  /// Allocation-free classification of the exact live texture's active
+  /// resource-group authority. `true` means source-byte authentication is
+  /// mandatory: a missing receipt, decode failure, or revalidation failure may
+  /// never fall back to GPU storage. Implementations must fail closed and
+  /// return true when the live identity cannot be classified safely.
+  [[nodiscard]] virtual bool RequiresAuthenticatedTextureSource(
+      Ogre::Texture &texture) const noexcept = 0;
+
   /// May allocate while minting the immutable resolution. Failure must leave
   /// `resolution` untouched.
   [[nodiscard]] virtual ValidationResult ResolveAuthenticatedTexture(

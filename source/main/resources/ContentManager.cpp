@@ -601,6 +601,66 @@ ContentManager::CaptureAuthenticatedTextureAuthoritySnapshot(
     }
 }
 
+bool ContentManager::RequiresAuthenticatedTextureSource(
+    Ogre::Texture& texture) const noexcept
+{
+    try
+    {
+        this->RequireAuthenticatedResourceThread(
+            "ContentManager::RequiresAuthenticatedTextureSource");
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        Ogre::TextureManager* manager =
+            Ogre::TextureManager::getSingletonPtr();
+        if (manager == nullptr || texture.getCreator() != manager ||
+            manager->getResourceType() != "Texture" || !texture.isLoaded() ||
+            texture.getName().empty() || texture.getGroup().empty() ||
+            !m_authenticated_texture_receipts.initialized())
+        {
+            // An invalid live identity or poisoned registry can never authorize
+            // the less-trusted GPU path.
+            return true;
+        }
+        const Ogre::ResourcePtr by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr by_name = manager->getResourceByName(
+            texture.getName(), texture.getGroup());
+        if (!by_handle || !by_name || by_handle.get() != &texture ||
+            by_name.get() != &texture)
+        {
+            return true;
+        }
+
+        const auto authenticated_group =
+            m_authenticated_package_archives_by_group.find(
+                texture.getGroup());
+        const auto authenticated_binding_group =
+            m_authenticated_package_archive_bindings_by_group.find(
+                texture.getGroup());
+        const bool archive_map_absent =
+            authenticated_group ==
+            m_authenticated_package_archives_by_group.end();
+        const bool binding_map_absent =
+            authenticated_binding_group ==
+            m_authenticated_package_archive_bindings_by_group.end();
+        if (archive_map_absent && binding_map_absent)
+        {
+            return false;
+        }
+        // Any one-map, empty-map, generation, or archive-binding inconsistency
+        // remains authenticated-required. Resolve() will then reject the exact
+        // missing/corrupt receipt instead of laundering it through readback.
+        // A normal first-location-wins resource is eligible for readback only
+        // when both authenticated-package authority maps are consistently
+        // absent for its exact group.
+        return true;
+    }
+    catch (...)
+    {
+        return true;
+    }
+}
+
 Render::ValidationResult ContentManager::ResolveAuthenticatedTexture(
     Ogre::Texture& texture,
     Render::Ogre14AuthenticatedTextureResolution& resolution) const

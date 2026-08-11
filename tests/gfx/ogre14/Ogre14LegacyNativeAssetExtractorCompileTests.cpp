@@ -167,6 +167,11 @@ public:
   mutable std::size_t resolve_calls = 0U;
   mutable std::size_t revalidate_calls = 0U;
 
+  bool RequiresAuthenticatedTextureSource(
+      Ogre::Texture &) const noexcept override {
+    return true;
+  }
+
   RoR::Render::ValidationResult ResolveAuthenticatedTexture(
       Ogre::Texture &,
       RoR::Render::Ogre14AuthenticatedTextureResolution &output) const

@@ -220,6 +220,11 @@ public:
 class DummyTextureResolver final
     : public IOgre14AuthenticatedTextureResolver {
 public:
+  bool RequiresAuthenticatedTextureSource(
+      Ogre::Texture &) const noexcept override {
+    return true;
+  }
+
   ValidationResult ResolveAuthenticatedTexture(
       Ogre::Texture &,
       Ogre14AuthenticatedTextureResolution &) const override {

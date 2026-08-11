@@ -1986,6 +1986,11 @@ int main(int argc, char *argv[])
                             }
                         }
 #endif
+                        // The product has now either accepted the authoritative
+                        // empty old scene or closed terminally. Release every
+                        // capture-side authenticated receipt/cache owner before
+                        // actor, terrain, texture, or resource-group teardown.
+                        App::GetGfxScene()->ResetOgre14GraphicsSceneGeneration();
                         App::GetAppContext()->EndPostProcessScene();
                         if (App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE)
                         {

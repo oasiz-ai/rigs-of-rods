@@ -42,6 +42,7 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
             "class Ogre14AuthenticatedTextureAuthoritySnapshot final",
             "class IOgre14AuthenticatedTextureResolver",
             "class IOgre14AuthenticatedTextureAuthorityProvider",
+            "RequiresAuthenticatedTextureSource",
             "MintLoadedResourceResolution",
             "MintResolverAuthoritySnapshot",
             "RevalidateLoadedResourceResolution",
@@ -95,6 +96,7 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
             "public Render::IOgre14AuthenticatedTextureResolver",
             "public Render::IOgre14AuthenticatedTextureAuthorityProvider",
             "ResolveAuthenticatedTexture(",
+            "RequiresAuthenticatedTextureSource(",
             "RevalidateAuthenticatedTexture(",
             "CaptureAuthenticatedTextureAuthoritySnapshot(",
             'manager->getResourceType() != "Texture"',
@@ -108,6 +110,8 @@ class Ogre14AuthenticatedTextureCaptureBridgeContractTests(unittest.TestCase):
             "MintLoadedResourceResolution",
             "MintResolverAuthoritySnapshot",
             "RevalidateLoadedResourceResolution",
+            "archive_map_absent && binding_map_absent",
+            "return true;",
         ):
             self.assertIn(token, self.content_header + self.content_source)
         bridge = self.content_source.split(
