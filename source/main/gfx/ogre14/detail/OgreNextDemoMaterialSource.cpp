@@ -44,19 +44,6 @@ static_assert(OGRE_VERSION_MAJOR == 14 && OGRE_VERSION_MINOR == 5 &&
 static_assert(sizeof(Ogre::Real) == sizeof(float),
               "the disposable OgreNext material source requires binary32 Ogre::Real");
 
-// The generic source-image entrypoint is supplied by the renderer-neutral
-// decoder milestone. Keeping this declaration local lets this product-wiring
-// commit remain independent from that implementation while still compiling
-// against the exact shared input/output types. A matching header declaration
-// is an ordinary compatible redeclaration once that milestone is composed.
-namespace RoR::Render {
-[[nodiscard]] ValidationResult DecodeOgre14SourceTexture(
-    const std::vector<std::uint8_t> &encoded_source,
-    const Ogre14SourceTextureDecodeOptions &options,
-    Ogre14DecodedSourceTexture &output,
-    IOgre14SourceTextureDecoderFaultInjector *fault_injector);
-}
-
 namespace RoR::Gfx::Detail {
 namespace {
 
