@@ -394,6 +394,7 @@ file(GLOB_RECURSE _ror_provider_manifest_files
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.h.in"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.py"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/cmake/*"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/embedded_namespace/*"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/licenses/*"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media/*"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/patches/*"

@@ -365,6 +365,7 @@ class CombinedProviderContractTests(unittest.TestCase):
         )
         for standalone_input in (
             '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/*.py"',
+            '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/embedded_namespace/*"',
             '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/*"',
             '"${ROR_OGRE_NEXT_STANDALONE_ROOT}/presentation_media/*"',
         ):
