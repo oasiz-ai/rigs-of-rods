@@ -28,6 +28,7 @@ FORBIDDEN_SYMBOL_TOKENS = (
     "RendererOgreNextChild",
     "RendererOgreNextLiveSession",
     "RendererOgreNextProductionSession",
+    "RendererPublicLauncher",
     "RendererPackageRuntimeProbe",
     "RendererPackagedMediaPath",
     "RendererSiblingPath",
@@ -53,17 +54,22 @@ FORBIDDEN_LINK_MAP_OBJECT_TOKENS = tuple(
         "RendererBridgeProcessSupervisor",
         "RendererChildIntent",
         "RendererChildLauncher",
+        "RendererLauncherMain",
         "RendererFrontendTransportDispatcher",
         "RendererOgre14GameBridge",
         "RendererOgre14GameHostSession",
         "RendererOgre14InputAdapter",
         "RendererOgre14ProductSession",
         "RendererOgreNextLiveSession",
+        "RendererOgreNextChild",
+        "RendererOgreNextChildMain",
+        "RendererOgreNextProductionSession",
         "RendererPackageRuntimeProbe",
         "RendererPackagedMediaPath",
         "RendererSiblingPath",
         "RendererStartupHandoff",
         "RendererStartupPlan",
+        "RendererPublicLauncher",
         "RenderTransportEnvelope",
         "RenderTransportStream",
         "SceneGenerationBoundaryTransport",
@@ -404,6 +410,16 @@ def _link_map_archive_path(build_root: Path, object_row: str):
     return candidate.resolve(strict=False)
 
 
+def _link_map_object_basename(object_row: str) -> str:
+    archive_member = re.fullmatch(
+        r".+[.]a(?:[(](.+)[)]|\[(.+)\])", object_row
+    )
+    if archive_member:
+        member = archive_member.group(1) or archive_member.group(2)
+        return Path(member).name
+    return Path(object_row).name
+
+
 def _is_private_stbi_link_map_symbol(symbol: bytes) -> bool:
     return re.fullmatch(
         rb"(?:_stbi_.+|(?:__Z(?:Z)?L|l___const[.]_Z(?:Z)?L).+stbi_.+)",
@@ -442,9 +458,9 @@ def _structural_link_map_evidence(
                 "libjpeg-static.a",
             }:
                 root_image_codec_archives.add(str(archive))
-        for forbidden in FORBIDDEN_LINK_MAP_OBJECT_TOKENS:
-            if object_row.endswith(forbidden):
-                object_violations.add(forbidden)
+        object_basename = _link_map_object_basename(object_row)
+        if object_basename in FORBIDDEN_LINK_MAP_OBJECT_TOKENS:
+            object_violations.add(object_basename)
 
     missing_required = sorted(
         str(path) for path in required_archives if archive_members.get(path, 0) < 1

@@ -357,6 +357,14 @@ class CombinedProviderContractTests(unittest.TestCase):
             "ogre14_runtime_package_root",
         ):
             self.assertIn(evidence, VERIFIER)
+        for retired_object in (
+            "RendererLauncherMain",
+            "RendererOgreNextChild",
+            "RendererOgreNextChildMain",
+            "RendererOgreNextProductionSession",
+            "RendererPublicLauncher",
+        ):
+            self.assertIn(f'"{retired_object}"', VERIFIER)
         self.assertIn('--build-root "${CMAKE_BINARY_DIR}"', MAIN_CMAKE)
         self.assertIn("STB_IMAGE_INDIRECT_INPUT_PREFIXES", NAMESPACE_AUDIT)
         self.assertIn('"indirect_input_tokens": []', NAMESPACE_AUDIT)
@@ -777,6 +785,7 @@ class CombinedProviderContractTests(unittest.TestCase):
                 root_sdl_symbol: bool = False,
                 sdl_import_stub: bool = False,
                 inject_second_header: bool = False,
+                retired_object_row=None,
             ) -> bytes:
                 rows = [
                     "# Path: bin/RoR-Combined",
@@ -789,6 +798,8 @@ class CombinedProviderContractTests(unittest.TestCase):
                     rows.append("[  3] generated/private_stb_owner.cpp.o")
                 if sdl_import_stub:
                     rows.append("[  4] /authenticated/libOgreBites.dylib")
+                if retired_object_row is not None:
+                    rows.append(f"[  5] {retired_object_row}")
                 rows.extend(
                     [
                         "# Sections:",
@@ -896,6 +907,24 @@ class CombinedProviderContractTests(unittest.TestCase):
             self.assertEqual(
                 import_stub_report["root_sdl_defined_symbols"], []
             )
+            for retired_row in (
+                "bin/libretired.a(RendererBridgeChannel.cpp.o)",
+                "bin/libretired.a[RendererBridgeChannel.cpp.o]",
+            ):
+                retired_report = module._structural_link_map_evidence(
+                    payload(
+                        "bin/librequired.a(member.o)",
+                        retired_object_row=retired_row,
+                    ),
+                    binary,
+                    build,
+                    [archive],
+                    decoder_symbols,
+                )
+                self.assertEqual(
+                    retired_report["forbidden_objects"],
+                    ["RendererBridgeChannel.cpp.o"],
+                )
             with self.assertRaisesRegex(
                 ValueError, "duplicate or out-of-order Object files"
             ):
