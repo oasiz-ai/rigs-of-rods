@@ -2366,14 +2366,22 @@ void GfxScene::Init()
     ROR_ASSERT(!m_scene_manager);
 #if OGRE_VERSION_MAJOR >= 14
     ContentManager* const content_manager = App::GetContentManager();
-    if (content_manager == nullptr ||
-        !m_ogre_next_demo_material_source.BindAuthenticatedTextureAuthority(
-            *content_manager, *content_manager))
+    const bool authenticated_texture_authority_bound =
+        content_manager != nullptr &&
+        m_ogre_next_demo_material_source.BindAuthenticatedTextureAuthority(
+            *content_manager, *content_manager);
+    const bool ordinary_texture_source_bound =
+        content_manager != nullptr &&
+        m_ogre_next_demo_material_source.
+            BindOrdinarySelectedTextureSourceResolver(*content_manager);
+    if (!authenticated_texture_authority_bound ||
+        !ordinary_texture_source_bound)
     {
         OGRE_EXCEPT(
             Ogre::Exception::ERR_INVALID_STATE,
             "The OgreNext material source could not bind ContentManager's "
-            "authenticated texture resolver and authority provider",
+            "authenticated texture authority and ordinary selected-source "
+            "resolver",
             "GfxScene::Init");
     }
 #endif
@@ -3211,8 +3219,11 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;
     if (m_ogre14_pending_capture->new_material_projection_count != 0U ||
-        capture_counters.authenticated_source_decodes != 0U ||
-        capture_counters.unauthenticated_gpu_readbacks != 0U)
+        capture_counters.authenticated_archive_source_decodes != 0U ||
+        capture_counters.authenticated_generated_source_decodes != 0U ||
+        capture_counters.ordinary_observed_source_decodes != 0U ||
+        capture_counters.source_decode_rejections != 0U ||
+        capture_counters.source_exclusions != 0U)
     {
         const Gfx::Detail::OgreNextDemoMaterialSourceCounters
             lifetime_counters =
@@ -3220,19 +3231,42 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         LOG(fmt::format(
             "[RoR|OgreNextDemo|MaterialSource] Committed {} new opaque TUS0 "
             "projection(s); {} projected material(s) are active; capture "
+            "authenticated_archive_source_decodes={} "
+            "authenticated_generated_source_decodes={} "
             "authenticated_source_decodes={} "
+            "ordinary_observed_source_decodes={} source_cache_hits={} "
+            "source_decode_rejections={} source_exclusions={} "
+            "gpu_readbacks={} "
             "authenticated_gpu_readbacks={} "
             "unauthenticated_gpu_readbacks={} projections={}; lifetime "
+            "authenticated_archive_source_decodes={} "
+            "authenticated_generated_source_decodes={} "
             "authenticated_source_decodes={} authenticated_gpu_readbacks={} "
-            "unauthenticated_gpu_readbacks={} projections={}",
+            "ordinary_observed_source_decodes={} source_cache_hits={} "
+            "source_decode_rejections={} source_exclusions={} "
+            "gpu_readbacks={} unauthenticated_gpu_readbacks={} projections={}",
             m_ogre14_pending_capture->new_material_projection_count,
             m_ogre14_pending_capture->active_material_projection_count,
+            capture_counters.authenticated_archive_source_decodes,
+            capture_counters.authenticated_generated_source_decodes,
             capture_counters.authenticated_source_decodes,
+            capture_counters.ordinary_observed_source_decodes,
+            capture_counters.source_cache_hits,
+            capture_counters.source_decode_rejections,
+            capture_counters.source_exclusions,
+            capture_counters.gpu_readbacks,
             capture_counters.authenticated_gpu_readbacks,
             capture_counters.unauthenticated_gpu_readbacks,
             capture_counters.projections,
+            lifetime_counters.authenticated_archive_source_decodes,
+            lifetime_counters.authenticated_generated_source_decodes,
             lifetime_counters.authenticated_source_decodes,
             lifetime_counters.authenticated_gpu_readbacks,
+            lifetime_counters.ordinary_observed_source_decodes,
+            lifetime_counters.source_cache_hits,
+            lifetime_counters.source_decode_rejections,
+            lifetime_counters.source_exclusions,
+            lifetime_counters.gpu_readbacks,
             lifetime_counters.unauthenticated_gpu_readbacks,
             lifetime_counters.projections));
     }

@@ -305,6 +305,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             mesh_object,
         )
         self.assertIn(
+            "BindOrdinarySelectedTextureSourceResolver(*content_manager)",
+            gfx_scene,
+        )
+        self.assertIn(
             "!ogre_next_demo_source && App::gfx_auto_lod->getBool()",
             mesh_object,
         )
@@ -527,6 +531,17 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             activity_gate,
         )
         self.assertIn("projections={}; lifetime", material_commit)
+        for material_log_token in (
+            "authenticated_archive_source_decodes={}",
+            "authenticated_generated_source_decodes={}",
+            "ordinary_observed_source_decodes={}",
+            "source_cache_hits={}",
+            "source_decode_rejections={}",
+            "source_exclusions={}",
+            "gpu_readbacks={}",
+        ):
+            with self.subTest(material_log_token=material_log_token):
+                self.assertIn(material_log_token, material_commit)
         terrain_pages = gfx_scene[
             gfx_scene.index("CaptureOgre14TerrainPages(") :
         ]
