@@ -132,6 +132,7 @@ NORMAL_MAP_SOURCE_LOCK_SHA256 = (
 ROR_SOURCE_REPOSITORY = "https://github.com/oasiz-ai/rigs-of-rods"
 RELEVANT_SOURCE_PATHS = (
     "CMakeLists.txt",
+    "cmake/VerifyStbImageSource.cmake",
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md",
     "cmake/OgreNextProductionPackage.cmake",
     "cmake/RendererLauncherPackageConfig.cmake",

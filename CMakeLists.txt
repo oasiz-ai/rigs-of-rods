@@ -8,6 +8,8 @@ include(Macros)
 include(FeatureSummary)
 include(FetchContent)
 include(CPackComponent)
+include(VerifyStbImageSource)
+ror_verify_stb_image_source("${CMAKE_SOURCE_DIR}")
 
 ################################################################################
 # Project definition

@@ -1,0 +1,40 @@
+{
+  "schema": "ror.ogre14_source_image_codec.v1",
+  "dependency": {
+    "name": "stb_image",
+    "repository": "https://github.com/nothings/stb",
+    "commit": "2c980bb59875b0d32144a71867fbdebb2f77cd20",
+    "source_path": "stb_image.h",
+    "source_url": "https://raw.githubusercontent.com/nothings/stb/2c980bb59875b0d32144a71867fbdebb2f77cd20/stb_image.h",
+    "vendored_path": "source/main/gfx/render/third_party/stb/stb_image.h",
+    "bytes": 283010,
+    "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
+  },
+  "license": {
+    "expression": "MIT OR Unlicense",
+    "source_path": "source/main/gfx/render/third_party/stb/stb_image.h",
+    "notice_path": "source/main/gfx/render/third_party/stb/LICENSE.txt",
+    "notice_bytes": 2362,
+    "notice_sha256": "771d43eb5017cb859978ad3ddb027fb80ea6119681f286950053404d95b21707"
+  },
+  "compile_contract": {
+    "implementation_linkage": "private-static",
+    "formats": [
+      "PNG",
+      "JPEG"
+    ],
+    "definitions": [
+      "STB_IMAGE_IMPLEMENTATION",
+      "STB_IMAGE_STATIC",
+      "STBI_ONLY_PNG",
+      "STBI_ONLY_JPEG",
+      "STBI_NO_STDIO",
+      "STBI_NO_LINEAR",
+      "STBI_NO_HDR",
+      "STBI_NO_SIMD",
+      "STBI_NO_FAILURE_STRINGS",
+      "STBI_MAX_DIMENSIONS=8192"
+    ],
+    "product_input": "authenticated-source-bytes-only"
+  }
+}

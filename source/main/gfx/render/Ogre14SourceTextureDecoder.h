@@ -7,7 +7,7 @@
 */
 
 /// @file
-/// @brief Deterministic renderer-neutral decoder for legacy DDS textures.
+/// @brief Deterministic renderer-neutral decoder for authenticated source textures.
 
 #pragma once
 
@@ -25,6 +25,10 @@ constexpr std::uint32_t kOgre14DecodedSourceTextureMipVersion = 1U;
 
 constexpr std::uint32_t kOgre14SourceTextureHardMaximumDimension = 16384U;
 constexpr std::uint32_t kOgre14SourceTextureHardMaximumMipLevels = 32U;
+/// PNG/JPEG decoding is deliberately narrower than the legacy DDS cap and
+/// matches the audited CityWorld/Alexis source-content envelope.
+constexpr std::uint32_t kOgre14SourceImageCodecMaximumDimension = 8192U;
+constexpr std::uint32_t kOgre14SourceImageCodecMaximumPngChunks = 65536U;
 constexpr std::uint64_t kOgre14SourceTextureHardMaximumEncodedBytes =
     512U * 1024U * 1024U;
 constexpr std::uint64_t kOgre14SourceTextureHardMaximumDecodedBytes =
@@ -117,6 +121,20 @@ public:
 
 [[nodiscard]] ValidationResult ValidateOgre14SourceTextureDecodeOptions(
     const Ogre14SourceTextureDecodeOptions &options);
+
+/// Auto-detects an admitted legacy 2D DDS, PNG, or JPEG container and decodes
+/// it to canonical tightly packed, top-down RGBA8_UNORM. PNG is restricted to
+/// 8-bit RGB, indexed, or RGBA (including Adam7 and palette/tRNS); JPEG is
+/// restricted to 8-bit three-component baseline or progressive streams.
+///
+/// This API normalizes bytes; it does not authenticate them. Product callers
+/// must pass exact bytes retained by an authenticated source-texture receipt.
+/// Every failure leaves `output` byte-for-byte unchanged.
+[[nodiscard]] ValidationResult DecodeOgre14SourceTexture(
+    const std::vector<std::uint8_t> &encoded_source,
+    const Ogre14SourceTextureDecodeOptions &options,
+    Ogre14DecodedSourceTexture &output,
+    IOgre14SourceTextureDecoderFaultInjector *fault_injector = nullptr);
 
 /// Decodes one legacy 2D DDS and all of its declared mip levels into canonical
 /// tightly packed RGBA8_UNORM. Arrays, cube maps, volumes, DX10 extensions,

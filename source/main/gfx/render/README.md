@@ -1077,13 +1077,26 @@ exact current-to-old copy, creates the RoR-owned UI-free workspace in code, and
 uses a visible-overlay negative control plus staged same-object reinitialization
 to keep the compositor and lifecycle claims fail-closed.
 
-`Ogre14SourceTextureDecoder` is the renderer-neutral legacy DDS normalization
-boundary. It reads every integer explicitly as little-endian bytes and decodes
-the complete declared 2D mip chain to tightly packed RGBA8_UNORM. The admitted
-legacy formats are DXT1/BC1 (explicit opaque or one-bit-alpha interpretation),
-DXT3/BC2, DXT5/BC3, unsigned ATI1/BC4, unsigned ATI2/BC5, and the four exact
-32-bit RGBA/RGBX/BGRA/BGRX mask layouts. Block interpolation is integer-only
-and partial edge blocks are clipped to each mip's virtual dimensions.
+`Ogre14SourceTextureDecoder` is the renderer-neutral authenticated-source
+normalization boundary. Its generic entrypoint auto-detects admitted legacy
+DDS, PNG, and JPEG bytes and emits tightly packed, top-down RGBA8_UNORM. The DDS
+path reads every integer explicitly as little-endian bytes and decodes the
+complete declared 2D mip chain. Its admitted legacy formats remain DXT1/BC1
+(explicit opaque or one-bit-alpha interpretation), DXT3/BC2, DXT5/BC3,
+unsigned ATI1/BC4, unsigned ATI2/BC5, and the four exact 32-bit
+RGBA/RGBX/BGRA/BGRX mask layouts. Block interpolation is integer-only and
+partial edge blocks are clipped to each mip's virtual dimensions.
+
+The source-image path admits only 8-bit RGB, indexed, or RGBA PNG (including
+palette/tRNS and Adam7) and 8-bit three-component Huffman JPEG with SOF0 or
+SOF2. PNG chunks are walked with exact bounds, ordering, CRC, admitted metadata,
+and IEND-at-EOF checks. JPEG markers and entropy scans are walked to an exact
+EOI-at-EOF, and grayscale, CMYK, arithmetic, lossless, and other SOF modes fail
+closed. The audited ancillary PNG set is cHRM, gAMA, iCCP, pHYs, sBIT, sRGB,
+tEXt, tIME, bKGD, and uncompressed iTXt; APNG, zTXt, and unknown chunks are
+rejected. Embedded PNG profiles and JPEG EXIF/ICC orientation or color profiles
+are deliberately not inflated, interpreted, or applied. Material color meaning
+and image orientation therefore remain caller-authoritative.
 
 The DDS container is not semantic authority. Callers must supply sRGB-color or
 linear-data meaning separately, and DXT1 transparency is likewise explicit.
@@ -1093,9 +1106,20 @@ overflow, truncation, and trailing bytes. It validates the complete encoded
 layout before allocation and commits one local candidate only after every mip
 has decoded, so validation failures, allocation failures, and arbitrary
 exceptions preserve the prior output. This module has no Ogre types, GPU
-readback, host-structure casts, floating-point interpolation, or third-party
-decoder dependency. It normalizes authenticated source bytes; it does not yet
-connect content archives to the live material transaction.
+readback, host-structure casts, or floating-point DDS interpolation.
+
+PNG/JPEG payload expansion uses the exact official `stb_image.h` bytes pinned
+in `gfx/render/third_party/stb/stb-image-source.lock.json`. Its implementation
+is confined to this translation unit with static linkage and PNG/JPEG-only,
+no-stdio, no-HDR, no-linear, no-SIMD, 8192-dimension compile policy, avoiding a
+second exported codec ABI beside OGRE14 Codec_FreeImage. Configure fails unless
+the header, lock, license, and exact ordered macro contract match their reviewed
+hashes. Because upstream explicitly warns that security fixes can lag, this is
+not a general untrusted-file decoder: production use is restricted to exact
+bytes already authenticated by the source-texture receipt, within the decoder's
+encoded, decoded, dimension, chunk, and marker caps. The decoder does not itself
+authenticate bytes and this unit does not connect archives or `GfxScene` to the
+live material transaction.
 
 `gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt` is the corresponding
 source-script authority. `ContentManager` consumes the pinned exact pre-open

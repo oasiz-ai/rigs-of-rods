@@ -10,10 +10,51 @@
 
 #include <array>
 #include <limits>
+#include <memory>
 #include <new>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+
+// This exact vendored implementation is intentionally confined to this
+// translation unit. OGRE14's Codec_FreeImage exports overlapping PNG/JPEG
+// codec symbols, so source-image normalization must not add another global
+// codec ABI to the combined process.
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_NO_STDIO
+#define STBI_NO_LINEAR
+#define STBI_NO_HDR
+#define STBI_NO_SIMD
+#define STBI_NO_FAILURE_STRINGS
+#define STBI_MAX_DIMENSIONS 8192
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-qual"
+#pragma clang diagnostic ignored "-Wimplicit-fallthrough"
+#pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wunknown-warning-option"
+#pragma clang diagnostic ignored "-Wunused-function"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#elif defined(_MSC_VER)
+#pragma warning(push, 0)
+#endif
+#include "third_party/stb/stb_image.h"
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace RoR::Render {
 namespace {
@@ -49,6 +90,60 @@ constexpr std::uint32_t kSupportedCaps =
 constexpr std::uint32_t kDdsCaps2CubeMap = 0x00000200U;
 constexpr std::uint32_t kDdsCaps2CubeMapFaces = 0x0000FC00U;
 constexpr std::uint32_t kDdsCaps2Volume = 0x00200000U;
+
+constexpr std::array<std::uint8_t, 8U> kPngSignature = {
+    0x89U, 0x50U, 0x4EU, 0x47U, 0x0DU, 0x0AU, 0x1AU, 0x0AU};
+
+constexpr std::uint32_t BigEndianTag(char a, char b, char c,
+                                     char d) noexcept {
+  return (static_cast<std::uint32_t>(static_cast<unsigned char>(a)) << 24U) |
+         (static_cast<std::uint32_t>(static_cast<unsigned char>(b)) << 16U) |
+         (static_cast<std::uint32_t>(static_cast<unsigned char>(c)) << 8U) |
+         static_cast<std::uint32_t>(static_cast<unsigned char>(d));
+}
+
+constexpr std::uint32_t kPngIhdr = BigEndianTag('I', 'H', 'D', 'R');
+constexpr std::uint32_t kPngPlte = BigEndianTag('P', 'L', 'T', 'E');
+constexpr std::uint32_t kPngTrns = BigEndianTag('t', 'R', 'N', 'S');
+constexpr std::uint32_t kPngIdat = BigEndianTag('I', 'D', 'A', 'T');
+constexpr std::uint32_t kPngIend = BigEndianTag('I', 'E', 'N', 'D');
+constexpr std::uint32_t kPngChrm = BigEndianTag('c', 'H', 'R', 'M');
+constexpr std::uint32_t kPngGama = BigEndianTag('g', 'A', 'M', 'A');
+constexpr std::uint32_t kPngIccp = BigEndianTag('i', 'C', 'C', 'P');
+constexpr std::uint32_t kPngPhys = BigEndianTag('p', 'H', 'Y', 's');
+constexpr std::uint32_t kPngSbit = BigEndianTag('s', 'B', 'I', 'T');
+constexpr std::uint32_t kPngSrgb = BigEndianTag('s', 'R', 'G', 'B');
+constexpr std::uint32_t kPngText = BigEndianTag('t', 'E', 'X', 't');
+constexpr std::uint32_t kPngTime = BigEndianTag('t', 'I', 'M', 'E');
+constexpr std::uint32_t kPngBkgd = BigEndianTag('b', 'K', 'G', 'D');
+constexpr std::uint32_t kPngItxt = BigEndianTag('i', 'T', 'X', 't');
+constexpr std::uint32_t kPngActl = BigEndianTag('a', 'c', 'T', 'L');
+constexpr std::uint32_t kPngFctl = BigEndianTag('f', 'c', 'T', 'L');
+constexpr std::uint32_t kPngFdat = BigEndianTag('f', 'd', 'A', 'T');
+constexpr std::uint32_t kPngZtxt = BigEndianTag('z', 'T', 'X', 't');
+
+constexpr std::uint8_t kJpegMarkerSof0 = 0xC0U;
+constexpr std::uint8_t kJpegMarkerSof2 = 0xC2U;
+constexpr std::uint8_t kJpegMarkerDht = 0xC4U;
+constexpr std::uint8_t kJpegMarkerSoi = 0xD8U;
+constexpr std::uint8_t kJpegMarkerEoi = 0xD9U;
+constexpr std::uint8_t kJpegMarkerSos = 0xDAU;
+constexpr std::uint8_t kJpegMarkerDqt = 0xDBU;
+constexpr std::uint8_t kJpegMarkerDri = 0xDDU;
+constexpr std::uint8_t kJpegMarkerCom = 0xFEU;
+
+struct ParsedPng final {
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  bool source_has_alpha = false;
+};
+
+struct ParsedJpeg final {
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::array<std::uint8_t, 3U> component_ids{};
+  bool progressive = false;
+};
 
 constexpr std::uint32_t FourCc(char a, char b, char c, char d) noexcept {
   return static_cast<std::uint32_t>(static_cast<unsigned char>(a)) |
@@ -110,6 +205,137 @@ bool ReadU32LittleEndian(const std::vector<std::uint8_t> &bytes,
   return true;
 }
 
+bool ReadU16BigEndian(const std::vector<std::uint8_t> &bytes,
+                      std::size_t offset, std::uint16_t &value) noexcept {
+  if (offset > bytes.size() || bytes.size() - offset < 2U) {
+    return false;
+  }
+  value = static_cast<std::uint16_t>(
+      (static_cast<std::uint16_t>(bytes[offset]) << 8U) |
+      static_cast<std::uint16_t>(bytes[offset + 1U]));
+  return true;
+}
+
+bool ReadU32BigEndian(const std::vector<std::uint8_t> &bytes,
+                      std::size_t offset, std::uint32_t &value) noexcept {
+  if (offset > bytes.size() || bytes.size() - offset < 4U) {
+    return false;
+  }
+  value = (static_cast<std::uint32_t>(bytes[offset]) << 24U) |
+          (static_cast<std::uint32_t>(bytes[offset + 1U]) << 16U) |
+          (static_cast<std::uint32_t>(bytes[offset + 2U]) << 8U) |
+          static_cast<std::uint32_t>(bytes[offset + 3U]);
+  return true;
+}
+
+bool HasPngSignature(const std::vector<std::uint8_t> &bytes) noexcept {
+  if (bytes.size() < kPngSignature.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < kPngSignature.size(); ++index) {
+    if (bytes[index] != kPngSignature[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool HasJpegSignature(const std::vector<std::uint8_t> &bytes) noexcept {
+  return bytes.size() >= 2U && bytes[0] == 0xFFU &&
+         bytes[1] == kJpegMarkerSoi;
+}
+
+bool HasDdsSignature(const std::vector<std::uint8_t> &bytes) noexcept {
+  std::uint32_t magic = 0U;
+  return ReadU32LittleEndian(bytes, 0U, magic) && magic == kDdsMagic;
+}
+
+const std::array<std::uint32_t, 256U> &PngCrc32Table() {
+  static const std::array<std::uint32_t, 256U> table = [] {
+    std::array<std::uint32_t, 256U> result{};
+    for (std::uint32_t byte = 0U; byte < result.size(); ++byte) {
+      std::uint32_t remainder = byte;
+      for (std::uint32_t bit = 0U; bit < 8U; ++bit) {
+        remainder = (remainder & 1U) != 0U
+                        ? (remainder >> 1U) ^ 0xEDB88320U
+                        : remainder >> 1U;
+      }
+      result[byte] = remainder;
+    }
+    return result;
+  }();
+  return table;
+}
+
+std::uint32_t PngChunkCrc32(const std::vector<std::uint8_t> &bytes,
+                            std::size_t type_offset,
+                            std::uint32_t data_length) noexcept {
+  std::uint32_t crc = 0xFFFFFFFFU;
+  const std::array<std::uint32_t, 256U> &table = PngCrc32Table();
+  const std::size_t bytes_to_hash =
+      static_cast<std::size_t>(data_length) + 4U;
+  for (std::size_t index = 0U; index < bytes_to_hash; ++index) {
+    crc = table[(crc ^ bytes[type_offset + index]) & 0xFFU] ^ (crc >> 8U);
+  }
+  return crc ^ 0xFFFFFFFFU;
+}
+
+bool IsAsciiLetter(std::uint8_t value) noexcept {
+  return (value >= static_cast<std::uint8_t>('A') &&
+          value <= static_cast<std::uint8_t>('Z')) ||
+         (value >= static_cast<std::uint8_t>('a') &&
+          value <= static_cast<std::uint8_t>('z'));
+}
+
+bool IsAdmittedPngAncillary(std::uint32_t type) noexcept {
+  switch (type) {
+  case kPngChrm:
+  case kPngGama:
+  case kPngIccp:
+  case kPngPhys:
+  case kPngSbit:
+  case kPngSrgb:
+  case kPngText:
+  case kPngTime:
+  case kPngBkgd:
+  case kPngItxt:
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool IsPngSingletonAncillary(std::uint32_t type) noexcept {
+  return type != kPngText && type != kPngItxt;
+}
+
+bool PngAncillaryMustPrecedeIdat(std::uint32_t type) noexcept {
+  switch (type) {
+  case kPngChrm:
+  case kPngGama:
+  case kPngIccp:
+  case kPngPhys:
+  case kPngSbit:
+  case kPngSrgb:
+  case kPngBkgd:
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool FindPngNull(const std::vector<std::uint8_t> &bytes,
+                 std::size_t begin, std::size_t end,
+                 std::size_t &position) noexcept {
+  for (std::size_t cursor = begin; cursor < end; ++cursor) {
+    if (bytes[cursor] == 0U) {
+      position = cursor;
+      return true;
+    }
+  }
+  return false;
+}
+
 std::uint16_t ReadBlockU16(const std::uint8_t *bytes) noexcept {
   return static_cast<std::uint16_t>(bytes[0]) |
          static_cast<std::uint16_t>(
@@ -155,6 +381,772 @@ bool CheckedMultiply(std::uint64_t lhs, std::uint64_t rhs,
   }
   result = lhs * rhs;
   return true;
+}
+
+ValidationResult ParsePngContainer(
+    const std::vector<std::uint8_t> &bytes,
+    const Ogre14SourceTextureDecodeOptions &options, ParsedPng &parsed) {
+  if (!HasPngSignature(bytes)) {
+    return Failure(ValidationCode::UNSUPPORTED_VERSION,
+                   "source_texture.png.signature",
+                   "PNG signature is missing or truncated");
+  }
+
+  ParsedPng candidate;
+  std::size_t offset = kPngSignature.size();
+  std::uint32_t chunk_count = 0U;
+  std::uint8_t color_type = 0U;
+  std::uint32_t palette_entries = 0U;
+  bool seen_ihdr = false;
+  bool seen_plte = false;
+  bool seen_trns = false;
+  bool seen_idat = false;
+  bool idat_sequence_closed = false;
+  bool seen_iend = false;
+  bool seen_iccp = false;
+  bool seen_srgb = false;
+  std::array<std::uint32_t, 10U> singleton_ancillary{};
+  std::size_t singleton_ancillary_count = 0U;
+
+  while (offset < bytes.size()) {
+    ++chunk_count;
+    if (chunk_count > kOgre14SourceImageCodecMaximumPngChunks) {
+      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                     "source_texture.png.chunk_count",
+                     "PNG chunk count exceeds the hard parser cap");
+    }
+    if (bytes.size() - offset < 12U) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.png.chunk",
+                     "PNG chunk header, data, or CRC is truncated");
+    }
+
+    std::uint32_t data_length = 0U;
+    std::uint32_t type = 0U;
+    if (!ReadU32BigEndian(bytes, offset, data_length) ||
+        !ReadU32BigEndian(bytes, offset + 4U, type) ||
+        data_length > 0x7FFFFFFFU) {
+      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                     "source_texture.png.chunk.length",
+                     "PNG chunk length is invalid");
+    }
+    const std::size_t type_offset = offset + 4U;
+    for (std::size_t byte = 0U; byte < 4U; ++byte) {
+      if (!IsAsciiLetter(bytes[type_offset + byte])) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.chunk.type",
+                       "PNG chunk type contains a non-letter byte");
+      }
+    }
+    if (bytes[type_offset + 2U] < static_cast<std::uint8_t>('A') ||
+        bytes[type_offset + 2U] > static_cast<std::uint8_t>('Z')) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.png.chunk.reserved_bit",
+                     "PNG chunk type uses the reserved lowercase bit");
+    }
+
+    std::uint64_t chunk_bytes = 0U;
+    std::uint64_t chunk_end = 0U;
+    if (!CheckedAdd(static_cast<std::uint64_t>(data_length), 12U,
+                    chunk_bytes) ||
+        !CheckedAdd(static_cast<std::uint64_t>(offset), chunk_bytes,
+                    chunk_end) ||
+        chunk_end > static_cast<std::uint64_t>(bytes.size())) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.png.chunk.payload",
+                     "PNG chunk extends beyond the encoded payload");
+    }
+    const std::size_t data_offset = offset + 8U;
+    const std::size_t crc_offset =
+        data_offset + static_cast<std::size_t>(data_length);
+    std::uint32_t encoded_crc = 0U;
+    if (!ReadU32BigEndian(bytes, crc_offset, encoded_crc) ||
+        encoded_crc != PngChunkCrc32(bytes, type_offset, data_length)) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.png.chunk.crc",
+                     "PNG chunk CRC does not match its exact type and data");
+    }
+
+    if (!seen_ihdr && (type != kPngIhdr || chunk_count != 1U)) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.png.ihdr",
+                     "PNG IHDR must be the first and only header chunk");
+    }
+    if (seen_iend) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.png.trailing_bytes",
+                     "PNG contains a chunk after IEND");
+    }
+
+    if (type == kPngIhdr) {
+      if (seen_ihdr || data_length != 13U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.ihdr",
+                       "PNG IHDR is duplicated or has the wrong length");
+      }
+      std::uint32_t width = 0U;
+      std::uint32_t height = 0U;
+      if (!ReadU32BigEndian(bytes, data_offset, width) ||
+          !ReadU32BigEndian(bytes, data_offset + 4U, height)) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.png.ihdr",
+                       "PNG IHDR dimensions are truncated");
+      }
+      const std::uint8_t bit_depth = bytes[data_offset + 8U];
+      color_type = bytes[data_offset + 9U];
+      const std::uint8_t compression = bytes[data_offset + 10U];
+      const std::uint8_t filter = bytes[data_offset + 11U];
+      const std::uint8_t interlace = bytes[data_offset + 12U];
+      const std::uint32_t dimension_cap =
+          options.maximum_dimension < kOgre14SourceImageCodecMaximumDimension
+              ? options.maximum_dimension
+              : kOgre14SourceImageCodecMaximumDimension;
+      if (width == 0U || height == 0U || width > dimension_cap ||
+          height > dimension_cap) {
+        return Failure(ValidationCode::INVALID_DIMENSIONS,
+                       "source_texture.png.dimensions",
+                       "PNG dimensions are zero or exceed the admitted cap");
+      }
+      if (bit_depth != 8U ||
+          (color_type != 2U && color_type != 3U && color_type != 6U)) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.pixel_format",
+                       "PNG must be 8-bit RGB, indexed, or RGBA");
+      }
+      if (compression != 0U || filter != 0U || interlace > 1U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.ihdr.methods",
+                       "PNG uses an unsupported compression, filter, or interlace method");
+      }
+      std::uint64_t texels = 0U;
+      std::uint64_t decoded_bytes = 0U;
+      if (!CheckedMultiply(width, height, texels) ||
+          !CheckedMultiply(texels, 4U, decoded_bytes) ||
+          decoded_bytes > options.maximum_decoded_bytes ||
+          decoded_bytes > static_cast<std::uint64_t>(
+                              (std::numeric_limits<std::size_t>::max)())) {
+        return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                       "source_texture.png.decoded_bytes",
+                       "canonical PNG RGBA8 output exceeds the decoded-byte cap");
+      }
+      candidate.width = width;
+      candidate.height = height;
+      candidate.source_has_alpha = color_type == 6U;
+      seen_ihdr = true;
+    } else if (type == kPngPlte) {
+      if (seen_plte || seen_idat || data_length == 0U ||
+          data_length > 768U || (data_length % 3U) != 0U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.plte",
+                       "PNG PLTE is duplicated, misplaced, or malformed");
+      }
+      palette_entries = data_length / 3U;
+      seen_plte = true;
+    } else if (type == kPngTrns) {
+      if (seen_trns || seen_idat || color_type == 6U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.trns",
+                       "PNG tRNS is duplicated, misplaced, or conflicts with RGBA");
+      }
+      if ((color_type == 2U && data_length != 6U) ||
+          (color_type == 3U &&
+           (!seen_plte || data_length == 0U ||
+            data_length > palette_entries))) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.trns",
+                       "PNG tRNS length does not match its color type or palette");
+      }
+      seen_trns = true;
+      candidate.source_has_alpha = true;
+    } else if (type == kPngIdat) {
+      if (idat_sequence_closed || (color_type == 3U && !seen_plte)) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.idat",
+                       "PNG IDAT chunks are non-contiguous or precede the palette");
+      }
+      seen_idat = true;
+    } else if (type == kPngIend) {
+      if (data_length != 0U || !seen_idat ||
+          (color_type == 3U && !seen_plte)) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.iend",
+                       "PNG IEND is malformed or precedes required image data");
+      }
+      seen_iend = true;
+    } else {
+      if (type == kPngActl || type == kPngFctl || type == kPngFdat) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.apng",
+                       "animated PNG chunks are outside the source-texture contract");
+      }
+      if (type == kPngZtxt) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.ztxt",
+                       "compressed PNG text is outside the admitted metadata set");
+      }
+      if (!IsAdmittedPngAncillary(type)) {
+        const bool critical =
+            bytes[type_offset] >= static_cast<std::uint8_t>('A') &&
+            bytes[type_offset] <= static_cast<std::uint8_t>('Z');
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       critical ? "source_texture.png.critical_chunk"
+                                : "source_texture.png.ancillary_chunk",
+                       critical
+                           ? "PNG contains an unknown critical chunk"
+                           : "PNG ancillary chunk is outside the audited content set");
+      }
+      if (PngAncillaryMustPrecedeIdat(type) && seen_idat) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.ancillary_order",
+                       "PNG metadata chunk appears after image data");
+      }
+      if (IsPngSingletonAncillary(type)) {
+        for (std::size_t index = 0U; index < singleton_ancillary_count;
+             ++index) {
+          if (singleton_ancillary[index] == type) {
+            return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                           "source_texture.png.ancillary_duplicate",
+                           "PNG singleton metadata chunk is duplicated");
+          }
+        }
+        singleton_ancillary[singleton_ancillary_count++] = type;
+      }
+      if (type == kPngIccp) {
+        std::size_t keyword_end = 0U;
+        const std::size_t data_end =
+            data_offset + static_cast<std::size_t>(data_length);
+        if (seen_srgb || data_length < 4U ||
+            !FindPngNull(bytes, data_offset, data_end, keyword_end) ||
+            keyword_end == data_offset || keyword_end - data_offset > 79U ||
+            keyword_end + 2U >= data_end || bytes[keyword_end + 1U] != 0U) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.png.iccp",
+                         "PNG iCCP profile name, compression method, or payload is invalid");
+        }
+        seen_iccp = true;
+      } else if (type == kPngSrgb) {
+        if (seen_iccp || data_length != 1U) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.png.srgb",
+                         "PNG sRGB conflicts with iCCP or has the wrong length");
+        }
+        seen_srgb = true;
+      } else if (type == kPngItxt) {
+        const std::size_t data_end =
+            data_offset + static_cast<std::size_t>(data_length);
+        std::size_t keyword_end = 0U;
+        if (!FindPngNull(bytes, data_offset, data_end, keyword_end) ||
+            keyword_end == data_offset || keyword_end - data_offset > 79U ||
+            keyword_end + 3U > data_end || bytes[keyword_end + 1U] != 0U ||
+            bytes[keyword_end + 2U] != 0U) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.png.itxt",
+                         "PNG iTXt must be uncompressed with method zero");
+        }
+        const std::size_t language_begin = keyword_end + 3U;
+        std::size_t language_end = 0U;
+        std::size_t translated_end = 0U;
+        if (!FindPngNull(bytes, language_begin, data_end, language_end) ||
+            !FindPngNull(bytes, language_end + 1U, data_end,
+                         translated_end)) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.png.itxt",
+                         "PNG iTXt language or translated-keyword separator is missing");
+        }
+      } else if (type == kPngText) {
+        const std::size_t data_end =
+            data_offset + static_cast<std::size_t>(data_length);
+        std::size_t keyword_end = 0U;
+        if (!FindPngNull(bytes, data_offset, data_end, keyword_end) ||
+            keyword_end == data_offset || keyword_end - data_offset > 79U) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.png.text",
+                         "PNG tEXt keyword is missing or outside the admitted length");
+        }
+      } else if ((type == kPngChrm && data_length != 32U) ||
+                 (type == kPngGama && data_length != 4U) ||
+                 (type == kPngPhys && data_length != 9U) ||
+                 (type == kPngTime && data_length != 7U) ||
+                 (type == kPngSbit &&
+                  data_length != (color_type == 6U ? 4U : 3U)) ||
+                 (type == kPngBkgd &&
+                  data_length != (color_type == 3U ? 1U : 6U))) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.ancillary_length",
+                       "PNG fixed-size metadata chunk has the wrong length");
+      }
+      if (type == kPngBkgd && color_type == 3U && !seen_plte) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.png.bkgd",
+                       "indexed PNG bKGD must follow PLTE");
+      }
+    }
+
+    if (seen_idat && type != kPngIdat && type != kPngIend) {
+      idat_sequence_closed = true;
+    }
+    offset = static_cast<std::size_t>(chunk_end);
+    if (seen_iend) {
+      if (offset != bytes.size()) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.png.trailing_bytes",
+                       "PNG contains bytes after its exact IEND chunk");
+      }
+      break;
+    }
+  }
+
+  if (!seen_iend || offset != bytes.size()) {
+    return Failure(ValidationCode::SIZE_MISMATCH,
+                   "source_texture.png.iend",
+                   "PNG does not end at one complete IEND chunk");
+  }
+  parsed = candidate;
+  return ValidationResult::Success();
+}
+
+bool IsJpegRestartMarker(std::uint8_t marker) noexcept {
+  return marker >= 0xD0U && marker <= 0xD7U;
+}
+
+bool IsAdmittedJpegApplicationMarker(std::uint8_t marker) noexcept {
+  return marker == 0xE0U || marker == 0xE1U || marker == 0xE2U ||
+         marker == 0xECU || marker == 0xEDU || marker == 0xEEU;
+}
+
+int JpegComponentIndex(const ParsedJpeg &parsed,
+                       std::uint8_t identifier) noexcept {
+  for (std::size_t index = 0U; index < parsed.component_ids.size(); ++index) {
+    if (parsed.component_ids[index] == identifier) {
+      return static_cast<int>(index);
+    }
+  }
+  return -1;
+}
+
+ValidationResult ValidateJpegDqt(const std::vector<std::uint8_t> &bytes,
+                                 std::size_t begin, std::size_t end) {
+  std::size_t cursor = begin;
+  while (cursor < end) {
+    const std::uint8_t table = bytes[cursor++];
+    const std::uint8_t precision = static_cast<std::uint8_t>(table >> 4U);
+    const std::uint8_t identifier = static_cast<std::uint8_t>(table & 15U);
+    if (precision > 1U || identifier > 3U) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.jpeg.dqt",
+                     "JPEG quantization table precision or identifier is unsupported");
+    }
+    const std::size_t coefficients = precision == 0U ? 64U : 128U;
+    if (end - cursor < coefficients) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.jpeg.dqt",
+                     "JPEG quantization table is truncated");
+    }
+    cursor += coefficients;
+  }
+  return cursor == end
+             ? ValidationResult::Success()
+             : Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.dqt",
+                       "JPEG quantization table segment is malformed");
+}
+
+ValidationResult ValidateJpegDht(const std::vector<std::uint8_t> &bytes,
+                                 std::size_t begin, std::size_t end) {
+  std::size_t cursor = begin;
+  while (cursor < end) {
+    if (end - cursor < 17U) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.jpeg.dht",
+                     "JPEG Huffman table header is truncated");
+    }
+    const std::uint8_t table = bytes[cursor++];
+    if ((table >> 4U) > 1U || (table & 15U) > 3U) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.jpeg.dht",
+                     "JPEG Huffman table class or identifier is unsupported");
+    }
+    std::uint32_t symbol_count = 0U;
+    for (std::size_t length = 0U; length < 16U; ++length) {
+      symbol_count += bytes[cursor + length];
+    }
+    cursor += 16U;
+    if (symbol_count == 0U || symbol_count > 256U ||
+        end - cursor < symbol_count) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.jpeg.dht",
+                     "JPEG Huffman symbol table is empty, oversized, or truncated");
+    }
+    cursor += symbol_count;
+  }
+  return cursor == end
+             ? ValidationResult::Success()
+             : Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.dht",
+                       "JPEG Huffman table segment is malformed");
+}
+
+ValidationResult ParseJpegContainer(
+    const std::vector<std::uint8_t> &bytes,
+    const Ogre14SourceTextureDecodeOptions &options, ParsedJpeg &parsed) {
+  if (!HasJpegSignature(bytes)) {
+    return Failure(ValidationCode::UNSUPPORTED_VERSION,
+                   "source_texture.jpeg.signature",
+                   "JPEG SOI signature is missing or truncated");
+  }
+
+  ParsedJpeg candidate;
+  std::size_t offset = 2U;
+  std::uint32_t marker_count = 0U;
+  std::uint8_t scanned_components = 0U;
+  bool seen_sof = false;
+  bool seen_sos = false;
+  bool seen_eoi = false;
+  bool in_entropy_scan = false;
+
+  while (offset < bytes.size()) {
+    std::uint8_t marker = 0U;
+    if (in_entropy_scan) {
+      bool found_marker = false;
+      while (offset < bytes.size()) {
+        if (bytes[offset++] != 0xFFU) {
+          continue;
+        }
+        while (offset < bytes.size() && bytes[offset] == 0xFFU) {
+          ++offset;
+        }
+        if (offset >= bytes.size()) {
+          return Failure(ValidationCode::SIZE_MISMATCH,
+                         "source_texture.jpeg.entropy",
+                         "JPEG entropy scan ends in a truncated marker");
+        }
+        marker = bytes[offset++];
+        if (marker == 0x00U) {
+          continue;
+        }
+        if (IsJpegRestartMarker(marker)) {
+          continue;
+        }
+        found_marker = true;
+        break;
+      }
+      if (!found_marker) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.eoi",
+                       "JPEG entropy data reaches EOF before EOI");
+      }
+      in_entropy_scan = false;
+    } else {
+      if (offset >= bytes.size() || bytes[offset++] != 0xFFU) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.marker",
+                       "JPEG contains bytes outside a marker or entropy scan");
+      }
+      while (offset < bytes.size() && bytes[offset] == 0xFFU) {
+        ++offset;
+      }
+      if (offset >= bytes.size()) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.marker",
+                       "JPEG marker code is truncated");
+      }
+      marker = bytes[offset++];
+      if (marker == 0x00U) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.marker",
+                       "JPEG stuffed zero appears outside entropy data");
+      }
+    }
+
+    ++marker_count;
+    if (marker_count > 1048576U) {
+      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                     "source_texture.jpeg.marker_count",
+                     "JPEG marker count exceeds the hard parser cap");
+    }
+    if (marker == kJpegMarkerEoi) {
+      if (!seen_sof || !seen_sos || scanned_components != 0x07U ||
+          offset != bytes.size()) {
+        return Failure(ValidationCode::SIZE_MISMATCH,
+                       "source_texture.jpeg.eoi",
+                       "JPEG EOI is premature or is followed by trailing bytes");
+      }
+      seen_eoi = true;
+      break;
+    }
+    if (marker == kJpegMarkerSoi || IsJpegRestartMarker(marker) ||
+        marker == 0x01U) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.jpeg.marker",
+                     "JPEG contains an unexpected standalone marker");
+    }
+    if (offset > bytes.size() || bytes.size() - offset < 2U) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.jpeg.segment",
+                     "JPEG segment length is truncated");
+    }
+    std::uint16_t segment_length = 0U;
+    if (!ReadU16BigEndian(bytes, offset, segment_length) ||
+        segment_length < 2U ||
+        static_cast<std::size_t>(segment_length) > bytes.size() - offset) {
+      return Failure(ValidationCode::SIZE_MISMATCH,
+                     "source_texture.jpeg.segment",
+                     "JPEG segment length exceeds the encoded payload");
+    }
+    const std::size_t data_offset = offset + 2U;
+    const std::size_t segment_end =
+        offset + static_cast<std::size_t>(segment_length);
+
+    if (marker == kJpegMarkerSof0 || marker == kJpegMarkerSof2) {
+      if (seen_sof || segment_length != 17U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.jpeg.sof",
+                       "JPEG must contain one three-component SOF0 or SOF2 frame");
+      }
+      const std::uint8_t precision = bytes[data_offset];
+      std::uint16_t height = 0U;
+      std::uint16_t width = 0U;
+      if (!ReadU16BigEndian(bytes, data_offset + 1U, height) ||
+          !ReadU16BigEndian(bytes, data_offset + 3U, width) ||
+          precision != 8U || bytes[data_offset + 5U] != 3U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.jpeg.frame",
+                       "JPEG frame must be 8-bit with exactly three components");
+      }
+      const std::uint32_t dimension_cap =
+          options.maximum_dimension < kOgre14SourceImageCodecMaximumDimension
+              ? options.maximum_dimension
+              : kOgre14SourceImageCodecMaximumDimension;
+      if (width == 0U || height == 0U || width > dimension_cap ||
+          height > dimension_cap) {
+        return Failure(ValidationCode::INVALID_DIMENSIONS,
+                       "source_texture.jpeg.dimensions",
+                       "JPEG dimensions are zero or exceed the admitted cap");
+      }
+      for (std::size_t component = 0U; component < 3U; ++component) {
+        const std::size_t component_offset =
+            data_offset + 6U + component * 3U;
+        const std::uint8_t identifier = bytes[component_offset];
+        const std::uint8_t sampling = bytes[component_offset + 1U];
+        const std::uint8_t horizontal =
+            static_cast<std::uint8_t>(sampling >> 4U);
+        const std::uint8_t vertical =
+            static_cast<std::uint8_t>(sampling & 15U);
+        if (identifier == 0U || horizontal == 0U || horizontal > 4U ||
+            vertical == 0U || vertical > 4U ||
+            bytes[component_offset + 2U] > 3U) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.jpeg.components",
+                         "JPEG component identifier, sampling, or quantization selector is invalid");
+        }
+        for (std::size_t prior = 0U; prior < component; ++prior) {
+          if (candidate.component_ids[prior] == identifier) {
+            return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                           "source_texture.jpeg.components",
+                           "JPEG frame contains duplicate component identifiers");
+          }
+        }
+        candidate.component_ids[component] = identifier;
+      }
+      std::uint64_t texels = 0U;
+      std::uint64_t decoded_bytes = 0U;
+      if (!CheckedMultiply(width, height, texels) ||
+          !CheckedMultiply(texels, 4U, decoded_bytes) ||
+          decoded_bytes > options.maximum_decoded_bytes ||
+          decoded_bytes > static_cast<std::uint64_t>(
+                              (std::numeric_limits<std::size_t>::max)())) {
+        return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                       "source_texture.jpeg.decoded_bytes",
+                       "canonical JPEG RGBA8 output exceeds the decoded-byte cap");
+      }
+      candidate.width = width;
+      candidate.height = height;
+      candidate.progressive = marker == kJpegMarkerSof2;
+      seen_sof = true;
+    } else if (marker == kJpegMarkerSos) {
+      if (!seen_sof || segment_length < 8U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.jpeg.sos",
+                       "JPEG scan appears before a complete admitted frame");
+      }
+      const std::uint8_t component_count = bytes[data_offset];
+      if (component_count == 0U || component_count > 3U ||
+          segment_length !=
+              static_cast<std::uint16_t>(6U + component_count * 2U)) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.jpeg.sos",
+                       "JPEG scan component count or length is invalid");
+      }
+      std::uint8_t scan_mask = 0U;
+      for (std::uint8_t component = 0U; component < component_count;
+           ++component) {
+        const std::size_t selector_offset =
+            data_offset + 1U + static_cast<std::size_t>(component) * 2U;
+        const int component_index =
+            JpegComponentIndex(candidate, bytes[selector_offset]);
+        const std::uint8_t tables = bytes[selector_offset + 1U];
+        if (component_index < 0 || (tables >> 4U) > 3U ||
+            (tables & 15U) > 3U ||
+            (scan_mask & (1U << static_cast<unsigned>(component_index))) !=
+                0U) {
+          return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                         "source_texture.jpeg.sos.components",
+                         "JPEG scan references an unknown, duplicate, or invalid component table");
+        }
+        scan_mask = static_cast<std::uint8_t>(
+            scan_mask | (1U << static_cast<unsigned>(component_index)));
+      }
+      const std::size_t spectral_offset =
+          data_offset + 1U + static_cast<std::size_t>(component_count) * 2U;
+      const std::uint8_t spectral_start = bytes[spectral_offset];
+      const std::uint8_t spectral_end = bytes[spectral_offset + 1U];
+      const std::uint8_t approximation = bytes[spectral_offset + 2U];
+      const std::uint8_t successive_high =
+          static_cast<std::uint8_t>(approximation >> 4U);
+      const std::uint8_t successive_low =
+          static_cast<std::uint8_t>(approximation & 15U);
+      if ((!candidate.progressive &&
+           (spectral_start != 0U || spectral_end != 63U ||
+            approximation != 0U)) ||
+          (candidate.progressive &&
+           (spectral_start > spectral_end || spectral_end > 63U ||
+            successive_high > 13U || successive_low > 13U ||
+            (spectral_start == 0U && spectral_end != 0U) ||
+            (spectral_start != 0U && component_count != 1U)))) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.jpeg.sos.progression",
+                       "JPEG scan spectral or successive-approximation fields are invalid");
+      }
+      scanned_components =
+          static_cast<std::uint8_t>(scanned_components | scan_mask);
+      seen_sos = true;
+      in_entropy_scan = true;
+    } else if (marker == kJpegMarkerDqt) {
+      const ValidationResult validation =
+          ValidateJpegDqt(bytes, data_offset, segment_end);
+      if (!validation) {
+        return validation;
+      }
+    } else if (marker == kJpegMarkerDht) {
+      const ValidationResult validation =
+          ValidateJpegDht(bytes, data_offset, segment_end);
+      if (!validation) {
+        return validation;
+      }
+    } else if (marker == kJpegMarkerDri) {
+      if (segment_length != 4U) {
+        return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                       "source_texture.jpeg.dri",
+                       "JPEG restart interval segment has the wrong length");
+      }
+    } else if (!IsAdmittedJpegApplicationMarker(marker) &&
+               marker != kJpegMarkerCom) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.jpeg.marker",
+                     "JPEG marker is outside the audited SOF0/SOF2 Huffman subset");
+    }
+
+    offset = segment_end;
+  }
+
+  if (!seen_eoi || offset != bytes.size()) {
+    return Failure(ValidationCode::SIZE_MISMATCH,
+                   "source_texture.jpeg.eoi",
+                   "JPEG does not end at one exact EOI marker");
+  }
+  parsed = candidate;
+  return ValidationResult::Success();
+}
+
+struct StbiPixelsDeleter final {
+  void operator()(stbi_uc *pixels) const noexcept {
+    stbi_image_free(pixels);
+  }
+};
+
+ValidationResult DecodeStbRgba(
+    const std::vector<std::uint8_t> &bytes,
+    const Ogre14SourceTextureDecodeOptions &options, std::uint32_t width,
+    std::uint32_t height, bool source_has_alpha, bool require_rgb_source,
+    Ogre14DecodedSourceTexture &output,
+    IOgre14SourceTextureDecoderFaultInjector *fault_injector) {
+  static_assert(STBI_MAX_DIMENSIONS ==
+                    kOgre14SourceImageCodecMaximumDimension,
+                "stb and public source-image dimension caps must agree");
+  if (fault_injector != nullptr) {
+    fault_injector->BeforeDecoderStage(
+        Ogre14SourceTextureDecoderFaultStage::AFTER_HEADER_VALIDATION);
+  }
+  if (bytes.size() >
+      static_cast<std::size_t>((std::numeric_limits<int>::max)())) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "source_texture.image.encoded_bytes",
+                   "source image exceeds stb's signed input-length domain");
+  }
+
+  int decoded_width = 0;
+  int decoded_height = 0;
+  int source_channels = 0;
+  std::unique_ptr<stbi_uc, StbiPixelsDeleter> pixels(stbi_load_from_memory(
+      bytes.data(), static_cast<int>(bytes.size()), &decoded_width,
+      &decoded_height, &source_channels, 4));
+  if (!pixels) {
+    return Failure(ValidationCode::SIZE_MISMATCH,
+                   "source_texture.image.compressed_payload",
+                   "PNG/JPEG payload failed the pinned bounded decoder");
+  }
+  if (decoded_width != static_cast<int>(width) ||
+      decoded_height != static_cast<int>(height) ||
+      source_channels < 3 || source_channels > 4 ||
+      (require_rgb_source && source_channels != 3)) {
+    return Failure(ValidationCode::SIZE_MISMATCH,
+                   "source_texture.image.decoder_metadata",
+                   "decoded image metadata differs from strict container preflight");
+  }
+
+  std::uint64_t row_pitch = 0U;
+  std::uint64_t decoded_bytes = 0U;
+  if (!CheckedMultiply(width, 4U, row_pitch) ||
+      !CheckedMultiply(row_pitch, height, decoded_bytes) ||
+      decoded_bytes > options.maximum_decoded_bytes ||
+      decoded_bytes > static_cast<std::uint64_t>(
+                          (std::numeric_limits<std::size_t>::max)())) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "source_texture.image.decoded_bytes",
+                   "canonical image output exceeds the decoded-byte cap");
+  }
+
+  Ogre14DecodedSourceTexture candidate;
+  candidate.width = width;
+  candidate.height = height;
+  candidate.source_format =
+      source_has_alpha ? Ogre14SourceTextureFormat::RGBA8_UNORM
+                       : Ogre14SourceTextureFormat::RGBX8_UNORM;
+  candidate.color_semantic = options.color_semantic;
+  candidate.bc1_alpha_mode =
+      Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE;
+  candidate.source_has_alpha = source_has_alpha;
+  candidate.mip_levels.reserve(1U);
+  Ogre14DecodedSourceTextureMip mip;
+  mip.width = width;
+  mip.height = height;
+  mip.row_pitch_bytes = row_pitch;
+  mip.slice_pitch_bytes = decoded_bytes;
+  const std::size_t decoded_size = static_cast<std::size_t>(decoded_bytes);
+  mip.rgba8_unorm.assign(pixels.get(), pixels.get() + decoded_size);
+  candidate.mip_levels.push_back(std::move(mip));
+  if (fault_injector != nullptr) {
+    fault_injector->BeforeDecoderStage(
+        Ogre14SourceTextureDecoderFaultStage::AFTER_FIRST_MIP_DECODE);
+    fault_injector->BeforeDecoderStage(
+        Ogre14SourceTextureDecoderFaultStage::BEFORE_COMMIT);
+  }
+
+  static_assert(
+      std::is_nothrow_move_assignable<Ogre14DecodedSourceTexture>::value,
+      "source texture output commit must be noexcept");
+  output = std::move(candidate);
+  return ValidationResult::Success();
 }
 
 bool IsKnownColorSemantic(
@@ -767,6 +1759,74 @@ ValidationResult ValidateOgre14SourceTextureDecodeOptions(
                    "source-texture limits are zero, unusable, or exceed hard caps");
   }
   return ValidationResult::Success();
+}
+
+ValidationResult DecodeOgre14SourceTexture(
+    const std::vector<std::uint8_t> &encoded_source,
+    const Ogre14SourceTextureDecodeOptions &options,
+    Ogre14DecodedSourceTexture &output,
+    IOgre14SourceTextureDecoderFaultInjector *fault_injector) {
+  const ValidationResult options_validation =
+      ValidateOgre14SourceTextureDecodeOptions(options);
+  if (!options_validation) {
+    return options_validation;
+  }
+  if (encoded_source.size() > options.maximum_encoded_bytes) {
+    return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                   "source_texture.encoded_bytes",
+                   "source texture exceeds the configured encoded-byte cap");
+  }
+
+  try {
+    if (HasDdsSignature(encoded_source)) {
+      return DecodeOgre14SourceTextureDds(encoded_source, options, output,
+                                          fault_injector);
+    }
+    if (!HasPngSignature(encoded_source) &&
+        !HasJpegSignature(encoded_source)) {
+      return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                     "source_texture.container",
+                     "source texture is not an admitted DDS, PNG, or JPEG container");
+    }
+    if (options.bc1_alpha_mode !=
+        Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE) {
+      return Failure(ValidationCode::INVALID_ENUM,
+                     "source_texture.options.bc1_alpha_mode",
+                     "BC1 alpha interpretation cannot be supplied for PNG or JPEG");
+    }
+    if (HasPngSignature(encoded_source)) {
+      ParsedPng parsed;
+      const ValidationResult validation =
+          ParsePngContainer(encoded_source, options, parsed);
+      if (!validation) {
+        return validation;
+      }
+      return DecodeStbRgba(encoded_source, options, parsed.width,
+                            parsed.height, parsed.source_has_alpha, false,
+                            output, fault_injector);
+    }
+
+    ParsedJpeg parsed;
+    const ValidationResult validation =
+        ParseJpegContainer(encoded_source, options, parsed);
+    if (!validation) {
+      return validation;
+    }
+    return DecodeStbRgba(encoded_source, options, parsed.width, parsed.height,
+                          false, true, output, fault_injector);
+  } catch (const std::bad_alloc &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "source_texture.decoder.allocation",
+                   "allocation failed before source-texture decode commit");
+  } catch (const std::length_error &) {
+    return Failure(ValidationCode::EMPTY_PAYLOAD,
+                   "source_texture.decoder.allocation",
+                   "source-texture allocation exceeded implementation limits");
+  } catch (...) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "source_texture.decoder.exception",
+                   "unexpected exception before source-texture decode commit");
+  }
 }
 
 ValidationResult DecodeOgre14SourceTextureDds(

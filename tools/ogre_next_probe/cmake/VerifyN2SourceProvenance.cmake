@@ -21,6 +21,7 @@ set(_ror_n2_relevant_source_paths
     tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp
     tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp
     CMakeLists.txt
+    cmake/VerifyStbImageSource.cmake
     doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
     cmake/OgreNextProductionPackage.cmake
     cmake/RendererLauncherPackageConfig.cmake
@@ -325,6 +326,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp"
     "CMakeLists.txt"
+    "cmake/VerifyStbImageSource.cmake"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"

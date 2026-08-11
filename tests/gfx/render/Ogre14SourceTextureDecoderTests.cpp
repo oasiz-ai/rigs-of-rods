@@ -20,6 +20,7 @@
 
 namespace {
 
+using RoR::Render::DecodeOgre14SourceTexture;
 using RoR::Render::DecodeOgre14SourceTextureDds;
 using RoR::Render::IOgre14SourceTextureDecoderFaultInjector;
 using RoR::Render::Ogre14DecodedSourceTexture;
@@ -46,6 +47,173 @@ void Require(bool condition, const char *message) {
     std::cerr << "FAIL: " << message << '\n';
     std::exit(EXIT_FAILURE);
   }
+}
+
+int Base64Value(char value) {
+  if (value >= 'A' && value <= 'Z') {
+    return value - 'A';
+  }
+  if (value >= 'a' && value <= 'z') {
+    return value - 'a' + 26;
+  }
+  if (value >= '0' && value <= '9') {
+    return value - '0' + 52;
+  }
+  if (value == '+') {
+    return 62;
+  }
+  if (value == '/') {
+    return 63;
+  }
+  return -1;
+}
+
+std::vector<std::uint8_t> DecodeBase64(const char *encoded) {
+  std::vector<std::uint8_t> result;
+  std::uint32_t accumulator = 0U;
+  std::uint32_t bits = 0U;
+  for (const char *cursor = encoded; *cursor != '\0'; ++cursor) {
+    if (*cursor == '=') {
+      break;
+    }
+    const int value = Base64Value(*cursor);
+    Require(value >= 0, "test fixture contains invalid base64");
+    accumulator = (accumulator << 6U) | static_cast<std::uint32_t>(value);
+    bits += 6U;
+    if (bits >= 8U) {
+      bits -= 8U;
+      result.push_back(
+          static_cast<std::uint8_t>((accumulator >> bits) & 0xFFU));
+    }
+  }
+  return result;
+}
+
+std::vector<std::uint8_t> DecodeHex(const char *encoded) {
+  const std::string text(encoded);
+  Require((text.size() % 2U) == 0U, "test fixture has odd hex length");
+  std::vector<std::uint8_t> result;
+  result.reserve(text.size() / 2U);
+  auto nibble = [](char value) -> std::uint8_t {
+    if (value >= '0' && value <= '9') {
+      return static_cast<std::uint8_t>(value - '0');
+    }
+    if (value >= 'a' && value <= 'f') {
+      return static_cast<std::uint8_t>(value - 'a' + 10);
+    }
+    Require(false, "test fixture contains invalid hex");
+    return 0U;
+  };
+  for (std::size_t offset = 0U; offset < text.size(); offset += 2U) {
+    result.push_back(static_cast<std::uint8_t>(
+        (nibble(text[offset]) << 4U) | nibble(text[offset + 1U])));
+  }
+  return result;
+}
+
+std::uint32_t TestCrc32(const std::uint8_t *data, std::size_t size) {
+  std::uint32_t crc = 0xFFFFFFFFU;
+  for (std::size_t index = 0U; index < size; ++index) {
+    crc ^= data[index];
+    for (std::uint32_t bit = 0U; bit < 8U; ++bit) {
+      crc = (crc & 1U) != 0U ? (crc >> 1U) ^ 0xEDB88320U
+                             : crc >> 1U;
+    }
+  }
+  return crc ^ 0xFFFFFFFFU;
+}
+
+void AppendU32BigEndian(std::vector<std::uint8_t> &bytes,
+                        std::uint32_t value) {
+  bytes.push_back(static_cast<std::uint8_t>((value >> 24U) & 0xFFU));
+  bytes.push_back(static_cast<std::uint8_t>((value >> 16U) & 0xFFU));
+  bytes.push_back(static_cast<std::uint8_t>((value >> 8U) & 0xFFU));
+  bytes.push_back(static_cast<std::uint8_t>(value & 0xFFU));
+}
+
+std::uint32_t ReadU32BigEndianTest(const std::vector<std::uint8_t> &bytes,
+                                   std::size_t offset) {
+  Require(offset <= bytes.size() && bytes.size() - offset >= 4U,
+          "test attempted an out-of-range big-endian read");
+  return (static_cast<std::uint32_t>(bytes[offset]) << 24U) |
+         (static_cast<std::uint32_t>(bytes[offset + 1U]) << 16U) |
+         (static_cast<std::uint32_t>(bytes[offset + 2U]) << 8U) |
+         static_cast<std::uint32_t>(bytes[offset + 3U]);
+}
+
+void WriteU32BigEndianAt(std::vector<std::uint8_t> &bytes,
+                         std::size_t offset, std::uint32_t value) {
+  Require(offset <= bytes.size() && bytes.size() - offset >= 4U,
+          "test attempted an out-of-range big-endian write");
+  bytes[offset] = static_cast<std::uint8_t>((value >> 24U) & 0xFFU);
+  bytes[offset + 1U] = static_cast<std::uint8_t>((value >> 16U) & 0xFFU);
+  bytes[offset + 2U] = static_cast<std::uint8_t>((value >> 8U) & 0xFFU);
+  bytes[offset + 3U] = static_cast<std::uint8_t>(value & 0xFFU);
+}
+
+std::size_t FindPngChunk(const std::vector<std::uint8_t> &png,
+                         std::uint32_t wanted_type) {
+  std::size_t offset = 8U;
+  while (offset <= png.size() && png.size() - offset >= 12U) {
+    const std::uint32_t length = ReadU32BigEndianTest(png, offset);
+    const std::uint32_t type = ReadU32BigEndianTest(png, offset + 4U);
+    Require(static_cast<std::uint64_t>(offset) + length + 12U <= png.size(),
+            "test PNG chunk walk escaped fixture");
+    if (type == wanted_type) {
+      return offset;
+    }
+    offset += static_cast<std::size_t>(length) + 12U;
+  }
+  Require(false, "test PNG chunk was not found");
+  return 0U;
+}
+
+void RewritePngChunkCrc(std::vector<std::uint8_t> &png,
+                        std::size_t chunk_offset) {
+  const std::uint32_t length = ReadU32BigEndianTest(png, chunk_offset);
+  const std::size_t crc_offset =
+      chunk_offset + 8U + static_cast<std::size_t>(length);
+  const std::uint32_t crc =
+      TestCrc32(png.data() + chunk_offset + 4U,
+                static_cast<std::size_t>(length) + 4U);
+  WriteU32BigEndianAt(png, crc_offset, crc);
+}
+
+std::vector<std::uint8_t>
+MakePngChunk(const std::array<std::uint8_t, 4U> &type,
+             const std::vector<std::uint8_t> &data) {
+  std::vector<std::uint8_t> chunk;
+  AppendU32BigEndian(chunk, static_cast<std::uint32_t>(data.size()));
+  chunk.insert(chunk.end(), type.begin(), type.end());
+  chunk.insert(chunk.end(), data.begin(), data.end());
+  const std::uint32_t crc = TestCrc32(chunk.data() + 4U, data.size() + 4U);
+  AppendU32BigEndian(chunk, crc);
+  return chunk;
+}
+
+void InsertBeforePngIend(std::vector<std::uint8_t> &png,
+                         const std::vector<std::uint8_t> &chunk) {
+  Require(png.size() >= 12U, "test PNG is shorter than IEND");
+  png.insert(png.end() - 12, chunk.begin(), chunk.end());
+}
+
+void InsertBeforePngChunk(std::vector<std::uint8_t> &png,
+                          std::uint32_t before_type,
+                          const std::vector<std::uint8_t> &chunk) {
+  const std::size_t offset = FindPngChunk(png, before_type);
+  png.insert(png.begin() + static_cast<std::ptrdiff_t>(offset), chunk.begin(),
+             chunk.end());
+}
+
+std::size_t FindJpegMarker(const std::vector<std::uint8_t> &jpeg,
+                           std::uint8_t marker) {
+  for (std::size_t offset = 0U; offset + 1U < jpeg.size(); ++offset) {
+    if (jpeg[offset] == 0xFFU && jpeg[offset + 1U] == marker) {
+      return offset;
+    }
+  }
+  Require(false, "test JPEG marker was not found");
+  return 0U;
 }
 
 void WriteU32LittleEndian(std::vector<std::uint8_t> &bytes,
@@ -167,6 +335,61 @@ Ogre14SourceTextureDecodeOptions Bc1Options(
   return options;
 }
 
+std::vector<std::uint8_t> OpaqueRgbPng() {
+  return DecodeBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBP"
+      "JcTWAAAAEElEQVR4nGMQNA4BIgYIBQAPogJhhCJXLQAAAABJRU5ErkJggg==");
+}
+
+std::vector<std::uint8_t> PaletteTrnsPng() {
+  return DecodeBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAMAAAACCAMAAACqqpYoAAAADFBMVEX/AAAA/wAAAP////"
+      "/7AGD2AAAABHRSTlP/gAD/oaGUZgAAABBJREFUeNpjYGBkYmBmYgQAACYACvMdpvYAAAAA"
+      "SUVORK5CYII=");
+}
+
+std::vector<std::uint8_t> Adam7RgbaPng() {
+  return DecodeBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAAH6aBZzAAAAeklEQVR42gFvAJD/AAAAAP"
+      "8AvDRkswAs1By76AiAbwBeGrLZAIruzpUAFmoO3XSEwLfSnnKRAC8NWeyNJwvGAEV3Z8qj"
+      "kRmkAFvhdai5+yeCAAs1B+46QmDbaU+5yJhcErXHaWuiACGfFcxQrG65f7nHpq7GIJPd03"
+      "mAEogx2LLf1skAAAAASUVORK5CYII=");
+}
+
+std::vector<std::uint8_t> BaselineRgbJpeg() {
+  return DecodeBase64(
+      "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBg"
+      "UGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUK"
+      "BwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCg"
+      "r/wAARCAADAAQDAREAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL"
+      "/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0f"
+      "AkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1"
+      "dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1N"
+      "XW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQF"
+      "BgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRob"
+      "HBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVm"
+      "Z2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExc"
+      "bHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD179jz9j39"
+      "mT/hnLwx/wAWZ0b/AI8B/wAsm9f96v538cM2zH+1cq/ev/cqf/p6uev4U8YcTf6pR/2qXx"
+      "Pqv5Y+R//Z");
+}
+
+std::vector<std::uint8_t> ProgressiveRgbJpeg() {
+  return DecodeBase64(
+      "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBg"
+      "UGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUK"
+      "BwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCg"
+      "r/wgARCAADAAQDAREAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAABv/EABUBAQEAAAAA"
+      "AAAAAAAAAAAAAAQH/9oADAMBAAIQAxAAAAFfO1//xAAVEAEBAAAAAAAAAAAAAAAAAAAGFv"
+      "/aAAgBAQABBQIePMzn/8QAGxEAAgEFAAAAAAAAAAAAAAAAAQUABhUjMcH/2gAIAQMBAT8B"
+      "pRwztIynfBP/xAAbEQACAQUAAAAAAAAAAAAAAAACBAAGFCJDsv/aAAgBAgEBPwGuG2LpXL"
+      "SPZz//xAAZEAABBQAAAAAAAAAAAAAAAAAAAwQlMlH/2gAIAQEABj8CbQyNMP/EABYQAAMA"
+      "AAAAAAAAAAAAAAAAAACx0f/aAAgBAQABPyF9qn//2gAMAwEAAgADAAAAED//xAAYEQACAw"
+      "AAAAAAAAAAAAAAAAAAAUFhsf/aAAgBAwEBPxCxCVgf/8QAFREBAQAAAAAAAAAAAAAAAAAA"
+      "ADH/2gAIAQIBAT8Qp6f/xAAWEAADAAAAAAAAAAAAAAAAAAAAYZH/2gAIAQEAAT8QV3Yf/9"
+      "k=");
+}
+
 std::uint32_t PackTwoBitIndices(
     const std::array<std::uint8_t, 16U> &indices) {
   std::uint32_t packed = 0U;
@@ -276,6 +499,17 @@ void ExpectFailureUnchanged(const std::vector<std::uint8_t> &bytes,
       DecodeOgre14SourceTextureDds(bytes, options, output);
   Require(!result, message);
   Require(IsSentinel(output), "failure changed transactional decoder output");
+}
+
+void ExpectGenericFailureUnchanged(
+    const std::vector<std::uint8_t> &bytes,
+    const Ogre14SourceTextureDecodeOptions &options, const char *message) {
+  Ogre14DecodedSourceTexture output = SentinelOutput();
+  const RoR::Render::ValidationResult result =
+      DecodeOgre14SourceTexture(bytes, options, output);
+  Require(!result, message);
+  Require(IsSentinel(output),
+          "generic failure changed transactional decoder output");
 }
 
 void TestUncompressedLayoutsAndExternalSemantics() {
@@ -689,6 +923,225 @@ void TestStrictContainerAndLimitRejection() {
                          "alpha mask without alpha flag was accepted");
 }
 
+void TestPngGoldenContainersAndMetadata() {
+  Ogre14DecodedSourceTexture opaque;
+  Require(DecodeOgre14SourceTexture(OpaqueRgbPng(), LinearOptions(), opaque)
+              .ok(),
+          "opaque RGB PNG did not decode");
+  Require(opaque.width == 2U && opaque.height == 2U &&
+              opaque.source_format == Ogre14SourceTextureFormat::RGBX8_UNORM &&
+              !opaque.source_has_alpha && opaque.mip_levels.size() == 1U &&
+              opaque.mip_levels[0].rgba8_unorm ==
+                  DecodeHex("113354ff113354ff113354ff113354ff"),
+          "opaque RGB PNG canonical golden changed");
+
+  const std::vector<std::uint8_t> palette = PaletteTrnsPng();
+  Ogre14DecodedSourceTexture output;
+  Require(DecodeOgre14SourceTexture(palette, LinearOptions(), output).ok(),
+          "palette+tRNS PNG did not decode");
+  Require(output.width == 3U && output.height == 2U &&
+              output.source_format == Ogre14SourceTextureFormat::RGBA8_UNORM &&
+              output.source_has_alpha && output.mip_levels.size() == 1U &&
+              output.mip_levels[0].row_pitch_bytes == 12U &&
+              output.mip_levels[0].slice_pitch_bytes == 24U &&
+              output.mip_levels[0].rgba8_unorm ==
+                  DecodeHex("ff0000ff00ff00800000ff00ffffffff"
+                            "0000ff0000ff0080"),
+          "palette+tRNS PNG canonical golden changed");
+
+  const std::vector<std::uint8_t> adam7 = Adam7RgbaPng();
+  Ogre14DecodedSourceTexture interlaced;
+  Require(DecodeOgre14SourceTexture(adam7, LinearOptions(), interlaced).ok(),
+          "Adam7 RGBA PNG did not decode");
+  Require(interlaced.width == 5U && interlaced.height == 5U &&
+              interlaced.source_has_alpha &&
+              interlaced.mip_levels.size() == 1U &&
+              interlaced.mip_levels[0].rgba8_unorm ==
+                  DecodeHex(
+                      "000000ff2f0d59ec5e1ab2d98d270bc6bc3464b30b3507ee3a4260db"
+                      "694fb9c8985c12b5c7696ba2166a0edd457767ca7484c0b7a39119a4"
+                      "d29e7291219f15cc50ac6eb97fb9c7a6aec62093ddd379802cd41cbb5"
+                      "be175a88aeece95b9fb2782e808806f"),
+          "Adam7 PNG top-down RGBA golden changed");
+
+  std::vector<std::uint8_t> metadata = palette;
+  const std::vector<std::uint8_t> iccp = MakePngChunk(
+      {'i', 'C', 'C', 'P'},
+      {'R', 'o', 'R', 0U, 0U, 0x78U, 0x9CU, 0x03U, 0x00U});
+  InsertBeforePngChunk(metadata, 0x504C5445U, iccp);
+  const std::vector<std::uint8_t> itxt = MakePngChunk(
+      {'i', 'T', 'X', 't'},
+      {'C', 'o', 'm', 'm', 'e', 'n', 't', 0U, 0U, 0U, 0U, 0U,
+       'C', 'r', 'e', 'a', 't', 'e', 'd', ' ', 'w', 'i', 't', 'h',
+       ' ', 'G', 'I', 'M', 'P'});
+  InsertBeforePngIend(metadata, itxt);
+  Ogre14DecodedSourceTexture ignored_metadata;
+  Require(DecodeOgre14SourceTexture(metadata, LinearOptions(),
+                                     ignored_metadata)
+              .ok() &&
+              ignored_metadata.mip_levels[0].rgba8_unorm ==
+                  output.mip_levels[0].rgba8_unorm,
+          "admitted uncompressed metadata changed PNG pixels or semantics");
+}
+
+void TestJpegBaselineAndProgressiveGoldens() {
+  Ogre14SourceTextureDecodeOptions options = LinearOptions();
+  options.color_semantic = Ogre14SourceTextureColorSemantic::SRGB_COLOR;
+  const std::vector<std::uint8_t> expected = DecodeHex(
+      "000002ff3d135dff7629b3ffb33d0fff11451eff4e587bff876fd1ffc4822cff"
+      "1f8b3dff5a9f98ff96b6f1ffd3ca4bff");
+  for (const std::vector<std::uint8_t> &jpeg :
+       {BaselineRgbJpeg(), ProgressiveRgbJpeg()}) {
+    Ogre14DecodedSourceTexture output;
+    Require(DecodeOgre14SourceTexture(jpeg, options, output).ok(),
+            "baseline/progressive RGB JPEG did not decode");
+    Require(output.width == 4U && output.height == 3U &&
+                output.source_format ==
+                    Ogre14SourceTextureFormat::RGBX8_UNORM &&
+                !output.source_has_alpha &&
+                output.color_semantic ==
+                    Ogre14SourceTextureColorSemantic::SRGB_COLOR &&
+                output.mip_levels.size() == 1U &&
+                output.mip_levels[0].row_pitch_bytes == 16U &&
+                output.mip_levels[0].slice_pitch_bytes == 48U &&
+                output.mip_levels[0].rgba8_unorm == expected,
+            "baseline/progressive JPEG canonical golden changed");
+  }
+}
+
+void TestGenericDispatchAndHostileImages() {
+  const std::vector<std::uint8_t> rgba = MakeUncompressedDds(
+      1U, 1U, 1U, {1U, 2U, 3U, 4U}, 0x000000FFU, 0x0000FF00U,
+      0x00FF0000U, 0xFF000000U);
+  Ogre14DecodedSourceTexture direct;
+  Ogre14DecodedSourceTexture detected;
+  Require(DecodeOgre14SourceTextureDds(rgba, LinearOptions(), direct).ok() &&
+              DecodeOgre14SourceTexture(rgba, LinearOptions(), detected).ok() &&
+              detected.mip_levels[0].rgba8_unorm ==
+                  direct.mip_levels[0].rgba8_unorm,
+          "generic source decoder changed the legacy DDS wrapper");
+
+  const Ogre14SourceTextureDecodeOptions options = LinearOptions();
+  ExpectGenericFailureUnchanged({}, options,
+                                "empty container was auto-detected");
+  ExpectGenericFailureUnchanged({1U, 2U, 3U, 4U}, options,
+                                "unknown container was auto-detected");
+
+  const std::vector<std::uint8_t> palette = PaletteTrnsPng();
+  std::vector<std::uint8_t> changed = palette;
+  changed.push_back(0U);
+  ExpectGenericFailureUnchanged(changed, options,
+                                "PNG trailing byte was accepted");
+  changed = palette;
+  changed.pop_back();
+  ExpectGenericFailureUnchanged(changed, options,
+                                "truncated PNG IEND was accepted");
+  changed = palette;
+  changed[29U] ^= 1U;
+  ExpectGenericFailureUnchanged(changed, options,
+                                "bad PNG chunk CRC was accepted");
+  changed = palette;
+  changed[24U] = 16U;
+  RewritePngChunkCrc(changed, 8U);
+  ExpectGenericFailureUnchanged(changed, options,
+                                "16-bit PNG samples were accepted");
+  changed = palette;
+  const std::size_t idat = FindPngChunk(changed, 0x49444154U);
+  changed[idat + 8U] ^= 0x7FU;
+  RewritePngChunkCrc(changed, idat);
+  ExpectGenericFailureUnchanged(
+      changed, options,
+      "corrupt PNG deflate payload passed pinned decoder validation");
+  changed = palette;
+  InsertBeforePngIend(changed,
+                      MakePngChunk({'a', 'c', 'T', 'L'},
+                                   std::vector<std::uint8_t>(8U, 0U)));
+  ExpectGenericFailureUnchanged(changed, options,
+                                "APNG animation control was accepted");
+  changed = palette;
+  InsertBeforePngIend(changed,
+                      MakePngChunk({'z', 'T', 'X', 't'},
+                                   {'R', 'o', 'R', 0U, 0U, 0x78U}));
+  ExpectGenericFailureUnchanged(changed, options,
+                                "compressed PNG text was accepted");
+  changed = palette;
+  InsertBeforePngIend(changed,
+                      MakePngChunk({'v', 'P', 'A', 'g'}, {1U}));
+  ExpectGenericFailureUnchanged(changed, options,
+                                "unknown PNG ancillary chunk was accepted");
+  changed = palette;
+  InsertBeforePngIend(changed,
+                      MakePngChunk({'V', 'P', 'A', 'g'}, {1U}));
+  ExpectGenericFailureUnchanged(changed, options,
+                                "unknown PNG critical chunk was accepted");
+  changed = palette;
+  InsertBeforePngIend(
+      changed,
+      MakePngChunk({'i', 'T', 'X', 't'},
+                   {'C', 0U, 1U, 0U, 0U, 0U, 0x78U, 0x9CU}));
+  ExpectGenericFailureUnchanged(changed, options,
+                                "compressed PNG iTXt was accepted");
+
+  Ogre14SourceTextureDecodeOptions capped = options;
+  capped.maximum_dimension = 2U;
+  ExpectGenericFailureUnchanged(palette, capped,
+                                "PNG dimension cap was bypassed");
+  capped = options;
+  capped.maximum_decoded_bytes = 23U;
+  ExpectGenericFailureUnchanged(palette, capped,
+                                "PNG decoded-byte cap was bypassed");
+  capped = options;
+  capped.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+  ExpectGenericFailureUnchanged(palette, capped,
+                                "BC1 alpha mode leaked into PNG");
+
+  const std::vector<std::uint8_t> baseline = BaselineRgbJpeg();
+  changed = baseline;
+  changed.push_back(0U);
+  ExpectGenericFailureUnchanged(changed, options,
+                                "JPEG trailing byte was accepted");
+  changed = baseline;
+  changed.pop_back();
+  ExpectGenericFailureUnchanged(changed, options,
+                                "truncated JPEG EOI was accepted");
+  changed = baseline;
+  const std::size_t sof = FindJpegMarker(changed, 0xC0U);
+  changed[sof + 1U] = 0xC1U;
+  ExpectGenericFailureUnchanged(changed, options,
+                                "unsupported JPEG SOF1 was accepted");
+  changed = baseline;
+  changed[sof + 4U] = 12U;
+  ExpectGenericFailureUnchanged(changed, options,
+                                "12-bit JPEG sample precision was accepted");
+  changed = baseline;
+  changed[sof + 9U] = 1U;
+  ExpectGenericFailureUnchanged(changed, options,
+                                "grayscale JPEG frame was accepted");
+  changed = baseline;
+  const std::size_t app0 = FindJpegMarker(changed, 0xE0U);
+  changed[app0 + 1U] = 0xE3U;
+  ExpectGenericFailureUnchanged(changed, options,
+                                "unaudited JPEG APP3 marker was accepted");
+  changed = baseline;
+  const std::size_t dht = FindJpegMarker(changed, 0xC4U);
+  Require(dht + 33U <= changed.size(),
+          "test JPEG Huffman table is truncated");
+  for (std::size_t symbol = 0U; symbol < 12U; ++symbol) {
+    changed[dht + 21U + symbol] = 0xFFU;
+  }
+  ExpectGenericFailureUnchanged(
+      changed, options,
+      "corrupt JPEG Huffman payload passed pinned decoder validation");
+  capped = options;
+  capped.maximum_dimension = 3U;
+  ExpectGenericFailureUnchanged(baseline, capped,
+                                "JPEG dimension cap was bypassed");
+  capped = options;
+  capped.maximum_decoded_bytes = 47U;
+  ExpectGenericFailureUnchanged(baseline, capped,
+                                "JPEG decoded-byte cap was bypassed");
+}
+
 class ThrowingFaultInjector final
     : public IOgre14SourceTextureDecoderFaultInjector {
 public:
@@ -737,6 +1190,28 @@ void TestTransactionalExceptionRollback() {
           "valid decode did not replace the prior output");
   Require(!IsSentinel(output) && output.width == 4U,
           "successful source texture commit did not publish atomically");
+
+  for (const std::vector<std::uint8_t> &image :
+       {PaletteTrnsPng(), BaselineRgbJpeg()}) {
+    for (const Ogre14SourceTextureDecoderFaultStage stage :
+         {Ogre14SourceTextureDecoderFaultStage::AFTER_HEADER_VALIDATION,
+          Ogre14SourceTextureDecoderFaultStage::AFTER_FIRST_MIP_DECODE,
+          Ogre14SourceTextureDecoderFaultStage::BEFORE_COMMIT}) {
+      for (const bool bad_alloc : {false, true}) {
+        ThrowingFaultInjector fault;
+        fault.stage = stage;
+        fault.bad_alloc = bad_alloc;
+        Ogre14DecodedSourceTexture unchanged = SentinelOutput();
+        const RoR::Render::ValidationResult result =
+            DecodeOgre14SourceTexture(image, LinearOptions(), unchanged,
+                                      &fault);
+        Require(!result,
+                "fault-injected PNG/JPEG source texture decode succeeded");
+        Require(IsSentinel(unchanged),
+                "PNG/JPEG exception changed transactional decoder output");
+      }
+    }
+  }
 }
 
 } // namespace
@@ -753,6 +1228,9 @@ int main() {
   TestBc4Bc5AndLegacyAliases();
   TestCompressedMipChain();
   TestStrictContainerAndLimitRejection();
+  TestPngGoldenContainersAndMetadata();
+  TestJpegBaselineAndProgressiveGoldens();
+  TestGenericDispatchAndHostileImages();
   TestTransactionalExceptionRollback();
   std::cout << "OGRE14 source texture decoder tests passed\n";
   return EXIT_SUCCESS;

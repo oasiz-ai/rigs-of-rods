@@ -11,6 +11,8 @@ get_filename_component(
     "${CMAKE_CURRENT_LIST_DIR}/.."
     ABSOLUTE
 )
+include("${ROR_REPOSITORY_ROOT}/cmake/VerifyStbImageSource.cmake")
+ror_verify_stb_image_source("${ROR_REPOSITORY_ROOT}")
 
 option(
     ROR_TEST_GAME_FAST_MATH
@@ -2846,6 +2848,13 @@ add_test(
 add_test(
     NAME ogre14_source_texture_decoder
     COMMAND ror_ogre14_source_texture_decoder_tests
+)
+
+add_test(
+    NAME ogre14_source_texture_decoder_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_ogre14_source_texture_decoder_contract.py"
 )
 
 add_test(

@@ -50,6 +50,9 @@ set(SOURCE_FILES
         gfx/render/Ogre14ParticleCaptureSource.{h,cpp}
         gfx/render/Ogre14ProceduralRoadSource.{h,cpp}
         gfx/render/Ogre14SourceTextureDecoder.{h,cpp}
+        gfx/render/third_party/stb/stb_image.h
+        gfx/render/third_party/stb/stb-image-source.lock.json
+        gfx/render/third_party/stb/LICENSE.txt
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
@@ -696,6 +699,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/Ogre14LegacyMaterialClosure.cpp
         gfx/render/Ogre14ParticleCaptureSource.cpp
         gfx/render/Ogre14ProceduralRoadSource.cpp
+        gfx/render/Ogre14SourceTextureDecoder.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
         gfx/render/MaterialDescriptor.cpp

@@ -81,6 +81,8 @@ find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED COMPONENTS Crypto)
 get_filename_component(ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+include("${ROR_REPOSITORY_ROOT}/cmake/VerifyStbImageSource.cmake")
+ror_verify_stb_image_source("${ROR_REPOSITORY_ROOT}")
 set(ROR_SOURCE_REPOSITORY "https://github.com/oasiz-ai/rigs-of-rods")
 if (DEFINED ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY} AND
         NOT "$ENV{ROR_OGRE_NEXT_EXPECTED_ROR_REPOSITORY}" STREQUAL
@@ -142,6 +144,7 @@ list(APPEND _ror_relevant_source_files
     "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp"
     "CMakeLists.txt"
+    "cmake/VerifyStbImageSource.cmake"
     "doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md"
     "cmake/OgreNextProductionPackage.cmake"
     "cmake/RendererLauncherPackageConfig.cmake"
@@ -3056,6 +3059,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp
             tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp
             CMakeLists.txt
+            cmake/VerifyStbImageSource.cmake
             doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
             cmake/OgreNextProductionPackage.cmake
             cmake/RendererLauncherPackageConfig.cmake
@@ -3879,6 +3883,9 @@ if (TARGET ror_ogre14_source_texture_decoder_tests)
     add_test(NAME ror_ogre14_source_texture_decoder
         COMMAND $<TARGET_FILE:ror_ogre14_source_texture_decoder_tests>)
 endif ()
+add_test(NAME ror_ogre14_source_texture_decoder_contract
+    COMMAND "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_ogre14_source_texture_decoder_contract.py")
 if (TARGET ror_ogre14_material_semantic_catalog_v2_tests)
     add_test(NAME ror_ogre14_material_semantic_catalog_v2
         COMMAND $<TARGET_FILE:ror_ogre14_material_semantic_catalog_v2_tests>)

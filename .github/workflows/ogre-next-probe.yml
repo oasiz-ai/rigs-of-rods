@@ -10,6 +10,7 @@ on:
       - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
       - conanfile.py
       - cmake/OgreNextEmbeddedRuntime.cmake
+      - cmake/VerifyStbImageSource.cmake
       - cmake/ogre_next_embedded/**
       - cmake/conan/**
       - source/main/CMakeLists.txt
@@ -167,6 +168,7 @@ on:
       - doc/nextgen/OGRE14_MATERIAL_SEMANTIC_CATALOG_V2.md
       - conanfile.py
       - cmake/OgreNextEmbeddedRuntime.cmake
+      - cmake/VerifyStbImageSource.cmake
       - cmake/ogre_next_embedded/**
       - cmake/conan/**
       - source/main/CMakeLists.txt
@@ -470,6 +472,7 @@ jobs:
           python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
           python tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
+          python tests/tools/test_ogre14_source_texture_decoder_contract.py
           python tests/tools/test_verify_ogre_next_artifact_set.py
           python -O tests/tools/test_ogre_next_probe_contract.py
           python -O tests/tools/test_ogre_next_frame_probe.py
@@ -494,6 +497,7 @@ jobs:
           python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python -O tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
           python -O tests/tools/test_ogre14_authenticated_material_script_receipt_contract.py
+          python -O tests/tools/test_ogre14_source_texture_decoder_contract.py
           python -O tests/tools/test_verify_ogre_next_artifact_set.py
           python tools/run_ogre_next_probe.py --validate-contract-only
           python tools/ogre_next_probe/run_vulkan_rt5.py --validate-contract-only
@@ -657,7 +661,7 @@ jobs:
           --output-on-failure
           -R '^ror_ogre14_material_semantic_catalog_v2$'
 
-      - name: Prove deterministic legacy DDS source decoding on the host ABI
+      - name: Prove authenticated DDS PNG and JPEG source decoding on the host ABI
         run: >-
           ctest
           --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
