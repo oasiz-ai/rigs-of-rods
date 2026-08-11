@@ -533,6 +533,24 @@ target_include_directories(
         "${ROR_REPOSITORY_ROOT}/source/main/gfx"
         "${ROR_REPOSITORY_ROOT}/source/main/system"
 )
+set_target_properties(
+    ror_renderer_ogre_next_in_process_presenter_policy_tests
+    PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+)
+if (MSVC)
+    target_compile_options(
+        ror_renderer_ogre_next_in_process_presenter_policy_tests
+        PRIVATE /W4 /WX /permissive- /Zc:__cplusplus
+    )
+else ()
+    target_compile_options(
+        ror_renderer_ogre_next_in_process_presenter_policy_tests
+        PRIVATE -Wall -Wextra -Werror -pedantic
+    )
+endif ()
 
 add_executable(
     ror_renderer_ogre_next_live_session_tests

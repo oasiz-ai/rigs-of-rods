@@ -1230,7 +1230,20 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             "${_ror_system_root}")
     set_target_properties(
         ror_renderer_ogre_next_in_process_presenter_policy_tests
-        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        PROPERTIES
+            CXX_STANDARD 17
+            CXX_STANDARD_REQUIRED YES
+            CXX_EXTENSIONS NO
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+    if (MSVC)
+        target_compile_options(
+            ror_renderer_ogre_next_in_process_presenter_policy_tests
+            PRIVATE /W4 /WX /permissive- /Zc:__cplusplus)
+    else ()
+        target_compile_options(
+            ror_renderer_ogre_next_in_process_presenter_policy_tests
+            PRIVATE -Wall -Wextra -Werror -pedantic)
+    endif ()
 
     add_executable(
         ror_ogre_next_dual_runtime_link_smoke

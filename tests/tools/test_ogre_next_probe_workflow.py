@@ -2337,6 +2337,18 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_renderer_ogre_next_in_process_presenter_policy_tests",
             cmake,
         )
+        policy_target = cmake[
+            cmake.index(
+                "add_executable(\n"
+                "        ror_renderer_ogre_next_in_process_presenter_policy_tests"
+            ) : cmake.index(
+                "add_executable(\n        ror_ogre_next_dual_runtime_link_smoke"
+            )
+        ]
+        self.assertIn("CXX_STANDARD 17", policy_target)
+        self.assertIn("CXX_STANDARD_REQUIRED YES", policy_target)
+        self.assertIn("CXX_EXTENSIONS NO", policy_target)
+        self.assertIn("-Wall -Wextra -Werror -pedantic", policy_target)
         presenter_start = cmake.index(
             "add_library(\n        ror_ogre_next_in_process_presenter"
         )
