@@ -1331,6 +1331,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeChannel.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameBridge.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14GameHostSession.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/system/RendererGameInputTarget.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14InputAdapter.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgre14ProductSession.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/detail/OgreNextDemoFrameNormalization.cpp")

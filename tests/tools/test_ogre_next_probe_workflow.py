@@ -454,6 +454,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             )
         ]
         for source in (
+            "source/main/system/RendererGameInputTarget.cpp",
             "source/main/system/RendererOgre14InputAdapter.cpp",
             "source/main/system/RendererOgre14ProductSession.cpp",
             "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
