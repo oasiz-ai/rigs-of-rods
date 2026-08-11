@@ -300,6 +300,13 @@ calibrated beams. It does not close the pending starter-content full-solver
 soak, legacy scene-trace comparison, network localization, or Agora impact
 gate.
 
+The clean exact-commit AppleClang/arm64 receipt is
+`evidence/BEAM_AXIAL_KINEMATICS_BENCHMARK_M5_2026-08-11.json`: the 675-beam
+fixture measured 21.296 ns/beam p50 and 21.852 ns/beam p95; the repeated
+10,800-beam fixture measured 21.300 ns/beam p50 and 21.744 ns/beam p95. Both
+reported zero hot-loop allocations and zero rejected beams. These numbers are
+platform-local evidence, not a cross-platform performance threshold.
+
 The native truck format now exposes the same opt-in through the versioned
 `set_calibrated_beam_material 1, on, ...` directive and an explicit `1, off`
 transition. Parsing is strict, finite, locale-independent, copy-on-write, and

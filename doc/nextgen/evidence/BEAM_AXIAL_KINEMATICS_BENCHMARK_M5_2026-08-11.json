@@ -1,0 +1,32 @@
+{
+  "schema": "ror.beam_axial_kinematics_benchmark@1",
+  "commit": "64b608d773d69a5e476faa0cfb3d63bf7e64fc82",
+  "source_state": "clean",
+  "source_manifest_sha256": "8d2b21e65e106062cb439e94e358987233a5d4166c9091eb2a1888bd3d318668",
+  "compiler": "AppleClang",
+  "compiler_version": "Apple LLVM 21.0.0 (clang-2100.1.1.101)",
+  "flags": "-O2 -fno-fast-math -ffp-contract=off -fno-lto",
+  "architecture": "arm64",
+  "measurements": [
+    {
+      "beam_count": 675,
+      "sample_count": 96,
+      "p50_ns_per_beam": 21.296,
+      "p95_ns_per_beam": 21.852,
+      "p99_ns_per_beam": 21.914,
+      "hot_loop_allocations": 0,
+      "failure_count": 0,
+      "digest_fnv1a64": "b23c675004e14710"
+    },
+    {
+      "beam_count": 10800,
+      "sample_count": 48,
+      "p50_ns_per_beam": 21.300,
+      "p95_ns_per_beam": 21.744,
+      "p99_ns_per_beam": 26.651,
+      "hot_loop_allocations": 0,
+      "failure_count": 0,
+      "digest_fnv1a64": "114dd2e52ec252d6"
+    }
+  ]
+}
