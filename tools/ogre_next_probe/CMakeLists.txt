@@ -1053,6 +1053,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
         "${_ror_render_root}/HdrReference.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
+        "${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"
         "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
         "${_ror_render_root}/ReflectionProbeRuntime.cpp"
         "${_ror_render_root}/RenderAssetId.cpp"

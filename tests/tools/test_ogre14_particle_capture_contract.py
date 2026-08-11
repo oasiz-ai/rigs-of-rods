@@ -213,6 +213,16 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
             '"${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"',
             self.embedded_cmake,
         )
+        self.assertIn(
+            '"${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"',
+            self.embedded_cmake,
+        )
+        self.assertGreaterEqual(
+            self.probe_cmake.count(
+                '"${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"'
+            ),
+            2,
+        )
         for token in (
             "Continuous OGRE 14 particle capture v1",
             "cannot represent a continuously retained particle",
