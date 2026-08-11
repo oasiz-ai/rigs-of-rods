@@ -35,6 +35,11 @@ ARCHIVE_SOURCE = (
     / "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
 )
 CPP_TEST = ROOT / "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+NATIVE_INTEGRATION_TEST = (
+    ROOT
+    / "tests/gfx/ogre14/"
+    "Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
+)
 ARCHIVE_CPP_TEST = ROOT / "tests/resources/TerrainBundleArchiveVerifierTests.cpp"
 RECIPE_DATA = ROOT / "cmake/conan/recipes/ogre3d/conandata.yml"
 RECIPE_PATCH = (
@@ -72,6 +77,8 @@ PATHS = (
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp",
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h",
     "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp",
+    "tests/gfx/ogre14/"
+    "Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp",
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp",
     "tests/tools/assert_ogre_recipe_graph.py",
     "tests/tools/test_ogre14_authenticated_texture_receipt_contract.py",
@@ -100,6 +107,9 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
         cls.archive_header = ARCHIVE_HEADER.read_text(encoding="utf-8")
         cls.archive_source = ARCHIVE_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
+        cls.native_integration_test = NATIVE_INTEGRATION_TEST.read_text(
+            encoding="utf-8"
+        )
         cls.archive_cpp_test = ARCHIVE_CPP_TEST.read_text(encoding="utf-8")
         cls.recipe_data = RECIPE_DATA.read_text(encoding="utf-8")
         cls.recipe_patch = RECIPE_PATCH.read_text(encoding="utf-8")
@@ -344,6 +354,79 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             unload.index("UnregisterPackageResourceGroup("),
             unload.index("i_entry->resource_group = \"\""),
         )
+
+    def test_builtin_resource_pack_selected_source_is_one_retryable_transaction(
+        self,
+    ) -> None:
+        add_pack = self.content_source.split(
+            "void ContentManager::AddResourcePack", 1
+        )[1].split("void ContentManager::InitContentManager", 1)[0]
+        for token in (
+            "const bool resource_group_was_present",
+            "std::string selected_source_location;",
+            "const bool selected_source_location_was_present",
+            "if (!selected_source_location_was_present)",
+            "RegisterPackageResourceLocation(",
+            "package_location_registered = true;",
+            "initialiseResourceGroup(rg_name)",
+            "AbortAuthenticatedMaterialScriptGroup(rg_name)",
+            "destroyResourceGroup(rg_name)",
+            "UnregisterPackageResourceGroup(rg_name)",
+            "ordinary observed sources, not",
+            "without a GPU readback or a false authentication claim",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, add_pack)
+        self.assertLess(
+            add_pack.index("if (!selected_source_location_was_present)"),
+            add_pack.index("rgm.addResourceLocation("),
+        )
+        self.assertLess(
+            add_pack.index("RegisterPackageResourceLocation("),
+            add_pack.index("initialiseResourceGroup(rg_name)"),
+        )
+        rollback = add_pack.split(
+            "catch (...)\n    {\n        if (use_default_group)", 1
+        )[1]
+        self.assertLess(
+            rollback.index("AbortAuthenticatedMaterialScriptGroup(rg_name)"),
+            rollback.index("destroyResourceGroup(rg_name)"),
+        )
+        self.assertLess(
+            rollback.index("destroyResourceGroup(rg_name)"),
+            rollback.index("UnregisterPackageResourceGroup(rg_name)"),
+        )
+        for token in (
+            "package_archive_names.count(live_archive_name) != 1U",
+            "package_group->second.count(selected_archive_name) != 1U",
+            "metadata->source.selected_archive_name",
+            '"selected_texture_resolution.package_archive"',
+        ):
+            with self.subTest(membership_token=token):
+                self.assertIn(token, self.content_source)
+        for token in (
+            "TestResourcePackRegistrationRollback",
+            "TestResourcePackPreexistingOverrideAddedLocationRollback",
+            "TestResourcePackPreexistingOverrideRollback",
+            "TestResourcePackPreScriptingRollback",
+            "TestResourcePackGenerationRollback",
+            "TestResourcePackScriptParseRollback",
+            "TestBuiltInSmokeSelectedSourceWithoutReadback",
+            "SameResourcePackAuthorityState(before, after)",
+            "ResourceLocationPointers(group) == locations_before",
+            "CountNativeArchives() == archives_before",
+            "duplicate override locations minted an ambiguous ordinary selected-source receipt",
+            "registered archive A laundered unregistered shadow archive B",
+            "after.next_group_generation > before.next_group_generation",
+            "failed script parse left a native material behind",
+            'selected_archive_name ==\n                    archive.string()',
+            "UNAUTHENTICATED_PACKAGE_ARCHIVE_MEMBER",
+            "current.gpu_readbacks == 0U",
+            "current.authenticated_gpu_readbacks == 0U",
+            "current.unauthenticated_gpu_readbacks == 0U",
+        ):
+            with self.subTest(native_token=token):
+                self.assertIn(token, self.native_integration_test)
 
     def test_pinned_ogre_rollback_patch_is_cross_platform_closed(self) -> None:
         self.assertIn(

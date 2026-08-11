@@ -6,6 +6,8 @@
 */
 
 #include "resources/ContentManager.h"
+#include "gfx/ogre14/detail/OgreNextDemoMaterialSource.h"
+#include "system/CVar.h"
 
 #include <OgreMaterialManager.h>
 #include <OgreRoot.h>
@@ -57,6 +59,34 @@ int RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
 class ContentManagerNativeIntegrationTestAccess final
 {
 public:
+    struct ResourcePackAuthorityState final
+    {
+        std::uint64_t next_group_generation = 0U;
+        bool has_group_generation = false;
+        bool has_package_group = false;
+        std::size_t package_archive_count = 0U;
+        bool has_authenticated_name_group = false;
+        bool has_authenticated_binding_group = false;
+        bool has_active_candidate = false;
+        bool has_aborted_candidate = false;
+        bool is_scripting_group = false;
+        std::size_t selected_receipt_count = 0U;
+        std::uint64_t selected_source_bytes = 0U;
+        std::uint64_t selected_identity_bytes = 0U;
+        std::uint64_t selected_generation_watermark = 0U;
+        std::size_t authenticated_texture_receipt_count = 0U;
+        std::uint64_t authenticated_texture_source_bytes = 0U;
+        std::uint64_t authenticated_texture_generation_watermark = 0U;
+        std::size_t authenticated_material_receipt_count = 0U;
+        std::size_t authenticated_material_source_count = 0U;
+        std::uint64_t authenticated_material_source_bytes = 0U;
+        std::uint64_t authenticated_material_identity_bytes = 0U;
+        std::uint64_t authenticated_material_generation_watermark = 0U;
+        std::size_t selected_stage_count = 0U;
+        std::uint64_t selected_staged_source_bytes = 0U;
+        std::uint64_t selected_staged_identity_bytes = 0U;
+    };
+
     static void InstallListeners(ContentManager& content)
     {
         content.EnsureResourceGroupListener();
@@ -73,6 +103,100 @@ public:
     {
         content.m_force_next_authenticated_material_event_empty_for_testing =
             true;
+    }
+
+    static void ForceNextResourcePackRegistrationFailure(
+        ContentManager& content)
+    {
+        content.m_force_next_resource_pack_registration_failure_for_testing =
+            true;
+    }
+
+    static void ForceNextResourcePackPreScriptingFailure(
+        ContentManager& content)
+    {
+        content.m_force_next_resource_pack_pre_scripting_failure_for_testing =
+            true;
+    }
+
+    static void ForceNextResourcePackGenerationFailure(
+        ContentManager& content)
+    {
+        content.m_force_next_resource_pack_generation_failure_for_testing =
+            true;
+    }
+
+    static void ForceNextResourcePackScriptParseFailure(
+        ContentManager& content)
+    {
+        content.m_force_next_resource_pack_script_parse_failure_for_testing =
+            true;
+    }
+
+    static ResourcePackAuthorityState CaptureResourcePackAuthorityState(
+        ContentManager& content,
+        const Ogre::String& group)
+    {
+        std::lock_guard<std::mutex> state_lock(
+            content.m_legacy_material_state_mutex);
+        ResourcePackAuthorityState state;
+        state.next_group_generation =
+            content.m_next_legacy_material_group_generation;
+        const auto generation =
+            content.m_legacy_material_group_generations.find(group);
+        state.has_group_generation =
+            generation != content.m_legacy_material_group_generations.end();
+        const auto package = content.m_package_archives_by_group.find(group);
+        state.has_package_group =
+            package != content.m_package_archives_by_group.end();
+        state.package_archive_count =
+            state.has_package_group ? package->second.size() : 0U;
+        state.has_authenticated_name_group =
+            content.m_authenticated_package_archives_by_group.find(group) !=
+            content.m_authenticated_package_archives_by_group.end();
+        state.has_authenticated_binding_group =
+            content.m_authenticated_package_archive_bindings_by_group.find(
+                group) !=
+            content.m_authenticated_package_archive_bindings_by_group.end();
+        state.has_active_candidate =
+            content.m_authenticated_material_script_candidate != nullptr;
+        state.has_aborted_candidate =
+            content.m_aborted_material_script_candidate != nullptr;
+        state.is_scripting_group =
+            content.m_scripting_resource_group == group;
+        state.selected_receipt_count =
+            content.m_selected_texture_sources.size();
+        state.selected_source_bytes =
+            content.m_selected_texture_sources.retained_source_bytes();
+        state.selected_identity_bytes =
+            content.m_selected_texture_sources.retained_identity_bytes();
+        state.selected_generation_watermark =
+            content.m_selected_texture_sources.maximum_group_generation_seen();
+        state.authenticated_texture_receipt_count =
+            content.m_authenticated_texture_receipts.size();
+        state.authenticated_texture_source_bytes =
+            content.m_authenticated_texture_receipts.retained_source_bytes();
+        state.authenticated_texture_generation_watermark =
+            content.m_authenticated_texture_receipts.
+                maximum_group_generation_seen();
+        state.authenticated_material_receipt_count =
+            content.m_authenticated_material_scripts.size();
+        state.authenticated_material_source_count =
+            content.m_authenticated_material_scripts.source_count();
+        state.authenticated_material_source_bytes =
+            content.m_authenticated_material_scripts.retained_source_bytes();
+        state.authenticated_material_identity_bytes =
+            content.m_authenticated_material_scripts.retained_identity_bytes();
+        state.authenticated_material_generation_watermark =
+            content.m_authenticated_material_scripts.
+                maximum_group_generation_seen();
+        state.selected_stage_count =
+            content.m_selected_texture_source_stages.size();
+        state.selected_staged_source_bytes =
+            content.m_selected_texture_source_staged_bytes;
+        state.selected_staged_identity_bytes =
+            content.m_selected_texture_source_staged_identity_bytes;
+        return state;
     }
 
     static Render::ValidationResult FindSelectedTextureSourceReceipt(
@@ -326,7 +450,8 @@ std::vector<std::uint8_t> MakeStoredZip(const ArchiveEntries& entries)
 }
 
 std::string MakeOrdinaryDds(std::uint8_t red, std::uint8_t green,
-                            std::uint8_t blue)
+                            std::uint8_t blue,
+                            std::uint8_t alpha = 255U)
 {
     std::vector<std::uint8_t> bytes;
     bytes.reserve(144U);
@@ -360,7 +485,7 @@ std::string MakeOrdinaryDds(std::uint8_t red, std::uint8_t green,
         bytes.push_back(blue);
         bytes.push_back(green);
         bytes.push_back(red);
-        bytes.push_back(255U);
+        bytes.push_back(alpha);
     }
     Require(bytes.size() == 144U,
             "ordinary DDS fixture has an invalid byte count");
@@ -389,6 +514,157 @@ std::filesystem::path WriteOrdinaryZip(
     return path;
 }
 
+std::filesystem::path MakeResourcePackRoot(const std::string& label)
+{
+    static std::uint64_t sequence = 0U;
+    const auto nonce = static_cast<std::uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        ("ror-ogre14-resource-pack-" + label + "-" +
+         std::to_string(nonce) + "-" + std::to_string(++sequence));
+    Require(std::filesystem::create_directory(root),
+            "could not create resource-pack fixture root");
+    return root;
+}
+
+std::filesystem::path WriteResourcePackZip(
+    const std::filesystem::path& root,
+    const std::string& pack_name,
+    const ArchiveEntries& entries)
+{
+    const std::filesystem::path path = root / (pack_name + ".zip");
+    const std::vector<std::uint8_t> archive = MakeStoredZip(entries);
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    Require(stream.good(), "could not create resource-pack ZIP fixture");
+    stream.write(
+        reinterpret_cast<const char*>(archive.data()),
+        static_cast<std::streamsize>(archive.size()));
+    Require(stream.good(), "could not write resource-pack ZIP fixture");
+    return path;
+}
+
+class ScopedResourceDirectory final
+{
+public:
+    explicit ScopedResourceDirectory(const std::filesystem::path& root)
+        : m_previous(RoR::App::sys_resources_dir),
+          m_value("native_test_resources", "", 0)
+    {
+        m_value.setStr(root.string());
+        RoR::App::sys_resources_dir = &m_value;
+    }
+
+    ~ScopedResourceDirectory()
+    {
+        RoR::App::sys_resources_dir = m_previous;
+    }
+
+    ScopedResourceDirectory(const ScopedResourceDirectory&) = delete;
+    ScopedResourceDirectory& operator=(const ScopedResourceDirectory&) = delete;
+
+private:
+    RoR::CVar* m_previous = nullptr;
+    RoR::CVar m_value;
+};
+
+using ResourcePackAuthorityState =
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ResourcePackAuthorityState;
+
+bool SameResourcePackAuthorityState(
+    const ResourcePackAuthorityState& left,
+    const ResourcePackAuthorityState& right)
+{
+    return left.next_group_generation == right.next_group_generation &&
+        left.has_group_generation == right.has_group_generation &&
+        left.has_package_group == right.has_package_group &&
+        left.package_archive_count == right.package_archive_count &&
+        left.has_authenticated_name_group ==
+            right.has_authenticated_name_group &&
+        left.has_authenticated_binding_group ==
+            right.has_authenticated_binding_group &&
+        left.has_active_candidate == right.has_active_candidate &&
+        left.has_aborted_candidate == right.has_aborted_candidate &&
+        left.is_scripting_group == right.is_scripting_group &&
+        left.selected_receipt_count == right.selected_receipt_count &&
+        left.selected_source_bytes == right.selected_source_bytes &&
+        left.selected_identity_bytes == right.selected_identity_bytes &&
+        left.selected_generation_watermark ==
+            right.selected_generation_watermark &&
+        left.authenticated_texture_receipt_count ==
+            right.authenticated_texture_receipt_count &&
+        left.authenticated_texture_source_bytes ==
+            right.authenticated_texture_source_bytes &&
+        left.authenticated_texture_generation_watermark ==
+            right.authenticated_texture_generation_watermark &&
+        left.authenticated_material_receipt_count ==
+            right.authenticated_material_receipt_count &&
+        left.authenticated_material_source_count ==
+            right.authenticated_material_source_count &&
+        left.authenticated_material_source_bytes ==
+            right.authenticated_material_source_bytes &&
+        left.authenticated_material_identity_bytes ==
+            right.authenticated_material_identity_bytes &&
+        left.authenticated_material_generation_watermark ==
+            right.authenticated_material_generation_watermark &&
+        left.selected_stage_count == right.selected_stage_count &&
+        left.selected_staged_source_bytes ==
+            right.selected_staged_source_bytes &&
+        left.selected_staged_identity_bytes ==
+            right.selected_staged_identity_bytes;
+}
+
+bool SameResourcePackRetainedSourcePayloads(
+    const ResourcePackAuthorityState& left,
+    const ResourcePackAuthorityState& right)
+{
+    return left.selected_receipt_count == right.selected_receipt_count &&
+        left.selected_source_bytes == right.selected_source_bytes &&
+        left.authenticated_texture_receipt_count ==
+            right.authenticated_texture_receipt_count &&
+        left.authenticated_texture_source_bytes ==
+            right.authenticated_texture_source_bytes &&
+        left.authenticated_material_receipt_count ==
+            right.authenticated_material_receipt_count &&
+        left.authenticated_material_source_count ==
+            right.authenticated_material_source_count &&
+        left.authenticated_material_source_bytes ==
+            right.authenticated_material_source_bytes &&
+        left.authenticated_material_identity_bytes ==
+            right.authenticated_material_identity_bytes &&
+        left.selected_stage_count == right.selected_stage_count &&
+        left.selected_staged_source_bytes ==
+            right.selected_staged_source_bytes &&
+        left.selected_staged_identity_bytes ==
+            right.selected_staged_identity_bytes;
+}
+
+bool HasNoResourcePackGroupAuthority(
+    const ResourcePackAuthorityState& state)
+{
+    return !state.has_group_generation && !state.has_package_group &&
+        state.package_archive_count == 0U &&
+        !state.has_authenticated_name_group &&
+        !state.has_authenticated_binding_group &&
+        !state.has_active_candidate && !state.has_aborted_candidate &&
+        !state.is_scripting_group;
+}
+
+std::vector<const Ogre::Archive*> ResourceLocationPointers(
+    const Ogre::String& group)
+{
+    std::vector<const Ogre::Archive*> pointers;
+    const auto& locations = Ogre::ResourceGroupManager::getSingleton().
+        getResourceLocationList(group);
+    pointers.reserve(locations.size());
+    for (const auto& location : locations)
+    {
+        pointers.push_back(location.archive);
+    }
+    return pointers;
+}
+
 class SelectedSourceTestTexture final : public Ogre::Texture
 {
 public:
@@ -402,6 +678,18 @@ public:
         : Ogre::Texture(
               creator, name, handle, group, is_manual, loader)
     {
+        mWidth = 2U;
+        mHeight = 2U;
+        mDepth = 1U;
+        mSrcWidth = 2U;
+        mSrcHeight = 2U;
+        mSrcDepth = 1U;
+        mTextureType = Ogre::TEX_TYPE_2D;
+        mNumRequestedMipmaps = 0U;
+        mNumMipmaps = 0U;
+        mFormat = Ogre::PF_BYTE_RGBA;
+        mSrcFormat = Ogre::PF_BYTE_RGBA;
+        mUsage = Ogre::TU_STATIC;
     }
 
     const std::string& observed_bytes() const noexcept
@@ -569,6 +857,26 @@ Ogre::MaterialPtr FindMaterial(
     Ogre::MaterialManager* manager = Ogre::MaterialManager::getSingletonPtr();
     Require(manager != nullptr, "OGRE MaterialManager is unavailable");
     return manager->getByName(name, group);
+}
+
+bool HasMaterialIdentity(
+    const Ogre::String& group,
+    const Ogre::String& name)
+{
+    Ogre::MaterialManager* manager = Ogre::MaterialManager::getSingletonPtr();
+    Require(manager != nullptr, "OGRE MaterialManager is unavailable");
+    Ogre::ResourceManager::ResourceMapIterator materials =
+        manager->getResourceIterator();
+    while (materials.hasMoreElements())
+    {
+        const Ogre::ResourcePtr material = materials.getNext();
+        if (material && material->getGroup() == group &&
+            material->getName() == name)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::size_t CountNativeArchives()
@@ -740,37 +1048,12 @@ void TestOrdinarySelectedTextureScope(
     const RoR::Render::ValidationResult shared_resolved =
         content.ResolveSelectedTextureSource(
             *shared_texture, shared_resolution);
-    const auto* shared_receipt = shared_resolution.source_receipt();
-    const auto* shared_metadata =
-        shared_receipt != nullptr ? shared_receipt->metadata() : nullptr;
     Require(shared_native != nullptr && shared_texture->isLoaded() &&
                 shared_native->observed_bytes() == shared_payload &&
-                shared_resolved && shared_metadata != nullptr &&
-                shared_metadata->source.selected_archive_name ==
-                    shared_archive.string() &&
-                shared_metadata->source.selected_archive_name !=
-                    marker_archive.string() &&
-                shared_metadata->source.exact_member_name == member &&
-                SelectedTextureReceiptBytes(shared_resolution) ==
-                    shared_payload,
-            "registered package marker did not capture the exact distinct attached archive");
-    Require(
-        RoR::ContentManagerNativeIntegrationTestAccess::
-            InstallAuthenticatedNameMapOnly(content, shared_group),
-        "could not stage a post-commit authenticated-map inconsistency");
-    RoR::Render::Ogre14SelectedTextureSourceResolution blocked_resolution;
-    const RoR::Render::ValidationResult blocked_resolve =
-        content.ResolveSelectedTextureSource(
-            *shared_texture, blocked_resolution);
-    Require(!content.RevalidateSelectedTextureSource(
-                *shared_texture, shared_resolution) &&
-                !blocked_resolve && !blocked_resolution.initialized(),
-            "post-commit authenticated-map inconsistency retained or minted ordinary authority");
-    RoR::ContentManagerNativeIntegrationTestAccess::
-        RemoveAuthenticatedNameMapOnly(content, shared_group);
-    Require(content.RevalidateSelectedTextureSource(
-                *shared_texture, shared_resolution),
-            "restored ordinary source mode did not revalidate its unchanged exact receipt");
+                !shared_resolved && !shared_resolution.initialized() &&
+                !content.RevalidateSelectedTextureSource(
+                    *shared_texture, shared_resolution),
+            "registered archive A laundered unregistered shadow archive B into ordinary selected-source authority");
     content.UnregisterPackageResourceGroup(shared_group);
     groups.removeResourceLocation(
         shared_archive.string(), shared_group);
@@ -1020,6 +1303,625 @@ void DestroyAndUnregister(
     Require(!groups.resourceGroupExists(group),
             "resource group survived native destruction");
     content.UnregisterPackageResourceGroup(group);
+}
+
+Ogre::Archive* FindNativeArchive(const Ogre::String& archive_name)
+{
+    Ogre::Archive* selected = nullptr;
+    Ogre::ArchiveManager::ArchiveMapIterator archives =
+        Ogre::ArchiveManager::getSingleton().getArchiveIterator();
+    while (archives.hasMoreElements())
+    {
+        const Ogre::String live_name = archives.peekNextKey();
+        Ogre::Archive* const archive = archives.getNext();
+        if (live_name != archive_name)
+        {
+            continue;
+        }
+        Require(selected == nullptr && archive != nullptr &&
+                    archive->getName() == archive_name,
+                "ArchiveManager exposed an ambiguous exact archive identity");
+        selected = archive;
+    }
+    return selected;
+}
+
+void DestroyUnregisterAndUnloadOrdinaryPack(
+    RoR::ContentManager& content,
+    const Ogre::String& group,
+    const std::filesystem::path& archive_path,
+    std::size_t archive_count_before)
+{
+    const Ogre::String archive_name = archive_path.string();
+    Ogre::Archive* const admitted_archive = FindNativeArchive(archive_name);
+    Require(admitted_archive != nullptr && admitted_archive->getType() == "Zip",
+            "successful ordinary pack did not retain its exact live ZIP archive");
+
+    // Keep the production teardown contract explicit: destroy the resource
+    // group before revoking ContentManager authority. OGRE 14 does not remove
+    // the process-wide ArchiveManager entry when the group is destroyed, so
+    // the fixture must unload that exact now-unreferenced archive separately.
+    DestroyAndUnregister(content, group);
+    Ogre::Archive* const retained_archive = FindNativeArchive(archive_name);
+    Require(retained_archive == admitted_archive,
+            "ordinary pack destruction changed its retained archive identity");
+
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    for (const Ogre::String& live_group : groups.getResourceGroups())
+    {
+        if (!groups.resourceGroupExists(live_group))
+        {
+            continue;
+        }
+        for (const auto& location : groups.getResourceLocationList(live_group))
+        {
+            Require(location.archive != retained_archive,
+                    "ordinary fixture archive remained referenced by a live group");
+        }
+    }
+    Ogre::ArchiveManager::getSingleton().unload(retained_archive);
+    Require(FindNativeArchive(archive_name) == nullptr &&
+                CountNativeArchives() == archive_count_before,
+            "ordinary pack teardown leaked its exact ArchiveManager entry");
+}
+
+void RemoveResourcePackRoot(const std::filesystem::path& root)
+{
+    std::error_code error;
+    const std::uintmax_t removed = std::filesystem::remove_all(root, error);
+    Require(!error && removed != 0U && !std::filesystem::exists(root),
+            "resource-pack fixture root survived cleanup");
+}
+
+void TestResourcePackRegistrationRollback(
+    RoR::ContentManager& content)
+{
+    const Ogre::String group = "NativePackRegistrationRollback";
+    const std::string pack_name = "native-pack-registration-rollback";
+    const std::filesystem::path root =
+        MakeResourcePackRoot("registration-rollback");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root, pack_name, {{"marker.txt", "registration rollback"}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), group.c_str());
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    Require(!groups.resourceGroupExists(group),
+            "registration rollback group already exists");
+    const ResourcePackAuthorityState before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    const std::size_t archives_before = CountNativeArchives();
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackRegistrationFailure(content);
+    bool rejected = false;
+    try
+    {
+        content.AddResourcePack(pack);
+    }
+    catch (...)
+    {
+        rejected = true;
+    }
+    const ResourcePackAuthorityState after =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(rejected && !groups.resourceGroupExists(group) &&
+                SameResourcePackAuthorityState(before, after) &&
+                CountNativeArchives() == archives_before &&
+                std::filesystem::exists(archive),
+            "registration failure left a default-group, archive, or authority mutation");
+
+    content.AddResourcePack(pack);
+    const ResourcePackAuthorityState retried =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(groups.resourceGroupExists(group) &&
+                groups.isResourceGroupInitialised(group) &&
+                retried.has_group_generation &&
+                retried.has_package_group &&
+                retried.package_archive_count == 1U &&
+                retried.next_group_generation > before.next_group_generation,
+            "registration rollback did not permit an exact successful retry");
+    DestroyUnregisterAndUnloadOrdinaryPack(
+        content, group, archive, archives_before);
+    RemoveResourcePackRoot(root);
+}
+
+void TestResourcePackPreexistingOverrideRollback(
+    RoR::ContentManager& content,
+    SelectedSourceTestTextureManager& texture_manager)
+{
+    const Ogre::String group = "NativePackPreexistingOverrideRollback";
+    const std::string pack_name = "native-pack-preexisting-override";
+    const std::filesystem::path root =
+        MakeResourcePackRoot("preexisting-override");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root, pack_name, {{"marker.txt", "preexisting override"}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), "unused-default-group");
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const std::size_t archives_before = CountNativeArchives();
+    groups.createResourceGroup(group, false);
+    groups.addResourceLocation(
+        archive.string(), "Zip", group, false, true);
+    groups.addResourceLocation(
+        archive.string(), "Zip", group, false, true);
+    const std::vector<const Ogre::Archive*> locations_before =
+        ResourceLocationPointers(group);
+    Require(locations_before.size() == 2U &&
+                locations_before[0U] == locations_before[1U],
+            "override fixture did not retain its exact duplicate locations");
+    const ResourcePackAuthorityState before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackRegistrationFailure(content);
+    bool rejected = false;
+    try
+    {
+        content.AddResourcePack(pack, group);
+    }
+    catch (...)
+    {
+        rejected = true;
+    }
+    const ResourcePackAuthorityState after =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(rejected && groups.resourceGroupExists(group) &&
+                ResourceLocationPointers(group) == locations_before &&
+                SameResourcePackAuthorityState(before, after),
+            "override registration failure changed preexisting location cardinality or authority");
+
+    content.AddResourcePack(pack, group);
+    const ResourcePackAuthorityState registered =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(ResourceLocationPointers(group) == locations_before &&
+                registered.has_group_generation &&
+                registered.has_package_group &&
+                registered.package_archive_count == 1U,
+            "successful override registration appended a duplicate location or lost ordinary authority");
+
+    // Registering an ordinary package marker is not itself a receipt. Exact
+    // observation remains closed while two ResourceLocation entries select
+    // the same Archive pointer; normal OGRE loading is still allowed.
+    Ogre::TexturePtr duplicate_texture =
+        texture_manager.create("marker.txt", group);
+    duplicate_texture->load();
+    auto* native_texture =
+        dynamic_cast<SelectedSourceTestTexture*>(duplicate_texture.get());
+    RoR::Render::Ogre14SelectedTextureSourceResolution resolution;
+    const RoR::Render::ValidationResult selected =
+        content.ResolveSelectedTextureSource(*duplicate_texture, resolution);
+    Require(native_texture != nullptr && duplicate_texture->isLoaded() &&
+                native_texture->observed_bytes() == "preexisting override" &&
+                !selected && !resolution.initialized(),
+            "duplicate override locations minted an ambiguous ordinary selected-source receipt");
+    duplicate_texture.setNull();
+    DestroyUnregisterAndUnloadOrdinaryPack(
+        content, group, archive, archives_before);
+    RemoveResourcePackRoot(root);
+}
+
+void TestResourcePackPreexistingOverrideAddedLocationRollback(
+    RoR::ContentManager& content)
+{
+    const Ogre::String group =
+        "NativePackPreexistingOverrideAddedLocationRollback";
+    const std::string pack_name =
+        "native-pack-preexisting-override-added-location";
+    const std::filesystem::path root =
+        MakeResourcePackRoot("preexisting-override-added-location");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root, pack_name, {{"marker.txt", "added location rollback"}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), "unused-default-group");
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const std::size_t fixture_archives_before = CountNativeArchives();
+    groups.createResourceGroup(group, false);
+    groups.addResourceLocation(
+        root.string(), "FileSystem", group, false, true);
+    const std::vector<const Ogre::Archive*> locations_before =
+        ResourceLocationPointers(group);
+    const std::size_t archives_before_pack_attempt = CountNativeArchives();
+    const ResourcePackAuthorityState before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackRegistrationFailure(content);
+    bool rejected = false;
+    try
+    {
+        content.AddResourcePack(pack, group);
+    }
+    catch (...)
+    {
+        rejected = true;
+    }
+    const ResourcePackAuthorityState after =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(rejected && groups.resourceGroupExists(group) &&
+                ResourceLocationPointers(group) == locations_before &&
+                !groups.resourceLocationExists(archive.string(), group) &&
+                CountNativeArchives() == archives_before_pack_attempt &&
+                SameResourcePackAuthorityState(before, after),
+            "override registration failure did not remove only its newly added archive location");
+
+    groups.removeResourceLocation(root.string(), group);
+    groups.destroyResourceGroup(group);
+    content.UnregisterPackageResourceGroup(group);
+    Require(CountNativeArchives() == fixture_archives_before,
+            "override rollback fixture leaked its FileSystem archive");
+    RemoveResourcePackRoot(root);
+}
+
+void RequireFailedResourcePackInitializationWasQuarantined(
+    const ResourcePackAuthorityState& before,
+    const ResourcePackAuthorityState& after,
+    const Ogre::String& group,
+    std::size_t archive_count_before,
+    const std::string& boundary)
+{
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const bool group_absent = !groups.resourceGroupExists(group);
+    const bool authority_absent = HasNoResourcePackGroupAuthority(after);
+    const bool payloads_unchanged =
+        SameResourcePackRetainedSourcePayloads(before, after);
+    const bool generation_advanced =
+        after.next_group_generation > before.next_group_generation;
+    const bool archive_count_unchanged =
+        CountNativeArchives() == archive_count_before;
+    const bool tombstone_identity_exact =
+        before.selected_identity_bytes <=
+            (std::numeric_limits<std::uint64_t>::max)() - group.size() &&
+        after.selected_identity_bytes ==
+            before.selected_identity_bytes + group.size();
+    const bool watermarks_current =
+        after.selected_generation_watermark ==
+            after.next_group_generation &&
+        after.authenticated_texture_generation_watermark ==
+            after.next_group_generation &&
+        after.authenticated_material_generation_watermark ==
+            after.next_group_generation;
+    if (!group_absent || !authority_absent || !payloads_unchanged ||
+        !generation_advanced || !archive_count_unchanged ||
+        !tombstone_identity_exact ||
+        !watermarks_current)
+    {
+        std::cerr << boundary
+                  << " state: group_absent=" << group_absent
+                  << " authority_absent=" << authority_absent
+                  << " payloads_unchanged=" << payloads_unchanged
+                  << " selected_identity="
+                  << before.selected_identity_bytes << "->"
+                  << after.selected_identity_bytes
+                  << " expected_delta=" << group.size()
+                  << " generation=" << before.next_group_generation
+                  << "->" << after.next_group_generation
+                  << " archives=" << archive_count_before << "->"
+                  << CountNativeArchives()
+                  << " selected_watermark="
+                  << after.selected_generation_watermark
+                  << " authenticated_texture_watermark="
+                  << after.authenticated_texture_generation_watermark
+                  << " authenticated_material_watermark="
+                  << after.authenticated_material_generation_watermark
+                  << '\n';
+    }
+    Require(group_absent && authority_absent && payloads_unchanged &&
+                generation_advanced && archive_count_unchanged &&
+                tombstone_identity_exact &&
+                watermarks_current,
+            boundary +
+                " did not abort, destroy, unregister, preserve source payloads, or retain only an inactive monotonic tombstone");
+}
+
+void TestResourcePackPreScriptingRollback(
+    RoR::ContentManager& content)
+{
+    const Ogre::String group = "NativePackPreScriptingRollback";
+    const std::string pack_name = "native-pack-pre-scripting-rollback";
+    const std::filesystem::path root =
+        MakeResourcePackRoot("pre-scripting-rollback");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root, pack_name, {{"marker.txt", "pre scripting rollback"}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), group.c_str());
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const ResourcePackAuthorityState before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    const std::size_t archives_before = CountNativeArchives();
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackPreScriptingFailure(content);
+    bool rejected = false;
+    try
+    {
+        content.AddResourcePack(pack);
+    }
+    catch (...)
+    {
+        rejected = true;
+    }
+    const ResourcePackAuthorityState after =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(rejected,
+            "pre-scripting initialization fault did not reject AddResourcePack");
+    RequireFailedResourcePackInitializationWasQuarantined(
+        before, after, group, archives_before,
+        "pre-scripting initialization failure");
+
+    content.AddResourcePack(pack);
+    Require(groups.resourceGroupExists(group) &&
+                groups.isResourceGroupInitialised(group),
+            "pre-scripting rollback left the default group unretryable");
+    DestroyUnregisterAndUnloadOrdinaryPack(
+        content, group, archive, archives_before);
+    RemoveResourcePackRoot(root);
+}
+
+void TestResourcePackGenerationRollback(
+    RoR::ContentManager& content)
+{
+    const Ogre::String group = "NativePackGenerationRollback";
+    const std::string pack_name = "native-pack-generation-rollback";
+    const std::filesystem::path root =
+        MakeResourcePackRoot("generation-rollback");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root, pack_name, {{"marker.txt", "generation rollback"}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), group.c_str());
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const ResourcePackAuthorityState before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    const std::size_t archives_before = CountNativeArchives();
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackGenerationFailure(content);
+    bool rejected = false;
+    try
+    {
+        content.AddResourcePack(pack);
+    }
+    catch (...)
+    {
+        rejected = true;
+    }
+    const ResourcePackAuthorityState after =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(rejected,
+            "post-generation initialization fault did not reject AddResourcePack");
+    RequireFailedResourcePackInitializationWasQuarantined(
+        before, after, group, archives_before,
+        "post-generation initialization failure");
+
+    content.AddResourcePack(pack);
+    Require(groups.resourceGroupExists(group) &&
+                groups.isResourceGroupInitialised(group),
+            "post-generation rollback left the default group unretryable");
+    DestroyUnregisterAndUnloadOrdinaryPack(
+        content, group, archive, archives_before);
+    RemoveResourcePackRoot(root);
+}
+
+void TestResourcePackScriptParseRollback(
+    RoR::ContentManager& content)
+{
+    const Ogre::String group = "NativePackScriptParseRollback";
+    const Ogre::String material_name = "native/ResourcePackParseRetry";
+    const std::string pack_name = "native-pack-script-parse-rollback";
+    const std::filesystem::path root =
+        MakeResourcePackRoot("script-parse-rollback");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root,
+        pack_name,
+        {{"native.material",
+          "material native/ResourcePackParseRetry\n"
+          "{\n"
+          "    technique\n"
+          "    {\n"
+          "        pass { }\n"
+          "    }\n"
+          "}\n"}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), group.c_str());
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const ResourcePackAuthorityState before =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    const std::size_t archives_before = CountNativeArchives();
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        ForceNextResourcePackScriptParseFailure(content);
+    bool rejected = false;
+    try
+    {
+        content.AddResourcePack(pack);
+    }
+    catch (...)
+    {
+        rejected = true;
+    }
+    const ResourcePackAuthorityState after =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            CaptureResourcePackAuthorityState(content, group);
+    Require(rejected,
+            "native material-script listener fault did not reject AddResourcePack");
+    RequireFailedResourcePackInitializationWasQuarantined(
+        before, after, group, archives_before,
+        "native material-script parse failure");
+    Require(!HasMaterialIdentity(group, material_name),
+            "failed script parse left a native material behind");
+
+    content.AddResourcePack(pack);
+    Require(groups.resourceGroupExists(group) &&
+                groups.isResourceGroupInitialised(group) &&
+                Ogre::MaterialManager::getSingleton().getByName(
+                    material_name, group),
+            "script-parse rollback did not permit an exact successful retry");
+    DestroyUnregisterAndUnloadOrdinaryPack(
+        content, group, archive, archives_before);
+    RemoveResourcePackRoot(root);
+}
+
+std::vector<RoR::Render::GraphicsSceneAssetInput>
+BuildResourcePackPlaceholderAssets(
+    const RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& input)
+{
+    std::uint64_t source_id = 0U;
+    Require(
+        static_cast<bool>(
+            RoR::Render::DeriveOgre14GraphicsSceneMaterialAssetId(
+                input.exact_resource_group, input.exact_name, source_id)),
+        "could not derive smoke material placeholder ID");
+    RoR::Render::MaterialDescriptor placeholder;
+    Require(
+        static_cast<bool>(
+            RoR::Render::BuildOgre14GraphicsSceneMaterialFallback(
+                input, placeholder)),
+        "could not build smoke material placeholder");
+    RoR::Render::GraphicsSceneAssetInput asset;
+    asset.source_asset_id = source_id;
+    asset.payload = std::make_shared<const RoR::Render::RenderAssetPayload>(
+        std::move(placeholder));
+    return {std::move(asset)};
+}
+
+void TestBuiltInSmokeSelectedSourceWithoutReadback(
+    RoR::ContentManager& content,
+    SelectedSourceTestTextureManager& texture_manager)
+{
+    const Ogre::String group = "NativeBuiltInSmokeSelectedSource";
+    const std::string pack_name = "particles";
+    const std::string smoke = MakeOrdinaryDds(96U, 112U, 128U, 72U);
+    const std::filesystem::path root =
+        MakeResourcePackRoot("builtin-smoke");
+    const std::filesystem::path archive = WriteResourcePackZip(
+        root, pack_name, {{"smoke.dds", smoke}});
+    ScopedResourceDirectory resources(root);
+    const RoR::ContentManager::ResourcePack pack(
+        pack_name.c_str(), group.c_str());
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const std::size_t archives_before = CountNativeArchives();
+    content.AddResourcePack(pack);
+    Require(groups.resourceGroupExists(group) &&
+                groups.isResourceGroupInitialised(group) &&
+                groups.resourceLocationExists(archive.string(), group),
+            "built-in particles pack did not publish its exact live ZIP location");
+
+    Ogre::TexturePtr texture = texture_manager.create("smoke.dds", group);
+    Require(texture != nullptr && !texture->isLoaded(),
+            "built-in smoke texture did not begin unloaded");
+    texture->load();
+    auto* native_texture =
+        dynamic_cast<SelectedSourceTestTexture*>(texture.get());
+    RoR::Render::Ogre14SelectedTextureSourceResolution selected_resolution;
+    const RoR::Render::ValidationResult selected =
+        content.ResolveSelectedTextureSource(*texture, selected_resolution);
+    const auto* selected_receipt = selected_resolution.source_receipt();
+    const auto* selected_metadata =
+        selected_receipt != nullptr ? selected_receipt->metadata() : nullptr;
+    RoR::Render::Ogre14AuthenticatedTextureResolution
+        authenticated_resolution;
+    const RoR::Render::ValidationResult authenticated =
+        content.ResolveAuthenticatedTexture(
+            *texture, authenticated_resolution);
+    Require(native_texture != nullptr && texture->isLoaded() && selected &&
+                selected_metadata != nullptr &&
+                selected_metadata->source.source_kind ==
+                    RoR::Render::Ogre14SelectedTextureSourceKind::
+                        UNAUTHENTICATED_PACKAGE_ARCHIVE_MEMBER &&
+                selected_metadata->source.effective_resource_group == group &&
+                selected_metadata->source.exact_resource_name == "smoke.dds" &&
+                selected_metadata->source.exact_member_name == "smoke.dds" &&
+                selected_metadata->source.selected_archive_name ==
+                    archive.string() &&
+                selected_metadata->source.selected_archive_type == "Zip" &&
+                native_texture->observed_bytes() == smoke &&
+                SelectedTextureReceiptBytes(selected_resolution) == smoke &&
+                content.RevalidateSelectedTextureSource(
+                    *texture, selected_resolution) &&
+                !content.RequiresAuthenticatedTextureSource(*texture) &&
+                !authenticated && !authenticated_resolution.initialized(),
+            "built-in smoke.dds lost exact ordinary bytes or was laundered into authenticated authority");
+
+    Ogre::MaterialPtr material = std::make_shared<Ogre::Material>(
+        nullptr, "tracks/SmokeMat", 0x5a17U, group);
+    material->setReceiveShadows(false);
+    Ogre::Technique* technique = material->createTechnique();
+    Ogre::Pass* pass = technique->createPass();
+    pass->setLightingEnabled(false);
+    pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
+    pass->setAlphaRejectSettings(Ogre::CMPF_GREATER, 2U);
+    pass->setDepthWriteEnabled(false);
+    Ogre::TextureUnitState* unit = pass->createTextureUnitState();
+    Ogre::SamplerPtr sampler = std::make_shared<Ogre::Sampler>();
+    sampler->setFiltering(Ogre::FO_LINEAR, Ogre::FO_LINEAR, Ogre::FO_POINT);
+    sampler->setAddressingMode(Ogre::TAM_CLAMP);
+    sampler->setMipmapBias(0.0F);
+    sampler->setAnisotropy(1U);
+    sampler->setCompareEnabled(false);
+    sampler->setCompareFunction(Ogre::CMPF_ALWAYS_PASS);
+    sampler->setBorderColour(Ogre::ColourValue::Black);
+    unit->setSampler(sampler);
+    unit->setTexture(texture);
+
+    RoR::Gfx::Detail::OgreNextDemoMaterialSource source;
+    Require(source.BindAuthenticatedTextureAuthority(content, content) &&
+                source.BindOrdinarySelectedTextureSourceResolver(content) &&
+                source.BeginCapture(),
+            "could not bind smoke source authority or begin projection");
+    RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput input;
+    input.exact_resource_group = group;
+    input.exact_name = "tracks/SmokeMat";
+    input.cull =
+        RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE;
+    bool projected = false;
+    const RoR::Render::ValidationResult projection = source.TryProject(
+        "particle/tracks/Dust", material, true, true, input, projected);
+    std::vector<RoR::Render::GraphicsSceneAssetInput> assets =
+        BuildResourcePackPlaceholderAssets(input);
+    const RoR::Render::ValidationResult applied = source.Apply(assets);
+    const auto current = source.CurrentCaptureCounters();
+    const auto lifetime = source.LifetimeCounters();
+    Require(projection && projected && applied && assets.size() == 3U &&
+                current.gpu_readbacks == 0U &&
+                current.authenticated_gpu_readbacks == 0U &&
+                current.unauthenticated_gpu_readbacks == 0U &&
+                lifetime.gpu_readbacks == 0U &&
+                lifetime.authenticated_gpu_readbacks == 0U &&
+                lifetime.unauthenticated_gpu_readbacks == 0U,
+            "source-backed SmokeMat used authentication or a GPU readback");
+    source.Commit();
+    source.Reset();
+
+    material.setNull();
+    DestroyUnregisterAndUnloadOrdinaryPack(
+        content, group, archive, archives_before);
+    Require(!content.RevalidateSelectedTextureSource(
+                *texture, selected_resolution),
+            "destroyed built-in pack retained live selected-source authority");
+    texture.setNull();
+    RemoveResourcePackRoot(root);
 }
 
 struct LoadedGeneration final
@@ -1629,6 +2531,15 @@ int RoR::RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
                 "native selected-source TextureManager was not installed");
         RoR::ContentManager content;
         InstallListeners(content);
+        TestResourcePackRegistrationRollback(content);
+        TestResourcePackPreexistingOverrideAddedLocationRollback(content);
+        TestResourcePackPreexistingOverrideRollback(
+            content, texture_manager);
+        TestResourcePackPreScriptingRollback(content);
+        TestResourcePackGenerationRollback(content);
+        TestResourcePackScriptParseRollback(content);
+        TestBuiltInSmokeSelectedSourceWithoutReadback(
+            content, texture_manager);
         TestOrdinarySelectedTextureScope(content, texture_manager);
         TestOrdinarySelectedTextureLifecycle(content, texture_manager);
         TestPreMountZipAdmissionRejection(content);

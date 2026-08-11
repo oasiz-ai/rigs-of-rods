@@ -959,6 +959,18 @@ Render::ValidationResult ContentManager::ResolveSelectedTextureSource(
         {
             return mint;
         }
+        const auto* receipt = candidate.source_receipt();
+        const auto* metadata =
+            receipt != nullptr ? receipt->metadata() : nullptr;
+        if (metadata == nullptr ||
+            package_group->second.count(
+                metadata->source.selected_archive_name) != 1U)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_ASSET_REFERENCE,
+                "selected_texture_resolution.package_archive",
+                "selected source archive is not registered for the texture group");
+        }
         const Ogre::ResourcePtr current_by_handle =
             manager->getByHandle(texture.getHandle());
         const Ogre::ResourcePtr current_by_name =
@@ -1053,7 +1065,9 @@ bool ContentManager::RevalidateSelectedTextureSource(
         if (generation == m_legacy_material_group_generations.end() ||
             metadata == nullptr ||
             metadata->source.effective_resource_group != texture.getGroup() ||
-            metadata->source.group_generation != generation->second)
+            metadata->source.group_generation != generation->second ||
+            package_group->second.count(
+                metadata->source.selected_archive_name) != 1U)
         {
             return false;
         }
@@ -3043,6 +3057,16 @@ void ContentManager::resourceGroupScriptingStarted(
         m_authenticated_material_scripts.size();
     candidate->texture_receipts = m_authenticated_texture_receipts;
     m_authenticated_material_script_candidate = std::move(candidate);
+#if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
+    if (m_force_next_resource_pack_generation_failure_for_testing)
+    {
+        m_force_next_resource_pack_generation_failure_for_testing = false;
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Injected resource-pack initialization failure after generation start",
+            "ContentManager::resourceGroupScriptingStarted");
+    }
+#endif
 #else
     m_current_script_name.clear();
     m_current_script_package_owned = false;
@@ -3090,6 +3114,16 @@ void ContentManager::scriptParseStarted(
     candidate->root_script_request = script_name;
     candidate->pending_import_name.clear();
     candidate->pending_import_group.clear();
+#if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
+    if (m_force_next_resource_pack_script_parse_failure_for_testing)
+    {
+        m_force_next_resource_pack_script_parse_failure_for_testing = false;
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Injected resource-pack failure during native material-script parsing",
+            "ContentManager::scriptParseStarted");
+    }
+#endif
 #else
     m_current_script_name = script_name;
     m_current_script_package_owned = false;
@@ -4505,8 +4539,9 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
 
     Ogre::ResourceGroupManager& rgm = Ogre::ResourceGroupManager::getSingleton();
 
+    const bool use_default_group = override_rgn.empty();
     Ogre::String rg_name;
-    if (!override_rgn.empty()) // Custom RG defined?
+    if (!use_default_group) // Custom RG defined?
     {
         rg_name = override_rgn;
     }
@@ -4519,15 +4554,20 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
         rg_name = resource_pack.resource_group_name;
     }
 
+    const bool resource_group_was_present =
+        rgm.resourceGroupExists(rg_name);
     std::stringstream log_msg;
     log_msg << "[RoR|ContentManager] Loading resource pack \"" << resource_pack.name << "\" to group \"" << rg_name << "\"";
     std::string dir_path = PathCombine(App::sys_resources_dir->getStr(), resource_pack.name);
     std::string zip_path = dir_path + ".zip";
+    std::string selected_source_location;
+    Ogre::String selected_source_type;
     if (FileExists(zip_path))
     {
         log_msg << " (ZIP archive)";
         LOG(log_msg.str());
-        rgm.addResourceLocation(zip_path, "Zip", rg_name);
+        selected_source_location = zip_path;
+        selected_source_type = "Zip";
     }
     else
     {
@@ -4535,7 +4575,8 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
         {
             log_msg << " (directory)";
             LOG(log_msg.str());
-            rgm.addResourceLocation(dir_path, "FileSystem", rg_name);
+            selected_source_location = dir_path;
+            selected_source_type = "FileSystem";
         }
         else
         {
@@ -4544,9 +4585,283 @@ void ContentManager::AddResourcePack(ResourcePack const& resource_pack, std::str
         }
     }
 
-    if (override_rgn.empty()) // Only init the default RG
+    Ogre::ArchiveManager& archive_manager =
+        Ogre::ArchiveManager::getSingleton();
+    const auto find_selected_archive = [&]() -> Ogre::Archive*
     {
-        rgm.initialiseResourceGroup(rg_name);
+        Ogre::Archive* selected = nullptr;
+        Ogre::ArchiveManager::ArchiveMapIterator archives =
+            archive_manager.getArchiveIterator();
+        while (archives.hasMoreElements())
+        {
+            const Ogre::String archive_name = archives.peekNextKey();
+            Ogre::Archive* archive = archives.getNext();
+            if (archive_name != selected_source_location)
+            {
+                continue;
+            }
+            if (selected != nullptr || archive == nullptr ||
+                archive->getName() != selected_source_location ||
+                archive->getType() != selected_source_type)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Resource-pack source identity is already live with a different archive type or pointer",
+                    "ContentManager::AddResourcePack");
+            }
+            selected = archive;
+        }
+        return selected;
+    };
+    Ogre::Archive* const selected_archive_was_live =
+        find_selected_archive();
+    std::size_t selected_source_location_count_before = 0U;
+    if (resource_group_was_present)
+    {
+        const Ogre::ResourceGroupManager::LocationList& locations =
+            rgm.getResourceLocationList(rg_name);
+        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+             locations)
+        {
+            if (location.archive == nullptr ||
+                location.archive->getName() != selected_source_location)
+            {
+                continue;
+            }
+            if (selected_archive_was_live == nullptr ||
+                location.archive != selected_archive_was_live ||
+                location.archive->getType() != selected_source_type)
+            {
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Resource-pack group contains a source location without exact live archive authority",
+                    "ContentManager::AddResourcePack");
+            }
+            ++selected_source_location_count_before;
+        }
+    }
+    const bool selected_source_location_was_present =
+        selected_source_location_count_before != 0U;
+#if OGRE_VERSION_MAJOR >= 14
+    bool package_location_registered = false;
+#endif
+    const auto rollback_new_selected_archive = [&]() noexcept
+    {
+        if (selected_archive_was_live != nullptr)
+        {
+            return;
+        }
+        try
+        {
+            Ogre::Archive* const selected_archive =
+                find_selected_archive();
+            if (selected_archive == nullptr)
+            {
+                return;
+            }
+            const Ogre::StringVector groups = rgm.getResourceGroups();
+            for (const Ogre::String& group : groups)
+            {
+                if (!rgm.resourceGroupExists(group))
+                {
+                    continue;
+                }
+                const Ogre::ResourceGroupManager::LocationList& locations =
+                    rgm.getResourceLocationList(group);
+                for (const Ogre::ResourceGroupManager::ResourceLocation&
+                         location : locations)
+                {
+                    if (location.archive == selected_archive)
+                    {
+                        std::terminate();
+                    }
+                }
+            }
+            archive_manager.unload(selected_archive);
+            if (find_selected_archive() != nullptr)
+            {
+                std::terminate();
+            }
+        }
+        catch (...)
+        {
+            std::terminate();
+        }
+    };
+    try
+    {
+        // Reusing an exact live location must be idempotent. OGRE appends a
+        // second ResourceLocation for duplicate addResourceLocation() calls;
+        // that would both alter caller-owned override groups and make exact
+        // selected-archive cardinality fail closed.
+        if (!selected_source_location_was_present)
+        {
+            rgm.addResourceLocation(
+                selected_source_location, selected_source_type, rg_name);
+        }
+
+        Ogre::Archive* const selected_archive = find_selected_archive();
+        std::size_t selected_source_location_count = 0U;
+        if (selected_archive != nullptr && rgm.resourceGroupExists(rg_name))
+        {
+            const Ogre::ResourceGroupManager::LocationList& locations =
+                rgm.getResourceLocationList(rg_name);
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                 locations)
+            {
+                if (location.archive == nullptr ||
+                    location.archive->getName() != selected_source_location)
+                {
+                    continue;
+                }
+                if (location.archive != selected_archive ||
+                    location.archive->getType() != selected_source_type)
+                {
+                    OGRE_EXCEPT(
+                        Ogre::Exception::ERR_INVALID_STATE,
+                        "Resource-pack source location changed archive type or pointer during admission",
+                        "ContentManager::AddResourcePack");
+                }
+                ++selected_source_location_count;
+            }
+        }
+        const std::size_t expected_location_count =
+            selected_source_location_count_before +
+            (selected_source_location_was_present ? 0U : 1U);
+        if (selected_archive == nullptr ||
+            selected_source_location_count != expected_location_count)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Resource-pack source location cardinality changed during admission",
+                "ContentManager::AddResourcePack");
+        }
+
+#if OGRE_VERSION_MAJOR >= 14
+#if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
+        if (m_force_next_resource_pack_registration_failure_for_testing)
+        {
+            m_force_next_resource_pack_registration_failure_for_testing = false;
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                "Injected resource-pack selected-source registration failure",
+                "ContentManager::AddResourcePack");
+        }
+#endif
+        // Built-in resource packs are ordinary observed sources, not
+        // authenticated user-package sources. Register before any texture in
+        // the group can load so the selected member bytes can be retained
+        // without a GPU readback or a false authentication claim.
+        this->RegisterPackageResourceLocation(
+            rg_name, selected_source_location);
+        package_location_registered = true;
+#endif
+
+        if (use_default_group) // Only init the default RG
+        {
+#if OGRE_VERSION_MAJOR >= 14 && defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
+            if (m_force_next_resource_pack_pre_scripting_failure_for_testing)
+            {
+                m_force_next_resource_pack_pre_scripting_failure_for_testing =
+                    false;
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    "Injected resource-pack failure before native scripting starts",
+                    "ContentManager::AddResourcePack");
+            }
+#endif
+            rgm.initialiseResourceGroup(rg_name);
+        }
+    }
+    catch (...)
+    {
+        if (use_default_group)
+        {
+#if OGRE_VERSION_MAJOR >= 14
+            if (package_location_registered)
+            {
+                // ResourceGroupManager can leave INITIALISING set when a
+                // listener or script loader throws. Quarantine the exact
+                // candidate before native resource removal callbacks begin.
+                this->AbortAuthenticatedMaterialScriptGroup(rg_name);
+            }
+#endif
+            try
+            {
+                if (rgm.resourceGroupExists(rg_name))
+                {
+                    rgm.destroyResourceGroup(rg_name);
+                }
+                if (rgm.resourceGroupExists(rg_name))
+                {
+                    std::terminate();
+                }
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+#if OGRE_VERSION_MAJOR >= 14
+            if (package_location_registered)
+            {
+                try
+                {
+                    // Teardown advances the process-global generation
+                    // watermark, but removes the failed group's generation,
+                    // receipts, stages, and package marker before retry.
+                    this->UnregisterPackageResourceGroup(rg_name);
+                }
+                catch (...)
+                {
+                    std::terminate();
+                }
+            }
+#endif
+            rollback_new_selected_archive();
+        }
+        else
+        {
+            try
+            {
+                if (!resource_group_was_present)
+                {
+                    if (rgm.resourceGroupExists(rg_name))
+                    {
+                        rgm.destroyResourceGroup(rg_name);
+                    }
+                    if (rgm.resourceGroupExists(rg_name))
+                    {
+                        std::terminate();
+                    }
+                }
+                else if (!selected_source_location_was_present &&
+                         rgm.resourceLocationExists(
+                             selected_source_location, rg_name))
+                {
+                    // OGRE's public removal API also unloads the process-wide
+                    // Archive pointer. A location newly sharing a pre-call
+                    // archive cannot be removed recoverably without dangling
+                    // every other group that already owns that pointer.
+                    if (selected_archive_was_live != nullptr)
+                    {
+                        std::terminate();
+                    }
+                    rgm.removeResourceLocation(
+                        selected_source_location, rg_name);
+                    if (rgm.resourceLocationExists(
+                            selected_source_location, rg_name))
+                    {
+                        std::terminate();
+                    }
+                }
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+            rollback_new_selected_archive();
+        }
+        throw;
     }
 }
 
@@ -6231,6 +6546,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
 
     std::uint64_t group_generation = 0U;
     std::uint64_t state_count_before_load = 0U;
+    std::unordered_set<Ogre::String> package_archive_names;
     const std::uintptr_t resource_pointer_token =
         reinterpret_cast<std::uintptr_t>(resource);
     const std::uint64_t resource_handle =
@@ -6281,6 +6597,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             return Ogre::DataStreamPtr();
         }
         group_generation = generation->second;
+        package_archive_names = package_group->second;
 
         // Defensive duplicate callback closure. resourceLoading() normally
         // performs this exact revocation first; repeating it here prevents a
@@ -6374,7 +6691,15 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
         {
             return Ogre::DataStreamPtr();
         }
-        selected_archive_name = selected_archive->getName();
+        Ogre::String live_archive_name;
+        if (!ResolveLiveArchiveManagerPointer(
+                Ogre::ArchiveManager::getSingleton(), selected_archive,
+                live_archive_name) ||
+            package_archive_names.count(live_archive_name) != 1U)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        selected_archive_name = live_archive_name;
         selected_archive_type = selected_archive->getType();
         file_info_filename = exact_file_info->filename;
         file_info_path = exact_file_info->path;
@@ -6512,6 +6837,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
         if (matching_location_count != 1U ||
             package_group == m_package_archives_by_group.end() ||
             package_group->second.empty() ||
+            package_group->second.count(selected_archive_name) != 1U ||
             generation == m_legacy_material_group_generations.end() ||
             generation->second != group_generation ||
             m_authenticated_package_archives_by_group.find(group) !=
@@ -7355,6 +7681,8 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
                         metadata->source.group_generation &&
                     package_group != m_package_archives_by_group.end() &&
                     !package_group->second.empty() &&
+                    package_group->second.count(
+                        metadata->source.selected_archive_name) == 1U &&
                     m_authenticated_package_archives_by_group.find(group) ==
                         m_authenticated_package_archives_by_group.end() &&
                     m_authenticated_package_archive_bindings_by_group.find(

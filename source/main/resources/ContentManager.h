@@ -105,7 +105,13 @@ public:
         const char* resource_group_name;
     };
 
-                       /// Loads resources if not already loaded
+                       /// Loads resources if not already loaded. On OGRE 14,
+                       /// the exact ZIP/FileSystem location also enters the
+                       /// ordinary observed selected-source registry before
+                       /// group initialization; this is not an authentication
+                       /// claim. A failed default-group initialization is
+                       /// rolled back as one abort/destroy/unregister
+                       /// transaction so a later call can retry.
                        /// @param override_rg If not set, the ResourcePack's RG is used -> resources won't unload until shutdown
     void               AddResourcePack(ResourcePack const& resource_pack, std::string const& override_rgn = "");
     void               InitManagedMaterials(std::string const & rg_name);
@@ -365,6 +371,10 @@ private:
     bool m_force_next_authenticated_material_script_source_undelivered_for_testing =
         false;
     bool m_force_next_authenticated_material_event_empty_for_testing = false;
+    bool m_force_next_resource_pack_registration_failure_for_testing = false;
+    bool m_force_next_resource_pack_pre_scripting_failure_for_testing = false;
+    bool m_force_next_resource_pack_generation_failure_for_testing = false;
+    bool m_force_next_resource_pack_script_parse_failure_for_testing = false;
 #endif
     mutable Render::Ogre14AuthenticatedResourceThreadGate
         m_authenticated_resource_thread_gate;
