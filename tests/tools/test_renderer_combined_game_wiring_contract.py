@@ -124,6 +124,17 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn("FolderExists(presentation_media_root)", self.main)
 
     def test_shutdown_is_proven_before_any_owner_is_released(self) -> None:
+        close_start = self.main.index(
+            "CloseCombinedRendererSession("
+        )
+        close_end = self.main.index("#endif", close_start)
+        close_helper = self.main[close_start:close_end]
+        self.assertIn(
+            "RendererInProcessSessionStatus::FAILED_FRONTEND_SHUTDOWN",
+            close_helper,
+        )
+        self.assertIn("Render::RenderOperationCode::TIMEOUT", close_helper)
+        self.assertIn("session.Shutdown()", close_helper)
         normal = self.main[
             self.main.index("[RoR|RendererCombined|Shutdown]") :
             self.main.index("App::ShutdownWorldModelCapture();", self.main.index("[RoR|RendererCombined|Shutdown]"))

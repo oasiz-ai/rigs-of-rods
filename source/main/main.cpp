@@ -411,7 +411,11 @@ RoR::RendererInProcessSessionResult CloseCombinedRendererSession(
     while ((result.status ==
                 RendererInProcessSessionStatus::PENDING_BACKPRESSURE ||
             result.status ==
-                RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE) &&
+                RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE ||
+            (result.status ==
+                 RendererInProcessSessionStatus::FAILED_FRONTEND_SHUTDOWN &&
+             result.frontend_code ==
+                 Render::RenderOperationCode::TIMEOUT)) &&
            std::chrono::steady_clock::now() < deadline)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
