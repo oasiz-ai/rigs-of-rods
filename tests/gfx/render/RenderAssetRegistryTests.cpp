@@ -11,6 +11,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
@@ -68,6 +69,24 @@ RoR::Render::TextureResourceDescriptor MakeBaseColorTexture() {
   mip.layer_pitch_bytes = 4U;
   mip.bytes = {255U, 255U, 255U, 255U};
   texture.mip_levels.push_back(mip);
+  return texture;
+}
+
+RoR::Render::TextureResourceDescriptor MakeEnvironmentTexture() {
+  using namespace RoR::Render;
+  TextureResourceDescriptor texture;
+  texture.debug_name = "linear HDR equirectangular environment";
+  texture.format = TextureResourceFormat::RGBA16_FLOAT;
+  texture.color_space = TextureColorSpace::LINEAR;
+  texture.width = 1U;
+  texture.height = 1U;
+  TextureMipLevelDescriptor mip;
+  mip.width = 1U;
+  mip.height = 1U;
+  mip.row_pitch_bytes = 8U;
+  mip.layer_pitch_bytes = 8U;
+  mip.bytes.resize(8U);
+  texture.mip_levels.push_back(std::move(mip));
   return texture;
 }
 
@@ -136,6 +155,28 @@ RoR::Render::SceneSnapshotDescriptor MakeScene(std::uint64_t registry_id,
       Ref(RenderAssetKind::MATERIAL, 2U, material_revision);
   instance.local_bounds = MakeMesh().local_bounds;
   scene.mesh_instances.push_back(instance);
+  return scene;
+}
+
+RoR::Render::SceneSnapshotDescriptor
+MakeDynamicScene(std::uint64_t registry_id) {
+  using namespace RoR::Render;
+  SceneSnapshotDescriptor scene = MakeScene(registry_id, 1U, 1U);
+  MeshInstanceDescriptor &instance = scene.mesh_instances.front();
+  instance.deformation_revision = 2U;
+
+  const MeshResourceDescriptor mesh = MakeMesh();
+  DynamicMeshUpdateDescriptor update;
+  update.update_sequence = 1U;
+  update.instance_id = instance.instance_id;
+  update.mesh = instance.mesh;
+  update.topology_revision = instance.topology_revision;
+  update.deformation_revision = instance.deformation_revision;
+  update.positions = mesh.positions;
+  update.normals = mesh.normals;
+  update.has_updated_bounds = true;
+  update.updated_local_bounds = instance.local_bounds;
+  scene.dynamic_mesh_updates.push_back(std::move(update));
   return scene;
 }
 
@@ -237,6 +278,157 @@ void TestOneSceneCanFeedTwoFrontendCatalogs() {
   Require(ogre_next_catalog.Apply(signed_zero_conflict).code ==
               ValidationCode::REVISION_MISMATCH,
           "same asset revision accepted a different signed-zero bit pattern");
+}
+
+void TestMalformedPayloadsCannotMintRegistryTrust() {
+  using namespace RoR::Render;
+  constexpr std::uint64_t kRegistry = 45U;
+  RenderAssetRegistry registry(kRegistry);
+
+  RenderAssetDelta malformed_mesh = MakeBaseDelta(kRegistry);
+  std::get<MeshResourceDescriptor>(malformed_mesh.mutations.front().payload)
+      .positions.front()
+      .x = std::numeric_limits<float>::infinity();
+  Require(registry.Apply(malformed_mesh).code ==
+              ValidationCode::NON_FINITE_VALUE,
+          "registry admitted a mesh that bypassed standalone validation");
+  Require(registry.sequence() == 0U && registry.record_count() == 0U,
+          "failed malformed-mesh transaction minted registry state");
+
+  RenderAssetDelta malformed_material = MakeBaseDelta(kRegistry);
+  std::get<MaterialDescriptor>(malformed_material.mutations.back().payload)
+      .roughness_factor = std::numeric_limits<float>::quiet_NaN();
+  Require(registry.Apply(malformed_material).code ==
+              ValidationCode::NON_FINITE_VALUE,
+          "registry admitted a material that bypassed standalone validation");
+  Require(registry.sequence() == 0U && registry.record_count() == 0U,
+          "failed malformed-material transaction minted registry state");
+
+  RenderAssetDelta malformed_texture;
+  malformed_texture.registry_id = kRegistry;
+  malformed_texture.sequence = 1U;
+  malformed_texture.full_snapshot = true;
+  TextureResourceDescriptor texture = MakeBaseColorTexture();
+  texture.version = kTextureResourceDescriptorVersion + 1U;
+  malformed_texture.mutations.push_back(
+      Upsert(Ref(RenderAssetKind::TEXTURE, 3U), std::move(texture)));
+  Require(registry.Apply(malformed_texture).code ==
+              ValidationCode::UNSUPPORTED_VERSION,
+          "registry admitted a malformed texture payload");
+  Require(registry.sequence() == 0U && registry.record_count() == 0U,
+          "failed malformed-texture transaction minted registry state");
+
+  RenderAssetDelta malformed_sampler;
+  malformed_sampler.registry_id = kRegistry;
+  malformed_sampler.sequence = 1U;
+  malformed_sampler.full_snapshot = true;
+  SamplerResourceDescriptor sampler;
+  sampler.version = kSamplerResourceDescriptorVersion + 1U;
+  malformed_sampler.mutations.push_back(
+      Upsert(Ref(RenderAssetKind::SAMPLER, 4U), sampler));
+  Require(registry.Apply(malformed_sampler).code ==
+              ValidationCode::UNSUPPORTED_VERSION,
+          "registry admitted a malformed sampler payload");
+  Require(registry.sequence() == 0U && registry.record_count() == 0U,
+          "failed malformed-sampler transaction minted registry state");
+}
+
+void TestRegistryResolvedSceneRelationshipsRemainHostile() {
+  using namespace RoR::Render;
+  constexpr std::uint64_t kRegistry = 46U;
+  RenderAssetDelta base = MakeBaseDelta(kRegistry);
+  std::get<MeshResourceDescriptor>(base.mutations.front().payload).dynamic =
+      true;
+  RenderAssetRegistry registry(kRegistry);
+  Require(registry.Apply(base).ok(),
+          "registry relationship fixture rejected its valid catalog");
+
+  const SceneSnapshotDescriptor dynamic = MakeDynamicScene(kRegistry);
+  Require(ValidateSceneSnapshotDescriptor(dynamic).ok() &&
+              ValidateSceneSnapshotAssets(dynamic, registry).ok(),
+          "registry relationship fixture rejected a valid dynamic scene");
+
+  SceneSnapshotDescriptor stale = dynamic;
+  stale.mesh_instances.front().mesh = Ref(RenderAssetKind::MESH, 1U, 2U);
+  stale.dynamic_mesh_updates.front().mesh = stale.mesh_instances.front().mesh;
+  Require(ValidateSceneSnapshotDescriptor(stale).ok() &&
+              ValidateSceneSnapshotAssets(stale, registry).code ==
+                  ValidationCode::MISSING_REFERENCE,
+          "registry fast path accepted a stale mesh revision");
+
+  SceneSnapshotDescriptor topology = dynamic;
+  topology.mesh_instances.front().topology_revision = 2U;
+  topology.dynamic_mesh_updates.front().topology_revision = 2U;
+  Require(ValidateSceneSnapshotDescriptor(topology).ok() &&
+              ValidateSceneSnapshotAssets(topology, registry).code ==
+                  ValidationCode::MISSING_REFERENCE,
+          "registry fast path accepted a stale topology relation");
+
+  SceneSnapshotDescriptor bounds = MakeScene(kRegistry, 1U, 1U);
+  bounds.mesh_instances.front().local_bounds.maximum.x = 2.0F;
+  Require(ValidateSceneSnapshotDescriptor(bounds).ok() &&
+              ValidateSceneSnapshotAssets(bounds, registry).code ==
+                  ValidationCode::INVALID_BOUNDS,
+          "registry fast path accepted base instance bounds unlike its mesh");
+
+  SceneSnapshotDescriptor short_update = dynamic;
+  short_update.dynamic_mesh_updates.front().positions.pop_back();
+  short_update.dynamic_mesh_updates.front().normals.pop_back();
+  Require(ValidateSceneSnapshotDescriptor(short_update).ok() &&
+              ValidateSceneSnapshotAssets(short_update, registry).code ==
+                  ValidationCode::SIZE_MISMATCH,
+          "registry fast path accepted an update shorter than its live mesh");
+
+  SceneSnapshotDescriptor missing_stream = dynamic;
+  missing_stream.dynamic_mesh_updates.front().normals.clear();
+  Require(ValidateSceneSnapshotDescriptor(missing_stream).ok() &&
+              ValidateSceneSnapshotAssets(missing_stream, registry).code ==
+                  ValidationCode::MISSING_REFERENCE,
+          "registry fast path accepted an update missing a live mesh stream");
+}
+
+void TestRegistryResolvedCrossAssetRelationshipsRemainHostile() {
+  using namespace RoR::Render;
+
+  constexpr std::uint64_t kMaterialRegistry = 47U;
+  RenderAssetDelta material_base = MakeBaseDelta(kMaterialRegistry);
+  std::get<MeshResourceDescriptor>(material_base.mutations.front().payload)
+      .normals.clear();
+  RenderAssetRegistry material_registry(kMaterialRegistry);
+  Require(material_registry.Apply(material_base).ok(),
+          "cross-asset material fixture rejected valid individual assets");
+  const SceneSnapshotDescriptor material_scene =
+      MakeScene(kMaterialRegistry, 1U, 1U);
+  Require(ValidateSceneSnapshotDescriptor(material_scene).ok() &&
+              ValidateSceneSnapshotAssets(material_scene, material_registry)
+                      .code == ValidationCode::MISSING_REFERENCE,
+          "registry fast path accepted a PBR mesh without authored normals");
+
+  constexpr std::uint64_t kEnvironmentRegistry = 48U;
+  RenderAssetDelta environment_base;
+  environment_base.registry_id = kEnvironmentRegistry;
+  environment_base.sequence = 1U;
+  environment_base.full_snapshot = true;
+  environment_base.mutations.push_back(Upsert(
+      Ref(RenderAssetKind::TEXTURE, 3U), MakeEnvironmentTexture()));
+  environment_base.mutations.push_back(Upsert(
+      Ref(RenderAssetKind::SAMPLER, 4U), SamplerResourceDescriptor{}));
+  RenderAssetRegistry environment_registry(kEnvironmentRegistry);
+  Require(environment_registry.Apply(environment_base).ok(),
+          "cross-asset environment fixture rejected valid individual assets");
+  SceneSnapshotDescriptor environment_scene;
+  environment_scene.snapshot_id = 10U;
+  environment_scene.asset_registry_id = kEnvironmentRegistry;
+  environment_scene.asset_sequence = 1U;
+  environment_scene.environment.environment_texture =
+      Ref(RenderAssetKind::TEXTURE, 3U);
+  environment_scene.environment.environment_sampler =
+      Ref(RenderAssetKind::SAMPLER, 4U);
+  Require(ValidateSceneSnapshotDescriptor(environment_scene).ok() &&
+              ValidateSceneSnapshotAssets(environment_scene,
+                                          environment_registry)
+                      .code == ValidationCode::VALUE_OUT_OF_RANGE,
+          "registry fast path accepted an incompatible environment sampler");
 }
 
 void TestRevisionSequenceAndRecovery() {
@@ -539,6 +731,9 @@ int main() {
   TestStableIdentity();
   TestFloatingPayloadBitIdentity();
   TestOneSceneCanFeedTwoFrontendCatalogs();
+  TestMalformedPayloadsCannotMintRegistryTrust();
+  TestRegistryResolvedSceneRelationshipsRemainHostile();
+  TestRegistryResolvedCrossAssetRelationshipsRemainHostile();
   TestRevisionSequenceAndRecovery();
   TestDependencySafeTombstones();
   TestZeroCopyStableRecordVisitation();

@@ -11,6 +11,7 @@
 #include "MaterialDescriptor.h"
 #include "RenderAssetRegistry.h"
 #include "RenderResourceDescriptors.h"
+#include "ValidatedAssetCompatibilityInternal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -926,6 +927,7 @@ ValidationResult ValidateSceneSnapshotAssets(
         "scene requires a different asset registry sequence");
   }
 
+  const ValidatedAssetCompatibilityAccess validated_assets;
   if (descriptor.environment.environment_texture.valid()) {
     const TextureResourceDescriptor *texture = registry.ResolveTexture(
         descriptor.environment.environment_texture);
@@ -936,7 +938,9 @@ ValidationResult ValidateSceneSnapshotAssets(
           ValidationCode::MISSING_REFERENCE, "environment",
           "environment references a missing, stale, or tombstoned asset");
     }
-    validation = ValidateEnvironmentTextureCompatibility(*texture, *sampler);
+    validation =
+        Detail::ValidateEnvironmentTextureCompatibilityFromValidatedAssets(
+            validated_assets, *texture, *sampler);
     if (!validation) {
       return validation;
     }
@@ -953,7 +957,8 @@ ValidationResult ValidateSceneSnapshotAssets(
           ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
           "instance references a missing, stale, or tombstoned asset", index);
     }
-    validation = ValidateMaterialMeshCompatibility(*material, *mesh);
+    validation = Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+        validated_assets, *material, *mesh);
     if (!validation) {
       validation.element_index = index;
       return validation;
@@ -967,26 +972,8 @@ ValidationResult ValidateSceneSnapshotAssets(
         });
     const DynamicMeshUpdateDescriptor *update_ptr =
         update == descriptor.dynamic_mesh_updates.end() ? nullptr : &*update;
-    validation =
-        ValidateMeshInstanceCompatibility(*mesh, instance, update_ptr);
-    if (!validation) {
-      validation.element_index = index;
-      return validation;
-    }
-  }
-
-  for (std::size_t index = 0U;
-       index < descriptor.dynamic_mesh_updates.size(); ++index) {
-    const DynamicMeshUpdateDescriptor &update =
-        descriptor.dynamic_mesh_updates[index];
-    const MeshResourceDescriptor *mesh = registry.ResolveMesh(update.mesh);
-    if (mesh == nullptr) {
-      return ValidationResult::Failure(
-          ValidationCode::MISSING_REFERENCE, "dynamic_mesh_updates.mesh",
-          "deformation references a missing, stale, or tombstoned mesh",
-          index);
-    }
-    validation = ValidateDynamicMeshUpdateCompatibility(*mesh, update);
+    validation = Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
+        validated_assets, *mesh, instance, update_ptr);
     if (!validation) {
       validation.element_index = index;
       return validation;

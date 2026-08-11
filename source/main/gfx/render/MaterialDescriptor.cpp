@@ -9,6 +9,7 @@
 #include "MaterialDescriptor.h"
 
 #include "RenderResourceDescriptors.h"
+#include "ValidatedAssetCompatibilityInternal.h"
 
 #include <array>
 #include <utility>
@@ -213,6 +214,14 @@ ValidateMaterialMeshCompatibility(const MaterialDescriptor &material,
   if (!validation) {
     return validation;
   }
+
+  return Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+      ValidatedAssetCompatibilityAccess{}, material, mesh);
+}
+
+ValidationResult Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+    const ValidatedAssetCompatibilityAccess &, const MaterialDescriptor &material,
+    const MeshResourceDescriptor &mesh) {
 
   if ((material.model == MaterialModel::PBR_METALLIC_ROUGHNESS ||
        material.normal_texture.texture.valid()) &&

@@ -220,6 +220,17 @@ void TestMeshMaterialCompatibilityRequiresAuthoredAttributes() {
   Require(ValidateMaterialMeshCompatibility(material, mesh).ok(),
           "PBR mesh with authored normals was rejected");
 
+  MeshResourceDescriptor malformed_mesh = mesh;
+  malformed_mesh.version = kMeshResourceDescriptorVersion + 1U;
+  Require(ValidateMaterialMeshCompatibility(material, malformed_mesh).code ==
+              ValidationCode::UNSUPPORTED_VERSION,
+          "standalone material/mesh validation trusted a malformed mesh");
+  MaterialDescriptor malformed_material = material;
+  malformed_material.roughness_factor = std::numeric_limits<float>::quiet_NaN();
+  Require(ValidateMaterialMeshCompatibility(malformed_material, mesh).code ==
+              ValidationCode::NON_FINITE_VALUE,
+          "standalone material/mesh validation trusted a malformed material");
+
   material.base_color_texture.texture = Asset(RenderAssetKind::TEXTURE, 1U);
   material.base_color_texture.sampler = Asset(RenderAssetKind::SAMPLER, 2U);
   Require(ValidateMaterialMeshCompatibility(material, mesh).code ==
