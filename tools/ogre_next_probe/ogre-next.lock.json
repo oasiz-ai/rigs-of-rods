@@ -50,6 +50,14 @@
       "source_path": "Samples/Media/Compute/Algorithms/IBL/SpecularIblIntegrator_piece_cs.any",
       "source_sha256": "68884256ab318116833bf2efe19518833459cc461fb8dd4f8e2c253f8c352165",
       "patched_sha256": "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41"
+    },
+    {
+      "path": "patches/0008-metal-report-anisotropy-limit.patch",
+      "sha256": "f7c5356f5f2025bbc7daf5e0788b7820244ed1ad8c3d45dd5ac73f381d800a22",
+      "reason": "Report Metal's sampler anisotropy limit so exact authored anisotropic samplers are admitted instead of rejected as unsupported",
+      "source_path": "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
+      "source_sha256": "bebe97dd2cb318d6aa2331eaaf0f8b181e18ac66660b02d4160802e0ed8ed0eb",
+      "patched_sha256": "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222"
     }
   ],
   "embedded_namespace": {

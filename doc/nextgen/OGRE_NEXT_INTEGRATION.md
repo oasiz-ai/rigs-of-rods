@@ -447,7 +447,13 @@ ownership sentinel. No OGRE-Next source archive is stored in this repository.
 The adaptation fixes only two non-Xcode macOS assumptions in the pinned
 upstream CMake: SDK path resolution and Xcode-only framework staging tokens in
 Ninja files. It is applied from a hash-locked patch before configuration. On
-Linux, a second hash-locked patch removes OGRE's short local redeclaration of
+Metal, a separate hash-locked backend patch pairs `RSC_ANISOTROPY` with the
+API's maximum sampler anisotropy of 16. Without that numeric capability the
+upstream backend advertises anisotropy but reports a zero limit, causing the
+exact material policy to reject authored anisotropic samplers before native
+sampler creation.
+
+On Linux, a second hash-locked patch removes OGRE's short local redeclaration of
 `glslang::SpvOptions` and compiles against the exact pinned glslang header, so
 the C++ ABI is never guessed. A third hash-locked patch keeps glslang's install
 export disabled alongside shaderc's reviewed static skip-install build; this

@@ -818,6 +818,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_ibl_patch_sha256 = (
         "2a4792a553a3911db197750ae6e4de2155f7b9604e9bc6d730cc19bba0b1075f"
     )
+    expected_metal_anisotropy_patch_sha256 = (
+        "f7c5356f5f2025bbc7daf5e0788b7820244ed1ad8c3d45dd5ac73f381d800a22"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -988,6 +991,22 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
             ),
             "patched_sha256": (
                 "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41"
+            ),
+        },
+        {
+            "path": "patches/0008-metal-report-anisotropy-limit.patch",
+            "sha256": expected_metal_anisotropy_patch_sha256,
+            "reason": (
+                "Report Metal's sampler anisotropy limit so exact authored "
+                "anisotropic samplers are admitted instead of rejected as "
+                "unsupported"
+            ),
+            "source_path": "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
+            "source_sha256": (
+                "bebe97dd2cb318d6aa2331eaaf0f8b181e18ac66660b02d4160802e0ed8ed0eb"
+            ),
+            "patched_sha256": (
+                "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222"
             ),
         },
     ]

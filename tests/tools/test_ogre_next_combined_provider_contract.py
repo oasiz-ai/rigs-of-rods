@@ -338,6 +338,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "--sdl-provider-dylib",
         ):
             self.assertIn(argument, MAIN_CMAKE)
+
         for evidence in (
             "REQUIRED_SYMBOL_TOKENS",
             "FORBIDDEN_SYMBOL_TOKENS",
@@ -381,6 +382,26 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn("if receipt.exists() or receipt.is_symlink():", VERIFIER)
         self.assertIn('"provider_contract":', EXECUTABLE_CONTRACT)
         self.assertIn('"namespace_audit_report":', EXECUTABLE_CONTRACT)
+
+    def test_explicit_combined_build_stages_the_complete_game_resources(self) -> None:
+        resource_targets = block(
+            MAIN_CMAKE,
+            "# An explicit RoR-Combined verification build must produce",
+            "if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)",
+        )
+        self.assertIn("if (ROR_OGRE_NEXT_COMBINED_RUNTIME)", resource_targets)
+        for target in (
+            "zip_folder_resources",
+            "fast_copy_managed_materials",
+            "fast_copy_fonts",
+            "fast_copy_languages",
+        ):
+            self.assertIn(target, resource_targets)
+        self.assertRegex(
+            resource_targets,
+            r"if \(ROR_CREATE_CONTENT_FOLDER\)\s*"
+            r"add_dependencies\(\$\{BINNAME\} zip_folder_content\)",
+        )
 
     def test_binary_proof_rejects_hostile_strict_fp_receipts(self) -> None:
         specification = importlib.util.spec_from_file_location(

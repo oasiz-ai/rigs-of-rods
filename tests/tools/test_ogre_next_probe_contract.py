@@ -307,6 +307,28 @@ class OgreNextProbeContractTests(unittest.TestCase):
             source,
         )
 
+    def test_metal_anisotropy_limit_patch_is_exact_and_capability_scoped(self) -> None:
+        patch = self.lock["patches"][2]
+        self.assertEqual(
+            patch["path"],
+            "patches/0008-metal-report-anisotropy-limit.patch",
+        )
+        self.assertEqual(
+            patch["source_path"],
+            "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
+        )
+        self.assertEqual(
+            patch["source_sha256"],
+            "bebe97dd2cb318d6aa2331eaaf0f8b181e18ac66660b02d4160802e0ed8ed0eb",
+        )
+        self.assertEqual(
+            patch["patched_sha256"],
+            "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        self.assertEqual(source.count("setMaxSupportedAnisotropy( 16.0f )"), 1)
+        self.assertIn("RenderSystems/Metal/src/OgreMetalRenderSystem.mm", source)
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -319,8 +341,9 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 3",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

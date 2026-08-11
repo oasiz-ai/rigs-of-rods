@@ -1497,6 +1497,22 @@ fast_copy("${CMAKE_SOURCE_DIR}/resources/managed_materials" "${RUNTIME_OUTPUT_DI
 fast_copy("${CMAKE_SOURCE_DIR}/resources/fonts" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 fast_copy("${CMAKE_SOURCE_DIR}/languages" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 
+# An explicit RoR-Combined verification build must produce the same runnable
+# resource closure as the default all-target build.  These targets are declared
+# ALL, but ALL does not participate when callers request only
+# ror_ogre_next_combined_verified (as the acceptance and CI jobs do).
+if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    add_dependencies(
+        ${BINNAME}
+        zip_folder_resources
+        fast_copy_managed_materials
+        fast_copy_fonts
+        fast_copy_languages)
+    if (ROR_CREATE_CONTENT_FOLDER)
+        add_dependencies(${BINNAME} zip_folder_content)
+    endif ()
+endif ()
+
 if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
     # Build a signed, relocatable application only when explicitly requested.
     # StageMacOSBundle derives the complete dylib closure from the executable

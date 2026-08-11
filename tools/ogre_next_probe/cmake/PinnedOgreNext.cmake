@@ -167,6 +167,18 @@ string(JSON ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 1 source_sha256)
 string(JSON ROR_OGRE_NEXT_IBL_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 1 patched_sha256)
+string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH GET
+    "${_ror_lock_json}" patches 2 path)
+string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 2 sha256)
+string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_REASON GET
+    "${_ror_lock_json}" patches 2 reason)
+string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_PATH GET
+    "${_ror_lock_json}" patches 2 source_path)
+string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 2 source_sha256)
+string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 2 patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -594,7 +606,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 3 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -607,6 +619,24 @@ if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 2 OR
         NOT ROR_OGRE_NEXT_IBL_PATCHED_SHA256 STREQUAL
         "3ebebc1132c720ee8b741226d41e8638f747a0d5700222d7cb4c8f4e0663fa41")
     message(FATAL_ERROR "The pinned OGRE-Next IBL adaptation changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}"
+    _ror_metal_anisotropy_patch_sha256)
+if (NOT ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH STREQUAL
+        "patches/0008-metal-report-anisotropy-limit.patch" OR
+        NOT ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_SHA256 STREQUAL
+        "f7c5356f5f2025bbc7daf5e0788b7820244ed1ad8c3d45dd5ac73f381d800a22" OR
+        NOT _ror_metal_anisotropy_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_PATH STREQUAL
+        "RenderSystems/Metal/src/OgreMetalRenderSystem.mm" OR
+        NOT ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_SHA256 STREQUAL
+        "bebe97dd2cb318d6aa2331eaaf0f8b181e18ac66660b02d4160802e0ed8ed0eb" OR
+        NOT ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256 STREQUAL
+        "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next Metal anisotropy capability adaptation changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
@@ -1278,7 +1308,8 @@ set(FREETYPE_LIBRARIES "${ROR_OGRE_NEXT_FREETYPE_TARGET}"
 
 set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1489,6 +1520,17 @@ if (NOT _ror_extracted_ibl_shader_sha256 STREQUAL
         "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes: "
         "expected ${ROR_OGRE_NEXT_IBL_PATCHED_SHA256}, got "
         "${_ror_extracted_ibl_shader_sha256}")
+endif ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_PATH}"
+    _ror_extracted_metal_anisotropy_source_sha256)
+if (NOT _ror_extracted_metal_anisotropy_source_sha256 STREQUAL
+        ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next Metal anisotropy patch did not produce reviewed bytes: "
+        "expected ${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256}, got "
+        "${_ror_extracted_metal_anisotropy_source_sha256}")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0

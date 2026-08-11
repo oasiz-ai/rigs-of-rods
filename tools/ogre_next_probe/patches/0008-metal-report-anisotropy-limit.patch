@@ -1,0 +1,13 @@
+diff --git a/RenderSystems/Metal/src/OgreMetalRenderSystem.mm b/RenderSystems/Metal/src/OgreMetalRenderSystem.mm
+index 4d37423f0..25e1ceeef 100644
+--- a/RenderSystems/Metal/src/OgreMetalRenderSystem.mm
++++ b/RenderSystems/Metal/src/OgreMetalRenderSystem.mm
+@@ -273,7 +273,8 @@ RenderSystemCapabilities *MetalRenderSystem::createRenderSystemCapabilities() co
+         rsc->setStencilBufferBitDepth( 8 );
+         rsc->setNumTextureUnits( 16 );
+         rsc->setNumVertexTextureUnits( 16 );
+         rsc->setCapability( RSC_ANISOTROPY );
++        rsc->setMaxSupportedAnisotropy( 16.0f );
+         rsc->setCapability( RSC_AUTOMIPMAP );
+         rsc->setCapability( RSC_BLENDING );
+         rsc->setCapability( RSC_DOT3 );
