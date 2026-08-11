@@ -287,6 +287,30 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn('"provider_contract":', EXECUTABLE_CONTRACT)
         self.assertIn('"namespace_audit_report":', EXECUTABLE_CONTRACT)
 
+    def test_link_map_evidence_preserves_arbitrary_literal_bytes(self) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_link_map", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        payload = (
+            b"[1] literal string: \x80\n"
+            b"/build/libOgreNextMainStatic.a(OgreRoot.cpp.o)\n"
+            b"RendererBridgeChannel.cpp.o\n"
+        )
+        self.assertTrue(
+            module._link_map_contains(payload, "libOgreNextMainStatic.a")
+        )
+        self.assertTrue(
+            module._link_map_contains(payload, "RendererBridgeChannel.cpp.o")
+        )
+        self.assertFalse(module._link_map_contains(payload, "libSDL2.a("))
+        self.assertIn("link_map.read_bytes()", VERIFIER)
+        self.assertNotIn("link_map.read_text", VERIFIER)
+
     def test_manifests_bind_build_authority_and_rehash_at_postlink(self) -> None:
         for path in (
             '"CMakeLists.txt"',

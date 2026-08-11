@@ -119,6 +119,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _link_map_contains(payload: bytes, token: str) -> bool:
+    """Search Apple link-map bytes without interpreting embedded literals as text."""
+    return token.encode("utf-8", errors="strict") in payload
+
+
 def _reject_duplicate_pairs(
     pairs: list[tuple[str, object]], description: str
 ) -> dict[str, object]:
@@ -564,19 +569,23 @@ def main() -> int:
             if token not in all_defined.stdout
         )
 
-        link_map_text = link_map.read_text(encoding="utf-8", errors="strict")
+        # Apple linker maps include the raw bytes of literal strings. Those bytes
+        # are not required to be UTF-8, so keep this evidence byte-exact and only
+        # encode the ASCII/UTF-8 authority tokens being searched for.
+        link_map_payload = link_map.read_bytes()
         object_violations = sorted(
             token
             for token in FORBIDDEN_LINK_MAP_OBJECT_TOKENS
-            if token in link_map_text
+            if _link_map_contains(link_map_payload, token)
         )
         extracted_sdl_members = (
-            "libSDL2.a(" in link_map_text or "libSDL2.a[" in link_map_text
+            _link_map_contains(link_map_payload, "libSDL2.a(")
+            or _link_map_contains(link_map_payload, "libSDL2.a[")
         )
         missing_archive_evidence = sorted(
             str(archive)
             for archive in required_archives
-            if archive.name not in link_map_text
+            if not _link_map_contains(link_map_payload, archive.name)
         )
 
         linked_dylibs = subprocess.run(
