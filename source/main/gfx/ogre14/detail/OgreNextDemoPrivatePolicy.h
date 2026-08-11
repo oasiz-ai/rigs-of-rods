@@ -68,6 +68,20 @@ struct OgreNextDemoSamplingObservation final {
     std::size_t vertex_count, std::vector<Render::Float3> &normals,
     std::vector<Render::Float4> &tangents);
 
+/// Builds the smallest camera-centered sphere containing the normalized
+/// OgreNext demo far frustum. Source offsets and vertical FOV are retained;
+/// target_aspect supplies the child surface aspect.
+[[nodiscard]] Render::ValidationResult BuildOgreNextDemoStaticCaptureRadius(
+    float left, float right, float top, float bottom, float near_plane,
+    float far_plane, float target_aspect, float &radius_meters);
+
+/// Classifies a finite world AABB by closest-point distance to the enclosing
+/// demo frustum sphere. The output remains unchanged on failure.
+[[nodiscard]] Render::ValidationResult ClassifyOgreNextDemoStaticBounds(
+    const Render::Bounds3 &world_bounds,
+    const Render::Float3 &camera_position, float radius_meters,
+    bool &within_capture_radius);
+
 /// Bidirectional collision audit. Transactions copy this private registry,
 /// mutate the candidate, and replace the committed owner only on commit.
 class OgreNextDemoIdentityRegistry final {

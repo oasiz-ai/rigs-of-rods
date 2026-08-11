@@ -272,6 +272,8 @@ RendererOgre14ProductSession::PostUpdatedScene(
     return result;
   }
 
+  Detail::OgreNextDemoCaptureSurfaceScope capture_surface_scope(
+      surface.drawable_width, surface.drawable_height);
   Render::GraphicsSceneFrameInput frame;
   const Render::ValidationResult captured =
       source.CaptureJoinedGraphicsFrame(frame);

@@ -62,6 +62,19 @@ collision check. Terrain, static, and dynamic candidates commit or discard as
 one joined capture; no payload is trusted solely from `Texture::stateCount`.
 No receipt, digest, or audit type is added to a public header.
 
+Static CityWorld admission uses the smallest camera-centered sphere enclosing
+the current child drawable aspect and normalized 350 m frustum. The product
+session publishes that exact resize-revision extent only for its synchronous
+capture. Native world AABBs enter the resulting sphere
+transactionally and the admitted stable-object set grows monotonically for the
+map generation. An admitted object is never removed, so driving cannot
+resurrect a renderer tombstone; far content is added only when the camera first
+approaches it. This private spatial bootstrap bounds first-frame validation and
+native Item creation without changing the renderer-neutral lifecycle contract.
+Directional-shadow casters wholly outside this receiver envelope are likewise
+deferred until approached; that is an explicit disposable-demo tradeoff, not a
+general renderer culling contract.
+
 Fresh base-level GPU readback and synchronous derived-work joining are
 correctness-first and may stall. A later demo optimization may cache only at a
 private map-generation boundary after proving equivalent native identity; it

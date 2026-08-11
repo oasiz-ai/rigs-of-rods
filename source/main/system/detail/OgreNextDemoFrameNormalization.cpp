@@ -15,12 +15,49 @@
 namespace RoR::Detail {
 namespace {
 
+thread_local std::uint32_t g_capture_drawable_width = 0U;
+thread_local std::uint32_t g_capture_drawable_height = 0U;
+
 Render::ValidationResult Failure(Render::ValidationCode code,
                                  const char *field, const char *detail) {
   return Render::ValidationResult::Failure(code, field, detail);
 }
 
 } // namespace
+
+OgreNextDemoCaptureSurfaceScope::OgreNextDemoCaptureSurfaceScope(
+    std::uint32_t drawable_width, std::uint32_t drawable_height) noexcept
+    : previous_width_(g_capture_drawable_width),
+      previous_height_(g_capture_drawable_height) {
+  g_capture_drawable_width = drawable_width;
+  g_capture_drawable_height = drawable_height;
+}
+
+OgreNextDemoCaptureSurfaceScope::~OgreNextDemoCaptureSurfaceScope() {
+  g_capture_drawable_width = previous_width_;
+  g_capture_drawable_height = previous_height_;
+}
+
+Render::ValidationResult CaptureOgreNextDemoDrawableAspect(float &aspect) {
+  if (g_capture_drawable_width == 0U || g_capture_drawable_height == 0U ||
+      g_capture_drawable_width > Render::kMaximumRenderDimension ||
+      g_capture_drawable_height > Render::kMaximumRenderDimension) {
+    return Failure(Render::ValidationCode::INVALID_DIMENSIONS,
+                   "ogre_next_demo.capture_surface.extent",
+                   "static admission requires the current child drawable extent");
+  }
+  const double candidate =
+      static_cast<double>(g_capture_drawable_width) /
+      static_cast<double>(g_capture_drawable_height);
+  if (!std::isfinite(candidate) || !(candidate > 0.0) ||
+      candidate > static_cast<double>((std::numeric_limits<float>::max)())) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.capture_surface.aspect",
+                   "child drawable aspect is not finite and positive");
+  }
+  aspect = static_cast<float>(candidate);
+  return Render::ValidationResult::Success();
+}
 
 Render::ValidationResult NormalizeOgreNextDemoCamera(
     Render::GraphicsSceneCameraInput &camera,

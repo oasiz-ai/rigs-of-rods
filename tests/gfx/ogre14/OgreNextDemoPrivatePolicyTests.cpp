@@ -202,6 +202,58 @@ void CheckIdentityCollisionAndRollback() {
           "one exact key changing ID was accepted");
 }
 
+void CheckStaticCaptureAdmission() {
+  float radius = -1.0F;
+  const float vertical_half_extent = 0.28867513F;
+  Require(BuildOgreNextDemoStaticCaptureRadius(
+              -0.51320022F, 0.51320022F,
+              vertical_half_extent, -vertical_half_extent,
+              0.5F, 350.0F, 16.0F / 9.0F, radius)
+              .ok() &&
+              radius > 539.0F && radius < 542.0F,
+          "normalized 16:9 far-frustum capture radius changed");
+  float ultrawide_radius = -1.0F;
+  Require(BuildOgreNextDemoStaticCaptureRadius(
+              -0.51320022F, 0.51320022F,
+              vertical_half_extent, -vertical_half_extent,
+              0.5F, 350.0F, 32.0F / 9.0F, ultrawide_radius)
+              .ok() &&
+              ultrawide_radius > radius,
+          "ultrawide child aspect did not expand static admission");
+
+  Bounds3 touching;
+  touching.minimum = {radius - 1.0F, -1.0F, -1.0F};
+  touching.maximum = {radius + 1.0F, 1.0F, 1.0F};
+  bool retained = false;
+  Require(ClassifyOgreNextDemoStaticBounds(touching, {}, radius, retained)
+              .ok() &&
+              retained,
+          "AABB touching the demo capture sphere was omitted");
+  Bounds3 outside = touching;
+  outside.minimum.x = radius + 1.0F;
+  outside.maximum.x = radius + 2.0F;
+  retained = true;
+  Require(ClassifyOgreNextDemoStaticBounds(outside, {}, radius, retained)
+              .ok() &&
+              !retained,
+          "AABB outside the demo capture sphere was retained");
+
+  float sentinel_radius = 17.0F;
+  Require(!BuildOgreNextDemoStaticCaptureRadius(
+               1.0F, -1.0F, 1.0F, -1.0F,
+               0.5F, 350.0F, 16.0F / 9.0F, sentinel_radius)
+               .ok() &&
+              sentinel_radius == 17.0F,
+          "invalid frustum partially published a capture radius");
+  Bounds3 invalid = touching;
+  invalid.minimum.x = (std::numeric_limits<float>::quiet_NaN)();
+  retained = true;
+  Require(!ClassifyOgreNextDemoStaticBounds(invalid, {}, radius, retained)
+               .ok() &&
+              retained,
+          "invalid AABB partially published its admission result");
+}
+
 void CheckMatteFallbackPolicy() {
   Require(!OgreNextDemoRequiresMatte(0U, false),
           "factor-only material was unnecessarily matted");
@@ -323,6 +375,7 @@ int main() {
   CheckMalformedMipRollback();
   CheckSamplingRejectionsAndMutation();
   CheckIdentityCollisionAndRollback();
+  CheckStaticCaptureAdmission();
   CheckMatteFallbackPolicy();
   CheckMatteMeshNormalization();
   std::cout << "OgreNext demo private policy tests passed\n";

@@ -19,6 +19,30 @@ namespace RoR::Detail {
 constexpr float kOgreNextDemoCameraNearMeters = 0.5F;
 constexpr float kOgreNextDemoCameraFarMeters = 350.0F;
 
+/// Publishes the exact child drawable extent only for the synchronous joined
+/// capture performed by RendererOgre14ProductSession. The scope is private to
+/// this disposable product bridge and restores any enclosing capture state.
+class OgreNextDemoCaptureSurfaceScope final {
+public:
+  OgreNextDemoCaptureSurfaceScope(std::uint32_t drawable_width,
+                                  std::uint32_t drawable_height) noexcept;
+  ~OgreNextDemoCaptureSurfaceScope();
+
+  OgreNextDemoCaptureSurfaceScope(const OgreNextDemoCaptureSurfaceScope &) =
+      delete;
+  OgreNextDemoCaptureSurfaceScope &
+  operator=(const OgreNextDemoCaptureSurfaceScope &) = delete;
+
+private:
+  std::uint32_t previous_width_ = 0U;
+  std::uint32_t previous_height_ = 0U;
+};
+
+/// Reads the drawable aspect belonging to the current synchronous capture.
+/// Failure leaves `aspect` unchanged.
+[[nodiscard]] Render::ValidationResult
+CaptureOgreNextDemoDrawableAspect(float &aspect);
+
 /// Rebuilds only the captured frame copy. The native OGRE Camera and user
 /// settings are never mutated. On failure, camera remains byte-for-byte owned
 /// by the caller and unchanged.

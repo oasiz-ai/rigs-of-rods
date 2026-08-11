@@ -21,6 +21,8 @@
 
 #include "GfxScene.h"
 #include "gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
+#include "gfx/render/ogrenext/OgreNextPssmShadowPolicy.h"
+#include "system/detail/OgreNextDemoFrameNormalization.h"
 
 #include "AppContext.h"
 #include "Actor.h"
@@ -267,6 +269,64 @@ RoR::Render::ValidationResult NativeStaticFailure(
     const char* detail)
 {
     return RoR::Render::ValidationResult::Failure(code, field, detail);
+}
+
+RoR::Render::ValidationResult CaptureOgreNextDemoStaticAdmissionView(
+    RoR::Render::Float3& camera_position, float& radius_meters)
+{
+    if (RoR::App::GetCameraManager() == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "ogre_next_demo.static_capture.camera",
+            "demo static admission requires the live main camera");
+    }
+    Ogre::Camera* const camera =
+        RoR::App::GetCameraManager()->GetCamera();
+    if (camera == nullptr ||
+        camera->getProjectionType() != Ogre::PT_PERSPECTIVE)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "ogre_next_demo.static_capture.camera",
+            "demo static admission requires the normalized perspective camera");
+    }
+
+    const Ogre::RealRect extents = camera->getFrustumExtents();
+    float target_aspect = 0.0F;
+    RoR::Render::ValidationResult validation =
+        RoR::Detail::CaptureOgreNextDemoDrawableAspect(target_aspect);
+    if (!validation)
+        return validation;
+    float candidate_radius = 0.0F;
+    validation = RoR::Gfx::Detail::BuildOgreNextDemoStaticCaptureRadius(
+            static_cast<float>(extents.left),
+            static_cast<float>(extents.right),
+            static_cast<float>(extents.top),
+            static_cast<float>(extents.bottom),
+            static_cast<float>(camera->getNearClipDistance()),
+            RoR::Render::kOgreNextPssmFarMeters,
+            target_aspect, candidate_radius);
+    if (!validation)
+        return validation;
+
+    const Ogre::Vector3 native_position = camera->getDerivedPosition();
+    const RoR::Render::Float3 candidate_position{
+        static_cast<float>(native_position.x),
+        static_cast<float>(native_position.y),
+        static_cast<float>(native_position.z)};
+    if (!std::isfinite(candidate_position.x) ||
+        !std::isfinite(candidate_position.y) ||
+        !std::isfinite(candidate_position.z))
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::VALUE_OUT_OF_RANGE,
+            "ogre_next_demo.static_capture.camera",
+            "demo static admission camera position is non-finite");
+    }
+    camera_position = candidate_position;
+    radius_meters = candidate_radius;
+    return RoR::Render::ValidationResult::Success();
 }
 
 RoR::Render::Float3 ToFloat3(const Ogre::ColourValue& color)
@@ -1894,6 +1954,9 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
 
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
+    const RoR::Render::Float3& camera_position,
+    float capture_radius_meters,
+    std::set<std::uint64_t>& admitted_static_objects,
     RoR::Render::Ogre14GraphicsSceneStaticIdentityRegistry& identity_registry,
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
@@ -1965,6 +2028,43 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
                     RoR::Render::ValidationCode::SIZE_MISMATCH,
                     "static_meshes.native_submeshes",
                     "Entity and Mesh submesh inventories do not match");
+            }
+
+            if (admitted_static_objects.find(record.stable_id) ==
+                admitted_static_objects.end())
+            {
+                const Ogre::AxisAlignedBox& native_bounds =
+                    entity->getWorldBoundingBox(true);
+                if (native_bounds.isNull() || native_bounds.isInfinite())
+                {
+                    return NativeStaticFailure(
+                        RoR::Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                        "ogre_next_demo.static_capture.bounds",
+                        "static Entity has no finite world AABB");
+                }
+                const Ogre::Vector3 native_minimum =
+                    native_bounds.getMinimum();
+                const Ogre::Vector3 native_maximum =
+                    native_bounds.getMaximum();
+                RoR::Render::Bounds3 world_bounds;
+                world_bounds.minimum = {
+                    static_cast<float>(native_minimum.x),
+                    static_cast<float>(native_minimum.y),
+                    static_cast<float>(native_minimum.z)};
+                world_bounds.maximum = {
+                    static_cast<float>(native_maximum.x),
+                    static_cast<float>(native_maximum.y),
+                    static_cast<float>(native_maximum.z)};
+                bool within_capture_radius = false;
+                validation =
+                    RoR::Gfx::Detail::ClassifyOgreNextDemoStaticBounds(
+                        world_bounds, camera_position,
+                        capture_radius_meters, within_capture_radius);
+                if (!validation)
+                    return validation;
+                if (!within_capture_radius)
+                    continue;
+                admitted_static_objects.insert(record.stable_id);
             }
 
             Ogre::SceneNode* const parent_scene_node =
@@ -2190,6 +2290,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     // Native mesh pointers and map-scoped source identities cannot cross the
     // SceneManager teardown/reload boundary.
     m_ogre14_static_mesh_cache.clear();
+    m_ogre_next_demo_admitted_static_objects.clear();
     m_ogre14_terrain_page_cache.clear();
     m_ogre14_dynamic_mesh_cache.clear();
 }
@@ -2736,6 +2837,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     pending->terrain_page_cache = m_ogre14_terrain_page_cache;
     pending->static_registry = m_ogre14_static_identity_registry;
     pending->static_mesh_cache = m_ogre14_static_mesh_cache;
+    pending->admitted_static_objects =
+        m_ogre_next_demo_admitted_static_objects;
     pending->dynamic_registry = m_ogre14_dynamic_identity_registry;
     pending->dynamic_mesh_cache = m_ogre14_dynamic_mesh_cache;
 
@@ -2823,9 +2926,18 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 return static_validation;
             terrain_pending_guard.Arm();
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
+            Render::Float3 static_camera_position;
+            float static_capture_radius_meters = 0.0F;
+            static_validation = CaptureOgreNextDemoStaticAdmissionView(
+                static_camera_position, static_capture_radius_meters);
+            if (!static_validation)
+                return static_validation;
             static_validation =
                 CaptureOgre14StaticMeshObjects(
                     object_manager,
+                    static_camera_position,
+                    static_capture_radius_meters,
+                    pending->admitted_static_objects,
                     pending->static_registry,
                     pending->static_mesh_cache,
                     static_assets,
@@ -2964,6 +3076,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->static_registry);
     swap(m_ogre14_static_mesh_cache,
          m_ogre14_pending_capture->static_mesh_cache);
+    swap(m_ogre_next_demo_admitted_static_objects,
+         m_ogre14_pending_capture->admitted_static_objects);
     swap(m_ogre14_dynamic_identity_registry,
          m_ogre14_pending_capture->dynamic_registry);
     swap(m_ogre14_dynamic_mesh_cache,

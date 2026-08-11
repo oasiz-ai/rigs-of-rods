@@ -320,6 +320,103 @@ Render::ValidationResult NormalizeOgreNextDemoMatteMesh(
   return Render::ValidationResult::Success();
 }
 
+Render::ValidationResult BuildOgreNextDemoStaticCaptureRadius(
+    float left, float right, float top, float bottom, float near_plane,
+    float far_plane, float target_aspect, float &radius_meters) {
+  if (!std::isfinite(left) || !std::isfinite(right) ||
+      !std::isfinite(top) || !std::isfinite(bottom) ||
+      !std::isfinite(near_plane) || !std::isfinite(far_plane) ||
+      !std::isfinite(target_aspect) || !(left < right) || !(bottom < top) ||
+      !(near_plane > 0.0F) || !(far_plane > near_plane) ||
+      !(target_aspect > 0.0F)) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.static_capture.frustum",
+                   "static capture requires finite ordered perspective extents, clip distances, and target aspect");
+  }
+
+  const double horizontal_span =
+      static_cast<double>(right) - static_cast<double>(left);
+  const double vertical_span =
+      static_cast<double>(top) - static_cast<double>(bottom);
+  const double horizontal_offset = std::fabs(
+      (static_cast<double>(right) + static_cast<double>(left)) /
+      horizontal_span);
+  const double vertical_offset = std::fabs(
+      (static_cast<double>(top) + static_cast<double>(bottom)) /
+      vertical_span);
+  const double half_vertical_slope =
+      vertical_span / (2.0 * static_cast<double>(near_plane));
+  const double half_horizontal_slope =
+      half_vertical_slope * static_cast<double>(target_aspect);
+  const double maximum_horizontal_slope =
+      half_horizontal_slope * (1.0 + horizontal_offset);
+  const double maximum_vertical_slope =
+      half_vertical_slope * (1.0 + vertical_offset);
+  const double candidate = static_cast<double>(far_plane) *
+      std::sqrt(1.0 + maximum_horizontal_slope * maximum_horizontal_slope +
+                maximum_vertical_slope * maximum_vertical_slope);
+  if (!std::isfinite(candidate) || !(candidate > 0.0) ||
+      candidate > static_cast<double>((std::numeric_limits<float>::max)())) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.static_capture.radius",
+                   "normalized far-frustum enclosing radius is not representable");
+  }
+  const float conservative = std::nextafter(
+      static_cast<float>(candidate),
+      (std::numeric_limits<float>::infinity)());
+  if (!std::isfinite(conservative) || !(conservative > 0.0F)) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.static_capture.radius",
+                   "normalized far-frustum enclosing radius overflowed conservative rounding");
+  }
+  radius_meters = conservative;
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult ClassifyOgreNextDemoStaticBounds(
+    const Render::Bounds3 &world_bounds,
+    const Render::Float3 &camera_position, float radius_meters,
+    bool &within_capture_radius) {
+  const auto finite = [](float value) { return std::isfinite(value); };
+  if (!finite(world_bounds.minimum.x) ||
+      !finite(world_bounds.minimum.y) ||
+      !finite(world_bounds.minimum.z) ||
+      !finite(world_bounds.maximum.x) ||
+      !finite(world_bounds.maximum.y) ||
+      !finite(world_bounds.maximum.z) ||
+      !finite(camera_position.x) || !finite(camera_position.y) ||
+      !finite(camera_position.z) || !finite(radius_meters) ||
+      world_bounds.minimum.x > world_bounds.maximum.x ||
+      world_bounds.minimum.y > world_bounds.maximum.y ||
+      world_bounds.minimum.z > world_bounds.maximum.z ||
+      !(radius_meters > 0.0F)) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.static_capture.bounds",
+                   "static capture requires a finite ordered world AABB, camera, and positive radius");
+  }
+
+  const auto separation = [](double value, double minimum,
+                             double maximum) {
+    if (value < minimum) {
+      return minimum - value;
+    }
+    if (value > maximum) {
+      return value - maximum;
+    }
+    return 0.0;
+  };
+  const double dx = separation(camera_position.x, world_bounds.minimum.x,
+                               world_bounds.maximum.x);
+  const double dy = separation(camera_position.y, world_bounds.minimum.y,
+                               world_bounds.maximum.y);
+  const double dz = separation(camera_position.z, world_bounds.minimum.z,
+                               world_bounds.maximum.z);
+  const double radius = radius_meters;
+  within_capture_radius =
+      dx * dx + dy * dy + dz * dz <= radius * radius;
+  return Render::ValidationResult::Success();
+}
+
 Render::ValidationResult OgreNextDemoIdentityRegistry::Register(
     std::string exact_key, std::uint64_t source_id) {
   if (exact_key.empty() || source_id == 0U) {

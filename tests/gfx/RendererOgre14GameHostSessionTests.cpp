@@ -453,6 +453,30 @@ CameraViewRequest Camera(std::uint32_t width = 1280U,
 }
 
 void TestOgreNextDemoFrameNormalizationUsesDrawablePixels() {
+  float aspect = 17.0F;
+  Require(!RoR::Detail::CaptureOgreNextDemoDrawableAspect(aspect).ok() &&
+              aspect == 17.0F,
+          "drawable aspect escaped the synchronous capture scope");
+  {
+    RoR::Detail::OgreNextDemoCaptureSurfaceScope wide_scope(5120U, 1440U);
+    Require(RoR::Detail::CaptureOgreNextDemoDrawableAspect(aspect).ok() &&
+                std::fabs(aspect - (5120.0F / 1440.0F)) < 1.0e-6F,
+            "capture scope did not publish the live ultrawide drawable aspect");
+    {
+      RoR::Detail::OgreNextDemoCaptureSurfaceScope nested_scope(1600U, 1200U);
+      Require(RoR::Detail::CaptureOgreNextDemoDrawableAspect(aspect).ok() &&
+                  std::fabs(aspect - (4.0F / 3.0F)) < 1.0e-6F,
+              "nested capture scope did not publish its drawable aspect");
+    }
+    Require(RoR::Detail::CaptureOgreNextDemoDrawableAspect(aspect).ok() &&
+                std::fabs(aspect - (5120.0F / 1440.0F)) < 1.0e-6F,
+            "nested capture scope did not restore its enclosing aspect");
+  }
+  aspect = 23.0F;
+  Require(!RoR::Detail::CaptureOgreNextDemoDrawableAspect(aspect).ok() &&
+              aspect == 23.0F,
+          "capture scope leaked its drawable aspect after destruction");
+
   GraphicsSceneCameraInput camera;
   camera.view_id = 1U;
   camera.width = 2560U;

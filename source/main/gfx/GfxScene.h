@@ -36,6 +36,7 @@
 #include "Skidmark.h"
 
 #include <map>
+#include <set>
 #include <string>
 #include <memory>
 
@@ -161,6 +162,10 @@ private:
     std::map<std::string,
              Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
                                        m_ogre14_static_mesh_cache;
+    // Admission grows monotonically within one map generation. Once a static
+    // object enters the demo camera envelope it never disappears, so renderer
+    // object/asset tombstones can never be resurrected while driving.
+    std::set<std::uint64_t>             m_ogre_next_demo_admitted_static_objects;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. Stable
     // frames never regenerate the large CPU mesh.
@@ -182,6 +187,7 @@ private:
         std::map<std::string,
                  Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
             static_mesh_cache;
+        std::set<std::uint64_t> admitted_static_objects;
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry dynamic_registry;
         std::map<std::string,
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
