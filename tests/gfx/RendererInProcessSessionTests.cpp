@@ -428,6 +428,47 @@ std::size_t FindAfter(const std::vector<std::string> &log,
   return static_cast<std::size_t>(found - log.begin());
 }
 
+void TestSourceCaptureFailurePreservesValidationDetail() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x4341505455524531ULL)).status ==
+              RendererInProcessSessionStatus::READY,
+          "source-failure session did not initialize");
+  FakeSceneSource source(log);
+  source.capture_result = ValidationResult::Failure(
+      ValidationCode::VALUE_OUT_OF_RANGE, "camera",
+      "camera clipping, exposure, and visibility must be positive", 17U);
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  Require(session.PumpEventsBeforeSimulation().simulation_may_advance,
+          "source-failure simulation grant was not established");
+
+  const RendererInProcessSessionResult rejected =
+      session.PostUpdatedScene(source);
+  Require(rejected.status ==
+                  RendererInProcessSessionStatus::CAPTURE_REJECTED &&
+              rejected.frontend_code ==
+                  RenderOperationCode::INVALID_ARGUMENT &&
+              rejected.validation.code ==
+                  ValidationCode::VALUE_OUT_OF_RANGE &&
+              rejected.validation.element_index == 17U &&
+              rejected.validation.field == "camera" &&
+              rejected.validation.detail ==
+                  "camera clipping, exposure, and visibility must be positive" &&
+              !rejected.terminal && source.captures == 1U &&
+              source.commits == 0U && source.discards == 0U &&
+              frame_policy.capture_begins == 1U &&
+              frame_policy.capture_ends == 1U &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U,
+          "joined-source rejection lost its exact validation evidence");
+  Require(session.Shutdown().status ==
+              RendererInProcessSessionStatus::CLOSED,
+          "source-failure session did not close");
+}
+
 void TestCaptureRollbackAndTypedSubmissionOrder() {
   std::vector<std::string> log;
   FakeFrontend frontend(log);
@@ -448,6 +489,11 @@ void TestCaptureRollbackAndTypedSubmissionOrder() {
       session.PostUpdatedScene(source);
   Require(rejected.status ==
                   RendererInProcessSessionStatus::CAPTURE_REJECTED &&
+              rejected.validation.code ==
+                  ValidationCode::UNSUPPORTED_FEATURE &&
+              rejected.validation.field == "fake_frame_policy.sun" &&
+              rejected.validation.detail ==
+                  "fixture requires one directional sun" &&
               !rejected.terminal && source.captures == 1U &&
               source.commits == 0U && source.discards == 1U &&
               frame_policy.capture_begins == 1U &&
@@ -946,6 +992,7 @@ void TestStatusSurface() {
 
 int main() {
   TestStatusSurface();
+  TestSourceCaptureFailurePreservesValidationDetail();
   TestCaptureRollbackAndTypedSubmissionOrder();
   TestThrowingPostCapturePolicyDiscardsSourceTransaction();
   TestSkipUpdatedSceneConsumesExactlyOneGrant();

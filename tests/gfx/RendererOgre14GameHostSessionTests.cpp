@@ -478,6 +478,15 @@ void TestOgreNextDemoFrameNormalizationUsesDrawablePixels() {
           "capture scope leaked its drawable aspect after destruction");
 
   GraphicsSceneCameraInput camera;
+  Require(RoR::Detail::ResolveOgreNextDemoCaptureFarPlane(0.0F) ==
+                  RoR::Detail::kOgreNextDemoCameraFarMeters &&
+              RoR::Detail::ResolveOgreNextDemoCaptureFarPlane(-0.0F) ==
+                  RoR::Detail::kOgreNextDemoCameraFarMeters &&
+              RoR::Detail::ResolveOgreNextDemoCaptureFarPlane(59994.0F) ==
+                  59994.0F &&
+              RoR::Detail::ResolveOgreNextDemoCaptureFarPlane(-1.0F) ==
+                  -1.0F,
+          "demo camera did not resolve only OGRE's unlimited far sentinel");
   camera.view_id = 1U;
   camera.width = 2560U;
   camera.height = 1664U;

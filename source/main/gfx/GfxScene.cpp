@@ -173,8 +173,8 @@ bool CaptureOgre14MainCamera(
     input.bottom = static_cast<float>(extents.bottom);
     input.near_plane =
         static_cast<float>(camera->getNearClipDistance());
-    input.far_plane =
-        static_cast<float>(camera->getFarClipDistance());
+    input.far_plane = RoR::Detail::ResolveOgreNextDemoCaptureFarPlane(
+        static_cast<float>(camera->getFarClipDistance()));
     // OGRE 14 has no scene-linear view-exposure state. Identity is therefore
     // exact here; optional display postprocessing remains outside the scene.
     input.exposure = 1.0F;

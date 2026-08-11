@@ -19,6 +19,12 @@ namespace RoR::Detail {
 constexpr float kOgreNextDemoCameraNearMeters = 0.5F;
 constexpr float kOgreNextDemoCameraFarMeters = 350.0F;
 
+/// Resolve OGRE 14's exact zero far-clip sentinel to the finite product
+/// capture range. Every other value is preserved for the ordinary camera
+/// contract to validate; this must not sanitize malformed native state.
+[[nodiscard]] float
+ResolveOgreNextDemoCaptureFarPlane(float native_far_plane) noexcept;
+
 /// Publishes the exact child drawable extent only for the synchronous joined
 /// capture performed by RendererOgre14ProductSession. The scope is private to
 /// this disposable product bridge and restores any enclosing capture state.

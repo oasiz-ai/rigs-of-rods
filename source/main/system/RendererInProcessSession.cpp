@@ -13,6 +13,7 @@
 
 #include <new>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -35,6 +36,22 @@ Render::ValidationResult InvalidObservationVersion() {
   Render::ValidationResult result;
   result.code = Render::ValidationCode::UNSUPPORTED_VERSION;
   return result;
+}
+
+void PreserveValidationFailure(
+    const Render::ValidationResult &source,
+    Render::ValidationResult &destination) noexcept {
+  destination.code = source.code;
+  destination.element_index = source.element_index;
+  try {
+    std::string field = source.field;
+    std::string detail = source.detail;
+    destination.field = std::move(field);
+    destination.detail = std::move(detail);
+  } catch (...) {
+    destination.field.clear();
+    destination.detail.clear();
+  }
 }
 
 class JoinedCaptureGuard final {
@@ -126,8 +143,7 @@ public:
     }
     RendererInProcessSessionResult result =
         Result(status, false, true, event_polls);
-    result.validation.code = validation.code;
-    result.validation.element_index = validation.element_index;
+    PreserveValidationFailure(validation, result.validation);
     result.frontend_code = frontend_code;
     return result;
   }
@@ -141,8 +157,7 @@ public:
       std::uint32_t event_polls = 0U) const noexcept {
     RendererInProcessSessionResult result =
         Result(status, false, false, event_polls);
-    result.validation.code = validation.code;
-    result.validation.element_index = validation.element_index;
+    PreserveValidationFailure(validation, result.validation);
     result.frontend_code = frontend_code;
     return result;
   }

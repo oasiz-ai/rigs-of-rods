@@ -25,6 +25,11 @@ Render::ValidationResult Failure(Render::ValidationCode code,
 
 } // namespace
 
+float ResolveOgreNextDemoCaptureFarPlane(float native_far_plane) noexcept {
+  return native_far_plane == 0.0F ? kOgreNextDemoCameraFarMeters
+                                  : native_far_plane;
+}
+
 OgreNextDemoCaptureSurfaceScope::OgreNextDemoCaptureSurfaceScope(
     std::uint32_t drawable_width, std::uint32_t drawable_height) noexcept
     : previous_width_(g_capture_drawable_width),
