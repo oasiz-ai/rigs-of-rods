@@ -776,6 +776,60 @@ public:
     return ValidationResult::Success();
   }
 
+  ValidationResult ObservePresentationWindow(
+      RendererOgreNextSdlWindowEventBatch &window_events) {
+    SDL_Window *const presented = static_cast<SDL_Window *>(sdl_window);
+    int logical_width = 0;
+    int logical_height = 0;
+    int drawable_width = 0;
+    int drawable_height = 0;
+    SDL_GetWindowSize(presented, &logical_width, &logical_height);
+    SDL_GetWindowSizeInPixels(presented, &drawable_width, &drawable_height);
+    const Uint32 flags = SDL_GetWindowFlags(presented);
+    window_events.focused = (flags & SDL_WINDOW_INPUT_FOCUS) != 0U;
+    window_events.minimized = (flags & SDL_WINDOW_MINIMIZED) != 0U;
+    window_events.hidden = (flags & SDL_WINDOW_HIDDEN) != 0U;
+    window_input_suppressed =
+        window_events.hidden || window_events.minimized;
+    if (logical_width <= 0 || logical_height <= 0 || drawable_width < 0 ||
+        drawable_height < 0 ||
+        ((drawable_width == 0 || drawable_height == 0) &&
+         !window_events.minimized && !window_events.hidden)) {
+      return Failure(ValidationCode::INVALID_DIMENSIONS,
+                     "in_process_presenter.window_metrics",
+                     "SDL reported invalid presentation metrics");
+    }
+    window_events.logical_width =
+        static_cast<std::uint32_t>(logical_width);
+    window_events.logical_height =
+        static_cast<std::uint32_t>(logical_height);
+    window_events.drawable_width =
+        static_cast<std::uint32_t>(drawable_width);
+    window_events.drawable_height =
+        static_cast<std::uint32_t>(drawable_height);
+    const RendererOgreNextWindowMetrics *const committed = host.Metrics();
+    if (committed == nullptr) {
+      return Failure(ValidationCode::INVALID_DIMENSIONS,
+                     "in_process_presenter.window_metrics",
+                     "native presentation metrics are unavailable");
+    }
+    if (committed->logical_width != window_events.logical_width ||
+        committed->logical_height != window_events.logical_height) {
+      window_events.resize_events =
+          (std::max)(window_events.resize_events, std::uint64_t{1U});
+    }
+    if (drawable_width > 0 && drawable_height > 0) {
+      window_events.drawable_size_changed =
+          has_drawable_baseline &&
+          (last_drawable_width != window_events.drawable_width ||
+           last_drawable_height != window_events.drawable_height);
+      last_drawable_width = window_events.drawable_width;
+      last_drawable_height = window_events.drawable_height;
+      has_drawable_baseline = true;
+    }
+    return ValidationResult::Success();
+  }
+
   ValidationResult PollOrderedSdl(
       RendererOgreNextSdlWindowEventBatch &window_events,
       RendererGameInputState &state) {
@@ -1165,43 +1219,9 @@ public:
       }
     }
 
-    SDL_Window *const presented = static_cast<SDL_Window *>(sdl_window);
-    int logical_width = 0;
-    int logical_height = 0;
-    int drawable_width = 0;
-    int drawable_height = 0;
-    SDL_GetWindowSize(presented, &logical_width, &logical_height);
-    SDL_GetWindowSizeInPixels(presented, &drawable_width, &drawable_height);
-    const Uint32 flags = SDL_GetWindowFlags(presented);
-    window_events.focused = (flags & SDL_WINDOW_INPUT_FOCUS) != 0U;
-    window_events.minimized = (flags & SDL_WINDOW_MINIMIZED) != 0U;
-    window_events.hidden = (flags & SDL_WINDOW_HIDDEN) != 0U;
-    window_input_suppressed =
-        window_events.hidden || window_events.minimized;
-    if (logical_width <= 0 || logical_height <= 0 || drawable_width < 0 ||
-        drawable_height < 0 ||
-        ((drawable_width == 0 || drawable_height == 0) &&
-         !window_events.minimized && !window_events.hidden)) {
-      return Failure(ValidationCode::INVALID_DIMENSIONS,
-                     "in_process_presenter.window_metrics",
-                     "SDL reported invalid presentation metrics");
-    }
-    window_events.logical_width =
-        static_cast<std::uint32_t>(logical_width);
-    window_events.logical_height =
-        static_cast<std::uint32_t>(logical_height);
-    window_events.drawable_width =
-        static_cast<std::uint32_t>(drawable_width);
-    window_events.drawable_height =
-        static_cast<std::uint32_t>(drawable_height);
-    if (drawable_width > 0 && drawable_height > 0) {
-      window_events.drawable_size_changed =
-          has_drawable_baseline &&
-          (last_drawable_width != window_events.drawable_width ||
-           last_drawable_height != window_events.drawable_height);
-      last_drawable_width = window_events.drawable_width;
-      last_drawable_height = window_events.drawable_height;
-      has_drawable_baseline = true;
+    ValidationResult observed = ObservePresentationWindow(window_events);
+    if (!observed) {
+      return observed;
     }
     ValidationResult focus = DispatchFocus(
         window_events.focused && !window_input_suppressed);
@@ -1245,8 +1265,18 @@ public:
     }
     observation = RendererInProcessEventObservation{};
     RendererOgreNextSdlWindowEventBatch events;
-    RendererGameInputState state;
-    ValidationResult polled = PollOrderedSdl(events, state);
+    ValidationResult polled = ValidationResult::Success();
+    if (point == RendererInProcessEventPollPoint::BEFORE_SIMULATION) {
+      RendererGameInputState state;
+      polled = PollOrderedSdl(events, state);
+    } else {
+      // The second poll protects surface/camera consistency after capture, but
+      // it must not consume relative input before the next InputEngine frame.
+      // Pump SDL so Cocoa metrics are current, leave the FIFO untouched, and
+      // observe only authoritative window state.
+      SDL_PumpEvents();
+      polled = ObservePresentationWindow(events);
+    }
     if (!polled) {
       return polled;
     }

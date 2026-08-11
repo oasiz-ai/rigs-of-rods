@@ -2310,6 +2310,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertNotIn("RendererBridge", implementation)
         self.assertIn("TranslateRendererSdlScancodeToGame", implementation)
         self.assertIn("TryTranslateRendererSdlMouseButtonToGame", implementation)
+        self.assertIn(
+            "point == RendererInProcessEventPollPoint::BEFORE_SIMULATION",
+            implementation,
+        )
+        self.assertIn("leave the FIFO untouched", implementation)
         presenter_start = cmake.index(
             "add_library(\n        ror_ogre_next_in_process_presenter"
         )
