@@ -421,3 +421,44 @@ mass, velocity, damping, mobility, and timestep. A separate 120,000-step kernel
 soak repeatedly excites an unequal-mass pair and checks finite state, energy
 dissipation, and momentum conservation. It complements, but does not replace,
 the pending starter-content full-solver soak.
+
+## Calibrated beam 3-D production kinematics
+
+The calibrated production path accepts raw endpoint positions and velocities
+at an out-of-line strict-FP boundary. A scaled binary64 normalization supplies
+the material length, axial relative velocity, damping projection, and final
+equal-and-opposite force axis. No caller-side subtraction or legacy
+`fast_invSqrt` approximation touches an opted-in calibrated beam.
+
+`BeamAxialKinematicsTests` covers exact and hostile geometry, 20,000 fixed-seed
+3-D damping properties, 120,000 actual position/velocity integration steps,
+exact material handoff and transactional fault latching, and a stateful
+675-beam digest that must match across one, two, and eight deterministic
+partitions visited in different global orders. Run the full dependency-free
+physics suite in both supported
+floating-point modes:
+
+```sh
+tools/run-physics-tests.sh
+ROR_PHYSICS_TEST_FAST_MATH=1 tools/run-physics-tests.sh
+```
+
+The kinematics and calibrated production-step translation units always finish
+their compile command with `-fno-fast-math -ffp-contract=off -fno-lto` (or
+`/fp:strict /GL-` on MSVC), independently of the surrounding legacy Actor
+flags. The legacy branch preserves the same arithmetic operations and order
+and continues to use the game's optimized floating-point mode; exact
+scene-trace comparison remains a pending integration gate.
+
+The accompanying allocation-checking benchmark compiles the same strict
+kernel and reports p50/p95/p99 nanoseconds per beam, output digests, compiler
+identity and flags, source-manifest SHA-256, failures, and hot-loop allocation
+counts for 675- and 10,800-beam fixtures:
+
+```sh
+tools/run-physics-benchmarks.sh
+```
+
+Publish benchmark evidence only from a clean exact commit. The microbenchmark
+does not replace a full Actor/vehicle benchmark, starter-content soak, or the
+pending Agora impact and mesh-localization gates.

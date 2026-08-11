@@ -1715,6 +1715,28 @@ add_executable(
 )
 
 add_executable(
+    ror_beam_axial_kinematics_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/BeamAxialKinematicsTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/BeamAxialKinematics.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/CalibratedBeamProductionStep.cpp"
+)
+
+if (MSVC)
+    set_source_files_properties(
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/BeamAxialKinematics.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/CalibratedBeamProductionStep.cpp"
+        PROPERTIES COMPILE_OPTIONS "/fp:strict;/GL-"
+    )
+else ()
+    set_source_files_properties(
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/BeamAxialKinematics.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/CalibratedBeamProductionStep.cpp"
+        PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off;-fno-lto"
+    )
+endif ()
+
+add_executable(
     ror_beam_rest_length_scale_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/BeamRestLengthScaleTests.cpp"
 )
@@ -2398,6 +2420,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_local_light_budget_tests
     ror_command_line_info_tests
     ror_application_fatal_shutdown_contract_tests
+    ror_beam_axial_kinematics_tests
     ror_beam_axial_response_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
@@ -3011,6 +3034,11 @@ add_test(
 add_test(
     NAME command_line_info
     COMMAND ror_command_line_info_tests
+)
+
+add_test(
+    NAME beam_axial_kinematics
+    COMMAND ror_beam_axial_kinematics_tests
 )
 
 add_test(

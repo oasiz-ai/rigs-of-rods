@@ -41,6 +41,29 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    -fno-fast-math \
+    -ffp-contract=off \
+    -fno-lto \
+    -c "${repository_dir}/source/main/physics/BeamAxialKinematics.cpp" \
+    -o "${test_build_dir}/beam_axial_kinematics.o"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    -fno-fast-math \
+    -ffp-contract=off \
+    -fno-lto \
+    -c "${repository_dir}/source/main/physics/CalibratedBeamProductionStep.cpp" \
+    -o "${test_build_dir}/calibrated_beam_production_step.o"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/BeamAxialKinematicsTests.cpp" \
+    "${test_build_dir}/beam_axial_kinematics.o" \
+    "${test_build_dir}/calibrated_beam_production_step.o" \
+    -o "${test_build_dir}/beam_axial_kinematics_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/BeamAxialResponseTests.cpp" \
     -o "${test_build_dir}/beam_axial_response_tests"
 
@@ -144,6 +167,7 @@ fi
     -o "${test_build_dir}/hydro_actuator_response_tests"
 
 physics_test_executables=(
+    beam_axial_kinematics_tests
     beam_axial_response_tests
     beam_rest_length_scale_tests
     deterministic_counter_noise_tests

@@ -28,6 +28,7 @@
 #include "BeamAxialResponse.h"
 #include "Buoyance.h"
 #include "CalibratedBeamMaterialAdapter.h"
+#include "CalibratedBeamProductionStep.h"
 #include "CmdKeyInertia.h"
 #include "Collisions.h"
 #include "Console.h"
@@ -1261,42 +1262,96 @@ void Actor::CalcBeams(bool trigger_hooks)
         if (!ar_beams[i].bm_disabled && !ar_beams[i].bm_inter_actor)
         {
             // Calculate beam length
-            Vector3 dis = ar_beams[i].p1->RelPosition - ar_beams[i].p2->RelPosition;
+            Vector3 dis;
 
-            Real dislen = dis.squaredLength();
-            if (!BeamAxialResponse::HasUsableLength(dislen))
+            const bool use_calibrated_material =
+                ar_beams[i].calibrated_material.enabled;
+            CalibratedBeamMaterialAdapter::StepResult
+                calibrated_response;
+            BeamAxialResponse::DampingResult damping_response;
+            Real dislen = 0.0f;
+            Real inverted_dislen = 0.0f;
+            float v = 0.0f;
+            if (use_calibrated_material)
             {
-                if (ar_beams[i].calibrated_material.enabled)
-                {
-                    CalibratedBeamMaterialAdapter::LatchFailure(
+                CalibratedBeamProductionStep::Input input;
+                input.endpoints.endpoint_1_position_m = {{
+                    static_cast<double>(ar_beams[i].p1->RelPosition.x),
+                    static_cast<double>(ar_beams[i].p1->RelPosition.y),
+                    static_cast<double>(ar_beams[i].p1->RelPosition.z)
+                }};
+                input.endpoints.endpoint_2_position_m = {{
+                    static_cast<double>(ar_beams[i].p2->RelPosition.x),
+                    static_cast<double>(ar_beams[i].p2->RelPosition.y),
+                    static_cast<double>(ar_beams[i].p2->RelPosition.z)
+                }};
+                input.endpoints.endpoint_1_velocity_mps = {{
+                    static_cast<double>(ar_beams[i].p1->Velocity.x),
+                    static_cast<double>(ar_beams[i].p1->Velocity.y),
+                    static_cast<double>(ar_beams[i].p1->Velocity.z)
+                }};
+                input.endpoints.endpoint_2_velocity_mps = {{
+                    static_cast<double>(ar_beams[i].p2->Velocity.x),
+                    static_cast<double>(ar_beams[i].p2->Velocity.y),
+                    static_cast<double>(ar_beams[i].p2->Velocity.z)
+                }};
+                input.reference_length_m = ar_beams[i].refL;
+                input.damping_coefficient = ar_beams[i].d;
+                input.time_step = PHYSICS_DT;
+                input.mass_1 = ar_beams[i].p1->mass;
+                input.mass_2 = ar_beams[i].p2->mass;
+                input.movable_1 = !ar_beams[i].p1->nd_immovable;
+                input.movable_2 = !ar_beams[i].p2->nd_immovable;
+                input.is_plain_axial_beam =
+                    ar_beams[i].bm_type == BEAM_NORMAL &&
+                    ar_beams[i].bounded == NOSHOCK;
+                const CalibratedBeamProductionStep::Result response =
+                    CalibratedBeamProductionStep::Step(
                         ar_beams[i].calibrated_material,
-                        BeamAxialResponse::IsFinite(dislen)
-                            ? CalibratedBeamMaterialAdapter::Error::
-                                INVALID_CURRENT_LENGTH
-                            : CalibratedBeamMaterialAdapter::Error::
-                                NONFINITE_INPUT);
+                        input);
+                if (!response.IsValid())
+                {
                     ar_beams[i].bm_disabled = true;
+                    ar_beams[i].stress = 0.0f;
+                    ar_beams[i].debug_k = 0.0f;
+                    ar_beams[i].debug_d = 0.0f;
+                    ar_beams[i].debug_v = 0.0f;
+                    continue;
                 }
-                ar_beams[i].stress = 0.0f;
-                ar_beams[i].debug_k = 0.0f;
-                ar_beams[i].debug_d = 0.0f;
-                ar_beams[i].debug_v = 0.0f;
-                continue;
+                dislen = response.kinematics.current_length_runtime_m;
+                v = response.kinematics.
+                    axial_relative_velocity_runtime_mps;
+                damping_response = response.damping;
+                calibrated_response = response.material;
             }
-            Real inverted_dislen = fast_invSqrt(dislen);
-
-            dislen *= inverted_dislen;
+            else
+            {
+                // Preserve the original approximation and operation order for
+                // every legacy beam. Only the explicit calibrated opt-in uses
+                // the strict binary64 kinematics boundary above.
+                dis = ar_beams[i].p1->RelPosition -
+                    ar_beams[i].p2->RelPosition;
+                dislen = dis.squaredLength();
+                if (!BeamAxialResponse::HasUsableLength(dislen))
+                {
+                    ar_beams[i].stress = 0.0f;
+                    ar_beams[i].debug_k = 0.0f;
+                    ar_beams[i].debug_d = 0.0f;
+                    ar_beams[i].debug_v = 0.0f;
+                    continue;
+                }
+                inverted_dislen = fast_invSqrt(dislen);
+                dislen *= inverted_dislen;
+                v = (ar_beams[i].p1->Velocity -
+                    ar_beams[i].p2->Velocity).dotProduct(dis) *
+                    inverted_dislen;
+            }
 
             // Calculate beam's deviation from normal
             Real difftoBeamL = dislen - ar_beams[i].L;
 
             Real k = ar_beams[i].k;
             Real d = ar_beams[i].d;
-            const bool use_calibrated_material =
-                ar_beams[i].calibrated_material.enabled;
-
-            // Calculate beam's rate of change
-            float v = (ar_beams[i].p1->Velocity - ar_beams[i].p2->Velocity).dotProduct(dis) * inverted_dislen;
 
             // A calibrated material is valid only for a plain axial beam.
             // Do not execute a special-beam legacy law before the adapter can
@@ -1381,8 +1436,9 @@ void Actor::CalcBeams(bool trigger_hooks)
                 }
             }
 
-            const BeamAxialResponse::DampingResult damping_response =
-                BeamAxialResponse::ComputeDamping(
+            if (!use_calibrated_material)
+            {
+                damping_response = BeamAxialResponse::ComputeDamping(
                     v,
                     d,
                     PHYSICS_DT,
@@ -1390,6 +1446,7 @@ void Actor::CalcBeams(bool trigger_hooks)
                     ar_beams[i].p2->mass,
                     !ar_beams[i].p1->nd_immovable,
                     !ar_beams[i].p2->nd_immovable);
+            }
 
             if (!use_calibrated_material &&
                 trigger_hooks &&
@@ -1401,39 +1458,10 @@ void Actor::CalcBeams(bool trigger_hooks)
                 ar_beams[i].debug_v = std::abs(v);
             }
 
-            CalibratedBeamMaterialAdapter::StepResult
-                calibrated_response;
             bool material_fractured = false;
             float slen = 0.0f;
             if (use_calibrated_material)
             {
-                CalibratedBeamMaterialAdapter::StepInput input;
-                input.reference_length_m = ar_beams[i].refL;
-                input.current_length_m = dislen;
-                input.damping_force_n = damping_response.force;
-                input.direction = {{
-                    static_cast<double>(dis.x) * inverted_dislen,
-                    static_cast<double>(dis.y) * inverted_dislen,
-                    static_cast<double>(dis.z) * inverted_dislen
-                }};
-                input.is_plain_axial_beam =
-                    ar_beams[i].bm_type == BEAM_NORMAL &&
-                    ar_beams[i].bounded == NOSHOCK;
-                calibrated_response =
-                    CalibratedBeamMaterialAdapter::Step(
-                        ar_beams[i].calibrated_material,
-                        input);
-                if (!calibrated_response.IsValid())
-                {
-                    // Never fall back to the legacy law after an explicit
-                    // calibrated-material opt-in fails validation.
-                    ar_beams[i].stress = 0.0f;
-                    ar_beams[i].debug_k = 0.0f;
-                    ar_beams[i].debug_d = 0.0f;
-                    ar_beams[i].debug_v = 0.0f;
-                    ar_beams[i].bm_disabled = true;
-                    continue;
-                }
                 slen = static_cast<float>(
                     calibrated_response.axial_force_n);
                 material_fractured =
@@ -1630,37 +1658,106 @@ void Actor::CalcBeamsInterActor()
         if (!ar_inter_beams[i]->bm_disabled && ar_inter_beams[i]->bm_inter_actor)
         {
             // Calculate beam length
-            Vector3 dis = ar_inter_beams[i]->p1->AbsPosition - ar_inter_beams[i]->p2->AbsPosition;
+            Vector3 dis;
 
-            Real dislen = dis.squaredLength();
-            if (!BeamAxialResponse::HasUsableLength(dislen))
+            const bool use_calibrated_material =
+                ar_inter_beams[i]->calibrated_material.enabled;
+            CalibratedBeamMaterialAdapter::StepResult
+                calibrated_response;
+            BeamAxialResponse::DampingResult damping_response;
+            Real dislen = 0.0f;
+            Real inverted_dislen = 0.0f;
+            float relative_velocity = 0.0f;
+            if (use_calibrated_material)
             {
-                if (ar_inter_beams[i]->
-                        calibrated_material.enabled)
-                {
-                    CalibratedBeamMaterialAdapter::LatchFailure(
+                CalibratedBeamProductionStep::Input input;
+                input.endpoints.endpoint_1_position_m = {{
+                    static_cast<double>(
+                        ar_inter_beams[i]->p1->AbsPosition.x),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p1->AbsPosition.y),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p1->AbsPosition.z)
+                }};
+                input.endpoints.endpoint_2_position_m = {{
+                    static_cast<double>(
+                        ar_inter_beams[i]->p2->AbsPosition.x),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p2->AbsPosition.y),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p2->AbsPosition.z)
+                }};
+                input.endpoints.endpoint_1_velocity_mps = {{
+                    static_cast<double>(
+                        ar_inter_beams[i]->p1->Velocity.x),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p1->Velocity.y),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p1->Velocity.z)
+                }};
+                input.endpoints.endpoint_2_velocity_mps = {{
+                    static_cast<double>(
+                        ar_inter_beams[i]->p2->Velocity.x),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p2->Velocity.y),
+                    static_cast<double>(
+                        ar_inter_beams[i]->p2->Velocity.z)
+                }};
+                input.reference_length_m =
+                    ar_inter_beams[i]->refL;
+                input.damping_coefficient =
+                    ar_inter_beams[i]->d;
+                input.time_step = PHYSICS_DT;
+                input.mass_1 = ar_inter_beams[i]->p1->mass;
+                input.mass_2 = ar_inter_beams[i]->p2->mass;
+                input.movable_1 =
+                    !ar_inter_beams[i]->p1->nd_immovable;
+                input.movable_2 =
+                    !ar_inter_beams[i]->p2->nd_immovable;
+                input.is_plain_axial_beam =
+                    ar_inter_beams[i]->bm_type == BEAM_NORMAL &&
+                    ar_inter_beams[i]->bounded == NOSHOCK;
+                const CalibratedBeamProductionStep::Result response =
+                    CalibratedBeamProductionStep::Step(
                         ar_inter_beams[i]->calibrated_material,
-                        BeamAxialResponse::IsFinite(dislen)
-                            ? CalibratedBeamMaterialAdapter::Error::
-                                INVALID_CURRENT_LENGTH
-                            : CalibratedBeamMaterialAdapter::Error::
-                                NONFINITE_INPUT);
+                        input);
+                if (!response.IsValid())
+                {
                     ar_inter_beams[i]->bm_disabled = true;
+                    ar_inter_beams[i]->stress = 0.0f;
+                    continue;
                 }
-                ar_inter_beams[i]->stress = 0.0f;
-                continue;
+                dislen = response.kinematics.current_length_runtime_m;
+                relative_velocity = response.kinematics.
+                    axial_relative_velocity_runtime_mps;
+                damping_response = response.damping;
+                calibrated_response = response.material;
             }
-            Real inverted_dislen = fast_invSqrt(dislen);
-
-            dislen *= inverted_dislen;
+            else
+            {
+                dis = ar_inter_beams[i]->p1->AbsPosition -
+                    ar_inter_beams[i]->p2->AbsPosition;
+                dislen = dis.squaredLength();
+                if (!BeamAxialResponse::HasUsableLength(dislen))
+                {
+                    ar_inter_beams[i]->stress = 0.0f;
+                    continue;
+                }
+                inverted_dislen = fast_invSqrt(dislen);
+                dislen *= inverted_dislen;
+                Vector3 velocity_difference =
+                    ar_inter_beams[i]->p1->Velocity -
+                    ar_inter_beams[i]->p2->Velocity;
+                relative_velocity =
+                    velocity_difference.dotProduct(dis) *
+                    inverted_dislen;
+            }
 
             // Calculate beam's deviation from normal
             Real difftoBeamL = dislen - ar_inter_beams[i]->L;
 
             Real k = ar_inter_beams[i]->k;
             Real d = ar_inter_beams[i]->d;
-            const bool use_calibrated_material =
-                ar_inter_beams[i]->calibrated_material.enabled;
 
             if (!use_calibrated_material &&
                 ar_inter_beams[i]->bounded == ROPE &&
@@ -1670,11 +1767,9 @@ void Actor::CalcBeamsInterActor()
                 d *= 0.1f;
             }
 
-            // Calculate beam's rate of change
-            Vector3 v = ar_inter_beams[i]->p1->Velocity - ar_inter_beams[i]->p2->Velocity;
-            const float relative_velocity = v.dotProduct(dis) * inverted_dislen;
-            const BeamAxialResponse::DampingResult damping_response =
-                BeamAxialResponse::ComputeDamping(
+            if (!use_calibrated_material)
+            {
+                damping_response = BeamAxialResponse::ComputeDamping(
                     relative_velocity,
                     d,
                     PHYSICS_DT,
@@ -1682,36 +1777,12 @@ void Actor::CalcBeamsInterActor()
                     ar_inter_beams[i]->p2->mass,
                     !ar_inter_beams[i]->p1->nd_immovable,
                     !ar_inter_beams[i]->p2->nd_immovable);
+            }
 
-            CalibratedBeamMaterialAdapter::StepResult
-                calibrated_response;
             bool material_fractured = false;
             float slen = 0.0f;
             if (use_calibrated_material)
             {
-                CalibratedBeamMaterialAdapter::StepInput input;
-                input.reference_length_m =
-                    ar_inter_beams[i]->refL;
-                input.current_length_m = dislen;
-                input.damping_force_n = damping_response.force;
-                input.direction = {{
-                    static_cast<double>(dis.x) * inverted_dislen,
-                    static_cast<double>(dis.y) * inverted_dislen,
-                    static_cast<double>(dis.z) * inverted_dislen
-                }};
-                input.is_plain_axial_beam =
-                    ar_inter_beams[i]->bm_type == BEAM_NORMAL &&
-                    ar_inter_beams[i]->bounded == NOSHOCK;
-                calibrated_response =
-                    CalibratedBeamMaterialAdapter::Step(
-                        ar_inter_beams[i]->calibrated_material,
-                        input);
-                if (!calibrated_response.IsValid())
-                {
-                    ar_inter_beams[i]->stress = 0.0f;
-                    ar_inter_beams[i]->bm_disabled = true;
-                    continue;
-                }
                 slen = static_cast<float>(
                     calibrated_response.axial_force_n);
                 material_fractured =

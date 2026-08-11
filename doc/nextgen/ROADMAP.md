@@ -278,6 +278,28 @@ finite. Corrupted non-finite history makes the canonical snapshot fail, rather
 than admitting a NaN payload into a digest. The digest schema does not yet
 distinguish a runtime fault from another disabled beam.
 
+Calibrated production beams now derive endpoint displacement, length, unit
+axis, and axial relative velocity together in an out-of-line strict-FP C++11
+boundary. Raw endpoint positions and velocities enter that boundary before
+any subtraction; a scaled binary64 norm supplies both the exact material
+length and the axis used by bounded damping and equal-and-opposite force
+assembly. The two translation units explicitly override the game's optimized
+fast-math and LTO flags. Geometry failure latches the opted-in material once,
+leaves constitutive history unchanged, disables the beam, and applies no
+force. Non-calibrated local/inter-actor beams and scripted FreeForce half-beams
+retain their original `fast_invSqrt` arithmetic by design.
+
+The dependency-free gate adds exact geometry/symmetry/hostile-input fixtures,
+20,000 fixed-seed 3-D damping properties, a 120,000-step position/velocity
+soak, strict material-handoff and fault-transaction checks, and a stateful
+675-beam one/two/eight-partition digest. A reproducible benchmark tool measures
+675 beams and a repeated 10,800-beam fixture, binds the source manifest and
+compiler flags, and fails on any hot-loop allocation or rejected fixture.
+This closes the earlier scalar-proof versus production-axis gap for explicit
+calibrated beams. It does not close the pending starter-content full-solver
+soak, legacy scene-trace comparison, network localization, or Agora impact
+gate.
+
 The native truck format now exposes the same opt-in through the versioned
 `set_calibrated_beam_material 1, on, ...` directive and an explicit `1, off`
 transition. Parsing is strict, finite, locale-independent, copy-on-write, and

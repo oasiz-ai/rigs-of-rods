@@ -49,6 +49,7 @@ cmake/conan/recipes/ogre3d/patches/14.5.2/archive-manager-load-rollback.patch -w
 cmake/conan/recipes/ogre3d/patches/14.5.2/exact-material-script-preopen.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/ogre14-api.patch -whitespace
 cmake/conan/recipes/mygui/patches/3.4.0/honor-toolchain-cxx-standard.patch -whitespace
+tools/ogre_next_probe/patches/*.patch -whitespace
 
 # CityWorld asset manifests hash their source inputs byte-for-byte. Keep these
 # authored and generated text files identical on Windows, macOS, and Linux.

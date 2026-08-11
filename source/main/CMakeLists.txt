@@ -194,11 +194,13 @@ set(SOURCE_FILES
         physics/ApproxMath.h
         physics/ActorExport.cpp
         physics/ActorForcesEuler.cpp
+        physics/BeamAxialKinematics.{h,cpp}
         physics/BeamAxialResponse.h
         physics/BeamRestLengthScale.h
         physics/CalibratedBeamFractureCalibration.h
         physics/CalibratedBeamMaterial.h
         physics/CalibratedBeamMaterialAdapter.h
+        physics/CalibratedBeamProductionStep.{h,cpp}
         physics/CalibratedBeamSavegame.h
         physics/CalibratedBeamSavegameJson.h
         physics/DeterministicContactOrder.h
@@ -752,6 +754,28 @@ else ()
             PROPERTIES
             COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
             )
+endif ()
+
+# Calibrated production beams rely on one accurate binary64 normalization for
+# length, direction, and velocity projection. Keep that small out-of-line
+# kernel outside the game's optimized fast-math and LTO modes; otherwise the
+# adapter's energy proof would not describe the forces Actor actually applies.
+if (MSVC)
+    set_source_files_properties(
+        physics/BeamAxialKinematics.cpp
+        physics/CalibratedBeamProductionStep.cpp
+        PROPERTIES
+            COMPILE_OPTIONS "/fp:strict;/GL-"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
+else ()
+    set_source_files_properties(
+        physics/BeamAxialKinematics.cpp
+        physics/CalibratedBeamProductionStep.cpp
+        PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off;-fno-lto"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
 endif ()
 
 # Authenticated input traces inspect and preserve exact IEEE-754 object

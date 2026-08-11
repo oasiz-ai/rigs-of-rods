@@ -2932,6 +2932,11 @@ void ActorManager::CalcFreeForces()
 
                 // ---- BEGIN COPYPASTE of `Actor::CalcBeamsInterActor()` ----
 
+                // FreeForce half-beams do not carry calibrated-material
+                // configuration or history. They intentionally remain on the
+                // bit-compatible legacy law; the strict-FP production step is
+                // only for explicit per-beam calibrated opt-ins.
+
                 // Calculate beam length
                 node_t* p1 = &freeforce.ffc_base_actor->ar_nodes[freeforce.ffc_base_node];
                 node_t* p2 = &freeforce.ffc_target_actor->ar_nodes[freeforce.ffc_target_node];
