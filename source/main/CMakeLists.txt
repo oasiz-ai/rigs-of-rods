@@ -1204,7 +1204,6 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             --required-archive "$<TARGET_FILE:RenderSystem_Metal>"
             --required-archive "$<TARGET_FILE:OgreNextHlmsPbs>"
             --required-archive "$<TARGET_FILE:OgreNextHlmsUnlit>"
-            --required-archive "$<TARGET_FILE:OgreNextOverlay>"
             --required-ogre14-dylib
                 "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
             --required-ogre14-dylib
@@ -1230,7 +1229,6 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             RenderSystem_Metal
             OgreNextHlmsPbs
             OgreNextHlmsUnlit
-            OgreNextOverlay
             "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py"
             "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"
             "${ROR_OGRE_NEXT_COMBINED_PROVIDER_CONTRACT}"

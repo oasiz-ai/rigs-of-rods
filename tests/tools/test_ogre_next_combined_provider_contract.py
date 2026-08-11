@@ -287,6 +287,27 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn('"provider_contract":', EXECUTABLE_CONTRACT)
         self.assertIn('"namespace_audit_report":', EXECUTABLE_CONTRACT)
 
+    def test_overlay_remains_audited_without_fabricated_runtime_use(self) -> None:
+        production_n1_link = block(
+            PROVIDER,
+            "target_link_libraries(ror_ogre_next_embedded_n1_runtime",
+            "_ror_combined_strict_target(ror_ogre_next_embedded_n1_runtime)",
+        )
+        final_binary_proof = block(
+            MAIN_CMAKE,
+            "add_custom_target(ror_ogre_next_combined_verified ALL",
+            'COMMENT "Proving RoR-Combined excludes renderer bridge/transport symbols"',
+        )
+        namespace_audit = block(
+            PROVIDER,
+            "add_custom_target(ror_ogre_next_root_namespace_audit",
+            'COMMENT "Auditing full root OGRE14/OgreNext namespace collision closure"',
+        )
+        self.assertNotIn("OgreNextOverlay", production_n1_link)
+        self.assertNotIn("OgreNextOverlay", final_binary_proof)
+        self.assertIn('--next-archive "$<TARGET_FILE:OgreNextOverlay>"', namespace_audit)
+        self.assertIn("OgreNextOverlay", namespace_audit)
+
     def test_link_map_evidence_preserves_arbitrary_literal_bytes(self) -> None:
         specification = importlib.util.spec_from_file_location(
             "combined_binary_verifier_link_map", VERIFIER_PATH
