@@ -7,6 +7,8 @@
 
 #include "CityWorldNeoQ20Compatibility.h"
 
+#include "../LegacyMaterialCompatibilityPlan.h"
+
 #include <array>
 #include <openssl/evp.h>
 
@@ -15,9 +17,6 @@ namespace RoR
 namespace
 {
 
-const char PINNED_DEPENDENCY[] =
-    "CityWorld.zip:CityWorld.terrn2:"
-    "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
 const char PINNED_TOBJ_NAME[] = "CityWorld.tobj";
 const char PINNED_TOBJ_SHA256[] =
     "1cdc57dc59c4c0f403f621ad31afc301436af70c813b2e0dd01ffb0cd54f0b48";
@@ -39,6 +38,14 @@ struct ExpectedPlacement
     float rotation_y;
     float rotation_z;
 };
+
+const std::string& PinnedDependency()
+{
+    static const std::string dependency =
+        std::string("CityWorld.zip:CityWorld.terrn2:") +
+        kCityWorldLegacyMaterialCompatibilityArchiveSha256;
+    return dependency;
+}
 
 struct ExpectedDuplicateServicePlacement
 {
@@ -234,7 +241,7 @@ bool MatchesDuplicateService(
 
 const char* GetCityWorldNeoQ20PinnedDependency()
 {
-    return PINNED_DEPENDENCY;
+    return PinnedDependency().c_str();
 }
 
 bool HasCityWorldNeoQ20PinnedDependency(
@@ -243,7 +250,7 @@ bool HasCityWorldNeoQ20PinnedDependency(
     std::size_t matches = 0U;
     for (const std::string& dependency : authored_dependencies)
     {
-        if (dependency == PINNED_DEPENDENCY)
+        if (dependency == PinnedDependency())
         {
             ++matches;
         }

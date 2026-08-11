@@ -38,6 +38,7 @@
 #include "GfxActor.h"
 #include "GfxScene.h"
 #include "Language.h"
+#include "LegacyMaterialCompatibilityPlan.h"
 #include "PlatformUtils.h"
 #include "RigDef_Parser.h"
 #include "ScriptEngine.h"
@@ -1843,6 +1844,140 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
     bool readonly = entry->resource_bundle_type == "Zip" || this->IsPathContentDirRoot(entry->resource_bundle_path);
     bool recursive = false;
 
+    // The OgreNext migration session needs the same exact source authority
+    // already used by authenticated terrain dependencies.  Hash every
+    // selected primary terrain ZIP before creating its resource group, but
+    // publish an immutable snapshot only for the reviewed archive digest.
+    // Entry names merely bound when this work is attempted; they never select
+    // CityWorld compatibility policy.
+    TerrainBundleAuthenticatedArchiveSnapshot authenticated_primary_snapshot;
+    bool use_authenticated_primary_snapshot = false;
+#if OGRE_VERSION_MAJOR >= 14
+    const bool ogre_next_demo_capture_enabled =
+        App::GetGfxScene() != nullptr &&
+        App::GetGfxScene()->IsOgreNextDemoCaptureEnabled();
+    if (ShouldProbeLegacyMaterialPrimaryArchive(
+            ogre_next_demo_capture_enabled,
+            entry->fext == "terrn2",
+            entry->resource_bundle_type == "Zip"))
+    {
+        std::string observed_sha256;
+        std::string verification_error;
+        use_authenticated_primary_snapshot =
+            LoadAndVerifyTerrainBundleArchiveSnapshot(
+                entry->resource_bundle_path,
+                kCityWorldLegacyMaterialCompatibilityArchiveSha256,
+                kCityWorldLegacyMaterialCompatibilityArchiveBytes,
+                authenticated_primary_snapshot,
+                observed_sha256,
+                verification_error);
+        if (!use_authenticated_primary_snapshot)
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|AuthenticatedPrimary] Primary terrain ZIP "
+                "did not match a reviewed material-compatibility archive; "
+                "using the ordinary resource path (observed_sha256=%s, "
+                "reason=%s)",
+                observed_sha256.empty() ? "unavailable" :
+                    observed_sha256.c_str(),
+                verification_error.c_str());
+        }
+    }
+#endif
+
+    bool authenticated_primary_mount_published = false;
+    bool primary_package_location_dispatched = false;
+    const auto abandon_resource_group =
+        [&](const char* failure_detail) noexcept
+        {
+#if OGRE_VERSION_MAJOR >= 14
+            try
+            {
+                App::GetContentManager()->
+                    AbortAuthenticatedMaterialScriptGroup(group);
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+#endif
+            bool group_destroyed = false;
+            try
+            {
+                Ogre::ResourceGroupManager& resource_manager =
+                    Ogre::ResourceGroupManager::getSingleton();
+                if (resource_manager.resourceGroupExists(group))
+                {
+                    resource_manager.destroyResourceGroup(group);
+                }
+                group_destroyed =
+                    !resource_manager.resourceGroupExists(group);
+            }
+            catch (...)
+            {
+                std::terminate();
+            }
+            if (!group_destroyed)
+            {
+                std::terminate();
+            }
+
+            bool package_unregistered = false;
+            if (group_destroyed)
+            {
+                try
+                {
+                    App::GetContentManager()->
+                        UnregisterPackageResourceGroup(group);
+                    package_unregistered = true;
+                }
+                catch (...)
+                {
+                    std::terminate();
+                }
+            }
+            if (!package_unregistered)
+            {
+                std::terminate();
+            }
+            if (package_unregistered)
+            {
+                for (CacheEntryPtr& loaded_entry: m_entries)
+                {
+                    if (loaded_entry &&
+                        loaded_entry->resource_group == group)
+                    {
+                        loaded_entry->actor_def = nullptr;
+                        loaded_entry->tuneup_def = nullptr;
+                        loaded_entry->skin_def = nullptr;
+                        loaded_entry->terrn2_def = nullptr;
+                        loaded_entry->resource_group.clear();
+                    }
+                }
+                if (entry->resource_group == group)
+                {
+                    entry->actor_def = nullptr;
+                    entry->tuneup_def = nullptr;
+                    entry->skin_def = nullptr;
+                    entry->terrn2_def = nullptr;
+                    entry->resource_group.clear();
+                }
+            }
+
+            try
+            {
+                RoR::LogFormat(
+                    "[RoR] Error while loading '%s', message: %s "
+                    "(authenticated_primary=%s)",
+                    entry->resource_bundle_path.c_str(),
+                    failure_detail != nullptr ? failure_detail : "unknown",
+                    authenticated_primary_mount_published ? "yes" : "no");
+            }
+            catch (...)
+            {
+            }
+        };
+
     // Load now.
     try
     {
@@ -1850,8 +1985,32 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
         {
             // PagedGeometry is hardcoded to use `Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME`
             ResourceGroupManager::getSingleton().createResourceGroup(group, /*inGlobalPool=*/true);
-            ResourceGroupManager::getSingleton().addResourceLocation(
-                entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+            DispatchLegacyMaterialPrimaryArchiveMount(
+                use_authenticated_primary_snapshot,
+                [&]()
+                {
+                    App::GetContentManager()->
+                        MountAuthenticatedPackageResourceLocation(
+                            group, authenticated_primary_snapshot);
+                    authenticated_primary_mount_published = true;
+                    RoR::LogFormat(
+                        "[RoR|ModCache|AuthenticatedPrimary] Mounted exact "
+                        "primary terrain archive into '%s' "
+                        "(archive_sha256=%s)",
+                        group.c_str(),
+                        authenticated_primary_snapshot.archive_sha256().c_str());
+                },
+                [&]()
+                {
+                    ResourceGroupManager::getSingleton().addResourceLocation(
+                        entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+                },
+                [&]()
+                {
+                    App::GetContentManager()->RegisterPackageResourceLocation(
+                        group, entry->resource_bundle_path);
+                });
+            primary_package_location_dispatched = true;
         }
         else if (entry->fext == "skin")
         {
@@ -1894,8 +2053,11 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
             App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MESHES, group);
         }
 
-        App::GetContentManager()->RegisterPackageResourceLocation(
-            group, entry->resource_bundle_path);
+        if (!primary_package_location_dispatched)
+        {
+            App::GetContentManager()->RegisterPackageResourceLocation(
+                group, entry->resource_bundle_path);
+        }
 
         // Initialize resource group
         ResourceGroupManager::getSingleton().initialiseResourceGroup(group);
@@ -1912,16 +2074,17 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
             }
         }
     }
-    catch (Ogre::Exception& e)
+    catch (const Ogre::Exception& e)
     {
-        RoR::LogFormat("[RoR] Error while loading '%s', message: %s",
-            entry->resource_bundle_path.c_str(), e.getFullDescription().c_str());
-        App::GetContentManager()->
-            UnregisterPackageResourceGroup(group);
-        if (ResourceGroupManager::getSingleton().resourceGroupExists(group))
-        {
-            ResourceGroupManager::getSingleton().destroyResourceGroup(group);
-        }
+        abandon_resource_group(e.getFullDescription().c_str());
+    }
+    catch (const std::exception& e)
+    {
+        abandon_resource_group(e.what());
+    }
+    catch (...)
+    {
+        abandon_resource_group("unknown exception");
     }
 }
 
@@ -1984,8 +2147,31 @@ bool CacheSystem::UnLoadResource(CacheEntryPtr& entry)
         return false;
     }
 
-    App::GetContentManager()->UnregisterPackageResourceGroup(
-        resource_group);
+    try
+    {
+        App::GetContentManager()->UnregisterPackageResourceGroup(
+            resource_group);
+    }
+    catch (const std::exception& error)
+    {
+        // The resource group is already absent, but ContentManager still
+        // owns the package generation and any immutable archive snapshot.
+        // Retain every CacheEntry owner so the caller can retry the exact
+        // unregister transaction; authenticated teardown itself fail-stops
+        // if an exception occurs after external archive removal begins.
+        RoR::LogFormat(
+            "[RoR|ModCache] Failed to unregister resource group '%s': %s",
+            resource_group.c_str(),
+            error.what());
+        return false;
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache] Failed to unregister resource group '%s'",
+            resource_group.c_str());
+        return false;
+    }
     for (CacheEntryPtr& i_entry: m_entries)
     {
         if (i_entry->resource_group == resource_group)

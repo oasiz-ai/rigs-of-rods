@@ -7,6 +7,8 @@
 
 #include "LegacyMaterialScriptSanitizer.h"
 
+#include "LegacyMaterialCompatibilityPlan.h"
+
 #include <openssl/evp.h>
 
 #include <algorithm>
@@ -90,9 +92,6 @@ bool DigestCanonicalBytes(
     out_sha256.swap(candidate);
     return true;
 }
-
-const char CITYWORLD_ARCHIVE_SHA256[] =
-    "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
 
 // Exact-script inserts use CRLF because every pinned NeoQ2.0 source script is
 // CRLF-authored. They retain texture units and authored blend/depth/cull state,
@@ -505,67 +504,67 @@ const LegacyMaterialScriptEdit CITYWORLD_DNEROADS_EDITS[] = {
      "texture RoR/LegacyTextureFallback/ebeac2f0204f/4cdcde3752be/b40762545c57e6c3.dds"}};
 
 const LegacyMaterialScriptEditPlan CITYWORLD_PLANS[] = {
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQ2-0.material",
      "03e17f9fab655321e7b266ce848e55d3ecd581d417e4f336f3a7928cd9d6e919",
      CITYWORLD_NEOQ20_EDITS,
      sizeof(CITYWORLD_NEOQ20_EDITS) /
          sizeof(CITYWORLD_NEOQ20_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQ2-0-builds.material",
      "95ce5cd0b9ca2bb4776baed80f89a0a2619a47fa54d943c88995787f0f7184ca",
      CITYWORLD_NEOQ20_BUILDS_EDITS,
      sizeof(CITYWORLD_NEOQ20_BUILDS_EDITS) /
          sizeof(CITYWORLD_NEOQ20_BUILDS_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQ2-0-asphalt.material",
      "6ce129e2f04aaca9fe8dd29b62b09781f3dca3c19b18d58450976e330b165ae6",
      CITYWORLD_NEOQ20_ASPHALT_EDITS,
      sizeof(CITYWORLD_NEOQ20_ASPHALT_EDITS) /
          sizeof(CITYWORLD_NEOQ20_ASPHALT_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQ2-0-concrete-road.material",
      "fe3c212dd0a1df62fa5c904575d8b0e61d440c42972c00f2792a1fcbab9354a4",
      CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS,
      sizeof(CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS) /
          sizeof(CITYWORLD_NEOQ20_CONCRETE_ROAD_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQ2-0-vegetation.material",
      "63fd8844d1efe2393c3499678f06d9c7c09f757c11ae660f41141311ddb94484",
      CITYWORLD_NEOQ20_VEGETATION_EDITS,
      sizeof(CITYWORLD_NEOQ20_VEGETATION_EDITS) /
          sizeof(CITYWORLD_NEOQ20_VEGETATION_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQ2-0-SmfS.material",
      "0491e5ca22aec7150a5df80bf5eaf73136bd7c03e0ae5ae984f807bd4b7882d9",
      CITYWORLD_NEOQ20_SMFS_EDITS,
      sizeof(CITYWORLD_NEOQ20_SMFS_EDITS) /
          sizeof(CITYWORLD_NEOQ20_SMFS_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "NeoQueretaro.material",
      "9dac0249de8f55b47d5672ab2f8750026abada4e460b2b3a60c4b11ccceec6a3",
      CITYWORLD_NEOQUERETARO_EDITS,
      sizeof(CITYWORLD_NEOQUERETARO_EDITS) /
          sizeof(CITYWORLD_NEOQUERETARO_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "busstopNJTnormalmapped.material",
      "5eba9fb3b4873e7f4ef81c65490ce9eb429d9245700dfac8cdd871b5ed857b49",
      CITYWORLD_BUSSTOP_EDITS,
      sizeof(CITYWORLD_BUSSTOP_EDITS) /
          sizeof(CITYWORLD_BUSSTOP_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "dnebuildings.material",
      "11bb735dfadd54f594bfa02e967014edcd67cb5b7fcda8b3c8c3668cea2dc420",
      CITYWORLD_DNEBUILDINGS_EDITS,
      sizeof(CITYWORLD_DNEBUILDINGS_EDITS) /
          sizeof(CITYWORLD_DNEBUILDINGS_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "streetfurniture.material",
      "0a9bd28b7f23cd028181e923cdcda2ffff19674e8f833b254f523845259b1be0",
      CITYWORLD_STREETFURNITURE_EDITS,
      sizeof(CITYWORLD_STREETFURNITURE_EDITS) /
          sizeof(CITYWORLD_STREETFURNITURE_EDITS[0])},
-    {CITYWORLD_ARCHIVE_SHA256,
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "dneroads.material",
      "4cdcde3752bec2c6e8b0d73c464112ea35e013b91f5872c462ccb5dbfdcf1d21",
      CITYWORLD_DNEROADS_EDITS,

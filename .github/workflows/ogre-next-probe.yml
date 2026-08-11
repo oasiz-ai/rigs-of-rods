@@ -63,11 +63,13 @@ on:
       - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
+      - source/main/resources/LegacyMaterialCompatibilityPlan.*
       - source/main/resources/LegacyMaterialScriptSanitizer.cpp
       - source/main/resources/LegacyMaterialScriptSanitizer.h
       - source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
       - source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
+      - source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.*
       - source/main/physics/Actor.cpp
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
@@ -148,6 +150,8 @@ on:
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
       - tests/resources/LegacyMaterialScriptSanitizerTests.cpp
+      - tests/resources/LegacyMaterialCompatibilityPlanTests.cpp
+      - tests/resources/CityWorldNeoQ20CompatibilityTests.cpp
       - tests/resources/TerrainBundleDependencyTests.cpp
       - tests/resources/TerrainBundleArchiveVerifierTests.cpp
       - tests/tools/assert_ogre_recipe_graph.py
@@ -216,11 +220,13 @@ on:
       - source/main/gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
       - source/main/resources/ContentManager.*
       - source/main/resources/CacheSystem.cpp
+      - source/main/resources/LegacyMaterialCompatibilityPlan.*
       - source/main/resources/LegacyMaterialScriptSanitizer.cpp
       - source/main/resources/LegacyMaterialScriptSanitizer.h
       - source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
       - source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
+      - source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.*
       - source/main/physics/Actor.cpp
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
@@ -301,6 +307,8 @@ on:
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
       - tests/resources/LegacyMaterialScriptSanitizerTests.cpp
+      - tests/resources/LegacyMaterialCompatibilityPlanTests.cpp
+      - tests/resources/CityWorldNeoQ20CompatibilityTests.cpp
       - tests/resources/TerrainBundleDependencyTests.cpp
       - tests/resources/TerrainBundleArchiveVerifierTests.cpp
       - tests/tools/assert_ogre_recipe_graph.py

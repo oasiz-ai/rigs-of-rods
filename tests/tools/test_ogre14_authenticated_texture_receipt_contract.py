@@ -13,6 +13,19 @@ SOURCE = ROOT / "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
 CONTENT_HEADER = ROOT / "source/main/resources/ContentManager.h"
 CONTENT_SOURCE = ROOT / "source/main/resources/ContentManager.cpp"
 CACHE_SOURCE = ROOT / "source/main/resources/CacheSystem.cpp"
+COMPATIBILITY_HEADER = (
+    ROOT / "source/main/resources/LegacyMaterialCompatibilityPlan.h"
+)
+COMPATIBILITY_SOURCE = (
+    ROOT / "source/main/resources/LegacyMaterialCompatibilityPlan.cpp"
+)
+SANITIZER_SOURCE = (
+    ROOT / "source/main/resources/LegacyMaterialScriptSanitizer.cpp"
+)
+CITYWORLD_COMPATIBILITY_SOURCE = (
+    ROOT
+    / "source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.cpp"
+)
 ARCHIVE_HEADER = (
     ROOT
     / "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
@@ -50,6 +63,10 @@ PATHS = (
     "source/main/resources/CacheSystem.cpp",
     "source/main/resources/ContentManager.cpp",
     "source/main/resources/ContentManager.h",
+    "source/main/resources/LegacyMaterialCompatibilityPlan.cpp",
+    "source/main/resources/LegacyMaterialCompatibilityPlan.h",
+    "source/main/resources/LegacyMaterialScriptSanitizer.cpp",
+    "source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.cpp",
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp",
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
     "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp",
@@ -70,6 +87,16 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
         cls.content_header = CONTENT_HEADER.read_text(encoding="utf-8")
         cls.content_source = CONTENT_SOURCE.read_text(encoding="utf-8")
         cls.cache_source = CACHE_SOURCE.read_text(encoding="utf-8")
+        cls.compatibility_header = COMPATIBILITY_HEADER.read_text(
+            encoding="utf-8"
+        )
+        cls.compatibility_source = COMPATIBILITY_SOURCE.read_text(
+            encoding="utf-8"
+        )
+        cls.sanitizer_source = SANITIZER_SOURCE.read_text(encoding="utf-8")
+        cls.cityworld_compatibility_source = (
+            CITYWORLD_COMPATIBILITY_SOURCE.read_text(encoding="utf-8")
+        )
         cls.archive_header = ARCHIVE_HEADER.read_text(encoding="utf-8")
         cls.archive_source = ARCHIVE_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
@@ -253,6 +280,69 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
         )
         self.assertNotIn(
             "validation_archive_name", self.content_source
+        )
+
+    def test_exact_primary_demo_archive_uses_the_same_authenticated_mount(self) -> None:
+        digest = (
+            "ebeac2f0204f25ca1955f29ca1583b2a"
+            "fa4517a3a848feb1db203814acac2ef3"
+        )
+        authority = (
+            "kCityWorldLegacyMaterialCompatibilityArchiveSha256"
+        )
+        self.assertEqual(self.compatibility_header.count(digest), 1)
+        self.assertNotIn(digest, self.compatibility_source)
+        self.assertNotIn(digest, self.sanitizer_source)
+        self.assertNotIn(digest, self.cityworld_compatibility_source)
+        self.assertIn(authority, self.compatibility_header)
+        self.assertIn(authority, self.compatibility_source)
+        self.assertIn(authority, self.sanitizer_source)
+        self.assertIn(authority, self.cityworld_compatibility_source)
+
+        primary_load = self.cache_source.split(
+            "void CacheSystem::LoadResource", 1
+        )[1].split("void CacheSystem::ReLoadResource", 1)[0]
+        for token in (
+            "IsOgreNextDemoCaptureEnabled()",
+            "ShouldProbeLegacyMaterialPrimaryArchive(",
+            "LoadAndVerifyTerrainBundleArchiveSnapshot(",
+            authority,
+            "kCityWorldLegacyMaterialCompatibilityArchiveBytes",
+            "DispatchLegacyMaterialPrimaryArchiveMount(",
+            "MountAuthenticatedPackageResourceLocation(",
+            "authenticated_primary_mount_published = true",
+            "if (!primary_package_location_dispatched)",
+            "RegisterPackageResourceLocation(",
+            "destroyResourceGroup(group)",
+            "UnregisterPackageResourceGroup(group)",
+            "std::terminate();",
+        ):
+            self.assertIn(token, primary_load)
+        self.assertNotIn("CityWorld.zip", primary_load)
+        self.assertNotIn("CityWorld.terrn2", primary_load)
+        self.assertLess(
+            primary_load.index("LoadAndVerifyTerrainBundleArchiveSnapshot("),
+            primary_load.index("createResourceGroup("),
+        )
+        cleanup = primary_load.split(
+            "const auto abandon_resource_group", 1
+        )[1].split("// Load now.", 1)[0]
+        self.assertLess(
+            cleanup.index("destroyResourceGroup(group)"),
+            cleanup.index("UnregisterPackageResourceGroup(group)"),
+        )
+        self.assertIn("loaded_entry->resource_group.clear()", cleanup)
+        unload = self.cache_source.split(
+            "bool CacheSystem::UnLoadResource", 1
+        )[1].split("CacheEntryPtr CacheSystem::FetchSkinByName", 1)[0]
+        self.assertIn("Failed to unregister resource group", unload)
+        self.assertLess(
+            unload.index("destroyResourceGroup(resource_group)"),
+            unload.index("UnregisterPackageResourceGroup("),
+        )
+        self.assertLess(
+            unload.index("UnregisterPackageResourceGroup("),
+            unload.index("i_entry->resource_group = \"\""),
         )
 
     def test_pinned_ogre_rollback_patch_is_cross_platform_closed(self) -> None:

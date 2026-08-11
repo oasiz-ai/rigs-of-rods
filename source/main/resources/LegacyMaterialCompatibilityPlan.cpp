@@ -14,11 +14,9 @@
 
 namespace RoR
 {
+
 namespace
 {
-
-const char CITYWORLD_ARCHIVE_SHA256[] =
-    "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
 
 struct AliasRule
 {
@@ -142,7 +140,8 @@ LegacyMaterialReferenceResolution ResolveLegacyMaterialReference(
     const std::string& archive_sha256,
     const std::string& requested_material)
 {
-    if (archive_sha256 != CITYWORLD_ARCHIVE_SHA256)
+    if (archive_sha256 !=
+        kCityWorldLegacyMaterialCompatibilityArchiveSha256)
     {
         return None();
     }
@@ -229,7 +228,8 @@ bool ResolveLegacyMissingTexture(
     const std::string& requested_texture,
     LegacyMaterialColor& out_color)
 {
-    if (archive_sha256 != CITYWORLD_ARCHIVE_SHA256)
+    if (archive_sha256 !=
+        kCityWorldLegacyMaterialCompatibilityArchiveSha256)
     {
         return false;
     }

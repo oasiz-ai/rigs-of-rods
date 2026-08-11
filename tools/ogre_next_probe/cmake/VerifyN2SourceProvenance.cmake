@@ -152,12 +152,16 @@ set(_ror_n2_relevant_source_paths
     source/main/resources/CacheSystem.cpp
     source/main/resources/ContentManager.cpp
     source/main/resources/ContentManager.h
+    source/main/resources/LegacyMaterialCompatibilityPlan.cpp
+    source/main/resources/LegacyMaterialCompatibilityPlan.h
     source/main/resources/LegacyMaterialScriptSanitizer.cpp
     source/main/resources/LegacyMaterialScriptSanitizer.h
     source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp
     source/main/resources/terrn2_fileformat/TerrainBundleDependency.h
     source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp
     source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h
+    source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.cpp
+    source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.h
     source/main/gfx/render
     source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp
     source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h
@@ -208,6 +212,8 @@ set(_ror_n2_relevant_source_paths
     tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
     tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp
+    tests/resources/LegacyMaterialCompatibilityPlanTests.cpp
+    tests/resources/CityWorldNeoQ20CompatibilityTests.cpp
     tests/resources/LegacyMaterialScriptSanitizerTests.cpp
     tests/resources/TerrainBundleDependencyTests.cpp
     tests/resources/TerrainBundleArchiveVerifierTests.cpp
@@ -450,12 +456,16 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/resources/CacheSystem.cpp"
     "source/main/resources/ContentManager.cpp"
     "source/main/resources/ContentManager.h"
+    "source/main/resources/LegacyMaterialCompatibilityPlan.cpp"
+    "source/main/resources/LegacyMaterialCompatibilityPlan.h"
     "source/main/resources/LegacyMaterialScriptSanitizer.cpp"
     "source/main/resources/LegacyMaterialScriptSanitizer.h"
     "source/main/resources/terrn2_fileformat/TerrainBundleDependency.cpp"
     "source/main/resources/terrn2_fileformat/TerrainBundleDependency.h"
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
     "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h"
+    "source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.cpp"
+    "source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.h"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.cpp"
     "source/main/gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
     "source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
@@ -505,6 +515,8 @@ list(APPEND _ror_n2_relevant_source_files
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp"
+    "tests/resources/LegacyMaterialCompatibilityPlanTests.cpp"
+    "tests/resources/CityWorldNeoQ20CompatibilityTests.cpp"
     "tests/resources/LegacyMaterialScriptSanitizerTests.cpp"
     "tests/resources/TerrainBundleDependencyTests.cpp"
     "tests/resources/TerrainBundleArchiveVerifierTests.cpp"

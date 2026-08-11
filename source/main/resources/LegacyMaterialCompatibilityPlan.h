@@ -10,10 +10,56 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <utility>
 
 namespace RoR
 {
+
+/// Exact archive identity which owns the reviewed CityWorld material-script,
+/// missing-material, and missing-texture compatibility policy.  A filename or
+/// cache entry never confers this authority; callers must verify the complete
+/// archive bytes against this digest before selecting the policy.
+constexpr char kCityWorldLegacyMaterialCompatibilityArchiveSha256[] =
+    "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+constexpr std::uint64_t
+    kCityWorldLegacyMaterialCompatibilityArchiveBytes = 158845395ULL;
+
+/// Hash probing is private to the active OgreNext migration session and only
+/// applies to a selected primary terrain ZIP.  These inexpensive facts limit
+/// work; only the verified full-archive digest grants compatibility authority.
+constexpr bool ShouldProbeLegacyMaterialPrimaryArchive(
+    bool ogre_next_demo_capture_enabled,
+    bool primary_terrain,
+    bool zip_archive) noexcept
+{
+    return ogre_next_demo_capture_enabled && primary_terrain && zip_archive;
+}
+
+/// Execute exactly one primary-location route.  The ordinary path preserves
+/// the historical pathname mount followed by package registration.  The
+/// authenticated path publishes only the immutable snapshot and deliberately
+/// skips both ordinary callbacks.  Exceptions propagate to the caller's
+/// resource-group transaction.
+template <
+    typename AuthenticatedMount,
+    typename OrdinaryMount,
+    typename OrdinaryRegister>
+void DispatchLegacyMaterialPrimaryArchiveMount(
+    bool authenticated_snapshot_verified,
+    AuthenticatedMount&& authenticated_mount,
+    OrdinaryMount&& ordinary_mount,
+    OrdinaryRegister&& ordinary_register)
+{
+    if (authenticated_snapshot_verified)
+    {
+        std::forward<AuthenticatedMount>(authenticated_mount)();
+        return;
+    }
+    std::forward<OrdinaryMount>(ordinary_mount)();
+    std::forward<OrdinaryRegister>(ordinary_register)();
+}
 
 struct LegacyMaterialColor
 {

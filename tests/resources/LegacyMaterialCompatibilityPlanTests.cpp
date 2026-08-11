@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <set>
 #include <string>
 
@@ -21,6 +22,65 @@ namespace
 
 const std::string CITYWORLD_SHA =
     "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+
+void TestArchiveIdentityAuthorityIsPublicAndExact()
+{
+    CHECK(
+        CITYWORLD_SHA ==
+        RoR::kCityWorldLegacyMaterialCompatibilityArchiveSha256);
+    CHECK(
+        std::string(64U, '0') !=
+        RoR::kCityWorldLegacyMaterialCompatibilityArchiveSha256);
+    CHECK(
+        RoR::kCityWorldLegacyMaterialCompatibilityArchiveBytes ==
+        158845395ULL);
+    CHECK(RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, true));
+    CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(false, true, true));
+    CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, false, true));
+    CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, false));
+}
+
+void TestPrimaryArchiveMountDispatchIsExclusive()
+{
+    int authenticated_mounts = 0;
+    int ordinary_mounts = 0;
+    int ordinary_registrations = 0;
+    RoR::DispatchLegacyMaterialPrimaryArchiveMount(
+        true,
+        [&]() { ++authenticated_mounts; },
+        [&]() { ++ordinary_mounts; },
+        [&]() { ++ordinary_registrations; });
+    CHECK(authenticated_mounts == 1);
+    CHECK(ordinary_mounts == 0);
+    CHECK(ordinary_registrations == 0);
+
+    authenticated_mounts = 0;
+    RoR::DispatchLegacyMaterialPrimaryArchiveMount(
+        false,
+        [&]() { ++authenticated_mounts; },
+        [&]() { ++ordinary_mounts; },
+        [&]() { ++ordinary_registrations; });
+    CHECK(authenticated_mounts == 0);
+    CHECK(ordinary_mounts == 1);
+    CHECK(ordinary_registrations == 1);
+
+    bool rejected = false;
+    try
+    {
+        RoR::DispatchLegacyMaterialPrimaryArchiveMount(
+            true,
+            [&]() { throw std::runtime_error("mount rejected"); },
+            [&]() { ++ordinary_mounts; },
+            [&]() { ++ordinary_registrations; });
+    }
+    catch (const std::runtime_error&)
+    {
+        rejected = true;
+    }
+    CHECK(rejected);
+    CHECK(ordinary_mounts == 1);
+    CHECK(ordinary_registrations == 1);
+}
 
 void TestExactAliasDoesNotUseFuzzySelection()
 {
@@ -174,6 +234,8 @@ void TestMissingTexturesAreExactAndArchiveScoped()
 
 int main()
 {
+    TestArchiveIdentityAuthorityIsPublicAndExact();
+    TestPrimaryArchiveMountDispatchIsExclusive();
     TestExactAliasDoesNotUseFuzzySelection();
     TestAmbiguousAndUndeclaredNamesUseReviewedFallbacks();
     TestGeneratedResourceNamesArePortableStableAndDistinct();
