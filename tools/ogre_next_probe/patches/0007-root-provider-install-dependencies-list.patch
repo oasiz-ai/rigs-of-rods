@@ -1,0 +1,24 @@
+diff --git a/CMake/InstallDependencies.cmake b/CMake/InstallDependencies.cmake
+--- a/CMake/InstallDependencies.cmake
++++ b/CMake/InstallDependencies.cmake
+@@ -15,10 +15,14 @@ if (NOT APPLE AND NOT WIN32)
+ endif()
+-
+-# TODO - most of this file assumes a common dependencies root folder
+-# This is not robust, we should instead source dependencies from their individual locations
+-get_filename_component(OGRE_DEP_DIR ${SDL2_INCLUDE_DIR}/../../ ABSOLUTE)
+-
+ option(OGRE_INSTALL_DEPENDENCIES "Install dependency libs needed for samples" TRUE)
+ option(OGRE_COPY_DEPENDENCIES "Copy dependency libs to the build directory" TRUE)
+-
++
++# TODO - most of this file assumes a common dependencies root folder
++# This is not robust, we should instead source dependencies from their individual locations.
++# Config packages may expose more than one SDL include directory, so select one
++# only when this legacy install/copy path is enabled.
++if (OGRE_INSTALL_DEPENDENCIES OR OGRE_COPY_DEPENDENCIES)
++  list(GET SDL2_INCLUDE_DIR 0 _ogre_sdl2_dependency_include_dir)
++  get_filename_component(OGRE_DEP_DIR "${_ogre_sdl2_dependency_include_dir}/../../" ABSOLUTE)
++endif()
++
+ macro(install_debug INPUT)

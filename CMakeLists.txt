@@ -57,6 +57,10 @@ option(
     ROR_OGRE_NEXT_DEMO_ADMISSION
     "Admit the verified OgreNext child and PSSM for an explicit demo build"
     OFF)
+option(
+    ROR_OGRE_NEXT_COMBINED_RUNTIME
+    "Build the first one-process namespaced OgreNext renderer runtime"
+    OFF)
 set(ROR_DEPENDENCY_DIR "${CMAKE_SOURCE_DIR}/dependencies" CACHE PATH "Path to the dependencies")
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER AND NOT ROR_OGRE14)
@@ -75,6 +79,28 @@ if (ROR_OGRE_NEXT_DEMO_ADMISSION AND
     message(FATAL_ERROR
         "ROR_OGRE_NEXT_DEMO_ADMISSION requires "
         "ROR_OGRE_NEXT_PRODUCTION_PACKAGE=ON")
+endif ()
+if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    if (NOT ROR_OGRE14)
+        message(FATAL_ERROR
+            "ROR_OGRE_NEXT_COMBINED_RUNTIME requires the transitional OGRE14 resource host")
+    endif ()
+    if (ROR_RENDERER_PUBLIC_LAUNCHER OR
+            ROR_OGRE_NEXT_PRODUCTION_PACKAGE OR
+            ROR_OGRE_NEXT_DEMO_ADMISSION)
+        message(FATAL_ERROR
+            "The combined runtime replaces the launcher/child bridge; configure all public child-package options OFF")
+    endif ()
+    get_property(_ror_combined_multi_config GLOBAL
+        PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    if (NOT APPLE OR _ror_combined_multi_config OR
+            NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR
+            NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+        message(FATAL_ERROR
+            "The first reviewed combined runtime requires a single-config Release macOS arm64 build")
+    endif ()
+    set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+    unset(_ror_combined_multi_config)
 endif ()
 
 if (APPLE AND ROR_RENDERER_PUBLIC_LAUNCHER)
@@ -261,6 +287,13 @@ ELSEIF (UNIX)
 endif (WIN32)
 
 include(DependenciesConfig)
+
+if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    enable_language(OBJC)
+    enable_language(OBJCXX)
+    include(OgreNextEmbeddedRuntime)
+    ror_add_ogre_next_embedded_runtime()
+endif ()
 
 if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
     include(OgreNextProductionPackage)

@@ -326,6 +326,9 @@ def main() -> int:
     parser.add_argument("--plugin-object", required=True)
     parser.add_argument("--legacy-main-library", required=True)
     parser.add_argument("--legacy-library", action="append", required=True)
+    parser.add_argument(
+        "--legacy-runtime-directory", action="append", default=[]
+    )
     parser.add_argument("--executable", required=True)
     parser.add_argument("--compile-commands", required=True)
     parser.add_argument("--next-source-root", required=True)
@@ -339,6 +342,10 @@ def main() -> int:
     parser.add_argument("--main-source", required=True)
     parser.add_argument("--session-adapter", required=True)
     parser.add_argument("--presenter-adapter", required=True)
+    parser.add_argument(
+        "--link-smoke-target-name",
+        default="ror_ogre_next_dual_runtime_link_smoke",
+    )
     parser.add_argument("--embedded-target-name", required=True)
     parser.add_argument("--embedded-source", action="append", required=True)
     parser.add_argument("--direct-target-name", required=True)
@@ -353,8 +360,18 @@ def main() -> int:
     parser.add_argument(
         "--neutral-source-if-present", action="append", default=[]
     )
+    parser.add_argument(
+        "--isolated-consumer-source", action="append", default=[]
+    )
+    parser.add_argument("--isolated-consumer-target-name")
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
+
+    report = Path(args.report)
+    require(report.is_absolute(), "audit report path must be absolute")
+    # A previous successful audit must not survive a later failed invocation.
+    if report.exists() or report.is_symlink():
+        report.unlink()
 
     next_archives = [
         exact_regular_file(value, "OgreNext archive")
@@ -403,9 +420,6 @@ def main() -> int:
     ]
     remap_header = exact_regular_file(args.remap_header, "namespace remap header")
     legacy_include = exact_directory(args.legacy_include, "OGRE14 include root")
-    report = Path(args.report)
-    require(report.is_absolute(), "audit report path must be absolute")
-
     require(
         len(modern_archives) == len(set(modern_archives)),
         "modern archive audit inputs contain duplicates",
@@ -418,14 +432,27 @@ def main() -> int:
         legacy_main_library in legacy_libraries,
         "OGRE14 runtime list does not contain its main library",
     )
-    legacy_runtime_directories = {path.parent for path in legacy_libraries}
-    require(
-        len(legacy_runtime_directories) == 1,
-        "OGRE14 runtime libraries do not share one exact directory",
-    )
-    legacy_runtime_directory = next(iter(legacy_runtime_directories))
+    observed_legacy_runtime_directories = {
+        path.parent for path in legacy_libraries
+    }
+    if args.legacy_runtime_directory:
+        legacy_runtime_directories = {
+            exact_directory(value, "OGRE14 runtime directory")
+            for value in args.legacy_runtime_directory
+        }
+        require(
+            observed_legacy_runtime_directories == legacy_runtime_directories,
+            "OGRE14 runtime inputs differ from the explicit directory closure",
+        )
+    else:
+        require(
+            len(observed_legacy_runtime_directories) == 1,
+            "OGRE14 runtime libraries do not share one exact directory",
+        )
+        legacy_runtime_directories = observed_legacy_runtime_directories
     discovered_legacy_libraries = {
         candidate.resolve()
+        for legacy_runtime_directory in legacy_runtime_directories
         for candidate in legacy_runtime_directory.iterdir()
         if candidate.is_file()
         and not candidate.is_symlink()
@@ -472,6 +499,14 @@ def main() -> int:
     optional_neutral_sources = [
         Path(value).resolve() for value in args.neutral_source_if_present
     ]
+    isolated_consumer_sources = [
+        exact_regular_file(value, "isolated consumer source")
+        for value in args.isolated_consumer_source
+    ]
+    require(
+        not isolated_consumer_sources or args.isolated_consumer_target_name,
+        "isolated consumer sources require an exact target name",
+    )
 
     try:
         canonical_lock_relative = canonical_lock.relative_to(source_root)
@@ -727,12 +762,12 @@ def main() -> int:
     main_command = command_text(one_compile_entry(entries, main_source))
     session_command = command_text(
         one_target_compile_entry(
-            entries, session_adapter, "ror_ogre_next_dual_runtime_link_smoke"
+            entries, session_adapter, args.link_smoke_target_name
         )
     )
     presenter_adapter_command = command_text(
         one_target_compile_entry(
-            entries, presenter_adapter, "ror_ogre_next_dual_runtime_link_smoke"
+            entries, presenter_adapter, args.link_smoke_target_name
         )
     )
     require(str(remap_header) in next_command,
@@ -756,6 +791,28 @@ def main() -> int:
             "the OgreNext adapter sees OGRE14 headers")
     require(str(next_source_root) not in legacy_command,
             "the OGRE14 adapter sees OgreNext headers")
+
+    isolated_consumer_audit: list[dict[str, object]] = []
+    for source in isolated_consumer_sources:
+        command = command_text(
+            one_target_compile_entry(
+                entries, source, str(args.isolated_consumer_target_name)
+            )
+        )
+        require(
+            str(next_source_root) not in command
+            and str(remap_header) not in command
+            and remap_header.name not in command
+            and "Ogre=RoROgreNext" not in command,
+            f"OgreNext compile usage leaked through the provider facade: {source}",
+        )
+        isolated_consumer_audit.append(
+            {
+                "path": str(source),
+                "target": str(args.isolated_consumer_target_name),
+                "ogre_next_usage_leaked": False,
+            }
+        )
 
     embedded_commands = [
         command_text(
@@ -831,7 +888,14 @@ def main() -> int:
             "sha256": digest(legacy_main_library),
         },
         "legacy_runtime_libraries": legacy_library_reports,
-        "legacy_runtime_directory": str(legacy_runtime_directory),
+        "legacy_runtime_directory": (
+            str(next(iter(legacy_runtime_directories)))
+            if len(legacy_runtime_directories) == 1
+            else None
+        ),
+        "legacy_runtime_directories": sorted(
+            str(path) for path in legacy_runtime_directories
+        ),
         "executable": {"path": str(executable), "sha256": digest(executable)},
         "compile_commands_sha256": digest(compile_commands),
         "defined_global_intersections": global_intersections,
@@ -846,6 +910,7 @@ def main() -> int:
             "direct_contract_sources": len(direct_commands),
             "namespaced_sources": namespaced_audit,
             "neutral_sources": neutral_audit,
+            "isolated_consumers": isolated_consumer_audit,
         },
         "evidence_scope": {
             "namespace_and_dual_root_link": True,

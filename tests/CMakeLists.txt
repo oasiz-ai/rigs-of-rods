@@ -331,6 +331,7 @@ set(_ror_renderer_bridge_process_fake_common_sources
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderPayloadDigest.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportEnvelope.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp"
@@ -1001,6 +1002,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/SceneGenerationBoundaryTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderBridgeSessionIdentity.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderPayloadDigest.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderResourceDescriptors.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportEnvelope.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderTransportStream.cpp"
@@ -1193,6 +1195,10 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ResourceHandleTests.cpp"
 )
 add_executable(
+    ror_render_payload_digest_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderPayloadDigestTests.cpp"
+)
+add_executable(
     ror_render_material_descriptor_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/MaterialDescriptorTests.cpp"
 )
@@ -1359,6 +1365,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_reflection_probe_capture_receipt_tests
     ror_render_reflection_probe_runtime_tests
     ror_render_resource_handle_tests
+    ror_render_payload_digest_tests
     ror_render_material_descriptor_tests
     ror_render_pbr_reference_tests
     ror_render_strict_fp_environment_tests
@@ -2908,6 +2915,18 @@ add_test(
 add_test(
     NAME render_asset_registry
     COMMAND ror_render_asset_registry_tests
+)
+
+add_test(
+    NAME render_payload_digest
+    COMMAND ror_render_payload_digest_tests
+)
+
+add_test(
+    NAME ogre_next_combined_provider_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_LIST_DIR}/tools/test_ogre_next_combined_provider_contract.py"
 )
 
 add_test(

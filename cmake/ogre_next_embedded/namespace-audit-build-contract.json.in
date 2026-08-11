@@ -1,0 +1,43 @@
+{
+  "schema_version": 7,
+  "ror_source": {
+    "repository": "@ROR_SOURCE_REPOSITORY@",
+    "ref": "@ROR_SOURCE_REF@",
+    "commit": "@ROR_SOURCE_COMMIT@",
+    "relevant_manifest_sha256": "@ROR_SOURCE_MANIFEST_SHA256@",
+    "relevant_manifest_file_count": @ROR_SOURCE_MANIFEST_FILE_COUNT@
+  },
+  "patches": [
+    {
+      "path": "@ROR_OGRE_NEXT_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_PATCH_REASON@"
+    },
+    {
+      "path": "@ROR_OGRE_NEXT_IBL_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_IBL_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_IBL_PATCH_REASON@",
+      "source_path": "@ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH@",
+      "source_sha256": "@ROR_OGRE_NEXT_IBL_PATCH_SOURCE_SHA256@",
+      "patched_sha256": "@ROR_OGRE_NEXT_IBL_PATCHED_SHA256@"
+    }
+  ],
+  "embedded_namespace": {
+    "enabled": true,
+    "namespace": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME@",
+    "cmake_option": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION@",
+    "default_enabled": false,
+    "patch": {
+      "path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_SHA256@",
+      "reason": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_REASON@",
+      "applied": true
+    },
+    "remap_header": {
+      "path": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH@",
+      "sha256": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256@",
+      "forced_include": true
+    },
+    "full_n1_link_evidence": "not_evaluated"
+  }
+}

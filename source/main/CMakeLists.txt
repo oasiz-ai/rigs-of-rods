@@ -67,6 +67,7 @@ set(SOURCE_FILES
         gfx/render/RenderContracts.h
         gfx/render/RenderFrame.{h,cpp}
         gfx/render/RenderMath.h
+        gfx/render/RenderPayloadDigest.{h,cpp}
         gfx/render/RenderResourceDescriptors.{h,cpp}
         gfx/render/RenderTransportDetail.h
         gfx/render/RenderTransportEnvelope.{h,cpp}
@@ -426,6 +427,219 @@ include(SourceFileUtils)
 # Expand file extensions (i.e. path/to/file.{h,cpp} becomes path/to/file.h;path/to/file.cpp)
 expand_file_extensions(SOURCE_FILES ${SOURCE_FILES})
 
+if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    if (NOT TARGET RoR::OgreNextEmbeddedRuntime OR
+            NOT TARGET ror_ogre_next_combined_resources OR
+            NOT ROR_OGRE_NEXT_COMBINED_OWNED_SOURCES)
+        message(FATAL_ERROR
+            "RoR-Combined requires the complete root OgreNext provider before source selection")
+    endif ()
+
+    function(_ror_combined_remove_source_exactly_once
+            _ror_list_variable _ror_source _ror_reason)
+        set(_ror_source_list "${${_ror_list_variable}}")
+        set(_ror_match_count 0)
+        foreach (_ror_candidate IN LISTS _ror_source_list)
+            if (_ror_candidate STREQUAL "${_ror_source}")
+                math(EXPR _ror_match_count "${_ror_match_count} + 1")
+            endif ()
+        endforeach ()
+        if (NOT _ror_match_count EQUAL 1)
+            message(FATAL_ERROR
+                "RoR-Combined expected exactly one ${_ror_reason} source '${_ror_source}', found ${_ror_match_count}")
+        endif ()
+        list(REMOVE_ITEM _ror_source_list "${_ror_source}")
+        set(${_ror_list_variable} "${_ror_source_list}" PARENT_SCOPE)
+    endfunction()
+
+    function(_ror_combined_serialize_source_json_array
+            _ror_list_variable _ror_output_variable)
+        set(_ror_serialized "")
+        set(_ror_separator "")
+        foreach (_ror_source IN LISTS ${_ror_list_variable})
+            if (NOT _ror_source MATCHES "^[A-Za-z0-9_./+-]+$")
+                message(FATAL_ERROR
+                    "RoR-Combined source cannot be represented in its contract: ${_ror_source}")
+            endif ()
+            string(APPEND _ror_serialized
+                "${_ror_separator}\n    \"${_ror_source}\"")
+            set(_ror_separator ",")
+        endforeach ()
+        if (_ror_serialized)
+            string(APPEND _ror_serialized "\n  ")
+        endif ()
+        set(${_ror_output_variable} "${_ror_serialized}" PARENT_SCOPE)
+    endfunction()
+
+    set(_ror_combined_provider_implementations "")
+    foreach (_ror_provider_source IN LISTS
+            ROR_OGRE_NEXT_COMBINED_OWNED_SOURCES)
+        if (NOT IS_ABSOLUTE "${_ror_provider_source}")
+            message(FATAL_ERROR
+                "Combined provider source ownership must be absolute: ${_ror_provider_source}")
+        endif ()
+        file(RELATIVE_PATH _ror_provider_relative
+            "${CMAKE_CURRENT_LIST_DIR}" "${_ror_provider_source}")
+        if (_ror_provider_relative MATCHES "^([.][.]/|/)|[;\"]")
+            message(FATAL_ERROR
+                "Combined provider source escaped source/main: ${_ror_provider_source}")
+        endif ()
+        _ror_combined_remove_source_exactly_once(
+            SOURCE_FILES "${_ror_provider_relative}" "provider-owned implementation")
+        list(APPEND _ror_combined_provider_implementations
+            "${_ror_provider_relative}")
+    endforeach ()
+
+    # The combined executable has no renderer process/product transport. Keep
+    # these files available to their focused tests and legacy OFF-mode only.
+    set(_ror_combined_retired_renderer_sources
+        gfx/RendererBackendPolicy.cpp
+        gfx/RendererBackendPolicy.h
+        gfx/RendererStartupHandoff.cpp
+        gfx/RendererStartupHandoff.h
+        gfx/RendererStartupPlan.cpp
+        gfx/RendererStartupPlan.h
+        gfx/render/InputEventTransport.cpp
+        gfx/render/InputEventTransport.h
+        gfx/render/RenderAssetDeltaTransport.cpp
+        gfx/render/RenderAssetDeltaTransport.h
+        gfx/render/RenderBridgeControlTransport.cpp
+        gfx/render/RenderBridgeControlTransport.h
+        gfx/render/RenderBridgeSessionIdentity.cpp
+        gfx/render/RenderBridgeSessionIdentity.h
+        gfx/render/RenderContracts.h
+        gfx/render/RenderTransportDetail.h
+        gfx/render/RenderTransportEnvelope.cpp
+        gfx/render/RenderTransportEnvelope.h
+        gfx/render/RenderTransportStream.cpp
+        gfx/render/RenderTransportStream.h
+        gfx/render/RendererFrontendTransportDispatcher.cpp
+        gfx/render/RendererFrontendTransportDispatcher.h
+        gfx/render/SceneGenerationBoundaryTransport.cpp
+        gfx/render/SceneGenerationBoundaryTransport.h
+        gfx/render/SceneSnapshotTransport.cpp
+        gfx/render/SceneSnapshotTransport.h
+        system/RendererBridgeChannel.cpp
+        system/RendererBridgeChannel.h
+        system/RendererBridgeEndpoint.cpp
+        system/RendererBridgeEndpoint.h
+        system/RendererBridgeLaunchPlan.cpp
+        system/RendererBridgeLaunchPlan.h
+        system/RendererBridgeProcessSupervisor.cpp
+        system/RendererBridgeProcessSupervisor.h
+        system/RendererChildIntent.cpp
+        system/RendererChildIntent.h
+        system/RendererChildLauncher.cpp
+        system/RendererChildLauncher.h
+        system/RendererOgre14GameBridge.cpp
+        system/RendererOgre14GameBridge.h
+        system/RendererOgre14GameHostSession.cpp
+        system/RendererOgre14GameHostSession.h
+        system/RendererOgre14InputAdapter.cpp
+        system/RendererOgre14InputAdapter.h
+        system/RendererOgre14ProductSession.cpp
+        system/RendererOgre14ProductSession.h
+        system/RendererOgreNextLiveSession.cpp
+        system/RendererOgreNextLiveSession.h
+        system/RendererPackageRuntimeProbe.cpp
+        system/RendererPackageRuntimeProbe.h
+        system/RendererPackagedMediaPath.cpp
+        system/RendererPackagedMediaPath.h
+        system/RendererSiblingPath.cpp
+        system/RendererSiblingPath.h)
+    foreach (_ror_retired_source IN LISTS
+            _ror_combined_retired_renderer_sources)
+        _ror_combined_remove_source_exactly_once(
+            SOURCE_FILES "${_ror_retired_source}" "retired renderer")
+    endforeach ()
+
+    foreach (_ror_combined_source IN LISTS SOURCE_FILES)
+        if (_ror_combined_source MATCHES
+                "^gfx/(RendererBackendPolicy|RendererStartup(Handoff|Plan))[.].*" OR
+                _ror_combined_source MATCHES
+                "^gfx/render/(.*Transport.*|RenderBridgeSessionIdentity[.].*|RenderContracts[.]h)$" OR
+                _ror_combined_source MATCHES
+                "^system/Renderer(Bridge.*|Child.*|Ogre14Game(Bridge|HostSession).*|Ogre14InputAdapter.*|Ogre14ProductSession.*|OgreNext(Child|Live|Production)Session.*|OgreNextChild.*|PackageRuntimeProbe.*|PackagedMediaPath.*|PublicLauncher.*|SiblingPath.*)$")
+            message(FATAL_ERROR
+                "RoR-Combined source closure retained retired renderer code: ${_ror_combined_source}")
+        endif ()
+    endforeach ()
+    list(REMOVE_DUPLICATES _ror_combined_provider_implementations)
+    list(SORT _ror_combined_provider_implementations)
+    list(REMOVE_DUPLICATES _ror_combined_retired_renderer_sources)
+    list(SORT _ror_combined_retired_renderer_sources)
+    set(_ror_combined_selected_sources "${SOURCE_FILES}")
+    list(LENGTH _ror_combined_selected_sources
+        _ror_combined_selected_source_count_before_dedup)
+    list(REMOVE_DUPLICATES _ror_combined_selected_sources)
+    list(LENGTH _ror_combined_selected_sources
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_REMAINING_SOURCE_COUNT)
+    if (NOT _ror_combined_selected_source_count_before_dedup EQUAL
+            ROR_OGRE_NEXT_COMBINED_EXECUTABLE_REMAINING_SOURCE_COUNT)
+        message(FATAL_ERROR
+            "RoR-Combined selected game source closure contains duplicates")
+    endif ()
+    list(SORT _ror_combined_selected_sources)
+    set(_ror_combined_selected_source_manifest_serialized "")
+    foreach (_ror_combined_selected_source IN LISTS
+            _ror_combined_selected_sources)
+        if (IS_ABSOLUTE "${_ror_combined_selected_source}" OR
+                _ror_combined_selected_source MATCHES "^([.][.]/|/)|[;\"|]")
+            message(FATAL_ERROR
+                "RoR-Combined selected source is not a safe repository-relative path: ${_ror_combined_selected_source}")
+        endif ()
+        set(_ror_combined_selected_source_path
+            "${CMAKE_CURRENT_LIST_DIR}/${_ror_combined_selected_source}")
+        if (NOT EXISTS "${_ror_combined_selected_source_path}" OR
+                IS_DIRECTORY "${_ror_combined_selected_source_path}" OR
+                IS_SYMLINK "${_ror_combined_selected_source_path}")
+            message(FATAL_ERROR
+                "RoR-Combined selected source is missing or indirect: ${_ror_combined_selected_source}")
+        endif ()
+        file(SIZE "${_ror_combined_selected_source_path}"
+            _ror_combined_selected_source_size)
+        file(SHA256 "${_ror_combined_selected_source_path}"
+            _ror_combined_selected_source_sha256)
+        string(APPEND _ror_combined_selected_source_manifest_serialized
+            "${_ror_combined_selected_source}|${_ror_combined_selected_source_size}|${_ror_combined_selected_source_sha256}\n")
+    endforeach ()
+    string(SHA256
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST_SHA256
+        "${_ror_combined_selected_source_manifest_serialized}")
+    set(ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST
+        "${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.selected-sources.txt")
+    file(WRITE
+        "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}"
+        "${_ror_combined_selected_source_manifest_serialized}")
+    set(ROR_OGRE_NEXT_COMBINED_EXECUTABLE_PROVIDER_SOURCES
+        "${_ror_combined_provider_implementations}"
+        CACHE INTERNAL "Implementations removed in favor of the embedded provider" FORCE)
+    set(ROR_OGRE_NEXT_COMBINED_EXECUTABLE_RETIRED_SOURCES
+        "${_ror_combined_retired_renderer_sources}"
+        CACHE INTERNAL "Legacy renderer sources excluded from RoR-Combined" FORCE)
+    list(LENGTH _ror_combined_provider_implementations
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_PROVIDER_SOURCE_COUNT)
+    list(LENGTH _ror_combined_retired_renderer_sources
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_RETIRED_SOURCE_COUNT)
+    _ror_combined_serialize_source_json_array(
+        _ror_combined_provider_implementations
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_PROVIDER_SOURCE_JSON)
+    _ror_combined_serialize_source_json_array(
+        _ror_combined_retired_renderer_sources
+        ROR_OGRE_NEXT_COMBINED_EXECUTABLE_RETIRED_SOURCE_JSON)
+    set(ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT
+        "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-combined-executable-contract.json")
+    configure_file(
+        "${CMAKE_CURRENT_LIST_DIR}/ogre-next-combined-executable-contract.json.in"
+        "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"
+        @ONLY)
+    add_custom_target(ror_ogre_next_combined_executable_contract
+        DEPENDS
+            "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"
+            "${ROR_SOURCE_MANIFEST}"
+            "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST}")
+endif ()
+
 # Renderer-neutral contracts must remain independent of the legacy renderer
 # PCH. Validation also relies on IEEE NaN/Inf classification in release builds,
 # where the game otherwise enables fast math globally.
@@ -452,6 +666,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/SceneGenerationBoundaryTransport.cpp
         gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
+        gfx/render/RenderPayloadDigest.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RenderTransportStream.cpp
@@ -493,6 +708,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/SceneGenerationBoundaryTransport.cpp
         gfx/render/RenderBridgeSessionIdentity.cpp
         gfx/render/RenderFrame.cpp
+        gfx/render/RenderPayloadDigest.cpp
         gfx/render/RenderResourceDescriptors.cpp
         gfx/render/RenderTransportEnvelope.cpp
         gfx/render/RenderTransportStream.cpp
@@ -602,7 +818,11 @@ endif ()
 ####################################################################################################
 #  EXECUTABLE TARGET
 ####################################################################################################
-set(BINNAME "RoR")
+if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    set(BINNAME "RoR-Combined")
+else ()
+    set(BINNAME "RoR")
+endif ()
 add_executable(${BINNAME} ${SOURCE_FILES})
 
 if (ROR_RENDERER_PUBLIC_LAUNCHER)
@@ -919,6 +1139,107 @@ if (ROR_OGRE14)
         OGRE::RTShaderSystem
         SDL2::SDL2)
 endif ()
+if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    find_program(ROR_OGRE_NEXT_OTOOL NAMES otool REQUIRED)
+    if (NOT APPLE OR NOT CMAKE_NM OR
+            NOT IS_ABSOLUTE "${CMAKE_NM}" OR
+            NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_OTOOL}")
+        message(FATAL_ERROR
+            "RoR-Combined binary closure verification requires the reviewed macOS nm tool")
+    endif ()
+    find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+    set(_ror_combined_link_map
+        "${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt")
+    set(_ror_combined_binary_closure_receipt
+        "${ROR_OGRE_NEXT_COMBINED_BINARY_CLOSURE_RECEIPT}")
+    if (NOT _ror_combined_binary_closure_receipt STREQUAL
+            "${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.binary-closure.json")
+        message(FATAL_ERROR
+            "RoR-Combined binary receipt authority escaped source/main")
+    endif ()
+    target_compile_definitions(${BINNAME} PRIVATE
+        ROR_OGRE_NEXT_COMBINED_RUNTIME=1)
+    target_link_libraries(${BINNAME} PRIVATE
+        RoR::OgreNextEmbeddedRuntime)
+    target_link_options(${BINNAME} PRIVATE
+        "LINKER:-map,${_ror_combined_link_map}")
+    add_dependencies(${BINNAME}
+        ror_ogre_next_combined_resources
+        ror_ogre_next_combined_binary_receipt_invalidate
+        ror_ogre_next_combined_executable_contract
+        ror_ogre_next_root_namespace_audit
+        ror_ogre_next_embedded_provider_contract)
+    # This is deliberately an always-run wrapper instead of a linker
+    # POST_BUILD command. A no-op relink must still recreate a freshly checked
+    # receipt after the preflight target invalidates the previous proof.
+    add_custom_target(ror_ogre_next_combined_verified ALL
+        COMMAND
+            "${CMAKE_COMMAND}" -E remove -f
+            "${_ror_combined_binary_closure_receipt}"
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py"
+            --nm "${CMAKE_NM}"
+            --otool "${ROR_OGRE_NEXT_OTOOL}"
+            --binary "$<TARGET_FILE:${BINNAME}>"
+            --link-map "${_ror_combined_link_map}"
+            --executable-contract
+                "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"
+            --provider-contract
+                "${ROR_OGRE_NEXT_COMBINED_PROVIDER_CONTRACT}"
+            --namespace-audit-report
+                "${ROR_OGRE_NEXT_COMBINED_NAMESPACE_AUDIT_REPORT}"
+            --required-archive
+                "$<TARGET_FILE:ror_ogre_next_in_process_presenter>"
+            --required-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_direct_contract>"
+            --required-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_sdl_window_runtime>"
+            --required-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_n1_runtime>"
+            --required-archive "$<TARGET_FILE:ror_render_payload_digest>"
+            --required-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_game_input_target>"
+            --required-archive "$<TARGET_FILE:OgreNextMain>"
+            --required-archive "$<TARGET_FILE:RenderSystem_Metal>"
+            --required-archive "$<TARGET_FILE:OgreNextHlmsPbs>"
+            --required-archive "$<TARGET_FILE:OgreNextHlmsUnlit>"
+            --required-archive "$<TARGET_FILE:OgreNextOverlay>"
+            --required-ogre14-dylib
+                "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
+            --required-ogre14-dylib
+                "${ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME}"
+            --sdl-provider-dylib
+                "${ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME}"
+            --receipt "${_ror_combined_binary_closure_receipt}"
+        BYPRODUCTS "${_ror_combined_binary_closure_receipt}"
+        DEPENDS
+            ${BINNAME}
+            ror_ogre_next_combined_binary_receipt_invalidate
+            ror_ogre_next_combined_resources
+            ror_ogre_next_combined_executable_contract
+            ror_ogre_next_root_namespace_audit
+            ror_ogre_next_embedded_provider_contract
+            ror_ogre_next_in_process_presenter
+            ror_ogre_next_embedded_direct_contract
+            ror_ogre_next_embedded_sdl_window_runtime
+            ror_ogre_next_embedded_n1_runtime
+            ror_render_payload_digest
+            ror_ogre_next_embedded_game_input_target
+            OgreNextMain
+            RenderSystem_Metal
+            OgreNextHlmsPbs
+            OgreNextHlmsUnlit
+            OgreNextOverlay
+            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py"
+            "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"
+            "${ROR_OGRE_NEXT_COMBINED_PROVIDER_CONTRACT}"
+            "${ROR_OGRE_NEXT_COMBINED_NAMESPACE_AUDIT_REPORT}"
+            "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
+            "${ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME}"
+        COMMENT "Proving RoR-Combined excludes renderer bridge/transport symbols"
+        VERBATIM)
+endif ()
 target_include_directories(${BINNAME} PRIVATE ${OGRE_INCLUDE_DIRS} ${RapidJSON_INCLUDE_DIRS})
 if (TARGET MyGUI::OgrePlatform)
     target_link_libraries(${BINNAME} PRIVATE MyGUI::OgrePlatform)
@@ -1144,7 +1465,7 @@ fast_copy("${CMAKE_SOURCE_DIR}/resources/managed_materials" "${RUNTIME_OUTPUT_DI
 fast_copy("${CMAKE_SOURCE_DIR}/resources/fonts" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 fast_copy("${CMAKE_SOURCE_DIR}/languages" "${RUNTIME_OUTPUT_DIRECTORY}/languages")
 
-if (APPLE AND ROR_OGRE14)
+if (APPLE AND ROR_OGRE14 AND NOT ROR_OGRE_NEXT_COMBINED_RUNTIME)
     # Build a signed, relocatable application only when explicitly requested.
     # StageMacOSBundle derives the complete dylib closure from the executable
     # and active OGRE plugins; ROR_RUNTIME_DYLIBS remains available for future

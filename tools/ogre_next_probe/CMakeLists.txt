@@ -1035,6 +1035,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/RenderAssetId.cpp"
         "${_ror_render_root}/RenderAssetRegistry.cpp"
         "${_ror_render_root}/RenderFrame.cpp"
+        "${_ror_render_root}/RenderPayloadDigest.cpp"
         "${_ror_render_root}/RendererFrontend.cpp"
         "${_ror_render_root}/RendererFrontendDirectDispatcher.cpp"
         "${_ror_render_root}/RendererFrontendPresentationPolicy.cpp"
@@ -1479,6 +1480,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/SceneGenerationBoundaryTransport.cpp"
         "${_ror_render_root}/RenderBridgeSessionIdentity.cpp"
         "${_ror_render_root}/RenderFrame.cpp"
+        "${_ror_render_root}/RenderPayloadDigest.cpp"
         "${_ror_render_root}/RenderResourceDescriptors.cpp"
         "${_ror_render_root}/RenderTransportEnvelope.cpp"
         "${_ror_render_root}/RenderTransportStream.cpp"
@@ -2308,6 +2310,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererBackendPolicy.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupPlan.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/RendererStartupHandoff.cpp"
+        "${_ror_render_root}/RenderPayloadDigest.cpp"
         "${_ror_render_root}/RenderTransportEnvelope.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererChildIntent.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/system/RendererBridgeEndpoint.cpp")

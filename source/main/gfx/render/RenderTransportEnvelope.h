@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "RenderPayloadDigest.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -68,9 +70,12 @@ enum class RenderTransportStatus : std::uint8_t {
 [[nodiscard]] bool
 IsKnownRenderTransportMessageKind(RenderTransportMessageKind kind) noexcept;
 
-[[nodiscard]] std::array<std::uint8_t, 32U>
-ComputeRenderTransportPayloadDigest(const std::uint8_t *payload,
-                                    std::size_t payload_size) noexcept;
+/// Compatibility spelling retained for public transport callers. The digest
+/// implementation and canonical API are renderer-neutral.
+[[nodiscard]] inline RenderPayloadDigest ComputeRenderTransportPayloadDigest(
+    const std::uint8_t *payload, std::size_t payload_size) noexcept {
+  return ComputeRenderPayloadDigest(payload, payload_size);
+}
 
 struct RenderTransportEnvelopeEncodeResult {
   std::vector<std::uint8_t> bytes;

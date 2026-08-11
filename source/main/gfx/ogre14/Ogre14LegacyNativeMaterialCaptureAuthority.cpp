@@ -8,7 +8,7 @@
 
 #include "gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
 
-#include "gfx/render/RenderTransportEnvelope.h"
+#include "gfx/render/RenderPayloadDigest.h"
 
 #include <array>
 #include <cmath>
@@ -274,7 +274,7 @@ bool AppendTexture(CaptureProjectionWriter &writer,
     return false;
   }
   for (const Ogre14LegacyTextureMipInput &mip : texture.mip_levels) {
-    const auto byte_sha256 = ComputeRenderTransportPayloadDigest(
+    const auto byte_sha256 = ComputeRenderPayloadDigest(
         mip.bytes.data(), mip.bytes.size());
     if (!writer.AppendU32(mip.width) || !writer.AppendU32(mip.height) ||
         !writer.AppendU64(mip.row_pitch_bytes) ||
@@ -327,8 +327,7 @@ ValidationResult ComputeOgre14LegacyNativeMaterialCaptureSha256(
                  : writer.error();
     }
     const Ogre14LegacyNativeMaterialCaptureSha256 candidate =
-        ComputeRenderTransportPayloadDigest(writer.bytes().data(),
-                                            writer.bytes().size());
+        ComputeRenderPayloadDigest(writer.bytes().data(), writer.bytes().size());
     sha256 = candidate;
     return ValidationResult::Success();
   } catch (const std::bad_alloc &) {

@@ -1,13 +1,27 @@
 # Shared, fail-closed dependency, license, ABI, and platform policy for the
-# isolated OGRE-Next standalone targets. This module intentionally cannot be
-# included by the OGRE 1.14 application target.
+# pinned OGRE-Next targets. The default remains the isolated standalone probe;
+# the root combined-runtime provider may opt in to the separately reviewed
+# namespaced/co-resident path and reuse the root's exact SDL2 target.
 
 if (NOT DEFINED ROR_OGRE_NEXT_STANDALONE_ROOT OR
         ROR_OGRE_NEXT_STANDALONE_ROOT STREQUAL "")
     message(FATAL_ERROR
         "ROR_OGRE_NEXT_STANDALONE_ROOT must identify the reviewed lock root")
 endif ()
-if (TARGET OgreMain)
+if (NOT DEFINED ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    set(ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER OFF)
+endif ()
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER AND
+        NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
+    message(FATAL_ERROR
+        "The root OgreNext provider requires the embedded namespace fork")
+endif ()
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER AND
+        NOT TARGET SDL2::SDL2)
+    message(FATAL_ERROR
+        "The root OgreNext provider requires the existing SDL2::SDL2 target")
+endif ()
+if (TARGET OgreMain AND NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
     message(FATAL_ERROR
         "Pinned OGRE-Next standalone targets cannot coexist with OGRE 1.x")
 endif ()
@@ -86,11 +100,13 @@ if (NOT ROR_SDL2_PRESENTATION_SCHEMA STREQUAL
         _ror_sdl2_scope_packaged)
     message(FATAL_ERROR "The SDL2 presentation source contract changed")
 endif ()
-FetchContent_Declare(
-    ror_sdl2
-    URL "${ROR_SDL2_PRESENTATION_ARCHIVE_URL}"
-    URL_HASH "SHA256=${ROR_SDL2_PRESENTATION_ARCHIVE_SHA256}"
-    DOWNLOAD_EXTRACT_TIMESTAMP true)
+if (NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    FetchContent_Declare(
+        ror_sdl2
+        URL "${ROR_SDL2_PRESENTATION_ARCHIVE_URL}"
+        URL_HASH "SHA256=${ROR_SDL2_PRESENTATION_ARCHIVE_SHA256}"
+        DOWNLOAD_EXTRACT_TIMESTAMP true)
+endif ()
 
 set(_ror_lock_path "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ogre-next.lock.json")
 file(READ "${_ror_lock_path}" _ror_lock_json)
@@ -607,6 +623,21 @@ if (NOT _ror_embedded_namespace_patch_sha256 STREQUAL
     message(FATAL_ERROR
         "The reviewed embedded OgreNext namespace fork inputs changed")
 endif ()
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    set(ROR_OGRE_NEXT_ROOT_PROVIDER_INSTALL_PATCH
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/patches/0007-root-provider-install-dependencies-list.patch")
+    if (NOT EXISTS "${ROR_OGRE_NEXT_ROOT_PROVIDER_INSTALL_PATCH}")
+        message(FATAL_ERROR
+            "The reviewed root-provider install compatibility patch is missing")
+    endif ()
+    file(SHA256 "${ROR_OGRE_NEXT_ROOT_PROVIDER_INSTALL_PATCH}"
+        _ror_root_provider_install_patch_sha256)
+    if (NOT _ror_root_provider_install_patch_sha256 STREQUAL
+            "ba203f6b05f41472da700dbf48ca5eabc519c7fc1e04dd8adc53753e1265bd86")
+        message(FATAL_ERROR
+            "The reviewed root-provider install compatibility patch changed")
+    endif ()
+endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_WINDOWS_DXR7_PATCH_PATH}"
     _ror_windows_dxr7_patch_sha256)
@@ -665,7 +696,8 @@ if (DEFINED FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE AND
     message(FATAL_ERROR
         "FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE bypasses archive verification and is prohibited")
 endif ()
-if (DEFINED FETCHCONTENT_SOURCE_DIR_ROR_SDL2 AND
+if (NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER AND
+        DEFINED FETCHCONTENT_SOURCE_DIR_ROR_SDL2 AND
         NOT FETCHCONTENT_SOURCE_DIR_ROR_SDL2 STREQUAL "")
     message(FATAL_ERROR
         "FETCHCONTENT_SOURCE_DIR_ROR_SDL2 bypasses archive verification and is prohibited")
@@ -1142,33 +1174,67 @@ if (NOT _ror_extracted_rapidjson_license_sha256 STREQUAL ROR_RAPIDJSON_LICENSE_S
 endif ()
 set(Rapidjson_HOME "${rapidjson_SOURCE_DIR}" CACHE PATH "" FORCE)
 
-# Overlay is part of the cross-platform HDR/UI-isolation contract. Build one
-# reviewed static FreeType closure on every host instead of accepting an
-# unstaged Homebrew/distro library or relying on an unpopulated Windows vcpkg
-# cache. Optional codecs and shaping libraries are disabled so the closure is
-# identical and self-contained on Metal, D3D11, and Vulkan.
+# Overlay is part of the cross-platform HDR/UI-isolation contract. The
+# standalone probe builds the reviewed static source closure. The root
+# one-process provider instead reuses the exact static FreeType target already
+# admitted by the locked OGRE14 Conan graph, while still extracting and hashing
+# the independent source/license archive below.
 set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
 set(FT_ENABLE_ERROR_STRINGS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    ror_freetype
-    URL ${_ror_freetype_urls}
-    URL_HASH "SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    FetchContent_Declare(
+        ror_freetype
+        URL ${_ror_freetype_urls}
+        URL_HASH "SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}"
+        SOURCE_SUBDIR ror-source-only-no-cmake
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+else ()
+    FetchContent_Declare(
+        ror_freetype
+        URL ${_ror_freetype_urls}
+        URL_HASH "SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif ()
 FetchContent_MakeAvailable(ror_freetype)
-if (NOT TARGET freetype OR BUILD_SHARED_LIBS OR
-        NOT FT_DISABLE_ZLIB OR NOT FT_DISABLE_BZIP2 OR
+if (NOT FT_DISABLE_ZLIB OR NOT FT_DISABLE_BZIP2 OR
         NOT FT_DISABLE_PNG OR NOT FT_DISABLE_HARFBUZZ OR
         NOT FT_DISABLE_BROTLI)
-    message(FATAL_ERROR "The pinned static FreeType closure changed")
+    message(FATAL_ERROR "The pinned FreeType feature closure changed")
 endif ()
-get_target_property(ROR_FREETYPE_TARGET_TYPE freetype TYPE)
-if (NOT ROR_FREETYPE_TARGET_TYPE STREQUAL "STATIC_LIBRARY")
-    message(FATAL_ERROR
-        "The pinned FreeType target is not a derived static library")
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    if (NOT TARGET Freetype::Freetype OR
+            NOT FREETYPE_VERSION_STRING STREQUAL ROR_FREETYPE_VERSION OR
+            NOT freetype_LIBRARY_TYPE_RELEASE STREQUAL "STATIC" OR
+            NOT freetype_PACKAGE_FOLDER_RELEASE OR
+            NOT FREETYPE_INCLUDE_DIRS)
+        message(FATAL_ERROR
+            "The root provider lacks the locked static FreeType interface")
+    endif ()
+    set(ROR_OGRE_NEXT_FREETYPE_TARGET Freetype::Freetype)
+    set(ROR_FREETYPE_TARGET_TYPE "ROOT_LOCKED_STATIC_IMPORT")
+    foreach (_ror_root_freetype_include IN LISTS FREETYPE_INCLUDE_DIRS)
+        cmake_path(IS_PREFIX freetype_PACKAGE_FOLDER_RELEASE
+            "${_ror_root_freetype_include}" NORMALIZE
+            _ror_root_freetype_include_is_locked)
+        if (NOT _ror_root_freetype_include_is_locked)
+            message(FATAL_ERROR
+                "Root FreeType include escaped its locked package")
+        endif ()
+    endforeach ()
+else ()
+    if (NOT TARGET freetype OR BUILD_SHARED_LIBS)
+        message(FATAL_ERROR "The pinned static FreeType closure changed")
+    endif ()
+    get_target_property(ROR_FREETYPE_TARGET_TYPE freetype TYPE)
+    if (NOT ROR_FREETYPE_TARGET_TYPE STREQUAL "STATIC_LIBRARY")
+        message(FATAL_ERROR
+            "The pinned FreeType target is not a derived static library")
+    endif ()
+    set(ROR_OGRE_NEXT_FREETYPE_TARGET freetype)
 endif ()
 set(ROR_FREETYPE_STATIC_LINK_JSON true)
 file(SHA256
@@ -1186,18 +1252,29 @@ if (NOT _ror_extracted_freetype_license_sha256 STREQUAL
 endif ()
 
 # Ogre-Next v3-0 uses its legacy FindFreetype module. Seed that interface with
-# the source-owned target and generated/source include roots so its dependency
-# option resolves to this target without probing a host library.
-set(FREETYPE_HOME "${ror_freetype_SOURCE_DIR}" CACHE PATH "" FORCE)
+# the selected locked target and include roots so it cannot probe a host path.
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    set(FREETYPE_HOME "${freetype_PACKAGE_FOLDER_RELEASE}" CACHE PATH "" FORCE)
+    list(GET FREETYPE_INCLUDE_DIRS 0 _ror_freetype_primary_include)
+    set(FREETYPE_INCLUDE_DIR "${_ror_freetype_primary_include}"
+        CACHE PATH "" FORCE)
+    set(FREETYPE_FT2BUILD_INCLUDE_DIR "${_ror_freetype_primary_include}"
+        CACHE PATH "" FORCE)
+    set(FREETYPE_INCLUDE_DIRS "${FREETYPE_INCLUDE_DIRS}"
+        CACHE STRING "" FORCE)
+else ()
+    set(FREETYPE_HOME "${ror_freetype_SOURCE_DIR}" CACHE PATH "" FORCE)
+    set(FREETYPE_INCLUDE_DIR "${ror_freetype_SOURCE_DIR}/include"
+        CACHE PATH "" FORCE)
+    set(FREETYPE_FT2BUILD_INCLUDE_DIR "${ror_freetype_SOURCE_DIR}/include"
+        CACHE PATH "" FORCE)
+    set(FREETYPE_INCLUDE_DIRS
+        "${ror_freetype_BINARY_DIR}/include;${ror_freetype_SOURCE_DIR}/include"
+        CACHE STRING "" FORCE)
+endif ()
 set(FREETYPE_FOUND TRUE CACHE BOOL "" FORCE)
-set(FREETYPE_INCLUDE_DIR "${ror_freetype_SOURCE_DIR}/include"
-    CACHE PATH "" FORCE)
-set(FREETYPE_FT2BUILD_INCLUDE_DIR "${ror_freetype_SOURCE_DIR}/include"
-    CACHE PATH "" FORCE)
-set(FREETYPE_INCLUDE_DIRS
-    "${ror_freetype_BINARY_DIR}/include;${ror_freetype_SOURCE_DIR}/include"
+set(FREETYPE_LIBRARIES "${ROR_OGRE_NEXT_FREETYPE_TARGET}"
     CACHE STRING "" FORCE)
-set(FREETYPE_LIBRARIES freetype CACHE STRING "" FORCE)
 
 set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
@@ -1205,6 +1282,10 @@ set(_ror_ogre_next_patch_paths
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
+endif ()
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    list(APPEND _ror_ogre_next_patch_paths
+        "${ROR_OGRE_NEXT_ROOT_PROVIDER_INSTALL_PATCH}")
 endif ()
 if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "windows-x64-d3d11")
     list(APPEND _ror_ogre_next_patch_paths
@@ -1306,7 +1387,8 @@ if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
         get_target_property(_ror_ogre_target_type ${_ror_ogre_target} TYPE)
         if (NOT _ror_ogre_target_type STREQUAL "UTILITY" AND
                 NOT _ror_ogre_target_type STREQUAL "INTERFACE_LIBRARY")
-            ror_ogre_next_enable_embedded_namespace(${_ror_ogre_target})
+            ror_ogre_next_enable_embedded_namespace(
+                ${_ror_ogre_target} LANGUAGES CXX OBJCXX)
         endif ()
     endforeach ()
     message(STATUS
@@ -1314,55 +1396,73 @@ if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS}")
 endif ()
 
-# Compile the exact SDL source only for the non-admitted native-window probe.
-# X11 is intentional on Linux: pinned Ogre-Next has an XCB external-window
-# bridge and no reviewed Wayland bridge. SDL2main/install/tests/shared output
-# stay outside this source closure.
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
-set(SDL_TEST OFF CACHE BOOL "" FORCE)
-set(SDL_TESTS OFF CACHE BOOL "" FORCE)
-set(SDL2_DISABLE_SDL2MAIN ON CACHE BOOL "" FORCE)
-set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-set(SDL_INSTALL_TESTS OFF CACHE BOOL "" FORCE)
-set(SDL_RPATH OFF CACHE BOOL "" FORCE)
-if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
-    set(SDL_X11 ON CACHE BOOL "" FORCE)
-    set(SDL_X11_SHARED OFF CACHE BOOL "" FORCE)
-    set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
-endif ()
-FetchContent_MakeAvailable(ror_sdl2)
-if (NOT TARGET SDL2::SDL2 OR NOT TARGET SDL2::SDL2-static)
-    message(FATAL_ERROR "Pinned SDL2 static CMake targets are unavailable")
-endif ()
-file(SHA256 "${ror_sdl2_SOURCE_DIR}/${ROR_SDL2_PRESENTATION_LICENSE_PATH}"
-    _ror_sdl2_license_sha256)
-if (NOT _ror_sdl2_license_sha256 STREQUAL
-        ROR_SDL2_PRESENTATION_LICENSE_SHA256)
-    message(FATAL_ERROR "Pinned SDL2 license hash changed")
+if (ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    # DependenciesConfig.cmake already required the exact 2.32.10 Conan
+    # package. Never declare, populate, or link a second SDL implementation in
+    # the one-process runtime.
+    set(ROR_OGRE_NEXT_PRESENTATION_SDL_TARGET SDL2::SDL2)
+    get_target_property(_ror_root_sdl_imported SDL2::SDL2 IMPORTED)
+    if (NOT _ror_root_sdl_imported)
+        message(FATAL_ERROR
+            "The combined runtime requires root SDL2::SDL2 to be imported")
+    endif ()
+else ()
+    # Compile the exact SDL source only for the standalone native-window probe.
+    # X11 is intentional on Linux: pinned Ogre-Next has an XCB external-window
+    # bridge and no reviewed Wayland bridge. SDL2main/install/tests/shared
+    # output stay outside this source closure.
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL2_DISABLE_SDL2MAIN ON CACHE BOOL "" FORCE)
+    set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+    set(SDL_INSTALL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_RPATH OFF CACHE BOOL "" FORCE)
+    if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
+        set(SDL_X11 ON CACHE BOOL "" FORCE)
+        set(SDL_X11_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
+    endif ()
+    FetchContent_MakeAvailable(ror_sdl2)
+    if (NOT TARGET SDL2::SDL2 OR NOT TARGET SDL2::SDL2-static)
+        message(FATAL_ERROR "Pinned SDL2 static CMake targets are unavailable")
+    endif ()
+    file(SHA256 "${ror_sdl2_SOURCE_DIR}/${ROR_SDL2_PRESENTATION_LICENSE_PATH}"
+        _ror_sdl2_license_sha256)
+    if (NOT _ror_sdl2_license_sha256 STREQUAL
+            ROR_SDL2_PRESENTATION_LICENSE_SHA256)
+        message(FATAL_ERROR "Pinned SDL2 license hash changed")
+    endif ()
+    set(ROR_OGRE_NEXT_PRESENTATION_SDL_TARGET SDL2::SDL2-static)
 endif ()
 
 # Ogre-Next's legacy finder is allowed to populate diagnostic cache entries,
-# but the actual include and link interfaces must remain entirely source-owned.
-if (NOT "${FREETYPE_LIBRARIES}" STREQUAL "freetype" OR
+# but the actual include and link interfaces must retain the selected locked
+# target exactly.
+if (NOT "${FREETYPE_LIBRARIES}" STREQUAL
+            "${ROR_OGRE_NEXT_FREETYPE_TARGET}" OR
         NOT FREETYPE_INCLUDE_DIRS)
     message(FATAL_ERROR
-        "OGRE-Next did not retain the source-owned FreeType interface")
+        "OGRE-Next did not retain the locked FreeType interface")
 endif ()
-foreach (_ror_freetype_include IN LISTS FREETYPE_INCLUDE_DIRS)
-    cmake_path(IS_PREFIX ror_freetype_SOURCE_DIR
-        "${_ror_freetype_include}" NORMALIZE _ror_include_in_freetype_source)
-    cmake_path(IS_PREFIX ror_freetype_BINARY_DIR
-        "${_ror_freetype_include}" NORMALIZE _ror_include_in_freetype_binary)
-    if (NOT _ror_include_in_freetype_source AND
-            NOT _ror_include_in_freetype_binary)
-        message(FATAL_ERROR
-            "OGRE-Next selected a host FreeType include directory: "
-            "${_ror_freetype_include}")
-    endif ()
-endforeach ()
+if (NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)
+    foreach (_ror_freetype_include IN LISTS FREETYPE_INCLUDE_DIRS)
+        cmake_path(IS_PREFIX ror_freetype_SOURCE_DIR
+            "${_ror_freetype_include}" NORMALIZE _ror_include_in_freetype_source)
+        cmake_path(IS_PREFIX ror_freetype_BINARY_DIR
+            "${_ror_freetype_include}" NORMALIZE _ror_include_in_freetype_binary)
+        if (NOT _ror_include_in_freetype_source AND
+                NOT _ror_include_in_freetype_binary)
+            message(FATAL_ERROR
+                "OGRE-Next selected a host FreeType include directory: "
+                "${_ror_freetype_include}")
+        endif ()
+    endforeach ()
+endif ()
 get_target_property(_ror_overlay_link_libraries OgreNextOverlay LINK_LIBRARIES)
-list(FIND _ror_overlay_link_libraries freetype _ror_overlay_freetype_index)
+list(FIND _ror_overlay_link_libraries
+    "${ROR_OGRE_NEXT_FREETYPE_TARGET}" _ror_overlay_freetype_index)
 if (_ror_overlay_freetype_index LESS 0)
     message(FATAL_ERROR
         "OgreNextOverlay does not link the pinned FreeType target")
@@ -1371,7 +1471,8 @@ foreach (_ror_overlay_link_library IN LISTS _ror_overlay_link_libraries)
     string(TOLOWER "${_ror_overlay_link_library}"
         _ror_overlay_link_library_lower)
     if (_ror_overlay_link_library_lower MATCHES "freetype" AND
-            NOT _ror_overlay_link_library STREQUAL "freetype")
+            NOT _ror_overlay_link_library STREQUAL
+                "${ROR_OGRE_NEXT_FREETYPE_TARGET}")
         message(FATAL_ERROR
             "OgreNextOverlay selected an unpinned FreeType link input: "
             "${_ror_overlay_link_library}")
