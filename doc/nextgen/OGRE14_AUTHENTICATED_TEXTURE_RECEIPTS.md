@@ -1,8 +1,9 @@
 # OGRE 14 authenticated source-texture receipts
 
 Status: implemented capture/lifecycle, authenticated OGRE-native extraction,
-and pure-data material-coordinator admission; native `GfxScene` collection and
-accepted-exposure wiring remain separate scene steps.
+and live source-byte consumption for the combined demo's bounded opaque TUS0
+projection subset; general semantic-material translation and visual fidelity
+remain open.
 
 ## Contract
 
@@ -154,6 +155,52 @@ revalidation must therefore run on the serialized OGRE resource/render thread.
 The ContentManager mutex makes registry snapshot access thread-safe; it does
 not claim to make concurrent OGRE reload/readback valid.
 
+## Combined demo source-byte consumption
+
+The product material source does not route an authenticated texture through
+that compatibility GPU extractor. It first asks
+`RequiresAuthenticatedTextureSource()` to classify the exact loaded texture.
+The method returns unauthenticated only when TextureManager ownership, handle,
+group/name indices, and pointer identity agree and both authenticated package
+maps are consistently absent for the active group. An authenticated mapping,
+map inconsistency, stale generation, invalid identity, wrong thread, poison, or
+classification exception requires the authenticated path and therefore fails
+closed if no exact resolution can be minted.
+
+`DecodeOgre14SourceTexture()` consumes only the immutable bytes retained by
+that resolution. It admits bounded legacy 2D DDS plus narrowly validated PNG
+and JPEG and emits tightly packed, top-down RGBA8. DDS keeps the deterministic
+BC1-BC5 and exact 32-bit paths. PNG admits reviewed 8-bit RGB, RGBA, and indexed
+forms, including Adam7 and palette transparency; JPEG admits reviewed 8-bit
+three-component baseline and progressive streams. Every container is fully
+preflighted before allocation, decoded size is bounded and rechecked, and any
+failure preserves the prior output. The PNG/JPEG implementation is a single
+private static `stb_image` translation unit pinned by upstream commit, exact
+header/lock/license hashes, an exhaustive macro contract, strict floating
+point, and final binary/object/symbol evidence. The combined closure also
+proves that no root static libpng/libjpeg member, external PNG/JPEG/stb symbol,
+extra codec dylib outside the authenticated OGRE 14 `Codec_FreeImage` closure,
+or unreviewed collision entered the process.
+
+The decoded base dimensions must equal the loaded OGRE texture. Authored source
+mips are validated, but the disposable material path then regenerates one
+opaque sRGB mip chain through its deterministic linear-light sRGB rule.
+There is no authenticated GPU-readback fallback after source selection.
+Immediately after decode, and again before publication, the resolver must
+recover the same immutable receipt, loaded-resource revision, content-decode
+key, and native dimensions/format.
+
+Publication is based on actual cached projection/texture/sampler owners and the
+actual frame's used-projection set. Only frame-reachable authenticated texture
+keys are fresh-resolved; they must all authenticate against one final registry
+snapshot before any candidate assets replace caller output. Unused cached
+owners may remain byte-identical anti-tombstone catalog entries during a
+same-map bundle unload, but no current instance or environment closure can
+reach them. Reuse after reload must obtain a fresh matching resolution and
+fails transactionally, with zero readback, if authority was revoked or source
+bytes changed. Full-scene teardown accepts the authoritative empty scene before
+resetting the material cache.
+
 ## Lifecycle and limits
 
 The registry is an immutable snapshot with hard ceilings of 65,536 live
@@ -215,8 +262,23 @@ Mount tests cover all three external
 side-effect boundaries, prior-map/generation/accounting preservation, and
 manager/factory/immutable-owner teardown. Terrain verifier tests cover
 same-bytes hashing, immutable ownership, cap failure, and failed replacement
-rollback. The contract test proves the ContentManager wiring, patched recipe,
-three target locks, CI target, and N2 source provenance stay in closure.
-This gate reaches authenticated OGRE-native material capture. It is
-not live Ogre-Next material consumption, scene wiring, or a visual-fidelity
-claim.
+rollback. The source-decoder tests add golden and hostile DDS/PNG/JPEG
+containers, interlaced PNG, progressive JPEG, dimension/byte caps,
+malformed/truncated and trailing data, allocation/exception rollback, exact
+static-symbol closure, and strict-FP compilation. Publication-policy tests
+exercise used, then unused, then reused authenticated cache owners;
+common-snapshot validation; revoked, missing, or mutated authority;
+duplicate/missing dependencies; output rollback; and zero authenticated
+readback. The contract tests prove the ContentManager, material source,
+decoder, patched recipe, three target locks, CI, and source provenance stay in
+closure.
+
+An exact-source macOS arm64 combined run at `cd693c2f4` retained 32 projected
+materials on its first joined capture while reporting 29 authenticated source
+decodes, zero authenticated GPU readbacks, and three explicitly labelled
+unauthenticated-path readbacks. Later lazy admission reached 45 active
+projections and 42 authenticated source decodes without changing the zero
+authenticated-readback count. This is live OgreNext consumption for the
+bounded private combined-demo TUS0 subset. It is not visual-fidelity evidence,
+general semantic-material translation, or proof that the remaining
+unauthenticated content no longer uses GPU readback.

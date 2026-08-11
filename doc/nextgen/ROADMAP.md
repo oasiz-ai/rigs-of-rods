@@ -1293,19 +1293,30 @@ Gate R1:
   `RoR-Combined` executable. It contains the game, a hidden non-presenting OGRE
   14 content producer, the renderer-neutral direct dispatcher/session, one
   shared SDL owner, the production N1/Metal frontend, and the namespaced
-  `RoROgreNext` fork. Clean-source receipts at `d670714e9` prove the full
+  `RoROgreNext` fork. Exact-source receipts at `cd693c2f4` prove the full
   dual-OGRE closure, strict FP on 376/376 fetched OgreNext compile entries,
-  required native contributors, and zero bridge/transport objects or symbols.
-  A one-PID
-  CityWorld/Alexis run used zero child processes and pipes, mounted the exact
-  CityWorld ZIP as an authenticated `EmbeddedZip`, reduced its 359 missing
-  materials to zero through 23 reviewed aliases and 11 reviewed fallbacks,
-  retained 32 projected opaque materials, ran for more than six minutes, and
-  shut down with no pending frame or crash report. See
-  `OGRE_NEXT_COMBINED_RUNTIME.md`. The desktop was locked, so visible pixels,
-  resize/input, FPS/performance, map-reset unmount, cross-platform parity,
-  packaging/default cutover, and removal of the hidden OGRE 14 producer remain
-  open.
+  required native contributors, one private authenticated PNG/JPEG decoder,
+  and zero bridge/transport, second-SDL, root static libpng/libjpeg, external
+  PNG/JPEG/stb symbol, or extra codec-dylib contribution outside the
+  authenticated OGRE 14 `Codec_FreeImage` closure.
+  The separate resource-stage receipt proves its exact 270-file closure.
+  A one-PID CityWorld/Alexis run used zero child processes and pipes, mounted
+  the exact CityWorld ZIP as an authenticated `EmbeddedZip`, and reduced its
+  359 missing materials to zero through 23 reviewed aliases and 11 reviewed
+  fallbacks. Its first 32 projected opaque materials decoded 29 authenticated
+  textures directly from retained source receipts, performed zero
+  authenticated GPU readbacks, and retained three explicitly labelled
+  unauthenticated-path readbacks; later lazy admission reached 45 active
+  projections and 42 authenticated source decodes without violating that
+  zero-readback boundary. The lifetime projection counter is cumulative, not
+  an active-catalog count. The process stayed active for more than 2 minutes 21
+  seconds and shut down with no pending frame or crash report. See
+  `OGRE_NEXT_COMBINED_RUNTIME.md`. One
+  onscreen window and the Metal/AGX runtime were observed, but raw build-tree UI
+  automation could not capture its pixels or drive it. Visual quality,
+  live resize/input, FPS/performance, map-reset unmount, cross-platform parity,
+  packaging/default cutover, direct mesh import, and removal of the hidden
+  OGRE 14 producer remain open.
 - The renderer-neutral scene boundary now has the prerequisite lighting slice:
   snapshot version 4 retains the sorted stable directional/point/spot identities
   introduced by version 3 and adds an ordered absolute-world reflection-probe set,
@@ -1366,7 +1377,7 @@ mode, and legacy fallback. Generate or import tangents rather than pretending
 legacy cab meshes already contain them. Convert one DAF material and one terrain
 layer before bulk conversion.
 
-The OGRE 14 source-texture edge now has the authenticated prerequisite for that
+The OGRE 14 source-texture edge now has an authenticated live subset of that
 conversion. Versioned immutable receipts retain the selected archive/member,
 group generation, resource identity, exact bytes/SHA-256, DDS/DX10 facts, and
 generated-fallback rule. Authenticated texture loads hand OGRE a replacement
@@ -1375,11 +1386,16 @@ memory stream over those identical captured bytes and never reopen by name or
 [OGRE 14 authenticated source-texture receipts](OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md).
 The registry now also privately mints a non-forgeable resolution for the exact
 already-loaded Texture at checked pre-load state plus one. ContentManager
-validates TextureManager ownership and indices, and the native extractor
-retains that exact receipt/registry owner and revalidates the reacquired TUS
-TexturePtr immediately before publication. This closes source identity through
-authenticated native capture, not live Ogre-Next scene-material consumption or
-the V1 image-quality gate.
+validates TextureManager ownership and indices. The private combined material
+source now decodes authenticated DDS, PNG, and JPEG bytes directly to the
+renderer-neutral texture descriptor, matches the loaded native dimensions,
+and revalidates the exact receipt plus one common final authority snapshot
+before a frame-reachable projection is published. Authenticated decode or
+authority failure rejects the joined capture and never falls back to GPU
+readback. The remaining unauthenticated content path is explicitly counted and
+may still use the legacy readback. This closes live source-byte consumption
+for the bounded opaque TUS0 demo subset, not general semantic-material
+translation or the V1 image-quality gate.
 
 The opt-in Ogre-Next `MODERN_PBR_RT4_V1` checkpoint now implements a measured
 subset of that path: authored tangent/UV0 geometry, sRGB base-color/emissive

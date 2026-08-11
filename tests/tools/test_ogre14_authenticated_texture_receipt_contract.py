@@ -406,7 +406,9 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             "ror-legacy-material-procedural-dds-v1",
             "never reopen",
             "behavior remains separate and unchanged",
-            "not live Ogre-Next material consumption",
+            "bounded private combined-demo TUS0 subset",
+            "not visual-fidelity evidence",
+            "general semantic-material translation",
             "process terminates",
             "not a recoverable group state",
         ):

@@ -37,14 +37,17 @@ installed legacy `RoR.app` by LaunchServices.
   product bridge skips the legacy render traversal that normally pumps its
   main-thread WorkQueue responses.
 - An internal map-scoped material source projects the first authored
-  technique's ordinary TUS0 of a
-  narrowly eligible opaque non-terrain pass into conventional sRGB
-  rough-dielectric PBR. It freshly reads mip zero once, preserves its RGB,
-  forces opaque alpha, and generates the complete tail in linear light before
-  sRGB re-encoding. Exact texture, sampler, and material owners are cached for
-  the map generation; no nonzero native mip is read through the pinned Metal
-  path. General content requires one pass, one texture unit, and no authored
-  GPU program. It does not consult OGRE's mutable active-scheme
+  technique's ordinary TUS0 of a narrowly eligible opaque non-terrain pass into
+  conventional sRGB rough-dielectric PBR. For an authenticated package it
+  resolves the exact retained source receipt and decodes bounded DDS, PNG, or
+  JPEG bytes directly; source selection, decode, and authority failure reject
+  the joined capture and never fall back to GPU readback. Ordinary packages
+  retain an explicitly counted mip-zero native-readback path. Both routes
+  preserve RGB, force opaque alpha, and generate the complete tail in linear
+  light before sRGB re-encoding. Exact texture, sampler, and material owners
+  are cached for the map generation; no nonzero native mip is read through the
+  pinned Metal path. General content requires one pass, one texture unit, and
+  no authored GPU program. It does not consult OGRE's mutable active-scheme
   `getBestTechnique()` selection. An exact Alexis Saber opaque-material
   allowlist may deliberately use only pass zero's diffuse TUS0 while
   discarding the known additive specular pass; transparent lens and window
@@ -96,6 +99,12 @@ authored pass being projected.
 Projected material, texture, and sampler owners remain published through actor
 destruction until the ordered map reset, so a later respawn never resurrects a
 retired source ID.
+Only current frame-reachable authenticated projections must fresh-resolve their
+receipt and pass one common final authority snapshot before publication.
+Unreachable cached owners are immutable anti-tombstone catalog entries; a
+same-map bundle reload cannot make one reachable again without fresh exact
+authority. Missing, revoked, or changed authority rejects the whole candidate
+transaction with zero authenticated GPU fallback.
 
 Static CityWorld admission uses the smallest camera-centered sphere enclosing
 the current child drawable aspect and normalized 350 m frustum. The product

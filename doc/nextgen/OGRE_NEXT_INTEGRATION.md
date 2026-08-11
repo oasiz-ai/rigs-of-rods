@@ -901,27 +901,37 @@ specular heuristic. It supplies the explicit declaration gate required by the
 live material coordinator; it does not itself wire CityWorld materials or make
 the Ogre-Next renderer production-ready.
 
-The renderer-neutral `Ogre14SourceTextureDecoder` version 1 closes the legacy
-DDS byte-normalization slice without importing Ogre or a GPU decoder. It
-follows the fixed 128-byte legacy DDS header layout with explicit little-endian
-reads, validates the entire declared 2D mip chain under hard and configurable
-byte/dimension caps, then emits canonical tightly packed RGBA8_UNORM. The
-supported source set is DXT1/BC1, DXT3/BC2, DXT5/BC3, unsigned ATI1/BC4,
-unsigned ATI2/BC5, and exact 32-bit RGBA/RGBX/BGRA/BGRX masks. Integer-only
-palette interpolation and virtual-edge clipping make output deterministic
-across macOS, Windows, and Linux.
+The renderer-neutral `Ogre14SourceTextureDecoder` version 1 closes the bounded
+source-byte normalization slice without importing Ogre or a GPU decoder. Its
+legacy DDS path follows the fixed 128-byte header layout with explicit
+little-endian reads, validates the entire declared 2D mip chain under hard and
+configurable byte/dimension caps, then emits canonical tightly packed
+RGBA8_UNORM. The supported DDS set is DXT1/BC1, DXT3/BC2, DXT5/BC3, unsigned
+ATI1/BC4, unsigned ATI2/BC5, and exact 32-bit RGBA/RGBX/BGRA/BGRX masks.
+Integer-only palette interpolation and virtual-edge clipping make DDS output
+deterministic across macOS, Windows, and Linux. The auto-detect entry point also
+admits a narrowly preflighted PNG/JPEG subset and canonicalizes it to top-down
+RGBA8 through one pinned private-static `stb_image` implementation.
 
 Color transfer semantics are deliberately external: an authoritative content
 or material record must select sRGB color or linear data, and a DXT1 caller
 must separately select opaque or one-bit-alpha interpretation. The decoder
 does not infer either fact from names, FourCC values, flags, or pixels. It
-rejects DX10 extensions and arrays, cube maps, volumes, signed and unknown
+rejects DX10 extensions and arrays, cube maps, volumes, signed and unknown DDS
 formats, ambiguous channel layouts, inconsistent top-level sizes, impossible
-mip counts, arithmetic overflow, truncation, and trailing data. Full validation
-precedes allocation; successful decoding uses a no-throw final move, while
-injected `bad_alloc` and arbitrary exceptions preserve the previous output.
-This is a source-data prerequisite for the future live material coordinator,
-not evidence that CityWorld textures have been uploaded or rendered.
+mip counts, unsupported PNG/JPEG modes, arithmetic overflow, truncation, and
+trailing data. Full validation precedes allocation; successful decoding uses a
+no-throw final move, while injected `bad_alloc` and arbitrary exceptions
+preserve the previous output.
+
+The combined demo material source now consumes this decoder only from an exact
+authenticated texture resolution. It matches the loaded OGRE texture extent,
+revalidates immutable receipt and decode provenance, then authenticates all
+frame-reachable texture keys against one final snapshot before committing the
+asset batch. Failure rejects that joined capture and never falls back to GPU
+readback. The unauthenticated package path remains separately counted and
+still uses native readback. This is live bounded CityWorld source-byte
+consumption, not a general PBR material translator or a visual-quality result.
 
 Run the bounded audit with:
 

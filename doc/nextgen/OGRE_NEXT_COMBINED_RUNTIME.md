@@ -1,9 +1,9 @@
 # OgreNext combined runtime
 
 Status: **implemented as an opt-in macOS arm64 combined product; the exact
-one-process N1/Metal link and live CityWorld/Alexis path pass, while visible
-image/resize acceptance, performance, native content import, cross-platform
-parity, and default-product cutover remain gated**
+one-process N1/Metal link and live CityWorld authenticated source-texture path
+pass, while visible image/resize acceptance, performance, native mesh import,
+cross-platform parity, and default-product cutover remain gated**
 
 ## Product objective
 
@@ -137,34 +137,60 @@ target is opt-in; it is not an automatic fallback from a failed combined run.
 
 ## Current macOS arm64 evidence
 
-On 2026-08-11, a fresh clean build at commit
-`d670714e9bfa44cbf8b4ca6b20e217acb62f327a` produced the arm64
+On 2026-08-11, a fresh clean build from exact source commit
+`cd693c2f404d29c087e8788030e3645ecfc4debf` produced the arm64
 `RoR-Combined` binary with SHA-256
-`16b462a2c8dc0f41e375742cd38ec6dcaef54f26e347d6dada3c65b3fc36c57f`.
-The final closure receipt proves all 376 fetched OgreNext compile entries used
-the strict floating-point suffix, the complete namespace audit passed, required
-OgreNext and OGRE 14 contributors were present, and no bridge or transport
-object or symbol was linked. The separate staged-resource receipt proves all
-270 renderer-resource files matched their authenticated manifest.
+`fca0609a59a73c5b01faf7e0596bd88c85c49299c10479c319cba3976b8aac8f`.
+Its final closure receipt,
+`source/main/RoR-Combined.binary-closure.json`, has SHA-256
+`30eafbd656f874b78afaf239424378295a885400dead501e88f2d60da1e892a7`
+and proves all 376 fetched OgreNext compile entries used the strict
+floating-point suffix, the complete namespace and selected-source audits
+passed, all required OgreNext and OGRE 14 contributors were present, and no
+bridge/transport object, second SDL implementation, root static libpng/libjpeg
+member, external PNG/JPEG/stb symbol, or extra codec dylib outside the
+authenticated OGRE 14 `Codec_FreeImage` closure entered the process.
+It also binds the single private `stb_image` implementation and the exact
+upstream header, lock, license, compile options, object, and live symbol set.
+Separately, the staged-resource completion receipt,
+`ror-ogre-next-combined-resources/.complete.json`, has SHA-256
+`94f706dab4b4a3a389b48cf4c93654456f0804f27665067df9c9a1734b9006ef`
+and proves all 270 renderer-resource files matched manifest SHA-256
+`6be661fc989dc6f4d5c4c5b37a9127a7d8582d5ad372eebf7b487aa13ee8a535`.
+The resource receipt is distinct from the final binary-closure receipt.
 
-An isolated CityWorld/Alexis run then stayed alive for more than six minutes as
-one process with zero child processes and zero pipe or FIFO descriptors. It
-loaded the Metal/AGX runtime and allocated live `CAMetalLayer` drawables. The
-exact 158,845,395-byte CityWorld archive was mounted as the sole authenticated
-`EmbeddedZip` location under SHA-256
-`ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`.
-All 20 CityWorld material scripts completed without compiler errors; 23
+An isolated CityWorld/Alexis run then stayed active for more than 2 minutes 21
+seconds as one process with zero child processes and zero pipe or FIFO
+descriptors. It loaded the Metal/AGX runtime, and CoreGraphics reported one
+onscreen window owned by that exact PID. The exact 158,845,395-byte CityWorld
+archive was mounted as the sole authenticated `EmbeddedZip` location under
+SHA-256
+`ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3`;
+Alexis remained an ordinary ZIP and therefore retained the explicitly labelled
+unauthenticated fallback.
+
+The first joined material commit kept 32 opaque TUS0 projections and reported
+29 authenticated source-byte decodes, zero authenticated GPU readbacks, and
+three explicitly labelled unauthenticated-path GPU readbacks. Later lazy
+observations raised the active projection count to 45 and the authenticated
+source-decode total to 42 without changing the zero authenticated-readback
+count. All 20 CityWorld material scripts completed without compiler errors; 23
 reviewed aliases and 11 reviewed lit fallbacks resolved the remaining legacy
-names. CityWorld missing-material diagnostics fell from 359 to zero, leaving
-only two unrelated `MeshesRG` diagnostics, while 32 opaque TUS0 projections
-remained active. The supervised exit reached
-`[RoR|RendererCombined|Shutdown] status='closed', pending=0` and produced no
+names, and CityWorld missing-material diagnostics remained at zero. The
+supervised `SIGTERM` was
+handled as an SDL quit, exited with status zero, reached
+`[RoR|RendererCombined|Shutdown] status='closed', pending=0`, and produced no
 crash report.
 
-The desktop was locked during this run, so the allocated Metal drawables and
-active N1 render path are not a visual pixel-quality, input, or resize result.
-No FPS was recorded. Those visible-image and performance gates remain open,
-along with map-reset/unmount acceptance inside a continuing process.
+The logged lifetime `projections` counter is the cumulative sum of per-capture
+reachable projections, not another active-catalog count; only the explicit
+32-to-45 active count and 29-to-42 source-decode count are used above.
+
+The raw build-tree window could not be addressed or captured by the available
+desktop automation. The onscreen-window and Metal runtime observations are
+therefore not a visual pixel-quality, steering/camera-input, or live-resize
+result. No FPS was recorded. Those visible-image and performance gates remain
+open, along with same-process map-reset/unmount acceptance.
 
 ## Acceptance gates
 
@@ -179,6 +205,8 @@ The first macOS gate requires all of the following:
 - positive OgreNext presented-frame evidence and zero Ogre14 presentations;
 - CityWorld terrain, projected opaque materials, and Alexis deformation render
   through the same direct session;
+- every frame-reachable authenticated projected texture is decoded from its
+  retained source receipt, with zero authenticated GPU readback or fallback;
 - resize, map reset, shutdown, and a sustained live run do not crash or leak.
 
 Linux/Vulkan and Windows/D3D11 then require the same symbol, lifecycle, scene,
