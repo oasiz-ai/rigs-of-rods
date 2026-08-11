@@ -252,6 +252,8 @@ RELEVANT_SOURCE_PATHS = (
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h",
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",

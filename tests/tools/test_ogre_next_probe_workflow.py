@@ -74,6 +74,8 @@ OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
     "doc/nextgen/OGRE_NEXT_DEMO_PRIVATE_BRIDGE.md",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
     "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h",
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",
+    "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.h",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
     "source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h",
     "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
@@ -221,6 +223,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "ror_ogre_next_demo_private_policy_tests",
             "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
             "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp",
+            "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",
             "source/main/system/detail/OgreNextDemoFrameNormalization.cpp",
             "add_test(NAME ror_ogre_next_demo_private_policy",
         ):
@@ -262,10 +265,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
                 "set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES"
             ))
         ]
-        self.assertIn(
+        for strict_source in (
             "gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
-            ogre14_strict_fp,
-        )
+            "gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp",
+        ):
+            with self.subTest(ogre14_strict_fp_source=strict_source):
+                self.assertIn(strict_source, ogre14_strict_fp)
 
         terrain_source = (
             REPOSITORY_ROOT
@@ -292,6 +297,54 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             / "source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
         ).read_text(encoding="utf-8")
         self.assertIn("texture.mip_levels.size() != 1U", private_policy)
+        self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", private_policy)
+        material_source = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(material_source.count("blitToMemory("), 1)
+        self.assertIn(
+            "buffer->blitToMemory(native_destination)", material_source
+        )
+        self.assertNotIn("buffer->blitToMemory(destination)", material_source)
+        for native_readback_token in (
+            "Ogre::PixelUtil::isCompressed(native_format)",
+            "Ogre::PixelUtil::getNumElemBytes(native_format)",
+            "native_texture->getFormat() != native_format",
+            "buffer_after->getFormat() != native_format",
+            "Ogre::PixelUtil::bulkPixelConversion(native_destination, destination)",
+            "captured.native_format = captured_native_format",
+            "texture->second.native_format != native_texture->getFormat()",
+            "texture->second.native_format != native_base->getFormat()",
+        ):
+            with self.subTest(native_readback_token=native_readback_token):
+                self.assertIn(native_readback_token, material_source)
+        self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", material_source)
+        self.assertIn("OgreNextDemoAllowsAlexisTUS0Approximation", material_source)
+        self.assertIn("EquivalentRenderAssetPayload", material_source)
+        self.assertIn("exact_unsigned_rgb8", material_source)
+        self.assertIn("std::shared_ptr<MaterialCache> cache", material_source)
+        self.assertIn("pending_->cache.unique()", material_source)
+        self.assertIn(
+            "for (const auto &projection_entry : pending_->cache->projections)",
+            material_source,
+        )
+        apply_source = material_source[
+            material_source.index(
+                "Render::ValidationResult OgreNextDemoMaterialSource::Apply("
+            ) :
+        ]
+        self.assertNotIn(
+            "for (const std::string &key : pending_->used_projections)",
+            apply_source,
+        )
+        self.assertIn("PreflightTextureBase(native_texture", material_source)
+        self.assertIn("current_projection_key != decision->second.projection_key",
+                      material_source)
+        self.assertIn('"dynamic/" + BuildNativeDynamicMeshCacheKey(identity)',
+                      gfx_scene)
+        self.assertIn('"static/" +', gfx_scene)
+        self.assertIn("Committed {} new opaque TUS0", gfx_scene)
         terrain_pages = gfx_scene[
             gfx_scene.index("CaptureOgre14TerrainPages(") :
         ]

@@ -126,6 +126,78 @@ void CheckMalformedMipRollback() {
           "native nonzero mip was read or partially rewritten");
 }
 
+void CheckConventionalSrgbPbrMipChain() {
+  TextureResourceDescriptor texture;
+  texture.debug_name = "OgreNextDemo/TestSrgbPbr";
+  texture.type = TextureResourceType::TEXTURE_2D;
+  texture.format = TextureResourceFormat::RGBA8_UNORM;
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 2U;
+  texture.height = 2U;
+  texture.array_layers = 1U;
+  texture.mip_levels.push_back(MakeMip(
+      2U, 2U,
+      {// Hostile black/white contrast in R, midtones in G, and four
+       // distinct midtones in B. Authored alpha must not affect RGB.
+       0U, 64U, 16U, 0U, 0U, 64U, 80U, 1U,
+       255U, 192U, 144U, 127U, 255U, 192U, 208U, 254U}));
+  const std::vector<std::uint8_t> base_before =
+      texture.mip_levels.front().bytes;
+
+  const ValidationResult result =
+      CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  Require(result.ok(), "valid conventional sRGB PBR base was rejected");
+  Require(texture.mip_levels.size() == 2U &&
+              texture.mip_levels.back().width == 1U &&
+              texture.mip_levels.back().height == 1U,
+          "conventional sRGB PBR base was not completed through 1x1");
+  const std::array<std::uint8_t, 4U> expected{{188U, 146U, 137U, 255U}};
+  Require(std::equal(expected.begin(), expected.end(),
+                     texture.mip_levels[1U].bytes.begin()),
+          "linear-light sRGB 2x2 box result changed");
+  Require(texture.mip_levels[1U].bytes[0U] != 128U &&
+              texture.mip_levels[1U].bytes[1U] != 128U &&
+              texture.mip_levels[1U].bytes[2U] != 112U,
+          "sRGB PBR mips regressed to averaging encoded bytes");
+  for (std::size_t offset = 0U; offset < base_before.size(); ++offset) {
+    if (offset % 4U == 3U) {
+      Require(texture.mip_levels[0U].bytes[offset] == 255U,
+              "sRGB PBR base alpha was not forced opaque");
+    } else {
+      Require(texture.mip_levels[0U].bytes[offset] == base_before[offset],
+              "sRGB PBR base RGB byte changed");
+    }
+  }
+}
+
+void CheckConventionalSrgbPbrRollback() {
+  TextureResourceDescriptor texture = NativeBaseLevel();
+  texture.mip_levels[0U].layer_pitch_bytes -= 4U;
+  const TextureResourceDescriptor before = texture;
+  const ValidationResult result =
+      CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  Require(!result.ok() && result.code == ValidationCode::SIZE_MISMATCH &&
+              texture.mip_levels.size() == before.mip_levels.size() &&
+              texture.mip_levels[0U].bytes ==
+                  before.mip_levels[0U].bytes &&
+              texture.mip_levels[0U].layer_pitch_bytes ==
+                  before.mip_levels[0U].layer_pitch_bytes,
+          "malformed sRGB PBR base partially changed the candidate");
+
+  texture = NativeBaseLevel();
+  texture.mip_levels.push_back(MakeMip(
+      2U, 2U, std::vector<std::uint8_t>(2U * 2U * 4U, 31U)));
+  const TextureResourceDescriptor extra_before = texture;
+  const ValidationResult extra =
+      CompleteOgreNextDemoSrgbPbrMipChain(texture);
+  Require(!extra.ok() && texture.mip_levels.size() == 2U &&
+              texture.mip_levels[0U].bytes ==
+                  extra_before.mip_levels[0U].bytes &&
+              texture.mip_levels[1U].bytes ==
+                  extra_before.mip_levels[1U].bytes,
+          "authored sRGB PBR nonzero mip was consumed or rewritten");
+}
+
 void CheckSamplingRejectionsAndMutation() {
   OgreNextDemoSamplingObservation canonical;
   canonical.exact_native_state = "stable-native-state";
@@ -275,6 +347,26 @@ void CheckMatteFallbackPolicy() {
               !OgreNextDemoOmitsNonUniformSpeedBump(
                   "other.mesh", {1.0F, 0.5F, 0.5F}),
           "CityWorld speed-bump omission broadened beyond its exact identity");
+  Require(OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}",
+                  "SaberChassis (AlexisSaber.truck [Instance ID 17])") &&
+              OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}",
+                  "SaberGrilles (AlexisSaber.truck [Instance ID 0])") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}", "SaberLens") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}", "SaberBody") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}",
+                  "SaberChassis (Other.truck [Instance ID 17])") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}",
+                  "SaberChassis (AlexisSaber.truck [Instance ID x])") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "OtherGroup",
+                  "SaberChassis (AlexisSaber.truck [Instance ID 17])"),
+          "Alexis opaque TUS0 approximation escaped its exact content scope");
 }
 
 void CheckMatteMeshNormalization() {
@@ -373,6 +465,8 @@ void CheckMatteMeshNormalization() {
 int main() {
   CheckFullMipOpaqueLowering();
   CheckMalformedMipRollback();
+  CheckConventionalSrgbPbrMipChain();
+  CheckConventionalSrgbPbrRollback();
   CheckSamplingRejectionsAndMutation();
   CheckIdentityCollisionAndRollback();
   CheckStaticCaptureAdmission();

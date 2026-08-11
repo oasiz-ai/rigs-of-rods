@@ -48,6 +48,15 @@ struct OgreNextDemoSamplingObservation final {
 [[nodiscard]] Render::ValidationResult CompleteOgreNextDemoOpaqueMipChain(
     Render::TextureResourceDescriptor &texture);
 
+/// Completes a freshly read tight RGBA8 base level for a conventional sRGB
+/// PBR base-color texture. Each generated RGB texel is decoded with the exact
+/// sRGB EOTF, averaged as a 2x2 linear-light box, then encoded with the exact
+/// sRGB OETF and deterministic nearest-byte rounding. Alpha is forced opaque
+/// at every level. This path is intentionally separate from the terrain's
+/// display-domain mip contract above. The input is unchanged on failure.
+[[nodiscard]] Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
+    Render::TextureResourceDescriptor &texture);
+
 [[nodiscard]] Render::ValidationResult DeriveOgreNextDemoSourceId(
     std::string_view domain, std::string_view exact_key,
     std::uint64_t &source_id);
@@ -107,5 +116,12 @@ private:
 [[nodiscard]] bool OgreNextDemoOmitsNonUniformSpeedBump(
     std::string_view exact_mesh_name,
     const Render::Float3 &derived_scale) noexcept;
+
+/// Exact content-scoped exception for the first macOS demo. These opaque
+/// Alexis materials may project only TUS0 while explicitly discarding their
+/// legacy specular/program layers. No other material receives that shortcut.
+[[nodiscard]] bool OgreNextDemoAllowsAlexisTUS0Approximation(
+    std::string_view exact_resource_group,
+    std::string_view exact_material_name) noexcept;
 
 } // namespace RoR::Gfx::Detail

@@ -36,11 +36,26 @@ installed legacy `RoR.app` by LaunchServices.
 - OGRE derived terrain work is joined at the capture boundary because the
   product bridge skips the legacy render traversal that normally pumps its
   main-thread WorkQueue responses.
-- Textured or programmed non-terrain materials that the factor-only fallback
-  cannot represent become one neutral opaque matte while keeping real mesh
-  geometry, culling, visibility, transforms, and FlexBody deformation. Alexis
-  texture-blend colors are dropped. Its authored zero-alpha, no-depth-write
-  `invisible` cab section is omitted instead of being made visible.
+- An internal map-scoped material source projects the first authored
+  technique's ordinary TUS0 of a
+  narrowly eligible opaque non-terrain pass into conventional sRGB
+  rough-dielectric PBR. It freshly reads mip zero once, preserves its RGB,
+  forces opaque alpha, and generates the complete tail in linear light before
+  sRGB re-encoding. Exact texture, sampler, and material owners are cached for
+  the map generation; no nonzero native mip is read through the pinned Metal
+  path. General content requires one pass, one texture unit, and no authored
+  GPU program. It does not consult OGRE's mutable active-scheme
+  `getBestTechnique()` selection. An exact Alexis Saber opaque-material
+  allowlist may deliberately use only pass zero's diffuse TUS0 while
+  discarding the known additive specular pass; transparent lens and window
+  materials are not on that allowlist.
+- Textured or programmed materials outside that opaque TUS0 subset remain one
+  neutral matte while keeping real mesh geometry, culling, visibility,
+  transforms, and FlexBody deformation. This includes transparent glass,
+  alpha-tested foliage, animated/projective units, nonidentity UV transforms,
+  and unavailable texture data. Alexis texture-blend colors are dropped. Its
+  authored zero-alpha, no-depth-write `invisible` cab section is omitted instead
+  of being made visible.
 - Every private non-terrain mesh is normalized to RT4's position, normal,
   tangent, UV0 layout. Missing UV0 becomes zero; finite nonzero normals are
   normalized while absent, zero, or non-finite normals become deterministic
@@ -58,10 +73,23 @@ installed legacy `RoR.app` by LaunchServices.
 
 ## Transaction and performance boundary
 
-Terrain assets use private, domain-separated source IDs with a bidirectional
-collision check. Terrain, static, and dynamic candidates commit or discard as
-one joined capture; no payload is trusted solely from `Texture::stateCount`.
-No receipt, digest, or audit type is added to a public header.
+Terrain and projected material assets use private, domain-separated source IDs
+with bidirectional collision checks. Terrain, static, dynamic, and projected
+material candidates commit or discard as one joined capture; source dependency
+ID collisions reject instead of aliasing unrelated payloads. No payload is
+trusted solely from `Texture::stateCount`, and no receipt, digest, or audit type
+is added to a public header.
+
+The first joined material observation fixes whether each exact static or
+dynamic section remains on the generic factor path or enters the private
+matte/projection path, together with material name, UV layout, and cull.
+Generic factor values remain owned by the existing inventory. A later mode,
+material-name, UV-layout, cull, or projected native-authority transition
+rejects the joined capture; the bridge retains the last accepted frame rather
+than toggling a live object between identities.
+Projected material, texture, and sampler owners remain published through actor
+destruction until the ordered map reset, so a later respawn never resurrects a
+retired source ID.
 
 Static CityWorld admission uses the smallest camera-centered sphere enclosing
 the current child drawable aspect and normalized 350 m frustum. The product

@@ -8,6 +8,7 @@
 #include "OgreNextDemoPrivatePolicy.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -34,6 +35,25 @@ std::uint32_t CompleteMipCount(std::uint32_t width,
     ++count;
   }
   return count;
+}
+
+double DecodeSrgbByte(std::uint8_t encoded_byte) {
+  const double encoded = static_cast<double>(encoded_byte) / 255.0;
+  if (encoded <= 0.04045) {
+    return encoded / 12.92;
+  }
+  return std::pow((encoded + 0.055) / 1.055, 2.4);
+}
+
+std::uint8_t EncodeLinearSrgbByte(double linear) {
+  const double encoded = linear <= 0.0031308
+                             ? linear * 12.92
+                             : 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+  const double scaled =
+      (std::clamp)(encoded, 0.0, 1.0) * 255.0;
+  // All inputs are finite decoded bytes, so floor(x + 0.5) is an exact,
+  // deterministic round-to-nearest rule with ties resolved upward.
+  return static_cast<std::uint8_t>(std::floor(scaled + 0.5));
 }
 
 } // namespace
@@ -192,6 +212,118 @@ Render::ValidationResult CompleteOgreNextDemoOpaqueMipChain(
     }
     texture.mip_levels.push_back(std::move(destination));
   }
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult CompleteOgreNextDemoSrgbPbrMipChain(
+    Render::TextureResourceDescriptor &texture) {
+  if (texture.type != Render::TextureResourceType::TEXTURE_2D ||
+      texture.format != Render::TextureResourceFormat::RGBA8_UNORM ||
+      texture.color_space != Render::TextureColorSpace::SRGB ||
+      texture.array_layers != 1U || texture.width == 0U ||
+      texture.height == 0U || texture.mip_levels.size() != 1U) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.material.texture.full_mip_chain",
+                   "sRGB PBR lowering requires exactly one fresh SRGB RGBA8 2D base level");
+  }
+
+  const Render::TextureMipLevelDescriptor &base =
+      texture.mip_levels.front();
+  const std::uint64_t row_bytes =
+      static_cast<std::uint64_t>(texture.width) * 4U;
+  if (texture.height != 0U &&
+      row_bytes > (std::numeric_limits<std::uint64_t>::max)() /
+                      texture.height) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.material.texture.mip_layout",
+                   "RGBA8 base-level byte count overflows", 0U);
+  }
+  const std::uint64_t layer_bytes = row_bytes * texture.height;
+  if (layer_bytes > static_cast<std::uint64_t>(
+                        (std::numeric_limits<std::size_t>::max)()) ||
+      base.width != texture.width || base.height != texture.height ||
+      base.row_pitch_bytes != row_bytes ||
+      base.layer_pitch_bytes != layer_bytes ||
+      base.bytes.size() != static_cast<std::size_t>(layer_bytes)) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.material.texture.mip_layout",
+                   "sRGB PBR lowering requires an exact tight RGBA8 base layout",
+                   0U);
+  }
+
+  // Work on a complete candidate so every validation failure leaves the
+  // caller's freshly read native base byte-for-byte unchanged.
+  Render::TextureResourceDescriptor candidate = texture;
+  for (std::size_t alpha = 3U;
+       alpha < candidate.mip_levels.front().bytes.size(); alpha += 4U) {
+    candidate.mip_levels.front().bytes[alpha] = 255U;
+  }
+
+  while (candidate.mip_levels.size() <
+         CompleteMipCount(candidate.width, candidate.height)) {
+    const Render::TextureMipLevelDescriptor &source =
+        candidate.mip_levels.back();
+    Render::TextureMipLevelDescriptor destination;
+    destination.width = (std::max)(1U, source.width / 2U);
+    destination.height = (std::max)(1U, source.height / 2U);
+    destination.row_pitch_bytes =
+        static_cast<std::uint64_t>(destination.width) * 4U;
+    destination.layer_pitch_bytes =
+        destination.row_pitch_bytes * destination.height;
+    if (destination.layer_pitch_bytes >
+        static_cast<std::uint64_t>(
+            (std::numeric_limits<std::size_t>::max)())) {
+      return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                     "ogre_next_demo.material.texture.generated_mip",
+                     "generated mip allocation exceeds host address space");
+    }
+    destination.bytes.resize(
+        static_cast<std::size_t>(destination.layer_pitch_bytes));
+
+    for (std::uint32_t y = 0U; y < destination.height; ++y) {
+      const std::uint32_t source_y0 = y * 2U;
+      const std::uint32_t source_y1 =
+          (std::min)(source_y0 + 1U, source.height - 1U);
+      for (std::uint32_t x = 0U; x < destination.width; ++x) {
+        const std::uint32_t source_x0 = x * 2U;
+        const std::uint32_t source_x1 =
+            (std::min)(source_x0 + 1U, source.width - 1U);
+        const std::size_t offsets[4U] = {
+            static_cast<std::size_t>(source_y0) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x0) * 4U,
+            static_cast<std::size_t>(source_y0) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x1) * 4U,
+            static_cast<std::size_t>(source_y1) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x0) * 4U,
+            static_cast<std::size_t>(source_y1) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x1) * 4U,
+        };
+        const std::size_t output =
+            static_cast<std::size_t>(y) * destination.row_pitch_bytes +
+            static_cast<std::size_t>(x) * 4U;
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+          const double linear_average =
+              (DecodeSrgbByte(source.bytes[offsets[0U] + channel]) +
+               DecodeSrgbByte(source.bytes[offsets[1U] + channel]) +
+               DecodeSrgbByte(source.bytes[offsets[2U] + channel]) +
+               DecodeSrgbByte(source.bytes[offsets[3U] + channel])) /
+              4.0;
+          destination.bytes[output + channel] =
+              EncodeLinearSrgbByte(linear_average);
+        }
+        destination.bytes[output + 3U] = 255U;
+      }
+    }
+    candidate.mip_levels.push_back(std::move(destination));
+  }
+
+  Render::ValidationResult validation =
+      Render::ValidateTextureResourceDescriptor(candidate);
+  if (!validation) {
+    validation.field = "ogre_next_demo.material.texture." + validation.field;
+    return validation;
+  }
+  texture = std::move(candidate);
   return Render::ValidationResult::Success();
 }
 
@@ -473,6 +605,41 @@ bool OgreNextDemoOmitsNonUniformSpeedBump(
     const Render::Float3 &derived_scale) noexcept {
   return exact_mesh_name == "topeQr.mesh" && derived_scale.x == 1.0F &&
          derived_scale.y == 0.5F && derived_scale.z == 0.5F;
+}
+
+bool OgreNextDemoAllowsAlexisTUS0Approximation(
+    std::string_view exact_resource_group,
+    std::string_view exact_material_name) noexcept {
+  if (exact_resource_group != "{bundle USER:/mods/AlexisSaber.zip}") {
+    return false;
+  }
+  constexpr std::array<std::string_view, 4U> kOpaqueManagedNames{{
+      "SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles"}};
+  constexpr std::string_view kSuffixPrefix =
+      " (AlexisSaber.truck [Instance ID ";
+  constexpr std::string_view kSuffixEnd = "])";
+  for (const std::string_view base : kOpaqueManagedNames) {
+    if (exact_material_name.size() <=
+            base.size() + kSuffixPrefix.size() + kSuffixEnd.size() ||
+        exact_material_name.substr(0U, base.size()) != base ||
+        exact_material_name.substr(base.size(), kSuffixPrefix.size()) !=
+            kSuffixPrefix ||
+        exact_material_name.substr(exact_material_name.size() -
+                                   kSuffixEnd.size()) != kSuffixEnd) {
+      continue;
+    }
+    const std::string_view instance = exact_material_name.substr(
+        base.size() + kSuffixPrefix.size(),
+        exact_material_name.size() - base.size() - kSuffixPrefix.size() -
+            kSuffixEnd.size());
+    if (!instance.empty() &&
+        std::all_of(instance.begin(), instance.end(), [](char value) {
+          return value >= '0' && value <= '9';
+        })) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace RoR::Gfx::Detail

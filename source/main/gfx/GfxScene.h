@@ -31,6 +31,7 @@
 #include "GfxActorCaptureInventory.h"
 #include "GfxData.h"
 #include "ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
+#include "ogre14/detail/OgreNextDemoMaterialSource.h"
 #include "render/Ogre14GraphicsSceneSource.h"
 #include "SimBuffers.h"
 #include "Skidmark.h"
@@ -151,6 +152,8 @@ private:
     bool                               m_ogre_next_demo_capture_enabled = false;
     Gfx::Detail::Ogre14ToOgreNextTerrainSource
                                        m_ogre_next_demo_terrain_source;
+    Gfx::Detail::OgreNextDemoMaterialSource
+                                       m_ogre_next_demo_material_source;
     // Map-generation identities reset only at ClearScene(), after the product
     // session has sequenced the preceding authoritative empty scene.
     Render::Ogre14GraphicsSceneLightIdentityRegistry
@@ -192,6 +195,8 @@ private:
         std::map<std::string,
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
                  std::less<>> dynamic_mesh_cache;
+        std::size_t new_material_projection_count = 0U;
+        std::size_t active_material_projection_count = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 
