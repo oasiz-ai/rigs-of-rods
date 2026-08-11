@@ -538,6 +538,136 @@ public:
     return result;
   }
 
+  [[nodiscard]] bool BootstrapIdentitiesAreZero() const noexcept {
+    return dispatcher != nullptr && dispatcher->asset_sequence() == 0U &&
+           dispatcher->last_consumed_scene_snapshot_id() == 0U &&
+           dispatcher->last_frontend_frame_id() == 0U;
+  }
+
+  RendererInProcessSessionResult PresentBootstrapFrame() noexcept {
+    if (!started || closed || terminal || producer == nullptr ||
+        dispatcher == nullptr || !config.present_frames ||
+        config.frontend.headless) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY);
+    }
+    if (simulation_granted || pending.has_value() ||
+        scene_generation_reset_pending || !BootstrapIdentitiesAreZero()) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY,
+                     Render::ValidationResult::Success(),
+                     Render::RenderOperationCode::INVALID_ARGUMENT);
+    }
+
+    std::uint32_t event_polls = 0U;
+    RendererInProcessSessionResult events =
+        PumpEvents(RendererInProcessEventPollPoint::BEFORE_SIMULATION,
+                   event_polls);
+    if (!events || events.status ==
+                       RendererInProcessSessionStatus::PENDING_BACKPRESSURE) {
+      return events;
+    }
+    if (shutdown_requested) {
+      return Result(RendererInProcessSessionStatus::SHUTDOWN_REQUESTED, true,
+                    false, event_polls);
+    }
+    // A show callback may have committed a newer native surface while its
+    // typed presenter notification is still in flight. Do not invoke the
+    // frontend against the session's older surface, and do not consume a
+    // second clear swap, until PumpEvents adopts that exact notification.
+    if (awaiting_frontend_surface_update) {
+      return Failure(
+          RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+          Render::ValidationResult::Success(),
+          Render::RenderOperationCode::RESOURCE_STALE, event_polls);
+    }
+    if (current_surface.suspended) {
+      return Result(RendererInProcessSessionStatus::WAITING_FOR_SURFACE, true,
+                    false, event_polls);
+    }
+    if (bootstrap_presented &&
+        bootstrap_surface_revision == current_surface.surface_revision) {
+      return Result(RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED, true,
+                    false, event_polls);
+    }
+
+    try {
+      Render::RenderOperationResult presented =
+          frontend.PresentBootstrapFrame();
+      if (!presented &&
+          presented.code == Render::RenderOperationCode::RESOURCE_STALE &&
+          presented.recovery ==
+              Render::RenderOperationRecovery::
+                  RETRY_AFTER_PRESENTATION_SURFACE_UPDATE) {
+        awaiting_frontend_surface_update = true;
+        RendererInProcessSessionResult adopted =
+            PumpEvents(RendererInProcessEventPollPoint::BEFORE_PRESENT,
+                       event_polls);
+        if (!adopted || adopted.status ==
+                            RendererInProcessSessionStatus::
+                                PENDING_BACKPRESSURE) {
+          return adopted;
+        }
+        if (awaiting_frontend_surface_update) {
+          return Failure(
+              RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+              Render::ValidationResult::Success(), presented.code,
+              event_polls);
+        }
+        if (shutdown_requested) {
+          return Result(
+              RendererInProcessSessionStatus::SHUTDOWN_REQUESTED, true,
+              false, event_polls);
+        }
+        if (current_surface.suspended) {
+          return Result(RendererInProcessSessionStatus::WAITING_FOR_SURFACE,
+                        true, false, event_polls);
+        }
+        presented = frontend.PresentBootstrapFrame();
+      }
+      if (!presented) {
+        if (presented.code == Render::RenderOperationCode::RESOURCE_STALE &&
+            presented.recovery ==
+                Render::RenderOperationRecovery::
+                    RETRY_AFTER_PRESENTATION_SURFACE_UPDATE) {
+          awaiting_frontend_surface_update = true;
+          return Failure(
+              RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+              Render::ValidationResult::Success(), presented.code,
+              event_polls);
+        }
+        return Poison(
+            RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION,
+            Render::ValidationResult::Success(), presented.code,
+            event_polls);
+      }
+      if (!BootstrapIdentitiesAreZero()) {
+        return Poison(
+            RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION,
+            Render::ValidationResult::Failure(
+                Render::ValidationCode::NON_DETERMINISTIC_ORDER,
+                "in_process_session.bootstrap_identity",
+                "clear-only bootstrap presentation advanced portable identities"),
+            Render::RenderOperationCode::BACKEND_FAILURE, event_polls);
+      }
+      bootstrap_presented = true;
+      bootstrap_surface_revision = current_surface.surface_revision;
+      return Result(RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED, true,
+                    false, event_polls);
+    } catch (const std::bad_alloc &) {
+      return Poison(RendererInProcessSessionStatus::FAILED_ALLOCATION,
+                    Render::ValidationResult::Success(),
+                    Render::RenderOperationCode::OUT_OF_MEMORY, event_polls);
+    } catch (const std::length_error &) {
+      return Poison(RendererInProcessSessionStatus::FAILED_ALLOCATION,
+                    Render::ValidationResult::Success(),
+                    Render::RenderOperationCode::OUT_OF_MEMORY, event_polls);
+    } catch (...) {
+      return Poison(
+          RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION,
+          Render::ValidationResult::Success(),
+          Render::RenderOperationCode::BACKEND_FAILURE, event_polls);
+    }
+  }
+
   RendererInProcessSessionResult PumpEventsBeforeSimulation() noexcept {
     if (!started || closed || terminal || producer == nullptr ||
         dispatcher == nullptr) {
@@ -896,8 +1026,10 @@ public:
   std::uint32_t last_scene_width = 0U;
   std::uint32_t last_scene_height = 0U;
   std::uint64_t finalizing_scene_snapshot_id = 0U;
+  std::uint64_t bootstrap_surface_revision = 0U;
   std::uint64_t closure_shutdown_timeout_nanoseconds = 5'000'000'000ULL;
   bool scene_generation_reset_pending = false;
+  bool bootstrap_presented = false;
   bool frontend_initialized = false;
   bool event_pump_quiesced = false;
   bool shutdown_requested = false;
@@ -923,6 +1055,11 @@ RendererInProcessSession::~RendererInProcessSession() {
 RendererInProcessSessionResult RendererInProcessSession::Start(
     const RendererInProcessSessionConfig &config) {
   return impl_->Start(config);
+}
+
+RendererInProcessSessionResult
+RendererInProcessSession::PresentBootstrapFrame() noexcept {
+  return impl_->PresentBootstrapFrame();
 }
 
 RendererInProcessSessionResult
@@ -1004,6 +1141,7 @@ bool IsKnownRendererInProcessSessionStatus(
     RendererInProcessSessionStatus status) noexcept {
   switch (status) {
   case RendererInProcessSessionStatus::READY:
+  case RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED:
   case RendererInProcessSessionStatus::EVENTS_PUMPED:
   case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
   case RendererInProcessSessionStatus::WAITING_FOR_SURFACE:
@@ -1018,6 +1156,7 @@ bool IsKnownRendererInProcessSessionStatus(
   case RendererInProcessSessionStatus::REJECTED_CONFIGURATION:
   case RendererInProcessSessionStatus::REJECTED_NOT_READY:
   case RendererInProcessSessionStatus::FAILED_FRONTEND_INITIALIZATION:
+  case RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION:
   case RendererInProcessSessionStatus::FAILED_EVENT_PUMP:
   case RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE:
   case RendererInProcessSessionStatus::FAILED_PRODUCER:
@@ -1033,6 +1172,8 @@ bool IsKnownRendererInProcessSessionStatus(
 const char *ToString(RendererInProcessSessionStatus status) noexcept {
   switch (status) {
   case RendererInProcessSessionStatus::READY: return "ready";
+  case RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED:
+    return "bootstrap_presented";
   case RendererInProcessSessionStatus::EVENTS_PUMPED:
     return "events_pumped";
   case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
@@ -1060,6 +1201,8 @@ const char *ToString(RendererInProcessSessionStatus status) noexcept {
     return "rejected_not_ready";
   case RendererInProcessSessionStatus::FAILED_FRONTEND_INITIALIZATION:
     return "failed_frontend_initialization";
+  case RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION:
+    return "failed_bootstrap_presentation";
   case RendererInProcessSessionStatus::FAILED_EVENT_PUMP:
     return "failed_event_pump";
   case RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE:

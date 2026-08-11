@@ -480,6 +480,25 @@ std::string Report(const OgreNextN1PresentationAudit &audit,
          << ",\n"
          << "  \"show_callback_calls\": " << audit.show_callback_calls
          << ",\n"
+         << "  \"bootstrap_clear_only\": "
+         << (audit.bootstrap_clear_only ? "true" : "false") << ",\n"
+         << "  \"bootstrap_presented_before_scene\": "
+         << (audit.bootstrap_presented_before_scene ? "true" : "false")
+         << ",\n"
+         << "  \"bootstrap_node_definition_creates\": "
+         << audit.bootstrap_node_definition_creates << ",\n"
+         << "  \"bootstrap_node_definition_destroys\": "
+         << audit.bootstrap_node_definition_destroys << ",\n"
+         << "  \"bootstrap_workspace_creates\": "
+         << audit.bootstrap_workspace_creates << ",\n"
+         << "  \"bootstrap_workspace_destroys\": "
+         << audit.bootstrap_workspace_destroys << ",\n"
+         << "  \"bootstrap_clear_passes\": "
+         << audit.bootstrap_clear_passes << ",\n"
+         << "  \"bootstrap_render_one_frame_calls\": "
+         << audit.bootstrap_render_one_frame_calls << ",\n"
+         << "  \"bootstrap_window_swap_completions\": "
+         << audit.bootstrap_window_swap_completions << ",\n"
          << "  \"source_target_creates\": "
          << audit.source_target_creates << ",\n"
          << "  \"source_target_destroys\": "
@@ -554,8 +573,6 @@ int main(int argc, char **argv) {
     SDL_SetMainReady();
 #endif
     const Arguments arguments = ParseArguments(argc, argv);
-    const RenderAssetDelta catalog = MakeCatalog();
-    const std::shared_ptr<const SceneSnapshot> scene = MakeScene();
 
     RoR::RendererOgreNextSdlWindowRuntime adapter;
     RoR::RendererOgreNextWindowRequest host_request;
@@ -598,12 +615,156 @@ int main(int argc, char **argv) {
     OgreNextN1Frontend frontend(std::move(frontend_configuration));
     RequireSuccess(frontend.Initialize(MakeInitialization(*metrics, window)),
                    "production presentation Initialize");
-    RequireSuccess(frontend.SynchronizeAssets(catalog),
-                   "production presentation SynchronizeAssets");
 
     std::uint64_t surface_revision = 1U;
     std::uint32_t width = metrics->drawable_width;
     std::uint32_t height = metrics->drawable_height;
+    RenderOperationResult bootstrap = frontend.PresentBootstrapFrame();
+    if (!bootstrap &&
+        bootstrap.code == RenderOperationCode::RESOURCE_STALE &&
+        bootstrap.recovery ==
+            RenderOperationRecovery::
+                RETRY_AFTER_PRESENTATION_SURFACE_UPDATE) {
+      surface_revision = show_context.surface_revision;
+      width = show_context.pixel_width;
+      height = show_context.pixel_height;
+      bootstrap = frontend.PresentBootstrapFrame();
+    }
+    RequireSuccess(bootstrap, "production clear-only bootstrap presentation");
+    const OgreNextN1PresentationAudit bootstrap_audit =
+        frontend.QueryPresentationAudit();
+    Require(host.Lifecycle() ==
+                RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
+                bootstrap_audit.bootstrap_clear_only &&
+                bootstrap_audit.bootstrap_presented_before_scene &&
+                bootstrap_audit.bootstrap_clear_passes == 1U &&
+                bootstrap_audit.bootstrap_render_one_frame_calls == 1U &&
+                bootstrap_audit.bootstrap_window_swap_completions == 1U &&
+                bootstrap_audit.presented_frames == 0U &&
+                bootstrap_audit.source_scene_passes == 0U &&
+                bootstrap_audit.presentation_quad_passes == 0U &&
+                bootstrap_audit.show_callback_calls == 1U &&
+                show_context.calls == 1U,
+            "clear-only bootstrap did not show and swap without scene state");
+
+    const RoR::RendererOgreNextWindowHostStatus bootstrap_resized =
+        host.Resize(104U, 72U);
+    Require(bootstrap_resized ==
+                RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+            std::string("bootstrap configure-ACK Resize failed: ") +
+                RoR::ToString(bootstrap_resized) + ": " +
+                adapter.LastError());
+    RoR::RendererOgreNextSdlWindowEventBatch bootstrap_resize_batch;
+    PollEvents(adapter, sdl_window, events, &bootstrap_resize_batch);
+    Require(bootstrap_resize_batch.resize_events > 0U &&
+                bootstrap_resize_batch.drawable_size_changed,
+            "bootstrap resize was not acknowledged as a drawable-pixel change");
+    metrics = host.Metrics();
+    Require(metrics != nullptr,
+            "bootstrap resized host metrics disappeared");
+    ++surface_revision;
+    width = metrics->drawable_width;
+    height = metrics->drawable_height;
+    SyncShowContext(show_context, *metrics, surface_revision);
+    RequireSuccess(frontend.UpdateSurface(
+                       MakeSurface(window, *metrics, surface_revision), false,
+                       UINT64_C(5000000000)),
+                   "bootstrap resized frontend UpdateSurface");
+    RequireSuccess(frontend.PresentBootstrapFrame(),
+                   "bootstrap resized clear-only presentation");
+    const OgreNextN1PresentationAudit resized_bootstrap_audit =
+        frontend.QueryPresentationAudit();
+    Require(resized_bootstrap_audit.bootstrap_clear_only &&
+                resized_bootstrap_audit.bootstrap_presented_before_scene &&
+                resized_bootstrap_audit.bootstrap_clear_passes == 2U &&
+                resized_bootstrap_audit.bootstrap_render_one_frame_calls ==
+                    2U &&
+                resized_bootstrap_audit.bootstrap_window_swap_completions ==
+                    2U &&
+                resized_bootstrap_audit.presented_frames == 0U &&
+                resized_bootstrap_audit.source_scene_passes == 0U &&
+                resized_bootstrap_audit.presentation_quad_passes == 0U &&
+                resized_bootstrap_audit.show_callback_calls == 1U &&
+                show_context.calls == 1U,
+            "resized bootstrap clear consumed scene state or an extra show");
+
+    PushWindowEvent(sdl_window, SDL_WINDOWEVENT_MINIMIZED);
+    PollEvents(adapter, sdl_window, events);
+    Require(host.Suspend() ==
+                RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+            "bootstrap host Suspend failed");
+    metrics = host.Metrics();
+    Require(metrics != nullptr,
+            "bootstrap suspended host metrics disappeared");
+    ++surface_revision;
+    RequireSuccess(frontend.UpdateSurface(
+                       MakeSurface(window, *metrics, surface_revision, true),
+                       false, UINT64_C(5000000000)),
+                   "bootstrap suspended frontend UpdateSurface");
+    const RenderOperationResult suspended_bootstrap =
+        frontend.PresentBootstrapFrame();
+    Require(!suspended_bootstrap &&
+                suspended_bootstrap.code ==
+                    RenderOperationCode::RESOURCE_STALE,
+            "suspended bootstrap surface accepted a clear swap");
+    const OgreNextN1PresentationAudit suspended_bootstrap_audit =
+        frontend.QueryPresentationAudit();
+    Require(suspended_bootstrap_audit.bootstrap_clear_passes == 2U &&
+                suspended_bootstrap_audit.bootstrap_render_one_frame_calls ==
+                    2U &&
+                suspended_bootstrap_audit.bootstrap_window_swap_completions ==
+                    2U &&
+                suspended_bootstrap_audit.presented_frames == 0U &&
+                suspended_bootstrap_audit.source_scene_passes == 0U &&
+                suspended_bootstrap_audit.presentation_quad_passes == 0U,
+            "suspended bootstrap surface advanced a clear or scene identity");
+
+    PushWindowEvent(sdl_window, SDL_WINDOWEVENT_RESTORED);
+    Require(host.Resume() ==
+                RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+            "bootstrap host Resume failed");
+    Require(host.RefreshMetrics() ==
+                RoR::RendererOgreNextWindowHostStatus::COMPLETED,
+            "bootstrap restored host metric refresh failed");
+    metrics = host.Metrics();
+    Require(metrics != nullptr,
+            "bootstrap restored host metrics disappeared");
+    ++surface_revision;
+    width = metrics->drawable_width;
+    height = metrics->drawable_height;
+    SyncShowContext(show_context, *metrics, surface_revision);
+    RequireSuccess(frontend.UpdateSurface(
+                       MakeSurface(window, *metrics, surface_revision), false,
+                       UINT64_C(5000000000)),
+                   "bootstrap restored frontend UpdateSurface");
+    PollEvents(adapter, sdl_window, events);
+    RequireSuccess(frontend.PresentBootstrapFrame(),
+                   "bootstrap restored clear-only presentation");
+    const OgreNextN1PresentationAudit restored_bootstrap_audit =
+        frontend.QueryPresentationAudit();
+    Require(host.Lifecycle() ==
+                RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
+                restored_bootstrap_audit.bootstrap_clear_only &&
+                restored_bootstrap_audit.bootstrap_presented_before_scene &&
+                restored_bootstrap_audit.bootstrap_clear_passes == 3U &&
+                restored_bootstrap_audit.bootstrap_render_one_frame_calls ==
+                    3U &&
+                restored_bootstrap_audit.bootstrap_window_swap_completions ==
+                    3U &&
+                restored_bootstrap_audit.presented_frames == 0U &&
+                restored_bootstrap_audit.source_scene_passes == 0U &&
+                restored_bootstrap_audit.presentation_quad_passes == 0U &&
+                restored_bootstrap_audit.show_callback_calls == 1U &&
+                show_context.calls == 1U,
+            "restored bootstrap clear did not preserve zero scene identities");
+
+    // Construct and publish the first portable catalog/snapshot only after the
+    // complete visible loading-window surface lifecycle stayed scene-free.
+    const RenderAssetDelta catalog = MakeCatalog();
+    const std::shared_ptr<const SceneSnapshot> scene = MakeScene();
+    RequireSuccess(frontend.SynchronizeAssets(catalog),
+                   "production presentation SynchronizeAssets");
+
     RenderFrameOutput final_output;
     for (std::uint64_t frame_id = 1U;
          frame_id <= kRequiredPresentedFrames; ++frame_id) {
@@ -611,15 +772,6 @@ int main(int argc, char **argv) {
           scene, frame_id, width, height, surface_revision);
       RenderFrameOutput output;
       RenderOperationResult rendered = frontend.Render(request, output);
-      if (!rendered && frame_id == 1U &&
-          rendered.code == RenderOperationCode::RESOURCE_STALE) {
-        surface_revision = show_context.surface_revision;
-        width = show_context.pixel_width;
-        height = show_context.pixel_height;
-        request = MakeFrame(scene, frame_id, width, height,
-                            surface_revision);
-        rendered = frontend.Render(request, output);
-      }
       RequireSuccess(rendered, "production presented frame " +
                                    std::to_string(frame_id));
       Require(output.presented && output.frame_id == frame_id &&
@@ -766,6 +918,17 @@ int main(int argc, char **argv) {
                 live_audit.source_readbacks == kRequiredPresentedFrames &&
                 live_audit.show_callback_calls == 1U &&
                 show_context.calls == 1U &&
+                live_audit.bootstrap_clear_only &&
+                live_audit.bootstrap_presented_before_scene &&
+                live_audit.bootstrap_clear_passes == 3U &&
+                live_audit.bootstrap_render_one_frame_calls == 3U &&
+                live_audit.bootstrap_window_swap_completions == 3U &&
+                live_audit.bootstrap_node_definition_creates >= 1U &&
+                live_audit.bootstrap_node_definition_creates ==
+                    live_audit.bootstrap_node_definition_destroys &&
+                live_audit.bootstrap_workspace_creates >= 1U &&
+                live_audit.bootstrap_workspace_creates ==
+                    live_audit.bootstrap_workspace_destroys &&
                 live_audit.source_target_creates >= 3U &&
                 live_audit.source_target_creates <
                     live_audit.presented_frames &&
@@ -780,8 +943,8 @@ int main(int argc, char **argv) {
                 live_audit.compositor_workspace_destroys + 1U ==
                     live_audit.compositor_workspace_creates &&
                 live_audit.surface_graph_rebuilds >= 2U &&
-                live_audit.suspended_surface_updates == 1U &&
-                live_audit.restored_surface_updates == 1U,
+                live_audit.suspended_surface_updates == 2U &&
+                live_audit.restored_surface_updates == 2U,
             "production presentation live audit is incomplete");
 
     RenderOperationResult shutdown =
@@ -794,6 +957,10 @@ int main(int argc, char **argv) {
         frontend.QueryPresentationAudit();
     Require(final_audit.source_target_creates ==
                 final_audit.source_target_destroys &&
+                final_audit.bootstrap_node_definition_creates ==
+                    final_audit.bootstrap_node_definition_destroys &&
+                final_audit.bootstrap_workspace_creates ==
+                    final_audit.bootstrap_workspace_destroys &&
                 final_audit.compositor_node_definition_creates ==
                     final_audit.compositor_node_definition_destroys &&
                 final_audit.compositor_workspace_creates ==

@@ -49,6 +49,19 @@ session then synchronizes an optional asset delta before its scene, preserves
 snapshot and frontend-frame IDs across map reset, and releases the frontend's
 native-window borrow before shutting down the event owner.
 
+Before the first portable scene transaction, the session may present one
+scene-free bootstrap frame for each active native-surface revision. N1 builds a
+dedicated one-channel Compositor2 workspace with one `PASS_CLEAR`, validates
+the exact borrowed window, obtains the presenter show/configure ACK, and
+executes one native swap without an asset catalog, snapshot, camera view,
+particle transaction, output lease, or frontend frame ID. A show-time surface
+change uses the same typed stale-surface recovery as scene presentation. The
+first validated two-channel production graph is created disabled, then enabled
+and atomically replaces the clear workspace before its first scene frame.
+Synchronous loading progress pumps the existing presenter/session on the owner
+thread at a 16 ms minimum interval; unchanged surfaces do not swap again and
+the loading path never calls the hidden Ogre 1.14 renderer.
+
 Camera conventions and supported-light validation are injected through
 `IRendererInProcessFramePolicy`, not embedded in the reusable lifecycle. The
 first demo adapter reuses the existing drawable-pixel camera normalization and

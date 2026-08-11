@@ -144,6 +144,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.frontend = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.cpp"
         ).read_text(encoding="utf-8")
+        cls.frontend_api = (
+            RENDER_ROOT / "RendererFrontend.h"
+        ).read_text(encoding="utf-8")
+        cls.frontend_base = (
+            RENDER_ROOT / "RendererFrontend.cpp"
+        ).read_text(encoding="utf-8")
         cls.display_domain_unlit_header = (
             RENDER_ROOT
             / "ogrenext"
@@ -204,6 +210,34 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ]
         self.assertIn("ReflectionProbeRuntime.cpp", contract_sources)
         self.assertIn("ReflectionProbeCaptureReceipt.cpp", contract_sources)
+
+    def test_scene_free_bootstrap_policy_defaults_fail_closed(self) -> None:
+        self.assertIn(
+            "virtual RenderOperationResult PresentBootstrapFrame();",
+            self.frontend_api,
+        )
+        default = self.frontend_base[
+            self.frontend_base.index(
+                "IRendererFrontend::PresentBootstrapFrame()"
+            ) : self.frontend_base.index(
+                "bool IsKnownRendererFrontendKind"
+            )
+        ]
+        self.assertIn("RenderOperationCode::UNSUPPORTED", default)
+        self.assertIn("scene-free startup presentation", default)
+        self.assertIn(
+            "RenderOperationResult PresentBootstrapFrame() override;",
+            self.header,
+        )
+        implementation = self.frontend[
+            self.frontend.index(
+                "OgreNextN1Frontend::PresentBootstrapFrame()"
+            ) : self.frontend.index(
+                "OgreNextN1Frontend::UpdateSurface("
+            )
+        ]
+        self.assertIn("ProductionPresentationEnabled()", implementation)
+        self.assertIn("EnsureBootstrapPresentationGraph()", implementation)
 
     def test_public_boundary_contains_no_ogre_types(self) -> None:
         self.assertNotRegex(self.header, r'#include\s+[<"]Ogre(?!Next)')

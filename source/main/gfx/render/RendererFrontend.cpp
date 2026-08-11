@@ -226,6 +226,12 @@ IRendererFrontend::RetireFrameState(const RenderFrameRequest &) {
       "frontend does not support state-only frame retirement");
 }
 
+RenderOperationResult IRendererFrontend::PresentBootstrapFrame() {
+  return RenderOperationResult::Failure(
+      RenderOperationCode::UNSUPPORTED,
+      "frontend does not support scene-free startup presentation");
+}
+
 bool IsKnownRendererFrontendKind(RendererFrontendKind kind) noexcept {
   switch (kind) {
   case RendererFrontendKind::OGRE14:

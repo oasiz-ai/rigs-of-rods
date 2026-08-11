@@ -192,6 +192,66 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertLess(gate, legacy_present)
         self.assertIn("#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)", loading)
 
+    def test_scene_free_bootstrap_is_shown_before_loading_and_never_uses_ogre14(self) -> None:
+        start = self.main.index(
+            "renderer_combined_session->Start(combined_session_config)"
+        )
+        bootstrap = self.main.index(
+            "renderer_combined_session->PresentBootstrapFrame()", start
+        )
+        install = self.main.index(
+            "SetCombinedRendererLoadingPump(", bootstrap
+        )
+        loop = self.main.index("while (App::app_state", install)
+        self.assertLess(start, bootstrap)
+        self.assertLess(bootstrap, install)
+        self.assertLess(install, loop)
+        self.assertIn(
+            "RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED",
+            self.main[bootstrap:install],
+        )
+
+        callback = self.main[
+            self.main.index("bool PumpCombinedRendererLoadingWindow(") :
+            self.main.index("#endif", self.main.index("bool PumpCombinedRendererLoadingWindow("))
+        ]
+        for token in (
+            "session.asset_sequence() != 0U",
+            "session.last_consumed_scene_snapshot_id() != 0U",
+            "session.last_frontend_frame_id() != 0U",
+            "session.PresentBootstrapFrame()",
+            "PENDING_FRONTEND_SURFACE",
+            "SHUTDOWN_REQUESTED",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, callback)
+        self.assertNotIn("renderOneFrame", callback)
+        self.assertNotIn("Ogre::Root", callback)
+
+        loading_start = self.loading.index("void LoadingWindow::SetProgress")
+        loading_end = self.loading.index(
+            "void LoadingWindow::SetProgressNetConnect", loading_start
+        )
+        loading = self.loading[loading_start:loading_end]
+        self.assertIn("render_frame = false;", loading)
+        self.assertIn("g_combined_renderer_pump(", loading)
+        self.assertIn(
+            "std::this_thread::get_id() == g_combined_renderer_pump_thread",
+            loading,
+        )
+        self.assertIn("std::chrono::milliseconds(16)", loading)
+        self.assertLess(
+            loading.index("render_frame = false;"),
+            loading.index("g_combined_renderer_pump("),
+        )
+        self.assertNotIn(
+            "Ogre::Root::getSingleton().renderOneFrame();",
+            loading[
+                loading.index("#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)") :
+                loading.index("#endif", loading.index("#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)"))
+            ],
+        )
+
     def test_visible_metrics_and_mouse_state_precede_direct_callbacks(self) -> None:
         poll_start = self.presenter.index("ValidationResult PollOrderedSdl(")
         poll_end = self.presenter.index("ValidationResult Poll(", poll_start)

@@ -33,7 +33,7 @@ struct OgreNextReflectionProbeCaptureEvidence;
 struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
-constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 2U;
+constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
 
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
@@ -95,8 +95,20 @@ struct OgreNextN1PresentationAudit final {
   bool workspace_ready_before_show = false;
   bool bounded_swap_completed = false;
   bool monotonic_presented_frame_ids = false;
+  /// The startup graph targets only the borrowed window and contains one native
+  /// PASS_CLEAR. It has no scene pass, asset registry, snapshot, camera view,
+  /// particle transaction, output lease, or frontend frame identity.
+  bool bootstrap_clear_only = false;
+  bool bootstrap_presented_before_scene = false;
   std::uint64_t window_moved_or_resized_calls = 0U;
   std::uint64_t show_callback_calls = 0U;
+  std::uint64_t bootstrap_node_definition_creates = 0U;
+  std::uint64_t bootstrap_node_definition_destroys = 0U;
+  std::uint64_t bootstrap_workspace_creates = 0U;
+  std::uint64_t bootstrap_workspace_destroys = 0U;
+  std::uint64_t bootstrap_clear_passes = 0U;
+  std::uint64_t bootstrap_render_one_frame_calls = 0U;
+  std::uint64_t bootstrap_window_swap_completions = 0U;
   std::uint64_t source_target_creates = 0U;
   std::uint64_t source_target_destroys = 0U;
   std::uint64_t compositor_node_definition_creates = 0U;
@@ -389,6 +401,7 @@ public:
   QueryPresentationAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
+  RenderOperationResult PresentBootstrapFrame() override;
   RenderOperationResult
   UpdateSurface(const FrontendSurfaceUpdate &update, bool headless,
                 std::uint64_t timeout_nanoseconds) override;

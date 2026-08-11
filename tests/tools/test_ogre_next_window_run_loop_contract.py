@@ -227,6 +227,20 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
         for token in (
             "kRequiredPresentedFrames = 1000U",
             "OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP",
+            "frontend.PresentBootstrapFrame()",
+            "bootstrap_audit.bootstrap_clear_only",
+            "bootstrap_audit.bootstrap_presented_before_scene",
+            "bootstrap_audit.presented_frames == 0U",
+            "bootstrap_audit.source_scene_passes == 0U",
+            "bootstrap_audit.bootstrap_window_swap_completions == 1U",
+            "host.Resize(104U, 72U)",
+            "resized_bootstrap_audit.bootstrap_window_swap_completions ==",
+            "suspended_bootstrap.code ==",
+            "restored_bootstrap_audit.bootstrap_window_swap_completions ==",
+            "restored_bootstrap_audit.presented_frames == 0U",
+            "restored_bootstrap_audit.source_scene_passes == 0U",
+            "const RenderAssetDelta catalog = MakeCatalog()",
+            "const std::shared_ptr<const SceneSnapshot> scene = MakeScene()",
             "for (std::uint64_t frame_id = 1U;",
             "host.Resize(112U, 80U)",
             "host.Suspend()",
@@ -241,12 +255,45 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
             "live_audit.show_callback_calls == 1U",
             "live_audit.source_target_creates <",
             "final_audit.source_target_creates ==",
+            "final_audit.bootstrap_node_definition_creates ==",
+            "final_audit.bootstrap_workspace_creates ==",
             "final_audit.compositor_workspace_creates ==",
             "ror.ogre_next_n1_production_run_loop.v1",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.smoke)
         self.assertNotIn("memcpy", self.smoke)
+        initialize = self.smoke.index("frontend.Initialize(")
+        bootstrap = self.smoke.index("frontend.PresentBootstrapFrame()")
+        resize = self.smoke.index("host.Resize(104U, 72U)", bootstrap)
+        resized_clear = self.smoke.index(
+            "frontend.PresentBootstrapFrame()", resize
+        )
+        suspend = self.smoke.index("host.Suspend()", resized_clear)
+        suspended_clear = self.smoke.index(
+            "frontend.PresentBootstrapFrame()", suspend
+        )
+        restore = self.smoke.index("host.Resume()", suspended_clear)
+        restored_clear = self.smoke.index(
+            "frontend.PresentBootstrapFrame()", restore
+        )
+        catalog = self.smoke.index(
+            "const RenderAssetDelta catalog = MakeCatalog()", restored_clear
+        )
+        synchronize = self.smoke.index(
+            "frontend.SynchronizeAssets(catalog)", catalog
+        )
+        first_scene = self.smoke.index("frontend.Render(request, output)")
+        self.assertLess(initialize, bootstrap)
+        self.assertLess(bootstrap, resize)
+        self.assertLess(resize, resized_clear)
+        self.assertLess(resized_clear, suspend)
+        self.assertLess(suspend, suspended_clear)
+        self.assertLess(suspended_clear, restore)
+        self.assertLess(restore, restored_clear)
+        self.assertLess(restored_clear, catalog)
+        self.assertLess(catalog, synchronize)
+        self.assertLess(synchronize, first_scene)
 
     def test_windows_console_entrypoint_bypasses_sdl_main_rewrite(self) -> None:
         handled = self.smoke.index("#define SDL_MAIN_HANDLED")

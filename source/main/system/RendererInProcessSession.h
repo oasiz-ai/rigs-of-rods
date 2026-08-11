@@ -20,7 +20,7 @@
 
 namespace RoR {
 
-constexpr std::uint32_t kRendererInProcessSessionContractVersion = 1U;
+constexpr std::uint32_t kRendererInProcessSessionContractVersion = 2U;
 
 /// The owner thread pumps native events before simulation and once more before
 /// presentation. The second point lets a resize that arrived during a long
@@ -35,10 +35,11 @@ struct RendererInProcessEventObservation final {
   /// Present only when the native owner has committed a strictly newer
   /// surface state. The session applies it to the frontend transactionally.
   std::optional<Render::FrontendSurfaceUpdate> surface_update;
-  /// True only for the exact surface synchronously adopted by Render() before
-  /// it returned the typed presentation-surface-stale recovery. The session
-  /// adopts this observation locally without calling UpdateSurface a second
-  /// time. It is invalid without both that pending recovery and surface_update.
+  /// True only for the exact surface synchronously adopted by Render() or
+  /// PresentBootstrapFrame() before returning typed presentation-surface-stale
+  /// recovery. The session adopts this observation locally without calling
+  /// UpdateSurface a second time. It is invalid without both that pending
+  /// recovery and surface_update.
   bool surface_update_already_committed_to_frontend = false;
   bool shutdown_requested = false;
 };
@@ -91,6 +92,7 @@ struct RendererInProcessSessionConfig final {
 
 enum class RendererInProcessSessionStatus : std::uint8_t {
   READY = 0U,
+  BOOTSTRAP_PRESENTED,
   EVENTS_PUMPED,
   SIMULATION_SKIPPED,
   WAITING_FOR_SURFACE,
@@ -105,6 +107,7 @@ enum class RendererInProcessSessionStatus : std::uint8_t {
   REJECTED_CONFIGURATION,
   REJECTED_NOT_READY,
   FAILED_FRONTEND_INITIALIZATION,
+  FAILED_BOOTSTRAP_PRESENTATION,
   FAILED_EVENT_PUMP,
   FAILED_SURFACE_UPDATE,
   FAILED_PRODUCER,
@@ -161,6 +164,16 @@ public:
 
   [[nodiscard]] RendererInProcessSessionResult
   Start(const RendererInProcessSessionConfig &config);
+  /// Pumps authoritative native events and presents at most one clear-only
+  /// frontend frame for each active surface revision before any portable scene
+  /// state has been consumed. This never grants simulation and never advances
+  /// asset, snapshot, particle, or frontend-frame identities. A show callback
+  /// surface change is adopted and retried once within the same bounded call
+  /// when its presenter notification is immediately available; otherwise the
+  /// operation remains PENDING_FRONTEND_SURFACE without another swap until a
+  /// later call adopts that exact notification.
+  [[nodiscard]] RendererInProcessSessionResult
+  PresentBootstrapFrame() noexcept;
   /// Pump and apply native input/surface state before the simulation advances.
   /// If an older immutable production is retained, it is drained first. A
   /// successful result with simulation_may_advance=true grants exactly one

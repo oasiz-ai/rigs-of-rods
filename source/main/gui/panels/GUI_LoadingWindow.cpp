@@ -21,6 +21,9 @@
 #include "GUI_LoadingWindow.h"
 #include <fmt/format.h>
 
+#include <chrono>
+#include <thread>
+
 #include "Actor.h"
 #include "GUIManager.h"
 #include "GUIUtils.h"
@@ -29,6 +32,17 @@
 
 using namespace RoR;
 using namespace GUI;
+
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+namespace
+{
+void* g_combined_renderer_pump_context = nullptr;
+LoadingWindow::CombinedRendererLoadingPump g_combined_renderer_pump = nullptr;
+std::thread::id g_combined_renderer_pump_thread;
+std::chrono::steady_clock::time_point g_combined_renderer_last_pump;
+bool g_combined_renderer_pump_started = false;
+} // namespace
+#endif
 
 void LoadingWindow::SetProgress(int percent, std::string const& text, bool render_frame/*=true*/)
 {
@@ -51,6 +65,28 @@ void LoadingWindow::SetProgress(int percent, std::string const& text, bool rende
     this->SetVisible(true); // Traditional behavior
     m_percent = percent;
     m_text = text;
+
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // Keep Cocoa/SDL input, close, focus, and drawable metrics responsive while
+    // terrain/resource loaders are synchronously occupying the main thread.
+    // The session callback itself admits at most one clear swap per surface
+    // revision and never grants simulation or captures joined scene state.
+    const auto combined_renderer_now = std::chrono::steady_clock::now();
+    if (g_combined_renderer_pump != nullptr &&
+        std::this_thread::get_id() == g_combined_renderer_pump_thread &&
+        (!g_combined_renderer_pump_started ||
+         combined_renderer_now - g_combined_renderer_last_pump >=
+             std::chrono::milliseconds(16)))
+    {
+        g_combined_renderer_pump_started = true;
+        g_combined_renderer_last_pump = combined_renderer_now;
+        if (!g_combined_renderer_pump(g_combined_renderer_pump_context))
+        {
+            g_combined_renderer_pump = nullptr;
+            g_combined_renderer_pump_context = nullptr;
+        }
+    }
+#endif
 
     // Count lines
     Ogre::StringUtil::trim(m_text); // Remove leading/trailing whitespace, incl. newlines
@@ -75,6 +111,19 @@ void LoadingWindow::SetProgress(int percent, std::string const& text, bool rende
     msg << " " << text;
     RoR::Log(msg);
 }
+
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+void LoadingWindow::SetCombinedRendererLoadingPump(
+    void* context, CombinedRendererLoadingPump callback) noexcept
+{
+    g_combined_renderer_pump_context = callback != nullptr ? context : nullptr;
+    g_combined_renderer_pump = callback;
+    g_combined_renderer_pump_thread =
+        callback != nullptr ? std::this_thread::get_id() : std::thread::id{};
+    g_combined_renderer_pump_started = false;
+    g_combined_renderer_last_pump = std::chrono::steady_clock::time_point{};
+}
+#endif
 
 void LoadingWindow::SetProgressNetConnect(const std::string& net_status)
 {

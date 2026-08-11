@@ -139,6 +139,68 @@ class OgreNextWindowPresentationContractTests(unittest.TestCase):
         self.assertLess(commit, retry)
         self.assertLess(retry, render)
 
+    def test_clear_only_bootstrap_precedes_scene_and_replaces_transactionally(self) -> None:
+        bootstrap = self.frontend[
+            self.frontend.index("RebindBootstrapPresentationWorkspace(") :
+            self.frontend.index("DestroyProductionPresentationGraph()")
+        ]
+        for token in (
+            '"PresentationRT", 0U',
+            "node->setNumTargetPass(1U)",
+            "target->setNumPasses(1U)",
+            "target->addPass(Ogre::PASS_CLEAR)",
+            "setBuffersToClear(Ogre::RenderPassDescriptor::Colour0)",
+            "channels.push_back(window_texture)",
+            "show_after_workspace_ready(",
+            "workspace_ready_before_show = true",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, bootstrap)
+        self.assertEqual(bootstrap.count("addPass(Ogre::PASS_CLEAR)"), 1)
+        self.assertNotIn("addPass(Ogre::PASS_SCENE)", bootstrap)
+        self.assertNotIn("addPass(Ogre::PASS_QUAD)", bootstrap)
+        self.assertIn(
+            '"Ogre-Next bootstrap drawable rebind rollback"', bootstrap
+        )
+        self.assertLess(
+            bootstrap.index("RebindBootstrapPresentationWorkspace("),
+            bootstrap.index("show_after_workspace_ready("),
+        )
+
+        present = self.frontend[
+            self.frontend.index(
+                "OgreNextN1Frontend::PresentBootstrapFrame()"
+            ) : self.frontend.index(
+                "OgreNextN1Frontend::UpdateSurface("
+            )
+        ]
+        self.assertIn("impl_->root->renderOneFrame()", present)
+        self.assertIn("bootstrap_window_swap_completions", present)
+        self.assertIn("TrackedSnapshotIdentityCount() != 0U", present)
+        self.assertNotIn("SynchronizeAssets(", present)
+        self.assertNotIn("RenderFrameRequest", present)
+
+        replacement = self.frontend[
+            self.frontend.index("EnsureProductionPresentationGraph(") :
+            self.frontend.index("DestroyPresentationResources()")
+        ]
+        disabled_bind = replacement.index(
+            "window_texture, !replacing_bootstrap"
+        )
+        disable_bootstrap = replacement.index(
+            "bootstrap_workspace->setEnabled(false)"
+        )
+        enable_scene = replacement.index(
+            "production_workspace->setEnabled(true)"
+        )
+        retire_bootstrap = replacement.index(
+            "DestroyBootstrapPresentationGraph()", enable_scene
+        )
+        self.assertLess(disabled_bind, enable_scene)
+        self.assertLess(enable_scene, disable_bootstrap)
+        self.assertLess(disable_bootstrap, retire_bootstrap)
+        self.assertIn("rollback_to_bootstrap", replacement)
+
     def test_platform_bindings_are_fail_closed_before_device_init(self) -> None:
         for token in (
             "NativeWindowSystem::COCOA",

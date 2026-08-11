@@ -1678,6 +1678,7 @@ target_link_libraries(
 # channel, or process-bridge object dependency hidden behind a static archive.
 set(ROR_RENDERER_IN_PROCESS_LINK_CLOSURE_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ParticleCaptureSource.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeRuntime.cpp"

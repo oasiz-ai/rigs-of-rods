@@ -31,12 +31,24 @@ namespace GUI {
 class LoadingWindow 
 {
 public:
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    using CombinedRendererLoadingPump = bool (*)(void*) noexcept;
+#endif
+
     const int PERC_HIDE_PROGRESSBAR = -1;
     const int PERC_SHOW_SPINNER = -2;
 
     void SetProgress(int _percent, const std::string& _text = "", bool render_frame = true);
     void SetProgressNetConnect(const std::string& net_status);
     void Draw();
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // The callback owns no GUI state and runs only on the thread that installs
+    // it. It services the visible OgreNext window while synchronous loading
+    // code reports progress; unchanged surfaces do not require another native
+    // clear swap.
+    void SetCombinedRendererLoadingPump(
+        void* context, CombinedRendererLoadingPump callback) noexcept;
+#endif
 
     void SetVisible(bool v)           { m_is_visible = v; }
     bool IsVisible() const            { return m_is_visible; }

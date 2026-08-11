@@ -292,6 +292,27 @@ public:
     return RenderOperationResult::Success();
   }
 
+  RenderOperationResult PresentBootstrapFrame() override {
+    log.emplace_back("bootstrap");
+    ++bootstrap_attempts;
+    if (show_surface_on_first_bootstrap.has_value() &&
+        !bootstrap_show_surface_committed) {
+      current_surface = *show_surface_on_first_bootstrap;
+      bootstrap_show_surface_committed = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::RESOURCE_STALE,
+          "bootstrap show callback committed a newer surface",
+          RenderOperationRecovery::
+              RETRY_AFTER_PRESENTATION_SURFACE_UPDATE);
+    }
+    if (bootstrap_failure != RenderOperationCode::OK) {
+      return RenderOperationResult::Failure(
+          bootstrap_failure, "injected bootstrap presentation failure");
+    }
+    ++bootstrap_presentations;
+    return RenderOperationResult::Success();
+  }
+
   RenderOperationResult UpdateSurface(const FrontendSurfaceUpdate &update,
                                       bool headless,
                                       std::uint64_t) override {
@@ -402,6 +423,7 @@ public:
   std::vector<std::string> &log;
   FrontendCapabilityReport capabilities;
   FrontendSurfaceUpdate current_surface;
+  std::optional<FrontendSurfaceUpdate> show_surface_on_first_bootstrap;
   std::optional<FrontendSurfaceUpdate> show_surface_on_first_render;
   std::vector<std::uint64_t> synchronized_sequences;
   std::vector<RenderFrameRequest> render_attempts;
@@ -409,13 +431,17 @@ public:
   std::vector<ResourceHandle> released;
   std::vector<std::uint64_t> reset_generations;
   std::uint32_t initializations = 0U;
+  std::uint32_t bootstrap_attempts = 0U;
+  std::uint32_t bootstrap_presentations = 0U;
   std::uint32_t surface_updates = 0U;
   std::uint32_t surface_update_timeouts = 0U;
   std::uint32_t shutdowns = 0U;
   std::uint32_t shutdown_timeouts = 0U;
   RenderOperationCode initialization_failure = RenderOperationCode::OK;
+  RenderOperationCode bootstrap_failure = RenderOperationCode::OK;
   RenderOperationCode render_failure = RenderOperationCode::OK;
   bool initialized = false;
+  bool bootstrap_show_surface_committed = false;
   bool show_surface_committed = false;
 };
 
@@ -426,6 +452,199 @@ std::size_t FindAfter(const std::vector<std::string> &log,
                                log.end(), value);
   Require(found != log.end(), "expected call is absent from ordered log");
   return static_cast<std::size_t>(found - log.begin());
+}
+
+void TestBootstrapPresentationIsSceneFreeAndBoundedPerSurface() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x424F4F5453545250ULL)).status ==
+              RendererInProcessSessionStatus::READY,
+          "bootstrap session did not initialize");
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  const RendererInProcessSessionResult first =
+      session.PresentBootstrapFrame();
+  Require(first.status ==
+                  RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED &&
+              first.ok() && first.event_polls == 1U &&
+              !first.simulation_may_advance &&
+              frontend.bootstrap_attempts == 1U &&
+              frontend.bootstrap_presentations == 1U &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "first bootstrap presentation consumed portable state");
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  const RendererInProcessSessionResult unchanged =
+      session.PresentBootstrapFrame();
+  Require(unchanged.status ==
+                  RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED &&
+              unchanged.event_polls == 1U &&
+              frontend.bootstrap_attempts == 1U,
+          "unchanged bootstrap surface was swapped more than once");
+
+  events.PushSurface(RendererInProcessEventPollPoint::BEFORE_SIMULATION,
+                     Surface(2U, 900U, 700U));
+  const RendererInProcessSessionResult resized =
+      session.PresentBootstrapFrame();
+  Require(resized.status ==
+                  RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED &&
+              resized.surface_revision == 2U &&
+              frontend.surface_updates == 1U &&
+              frontend.bootstrap_attempts == 2U &&
+              frontend.bootstrap_presentations == 2U &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "bootstrap resize did not produce exactly one new clear swap");
+
+  FakeSceneSource source(log);
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  Require(session.PumpEventsBeforeSimulation().simulation_may_advance,
+          "bootstrap successor scene did not receive a simulation grant");
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult scene =
+      session.PostUpdatedScene(source);
+  Require(scene.status == RendererInProcessSessionStatus::FRAME_COMPLETED &&
+              scene.asset_sequence == 1U &&
+              scene.scene_snapshot_id == 1U &&
+              scene.frontend_frame_id == 1U,
+          "bootstrap presentation shifted the first scene identities");
+  Require(session.Shutdown().status ==
+              RendererInProcessSessionStatus::CLOSED,
+          "bootstrap scene-free session did not close");
+}
+
+void TestBootstrapShowSurfaceRecoveryIsAdoptedWithoutDuplicateUpdate() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x424F4F5453484F57ULL)).ok(),
+          "bootstrap show-recovery session did not initialize");
+  const FrontendSurfaceUpdate shown = Surface(2U, 960U, 720U);
+  frontend.show_surface_on_first_bootstrap = shown;
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  events.PushSurface(RendererInProcessEventPollPoint::BEFORE_PRESENT, shown,
+                     true);
+
+  const RendererInProcessSessionResult recovered =
+      session.PresentBootstrapFrame();
+  Require(recovered.status ==
+                  RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED &&
+              recovered.event_polls == 2U &&
+              recovered.surface_revision == 2U &&
+              frontend.bootstrap_attempts == 2U &&
+              frontend.bootstrap_presentations == 1U &&
+              frontend.surface_updates == 0U &&
+              session.current_surface().pixel_width == 960U &&
+              session.current_surface().pixel_height == 720U &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "bootstrap show recovery duplicated surface adoption or identities");
+  const std::size_t first_bootstrap = FindAfter(log, "bootstrap");
+  const std::size_t recovery_poll =
+      FindAfter(log, "events-before-present", first_bootstrap + 1U);
+  const std::size_t retry_bootstrap =
+      FindAfter(log, "bootstrap", recovery_poll + 1U);
+  Require(first_bootstrap < recovery_poll &&
+              recovery_poll < retry_bootstrap,
+          "bootstrap show recovery order changed");
+  Require(session.Shutdown().status ==
+              RendererInProcessSessionStatus::CLOSED,
+          "bootstrap show-recovery session did not close");
+}
+
+void TestBootstrapDelayedShowSurfaceNotificationDoesNotDoubleSwap() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x424F4F5444454C59ULL)).ok(),
+          "delayed bootstrap show-recovery session did not initialize");
+  const FrontendSurfaceUpdate shown = Surface(2U, 960U, 720U);
+  frontend.show_surface_on_first_bootstrap = shown;
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult first =
+      session.PresentBootstrapFrame();
+  Require(first.status ==
+                  RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE &&
+              first.event_polls == 2U &&
+              frontend.bootstrap_attempts == 1U &&
+              frontend.bootstrap_presentations == 0U &&
+              first.surface_revision == 1U,
+          "delayed bootstrap show notification did not remain pending");
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  const RendererInProcessSessionResult still_pending =
+      session.PresentBootstrapFrame();
+  Require(still_pending.status ==
+                  RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE &&
+              still_pending.event_polls == 1U &&
+              frontend.bootstrap_attempts == 1U &&
+              frontend.bootstrap_presentations == 0U &&
+              still_pending.surface_revision == 1U,
+          "pending bootstrap show notification consumed a second clear swap");
+
+  events.PushSurface(RendererInProcessEventPollPoint::BEFORE_SIMULATION,
+                     shown, true);
+  const RendererInProcessSessionResult recovered =
+      session.PresentBootstrapFrame();
+  Require(recovered.status ==
+                  RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED &&
+              recovered.event_polls == 1U &&
+              recovered.surface_revision == 2U &&
+              frontend.bootstrap_attempts == 2U &&
+              frontend.bootstrap_presentations == 1U &&
+              frontend.surface_updates == 0U &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "delayed bootstrap show notification was not adopted exactly once");
+  Require(session.Shutdown().status ==
+              RendererInProcessSessionStatus::CLOSED,
+          "delayed bootstrap show-recovery session did not close");
+}
+
+void TestBootstrapFailureIsTerminalAndStillReleasesFrontendFirst() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x424F4F544641494CULL)).ok(),
+          "bootstrap failure session did not initialize");
+  frontend.bootstrap_failure = RenderOperationCode::BACKEND_FAILURE;
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+
+  const RendererInProcessSessionResult failed =
+      session.PresentBootstrapFrame();
+  Require(failed.status ==
+                  RendererInProcessSessionStatus::
+                      FAILED_BOOTSTRAP_PRESENTATION &&
+              failed.frontend_code == RenderOperationCode::BACKEND_FAILURE &&
+              failed.terminal && session.terminal() &&
+              session.asset_sequence() == 0U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "bootstrap frontend failure did not fail closed before scene state");
+  const RendererInProcessSessionResult closed = session.Shutdown();
+  Require(closed.status == RendererInProcessSessionStatus::CLOSED &&
+              closed.terminal && frontend.shutdowns == 1U &&
+              events.shutdowns == 1U,
+          "terminal bootstrap failure did not release frontend and event pump");
+  Require(FindAfter(log, "frontend-shutdown") <
+              FindAfter(log, "event-shutdown"),
+          "bootstrap failure released the event owner before the frontend");
 }
 
 void TestSourceCaptureFailurePreservesValidationDetail() {
@@ -977,6 +1196,9 @@ void TestStatusSurface() {
               RendererInProcessSessionStatus::PENDING_BACKPRESSURE)) ==
               "pending_backpressure" &&
               std::string(ToString(RendererInProcessSessionStatus::
+                                       BOOTSTRAP_PRESENTED)) ==
+                  "bootstrap_presented" &&
+              std::string(ToString(RendererInProcessSessionStatus::
                                        SIMULATION_SKIPPED)) ==
                   "simulation_skipped" &&
               std::string(ToString(RendererInProcessSessionStatus::
@@ -992,6 +1214,10 @@ void TestStatusSurface() {
 
 int main() {
   TestStatusSurface();
+  TestBootstrapPresentationIsSceneFreeAndBoundedPerSurface();
+  TestBootstrapShowSurfaceRecoveryIsAdoptedWithoutDuplicateUpdate();
+  TestBootstrapDelayedShowSurfaceNotificationDoesNotDoubleSwap();
+  TestBootstrapFailureIsTerminalAndStillReleasesFrontendFirst();
   TestSourceCaptureFailurePreservesValidationDetail();
   TestCaptureRollbackAndTypedSubmissionOrder();
   TestThrowingPostCapturePolicyDiscardsSourceTransaction();

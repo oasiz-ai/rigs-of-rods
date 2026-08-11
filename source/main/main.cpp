@@ -425,6 +425,53 @@ RoR::RendererInProcessSessionResult CloseCombinedRendererSession(
     }
     return result;
 }
+
+bool PumpCombinedRendererLoadingWindow(void* opaque) noexcept
+{
+    using namespace RoR;
+
+    auto* const session_owner =
+        static_cast<std::unique_ptr<RendererInProcessSession>*>(opaque);
+    if (session_owner == nullptr || *session_owner == nullptr ||
+        !(*session_owner)->active())
+    {
+        return false;
+    }
+    RendererInProcessSession& session = **session_owner;
+    if (session.asset_sequence() != 0U ||
+        session.last_consumed_scene_snapshot_id() != 0U ||
+        session.last_frontend_frame_id() != 0U)
+    {
+        return false;
+    }
+    const RendererInProcessSessionResult pumped =
+        session.PresentBootstrapFrame();
+    switch (pumped.status)
+    {
+    case RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED:
+    case RendererInProcessSessionStatus::WAITING_FOR_SURFACE:
+    case RendererInProcessSessionStatus::PENDING_BACKPRESSURE:
+    case RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE:
+    case RendererInProcessSessionStatus::SHUTDOWN_REQUESTED:
+        return true;
+    default:
+        break;
+    }
+    try
+    {
+        LOG(fmt::format(
+            "[RoR|RendererCombined|Loading] Native loading pump stopped: "
+            "status='{}', frontend={}, field='{}', detail='{}'",
+            ToString(pumped.status),
+            static_cast<unsigned int>(pumped.frontend_code),
+            pumped.validation.field,
+            pumped.validation.detail));
+    }
+    catch (...)
+    {
+    }
+    return false;
+}
 #endif
 
 } // namespace
@@ -909,9 +956,36 @@ int main(int argc, char *argv[])
             renderer_combined_session.reset();
             return 70;
         }
+        const RendererInProcessSessionResult bootstrap_presented =
+            renderer_combined_session->PresentBootstrapFrame();
+        if (bootstrap_presented.status !=
+            RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED)
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Startup] Clear-only native "
+                "presentation failed: status='{}', frontend={}, field='{}', "
+                "detail='{}'",
+                ToString(bootstrap_presented.status),
+                static_cast<unsigned int>(
+                    bootstrap_presented.frontend_code),
+                bootstrap_presented.validation.field,
+                bootstrap_presented.validation.detail));
+            const RendererInProcessSessionResult bootstrap_shutdown =
+                CloseCombinedRendererSession(*renderer_combined_session);
+            if (bootstrap_shutdown.status !=
+                RendererInProcessSessionStatus::CLOSED)
+            {
+                FailStopApplication(70);
+            }
+            renderer_combined_session.reset();
+            return 70;
+        }
+        App::GetGuiManager()->LoadingWindow.SetCombinedRendererLoadingPump(
+            &renderer_combined_session,
+            &PumpCombinedRendererLoadingWindow);
         LOG(fmt::format(
             "[RoR|RendererCombined|Startup] Transport-free OgreNext "
-            "session ready (registry={})",
+            "session ready with clear-only native presentation (registry={})",
             renderer_combined_session->registry_id()));
 #else
         if (renderer_game_bridge.active())
@@ -3562,6 +3636,8 @@ int main(int argc, char *argv[])
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
         if (renderer_combined_session != nullptr)
         {
+            App::GetGuiManager()->LoadingWindow
+                .SetCombinedRendererLoadingPump(nullptr, nullptr);
             const RendererInProcessSessionResult renderer_shutdown =
                 CloseCombinedRendererSession(*renderer_combined_session);
             LOG(fmt::format(
@@ -3617,6 +3693,8 @@ int main(int argc, char *argv[])
     // Prove frontend closure here as well before local guards can unwind.
     if (renderer_combined_session != nullptr)
     {
+        App::GetGuiManager()->LoadingWindow
+            .SetCombinedRendererLoadingPump(nullptr, nullptr);
         const RendererInProcessSessionResult renderer_shutdown =
             CloseCombinedRendererSession(*renderer_combined_session);
         if (renderer_shutdown.status !=
@@ -3656,6 +3734,8 @@ int main(int argc, char *argv[])
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
                     if (renderer_combined_session != nullptr)
                     {
+                        App::GetGuiManager()->LoadingWindow
+                            .SetCombinedRendererLoadingPump(nullptr, nullptr);
                         const RendererInProcessSessionResult
                             renderer_shutdown =
                                 CloseCombinedRendererSession(

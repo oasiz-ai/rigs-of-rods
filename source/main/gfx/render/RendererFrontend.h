@@ -654,6 +654,19 @@ public:
   /// remains live, and a defensive Shutdown() may report NOT_INITIALIZED.
   virtual RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) = 0;
+  /// Presents a renderer-owned startup frame without a scene, asset catalog,
+  /// snapshot, camera, particle delta, or frontend frame identity. This is a
+  /// narrow native-window bootstrap operation for applications that must show
+  /// and service their presentation surface before authoritative world capture
+  /// can complete. Implementations must build and validate their presentation
+  /// graph before making the borrowed window visible. Success may be repeated
+  /// while no scene frame has been consumed; the default fails closed.
+  ///
+  /// RESOURCE_STALE with RETRY_AFTER_PRESENTATION_SURFACE_UPDATE has the same
+  /// meaning as Render(): the native show callback committed a newer surface,
+  /// but this operation consumed no portable or frontend identity. The caller
+  /// must adopt that exact surface before retrying.
+  virtual RenderOperationResult PresentBootstrapFrame();
   /// Recreates/resizes the presentation surface without invalidating portable
   /// resources. The headless argument must match initialization. Suspended
   /// surfaces skip presentation until a later active revision. Before success,
