@@ -345,8 +345,9 @@ AdvanceOgre14SelectedTextureSourceGroupGeneration(
     Ogre14SelectedTextureSourceReceiptRegistry &registry,
     IOgre14SelectedTextureSourceFaultInjector *fault_injector = nullptr);
 
-/// Same-state/same-source retry is idempotent. Reload replacement requires the
-/// same exact resource identity and a strictly increased pre-load state.
+/// A same-state/same-source retry replaces the exact stream observation.
+/// Reload replacement requires the same exact resource identity and a
+/// strictly increased pre-load state.
 [[nodiscard]] ValidationResult CommitOgre14SelectedTextureSourceReceipt(
     const Ogre14SelectedTextureSourceReceipt &receipt,
     Ogre14SelectedTextureSourceReceiptRegistry &registry,

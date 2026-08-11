@@ -240,7 +240,6 @@ bool SameCapture(const Ogre14SelectedTextureSourceReceiptMetadata &lhs,
          a.exact_member_name == b.exact_member_name &&
          a.file_info_compressed_size == b.file_info_compressed_size &&
          a.file_info_uncompressed_size == b.file_info_uncompressed_size &&
-         a.opened_stream_pointer_token == b.opened_stream_pointer_token &&
          a.opened_stream_name == b.opened_stream_name &&
          a.opened_stream_size == b.opened_stream_size &&
          a.resource_state_count_before_load ==
@@ -825,19 +824,24 @@ ValidationResult CommitOgre14SelectedTextureSourceReceipt(
       if (SameCapture(*prior, metadata) &&
           existing->second.ReplacementBytesMatch(receipt.source_bytes(),
                                                  receipt.source_size())) {
-        return ValidationResult::Success();
+        // The selected member and bytes are unchanged, but a downstream load
+        // retry normally arrives through a fresh DataStream. Replace the
+        // publication so its exact stream observation describes the attempt
+        // that can actually complete the native load.
+        reload = true;
+      } else {
+        return Failure(ValidationCode::DUPLICATE_IDENTIFIER,
+                       "selected_texture_registry.same_state_change",
+                       "same pre-load state selected different source provenance or bytes");
       }
-      return Failure(ValidationCode::DUPLICATE_IDENTIFIER,
-                     "selected_texture_registry.same_state_change",
-                     "same pre-load state selected different source provenance or bytes");
-    }
-    if (metadata.source.resource_state_count_before_load <
+    } else if (metadata.source.resource_state_count_before_load <
         prior->source.resource_state_count_before_load) {
       return Failure(ValidationCode::REVISION_MISMATCH,
                      "selected_texture_registry.reload_state",
                      "stale texture reload cannot replace a newer receipt");
+    } else {
+      reload = true;
     }
-    reload = true;
   }
 
   for (const auto &entry : registry.state_->receipts) {

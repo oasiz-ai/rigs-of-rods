@@ -274,18 +274,33 @@ void TestRegistryReloadCollisionsAndCaps() {
           "first commit accounting is wrong");
 
   const auto before_retry = registry;
+  auto equal_retry_input = MakeInput(bytes);
+  // A failed downstream OGRE load reopens the same selected member through a
+  // fresh DataStream. The pointer is an exact observation retained by each
+  // receipt, but it is not stable source identity for a same-source retry.
+  equal_retry_input.opened_stream_pointer_token = 0x3fffU;
   const auto equal_retry =
-      BuildReceipt(configuration, MakeInput(bytes), bytes);
+      BuildReceipt(configuration, equal_retry_input, bytes);
   RequireOk(CommitOgre14SelectedTextureSourceReceipt(equal_retry, registry),
             "exact same-state downstream-failure retry");
-  Require(registry.SharesImmutableStateWith(before_retry),
-          "idempotent same-state retry republished registry");
+  Require(!registry.SharesImmutableStateWith(before_retry),
+          "same-state retry retained the failed stream observation");
+  Ogre14SelectedTextureSourceReceipt retried;
+  RequireOk(registry.FindResource("CityWorld", 1U, 0x1000U, 7U,
+                                  "road.png", retried),
+            "find same-state retry receipt");
+  Require(retried.SharesImmutableStateWith(equal_retry) &&
+              retried.metadata() != nullptr &&
+              retried.metadata()->source.opened_stream_pointer_token ==
+                  0x3fffU,
+          "same-state retry did not publish the fresh stream observation");
 
   const auto same_state_change =
       BuildReceipt(configuration, MakeInput(changed), changed);
+  const auto before_same_state_change = registry;
   Require(!CommitOgre14SelectedTextureSourceReceipt(same_state_change,
                                                      registry) &&
-              registry.SharesImmutableStateWith(before_retry),
+              registry.SharesImmutableStateWith(before_same_state_change),
           "same pre-load state silently changed selected bytes");
 
   auto reload_input = MakeInput(changed, 1U, 0x1000U, 7U, 1U);
