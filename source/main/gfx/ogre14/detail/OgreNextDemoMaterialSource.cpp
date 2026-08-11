@@ -205,7 +205,8 @@ bool MapAddressMode(Ogre::TextureAddressingMode native,
 struct CapturedTexture final {
   const Ogre::Texture *native_texture = nullptr;
   const Ogre::HardwarePixelBuffer *native_base_buffer = nullptr;
-  Ogre::PixelFormat native_format = Ogre::PF_UNKNOWN;
+  Ogre::PixelFormat native_texture_format = Ogre::PF_UNKNOWN;
+  Ogre::PixelFormat native_buffer_format = Ogre::PF_UNKNOWN;
   std::size_t native_state_count = 0U;
   std::uint32_t native_width = 0U;
   std::uint32_t native_height = 0U;
@@ -285,7 +286,8 @@ Render::ValidationResult ValidateNativeBasePixelFormat(
 
 struct TextureBasePreflight final {
   Ogre::HardwarePixelBufferSharedPtr buffer;
-  Ogre::PixelFormat format = Ogre::PF_UNKNOWN;
+  Ogre::PixelFormat texture_format = Ogre::PF_UNKNOWN;
+  Ogre::PixelFormat buffer_format = Ogre::PF_UNKNOWN;
   std::size_t state_count = 0U;
   std::size_t width = 0U;
   std::size_t height = 0U;
@@ -326,20 +328,17 @@ Render::ValidationResult PreflightTextureBase(
                    "ogre_next_demo.material.texture.buffer",
                    "TUS0 has no exact base pixel buffer");
   }
-  const Ogre::PixelFormat native_format = buffer->getFormat();
-  if (native_texture->getFormat() != native_format) {
-    return Failure(Render::ValidationCode::REVISION_MISMATCH,
-                   "ogre_next_demo.material.texture.native_format",
-                   "TUS0 texture and base buffer disagree on native format");
-  }
+  const Ogre::PixelFormat texture_format = native_texture->getFormat();
+  const Ogre::PixelFormat buffer_format = buffer->getFormat();
   Render::ValidationResult validation =
-      ValidateNativeBasePixelFormat(native_format);
+      ValidateNativeBasePixelFormat(buffer_format);
   if (!validation) {
     return Render::ValidationResult::Success();
   }
   TextureBasePreflight candidate;
   candidate.buffer = buffer;
-  candidate.format = native_format;
+  candidate.texture_format = texture_format;
+  candidate.buffer_format = buffer_format;
   candidate.state_count = native_texture->getStateCount();
   candidate.width = native_width;
   candidate.height = native_height;
@@ -353,13 +352,15 @@ Render::ValidationResult CaptureTextureBase(
     const TextureBasePreflight &preflight,
     std::string_view debug_token,
     Render::TextureResourceDescriptor &output,
-    Ogre::PixelFormat &output_native_format) {
+    Ogre::PixelFormat &output_native_texture_format,
+    Ogre::PixelFormat &output_native_buffer_format) {
   if (!native_texture || !preflight.buffer ||
       native_texture->getStateCount() != preflight.state_count ||
       native_texture->getWidth() != preflight.width ||
       native_texture->getHeight() != preflight.height ||
-      native_texture->getFormat() != preflight.format ||
-      native_texture->getBuffer(0U, 0U).get() != preflight.buffer.get()) {
+      native_texture->getFormat() != preflight.texture_format ||
+      native_texture->getBuffer(0U, 0U).get() != preflight.buffer.get() ||
+      preflight.buffer->getFormat() != preflight.buffer_format) {
     return Failure(Render::ValidationCode::REVISION_MISMATCH,
                    "ogre_next_demo.material.texture.preflight",
                    "TUS0 changed after eligibility preflight");
@@ -378,7 +379,8 @@ Render::ValidationResult CaptureTextureBase(
       rgba_row_bytes * static_cast<std::uint64_t>(native_height);
   const std::size_t native_state_count = preflight.state_count;
   const Ogre::HardwarePixelBufferSharedPtr buffer = preflight.buffer;
-  const Ogre::PixelFormat native_format = preflight.format;
+  const Ogre::PixelFormat texture_format = preflight.texture_format;
+  const Ogre::PixelFormat native_format = preflight.buffer_format;
   const std::size_t native_element_bytes =
       Ogre::PixelUtil::getNumElemBytes(native_format);
   const std::uint64_t native_row_bytes =
@@ -421,7 +423,7 @@ Render::ValidationResult CaptureTextureBase(
   if (native_texture->getStateCount() != native_state_count ||
       native_texture->getWidth() != native_width ||
       native_texture->getHeight() != native_height ||
-      native_texture->getFormat() != native_format || !buffer_after ||
+      native_texture->getFormat() != texture_format || !buffer_after ||
       buffer_after.get() != buffer.get() ||
       buffer_after->getWidth() != native_width ||
       buffer_after->getHeight() != native_height ||
@@ -429,7 +431,7 @@ Render::ValidationResult CaptureTextureBase(
       buffer_after->getFormat() != native_format) {
     return Failure(Render::ValidationCode::REVISION_MISMATCH,
                    "ogre_next_demo.material.texture.revalidation",
-                   "TUS0 texture identity, native format, or base storage changed during readback");
+                   "TUS0 texture identity, logical format, or base storage changed during readback");
   }
 
   Render::TextureResourceDescriptor candidate;
@@ -470,7 +472,8 @@ Render::ValidationResult CaptureTextureBase(
     return validation;
   }
   output = std::move(candidate);
-  output_native_format = native_format;
+  output_native_texture_format = texture_format;
+  output_native_buffer_format = native_format;
   return Render::ValidationResult::Success();
 }
 
@@ -691,10 +694,12 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           return false;
         }
         Render::TextureResourceDescriptor descriptor;
-        Ogre::PixelFormat captured_native_format = Ogre::PF_UNKNOWN;
+        Ogre::PixelFormat captured_texture_format = Ogre::PF_UNKNOWN;
+        Ogre::PixelFormat captured_buffer_format = Ogre::PF_UNKNOWN;
         validation = CaptureTextureBase(native_texture, texture_preflight,
                                         HexId(captured.source_id), descriptor,
-                                        captured_native_format);
+                                        captured_texture_format,
+                                        captured_buffer_format);
         if (!validation) {
           failure = std::move(validation);
           return false;
@@ -708,15 +713,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         const Ogre::HardwarePixelBufferSharedPtr native_base =
             texture_preflight.buffer;
         if (!native_base ||
-            native_texture->getFormat() != captured_native_format ||
-            native_base->getFormat() != captured_native_format) {
+            native_texture->getFormat() != captured_texture_format ||
+            native_base->getFormat() != captured_buffer_format) {
           failure = Failure(Render::ValidationCode::REVISION_MISMATCH,
                             "ogre_next_demo.material.texture.buffer",
                             "TUS0 base storage changed after readback");
           return false;
         }
         captured.native_base_buffer = native_base.get();
-        captured.native_format = captured_native_format;
+        captured.native_texture_format = captured_texture_format;
+        captured.native_buffer_format = captured_buffer_format;
         captured.native_state_count = native_texture->getStateCount();
         captured.native_width =
             static_cast<std::uint32_t>(native_texture->getWidth());
@@ -733,8 +739,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         if (texture->second.native_texture != native_texture.get() ||
             !native_base ||
             texture->second.native_base_buffer != native_base.get() ||
-            texture->second.native_format != native_texture->getFormat() ||
-            texture->second.native_format != native_base->getFormat() ||
+            texture->second.native_texture_format !=
+                native_texture->getFormat() ||
+            texture->second.native_buffer_format != native_base->getFormat() ||
             texture->second.native_state_count !=
                 native_texture->getStateCount() ||
             texture->second.native_width != native_texture->getWidth() ||
@@ -883,8 +890,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           sampler == pending_->cache->samplers.end() || !native_base ||
           texture->second.native_texture != native_texture.get() ||
           texture->second.native_base_buffer != native_base.get() ||
-          texture->second.native_format != native_texture->getFormat() ||
-          texture->second.native_format != native_base->getFormat() ||
+          texture->second.native_texture_format !=
+              native_texture->getFormat() ||
+          texture->second.native_buffer_format != native_base->getFormat() ||
           texture->second.native_state_count !=
               native_texture->getStateCount() ||
           texture->second.native_width != native_texture->getWidth() ||

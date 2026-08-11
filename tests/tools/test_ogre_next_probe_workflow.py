@@ -310,15 +310,22 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         for native_readback_token in (
             "Ogre::PixelUtil::isCompressed(native_format)",
             "Ogre::PixelUtil::getNumElemBytes(native_format)",
-            "native_texture->getFormat() != native_format",
+            "ValidateNativeBasePixelFormat(buffer_format)",
+            "candidate.texture_format = texture_format",
+            "candidate.buffer_format = buffer_format",
+            "native_texture->getFormat() != texture_format",
             "buffer_after->getFormat() != native_format",
             "Ogre::PixelUtil::bulkPixelConversion(native_destination, destination)",
-            "captured.native_format = captured_native_format",
-            "texture->second.native_format != native_texture->getFormat()",
-            "texture->second.native_format != native_base->getFormat()",
+            "captured.native_texture_format = captured_texture_format",
+            "captured.native_buffer_format = captured_buffer_format",
+            "texture->second.native_texture_format !=",
+            "texture->second.native_buffer_format != native_base->getFormat()",
         ):
             with self.subTest(native_readback_token=native_readback_token):
                 self.assertIn(native_readback_token, material_source)
+        self.assertNotIn(
+            "native_texture->getFormat() != native_format", material_source
+        )
         self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", material_source)
         self.assertIn("OgreNextDemoAllowsAlexisTUS0Approximation", material_source)
         self.assertIn("EquivalentRenderAssetPayload", material_source)
