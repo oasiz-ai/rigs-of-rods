@@ -63,6 +63,7 @@ AUTOMATIC_TEXTURE_HOST_TESTS = (
     "ogre_next_demo_material_source_native",
     "ogre14_authenticated_material_script_native_integration",
     "ogre_next_n1_policy",
+    "ogre_next_n1_particle_runtime",
 )
 
 EXPECTED_PLUGINS = {

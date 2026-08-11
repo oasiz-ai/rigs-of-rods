@@ -3359,6 +3359,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/render/Ogre14LegacyMaterialClosureTests.cpp
             tests/gfx/ogre14/Ogre14LegacyNativeAssetExtractorCompileTests.cpp
             tests/gfx/render/Ogre14ParticleCaptureSourceTests.cpp
+            tests/gfx/render/OgreNextN1ParticleRuntimeTests.cpp
+            source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.cpp
+            source/main/gfx/render/ogrenext/OgreNextN1ParticleRuntime.h
             tests/gfx/render/Ogre14ProceduralRoadSourceTests.cpp
             tests/tools/test_ogre14_particle_capture_contract.py
             tests/gfx/render/Ogre14RoadMaterialTransactionTests.cpp
