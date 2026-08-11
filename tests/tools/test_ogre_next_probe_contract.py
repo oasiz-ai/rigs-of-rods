@@ -720,7 +720,10 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("ROR_OGRE_NEXT_PROBE", cmake)
         self.assertIn("cmake/PinnedOgreNext.cmake", entry_cmake)
         self.assertIn("FreeTypeArchivePolicy.cmake", pinned_cmake)
-        self.assertIn("if (TARGET OgreMain)", pinned_cmake)
+        self.assertIn(
+            "if (TARGET OgreMain AND NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)",
+            pinned_cmake,
+        )
         self.assertIn("URL_HASH \"SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_RAPIDJSON_ARCHIVE_SHA256}\"", cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_FREETYPE_ARCHIVE_SHA256}\"", cmake)
@@ -729,7 +732,10 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertIn("FETCHCONTENT_SOURCE_DIR_RAPIDJSON", cmake)
         self.assertIn("FETCHCONTENT_SOURCE_DIR_ROR_FREETYPE", cmake)
         self.assertIn("FetchContent_MakeAvailable(ror_freetype)", cmake)
-        self.assertIn("set(FREETYPE_LIBRARIES freetype", cmake)
+        self.assertIn(
+            'set(FREETYPE_LIBRARIES "${ROR_OGRE_NEXT_FREETYPE_TARGET}"',
+            pinned_cmake,
+        )
         self.assertIn("get_target_property(ROR_FREETYPE_TARGET_TYPE", cmake)
         self.assertIn(
             "OgreNextOverlay does not link the pinned FreeType", cmake
@@ -752,7 +758,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
         )
         self.assertLess(
             cmake.index("_ror_fresh_configure_guard"),
-            cmake.index("FetchContent_Declare(\n    ror_freetype"),
+            cmake.index("FetchContent_Declare(\n        ror_freetype"),
         )
         self.assertNotIn(PROBE.BUILD_SENTINEL_NAME, cmake)
         self.assertIn("OgreNextHlmsPbs", cmake)
