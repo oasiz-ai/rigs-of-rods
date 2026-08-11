@@ -1566,6 +1566,8 @@ if (ROR_OGRE14 AND TARGET RoR)
         "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
     )
     target_include_directories(
         ror_ogre14_terrain_composite_native_readback_tests

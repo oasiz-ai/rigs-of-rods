@@ -352,7 +352,7 @@ public:
     ~OgreNextDemoTerrainPendingGuard()
     {
         if (m_armed)
-            m_source.Discard();
+            m_source.DiscardMapGenerationCapture();
     }
 
     void Arm() noexcept { m_armed = true; }
@@ -1522,8 +1522,8 @@ RoR::Render::ValidationResult CaptureOgre14TerrainPages(
     // The product bridge deliberately skips the legacy render traversal, so
     // OGRE's WorkQueue main-thread completion pump is not otherwise reached.
     // Join every resident page here before copying CPU geometry; this is the
-    // private demo boundary that prevents SkyX hourly light-map updates from
-    // starving the first (and later) captures forever.
+    // private demo boundary that prevents a pending SkyX light-map update from
+    // starving the one map-generation capture forever.
     try
     {
         for (const auto& slot_entry : group->getTerrainSlots())
@@ -3385,22 +3385,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             "the preceding OGRE 14 capture must be committed or discarded");
     }
     auto pending = std::make_unique<Ogre14PendingCaptureState>();
-    OgreNextDemoTerrainPendingGuard terrain_pending_guard(
-        m_ogre_next_demo_terrain_source);
     OgreNextDemoMaterialPendingGuard material_pending_guard(
         m_ogre_next_demo_material_source);
-    const bool material_capture_open =
-        m_ogre_next_demo_material_source.BeginCapture();
-    if (!material_capture_open)
-    {
-        return Render::ValidationResult::Failure(
-            Render::ValidationCode::SEQUENCE_MISMATCH,
-            "ogre_next_demo.material.pending",
-            "the private material source could not open its capture transaction");
-    }
-    material_pending_guard.Arm();
     pending->light_registry = m_ogre14_light_identity_registry;
-    pending->terrain_page_cache = m_ogre14_terrain_page_cache;
     pending->static_registry = m_ogre14_static_identity_registry;
     pending->static_mesh_cache = m_ogre14_static_mesh_cache;
     pending->admitted_static_objects =
@@ -3506,19 +3493,52 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             }
             else
             {
+                auto terrain_page_cache_candidate =
+                    m_ogre14_terrain_page_cache;
                 std::vector<Gfx::Detail::OgreNextDemoTerrainPageMesh>
                     terrain_pages;
                 static_validation = CaptureOgre14TerrainPages(
                     geometry_manager, m_ogre14_terrain_page_cache,
-                    pending->terrain_page_cache, terrain_pages);
+                    terrain_page_cache_candidate, terrain_pages);
                 if (!static_validation)
                     return static_validation;
+                OgreNextDemoTerrainPendingGuard terrain_pending_guard(
+                    m_ogre_next_demo_terrain_source);
+                terrain_pending_guard.Arm();
                 static_validation = m_ogre_next_demo_terrain_source.Capture(
                     terrain_group, terrain_pages, terrain_capture);
+                if (!static_validation)
+                    return static_validation;
+                // Terrain is immutable for the map generation and is not part
+                // of the per-frame joined material/object transaction. Commit
+                // both owners now so a later material or particle rejection
+                // cannot force the expensive terrain extraction and readback
+                // to run again on the render thread.
+                m_ogre_next_demo_terrain_source.CommitMapGenerationCapture();
+                if (!m_ogre_next_demo_terrain_source.HasCommittedCapture())
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::SEQUENCE_MISMATCH,
+                        "ogre_next_demo.terrain.commit",
+                        "map-generation terrain publication did not commit");
+                }
+                using std::swap;
+                swap(m_ogre14_terrain_page_cache,
+                     terrain_page_cache_candidate);
+                terrain_pending_guard.Release();
             }
             if (!static_validation)
                 return static_validation;
-            terrain_pending_guard.Arm();
+            const bool material_capture_open =
+                m_ogre_next_demo_material_source.BeginCapture();
+            if (!material_capture_open)
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::SEQUENCE_MISMATCH,
+                    "ogre_next_demo.material.pending",
+                    "the private material source could not open its capture transaction");
+            }
+            material_pending_guard.Arm();
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
             Render::Float3 static_camera_position;
             float static_capture_radius_meters = 0.0F;
@@ -4286,7 +4306,6 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     }
 
     m_ogre14_pending_capture = std::move(pending);
-    terrain_pending_guard.Release();
     material_pending_guard.Release();
     capture = std::move(candidate);
     return Render::ValidationResult::Success();
@@ -4299,8 +4318,6 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     using std::swap;
     swap(m_ogre14_light_identity_registry,
          m_ogre14_pending_capture->light_registry);
-    swap(m_ogre14_terrain_page_cache,
-         m_ogre14_pending_capture->terrain_page_cache);
     swap(m_ogre14_static_identity_registry,
          m_ogre14_pending_capture->static_registry);
     swap(m_ogre14_static_mesh_cache,
@@ -4313,7 +4330,6 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->dynamic_mesh_cache);
     swap(m_ogre14_particle_capture_state,
          m_ogre14_pending_capture->particle_capture_state);
-    m_ogre_next_demo_terrain_source.Commit();
     m_ogre_next_demo_material_source.Commit();
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;
@@ -4561,7 +4577,6 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
 
 void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
 {
-    m_ogre_next_demo_terrain_source.Discard();
     m_ogre_next_demo_material_source.Discard();
     m_ogre14_pending_capture.reset();
 }

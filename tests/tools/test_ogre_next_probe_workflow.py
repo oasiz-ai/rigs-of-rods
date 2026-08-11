@@ -378,6 +378,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
         ).read_text(encoding="utf-8")
+        native_terrain_test = (
+            REPOSITORY_ROOT
+            / "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
+        ).read_text(encoding="utf-8")
         native_test_cmake = (
             REPOSITORY_ROOT / "tests/CMakeLists.txt"
         ).read_text(encoding="utf-8")
@@ -695,6 +699,84 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             terrain_source,
         )
         self.assertIn("terrain_group != committed_->native_group", terrain_source)
+        committed_capture = terrain_source[
+            terrain_source.index(
+                "Ogre14ToOgreNextTerrainSource::CaptureCommitted("
+            ) : terrain_source.index(
+                "Ogre14ToOgreNextTerrainSource::Capture("
+            )
+        ]
+        self.assertIn(
+            "return BuildCommittedCapture(*committed_, capture);",
+            committed_capture,
+        )
+        self.assertNotIn("JoinNativePage(", committed_capture)
+        self.assertNotIn("pending_ =", committed_capture)
+
+        capture_body = gfx_scene[
+            gfx_scene.index("GfxScene::CaptureOgre14GraphicsScene(") :
+            gfx_scene.index("void GfxScene::CommitOgre14GraphicsSceneCapture")
+        ]
+        durable_terrain = capture_body[
+            capture_body.index("auto terrain_page_cache_candidate") :
+            capture_body.index(
+                "std::vector<Render::GraphicsSceneAssetInput> static_assets"
+            )
+        ]
+        durable_order = (
+            "CaptureOgre14TerrainPages(",
+            "m_ogre_next_demo_terrain_source.Capture(",
+            "CommitMapGenerationCapture();",
+            "swap(m_ogre14_terrain_page_cache,",
+            "m_ogre_next_demo_material_source.BeginCapture()",
+        )
+        for before, after in zip(durable_order, durable_order[1:]):
+            with self.subTest(durable_before=before, durable_after=after):
+                self.assertLess(
+                    durable_terrain.index(before), durable_terrain.index(after)
+                )
+        self.assertNotIn("pending->terrain_page_cache", capture_body)
+
+        joined_commit = gfx_scene[
+            gfx_scene.index("void GfxScene::CommitOgre14GraphicsSceneCapture") :
+            gfx_scene.index("void GfxScene::DiscardOgre14GraphicsSceneCapture")
+        ]
+        joined_discard = gfx_scene[
+            gfx_scene.index("void GfxScene::DiscardOgre14GraphicsSceneCapture") :
+            gfx_scene.index("void GfxScene::DestroyGfxActor")
+        ]
+        self.assertNotIn("m_ogre_next_demo_terrain_source", joined_commit)
+        self.assertNotIn("m_ogre_next_demo_terrain_source", joined_discard)
+        pending_capture = gfx_header[
+            gfx_header.index("struct Ogre14PendingCaptureState") :
+            gfx_header.index("m_ogre14_pending_capture")
+        ]
+        self.assertNotIn("terrain_page_cache", pending_capture)
+
+        self.assertIn(
+            "TestCommittedTerrainSurvivesDownstreamJoinedRejection",
+            native_terrain_test,
+        )
+        self.assertIn(
+            '"continuous_particles.tracks_Dust.material"',
+            native_terrain_test,
+        )
+        terrain_native_target = native_test_cmake[
+            native_test_cmake.index(
+                "add_executable(\n"
+                "        ror_ogre14_terrain_composite_native_readback_tests"
+            ) : native_test_cmake.index(
+                "list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS",
+                native_test_cmake.index(
+                    "add_executable(\n"
+                    "        ror_ogre14_terrain_composite_native_readback_tests"
+                ),
+            )
+        ]
+        self.assertIn(
+            "gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.cpp",
+            terrain_native_target,
+        )
 
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
             encoding="utf-8"
@@ -2157,6 +2239,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         ]
         for reset_token in (
             "DiscardOgre14GraphicsSceneCapture();",
+            "m_ogre_next_demo_terrain_source.Reset();",
             "m_ogre_next_demo_material_source.Reset();",
             "m_ogre14_joined_buffer_epoch = 0U;",
             "m_ogre14_light_identity_registry.Reset();",

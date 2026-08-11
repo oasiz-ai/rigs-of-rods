@@ -44,9 +44,9 @@ struct OgreNextDemoTerrainCapture final {
 
 /// One-use migration source for the first playable OgreNext demo. It captures
 /// the OGRE 14 terrain once per map generation, then republishes the committed
-/// immutable owners while still joining native derived work. Candidate
-/// identity and payload owners remain pending until the enclosing joined-scene
-/// transaction is committed.
+/// immutable owners after a non-blocking native identity check. The initial
+/// candidate is committed at its own map-generation boundary before unrelated
+/// joined scene domains are captured; only Reset invalidates it.
 class Ogre14ToOgreNextTerrainSource final {
 public:
   Ogre14ToOgreNextTerrainSource();
@@ -65,8 +65,8 @@ public:
   [[nodiscard]] Render::ValidationResult CaptureCommitted(
       Ogre::TerrainGroup *terrain_group,
       OgreNextDemoTerrainCapture &capture);
-  void Commit() noexcept;
-  void Discard() noexcept;
+  void CommitMapGenerationCapture() noexcept;
+  void DiscardMapGenerationCapture() noexcept;
   void Reset() noexcept;
 
 private:

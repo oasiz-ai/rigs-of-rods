@@ -6,6 +6,8 @@
 */
 
 #include "gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
+#include "gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
+#include "gfx/render/Ogre14GraphicsSceneSource.h"
 
 #include <OgreBuildSettings.h>
 #include <OgreHardwarePixelBuffer.h>
@@ -135,6 +137,127 @@ RoR::Render::Ogre14TerrainCompositeNativeObservation Observation(
   return observation;
 }
 
+RoR::Render::Ogre14GraphicsSceneCapture MakeCompleteJoinedCapture() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneCapture capture;
+  capture.joined_buffer_epoch = 1U;
+  capture.post_update_scene_epoch = 1U;
+  capture.available_fields = kOgre14GraphicsSceneRequiredFields;
+  capture.frame.simulation_tick = 1U;
+  capture.frame.simulation_time_seconds = 0.01;
+  Ogre14CameraCaptureInput camera;
+  camera.view_id = 1U;
+  camera.width = 1280U;
+  camera.height = 720U;
+  camera.left = -0.16F;
+  camera.right = 0.16F;
+  camera.top = 0.09F;
+  camera.bottom = -0.09F;
+  camera.near_plane = 0.1F;
+  camera.far_plane = 1000.0F;
+  const ValidationResult validation =
+      BuildOgre14GraphicsSceneCamera(camera, capture.frame.camera);
+  Require(validation.ok(), "durable-terrain fixture camera was rejected");
+  return capture;
+}
+
+class InjectedDownstreamTerrainProvider final
+    : public RoR::Render::IOgre14GraphicsSceneCaptureProvider {
+public:
+  [[nodiscard]] RoR::Render::ValidationResult CaptureOgre14GraphicsScene(
+      RoR::Render::Ogre14GraphicsSceneCapture &capture) override {
+    using namespace RoR::Render;
+    RoR::Gfx::Detail::OgreNextDemoTerrainCapture terrain_capture;
+    ValidationResult validation;
+    if (!terrain_source.HasCommittedCapture()) {
+      validation = terrain_source.Capture(nullptr, {}, terrain_capture);
+      if (!validation) {
+        return validation;
+      }
+      terrain_source.CommitMapGenerationCapture();
+      ++initial_terrain_captures;
+    } else {
+      validation =
+          terrain_source.CaptureCommitted(nullptr, terrain_capture);
+      if (!validation) {
+        return validation;
+      }
+      ++committed_terrain_republications;
+    }
+    if (!terrain_capture.assets.empty() ||
+        !terrain_capture.static_meshes.empty()) {
+      return ValidationResult::Failure(
+          ValidationCode::SEQUENCE_MISMATCH,
+          "ogre_next_demo.terrain.empty_fixture",
+          "empty map generation unexpectedly published terrain records");
+    }
+    if (injected_rejections != 0U) {
+      --injected_rejections;
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "continuous_particles.tracks_Dust.material",
+          "injected downstream particle-material rejection");
+    }
+    capture = MakeCompleteJoinedCapture();
+    return ValidationResult::Success();
+  }
+
+  void CommitOgre14GraphicsSceneCapture() noexcept override {
+    ++joined_commits;
+  }
+
+  void DiscardOgre14GraphicsSceneCapture() noexcept override {
+    // The joined transaction deliberately does not own map-generation terrain.
+    ++joined_discards;
+  }
+
+  RoR::Gfx::Detail::Ogre14ToOgreNextTerrainSource terrain_source;
+  std::uint32_t injected_rejections = 2U;
+  std::uint32_t initial_terrain_captures = 0U;
+  std::uint32_t committed_terrain_republications = 0U;
+  std::uint32_t joined_commits = 0U;
+  std::uint32_t joined_discards = 0U;
+};
+
+void TestCommittedTerrainSurvivesDownstreamJoinedRejection() {
+  using namespace RoR::Render;
+  InjectedDownstreamTerrainProvider provider;
+  Ogre14GraphicsSceneSource source(provider);
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = 0x5445525241494E31ULL;
+  GraphicsSceneSnapshotProducer producer(configuration);
+
+  for (std::uint32_t attempt = 0U; attempt < 2U; ++attempt) {
+    const GraphicsSceneSnapshotProduceResult rejected =
+        producer.ProduceJoinedFrame(source);
+    Require(!rejected &&
+                rejected.validation.field ==
+                    "continuous_particles.tracks_Dust.material",
+            "injected downstream rejection did not remain exact");
+  }
+  const GraphicsSceneSnapshotProduceResult accepted =
+      producer.ProduceJoinedFrame(source);
+  Require(accepted.ok(),
+          "joined scene could not recover after downstream rejection");
+  Require(provider.terrain_source.HasCommittedCapture() &&
+              provider.initial_terrain_captures == 1U &&
+              provider.committed_terrain_republications == 2U,
+          "downstream rejection rebuilt or invalidated durable terrain");
+  Require(provider.joined_discards == 2U && provider.joined_commits == 1U,
+          "joined rejection fixture did not exercise discard then recovery");
+
+  provider.terrain_source.Reset();
+  Require(!provider.terrain_source.HasCommittedCapture(),
+          "map-generation reset retained durable terrain owners");
+  provider.injected_rejections = 1U;
+  const GraphicsSceneSnapshotProduceResult rejected_after_reset =
+      producer.ProduceJoinedFrame(source);
+  Require(!rejected_after_reset &&
+              provider.terrain_source.HasCommittedCapture() &&
+              provider.initial_terrain_captures == 2U,
+          "map-generation reset did not reopen one fresh terrain capture");
+}
+
 } // namespace
 
 int main() {
@@ -180,6 +303,9 @@ int main() {
               receipt.rgba_bytes()[15U] == 16U,
           "native alpha/specular bytes were not preserved");
 
-  std::cout << "Pinned OGRE 14.5.2 public pixel-buffer ABI probe passed\n";
+  TestCommittedTerrainSurvivesDownstreamJoinedRejection();
+
+  std::cout << "Pinned OGRE 14.5.2 terrain readback and durable publication "
+               "tests passed\n";
   return EXIT_SUCCESS;
 }

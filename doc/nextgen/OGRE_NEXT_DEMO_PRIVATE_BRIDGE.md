@@ -77,11 +77,15 @@ installed legacy `RoR.app` by LaunchServices.
 ## Transaction and performance boundary
 
 Terrain and projected material assets use private, domain-separated source IDs
-with bidirectional collision checks. Terrain, static, dynamic, and projected
-material candidates commit or discard as one joined capture; source dependency
-ID collisions reject instead of aliasing unrelated payloads. No payload is
-trusted solely from `Texture::stateCount`, and no receipt, digest, or audit type
-is added to a public header.
+with bidirectional collision checks. The initial terrain source and CPU page
+cache commit at one self-contained map-generation boundary immediately after
+their own validation. Static, dynamic, particle, and projected-material state
+then commits or discards as the per-frame joined capture. A rejection in one of
+those unrelated domains therefore retains the immutable terrain publication
+instead of repeating its render-thread extraction and readback. Source
+dependency ID collisions still reject instead of aliasing unrelated payloads.
+No payload is trusted solely from `Texture::stateCount`, and no receipt, digest,
+or audit type is added to a public header.
 
 The first joined material observation fixes whether each exact static or
 dynamic section remains on the generic factor path or enters the private
@@ -125,13 +129,14 @@ some CityWorld v1.40 meshes, and those LODs have no consumer because OgreNext
 owns the visible frame and its spatial policy. Authored base geometry is still
 loaded and captured; direct legacy launches retain their configured LOD path.
 
-After the first accepted frame, terrain geometry, composite bytes, sampler,
-material, and instance owners are frozen until the ordered map-generation
-reset. Later captures still join OGRE derived work and require the exact native
-Terrain pointer, but deliberately do not rebuild the million-vertex portable
-mesh or read the composite again. SkyX lighting changes therefore do not alter
-the already-published terrain texture. This is an explicit performance-first
-demo tradeoff, not a generalized texture revision or receipt contract.
+After the first valid terrain publication, terrain geometry, composite bytes,
+sampler, material, and instance owners are frozen until the ordered
+map-generation reset. Later captures perform only a non-blocking TerrainGroup
+slot and native-owner identity check before republishing those owners; they do
+not join derived work, rebuild the million-vertex portable mesh, or read the
+composite again. SkyX lighting changes therefore do not alter the
+already-published terrain texture. This is an explicit performance-first demo
+tradeoff, not a generalized texture revision or receipt contract.
 
 The first demo intentionally does not add Alexis's twelve suspension props.
 CityWorld's two unresolved `wrecker.truck` references remain omitted content,

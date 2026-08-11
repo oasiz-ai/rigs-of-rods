@@ -193,8 +193,9 @@ private:
     // object/asset tombstones can never be resurrected while driving.
     std::set<std::uint64_t>             m_ogre_next_demo_admitted_static_objects;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
-    // page identity; each entry retains its collision-free byte state. Stable
-    // frames never regenerate the large CPU mesh.
+    // page identity; each entry retains its collision-free byte state. The
+    // cache commits at its own map-generation boundary, before unrelated
+    // joined scene domains, and survives their rejected captures.
     std::map<std::string,
              Render::Ogre14GraphicsSceneTerrainPageCacheEntry, std::less<>>
                                        m_ogre14_terrain_page_cache;
@@ -252,9 +253,6 @@ private:
     struct Ogre14PendingCaptureState
     {
         Render::Ogre14GraphicsSceneLightIdentityRegistry light_registry;
-        std::map<std::string,
-                 Render::Ogre14GraphicsSceneTerrainPageCacheEntry,
-                 std::less<>> terrain_page_cache;
         Render::Ogre14GraphicsSceneStaticIdentityRegistry static_registry;
         std::map<std::string,
                  Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>

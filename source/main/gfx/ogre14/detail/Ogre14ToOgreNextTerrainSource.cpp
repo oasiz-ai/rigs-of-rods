@@ -449,10 +449,9 @@ Render::ValidationResult JoinNativePage(
                    "requested terrain page is absent or unloaded");
   }
 
-  // Capture runs on OGRE's render/main thread. The bridge does not execute the
-  // legacy render traversal, so synchronously join and pump WorkQueue response
-  // tasks before rejecting mutable derived state. Repeating this boundary is
-  // intentional: hourly SkyX terrain-light updates can occur after startup.
+  // Initial capture runs on OGRE's render/main thread. The bridge does not
+  // execute the legacy render traversal, so synchronously join and pump
+  // WorkQueue response tasks before freezing the map-generation publication.
   terrain->waitForDerivedProcesses();
   if (!terrain->isLoaded() || terrain->isDerivedDataUpdateInProgress()) {
     return Failure(Render::ValidationCode::REVISION_MISMATCH,
@@ -731,36 +730,16 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::CaptureCommitted(
                        "ogre_next_demo.terrain.slot_inventory",
                        "TerrainGroup packed slot keys changed inside one map generation");
       }
-      Ogre::Terrain *joined = nullptr;
-      Render::ValidationResult validation = JoinNativePage(
-          *terrain_group, slot->x, slot->y, joined);
-      if (!validation) {
-        return validation;
-      }
-      if (joined != expected->second->native_terrain) {
+      if (slot->instance == nullptr || !slot->instance->isLoaded() ||
+          slot->instance != expected->second->native_terrain) {
         return Failure(Render::ValidationCode::REVISION_MISMATCH,
                        "ogre_next_demo.terrain.native_page",
                        "terrain page identity changed inside one map generation");
       }
     }
-    if (terrain_group->getNumTerrainPrepareRequests() != 0U ||
-        terrain_group->isDerivedDataUpdateInProgress()) {
-      return Failure(Render::ValidationCode::REVISION_MISMATCH,
-                     "ogre_next_demo.terrain.native_update",
-                     "TerrainGroup changed while joining the frozen capture");
-    }
   }
 
-  auto candidate_state = std::make_unique<State>(*committed_);
-  OgreNextDemoTerrainCapture candidate_capture;
-  Render::ValidationResult validation =
-      BuildCommittedCapture(*candidate_state, candidate_capture);
-  if (!validation) {
-    return validation;
-  }
-  pending_ = std::move(candidate_state);
-  capture = std::move(candidate_capture);
-  return Render::ValidationResult::Success();
+  return BuildCommittedCapture(*committed_, capture);
 } catch (const Ogre::Exception &) {
   return Failure(Render::ValidationCode::MISSING_REFERENCE,
                  "ogre_next_demo.terrain.ogre_exception",
@@ -1047,14 +1026,16 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
                  "unexpected exception before the private terrain capture was published");
 }
 
-void Ogre14ToOgreNextTerrainSource::Commit() noexcept {
+void Ogre14ToOgreNextTerrainSource::CommitMapGenerationCapture() noexcept {
   if (pending_ != nullptr) {
     committed_.swap(pending_);
     pending_.reset();
   }
 }
 
-void Ogre14ToOgreNextTerrainSource::Discard() noexcept { pending_.reset(); }
+void Ogre14ToOgreNextTerrainSource::DiscardMapGenerationCapture() noexcept {
+  pending_.reset();
+}
 
 void Ogre14ToOgreNextTerrainSource::Reset() noexcept {
   pending_.reset();
