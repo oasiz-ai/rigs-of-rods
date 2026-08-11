@@ -331,12 +331,13 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
             '"tests/tools/test_ogre_next_window_run_loop_contract.py"',
             source_manifest,
         )
+        runtime_gate_start = self.cmake.index(
+            "if (APPLE AND TARGET ror_ogre_next_window_run_loop_smoke)"
+        )
         runtime_gate = self.cmake[
-            self.cmake.index(
-                "if (APPLE AND TARGET ror_ogre_next_window_run_loop_smoke)"
-            ) :
-            self.cmake.index(
-                "if (TARGET ror_renderer_ogre_next_child_runtime)"
+            runtime_gate_start : self.cmake.index(
+                "if (TARGET ror_renderer_ogre_next_child_runtime)",
+                runtime_gate_start,
             )
         ]
         self.assertIn("TIMEOUT 180", runtime_gate)
