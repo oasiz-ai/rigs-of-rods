@@ -186,6 +186,7 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
     "source/main/physics/Actor.cpp"
+    "source/main/physics/Actor.h"
     "source/main/physics/ActorManager.cpp"
     "source/main/physics/ActorManager.h"
     "source/main/physics/ActorSpawner.cpp"
@@ -316,6 +317,9 @@ list(APPEND _ror_relevant_source_files
     "source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
     "source/main/gfx/ogre14/Ogre14SelectedTextureSource.h"
     "tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp"
+    "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp"
+    "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
+    "tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"
@@ -1480,6 +1484,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
         "${_ror_render_root}/HdrReference.cpp"
         "${_ror_render_root}/InputEventTransport.cpp"
+        "${_ror_render_root}/ManagedMaterialDeclaration.cpp"
         "${_ror_render_root}/MaterialDescriptor.cpp"
         "${_ror_render_root}/Ogre14GraphicsSceneSource.cpp"
         "${_ror_render_root}/Ogre14LegacyAssetTranslator.cpp"
@@ -2094,6 +2099,16 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_ogre14_selected_texture_source_tests
+        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+    add_executable(
+        ror_render_managed_material_declaration_tests
+        "${ROR_REPOSITORY_ROOT}/tests/gfx/render/ManagedMaterialDeclarationTests.cpp")
+    target_link_libraries(
+        ror_render_managed_material_declaration_tests
+        PRIVATE ror_ogre_next_n1_contract)
+    set_target_properties(
+        ror_render_managed_material_declaration_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
     add_executable(
@@ -2787,6 +2802,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         ror_ogre14_authenticated_texture_receipt_tests
         ror_ogre14_selected_texture_source_tests
+        ror_render_managed_material_declaration_tests
         ror_ogre14_terrain_composite_capture_receipt_tests
         ror_ogre14_authenticated_material_script_receipt_tests
         ror_render_bridge_control_transport_tests
@@ -3123,6 +3139,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/RendererStartupPlan.cpp
             source/main/gfx/RendererStartupPlan.h
             source/main/physics/Actor.cpp
+            source/main/physics/Actor.h
             source/main/physics/ActorManager.cpp
             source/main/physics/ActorManager.h
             source/main/physics/ActorSpawner.cpp
@@ -3244,6 +3261,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp
             source/main/gfx/ogre14/Ogre14SelectedTextureSource.h
             tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
+            source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp
+            source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h
+            tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp
             source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
             source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
             source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
@@ -3535,6 +3555,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         ror_ogre14_authenticated_texture_receipt_tests
         ror_ogre14_selected_texture_source_tests
+        ror_render_managed_material_declaration_tests
         ror_ogre14_authenticated_material_script_receipt_tests
         ror_renderer_child_launcher_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/../../COPYING"
@@ -3935,6 +3956,10 @@ endif ()
 if (TARGET ror_ogre14_selected_texture_source_tests)
     add_test(NAME ror_ogre14_selected_texture_source
         COMMAND $<TARGET_FILE:ror_ogre14_selected_texture_source_tests>)
+endif ()
+if (TARGET ror_render_managed_material_declaration_tests)
+    add_test(NAME ror_render_managed_material_declaration
+        COMMAND $<TARGET_FILE:ror_render_managed_material_declaration_tests>)
 endif ()
 if (TARGET ror_ogre14_authenticated_material_script_receipt_tests)
     add_test(NAME ror_ogre14_authenticated_material_script_receipt

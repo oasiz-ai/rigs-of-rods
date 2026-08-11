@@ -55,6 +55,7 @@ set(SOURCE_FILES
         gfx/render/third_party/stb/LICENSE.txt
         gfx/render/HdrReference.{h,cpp}
         gfx/render/InputEventTransport.{h,cpp}
+        gfx/render/ManagedMaterialDeclaration.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
         gfx/render/ParallaxProbeReference.{h,cpp}
         gfx/render/PbrReference.{h,cpp}
@@ -414,6 +415,7 @@ if (ROR_OGRE14)
         gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.{h,cpp}
         gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
         gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
+        gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.{h,cpp}
         gfx/ogre14/Ogre14SelectedTextureSource.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
@@ -660,6 +662,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/Ogre14SourceTextureDecoder.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
+        gfx/render/ManagedMaterialDeclaration.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
@@ -703,6 +706,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/Ogre14SourceTextureDecoder.cpp
         gfx/render/HdrReference.cpp
         gfx/render/InputEventTransport.cpp
+        gfx/render/ManagedMaterialDeclaration.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp

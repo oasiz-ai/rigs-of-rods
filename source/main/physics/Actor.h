@@ -29,6 +29,7 @@
 #include "Differentials.h"
 #include "Engine.h"
 #include "GfxActor.h"
+#include "gfx/render/ManagedMaterialDeclaration.h"
 #include "PerVehicleCameraContext.h"
 #include "RigDef_Prerequisites.h"
 #include "RoRnet.h"
@@ -41,6 +42,9 @@
 #include "VehicleAI.h"
 
 #include <Ogre.h>
+#if OGRE_VERSION_MAJOR >= 14
+#include "gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
+#endif
 #include <cstdint>
 
 namespace RoR {
@@ -357,6 +361,21 @@ public:
     Ogre::Vector3     GetCameraRoll()                   { return (ar_nodes[ar_main_camera_node_pos].RelPosition - ar_nodes[ar_main_camera_node_roll].RelPosition).normalisedCopy(); }
     Ogre::Vector3     GetFFbBodyForces() const          { return m_force_sensors.out_body_forces; }
     GfxActor*         GetGfxActor()                     { return m_gfx_actor.get(); }
+    /// Captures the actor's immutable, renderer-neutral managed-material
+    /// declarations. A successful snapshot still requires the current-source
+    /// revalidation gate below immediately before renderer use.
+    Render::ValidationResult CaptureManagedMaterialDeclarationSnapshot(
+        Render::ManagedMaterialDeclarationSnapshot& output) const;
+    [[nodiscard]] bool IsManagedMaterialDeclarationSnapshotCurrent(
+        const Render::ManagedMaterialDeclarationSnapshot& snapshot) const noexcept;
+#if OGRE_VERSION_MAJOR >= 14
+    /// Resolves only the exact live actor-composed material pointer. No OGRE
+    /// pointer or handle is exposed as stable neutral identity.
+    [[nodiscard]] bool ResolveManagedMaterialDeclaration(
+        const Render::ManagedMaterialDeclarationSnapshot& snapshot,
+        const Ogre::MaterialPtr& exact_material,
+        Render::ManagedMaterialDeclaration& output) const noexcept;
+#endif
     void              RequestUpdateHudFeatures()        { m_hud_features_ok = false; }
     Ogre::Real        getMinimalCameraRadius();
     float             GetFFbHydroForces() const         { return m_force_sensors.out_hydros_forces; }
@@ -626,6 +645,21 @@ public:
 
 private:
 
+    Render::ValidationResult InitializeManagedMaterialDeclarationState();
+    void RevokeManagedMaterialDeclarationState() noexcept;
+#if OGRE_VERSION_MAJOR >= 14
+    [[nodiscard]] bool FindReusableManagedMaterialSourceReceipt(
+        const std::string& exact_resource_group,
+        const std::string& exact_resource_name,
+        Render::ManagedMaterialTextureSourceReceipt& output) const noexcept;
+    Render::ValidationResult PublishManagedMaterialDeclaration(
+        const Render::ManagedMaterialDeclaration& declaration,
+        const Ogre::MaterialPtr& exact_material,
+        const std::array<Render::Ogre14ManagedMaterialSourceAuthorityBinding,
+                         Render::kManagedMaterialTextureSlotCount>&
+            source_bindings);
+#endif
+
     bool              CalcForcesEulerPrepare(bool doUpdate); 
     void              CalcAircraftForces(bool doUpdate);   
     void              CalcForcesEulerCompute(bool doUpdate, int num_steps); 
@@ -675,6 +709,12 @@ private:
 
     std::vector<std::shared_ptr<Task>> m_flexbody_tasks;   //!< Gfx state
     std::unique_ptr<GfxActor>          m_gfx_actor;
+    Render::ManagedMaterialDeclarationRegistry
+        m_managed_material_declaration_registry;
+#if OGRE_VERSION_MAJOR >= 14
+    std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
+        m_managed_material_declaration_bindings;
+#endif
     std::vector<SlideNode>             m_slidenodes;       //!< all the SlideNodes available on this actor
     std::vector<RailGroup*>            m_railgroups;       //!< all the available RailGroups for this actor
     std::vector<Ogre::Entity*>         m_deletion_entities;    //!< For unloading vehicle; filled at spawn.

@@ -64,6 +64,7 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/RendererStartupPlan.cpp
     source/main/gfx/RendererStartupPlan.h
     source/main/physics/Actor.cpp
+    source/main/physics/Actor.h
     source/main/physics/ActorManager.cpp
     source/main/physics/ActorManager.h
     source/main/physics/ActorSpawner.cpp
@@ -185,6 +186,9 @@ set(_ror_n2_relevant_source_paths
     source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp
     source/main/gfx/ogre14/Ogre14SelectedTextureSource.h
     tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
+    source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp
+    source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h
+    tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp
     source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h
     source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
@@ -376,6 +380,7 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/RendererStartupPlan.cpp"
     "source/main/gfx/RendererStartupPlan.h"
     "source/main/physics/Actor.cpp"
+    "source/main/physics/Actor.h"
     "source/main/physics/ActorManager.cpp"
     "source/main/physics/ActorManager.h"
     "source/main/physics/ActorSpawner.cpp"
@@ -496,6 +501,9 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
     "source/main/gfx/ogre14/Ogre14SelectedTextureSource.h"
     "tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp"
+    "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp"
+    "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h"
+    "tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.h"
     "source/main/gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp"

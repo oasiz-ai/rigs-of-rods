@@ -32,6 +32,7 @@
 #include "CacheSystem.h"
 #include "GfxScene.h"
 
+#include <fmt/format.h>
 
 using namespace RoR;
 
@@ -61,6 +62,19 @@ void ActorSpawner::ProcessNewActor(ActorPtr actor, ActorSpawnRequest rq, RigDef:
     m_actor = actor;
     m_file = def;
     m_custom_resource_group = rq.asr_cache_entry->resource_group; // For historical/backwards-compat reasons, the instances live in the same group as the bundle.
+
+    const Render::ValidationResult managed_material_registry =
+        m_actor->InitializeManagedMaterialDeclarationState();
+    if (!managed_material_registry)
+    {
+        this->AddMessage(
+            Message::TYPE_ERROR,
+            fmt::format(
+                "Managed-material declaration registry unavailable: {}: {}. "
+                "Legacy material construction will continue.",
+                managed_material_registry.field,
+                managed_material_registry.detail));
+    }
 
     // Under OGRE, every scenenode must have globally unique name.
     m_actor_grouping_scenenode = App::GetGfxScene()->GetSceneManager()->getRootSceneNode()->createChildSceneNode(this->ComposeName("Actor"));

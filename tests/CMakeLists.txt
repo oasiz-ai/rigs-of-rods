@@ -1013,6 +1013,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14SourceTextureDecoder.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/InputEventTransport.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ManagedMaterialDeclaration.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ParallaxProbeReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/PbrReference.cpp"
@@ -1235,6 +1236,10 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/MaterialDescriptorTests.cpp"
 )
 add_executable(
+    ror_render_managed_material_declaration_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/ManagedMaterialDeclarationTests.cpp"
+)
+add_executable(
     ror_render_hdr_reference_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/HdrReferenceTests.cpp"
 )
@@ -1399,6 +1404,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_reflection_probe_runtime_tests
     ror_render_resource_handle_tests
     ror_render_payload_digest_tests
+    ror_render_managed_material_declaration_tests
     ror_render_material_descriptor_tests
     ror_render_pbr_reference_tests
     ror_render_strict_fp_environment_tests
@@ -1433,6 +1439,36 @@ if (ROR_OGRE14 AND TARGET RoR)
         PRIVATE
             ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING=1
     )
+
+    add_executable(
+        ror_ogre14_managed_material_source_adapter_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
+    )
+    target_include_directories(
+        ror_ogre14_managed_material_source_adapter_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    target_link_libraries(
+        ror_ogre14_managed_material_source_adapter_tests
+        PRIVATE ror_render_contract
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre14_managed_material_source_adapter_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre14_managed_material_source_adapter_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre14_managed_material_source_adapter_tests)
 
     add_executable(
         ror_ogre14_authenticated_archive_location_closure_tests
@@ -2947,6 +2983,13 @@ add_test(
     COMMAND ror_ogre14_selected_texture_source_tests
 )
 
+if (TARGET ror_ogre14_managed_material_source_adapter_tests)
+    add_test(
+        NAME ogre14_managed_material_source_adapter
+        COMMAND ror_ogre14_managed_material_source_adapter_tests
+    )
+endif ()
+
 add_test(
     NAME ogre14_terrain_composite_capture_receipt
     COMMAND ror_ogre14_terrain_composite_capture_receipt_tests
@@ -2972,6 +3015,11 @@ add_test(
 add_test(
     NAME render_material_descriptor
     COMMAND ror_render_material_descriptor_tests
+)
+
+add_test(
+    NAME render_managed_material_declaration
+    COMMAND ror_render_managed_material_declaration_tests
 )
 
 add_test(

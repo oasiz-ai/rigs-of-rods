@@ -19,6 +19,7 @@ FATAL_SHUTDOWN_PROVENANCE_PATHS = (
     "source/main/AppContext.cpp",
     "source/main/AppContext.h",
     "source/main/physics/Actor.cpp",
+    "source/main/physics/Actor.h",
     "source/main/physics/collision/Collisions.cpp",
     "source/main/system/ApplicationFatalError.h",
     "source/main/terrain/Terrain.cpp",
@@ -1265,6 +1266,8 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h",
             "source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp",
             "source/main/gfx/ogre14/Ogre14SelectedTextureSource.h",
+            "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.cpp",
+            "source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.h",
             "conanfile.py",
             "cmake/conan/locks/ogre3d-14.5.2-linux-x86_64-release.lock",
             "cmake/conan/locks/ogre3d-14.5.2-macos-arm64-release.lock",
@@ -1284,6 +1287,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.h",
             "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp",
             "tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp",
+            "tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp",
             "tests/resources/TerrainBundleArchiveVerifierTests.cpp",
             "tests/tools/assert_ogre_recipe_graph.py",
             "tests/gfx/render/RenderBridgeControlTransportTests.cpp",
@@ -1791,6 +1795,9 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn(
             "-R '^ror_ogre14_selected_texture_source$'", self.workflow
         )
+        self.assertIn(
+            "-R '^ror_render_managed_material_declaration$'", self.workflow
+        )
         focused_source_gates = (
             (
                 "Prove authenticated DDS PNG and JPEG source decoding on the host ABI",
@@ -1804,8 +1811,13 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             ),
             (
                 "Prove ordinary selected source-texture receipts on the host ABI",
-                "Prove the game-host stream and native pipe half-close contract",
+                "Prove renderer-neutral managed-material declarations on the host ABI",
                 "ror_ogre14_selected_texture_source",
+            ),
+            (
+                "Prove renderer-neutral managed-material declarations on the host ABI",
+                "Prove the game-host stream and native pipe half-close contract",
+                "ror_render_managed_material_declaration",
             ),
         )
 
@@ -2255,6 +2267,11 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             self.assertIn(
                 "ror_ogre14_selected_texture_source_tests", cmake
             )
+            self.assertIn(
+                "ror_render_managed_material_declaration_tests", cmake
+            )
+            self.assertIn("ManagedMaterialDeclaration.cpp", cmake)
+            self.assertIn("ManagedMaterialDeclarationTests.cpp", cmake)
         package_dependencies = probe_cmake[
             probe_cmake.index("set(_ror_n1_package_dependencies") :
             probe_cmake.index(")", probe_cmake.index(

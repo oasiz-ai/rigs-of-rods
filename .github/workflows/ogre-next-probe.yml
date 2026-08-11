@@ -60,6 +60,7 @@ on:
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
       - source/main/gfx/ogre14/Ogre14SelectedTextureSource.*
+      - source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.*
       - source/main/gfx/ogre14/Ogre14TerrainComposite*
       - source/main/gfx/ogre14/detail/OgreNextDemo*
       - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
@@ -76,6 +77,7 @@ on:
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
       - source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.*
       - source/main/physics/Actor.cpp
+      - source/main/physics/Actor.h
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -150,6 +152,7 @@ on:
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
+      - tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp
       - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
       - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
       - tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp
@@ -224,6 +227,7 @@ on:
       - source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.*
       - source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.*
       - source/main/gfx/ogre14/Ogre14SelectedTextureSource.*
+      - source/main/gfx/ogre14/Ogre14ManagedMaterialSourceAdapter.*
       - source/main/gfx/ogre14/Ogre14TerrainComposite*
       - source/main/gfx/ogre14/detail/OgreNextDemo*
       - source/main/gfx/ogre14/detail/Ogre14ToOgreNextTerrainSource.*
@@ -240,6 +244,7 @@ on:
       - source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.*
       - source/main/resources/tobj_fileformat/CityWorldNeoQ20Compatibility.*
       - source/main/physics/Actor.cpp
+      - source/main/physics/Actor.h
       - source/main/physics/ActorManager.*
       - source/main/physics/ActorSpawner.*
       - source/main/physics/ActorSpawnerFlow.cpp
@@ -314,6 +319,7 @@ on:
       - tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp
       - tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp
       - tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp
+      - tests/gfx/ogre14/Ogre14ManagedMaterialSourceAdapterTests.cpp
       - tests/gfx/ogre14/Ogre14TerrainComposite*Tests.cpp
       - tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
       - tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp
@@ -640,6 +646,7 @@ jobs:
           ror_ogre14_graphics_scene_prepared_material_binding_tests
           ror_ogre14_authenticated_texture_receipt_tests
           ror_ogre14_selected_texture_source_tests
+          ror_render_managed_material_declaration_tests
           ror_renderer_ogre14_game_host_session_tests
           --config Release
           --parallel ${{ matrix.jobs }}
@@ -718,6 +725,15 @@ jobs:
           --output-on-failure
           --no-tests=error
           -R '^ror_ogre14_selected_texture_source$'
+
+      - name: Prove renderer-neutral managed-material declarations on the host ABI
+        run: >-
+          ctest
+          --test-dir "${{ runner.temp }}/ror-ogre-next-${{ matrix.platform }}"
+          --build-config Release
+          --output-on-failure
+          --no-tests=error
+          -R '^ror_render_managed_material_declaration$'
 
       - name: Prove the game-host stream and native pipe half-close contract
         run: >-

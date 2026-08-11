@@ -61,6 +61,7 @@
 #include "Language.h"
 #include "MeshObject.h"
 #include "PointColDetector.h"
+#include "ContentManager.h"
 #include "ScrewProp.h"
 #include "ScriptEngine.h"
 #include "Skidmark.h"
@@ -201,6 +202,56 @@ static bool IsManagedMaterialTemplateSupported(
     }
 
     return true;
+}
+
+static bool TryGetManagedMaterialSemanticType(
+    RigDef::ManagedMaterialType type,
+    Render::ManagedMaterialSemanticType& output)
+{
+    switch (type)
+    {
+    case RigDef::ManagedMaterialType::FLEXMESH_STANDARD:
+        output = Render::ManagedMaterialSemanticType::FLEXMESH_STANDARD;
+        return true;
+    case RigDef::ManagedMaterialType::FLEXMESH_TRANSPARENT:
+        output = Render::ManagedMaterialSemanticType::FLEXMESH_TRANSPARENT;
+        return true;
+    case RigDef::ManagedMaterialType::MESH_STANDARD:
+        output = Render::ManagedMaterialSemanticType::MESH_STANDARD;
+        return true;
+    case RigDef::ManagedMaterialType::MESH_TRANSPARENT:
+        output = Render::ManagedMaterialSemanticType::MESH_TRANSPARENT;
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool TryParseManagedMaterialSemanticType(
+    const std::string& type,
+    Render::ManagedMaterialSemanticType& output)
+{
+    if (type == "flexmesh_standard")
+    {
+        output = Render::ManagedMaterialSemanticType::FLEXMESH_STANDARD;
+        return true;
+    }
+    if (type == "flexmesh_transparent")
+    {
+        output = Render::ManagedMaterialSemanticType::FLEXMESH_TRANSPARENT;
+        return true;
+    }
+    if (type == "mesh_standard")
+    {
+        output = Render::ManagedMaterialSemanticType::MESH_STANDARD;
+        return true;
+    }
+    if (type == "mesh_transparent")
+    {
+        output = Render::ManagedMaterialSemanticType::MESH_TRANSPARENT;
+        return true;
+    }
+    return false;
 }
 
 void ActorSpawner::ConfigureSections(Ogre::String const & sectionconfig, RigDef::DocumentPtr def)
@@ -2614,13 +2665,17 @@ Ogre::MaterialPtr ActorSpawner::InstantiateManagedMaterial(const Ogre::String& r
     return src_mat->clone(clone_name);
 }
 
-void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
+void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
 {
     // This is how textures map between `RigDef::Document` (*.truck etc...) and `RoR::TuneupDef` (*.tuneup):
     //   def.diffuse_map           ~~   tuneup.media[0]
     //   def.specular_map          ~~   tuneup.media[1]
     //   def.damaged_diffuse_map   ~~   tuneup.media[2]
     // ==========================================================================
+
+    // Missing optional legacy assets are cleared below. Work on a local copy so
+    // one spawn never mutates the shared parsed definition used by another.
+    RigDef::ManagedMaterial def = source_def;
 
     if (m_managed_materials.find(def.name) != m_managed_materials.end())
     {
@@ -2711,8 +2766,235 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
     }
 
     std::string custom_name = this->ComposeName(def.name);
+    const bool removed_by_tuneup =
+        TuneupUtil::isManagedMatAnyhowRemoved(
+            m_actor->getWorkingTuneupDef(), def.name);
+
+#if OGRE_VERSION_MAJOR >= 14
+    Render::ManagedMaterialDeclaration staged_declaration;
+    std::array<Render::Ogre14ManagedMaterialSourceAuthorityBinding,
+               Render::kManagedMaterialTextureSlotCount>
+        staged_source_bindings{};
+    bool declaration_ready = false;
+    if (m_actor->m_managed_material_declaration_registry.active())
+    {
+        Render::ManagedMaterialDeclarationInput declaration_input;
+        declaration_input.actor_generation =
+            m_actor->m_managed_material_declaration_registry.actor_generation();
+        declaration_input.definition_generation =
+            m_actor->m_managed_material_declaration_registry
+                .next_definition_generation();
+        declaration_input.exact_material_name = source_def.name;
+        declaration_input.double_sided = source_def.options.double_sided;
+        declaration_input.removed_by_tuneup = removed_by_tuneup;
+
+        Render::ValidationResult declaration_result =
+            Render::ValidationResult::Success();
+        if (!TryGetManagedMaterialSemanticType(
+                source_def.type, declaration_input.declared_type))
+        {
+            declaration_result = Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_ENUM,
+                "managed_material_actor.declared_type",
+                "RigDef managed-material type is invalid");
+        }
+        else
+        {
+            const std::string resolved_type =
+                TuneupUtil::getTweakedManagedMatType(
+                    m_actor->getWorkingTuneupDef(), source_def.name,
+                    RigDef::ManagedMaterial::TypeToStr(source_def.type));
+            if (!TryParseManagedMaterialSemanticType(
+                    resolved_type, declaration_input.resolved_type))
+            {
+                declaration_result = Render::ValidationResult::Failure(
+                    Render::ValidationCode::INVALID_ENUM,
+                    "managed_material_actor.resolved_type",
+                    "post-Tuneup managed-material type is invalid");
+            }
+            else
+            {
+                declaration_input.type_overridden_by_tuneup =
+                    declaration_input.declared_type !=
+                    declaration_input.resolved_type;
+            }
+        }
+
+        const std::array<std::string,
+                         Render::kManagedMaterialTextureSlotCount>
+            declared_texture_names{{
+                source_def.diffuse_map,
+                source_def.specular_map,
+                source_def.damaged_diffuse_map,
+            }};
+        ContentManager* const content_manager = App::GetContentManager();
+        for (std::size_t slot = 0U;
+             declaration_result &&
+             slot < Render::kManagedMaterialTextureSlotCount;
+             ++slot)
+        {
+            Render::ManagedMaterialTextureBindingInput& binding =
+                declaration_input.textures[slot];
+            binding.slot =
+                static_cast<Render::ManagedMaterialTextureSlot>(slot);
+            binding.declared_texture_name = declared_texture_names[slot];
+            binding.resolved_texture_name =
+                TuneupUtil::getTweakedManagedMatMedia(
+                    m_actor->getWorkingTuneupDef(), source_def.name,
+                    static_cast<int>(slot), declared_texture_names[slot]);
+            binding.requested_resource_group =
+                TuneupUtil::getTweakedManagedMatMediaRG(
+                    m_actor->getWorkingTuneupDef(), source_def.name,
+                    static_cast<int>(slot), resource_group);
+            binding.configured = !binding.resolved_texture_name.empty();
+            if (!binding.configured)
+            {
+                binding.declared_texture_name.clear();
+                binding.requested_resource_group.clear();
+                continue;
+            }
+            if (removed_by_tuneup)
+            {
+                continue;
+            }
+            if (content_manager == nullptr)
+            {
+                declaration_result = Render::ValidationResult::Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "managed_material_actor.content_manager",
+                    "ContentManager is unavailable for texture source resolution");
+                break;
+            }
+
+            try
+            {
+                const Ogre::TexturePtr texture =
+                    Ogre::TextureManager::getSingleton().load(
+                        binding.resolved_texture_name,
+                        binding.requested_resource_group);
+                if (!texture)
+                {
+                    declaration_result = Render::ValidationResult::Failure(
+                        Render::ValidationCode::MISSING_REFERENCE,
+                        "managed_material_actor.loaded_texture",
+                        "resolved texture did not produce a loaded resource");
+                    break;
+                }
+                binding.effective_texture_name = texture->getName();
+                binding.effective_resource_group = texture->getGroup();
+
+                Render::ManagedMaterialTextureSourceReceipt reusable_receipt;
+                const Render::ManagedMaterialTextureSourceReceipt*
+                    reusable_receipt_ptr = nullptr;
+                for (std::size_t prior_slot = 0U; prior_slot < slot;
+                     ++prior_slot)
+                {
+                    const Render::ManagedMaterialTextureSourceReceipt& prior =
+                        declaration_input.textures[prior_slot].source_receipt;
+                    const Render::ManagedMaterialTextureSourceIdentity* identity =
+                        prior.identity();
+                    if (identity != nullptr &&
+                        identity->effective_resource_group ==
+                            binding.effective_resource_group &&
+                        identity->exact_resource_name ==
+                            binding.effective_texture_name)
+                    {
+                        reusable_receipt = prior;
+                        reusable_receipt_ptr = &reusable_receipt;
+                        break;
+                    }
+                }
+                if (reusable_receipt_ptr == nullptr &&
+                    m_actor->FindReusableManagedMaterialSourceReceipt(
+                        binding.effective_resource_group,
+                        binding.effective_texture_name, reusable_receipt))
+                {
+                    reusable_receipt_ptr = &reusable_receipt;
+                }
+
+                if (content_manager->RequiresAuthenticatedTextureSource(
+                        *texture))
+                {
+                    Render::Ogre14AuthenticatedTextureResolution resolution;
+                    declaration_result =
+                        content_manager->ResolveAuthenticatedTexture(
+                            *texture, resolution);
+                    if (declaration_result)
+                    {
+                        declaration_result =
+                            Render::Ogre14ManagedMaterialSourceAdapter::
+                                BuildAuthenticated(
+                                    texture, *content_manager, resolution,
+                                    Render::
+                                        ManagedMaterialDeclarationRegistryConfiguration{},
+                                    binding.source_receipt,
+                                    staged_source_bindings[slot],
+                                    reusable_receipt_ptr);
+                    }
+                }
+                else
+                {
+                    Render::Ogre14SelectedTextureSourceResolution resolution;
+                    declaration_result =
+                        content_manager->ResolveSelectedTextureSource(
+                            *texture, resolution);
+                    if (declaration_result)
+                    {
+                        declaration_result =
+                            Render::Ogre14ManagedMaterialSourceAdapter::
+                                BuildSelected(
+                                    texture, *content_manager,
+                                    *content_manager, resolution,
+                                    Render::
+                                        ManagedMaterialDeclarationRegistryConfiguration{},
+                                    binding.source_receipt,
+                                    staged_source_bindings[slot],
+                                    reusable_receipt_ptr);
+                    }
+                }
+            }
+            catch (const Ogre::Exception& e)
+            {
+                declaration_result = Render::ValidationResult::Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "managed_material_actor.texture_load",
+                    e.getDescription().c_str());
+            }
+            catch (...)
+            {
+                declaration_result = Render::ValidationResult::Failure(
+                    Render::ValidationCode::UNSUPPORTED_FEATURE,
+                    "managed_material_actor.texture_resolution",
+                    "unexpected exception while resolving immutable source bytes");
+            }
+        }
+
+        if (declaration_result)
+        {
+            declaration_result = Render::BuildManagedMaterialDeclaration(
+                Render::ManagedMaterialDeclarationRegistryConfiguration{},
+                declaration_input, staged_declaration);
+        }
+        if (declaration_result)
+        {
+            declaration_ready = true;
+        }
+        else
+        {
+            this->AddMessage(
+                Message::TYPE_ERROR,
+                fmt::format(
+                    "Managed material '{}': neutral declaration unavailable "
+                    "({}: {}). Legacy material construction will continue.",
+                    source_def.name,
+                    declaration_result.field,
+                    declaration_result.detail));
+        }
+    }
+#endif
+
     Ogre::MaterialPtr material;
-    if (TuneupUtil::isManagedMatAnyhowRemoved(m_actor->getWorkingTuneupDef(), def.name))
+    if (removed_by_tuneup)
     {
         // Create a placeholder material
         material = Ogre::MaterialManager::getSingleton().getByName("tracks/transred")->clone(custom_name, /*changeGroup:*/true, resource_group);
@@ -2861,7 +3143,7 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
         }
     }
 
-    if (!TuneupUtil::isManagedMatAnyhowRemoved(m_actor->getWorkingTuneupDef(), def.name) 
+    if (!removed_by_tuneup
         && def.type != RigDef::ManagedMaterialType::INVALID)
     {
         if (def.options.double_sided)
@@ -2882,7 +3164,28 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & def)
     }
 
     material->compile();
-    m_managed_materials.insert(std::make_pair(def.name, material));
+    const auto inserted =
+        m_managed_materials.insert(std::make_pair(def.name, material));
+    (void)inserted;
+#if OGRE_VERSION_MAJOR >= 14
+    if (inserted.second && declaration_ready)
+    {
+        const Render::ValidationResult publication =
+            m_actor->PublishManagedMaterialDeclaration(
+                staged_declaration, material, staged_source_bindings);
+        if (!publication)
+        {
+            this->AddMessage(
+                Message::TYPE_ERROR,
+                fmt::format(
+                    "Managed material '{}': neutral declaration publication "
+                    "rolled back ({}: {}). Legacy material remains active.",
+                    source_def.name,
+                    publication.field,
+                    publication.detail));
+        }
+    }
+#endif
 }
 
 void ActorSpawner::ProcessCollisionBox(RigDef::CollisionBox & def)

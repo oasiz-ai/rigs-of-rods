@@ -659,6 +659,23 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertEqual(text.count("cmake --install"), 1)
         self.assertEqual(text.count("cmake -E rename"), 1)
 
+    def test_managed_material_source_authority_is_built_and_tested_natively(
+        self,
+    ) -> None:
+        for marker in (
+            "Ogre14ManagedMaterialSourceAdapterTests.cpp",
+            "Ogre14ManagedMaterialSourceAdapter.cpp",
+            "Ogre14AuthenticatedTextureReceipt.cpp",
+            "Ogre14SelectedTextureSource.cpp",
+            "ror_ogre14_managed_material_source_adapter_tests",
+            "NAME ogre14_managed_material_source_adapter",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.test_cmake_text)
+        self.assertIn("--target all", self.text)
+        self.assertIn("Run native test suite", self.text)
+        self.assertIn("ctest", self.text)
+
     def test_cli_audit_commands_are_ui_free_before_renderer_startup(
         self,
     ) -> None:
