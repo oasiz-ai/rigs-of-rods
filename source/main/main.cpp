@@ -55,9 +55,15 @@
 #include "RigDef_TestHooks.h"
 #endif
 #include "RoRVersion.h"
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+#include "RendererInProcessSession.h"
+#include "RendererOgreNextInProcessPresenter.h"
+#include "system/detail/OgreNextDemoInProcessFramePolicy.h"
+#else
 #include "RendererOgre14GameBridge.h"
-#include "RendererGameInputEngineTarget.h"
 #include "RendererOgre14ProductSession.h"
+#endif
+#include "RendererGameInputEngineTarget.h"
 #include "RendererOgre14RuntimeOwnership.h"
 #include "gfx/render/Ogre14GraphicsSceneSource.h"
 #include "ScriptEngine.h"
@@ -66,6 +72,7 @@
 #include "Terrain.h"
 #include "Utils.h"
 #include <Overlay/OgreOverlaySystem.h>
+#include <array>
 #include <ctime>
 #include <chrono>
 #include <cstdio>
@@ -311,6 +318,109 @@ public:
     RendererRuntimeGuard& operator=(const RendererRuntimeGuard&) = delete;
 };
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+#if defined(ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT) != \
+    defined(ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT)
+#error "combined renderer media roots must be defined as an exact pair"
+#endif
+
+constexpr std::uint64_t kCombinedRendererAssetRegistryId =
+    0x524f52434f4d4231ULL; // "RORCOMB1", process-local and transport-free.
+
+bool ResolveCombinedPresenterConfiguration(
+    RoR::RendererOgreNextInProcessPresenterConfiguration& configuration,
+    std::string& failure_detail)
+{
+    using namespace RoR;
+
+    // Raw combined builds receive authenticated provider-stage roots as exact
+    // target compile definitions. Installed macOS packages omit those build
+    // paths and resolve only through Contents/Resources relative to RoR's
+    // executable-derived ordinary resources directory. cwd/environment are
+    // never read and an incomplete provider pair is a compile-time error.
+#if defined(ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT)
+    const std::string shader_media_root =
+        ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT;
+    const std::string presentation_media_root =
+        ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT;
+    const std::string expected_media = fmt::format(
+        "shader='{}', presentation='{}'",
+        shader_media_root,
+        presentation_media_root);
+#else
+    const std::string packaged_media_root = PathCombine(
+        GetParentDirectory(App::sys_resources_dir->getStr().c_str()),
+        "ogrenext");
+    const std::string shader_media_root =
+        PathCombine(packaged_media_root, "Hlms");
+    const std::string presentation_media_root =
+        PathCombine(packaged_media_root, "Presentation");
+    const std::string expected_media = packaged_media_root;
+#endif
+    if (!FolderExists(shader_media_root) ||
+        !FolderExists(presentation_media_root))
+    {
+        failure_detail = fmt::format(
+            "authenticated OgreNext media was not staged at {}",
+            expected_media);
+        return false;
+    }
+    configuration.shader_media_root = shader_media_root;
+    configuration.presentation_media_root = presentation_media_root;
+    return true;
+}
+
+class CombinedPresenterWindowGuard
+{
+public:
+    explicit CombinedPresenterWindowGuard(
+        RoR::RendererOgreNextInProcessPresenter& presenter) noexcept:
+        m_presenter(presenter)
+    {
+    }
+
+    ~CombinedPresenterWindowGuard()
+    {
+        // This guard is declared before RendererRuntimeGuard, so it runs only
+        // after Ogre 14 has destroyed its hidden SDL resource window. Session
+        // shutdown normally quiesces first; the explicit call covers every
+        // early-startup return without reaching into renderer internals.
+        m_presenter.ShutdownEventPump();
+        (void)m_presenter.ProtectHiddenResourceWindow(nullptr);
+        if (m_presenter.prepared())
+        {
+            (void)m_presenter.ShutdownWindow();
+        }
+    }
+
+    CombinedPresenterWindowGuard(const CombinedPresenterWindowGuard&) = delete;
+    CombinedPresenterWindowGuard& operator=(const CombinedPresenterWindowGuard&) = delete;
+
+private:
+    RoR::RendererOgreNextInProcessPresenter& m_presenter;
+};
+
+RoR::RendererInProcessSessionResult CloseCombinedRendererSession(
+    RoR::RendererInProcessSession& session) noexcept
+{
+    using namespace RoR;
+
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(5);
+    RendererInProcessSessionResult result = session.Shutdown();
+    while ((result.status ==
+                RendererInProcessSessionStatus::PENDING_BACKPRESSURE ||
+            result.status ==
+                RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE) &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        result = session.Shutdown();
+    }
+    return result;
+}
+#endif
+
 } // namespace
 
 #ifdef __cplusplus
@@ -321,6 +431,48 @@ int main(int argc, char *argv[])
 {
     using namespace RoR;
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // The combined executable has no bridge endpoint, child process, or
+    // transport handles. Ogre 14 is retained only as a hidden joined-scene and
+    // resource host; the in-process OgreNext presenter owns visibility/input.
+    const RendererOgre14RuntimeOwnership renderer_runtime_ownership =
+        ResolveRendererOgre14RuntimeOwnership(true);
+    if (!renderer_runtime_ownership.valid())
+    {
+        std::fputs(
+            "RoR combined renderer: invalid runtime ownership plan\n",
+            stderr);
+        std::fflush(stderr);
+        return 70;
+    }
+
+    // There is intentionally no transported menu/HUD in this first combined
+    // runtime. A Finder launch supplies only argv[0], so make exactly that
+    // case an immediately visible CityWorld/Alexis renderer demonstration.
+    // Any explicit invocation retains the caller's byte-for-byte arguments.
+    static char combined_check_cache[] = "-checkcache";
+    static char combined_map_option[] = "-map";
+    static char combined_map[] = "CityWorld.terrn2";
+    static char combined_truck_option[] = "-truck";
+    static char combined_truck[] = "AlexisSaber.truck";
+    static char combined_enter[] = "-enter";
+    std::array<char*, 8U> renderer_combined_demo_arguments{};
+    if (argc == 1)
+    {
+        renderer_combined_demo_arguments = {{
+            argv[0],
+            combined_check_cache,
+            combined_map_option,
+            combined_map,
+            combined_truck_option,
+            combined_truck,
+            combined_enter,
+            nullptr,
+        }};
+        argc = 7;
+        argv = renderer_combined_demo_arguments.data();
+    }
+#else
     // Decode and adopt the optional supervisor bridge before libraries or
     // worker threads can inherit its private handles. Direct RoR-Ogre14
     // launches retain the caller's original argv vector byte-for-byte.
@@ -363,6 +515,7 @@ int main(int argc, char *argv[])
         std::fflush(stderr);
         return 70;
     }
+#endif
 
 #if defined(ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_NATIVE_TESTING)
     if (argc >= 2 &&
@@ -383,11 +536,26 @@ int main(int argc, char *argv[])
     // Normal returns unwind local guards in reverse order: workers, window
     // integrations, then the renderer. Fatal returns explicitly quiesce the
     // workers and scene first; each guard caches that proven release.
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    RendererOgreNextInProcessPresenter renderer_combined_presenter;
+    CombinedPresenterWindowGuard renderer_combined_window_guard(
+        renderer_combined_presenter);
+#endif
     RendererRuntimeGuard renderer_runtime_guard;
     WindowBoundRuntimeGuard window_bound_runtime_guard(overlay_system);
     WorkerRuntimeGuard worker_runtime_guard;
     ApplicationFatalShutdownGate fatal_scene_runtime_gate(
         &ReleaseFatalSceneRuntime);
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    Detail::OgreNextDemoInProcessFramePolicy renderer_combined_frame_policy;
+    std::unique_ptr<RendererGameInputEngineTarget>
+        renderer_combined_input_target;
+    std::unique_ptr<Render::Ogre14GraphicsSceneSource>
+        renderer_combined_scene_source;
+    std::unique_ptr<RendererInProcessSession>
+        renderer_combined_session;
+    std::string renderer_combined_scene_failure_signature;
+#else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
     std::unique_ptr<Render::Ogre14GraphicsSceneSource>
@@ -395,6 +563,7 @@ int main(int argc, char *argv[])
     std::unique_ptr<RendererOgre14ProductSession>
         renderer_bridge_product_session;
     std::string renderer_bridge_scene_failure_signature;
+#endif
     int application_exit_code = 0;
 
     // Fatal game failures are caught inside the scope of every local runtime
@@ -490,6 +659,33 @@ int main(int argc, char *argv[])
             return -1; // Error already displayed
         }
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        // SDL/Metal must be established before Ogre 14 asks SDL for its
+        // hidden OpenGL resource host. This makes the presenter the stable
+        // process-wide video/event owner from the first native window onward.
+        RendererOgreNextInProcessPresenterConfiguration presenter_config;
+        std::string presenter_config_failure;
+        if (!ResolveCombinedPresenterConfiguration(
+                presenter_config, presenter_config_failure))
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Startup] {}",
+                presenter_config_failure));
+            return 70;
+        }
+        const RendererOgreNextInProcessPresenterStatus presenter_prepared =
+            renderer_combined_presenter.PrepareWindow(presenter_config);
+        if (presenter_prepared !=
+            RendererOgreNextInProcessPresenterStatus::COMPLETED)
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Startup] Visible OgreNext window "
+                "preparation failed: status='{}'",
+                ToString(presenter_prepared)));
+            return 70;
+        }
+#endif
+
         // Make sure config directory exists - to save 'ogre.cfg'
         CreateFolder(App::sys_config_dir->getStr());
 
@@ -499,6 +695,24 @@ int main(int argc, char *argv[])
         {
             return -1; // Error already displayed
         }
+
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        void* const renderer_resource_window =
+            App::GetAppContext()->GetCombinedRendererResourceWindow();
+        const RendererOgreNextInProcessPresenterStatus resource_protected =
+            renderer_combined_presenter.ProtectHiddenResourceWindow(
+                renderer_resource_window);
+        if (renderer_resource_window == nullptr ||
+            resource_protected !=
+                RendererOgreNextInProcessPresenterStatus::COMPLETED)
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Startup] Hidden Ogre 14 resource "
+                "window protection failed: status='{}'",
+                ToString(resource_protected)));
+            return 70;
+        }
+#endif
 
         Ogre::TextureManager::getSingleton().setDefaultNumMipmaps(5);
 
@@ -588,6 +802,21 @@ int main(int argc, char *argv[])
         App::CreateCameraManager(); // Creates OGRE Camera
         App::GetGfxScene()->GetEnvMap().SetupEnvMap(); // Needs camera
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        try
+        {
+            renderer_combined_scene_source =
+                std::make_unique<Render::Ogre14GraphicsSceneSource>(
+                    *App::GetGfxScene());
+            App::GetGfxScene()->EnableOgreNextDemoCapture();
+        }
+        catch (...)
+        {
+            LOG("[RoR|RendererCombined|Scene] Could not initialize the "
+                "OGRE 14 joined-scene adapter");
+            return 70;
+        }
+#else
         if (renderer_game_bridge.active())
         {
             try
@@ -604,6 +833,7 @@ int main(int argc, char *argv[])
                 return 70;
             }
         }
+#endif
 
         App::CreateGuiManager(); // Needs scene manager
 
@@ -612,6 +842,67 @@ int main(int argc, char *argv[])
         if (!App::GetAppContext()->SetUpInput(renderer_runtime_ownership))
             return 70;
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        renderer_combined_input_target =
+            std::make_unique<RendererGameInputEngineTarget>();
+        const RendererOgreNextInProcessPresenterStatus input_attached =
+            renderer_combined_presenter.AttachInputTarget(
+                *renderer_combined_input_target);
+        if (input_attached !=
+            RendererOgreNextInProcessPresenterStatus::COMPLETED)
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Input] Direct input activation "
+                "failed: status='{}'",
+                ToString(input_attached)));
+            return 70;
+        }
+
+        Render::IRendererFrontend* const combined_frontend =
+            renderer_combined_presenter.Frontend();
+        if (combined_frontend == nullptr)
+        {
+            LOG("[RoR|RendererCombined|Startup] Presenter did not expose "
+                "its in-process OgreNext frontend");
+            return 70;
+        }
+        renderer_combined_session =
+            std::make_unique<RendererInProcessSession>(
+                *combined_frontend,
+                renderer_combined_presenter,
+                renderer_combined_frame_policy);
+        RendererInProcessSessionConfig combined_session_config;
+        combined_session_config.frontend =
+            renderer_combined_presenter.InitialFrontendRequest();
+        combined_session_config.producer.registry_id =
+            kCombinedRendererAssetRegistryId;
+        const RendererInProcessSessionResult session_started =
+            renderer_combined_session->Start(combined_session_config);
+        if (!session_started)
+        {
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Startup] In-process OgreNext "
+                "session failed: status='{}', frontend={}, field='{}', "
+                "detail='{}'",
+                ToString(session_started.status),
+                static_cast<unsigned int>(session_started.frontend_code),
+                session_started.validation.field,
+                session_started.validation.detail));
+            const RendererInProcessSessionResult failed_start_shutdown =
+                CloseCombinedRendererSession(*renderer_combined_session);
+            if (failed_start_shutdown.status !=
+                RendererInProcessSessionStatus::CLOSED)
+            {
+                FailStopApplication(70);
+            }
+            renderer_combined_session.reset();
+            return 70;
+        }
+        LOG(fmt::format(
+            "[RoR|RendererCombined|Startup] Transport-free OgreNext "
+            "session ready (registry={})",
+            renderer_combined_session->registry_id()));
+#else
         if (renderer_game_bridge.active())
         {
             renderer_bridge_input_target =
@@ -635,6 +926,7 @@ int main(int argc, char *argv[])
                 "started (registry={})",
                 renderer_bridge_product_session->host().registry_id()));
         }
+#endif
 
 #ifdef USE_ANGELSCRIPT
         App::CreateScriptEngine();
@@ -751,9 +1043,17 @@ int main(int argc, char *argv[])
         }
 #endif // USE_OPENAL
 
-        // Hack to properly init DearIMGUI integration - force rendering image
-        //  Will be properly fixed under OGRE 2x
-        App::GetGuiManager()->LoadingWindow.SetProgress(100, "Hack", /*renderFrame=*/true);
+        // Standalone Ogre 14 needs one historical Dear ImGui bootstrap frame.
+        // The combined runtime's visible frame is owned exclusively by its
+        // in-process presenter; GUI_LoadingWindow defensively enforces the
+        // same rule for every other loading update.
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        App::GetGuiManager()->LoadingWindow.SetProgress(
+            100, "Hack", /*renderFrame=*/false);
+#else
+        App::GetGuiManager()->LoadingWindow.SetProgress(
+            100, "Hack", /*renderFrame=*/true);
+#endif
         App::GetGuiManager()->LoadingWindow.SetVisible(false);
 
         // --------------------------------------------------------------
@@ -765,8 +1065,10 @@ int main(int argc, char *argv[])
         while (App::app_state->getEnum<AppState>() != AppState::SHUTDOWN)
         {
             App::GetAppContext()->PrepareProfiler();
+#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
             OgreBites::WindowEventUtilities::messagePump();
             App::GetAppContext()->ProcessWindowEvents();
+#endif
 
             // Halt physics (wait for async tasks to finish)
             if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
@@ -981,6 +1283,16 @@ int main(int argc, char *argv[])
                 {
                     try
                     {
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                        // The presenter's controller handles and direct target
+                        // are process-lifetime state. Replacing InputEngine
+                        // underneath them would create a dangling physical
+                        // input owner, so defer live reinitialization until a
+                        // deliberate presenter restart contract exists.
+                        LOG("[RoR|RendererCombined|Input] Live input "
+                            "reinitialization is disabled in combined mode");
+                        App::GetGuiManager()->LoadingWindow.SetVisible(false);
+#else
                         LOG(fmt::format("[RoR] !! Reinitializing input engine !!"));
                         App::DestroyInputEngine();
                         if (!App::GetAppContext()->SetUpInput(
@@ -999,6 +1311,7 @@ int main(int argc, char *argv[])
                         }
                         LOG(fmt::format("[RoR] DONE Reinitializing input engine."));
                         App::GetGuiManager()->LoadingWindow.SetVisible(false); // Shown by `GUI::GameSettings` when changing 'grab mode'
+#endif
                     }
                     catch (...)
                     {
@@ -1511,6 +1824,76 @@ int main(int argc, char *argv[])
                     try
                     {
                         bool renderer_scene_reset_failed = false;
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                        if (renderer_combined_session != nullptr &&
+                            renderer_combined_session->active())
+                        {
+                            // Finalize the currently open map generation before
+                            // any source Ogre object is destroyed. Direct
+                            // dispatch has no transport to drain, but a surface
+                            // transition may retain the immutable finalization;
+                            // retry that exact production within a fixed bound.
+                            const auto reset_deadline =
+                                std::chrono::steady_clock::now() +
+                                std::chrono::milliseconds(2000);
+                            RendererInProcessSessionResult reset_result =
+                                renderer_combined_session->
+                                    ResetSceneGeneration();
+                            while ((reset_result.status ==
+                                        RendererInProcessSessionStatus::
+                                            PENDING_BACKPRESSURE ||
+                                    reset_result.status ==
+                                        RendererInProcessSessionStatus::
+                                            PENDING_FRONTEND_SURFACE) &&
+                                   std::chrono::steady_clock::now() <
+                                       reset_deadline)
+                            {
+                                std::this_thread::sleep_for(
+                                    std::chrono::milliseconds(1));
+                                reset_result = renderer_combined_session->
+                                                   ResetSceneGeneration();
+                            }
+                            if (!reset_result)
+                            {
+                                const RendererInProcessSessionResult
+                                    renderer_shutdown =
+                                        CloseCombinedRendererSession(
+                                            *renderer_combined_session);
+                                if (renderer_shutdown.status !=
+                                    RendererInProcessSessionStatus::CLOSED)
+                                {
+                                    FailStopApplication(EXIT_FAILURE);
+                                }
+                                renderer_scene_reset_failed = true;
+                                failed_m = true;
+                                try
+                                {
+                                    LOG(fmt::format(
+                                        "[RoR|RendererCombined|Scene] Terrain "
+                                        "unload held at generation boundary: "
+                                        "status='{}', frontend={}, field='{}', "
+                                        "detail='{}'",
+                                        ToString(reset_result.status),
+                                        static_cast<unsigned int>(
+                                            reset_result.frontend_code),
+                                        reset_result.validation.field,
+                                        reset_result.validation.detail));
+                                    LOG(fmt::format(
+                                        "[RoR|RendererCombined|Scene] Session "
+                                        "closed after generation-reset failure: "
+                                        "status='{}'",
+                                        ToString(renderer_shutdown.status)));
+                                }
+                                catch (...)
+                                {
+                                }
+                            }
+                            else
+                            {
+                                renderer_combined_scene_failure_signature.clear();
+                            }
+                        }
+#else
                         if (renderer_bridge_product_session != nullptr &&
                             renderer_bridge_product_session->active())
                         {
@@ -1592,6 +1975,7 @@ int main(int argc, char *argv[])
                                 renderer_bridge_scene_failure_signature.clear();
                             }
                         }
+#endif
                         App::GetAppContext()->EndPostProcessScene();
                         if (App::sim_state->getEnum<SimState>() == SimState::EDITOR_MODE)
                         {
@@ -2644,7 +3028,85 @@ int main(int argc, char *argv[])
 
             // Process input events
             OgreProfileBegin("Input processing");
-            bool renderer_bridge_input_captured = false;
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+            bool renderer_combined_simulation_granted = false;
+            // Capture first: it clears prior relative deltas. The presenter's
+            // sole SDL drain then installs this frame's ordered transitions,
+            // before any gameplay/GUI consumer observes InputEngine state.
+            App::GetInputEngine()->Capture();
+            bool renderer_input_captured = true;
+            if (renderer_combined_session != nullptr &&
+                renderer_combined_session->active())
+            {
+                const RendererInProcessSessionResult events =
+                    renderer_combined_session->
+                        PumpEventsBeforeSimulation();
+                renderer_combined_simulation_granted =
+                    events.simulation_may_advance;
+                if (events.shutdown_requested ||
+                    events.status ==
+                        RendererInProcessSessionStatus::SHUTDOWN_REQUESTED)
+                {
+                    App::GetGameContext()->PushMessage(
+                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                }
+                if (events.terminal)
+                {
+                    LOG(fmt::format(
+                        "[RoR|RendererCombined|Input] Direct event pump "
+                        "failed: status='{}', frontend={}, field='{}', "
+                        "detail='{}'",
+                        ToString(events.status),
+                        static_cast<unsigned int>(events.frontend_code),
+                        events.validation.field,
+                        events.validation.detail));
+                    App::GetGameContext()->PushMessage(
+                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                    const RendererInProcessSessionResult renderer_shutdown =
+                        CloseCombinedRendererSession(
+                            *renderer_combined_session);
+                    if (renderer_shutdown.status !=
+                        RendererInProcessSessionStatus::CLOSED)
+                    {
+                        FailStopApplication(EXIT_FAILURE);
+                    }
+                }
+                else if (!events &&
+                         events.status !=
+                             RendererInProcessSessionStatus::
+                                 PENDING_BACKPRESSURE &&
+                         events.status !=
+                             RendererInProcessSessionStatus::
+                                 PENDING_FRONTEND_SURFACE)
+                {
+                    LOG(fmt::format(
+                        "[RoR|RendererCombined|Input] Frame grant rejected: "
+                        "status='{}', frontend={}, field='{}', detail='{}'",
+                        ToString(events.status),
+                        static_cast<unsigned int>(events.frontend_code),
+                        events.validation.field,
+                        events.validation.detail));
+                    App::GetGameContext()->PushMessage(
+                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                }
+            }
+            else
+            {
+                App::GetGameContext()->PushMessage(
+                    Message(MSG_APP_SHUTDOWN_REQUESTED));
+            }
+
+            if (!renderer_combined_simulation_granted)
+            {
+                // The direct session may be retiring an immutable frame or
+                // synchronizing a surface. It explicitly withholds the grant;
+                // do not let physics, GUI, or script state overtake it.
+                OgreProfileEnd("Input processing");
+                OgreProfileEnd("RoR Main Loop");
+                continue;
+            }
+#else
+            bool renderer_input_captured = false;
             if (renderer_bridge_product_session != nullptr &&
                 renderer_bridge_product_session->active())
             {
@@ -2652,7 +3114,7 @@ int main(int argc, char *argv[])
                 // exactly once, then apply every published reverse batch
                 // before any gameplay consumer reads InputEngine state.
                 App::GetInputEngine()->Capture();
-                renderer_bridge_input_captured = true;
+                renderer_input_captured = true;
                 const RendererOgre14ProductSessionResult reverse =
                     renderer_bridge_product_session->PumpReverse();
                 if (reverse.terminal)
@@ -2668,18 +3130,19 @@ int main(int argc, char *argv[])
                     (void)renderer_bridge_product_session->Shutdown();
                 }
             }
+#endif
             if (world_model_capture_frame)
             {
                 // Capture owns the simulation scheduler and samples devices
                 // exactly once before its single 48 Hz transition. The owned
                 // batch advances input-bounce time once; no GUI, sky, actor,
                 // or script input mutator runs on this path.
-                if (!renderer_bridge_input_captured)
+                if (!renderer_input_captured)
                     App::GetInputEngine()->Capture();
             }
             else if (dt != 0.f)
             {
-                if (!renderer_bridge_input_captured)
+                if (!renderer_input_captured)
                     App::GetInputEngine()->Capture();
                 App::GetInputEngine()->updateKeyBounces(dt);
 
@@ -2859,6 +3322,71 @@ int main(int argc, char *argv[])
             else if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
             {
                 App::GetGfxScene()->UpdateScene(dt_sim); // Draws GUI as well
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                // UpdateScene has consumed the copied simulation buffers and
+                // joined flex/wheel work. Capture that exact completed Ogre 14
+                // scene and dispatch it directly into the co-resident N1
+                // frontend; no bridge serialization or child runtime exists.
+                if (renderer_combined_simulation_granted &&
+                    renderer_combined_scene_source != nullptr &&
+                    renderer_combined_session != nullptr &&
+                    renderer_combined_session->active())
+                {
+                    const RendererInProcessSessionResult scene_result =
+                        renderer_combined_session->PostUpdatedScene(
+                            *renderer_combined_scene_source);
+                    renderer_combined_simulation_granted = false;
+                    if (!scene_result &&
+                        scene_result.status !=
+                            RendererInProcessSessionStatus::
+                                PENDING_BACKPRESSURE &&
+                        scene_result.status !=
+                            RendererInProcessSessionStatus::
+                                PENDING_FRONTEND_SURFACE)
+                    {
+                        const std::string failure_signature =
+                            ToString(scene_result.status) +
+                            std::string("\n") +
+                            std::to_string(static_cast<unsigned int>(
+                                scene_result.frontend_code)) + "\n" +
+                            scene_result.validation.field + "\n" +
+                            scene_result.validation.detail;
+                        if (failure_signature !=
+                            renderer_combined_scene_failure_signature)
+                        {
+                            renderer_combined_scene_failure_signature =
+                                failure_signature;
+                            LOG(fmt::format(
+                                "[RoR|RendererCombined|Scene] Snapshot not "
+                                "presented: status='{}', frontend={}, "
+                                "field='{}', detail='{}'",
+                                ToString(scene_result.status),
+                                static_cast<unsigned int>(
+                                    scene_result.frontend_code),
+                                scene_result.validation.field,
+                                scene_result.validation.detail));
+                        }
+                        if (scene_result.terminal)
+                        {
+                            App::GetGameContext()->PushMessage(
+                                Message(MSG_APP_SHUTDOWN_REQUESTED));
+                            const RendererInProcessSessionResult
+                                renderer_shutdown =
+                                    CloseCombinedRendererSession(
+                                        *renderer_combined_session);
+                            if (renderer_shutdown.status !=
+                                RendererInProcessSessionStatus::CLOSED)
+                            {
+                                FailStopApplication(EXIT_FAILURE);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        renderer_combined_scene_failure_signature.clear();
+                    }
+                }
+#else
                 // Capture only after UpdateScene has consumed the copied
                 // simulation buffers and joined flex/wheel tasks. The source
                 // adapter reads the completed OGRE scene, never live solver
@@ -2908,7 +3436,31 @@ int main(int argc, char *argv[])
                         renderer_bridge_scene_failure_signature.clear();
                     }
                 }
+#endif
             }
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+            if (renderer_combined_simulation_granted)
+            {
+                // MAIN_MENU has no valid joined terrain light/camera capture.
+                // Consume the one session grant without manufacturing an
+                // invalid empty PSSM scene; the next iteration polls anew.
+                const RendererInProcessSessionResult skipped =
+                    renderer_combined_session->SkipUpdatedScene();
+                renderer_combined_simulation_granted = false;
+                if (!skipped)
+                {
+                    LOG(fmt::format(
+                        "[RoR|RendererCombined|Scene] Could not consume "
+                        "non-simulation grant: status='{}', field='{}', "
+                        "detail='{}'",
+                        ToString(skipped.status),
+                        skipped.validation.field,
+                        skipped.validation.detail));
+                    App::GetGameContext()->PushMessage(
+                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                }
+            }
+#endif
             OgreProfileEnd("Scene and GUI");
 
             OgreProfileEnd("RoR Main Loop");
@@ -2937,6 +3489,28 @@ int main(int argc, char *argv[])
 
         } // End of main rendering/input loop
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        if (renderer_combined_session != nullptr)
+        {
+            const RendererInProcessSessionResult renderer_shutdown =
+                CloseCombinedRendererSession(*renderer_combined_session);
+            LOG(fmt::format(
+                "[RoR|RendererCombined|Shutdown] status='{}', pending={}",
+                ToString(renderer_shutdown.status),
+                renderer_shutdown.pending_frame ? 1 : 0));
+            if (renderer_shutdown.status !=
+                RendererInProcessSessionStatus::CLOSED)
+            {
+                // Shutdown timeout/failure may leave OgreNext borrowing the
+                // native window. Never unwind hidden Ogre 14 or process SDL
+                // ownership underneath that unresolved borrow.
+                FailStopApplication(EXIT_FAILURE);
+            }
+        }
+        renderer_combined_session.reset();
+        renderer_combined_scene_source.reset();
+        renderer_combined_input_target.reset();
+#else
         if (renderer_bridge_product_session != nullptr)
         {
             const RendererOgre14ProductSessionResult renderer_shutdown =
@@ -2948,6 +3522,7 @@ int main(int argc, char *argv[])
                 ToString(renderer_shutdown.host_status),
                 renderer_shutdown.pending_frame ? 1 : 0));
         }
+#endif
 
         App::ShutdownWorldModelCapture();
 
@@ -2964,6 +3539,24 @@ int main(int argc, char *argv[])
         App::ShutdownWorldModelCapture();
         LOG(e.what());
         ErrorUtils::ShowError(_L("An exception (std::runtime_error) has occured!"), e.what());
+    }
+#endif
+
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // The release-only exception handlers above bypass the normal loop tail.
+    // Prove frontend closure here as well before local guards can unwind.
+    if (renderer_combined_session != nullptr)
+    {
+        const RendererInProcessSessionResult renderer_shutdown =
+            CloseCombinedRendererSession(*renderer_combined_session);
+        if (renderer_shutdown.status !=
+            RendererInProcessSessionStatus::CLOSED)
+        {
+            FailStopApplication(EXIT_FAILURE);
+        }
+        renderer_combined_session.reset();
+        renderer_combined_scene_source.reset();
+        renderer_combined_input_target.reset();
     }
 #endif
 
@@ -2990,6 +3583,25 @@ int main(int argc, char *argv[])
                     return true;
                 },
                 [&]() {
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                    if (renderer_combined_session != nullptr)
+                    {
+                        const RendererInProcessSessionResult
+                            renderer_shutdown =
+                                CloseCombinedRendererSession(
+                                    *renderer_combined_session);
+                        if (renderer_shutdown.status !=
+                            RendererInProcessSessionStatus::CLOSED)
+                        {
+                            // Leave every owner intact; the fatal coordinator
+                            // will select fail-stop before renderer unwinding.
+                            return false;
+                        }
+                    }
+                    renderer_combined_session.reset();
+                    renderer_combined_scene_source.reset();
+                    renderer_combined_input_target.reset();
+#else
                     if (renderer_bridge_product_session != nullptr)
                     {
                         (void)renderer_bridge_product_session->Shutdown();
@@ -2997,6 +3609,7 @@ int main(int argc, char *argv[])
                     renderer_bridge_product_session.reset();
                     renderer_bridge_scene_source.reset();
                     renderer_bridge_input_target.reset();
+#endif
                     return true;
                 },
                 [&]() {
@@ -3010,9 +3623,9 @@ int main(int argc, char *argv[])
         {
             try
             {
-                LOG("[RoR|Fatal] Worker/scene release was not proven; "
-                    "preserving renderer and archive owners until process "
-                    "fail-stop");
+                LOG("[RoR|Fatal] Presentation/worker/scene release was not "
+                    "proven; preserving renderer and archive owners until "
+                    "process fail-stop");
             }
             catch (...)
             {

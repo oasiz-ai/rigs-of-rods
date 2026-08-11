@@ -968,7 +968,12 @@ void AppContext::RefreshRenderDisplayMetrics(bool log_change)
 
 void AppContext::ProcessWindowEvents()
 {
-#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // RendererOgreNextInProcessPresenter is the one and only SDL event owner
+    // in the combined process. Keep this historical entry point inert even if
+    // a future caller accidentally reaches it.
+    return;
+#elif OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     if (m_sdl_window == nullptr || m_render_window == nullptr)
     {
         return;
@@ -1111,6 +1116,21 @@ void AppContext::ProcessWindowEvents()
     }
 #endif
 }
+
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+void* AppContext::GetCombinedRendererResourceWindow() const noexcept
+{
+#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+    if (!m_renderer_child_owns_presentation || m_sdl_window == nullptr)
+    {
+        return nullptr;
+    }
+    return static_cast<void*>(m_sdl_window);
+#else
+    return nullptr;
+#endif
+}
+#endif
 
 void AppContext::RegisterRTShaderSceneManager(Ogre::SceneManager* scene_manager)
 {

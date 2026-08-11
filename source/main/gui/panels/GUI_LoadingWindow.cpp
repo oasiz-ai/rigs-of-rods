@@ -32,6 +32,12 @@ using namespace GUI;
 
 void LoadingWindow::SetProgress(int percent, std::string const& text, bool render_frame/*=true*/)
 {
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // The hidden Ogre 14 window is a resource/scene host only. Ad-hoc loading
+    // frames would violate the combined presenter's exclusive frame ownership
+    // and can enter Ogre 14 while OgreNext owns the visible surface.
+    render_frame = false;
+#endif
     if (render_frame && m_timer.getMilliseconds() > 10)
     {
         App::GetGuiManager()->NewImGuiFrame(m_timer.getMilliseconds() * 0.001);

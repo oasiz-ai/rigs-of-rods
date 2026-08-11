@@ -21,6 +21,13 @@ option(
 find_package(Threads REQUIRED)
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 
+add_test(
+    NAME renderer_combined_game_wiring_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_renderer_combined_game_wiring_contract.py"
+)
+
 set(ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE
     "${CMAKE_CURRENT_BINARY_DIR}/generated/material-semantic-catalog-v2.synthetic.rormat2")
 add_custom_command(

@@ -84,6 +84,12 @@ public:
     bool                 SetUpInput(const RendererOgre14RuntimeOwnership& ownership);
     void                 SetUpObsoleteConfMarker();
     void                 ProcessWindowEvents();
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    /// Returns only the hidden transitional resource host owned by this
+    /// context. The combined presenter uses the opaque value solely to keep
+    /// that SDL window hidden while it owns the process-wide event drain.
+    [[nodiscard]] void*  GetCombinedRendererResourceWindow() const noexcept;
+#endif
     // Ordered injections from the renderer-owned physical input source. They
     // reuse the same GUI/camera callbacks as local OIS/SDL events; InputEngine
     // held state is reconciled atomically after each renderer poll.
