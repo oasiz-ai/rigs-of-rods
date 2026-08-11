@@ -560,23 +560,23 @@ InputTransportBatch InputBatch() {
   return batch;
 }
 
-class ProductInputTarget final : public IRendererOgre14InputTarget {
+class ProductInputTarget final : public IRendererGameInputTarget {
 public:
-  bool ActivateTransport() noexcept override {
+  bool ActivateInput() noexcept override {
     ++activations;
     return activation_succeeds;
   }
-  void KeyChanged(RendererOgre14LegacyKey, bool) noexcept override {}
+  void KeyChanged(RendererGameKey, bool) noexcept override {}
   void MouseMoved(std::int32_t, std::int32_t, std::int32_t,
                   std::int32_t) noexcept override {}
-  void MouseButtonChanged(RendererOgre14LegacyMouseButton,
+  void MouseButtonChanged(RendererGameMouseButton,
                           bool) noexcept override {}
   void MouseWheel(float, float) noexcept override {}
   void TextInput(std::string_view) noexcept override {}
   void FocusChanged(bool value) noexcept override { focused = value; }
   void WindowCloseRequested() noexcept override { ++close_requests; }
   bool Reconcile(
-      const RendererOgre14LegacyInputState &state) noexcept override {
+      const RendererGameInputState &state) noexcept override {
     applied_through = state.through_event_id;
     ++reconciliations;
     return true;

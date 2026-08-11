@@ -191,6 +191,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/terrain/Terrain.cpp"
     "source/main/terrain/Terrain.h"
     "source/main/main.cpp"
+    "source/main/AppContext.cpp"
+    "source/main/AppContext.h"
     "source/main/system/ApplicationFatalError.h"
     "source/main/system/RendererBridgeChannel.cpp"
     "source/main/system/RendererBridgeChannel.h"
@@ -208,14 +210,20 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgre14GameBridge.h"
     "source/main/system/RendererOgre14GameHostSession.cpp"
     "source/main/system/RendererOgre14GameHostSession.h"
+    "source/main/system/RendererGameInputTarget.h"
     "source/main/system/RendererOgre14InputAdapter.cpp"
     "source/main/system/RendererOgre14InputAdapter.h"
+    "source/main/system/RendererGameInputEngineTarget.cpp"
+    "source/main/system/RendererGameInputEngineTarget.h"
     "source/main/system/RendererOgre14ProductSession.cpp"
     "source/main/system/RendererOgre14ProductSession.h"
     "source/main/system/RendererInProcessSession.cpp"
     "source/main/system/RendererInProcessSession.h"
     "source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp"
     "source/main/system/detail/OgreNextDemoInProcessFramePolicy.h"
+    "source/main/utils/InputEngine.cpp"
+    "source/main/utils/InputEngine.h"
+    "doc/nextgen/OGRE14_PRODUCT_SESSION.md"
     "source/main/system/RendererSiblingPath.cpp"
     "source/main/system/RendererSiblingPath.h"
     "source/main/system/RendererPackagedMediaPath.cpp"
@@ -2664,6 +2672,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/terrain/Terrain.cpp
             source/main/terrain/Terrain.h
             source/main/main.cpp
+            source/main/AppContext.cpp
+            source/main/AppContext.h
             source/main/system/ApplicationFatalError.h
             source/main/system/RendererBridgeChannel.cpp
             source/main/system/RendererBridgeChannel.h
@@ -2681,14 +2691,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgre14GameBridge.h
             source/main/system/RendererOgre14GameHostSession.cpp
             source/main/system/RendererOgre14GameHostSession.h
+            source/main/system/RendererGameInputTarget.h
             source/main/system/RendererOgre14InputAdapter.cpp
             source/main/system/RendererOgre14InputAdapter.h
+            source/main/system/RendererGameInputEngineTarget.cpp
+            source/main/system/RendererGameInputEngineTarget.h
             source/main/system/RendererOgre14ProductSession.cpp
             source/main/system/RendererOgre14ProductSession.h
             source/main/system/RendererInProcessSession.cpp
             source/main/system/RendererInProcessSession.h
             source/main/system/detail/OgreNextDemoInProcessFramePolicy.cpp
             source/main/system/detail/OgreNextDemoInProcessFramePolicy.h
+            source/main/utils/InputEngine.cpp
+            source/main/utils/InputEngine.h
+            doc/nextgen/OGRE14_PRODUCT_SESSION.md
             source/main/system/RendererSiblingPath.cpp
             source/main/system/RendererSiblingPath.h
             source/main/system/RendererPackagedMediaPath.cpp

@@ -36,13 +36,13 @@ InputTransportEvent Event(std::uint64_t id, Payload payload) {
   return event;
 }
 
-class FakeTarget final : public IRendererOgre14InputTarget {
+class FakeTarget final : public IRendererGameInputTarget {
 public:
-  bool ActivateTransport() noexcept override {
+  bool ActivateInput() noexcept override {
     ++activations;
     return activation_succeeds;
   }
-  void KeyChanged(RendererOgre14LegacyKey key,
+  void KeyChanged(RendererGameKey key,
                   bool pressed) noexcept override {
     keys.emplace_back(key, pressed);
   }
@@ -51,7 +51,7 @@ public:
     mouse_motion = {x, y, dx, dy};
     ++mouse_moves;
   }
-  void MouseButtonChanged(RendererOgre14LegacyMouseButton button,
+  void MouseButtonChanged(RendererGameMouseButton button,
                           bool pressed) noexcept override {
     mouse_buttons.emplace_back(button, pressed);
   }
@@ -67,7 +67,7 @@ public:
     ++focus_changes;
   }
   void WindowCloseRequested() noexcept override { ++close_requests; }
-  bool Reconcile(const RendererOgre14LegacyInputState &input) noexcept override {
+  bool Reconcile(const RendererGameInputState &input) noexcept override {
     try {
       state = input;
       ++reconciliations;
@@ -89,10 +89,10 @@ public:
   float wheel_x = 0.0F;
   float wheel_y = 0.0F;
   std::string text;
-  std::vector<std::pair<RendererOgre14LegacyKey, bool>> keys;
-  std::vector<std::pair<RendererOgre14LegacyMouseButton, bool>>
+  std::vector<std::pair<RendererGameKey, bool>> keys;
+  std::vector<std::pair<RendererGameMouseButton, bool>>
       mouse_buttons;
-  RendererOgre14LegacyInputState state;
+  RendererGameInputState state;
 };
 
 InputTransportBatch KeyboardMouseBatch() {
@@ -234,14 +234,14 @@ InputTransportBatch SaturatingDeltaBatch() {
 }
 
 void TestMappingsTransitionsReconciliationAndLineage() {
-  Require(TranslateRendererSdl2ScancodeToLegacy(Sdl2PhysicalScancode::A) ==
-              RendererOgre14LegacyKey::A &&
-              TranslateRendererSdl2ScancodeToLegacy(
+  Require(TranslateRendererSdl2ScancodeToGame(Sdl2PhysicalScancode::A) ==
+              RendererGameKey::A &&
+              TranslateRendererSdl2ScancodeToGame(
                   Sdl2PhysicalScancode::RIGHT_ALT) ==
-                  RendererOgre14LegacyKey::RIGHT_ALT &&
-              TranslateRendererSdl2ScancodeToLegacy(
+                  RendererGameKey::RIGHT_ALT &&
+              TranslateRendererSdl2ScancodeToGame(
                   Sdl2PhysicalScancode::F16) ==
-                  RendererOgre14LegacyKey::UNASSIGNED,
+                  RendererGameKey::UNASSIGNED,
           "portable SDL2 to legacy key mapping changed");
 
   FakeTarget target;
@@ -261,7 +261,7 @@ void TestMappingsTransitionsReconciliationAndLineage() {
           "issued/resolved/applied lineage or activation changed");
   Require(target.keys.size() == 1U &&
               target.keys[0U] == std::make_pair(
-                  RendererOgre14LegacyKey::A, true) &&
+                  RendererGameKey::A, true) &&
               target.mouse_moves == 1 &&
               target.mouse_motion ==
                   std::array<std::int32_t, 4U>{120, 75, -3, 4} &&
@@ -271,11 +271,11 @@ void TestMappingsTransitionsReconciliationAndLineage() {
               target.focus && target.close_requests == 1,
           "ordered input transitions changed");
   Require(target.state.pressed_keys ==
-                  std::vector<RendererOgre14LegacyKey>{
-                      RendererOgre14LegacyKey::A} &&
+                  std::vector<RendererGameKey>{
+                      RendererGameKey::A} &&
               target.state.pressed_mouse_buttons ==
-                  std::vector<RendererOgre14LegacyMouseButton>{
-                      RendererOgre14LegacyMouseButton::RIGHT} &&
+                  std::vector<RendererGameMouseButton>{
+                      RendererGameMouseButton::RIGHT} &&
               target.state.mouse_x_pixels == 120 &&
               target.state.mouse_y_pixels == 75 &&
               target.state.mouse_delta_x_pixels == -3 &&

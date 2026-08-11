@@ -84,16 +84,16 @@ public:
     bool                 SetUpInput(const RendererOgre14RuntimeOwnership& ownership);
     void                 SetUpObsoleteConfMarker();
     void                 ProcessWindowEvents();
-    // Ordered injections from the adopted Ogre-Next presentation child. They
+    // Ordered injections from the renderer-owned physical input source. They
     // reuse the same GUI/camera callbacks as local OIS/SDL events; InputEngine
-    // held state is reconciled atomically after the batch.
-    void                 InjectRendererBridgeKey(OIS::KeyCode key, bool down) noexcept;
-    void                 InjectRendererBridgeMouseMotion(int x, int y, int dx, int dy) noexcept;
-    void                 InjectRendererBridgeMouseButton(OIS::MouseButtonID button, bool down) noexcept;
-    void                 InjectRendererBridgeMouseWheel(float x, float y) noexcept;
-    void                 InjectRendererBridgeText(std::string_view utf8) noexcept;
-    void                 InjectRendererBridgeFocus(bool focused) noexcept;
-    void                 InjectRendererBridgeWindowClose() noexcept;
+    // held state is reconciled atomically after each renderer poll.
+    void                 InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept;
+    void                 InjectRendererInputMouseMotion(int x, int y, int dx, int dy) noexcept;
+    void                 InjectRendererInputMouseButton(OIS::MouseButtonID button, bool down) noexcept;
+    void                 InjectRendererInputMouseWheel(float x, float y) noexcept;
+    void                 InjectRendererInputText(std::string_view utf8) noexcept;
+    void                 InjectRendererInputFocus(bool focused) noexcept;
+    void                 InjectRendererInputWindowClose() noexcept;
 
     // Rendering
     Ogre::RenderWindow*  CreateCustomRenderWindow(std::string const& name, int width, int height);

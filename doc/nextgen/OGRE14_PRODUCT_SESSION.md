@@ -23,7 +23,7 @@ or force-feedback device. After `GfxScene`, GUI, and that transport-only
 `InputEngine` exist, the endpoint path creates, in dependency order:
 
 1. one `Ogre14GraphicsSceneSource`, enabled only for bridge capture;
-2. one `RendererOgre14InputEngineTarget`;
+2. one `RendererGameInputEngineTarget`;
 3. one `RendererOgre14ProductSession`, which owns exactly one
    `RendererOgre14GameHostSession`, input adapter, and
    `GraphicsSceneSnapshotProducer`.
@@ -109,7 +109,7 @@ no-throw guard; the main path performs the ordered shutdown explicitly.
 
 The adapter and product coordinator contain no SDL, OIS, OGRE, POSIX, or Win32
 headers. Native channel behavior remains in `RendererBridgeChannel`; only the
-small `RendererOgre14InputEngineTarget` binds portable state to OIS and
+small `RendererGameInputEngineTarget` binds portable state to OIS and
 `AppContext`. The same sources and strict tests are in the macOS, Linux, and
 Windows CMake graph.
 

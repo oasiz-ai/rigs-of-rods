@@ -56,7 +56,7 @@
 #endif
 #include "RoRVersion.h"
 #include "RendererOgre14GameBridge.h"
-#include "RendererOgre14InputEngineTarget.h"
+#include "RendererGameInputEngineTarget.h"
 #include "RendererOgre14ProductSession.h"
 #include "RendererOgre14RuntimeOwnership.h"
 #include "gfx/render/Ogre14GraphicsSceneSource.h"
@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
     WorkerRuntimeGuard worker_runtime_guard;
     ApplicationFatalShutdownGate fatal_scene_runtime_gate(
         &ReleaseFatalSceneRuntime);
-    std::unique_ptr<RendererOgre14InputEngineTarget>
+    std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
     std::unique_ptr<Render::Ogre14GraphicsSceneSource>
         renderer_bridge_scene_source;
@@ -615,7 +615,7 @@ int main(int argc, char *argv[])
         if (renderer_game_bridge.active())
         {
             renderer_bridge_input_target =
-                std::make_unique<RendererOgre14InputEngineTarget>();
+                std::make_unique<RendererGameInputEngineTarget>();
             renderer_bridge_product_session =
                 std::make_unique<RendererOgre14ProductSession>(
                     renderer_game_bridge, *renderer_bridge_input_target);
@@ -992,7 +992,7 @@ int main(int argc, char *argv[])
                         if (renderer_bridge_product_session != nullptr &&
                             renderer_bridge_product_session->active() &&
                             (renderer_bridge_input_target == nullptr ||
-                             !renderer_bridge_input_target->ActivateTransport()))
+                             !renderer_bridge_input_target->ActivateInput()))
                         {
                             throw std::runtime_error(
                                 "could not restore renderer transport input after reinitialization");

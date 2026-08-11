@@ -293,8 +293,9 @@ set(SOURCE_FILES
         system/RendererChildLauncher.{h,cpp}
         system/RendererOgre14GameBridge.{h,cpp}
         system/RendererOgre14GameHostSession.{h,cpp}
+        system/RendererGameInputTarget.h
         system/RendererOgre14InputAdapter.{h,cpp}
-        system/RendererOgre14InputEngineTarget.{h,cpp}
+        system/RendererGameInputEngineTarget.{h,cpp}
         system/RendererOgre14ProductSession.{h,cpp}
         system/detail/OgreNextDemoFrameNormalization.{h,cpp}
         system/RendererInProcessSession.{h,cpp}

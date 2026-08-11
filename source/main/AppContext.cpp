@@ -217,7 +217,7 @@ bool AppContext::SetUpInput(
     return true;
 }
 
-void AppContext::InjectRendererBridgeKey(OIS::KeyCode key, bool down) noexcept
+void AppContext::InjectRendererInputKey(OIS::KeyCode key, bool down) noexcept
 {
     try
     {
@@ -233,7 +233,7 @@ void AppContext::InjectRendererBridgeKey(OIS::KeyCode key, bool down) noexcept
     }
 }
 
-void AppContext::InjectRendererBridgeMouseMotion(
+void AppContext::InjectRendererInputMouseMotion(
     int x, int y, int dx, int dy) noexcept
 {
     try
@@ -252,7 +252,7 @@ void AppContext::InjectRendererBridgeMouseMotion(
     }
 }
 
-void AppContext::InjectRendererBridgeMouseButton(
+void AppContext::InjectRendererInputMouseButton(
     OIS::MouseButtonID button, bool down) noexcept
 {
     try
@@ -274,7 +274,7 @@ void AppContext::InjectRendererBridgeMouseButton(
     }
 }
 
-void AppContext::InjectRendererBridgeMouseWheel(float x, float y) noexcept
+void AppContext::InjectRendererInputMouseWheel(float x, float y) noexcept
 {
     (void)x; // Legacy OIS has one wheel axis; horizontal state is reconciled.
     try
@@ -292,7 +292,7 @@ void AppContext::InjectRendererBridgeMouseWheel(float x, float y) noexcept
     }
 }
 
-void AppContext::InjectRendererBridgeText(std::string_view utf8) noexcept
+void AppContext::InjectRendererInputText(std::string_view utf8) noexcept
 {
     try
     {
@@ -307,13 +307,13 @@ void AppContext::InjectRendererBridgeText(std::string_view utf8) noexcept
     }
 }
 
-void AppContext::InjectRendererBridgeFocus(bool focused) noexcept
+void AppContext::InjectRendererInputFocus(bool focused) noexcept
 {
     if (!focused && App::GetInputEngine() != nullptr)
         App::GetInputEngine()->resetKeysAndMouseButtons();
 }
 
-void AppContext::InjectRendererBridgeWindowClose() noexcept
+void AppContext::InjectRendererInputWindowClose() noexcept
 {
     try
     {

@@ -16,6 +16,8 @@ FATAL_SHUTDOWN_PROVENANCE_PATHS = (
     "source/main/GameContext.cpp",
     "source/main/GameContext.h",
     "source/main/main.cpp",
+    "source/main/AppContext.cpp",
+    "source/main/AppContext.h",
     "source/main/physics/Actor.cpp",
     "source/main/physics/collision/Collisions.cpp",
     "source/main/system/ApplicationFatalError.h",
@@ -48,8 +50,14 @@ DEFORMABLE_CAPTURE_PROVENANCE_PATHS = (
     "source/main/physics/flex/Flexable.h",
     "source/main/system/RendererOgre14InputAdapter.cpp",
     "source/main/system/RendererOgre14InputAdapter.h",
+    "source/main/system/RendererGameInputTarget.h",
+    "source/main/system/RendererGameInputEngineTarget.cpp",
+    "source/main/system/RendererGameInputEngineTarget.h",
     "source/main/system/RendererOgre14ProductSession.cpp",
     "source/main/system/RendererOgre14ProductSession.h",
+    "source/main/utils/InputEngine.cpp",
+    "source/main/utils/InputEngine.h",
+    "doc/nextgen/OGRE14_PRODUCT_SESSION.md",
     "tests/gfx/GfxActorCaptureInventoryTests.cpp",
     "tests/gfx/render/GraphicsSceneSnapshotProducerTests.cpp",
     "tests/physics/FlexMeshTopologyTests.cpp",
@@ -148,7 +156,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             "source/main/system/RendererOgre14GameBridge.*",
             "source/main/system/RendererOgre14GameHostSession.*",
             "source/main/system/RendererOgre14InputAdapter.*",
-            "source/main/system/RendererOgre14InputEngineTarget.*",
+            "source/main/system/RendererGameInputEngineTarget.*",
             "source/main/system/RendererOgre14ProductSession.*",
             "source/main/system/RendererOgre14RuntimeOwnership.*",
             "source/main/system/RendererSiblingPath.*",
@@ -1600,8 +1608,24 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         self.assertIn("if (m_physical_input_enabled)", input_engine)
         self.assertIn(
-            "EnableRendererTransportInput()", input_engine
+            "EnableRendererInput()", input_engine
         )
+
+        game_input = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererGameInputTarget.h"
+        ).read_text(encoding="utf-8")
+        engine_target = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererGameInputEngineTarget.h"
+        ).read_text(encoding="utf-8")
+        self.assertIn("class IRendererGameInputTarget", game_input)
+        self.assertIn("virtual bool ActivateInput()", game_input)
+        self.assertNotIn("Transport", game_input)
+        self.assertNotIn("Bridge", game_input)
+        self.assertIn('#include "RendererGameInputTarget.h"', engine_target)
+        self.assertNotIn("RendererOgre14InputAdapter.h", engine_target)
+        self.assertNotIn("InputEventTransport", engine_target)
 
         unload_body = main[
             main.index("case MSG_SIM_UNLOAD_TERRN_REQUESTED") :

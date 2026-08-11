@@ -80,7 +80,7 @@ struct RendererOgre14ProductSessionResult final {
 class RendererOgre14ProductSession final {
 public:
   RendererOgre14ProductSession(RendererOgre14GameBridge &bridge,
-                               IRendererOgre14InputTarget &input_target);
+                               IRendererGameInputTarget &input_target);
   ~RendererOgre14ProductSession();
 
   RendererOgre14ProductSession(const RendererOgre14ProductSession &) = delete;
@@ -132,7 +132,7 @@ private:
       const RendererOgre14GameHostSessionResult &host_result) const noexcept;
 
   RendererOgre14GameHostSession host_;
-  IRendererOgre14InputTarget &input_target_;
+  IRendererGameInputTarget &input_target_;
   RendererOgre14InputAdapter input_adapter_;
   std::unique_ptr<Render::GraphicsSceneSnapshotProducer> producer_;
   std::optional<PendingProduction> pending_;

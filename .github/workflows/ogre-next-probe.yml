@@ -15,6 +15,9 @@ on:
       - source/main/GameContext.cpp
       - source/main/GameContext.h
       - source/main/main.cpp
+      - source/main/AppContext.cpp
+      - source/main/AppContext.h
+      - doc/nextgen/OGRE14_PRODUCT_SESSION.md
       - source/main/system/ApplicationFatalError.h
       - source/main/terrain/Terrain.cpp
       - source/main/terrain/Terrain.h
@@ -78,8 +81,10 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererOgre14GameHostSession.*
+      - source/main/system/RendererGameInputTarget.h
       - source/main/system/RendererOgre14InputAdapter.*
-      - source/main/system/RendererOgre14InputEngineTarget.*
+      - source/main/system/RendererGameInputEngineTarget.*
+      - source/main/utils/InputEngine.*
       - source/main/system/RendererOgre14ProductSession.*
       - source/main/system/RendererInProcessSession.*
       - source/main/system/detail/OgreNextDemo*
@@ -158,6 +163,9 @@ on:
       - source/main/GameContext.cpp
       - source/main/GameContext.h
       - source/main/main.cpp
+      - source/main/AppContext.cpp
+      - source/main/AppContext.h
+      - doc/nextgen/OGRE14_PRODUCT_SESSION.md
       - source/main/system/ApplicationFatalError.h
       - source/main/terrain/Terrain.cpp
       - source/main/terrain/Terrain.h
@@ -221,8 +229,10 @@ on:
       - source/main/system/RendererChildLauncher.*
       - source/main/system/RendererOgre14GameBridge.*
       - source/main/system/RendererOgre14GameHostSession.*
+      - source/main/system/RendererGameInputTarget.h
       - source/main/system/RendererOgre14InputAdapter.*
-      - source/main/system/RendererOgre14InputEngineTarget.*
+      - source/main/system/RendererGameInputEngineTarget.*
+      - source/main/utils/InputEngine.*
       - source/main/system/RendererOgre14ProductSession.*
       - source/main/system/RendererInProcessSession.*
       - source/main/system/detail/OgreNextDemo*

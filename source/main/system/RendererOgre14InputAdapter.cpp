@@ -24,17 +24,20 @@ namespace {
 
 using namespace Render;
 
+static_assert(kRendererGameMaximumJoystickButtons ==
+              kInputEventTransportMaximumRawButtons);
+
 struct DeviceCandidate final {
   bool raw = false;
   std::uint64_t device_id = 0U;
   std::uint64_t generation = 0U;
   const InputTransportGamepadReconciliationState *gamepad = nullptr;
   const InputTransportRawDeviceReconciliationState *raw_state = nullptr;
-  std::size_t slot = kRendererOgre14LegacyJoystickSlots;
+  std::size_t slot = kRendererGameJoystickSlots;
 };
 
 struct KeyTransition final {
-  RendererOgre14LegacyKey key = RendererOgre14LegacyKey::UNASSIGNED;
+  RendererGameKey key = RendererGameKey::UNASSIGNED;
   bool pressed = false;
 };
 struct MouseMotion final {
@@ -44,7 +47,7 @@ struct MouseMotion final {
   std::int32_t dy = 0;
 };
 struct MouseButtonTransition final {
-  RendererOgre14LegacyMouseButton button = RendererOgre14LegacyMouseButton::LEFT;
+  RendererGameMouseButton button = RendererGameMouseButton::LEFT;
   bool pressed = false;
 };
 struct MouseWheelTransition final {
@@ -125,185 +128,185 @@ float SaturateFloat(double value) noexcept {
 
 } // namespace
 
-RendererOgre14LegacyKey TranslateRendererSdl2ScancodeToLegacy(
+RendererGameKey TranslateRendererSdl2ScancodeToGame(
     Sdl2PhysicalScancode scancode) noexcept {
   switch (scancode) {
-  case Sdl2PhysicalScancode::ESCAPE: return RendererOgre14LegacyKey::ESCAPE;
-  case Sdl2PhysicalScancode::DIGIT_1: return RendererOgre14LegacyKey::DIGIT_1;
-  case Sdl2PhysicalScancode::DIGIT_2: return RendererOgre14LegacyKey::DIGIT_2;
-  case Sdl2PhysicalScancode::DIGIT_3: return RendererOgre14LegacyKey::DIGIT_3;
-  case Sdl2PhysicalScancode::DIGIT_4: return RendererOgre14LegacyKey::DIGIT_4;
-  case Sdl2PhysicalScancode::DIGIT_5: return RendererOgre14LegacyKey::DIGIT_5;
-  case Sdl2PhysicalScancode::DIGIT_6: return RendererOgre14LegacyKey::DIGIT_6;
-  case Sdl2PhysicalScancode::DIGIT_7: return RendererOgre14LegacyKey::DIGIT_7;
-  case Sdl2PhysicalScancode::DIGIT_8: return RendererOgre14LegacyKey::DIGIT_8;
-  case Sdl2PhysicalScancode::DIGIT_9: return RendererOgre14LegacyKey::DIGIT_9;
-  case Sdl2PhysicalScancode::DIGIT_0: return RendererOgre14LegacyKey::DIGIT_0;
-  case Sdl2PhysicalScancode::MINUS: return RendererOgre14LegacyKey::MINUS;
-  case Sdl2PhysicalScancode::EQUALS: return RendererOgre14LegacyKey::EQUALS;
-  case Sdl2PhysicalScancode::BACKSPACE: return RendererOgre14LegacyKey::BACK;
-  case Sdl2PhysicalScancode::TAB: return RendererOgre14LegacyKey::TAB;
-  case Sdl2PhysicalScancode::Q: return RendererOgre14LegacyKey::Q;
-  case Sdl2PhysicalScancode::W: return RendererOgre14LegacyKey::W;
-  case Sdl2PhysicalScancode::E: return RendererOgre14LegacyKey::E;
-  case Sdl2PhysicalScancode::R: return RendererOgre14LegacyKey::R;
-  case Sdl2PhysicalScancode::T: return RendererOgre14LegacyKey::T;
-  case Sdl2PhysicalScancode::Y: return RendererOgre14LegacyKey::Y;
-  case Sdl2PhysicalScancode::U: return RendererOgre14LegacyKey::U;
-  case Sdl2PhysicalScancode::I: return RendererOgre14LegacyKey::I;
-  case Sdl2PhysicalScancode::O: return RendererOgre14LegacyKey::O;
-  case Sdl2PhysicalScancode::P: return RendererOgre14LegacyKey::P;
-  case Sdl2PhysicalScancode::LEFT_BRACKET: return RendererOgre14LegacyKey::LEFT_BRACKET;
-  case Sdl2PhysicalScancode::RIGHT_BRACKET: return RendererOgre14LegacyKey::RIGHT_BRACKET;
+  case Sdl2PhysicalScancode::ESCAPE: return RendererGameKey::ESCAPE;
+  case Sdl2PhysicalScancode::DIGIT_1: return RendererGameKey::DIGIT_1;
+  case Sdl2PhysicalScancode::DIGIT_2: return RendererGameKey::DIGIT_2;
+  case Sdl2PhysicalScancode::DIGIT_3: return RendererGameKey::DIGIT_3;
+  case Sdl2PhysicalScancode::DIGIT_4: return RendererGameKey::DIGIT_4;
+  case Sdl2PhysicalScancode::DIGIT_5: return RendererGameKey::DIGIT_5;
+  case Sdl2PhysicalScancode::DIGIT_6: return RendererGameKey::DIGIT_6;
+  case Sdl2PhysicalScancode::DIGIT_7: return RendererGameKey::DIGIT_7;
+  case Sdl2PhysicalScancode::DIGIT_8: return RendererGameKey::DIGIT_8;
+  case Sdl2PhysicalScancode::DIGIT_9: return RendererGameKey::DIGIT_9;
+  case Sdl2PhysicalScancode::DIGIT_0: return RendererGameKey::DIGIT_0;
+  case Sdl2PhysicalScancode::MINUS: return RendererGameKey::MINUS;
+  case Sdl2PhysicalScancode::EQUALS: return RendererGameKey::EQUALS;
+  case Sdl2PhysicalScancode::BACKSPACE: return RendererGameKey::BACK;
+  case Sdl2PhysicalScancode::TAB: return RendererGameKey::TAB;
+  case Sdl2PhysicalScancode::Q: return RendererGameKey::Q;
+  case Sdl2PhysicalScancode::W: return RendererGameKey::W;
+  case Sdl2PhysicalScancode::E: return RendererGameKey::E;
+  case Sdl2PhysicalScancode::R: return RendererGameKey::R;
+  case Sdl2PhysicalScancode::T: return RendererGameKey::T;
+  case Sdl2PhysicalScancode::Y: return RendererGameKey::Y;
+  case Sdl2PhysicalScancode::U: return RendererGameKey::U;
+  case Sdl2PhysicalScancode::I: return RendererGameKey::I;
+  case Sdl2PhysicalScancode::O: return RendererGameKey::O;
+  case Sdl2PhysicalScancode::P: return RendererGameKey::P;
+  case Sdl2PhysicalScancode::LEFT_BRACKET: return RendererGameKey::LEFT_BRACKET;
+  case Sdl2PhysicalScancode::RIGHT_BRACKET: return RendererGameKey::RIGHT_BRACKET;
   case Sdl2PhysicalScancode::RETURN:
-  case Sdl2PhysicalScancode::RETURN_2: return RendererOgre14LegacyKey::RETURN;
-  case Sdl2PhysicalScancode::LEFT_CTRL: return RendererOgre14LegacyKey::LEFT_CONTROL;
-  case Sdl2PhysicalScancode::A: return RendererOgre14LegacyKey::A;
-  case Sdl2PhysicalScancode::S: return RendererOgre14LegacyKey::S;
-  case Sdl2PhysicalScancode::D: return RendererOgre14LegacyKey::D;
-  case Sdl2PhysicalScancode::F: return RendererOgre14LegacyKey::F;
-  case Sdl2PhysicalScancode::G: return RendererOgre14LegacyKey::G;
-  case Sdl2PhysicalScancode::H: return RendererOgre14LegacyKey::H;
-  case Sdl2PhysicalScancode::J: return RendererOgre14LegacyKey::J;
-  case Sdl2PhysicalScancode::K: return RendererOgre14LegacyKey::K;
-  case Sdl2PhysicalScancode::L: return RendererOgre14LegacyKey::L;
-  case Sdl2PhysicalScancode::SEMICOLON: return RendererOgre14LegacyKey::SEMICOLON;
-  case Sdl2PhysicalScancode::APOSTROPHE: return RendererOgre14LegacyKey::APOSTROPHE;
-  case Sdl2PhysicalScancode::GRAVE: return RendererOgre14LegacyKey::GRAVE;
-  case Sdl2PhysicalScancode::LEFT_SHIFT: return RendererOgre14LegacyKey::LEFT_SHIFT;
+  case Sdl2PhysicalScancode::RETURN_2: return RendererGameKey::RETURN;
+  case Sdl2PhysicalScancode::LEFT_CTRL: return RendererGameKey::LEFT_CONTROL;
+  case Sdl2PhysicalScancode::A: return RendererGameKey::A;
+  case Sdl2PhysicalScancode::S: return RendererGameKey::S;
+  case Sdl2PhysicalScancode::D: return RendererGameKey::D;
+  case Sdl2PhysicalScancode::F: return RendererGameKey::F;
+  case Sdl2PhysicalScancode::G: return RendererGameKey::G;
+  case Sdl2PhysicalScancode::H: return RendererGameKey::H;
+  case Sdl2PhysicalScancode::J: return RendererGameKey::J;
+  case Sdl2PhysicalScancode::K: return RendererGameKey::K;
+  case Sdl2PhysicalScancode::L: return RendererGameKey::L;
+  case Sdl2PhysicalScancode::SEMICOLON: return RendererGameKey::SEMICOLON;
+  case Sdl2PhysicalScancode::APOSTROPHE: return RendererGameKey::APOSTROPHE;
+  case Sdl2PhysicalScancode::GRAVE: return RendererGameKey::GRAVE;
+  case Sdl2PhysicalScancode::LEFT_SHIFT: return RendererGameKey::LEFT_SHIFT;
   case Sdl2PhysicalScancode::BACKSLASH:
-  case Sdl2PhysicalScancode::NON_US_HASH: return RendererOgre14LegacyKey::BACKSLASH;
-  case Sdl2PhysicalScancode::Z: return RendererOgre14LegacyKey::Z;
-  case Sdl2PhysicalScancode::X: return RendererOgre14LegacyKey::X;
-  case Sdl2PhysicalScancode::C: return RendererOgre14LegacyKey::C;
-  case Sdl2PhysicalScancode::V: return RendererOgre14LegacyKey::V;
-  case Sdl2PhysicalScancode::B: return RendererOgre14LegacyKey::B;
-  case Sdl2PhysicalScancode::N: return RendererOgre14LegacyKey::N;
-  case Sdl2PhysicalScancode::M: return RendererOgre14LegacyKey::M;
-  case Sdl2PhysicalScancode::COMMA: return RendererOgre14LegacyKey::COMMA;
-  case Sdl2PhysicalScancode::PERIOD: return RendererOgre14LegacyKey::PERIOD;
-  case Sdl2PhysicalScancode::SLASH: return RendererOgre14LegacyKey::SLASH;
-  case Sdl2PhysicalScancode::RIGHT_SHIFT: return RendererOgre14LegacyKey::RIGHT_SHIFT;
-  case Sdl2PhysicalScancode::KP_MULTIPLY: return RendererOgre14LegacyKey::MULTIPLY;
-  case Sdl2PhysicalScancode::LEFT_ALT: return RendererOgre14LegacyKey::LEFT_ALT;
-  case Sdl2PhysicalScancode::SPACE: return RendererOgre14LegacyKey::SPACE;
-  case Sdl2PhysicalScancode::CAPS_LOCK: return RendererOgre14LegacyKey::CAPITAL;
-  case Sdl2PhysicalScancode::F1: return RendererOgre14LegacyKey::F1;
-  case Sdl2PhysicalScancode::F2: return RendererOgre14LegacyKey::F2;
-  case Sdl2PhysicalScancode::F3: return RendererOgre14LegacyKey::F3;
-  case Sdl2PhysicalScancode::F4: return RendererOgre14LegacyKey::F4;
-  case Sdl2PhysicalScancode::F5: return RendererOgre14LegacyKey::F5;
-  case Sdl2PhysicalScancode::F6: return RendererOgre14LegacyKey::F6;
-  case Sdl2PhysicalScancode::F7: return RendererOgre14LegacyKey::F7;
-  case Sdl2PhysicalScancode::F8: return RendererOgre14LegacyKey::F8;
-  case Sdl2PhysicalScancode::F9: return RendererOgre14LegacyKey::F9;
-  case Sdl2PhysicalScancode::F10: return RendererOgre14LegacyKey::F10;
-  case Sdl2PhysicalScancode::NUM_LOCK_CLEAR: return RendererOgre14LegacyKey::NUM_LOCK;
-  case Sdl2PhysicalScancode::SCROLL_LOCK: return RendererOgre14LegacyKey::SCROLL_LOCK;
-  case Sdl2PhysicalScancode::KP_7: return RendererOgre14LegacyKey::NUMPAD_7;
-  case Sdl2PhysicalScancode::KP_8: return RendererOgre14LegacyKey::NUMPAD_8;
-  case Sdl2PhysicalScancode::KP_9: return RendererOgre14LegacyKey::NUMPAD_9;
-  case Sdl2PhysicalScancode::KP_MINUS: return RendererOgre14LegacyKey::SUBTRACT;
-  case Sdl2PhysicalScancode::KP_4: return RendererOgre14LegacyKey::NUMPAD_4;
-  case Sdl2PhysicalScancode::KP_5: return RendererOgre14LegacyKey::NUMPAD_5;
-  case Sdl2PhysicalScancode::KP_6: return RendererOgre14LegacyKey::NUMPAD_6;
-  case Sdl2PhysicalScancode::KP_PLUS: return RendererOgre14LegacyKey::ADD;
-  case Sdl2PhysicalScancode::KP_1: return RendererOgre14LegacyKey::NUMPAD_1;
-  case Sdl2PhysicalScancode::KP_2: return RendererOgre14LegacyKey::NUMPAD_2;
-  case Sdl2PhysicalScancode::KP_3: return RendererOgre14LegacyKey::NUMPAD_3;
-  case Sdl2PhysicalScancode::KP_0: return RendererOgre14LegacyKey::NUMPAD_0;
-  case Sdl2PhysicalScancode::KP_PERIOD: return RendererOgre14LegacyKey::DECIMAL;
-  case Sdl2PhysicalScancode::NON_US_BACKSLASH: return RendererOgre14LegacyKey::OEM_102;
-  case Sdl2PhysicalScancode::F11: return RendererOgre14LegacyKey::F11;
-  case Sdl2PhysicalScancode::F12: return RendererOgre14LegacyKey::F12;
-  case Sdl2PhysicalScancode::F13: return RendererOgre14LegacyKey::F13;
-  case Sdl2PhysicalScancode::F14: return RendererOgre14LegacyKey::F14;
-  case Sdl2PhysicalScancode::F15: return RendererOgre14LegacyKey::F15;
-  case Sdl2PhysicalScancode::INTERNATIONAL_1: return RendererOgre14LegacyKey::ABNT_C1;
+  case Sdl2PhysicalScancode::NON_US_HASH: return RendererGameKey::BACKSLASH;
+  case Sdl2PhysicalScancode::Z: return RendererGameKey::Z;
+  case Sdl2PhysicalScancode::X: return RendererGameKey::X;
+  case Sdl2PhysicalScancode::C: return RendererGameKey::C;
+  case Sdl2PhysicalScancode::V: return RendererGameKey::V;
+  case Sdl2PhysicalScancode::B: return RendererGameKey::B;
+  case Sdl2PhysicalScancode::N: return RendererGameKey::N;
+  case Sdl2PhysicalScancode::M: return RendererGameKey::M;
+  case Sdl2PhysicalScancode::COMMA: return RendererGameKey::COMMA;
+  case Sdl2PhysicalScancode::PERIOD: return RendererGameKey::PERIOD;
+  case Sdl2PhysicalScancode::SLASH: return RendererGameKey::SLASH;
+  case Sdl2PhysicalScancode::RIGHT_SHIFT: return RendererGameKey::RIGHT_SHIFT;
+  case Sdl2PhysicalScancode::KP_MULTIPLY: return RendererGameKey::MULTIPLY;
+  case Sdl2PhysicalScancode::LEFT_ALT: return RendererGameKey::LEFT_ALT;
+  case Sdl2PhysicalScancode::SPACE: return RendererGameKey::SPACE;
+  case Sdl2PhysicalScancode::CAPS_LOCK: return RendererGameKey::CAPITAL;
+  case Sdl2PhysicalScancode::F1: return RendererGameKey::F1;
+  case Sdl2PhysicalScancode::F2: return RendererGameKey::F2;
+  case Sdl2PhysicalScancode::F3: return RendererGameKey::F3;
+  case Sdl2PhysicalScancode::F4: return RendererGameKey::F4;
+  case Sdl2PhysicalScancode::F5: return RendererGameKey::F5;
+  case Sdl2PhysicalScancode::F6: return RendererGameKey::F6;
+  case Sdl2PhysicalScancode::F7: return RendererGameKey::F7;
+  case Sdl2PhysicalScancode::F8: return RendererGameKey::F8;
+  case Sdl2PhysicalScancode::F9: return RendererGameKey::F9;
+  case Sdl2PhysicalScancode::F10: return RendererGameKey::F10;
+  case Sdl2PhysicalScancode::NUM_LOCK_CLEAR: return RendererGameKey::NUM_LOCK;
+  case Sdl2PhysicalScancode::SCROLL_LOCK: return RendererGameKey::SCROLL_LOCK;
+  case Sdl2PhysicalScancode::KP_7: return RendererGameKey::NUMPAD_7;
+  case Sdl2PhysicalScancode::KP_8: return RendererGameKey::NUMPAD_8;
+  case Sdl2PhysicalScancode::KP_9: return RendererGameKey::NUMPAD_9;
+  case Sdl2PhysicalScancode::KP_MINUS: return RendererGameKey::SUBTRACT;
+  case Sdl2PhysicalScancode::KP_4: return RendererGameKey::NUMPAD_4;
+  case Sdl2PhysicalScancode::KP_5: return RendererGameKey::NUMPAD_5;
+  case Sdl2PhysicalScancode::KP_6: return RendererGameKey::NUMPAD_6;
+  case Sdl2PhysicalScancode::KP_PLUS: return RendererGameKey::ADD;
+  case Sdl2PhysicalScancode::KP_1: return RendererGameKey::NUMPAD_1;
+  case Sdl2PhysicalScancode::KP_2: return RendererGameKey::NUMPAD_2;
+  case Sdl2PhysicalScancode::KP_3: return RendererGameKey::NUMPAD_3;
+  case Sdl2PhysicalScancode::KP_0: return RendererGameKey::NUMPAD_0;
+  case Sdl2PhysicalScancode::KP_PERIOD: return RendererGameKey::DECIMAL;
+  case Sdl2PhysicalScancode::NON_US_BACKSLASH: return RendererGameKey::OEM_102;
+  case Sdl2PhysicalScancode::F11: return RendererGameKey::F11;
+  case Sdl2PhysicalScancode::F12: return RendererGameKey::F12;
+  case Sdl2PhysicalScancode::F13: return RendererGameKey::F13;
+  case Sdl2PhysicalScancode::F14: return RendererGameKey::F14;
+  case Sdl2PhysicalScancode::F15: return RendererGameKey::F15;
+  case Sdl2PhysicalScancode::INTERNATIONAL_1: return RendererGameKey::ABNT_C1;
   case Sdl2PhysicalScancode::INTERNATIONAL_2:
   case Sdl2PhysicalScancode::LANG_3:
-  case Sdl2PhysicalScancode::LANG_4: return RendererOgre14LegacyKey::KANA;
-  case Sdl2PhysicalScancode::INTERNATIONAL_3: return RendererOgre14LegacyKey::YEN;
-  case Sdl2PhysicalScancode::INTERNATIONAL_4: return RendererOgre14LegacyKey::CONVERT;
-  case Sdl2PhysicalScancode::INTERNATIONAL_5: return RendererOgre14LegacyKey::NO_CONVERT;
+  case Sdl2PhysicalScancode::LANG_4: return RendererGameKey::KANA;
+  case Sdl2PhysicalScancode::INTERNATIONAL_3: return RendererGameKey::YEN;
+  case Sdl2PhysicalScancode::INTERNATIONAL_4: return RendererGameKey::CONVERT;
+  case Sdl2PhysicalScancode::INTERNATIONAL_5: return RendererGameKey::NO_CONVERT;
   case Sdl2PhysicalScancode::LANG_2:
-  case Sdl2PhysicalScancode::LANG_5: return RendererOgre14LegacyKey::KANJI;
+  case Sdl2PhysicalScancode::LANG_5: return RendererGameKey::KANJI;
   case Sdl2PhysicalScancode::KP_EQUALS:
-  case Sdl2PhysicalScancode::KP_EQUALS_AS400: return RendererOgre14LegacyKey::NUMPAD_EQUALS;
+  case Sdl2PhysicalScancode::KP_EQUALS_AS400: return RendererGameKey::NUMPAD_EQUALS;
   case Sdl2PhysicalScancode::AUDIO_PREVIOUS:
-  case Sdl2PhysicalScancode::AUDIO_REWIND: return RendererOgre14LegacyKey::PREVIOUS_TRACK;
+  case Sdl2PhysicalScancode::AUDIO_REWIND: return RendererGameKey::PREVIOUS_TRACK;
   case Sdl2PhysicalScancode::AUDIO_NEXT:
-  case Sdl2PhysicalScancode::AUDIO_FAST_FORWARD: return RendererOgre14LegacyKey::NEXT_TRACK;
-  case Sdl2PhysicalScancode::KP_ENTER: return RendererOgre14LegacyKey::NUMPAD_ENTER;
-  case Sdl2PhysicalScancode::RIGHT_CTRL: return RendererOgre14LegacyKey::RIGHT_CONTROL;
+  case Sdl2PhysicalScancode::AUDIO_FAST_FORWARD: return RendererGameKey::NEXT_TRACK;
+  case Sdl2PhysicalScancode::KP_ENTER: return RendererGameKey::NUMPAD_ENTER;
+  case Sdl2PhysicalScancode::RIGHT_CTRL: return RendererGameKey::RIGHT_CONTROL;
   case Sdl2PhysicalScancode::MUTE:
-  case Sdl2PhysicalScancode::AUDIO_MUTE: return RendererOgre14LegacyKey::MUTE;
-  case Sdl2PhysicalScancode::CALCULATOR: return RendererOgre14LegacyKey::CALCULATOR;
-  case Sdl2PhysicalScancode::AUDIO_PLAY: return RendererOgre14LegacyKey::PLAY_PAUSE;
-  case Sdl2PhysicalScancode::AUDIO_STOP: return RendererOgre14LegacyKey::MEDIA_STOP;
-  case Sdl2PhysicalScancode::VOLUME_DOWN: return RendererOgre14LegacyKey::VOLUME_DOWN;
-  case Sdl2PhysicalScancode::VOLUME_UP: return RendererOgre14LegacyKey::VOLUME_UP;
+  case Sdl2PhysicalScancode::AUDIO_MUTE: return RendererGameKey::MUTE;
+  case Sdl2PhysicalScancode::CALCULATOR: return RendererGameKey::CALCULATOR;
+  case Sdl2PhysicalScancode::AUDIO_PLAY: return RendererGameKey::PLAY_PAUSE;
+  case Sdl2PhysicalScancode::AUDIO_STOP: return RendererGameKey::MEDIA_STOP;
+  case Sdl2PhysicalScancode::VOLUME_DOWN: return RendererGameKey::VOLUME_DOWN;
+  case Sdl2PhysicalScancode::VOLUME_UP: return RendererGameKey::VOLUME_UP;
   case Sdl2PhysicalScancode::WWW:
-  case Sdl2PhysicalScancode::AC_HOME: return RendererOgre14LegacyKey::WEB_HOME;
+  case Sdl2PhysicalScancode::AC_HOME: return RendererGameKey::WEB_HOME;
   case Sdl2PhysicalScancode::KP_COMMA:
-  case Sdl2PhysicalScancode::SEPARATOR: return RendererOgre14LegacyKey::NUMPAD_COMMA;
-  case Sdl2PhysicalScancode::KP_DIVIDE: return RendererOgre14LegacyKey::DIVIDE;
+  case Sdl2PhysicalScancode::SEPARATOR: return RendererGameKey::NUMPAD_COMMA;
+  case Sdl2PhysicalScancode::KP_DIVIDE: return RendererGameKey::DIVIDE;
   case Sdl2PhysicalScancode::PRINT_SCREEN:
-  case Sdl2PhysicalScancode::SYS_REQ: return RendererOgre14LegacyKey::SYS_REQUEST;
+  case Sdl2PhysicalScancode::SYS_REQ: return RendererGameKey::SYS_REQUEST;
   case Sdl2PhysicalScancode::RIGHT_ALT:
-  case Sdl2PhysicalScancode::MODE: return RendererOgre14LegacyKey::RIGHT_ALT;
-  case Sdl2PhysicalScancode::PAUSE: return RendererOgre14LegacyKey::PAUSE;
-  case Sdl2PhysicalScancode::HOME: return RendererOgre14LegacyKey::HOME;
-  case Sdl2PhysicalScancode::UP: return RendererOgre14LegacyKey::UP;
-  case Sdl2PhysicalScancode::PAGE_UP: return RendererOgre14LegacyKey::PAGE_UP;
-  case Sdl2PhysicalScancode::LEFT: return RendererOgre14LegacyKey::LEFT;
-  case Sdl2PhysicalScancode::RIGHT: return RendererOgre14LegacyKey::RIGHT;
-  case Sdl2PhysicalScancode::END: return RendererOgre14LegacyKey::END;
-  case Sdl2PhysicalScancode::DOWN: return RendererOgre14LegacyKey::DOWN;
-  case Sdl2PhysicalScancode::PAGE_DOWN: return RendererOgre14LegacyKey::PAGE_DOWN;
-  case Sdl2PhysicalScancode::INSERT: return RendererOgre14LegacyKey::INSERT;
-  case Sdl2PhysicalScancode::DELETE_KEY: return RendererOgre14LegacyKey::DELETE_KEY;
-  case Sdl2PhysicalScancode::LEFT_GUI: return RendererOgre14LegacyKey::LEFT_GUI;
-  case Sdl2PhysicalScancode::RIGHT_GUI: return RendererOgre14LegacyKey::RIGHT_GUI;
+  case Sdl2PhysicalScancode::MODE: return RendererGameKey::RIGHT_ALT;
+  case Sdl2PhysicalScancode::PAUSE: return RendererGameKey::PAUSE;
+  case Sdl2PhysicalScancode::HOME: return RendererGameKey::HOME;
+  case Sdl2PhysicalScancode::UP: return RendererGameKey::UP;
+  case Sdl2PhysicalScancode::PAGE_UP: return RendererGameKey::PAGE_UP;
+  case Sdl2PhysicalScancode::LEFT: return RendererGameKey::LEFT;
+  case Sdl2PhysicalScancode::RIGHT: return RendererGameKey::RIGHT;
+  case Sdl2PhysicalScancode::END: return RendererGameKey::END;
+  case Sdl2PhysicalScancode::DOWN: return RendererGameKey::DOWN;
+  case Sdl2PhysicalScancode::PAGE_DOWN: return RendererGameKey::PAGE_DOWN;
+  case Sdl2PhysicalScancode::INSERT: return RendererGameKey::INSERT;
+  case Sdl2PhysicalScancode::DELETE_KEY: return RendererGameKey::DELETE_KEY;
+  case Sdl2PhysicalScancode::LEFT_GUI: return RendererGameKey::LEFT_GUI;
+  case Sdl2PhysicalScancode::RIGHT_GUI: return RendererGameKey::RIGHT_GUI;
   case Sdl2PhysicalScancode::APPLICATION:
-  case Sdl2PhysicalScancode::MENU: return RendererOgre14LegacyKey::APPLICATION;
-  case Sdl2PhysicalScancode::POWER: return RendererOgre14LegacyKey::POWER;
-  case Sdl2PhysicalScancode::SLEEP: return RendererOgre14LegacyKey::SLEEP;
-  case Sdl2PhysicalScancode::AC_SEARCH: return RendererOgre14LegacyKey::WEB_SEARCH;
-  case Sdl2PhysicalScancode::AC_BOOKMARKS: return RendererOgre14LegacyKey::WEB_FAVORITES;
-  case Sdl2PhysicalScancode::AC_REFRESH: return RendererOgre14LegacyKey::WEB_REFRESH;
+  case Sdl2PhysicalScancode::MENU: return RendererGameKey::APPLICATION;
+  case Sdl2PhysicalScancode::POWER: return RendererGameKey::POWER;
+  case Sdl2PhysicalScancode::SLEEP: return RendererGameKey::SLEEP;
+  case Sdl2PhysicalScancode::AC_SEARCH: return RendererGameKey::WEB_SEARCH;
+  case Sdl2PhysicalScancode::AC_BOOKMARKS: return RendererGameKey::WEB_FAVORITES;
+  case Sdl2PhysicalScancode::AC_REFRESH: return RendererGameKey::WEB_REFRESH;
   case Sdl2PhysicalScancode::STOP:
-  case Sdl2PhysicalScancode::AC_STOP: return RendererOgre14LegacyKey::WEB_STOP;
-  case Sdl2PhysicalScancode::AC_FORWARD: return RendererOgre14LegacyKey::WEB_FORWARD;
-  case Sdl2PhysicalScancode::AC_BACK: return RendererOgre14LegacyKey::WEB_BACK;
-  case Sdl2PhysicalScancode::COMPUTER: return RendererOgre14LegacyKey::MY_COMPUTER;
-  case Sdl2PhysicalScancode::MAIL: return RendererOgre14LegacyKey::MAIL;
-  case Sdl2PhysicalScancode::MEDIA_SELECT: return RendererOgre14LegacyKey::MEDIA_SELECT;
-  default: return RendererOgre14LegacyKey::UNASSIGNED;
+  case Sdl2PhysicalScancode::AC_STOP: return RendererGameKey::WEB_STOP;
+  case Sdl2PhysicalScancode::AC_FORWARD: return RendererGameKey::WEB_FORWARD;
+  case Sdl2PhysicalScancode::AC_BACK: return RendererGameKey::WEB_BACK;
+  case Sdl2PhysicalScancode::COMPUTER: return RendererGameKey::MY_COMPUTER;
+  case Sdl2PhysicalScancode::MAIL: return RendererGameKey::MAIL;
+  case Sdl2PhysicalScancode::MEDIA_SELECT: return RendererGameKey::MEDIA_SELECT;
+  default: return RendererGameKey::UNASSIGNED;
   }
 }
 
-RendererOgre14LegacyMouseButton TranslateRendererSdl2MouseButtonToLegacy(
+RendererGameMouseButton TranslateRendererSdl2MouseButtonToGame(
     Sdl2MouseButton button) noexcept {
   switch (button) {
-  case Sdl2MouseButton::LEFT: return RendererOgre14LegacyMouseButton::LEFT;
-  case Sdl2MouseButton::RIGHT: return RendererOgre14LegacyMouseButton::RIGHT;
-  case Sdl2MouseButton::MIDDLE: return RendererOgre14LegacyMouseButton::MIDDLE;
-  case Sdl2MouseButton::X1: return RendererOgre14LegacyMouseButton::X1;
-  case Sdl2MouseButton::X2: return RendererOgre14LegacyMouseButton::X2;
+  case Sdl2MouseButton::LEFT: return RendererGameMouseButton::LEFT;
+  case Sdl2MouseButton::RIGHT: return RendererGameMouseButton::RIGHT;
+  case Sdl2MouseButton::MIDDLE: return RendererGameMouseButton::MIDDLE;
+  case Sdl2MouseButton::X1: return RendererGameMouseButton::X1;
+  case Sdl2MouseButton::X2: return RendererGameMouseButton::X2;
   }
-  return RendererOgre14LegacyMouseButton::LEFT;
+  return RendererGameMouseButton::LEFT;
 }
 
 RendererOgre14InputAdapter::RendererOgre14InputAdapter(
-    IRendererOgre14InputTarget &target) noexcept
+    IRendererGameInputTarget &target) noexcept
     : target_(target) {}
 
 bool RendererOgre14InputAdapter::ActivateTarget() noexcept {
   if (activated_) {
     return true;
   }
-  if (!target_.ActivateTransport()) {
+  if (!target_.ActivateInput()) {
     return false;
   }
   activated_ = true;
@@ -352,7 +355,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
 
   const std::size_t device_count = batch.reconciliation.gamepads.size() +
                                    batch.reconciliation.raw_devices.size();
-  if (device_count > kRendererOgre14LegacyJoystickSlots) {
+  if (device_count > kRendererGameJoystickSlots) {
     result.status = RendererOgre14InputApplyStatus::REJECTED_DEVICE_CAPACITY;
     result.transport_status = RenderTransportStatus::RESOURCE_LIMIT_EXCEEDED;
     return result;
@@ -361,7 +364,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
   try {
     std::vector<PendingTransition> transitions;
     transitions.reserve(batch.events.size());
-    RendererOgre14LegacyInputState state;
+    RendererGameInputState state;
     state.through_event_id = batch.reconciliation.through_event_id;
     state.focused = batch.reconciliation.focus ==
                     InputTransportFocusState::GAINED;
@@ -381,9 +384,9 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
     for (const InputTransportEvent &event : batch.events) {
       if (const auto *key =
               std::get_if<InputTransportKeyboardKeyEvent>(&event.payload)) {
-        const RendererOgre14LegacyKey mapped =
-            TranslateRendererSdl2ScancodeToLegacy(key->scancode);
-        if (mapped == RendererOgre14LegacyKey::UNASSIGNED) {
+        const RendererGameKey mapped =
+            TranslateRendererSdl2ScancodeToGame(key->scancode);
+        if (mapped == RendererGameKey::UNASSIGNED) {
           ++result.ignored_unmapped_scancodes;
         } else if (!key->repeat) {
           transitions.emplace_back(KeyTransition{mapped,
@@ -403,7 +406,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
                      std::get_if<InputTransportMouseButtonEvent>(
                          &event.payload)) {
         transitions.emplace_back(MouseButtonTransition{
-            TranslateRendererSdl2MouseButtonToLegacy(button->button),
+            TranslateRendererSdl2MouseButtonToGame(button->button),
             IsPressed(button->state)});
       } else if (const auto *wheel =
                      std::get_if<InputTransportMouseWheelEvent>(
@@ -444,9 +447,9 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
         batch.reconciliation.pressed_scancodes.size());
     for (const Sdl2PhysicalScancode scancode :
          batch.reconciliation.pressed_scancodes) {
-      const RendererOgre14LegacyKey key =
-          TranslateRendererSdl2ScancodeToLegacy(scancode);
-      if (key == RendererOgre14LegacyKey::UNASSIGNED) {
+      const RendererGameKey key =
+          TranslateRendererSdl2ScancodeToGame(scancode);
+      if (key == RendererGameKey::UNASSIGNED) {
         ++result.ignored_unmapped_scancodes;
       } else {
         state.pressed_keys.push_back(key);
@@ -462,7 +465,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
     for (const Sdl2MouseButton button :
          batch.reconciliation.pressed_mouse_buttons) {
       state.pressed_mouse_buttons.push_back(
-          TranslateRendererSdl2MouseButtonToLegacy(button));
+          TranslateRendererSdl2MouseButtonToGame(button));
     }
 
     std::vector<DeviceCandidate> candidates;
@@ -471,14 +474,14 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
          batch.reconciliation.gamepads) {
       candidates.push_back(
           {false, gamepad.device_id, gamepad.connection_generation,
-           &gamepad, nullptr, kRendererOgre14LegacyJoystickSlots});
+           &gamepad, nullptr, kRendererGameJoystickSlots});
     }
     for (const InputTransportRawDeviceReconciliationState &raw :
          batch.reconciliation.raw_devices) {
       candidates.push_back(
           {true, raw.descriptor.device_id,
            raw.descriptor.connection_generation, nullptr, &raw,
-           kRendererOgre14LegacyJoystickSlots});
+           kRendererGameJoystickSlots});
     }
 
     const auto same_device = [](const DeviceSlot &slot,
@@ -488,7 +491,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
              slot.generation == candidate.generation;
     };
 
-    std::array<bool, kRendererOgre14LegacyJoystickSlots> claimed{};
+    std::array<bool, kRendererGameJoystickSlots> claimed{};
     for (DeviceCandidate &candidate : candidates) {
       for (std::size_t slot = 0U; slot < slots_.size(); ++slot) {
         if (!claimed[slot] && same_device(slots_[slot], candidate)) {
@@ -499,7 +502,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
       }
     }
     for (DeviceCandidate &candidate : candidates) {
-      if (candidate.slot != kRendererOgre14LegacyJoystickSlots) {
+      if (candidate.slot != kRendererGameJoystickSlots) {
         continue;
       }
       const auto free = std::find(claimed.begin(), claimed.end(), false);
@@ -514,10 +517,10 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
       claimed[candidate.slot] = true;
     }
 
-    std::array<DeviceSlot, kRendererOgre14LegacyJoystickSlots> next_slots{};
+    std::array<DeviceSlot, kRendererGameJoystickSlots> next_slots{};
     state.joysticks.reserve(candidates.size());
     for (const DeviceCandidate &candidate : candidates) {
-      RendererOgre14LegacyJoystickState joystick;
+      RendererGameJoystickState joystick;
       joystick.slot = candidate.slot;
       joystick.raw_device = candidate.raw;
       joystick.device_id = candidate.device_id;

@@ -56,7 +56,7 @@ private:
 
 RendererOgre14ProductSession::RendererOgre14ProductSession(
     RendererOgre14GameBridge &bridge,
-    IRendererOgre14InputTarget &input_target)
+    IRendererGameInputTarget &input_target)
     : host_(bridge), input_target_(input_target), input_adapter_(input_target) {}
 
 RendererOgre14ProductSession::~RendererOgre14ProductSession() {
