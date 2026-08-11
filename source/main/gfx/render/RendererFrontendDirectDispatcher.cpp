@@ -35,6 +35,8 @@ bool IsKnownRendererFrontendDirectDispatchStatus(
   case RendererFrontendDirectDispatchStatus::ASSET_DELTA_SYNCHRONIZED:
   case RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED:
   case RendererFrontendDirectDispatchStatus::SCENE_FRAME_RETIRED:
+  case RendererFrontendDirectDispatchStatus::
+      SCENE_FRAME_PRESENTATION_SURFACE_STALE:
   case RendererFrontendDirectDispatchStatus::SCENE_GENERATION_RESET:
   case RendererFrontendDirectDispatchStatus::REJECTED_TERMINAL:
   case RendererFrontendDirectDispatchStatus::REJECTED_INVALID_REGISTRY:
@@ -66,6 +68,9 @@ const char *ToString(RendererFrontendDirectDispatchStatus status) noexcept {
     return "scene_frame_completed";
   case RendererFrontendDirectDispatchStatus::SCENE_FRAME_RETIRED:
     return "scene_frame_retired";
+  case RendererFrontendDirectDispatchStatus::
+      SCENE_FRAME_PRESENTATION_SURFACE_STALE:
+    return "scene_frame_presentation_surface_stale";
   case RendererFrontendDirectDispatchStatus::SCENE_GENERATION_RESET:
     return "scene_generation_reset";
   case RendererFrontendDirectDispatchStatus::REJECTED_TERMINAL:
@@ -145,6 +150,18 @@ RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Fail(
   result.asset_sequence = registry_.sequence();
   result.resources_released = resources_released;
   result.terminal = true;
+  return result;
+}
+
+RendererFrontendDirectDispatchResult
+RendererFrontendDirectDispatcher::RetryablePresentationSurfaceStale(
+    std::uint64_t scene_snapshot_id,
+    std::uint32_t resources_released) const noexcept {
+  RendererFrontendDirectDispatchResult result = Success(
+      RendererFrontendDirectDispatchStatus::
+          SCENE_FRAME_PRESENTATION_SURFACE_STALE,
+      scene_snapshot_id, 0U, resources_released);
+  result.frontend_code = RenderOperationCode::RESOURCE_STALE;
   return result;
 }
 
@@ -437,6 +454,13 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
                 cleanup.released);
   }
   if (!rendered) {
+    if (rendered.code == RenderOperationCode::RESOURCE_STALE &&
+        rendered.recovery == RenderOperationRecovery::
+                                 RETRY_AFTER_PRESENTATION_SURFACE_UPDATE &&
+        request.present) {
+      return RetryablePresentationSurfaceStale(scene_snapshot_id,
+                                               cleanup.released);
+    }
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
                 ValidationCode::OK, rendered.code, cleanup.released);
   }

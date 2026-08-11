@@ -83,8 +83,19 @@ enum class RenderOperationCode : std::uint8_t {
   BACKEND_FAILURE,
 };
 
+/// Typed recovery is deliberately separate from the broad operation code.
+/// RESOURCE_STALE normally remains terminal to a direct dispatcher; this one
+/// recovery names the narrow case where Render() synchronously committed a
+/// newer presentation surface and the owner must observe that exact surface
+/// before submitting another frame.
+enum class RenderOperationRecovery : std::uint8_t {
+  NONE = 0,
+  RETRY_AFTER_PRESENTATION_SURFACE_UPDATE,
+};
+
 struct RenderOperationResult {
   RenderOperationCode code = RenderOperationCode::OK;
+  RenderOperationRecovery recovery = RenderOperationRecovery::NONE;
   std::string detail;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -93,10 +104,13 @@ struct RenderOperationResult {
   explicit operator bool() const noexcept { return ok(); }
 
   static RenderOperationResult Success() { return {}; }
-  static RenderOperationResult Failure(RenderOperationCode failure_code,
-                                       std::string failure_detail) {
+  static RenderOperationResult Failure(
+      RenderOperationCode failure_code, std::string failure_detail,
+      RenderOperationRecovery failure_recovery =
+          RenderOperationRecovery::NONE) {
     RenderOperationResult result;
     result.code = failure_code;
+    result.recovery = failure_recovery;
     result.detail = std::move(failure_detail);
     return result;
   }
@@ -635,6 +649,8 @@ public:
   virtual ~IRendererFrontend() = default;
 
   [[nodiscard]] virtual FrontendCapabilityReport QueryCapabilities() const = 0;
+  /// Failure is transactional: no native-window borrow or backend ownership
+  /// remains live, and a defensive Shutdown() may report NOT_INITIALIZED.
   virtual RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) = 0;
   /// Recreates/resizes the presentation surface without invalidating portable
@@ -693,6 +709,11 @@ public:
   /// Before consuming any frame/snapshot/event identity, Render calls
   /// ValidateRenderFrameRequestAgainstCapabilities() against its current
   /// QueryCapabilities() result and maps UNSUPPORTED_FEATURE to UNSUPPORTED.
+  /// The sole recoverable failure is RESOURCE_STALE paired with
+  /// RETRY_AFTER_PRESENTATION_SURFACE_UPDATE: it means a native show callback
+  /// synchronously committed a strictly newer surface, but no frame, snapshot,
+  /// event, output resource, or frame ID was consumed. Every other failure has
+  /// no recovery promise and remains terminal to the direct dispatcher.
   /// Implementations must return an output accepted by the request-correlated
   /// ValidateRenderFrameOutput(request, output) overload.
   virtual RenderOperationResult Render(const RenderFrameRequest &request,

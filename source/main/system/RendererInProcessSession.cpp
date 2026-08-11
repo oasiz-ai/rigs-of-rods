@@ -161,6 +161,47 @@ public:
     return result;
   }
 
+  void QuiesceEventPump() noexcept {
+    if (!event_pump_quiesced) {
+      event_pump.ShutdownEventPump();
+      event_pump_quiesced = true;
+    }
+  }
+
+  Render::RenderOperationResult StopFrontendForClosure(
+      std::uint64_t timeout_nanoseconds) noexcept {
+    if (!frontend_initialized) {
+      return Render::RenderOperationResult::Success();
+    }
+    Render::RenderOperationResult stopped;
+    try {
+      stopped = frontend.Shutdown(timeout_nanoseconds);
+    } catch (...) {
+      return Render::RenderOperationResult::Failure(
+          Render::RenderOperationCode::BACKEND_FAILURE,
+          "frontend shutdown threw during in-process session closure");
+    }
+    // A failed Initialize is required to have rolled itself back. NOT_INITIALIZED
+    // from the defensive Shutdown below therefore confirms there is no
+    // remaining native-window borrow.
+    if (!stopped &&
+        stopped.code != Render::RenderOperationCode::NOT_INITIALIZED) {
+      return stopped;
+    }
+    frontend_initialized = false;
+    return Render::RenderOperationResult::Success();
+  }
+
+  bool CloseFailedStart(std::uint64_t timeout_nanoseconds) noexcept {
+    const Render::RenderOperationResult stopped =
+        StopFrontendForClosure(timeout_nanoseconds);
+    if (!stopped) {
+      return false;
+    }
+    QuiesceEventPump();
+    return true;
+  }
+
   bool ConfigValid(const RendererInProcessSessionConfig &candidate,
                    Render::ValidationResult &validation) const {
     if (candidate.version != kRendererInProcessSessionContractVersion ||
@@ -198,26 +239,29 @@ public:
       return Failure(RendererInProcessSessionStatus::REJECTED_CONFIGURATION,
                      validation);
     }
+    closure_shutdown_timeout_nanoseconds =
+        candidate.shutdown_timeout_nanoseconds;
 
     try {
       std::unique_ptr<Render::GraphicsSceneSnapshotProducer> next_producer =
           std::make_unique<Render::GraphicsSceneSnapshotProducer>(
               candidate.producer);
+      // Conservatively require an explicit shutdown from the instant Initialize
+      // is entered. NOT_INITIALIZED confirms a failed Initialize already rolled
+      // its native state back.
+      frontend_initialized = true;
       const Render::RenderOperationResult initialized =
           frontend.Initialize(candidate.frontend);
       if (!initialized) {
         terminal = true;
         terminal_cause =
             RendererInProcessSessionStatus::FAILED_FRONTEND_INITIALIZATION;
-        (void)frontend.Shutdown(candidate.shutdown_timeout_nanoseconds);
-        closed = true;
+        closed = CloseFailedStart(candidate.shutdown_timeout_nanoseconds);
         RendererInProcessSessionResult result = Poison(
             RendererInProcessSessionStatus::FAILED_FRONTEND_INITIALIZATION,
             Render::ValidationResult::Success(), initialized.code);
         return result;
       }
-      frontend_initialized = true;
-
       std::unique_ptr<Render::RendererFrontendDirectDispatcher>
           next_dispatcher =
               std::make_unique<Render::RendererFrontendDirectDispatcher>(
@@ -225,9 +269,7 @@ public:
       if (next_dispatcher->terminal()) {
         const Render::RendererFrontendDirectDispatchResult rejected =
             next_dispatcher->SynchronizeAssets(Render::RenderAssetDelta{});
-        (void)frontend.Shutdown(candidate.shutdown_timeout_nanoseconds);
-        frontend_initialized = false;
-        closed = true;
+        closed = CloseFailedStart(candidate.shutdown_timeout_nanoseconds);
         return FailureFromDispatch(rejected, 0U);
       }
 
@@ -238,29 +280,17 @@ public:
       started = true;
       return Result(RendererInProcessSessionStatus::READY, true);
     } catch (const std::bad_alloc &) {
-      if (frontend_initialized) {
-        (void)frontend.Shutdown(candidate.shutdown_timeout_nanoseconds);
-        frontend_initialized = false;
-      }
-      closed = true;
+      closed = CloseFailedStart(candidate.shutdown_timeout_nanoseconds);
       return Poison(RendererInProcessSessionStatus::FAILED_ALLOCATION,
                     Render::ValidationResult::Success(),
                     Render::RenderOperationCode::OUT_OF_MEMORY);
     } catch (const std::length_error &) {
-      if (frontend_initialized) {
-        (void)frontend.Shutdown(candidate.shutdown_timeout_nanoseconds);
-        frontend_initialized = false;
-      }
-      closed = true;
+      closed = CloseFailedStart(candidate.shutdown_timeout_nanoseconds);
       return Poison(RendererInProcessSessionStatus::FAILED_ALLOCATION,
                     Render::ValidationResult::Success(),
                     Render::RenderOperationCode::OUT_OF_MEMORY);
     } catch (...) {
-      if (frontend_initialized) {
-        (void)frontend.Shutdown(candidate.shutdown_timeout_nanoseconds);
-        frontend_initialized = false;
-      }
-      closed = true;
+      closed = CloseFailedStart(candidate.shutdown_timeout_nanoseconds);
       return Poison(RendererInProcessSessionStatus::FAILED_INTERNAL,
                     Render::ValidationResult::Success(),
                     Render::RenderOperationCode::BACKEND_FAILURE);
@@ -289,6 +319,7 @@ public:
       }
       current_surface = *pending_surface;
       pending_surface.reset();
+      awaiting_frontend_surface_update = false;
       return Result(RendererInProcessSessionStatus::READY, true, false,
                     event_polls);
     } catch (const std::bad_alloc &) {
@@ -343,6 +374,18 @@ public:
                     Render::RenderOperationCode::INVALID_ARGUMENT,
                     event_polls);
     }
+    if (observation.surface_update_already_committed_to_frontend &&
+        (!awaiting_frontend_surface_update ||
+         !observation.surface_update.has_value())) {
+      return Poison(
+          RendererInProcessSessionStatus::FAILED_EVENT_PUMP,
+          Render::ValidationResult::Failure(
+              Render::ValidationCode::MISSING_REFERENCE,
+              "in_process_session.committed_surface",
+              "an already-committed surface requires the matching pending "
+              "frontend recovery"),
+          Render::RenderOperationCode::INVALID_ARGUMENT, event_polls);
+    }
     shutdown_requested =
         shutdown_requested || observation.shutdown_requested;
     if (!observation.surface_update.has_value()) {
@@ -373,6 +416,12 @@ public:
                     transition, Render::RenderOperationCode::INVALID_ARGUMENT,
                     event_polls);
     }
+    if (observation.surface_update_already_committed_to_frontend) {
+      current_surface = *observation.surface_update;
+      awaiting_frontend_surface_update = false;
+      return Result(RendererInProcessSessionStatus::READY, true, false,
+                    event_polls);
+    }
     pending_surface = std::move(observation.surface_update);
     return ApplyPendingSurface(event_polls);
   }
@@ -392,6 +441,14 @@ public:
                        RendererInProcessSessionStatus::PENDING_BACKPRESSURE) {
       events.pending_frame = true;
       return events;
+    }
+    if (awaiting_frontend_surface_update) {
+      RendererInProcessSessionResult waiting = Failure(
+          RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+          Render::ValidationResult::Success(),
+          Render::RenderOperationCode::RESOURCE_STALE, event_polls);
+      waiting.pending_frame = true;
+      return waiting;
     }
 
     PendingProduction &retained = *pending;
@@ -431,6 +488,20 @@ public:
     const Render::RendererFrontendDirectDispatchResult dispatched =
         dispatcher->RenderScene(retained.production.scene_snapshot,
                                 retained.production.camera, policy);
+    if (dispatched.status ==
+        Render::RendererFrontendDirectDispatchStatus::
+            SCENE_FRAME_PRESENTATION_SURFACE_STALE) {
+      awaiting_frontend_surface_update = true;
+      RendererInProcessSessionResult waiting = Failure(
+          RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+          Render::ValidationResult::Success(), dispatched.frontend_code,
+          event_polls);
+      waiting.asset_sequence = dispatched.asset_sequence;
+      waiting.scene_snapshot_id = dispatched.scene_snapshot_id;
+      waiting.frontend_frame_id = dispatched.frontend_frame_id;
+      waiting.pending_frame = true;
+      return waiting;
+    }
     if (!dispatched) {
       return FailureFromDispatch(dispatched, event_polls);
     }
@@ -719,8 +790,17 @@ public:
       return Result(RendererInProcessSessionStatus::CLOSED, true);
     }
     if (!started) {
+      const Render::RenderOperationResult stopped =
+          StopFrontendForClosure(closure_shutdown_timeout_nanoseconds);
+      if (!stopped) {
+        return Failure(
+            RendererInProcessSessionStatus::FAILED_FRONTEND_SHUTDOWN,
+            Render::ValidationResult::Success(), stopped.code);
+      }
+      QuiesceEventPump();
       closed = true;
-      return Result(RendererInProcessSessionStatus::CLOSED, true);
+      return Result(RendererInProcessSessionStatus::CLOSED, !terminal,
+                    terminal);
     }
 
     shutdown_requested = true;
@@ -744,8 +824,8 @@ public:
         }
       }
 
-      const Render::RenderOperationResult stopped =
-          frontend.Shutdown(config.shutdown_timeout_nanoseconds);
+      const Render::RenderOperationResult stopped = StopFrontendForClosure(
+          config.shutdown_timeout_nanoseconds);
       if (!stopped) {
         if (stopped.code == Render::RenderOperationCode::TIMEOUT) {
           return Failure(
@@ -757,8 +837,7 @@ public:
             RendererInProcessSessionStatus::FAILED_FRONTEND_SHUTDOWN,
             Render::ValidationResult::Success(), stopped.code, event_polls);
       }
-      frontend_initialized = false;
-      event_pump.ShutdownEventPump();
+      QuiesceEventPump();
       closed = true;
       started = false;
       return Result(RendererInProcessSessionStatus::CLOSED, !terminal,
@@ -786,9 +865,12 @@ public:
   std::uint32_t last_scene_width = 0U;
   std::uint32_t last_scene_height = 0U;
   std::uint64_t finalizing_scene_snapshot_id = 0U;
+  std::uint64_t closure_shutdown_timeout_nanoseconds = 5'000'000'000ULL;
   bool scene_generation_reset_pending = false;
   bool frontend_initialized = false;
+  bool event_pump_quiesced = false;
   bool shutdown_requested = false;
+  bool awaiting_frontend_surface_update = false;
   bool simulation_granted = false;
   bool started = false;
   bool closed = false;
@@ -891,6 +973,7 @@ bool IsKnownRendererInProcessSessionStatus(
   case RendererInProcessSessionStatus::FRAME_COMPLETED:
   case RendererInProcessSessionStatus::FRAME_RETIRED:
   case RendererInProcessSessionStatus::PENDING_BACKPRESSURE:
+  case RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE:
   case RendererInProcessSessionStatus::CAPTURE_REJECTED:
   case RendererInProcessSessionStatus::SCENE_GENERATION_RESET:
   case RendererInProcessSessionStatus::SHUTDOWN_REQUESTED:
@@ -923,6 +1006,8 @@ const char *ToString(RendererInProcessSessionStatus status) noexcept {
     return "frame_retired";
   case RendererInProcessSessionStatus::PENDING_BACKPRESSURE:
     return "pending_backpressure";
+  case RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE:
+    return "pending_frontend_surface";
   case RendererInProcessSessionStatus::CAPTURE_REJECTED:
     return "capture_rejected";
   case RendererInProcessSessionStatus::SCENE_GENERATION_RESET:

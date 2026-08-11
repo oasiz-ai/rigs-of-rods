@@ -3551,7 +3551,9 @@ public:
           const bool clean = DestroyProductionPresentationGraph();
           return clean
                      ? RenderOperationResult::Failure(
-                           RenderOperationCode::RESOURCE_STALE, detail.str())
+                           RenderOperationCode::RESOURCE_STALE, detail.str(),
+                           RenderOperationRecovery::
+                               RETRY_AFTER_PRESENTATION_SURFACE_UPDATE)
                      : NativeTeardownFailure(
                            "Ogre-Next production stale-show rollback");
         }
@@ -5942,7 +5944,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
                << acknowledged_surface.pixel_width << 'x'
                << acknowledged_surface.pixel_height;
         return fail_after_cleanup(RenderOperationResult::Failure(
-            RenderOperationCode::RESOURCE_STALE, detail.str()));
+            RenderOperationCode::RESOURCE_STALE, detail.str(),
+            RenderOperationRecovery::
+                RETRY_AFTER_PRESENTATION_SURFACE_UPDATE));
       }
 
       Ogre::TextureGpu *acknowledged_window_texture =

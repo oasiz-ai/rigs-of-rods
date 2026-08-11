@@ -26,6 +26,10 @@ enum class RendererFrontendDirectDispatchStatus : std::uint8_t {
   ASSET_DELTA_SYNCHRONIZED = 0U,
   SCENE_FRAME_COMPLETED,
   SCENE_FRAME_RETIRED,
+  /// Render() committed a newer presentation surface but consumed neither the
+  /// scene snapshot nor frontend frame identity. The caller must observe that
+  /// exact surface, retire this stale immutable scene, and submit a fresh one.
+  SCENE_FRAME_PRESENTATION_SURFACE_STALE,
   SCENE_GENERATION_RESET,
   REJECTED_TERMINAL,
   REJECTED_INVALID_REGISTRY,
@@ -87,7 +91,9 @@ ToString(RendererFrontendDirectDispatchStatus status) noexcept;
 /// asset, scene-generation, and frame-identity lifetime. One caller serializes
 /// all methods on the frontend owner thread. Any validation or frontend failure
 /// permanently poisons this object because the frontend may already have
-/// committed an asset transaction or native work.
+/// committed an asset transaction or native work, except the explicitly typed
+/// presentation-surface recovery above. That result advances no dispatcher
+/// scene/frame identity and leaves the exact scene eligible for retirement.
 class RendererFrontendDirectDispatcher final {
 public:
   RendererFrontendDirectDispatcher(IRendererFrontend &frontend,
@@ -154,6 +160,10 @@ private:
       ValidationCode validation_code = ValidationCode::OK,
       RenderOperationCode frontend_code = RenderOperationCode::OK,
       std::uint32_t resources_released = 0U) noexcept;
+  [[nodiscard]] RendererFrontendDirectDispatchResult
+  RetryablePresentationSurfaceStale(
+      std::uint64_t scene_snapshot_id,
+      std::uint32_t resources_released) const noexcept;
   [[nodiscard]] ResourceReleaseResult
   ReleaseTransferredResources(const RenderFrameOutput &output) noexcept;
   [[nodiscard]] RendererFrontendDirectDispatchResult

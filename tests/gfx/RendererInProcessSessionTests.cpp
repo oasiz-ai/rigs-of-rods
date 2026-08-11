@@ -21,6 +21,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -152,10 +153,13 @@ public:
   }
 
   void PushSurface(RendererInProcessEventPollPoint point,
-                   FrontendSurfaceUpdate surface) {
+                   FrontendSurfaceUpdate surface,
+                   bool already_committed_to_frontend = false) {
     Step step;
     step.point = point;
     step.observation.surface_update = std::move(surface);
+    step.observation.surface_update_already_committed_to_frontend =
+        already_committed_to_frontend;
     steps.push_back(std::move(step));
   }
 
@@ -281,6 +285,10 @@ public:
     current_surface.window = request.window;
     current_surface.content_scale = request.initial_content_scale;
     initialized = true;
+    if (initialization_failure != RenderOperationCode::OK) {
+      return RenderOperationResult::Failure(initialization_failure,
+                                            "injected initialization failure");
+    }
     return RenderOperationResult::Success();
   }
 
@@ -327,6 +335,7 @@ public:
   RenderOperationResult Render(const RenderFrameRequest &request,
                                RenderFrameOutput &output) override {
     log.emplace_back("scene");
+    render_attempts.push_back(request);
     if (request.present) {
       const ValidationResult presentation =
           ValidateRenderFramePresentation(request, current_surface);
@@ -334,6 +343,20 @@ public:
         return RenderOperationResult::Failure(
             RenderOperationCode::INVALID_ARGUMENT, presentation.detail);
       }
+    }
+    if (show_surface_on_first_render.has_value() &&
+        !show_surface_committed) {
+      current_surface = *show_surface_on_first_render;
+      show_surface_committed = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::RESOURCE_STALE,
+          "show callback committed a newer surface",
+          RenderOperationRecovery::
+              RETRY_AFTER_PRESENTATION_SURFACE_UPDATE);
+    }
+    if (render_failure != RenderOperationCode::OK) {
+      return RenderOperationResult::Failure(render_failure,
+                                            "injected render failure");
     }
     rendered.push_back(request);
     output.frame_id = request.frame_id;
@@ -379,7 +402,9 @@ public:
   std::vector<std::string> &log;
   FrontendCapabilityReport capabilities;
   FrontendSurfaceUpdate current_surface;
+  std::optional<FrontendSurfaceUpdate> show_surface_on_first_render;
   std::vector<std::uint64_t> synchronized_sequences;
+  std::vector<RenderFrameRequest> render_attempts;
   std::vector<RenderFrameRequest> rendered;
   std::vector<ResourceHandle> released;
   std::vector<std::uint64_t> reset_generations;
@@ -388,7 +413,10 @@ public:
   std::uint32_t surface_update_timeouts = 0U;
   std::uint32_t shutdowns = 0U;
   std::uint32_t shutdown_timeouts = 0U;
+  RenderOperationCode initialization_failure = RenderOperationCode::OK;
+  RenderOperationCode render_failure = RenderOperationCode::OK;
   bool initialized = false;
+  bool show_surface_committed = false;
 };
 
 std::size_t FindAfter(const std::vector<std::string> &log,
@@ -521,6 +549,174 @@ void TestThrowingPostCapturePolicyDiscardsSourceTransaction() {
   }
 }
 
+void TestFirstRenderSurfaceStaleRetiresThenResubmitsFreshCapture() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x53484F575354414CULL)).ok(),
+          "show-surface session did not initialize");
+  FakeSceneSource source(log);
+  const FrontendSurfaceUpdate shown_surface = Surface(2U, 1024U, 768U);
+  frontend.show_surface_on_first_render = shown_surface;
+
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  Require(session.PumpEventsBeforeSimulation().simulation_may_advance,
+          "first show-surface simulation grant was not established");
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult stale =
+      session.PostUpdatedScene(source);
+  Require(stale.status ==
+                  RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE &&
+              stale.frontend_code == RenderOperationCode::RESOURCE_STALE &&
+              !stale.terminal && stale.pending_frame &&
+              session.has_pending_frame() && !session.terminal() &&
+              source.captures == 1U && source.commits == 1U &&
+              source.discards == 0U && frontend.render_attempts.size() == 1U &&
+              frontend.rendered.empty() &&
+              frontend.render_attempts.front().frame_id == 1U &&
+              frontend.render_attempts.front().scene_snapshot->snapshot_id() ==
+                  1U &&
+              session.last_consumed_scene_snapshot_id() == 0U &&
+              session.last_frontend_frame_id() == 0U,
+          "typed show-surface staleness poisoned or consumed first identities");
+
+  events.PushSurface(RendererInProcessEventPollPoint::BEFORE_PRESENT,
+                     shown_surface, true);
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  const RendererInProcessSessionResult retired =
+      session.PumpEventsBeforeSimulation();
+  const FrontendSurfaceUpdate adopted = session.current_surface();
+  Require(retired.status == RendererInProcessSessionStatus::FRAME_RETIRED &&
+              retired.ok() && retired.simulation_may_advance &&
+              retired.scene_snapshot_id == 1U &&
+              retired.frontend_frame_id == 0U &&
+              !session.has_pending_frame() && !session.terminal() &&
+              adopted.surface_revision == shown_surface.surface_revision &&
+              adopted.pixel_width == shown_surface.pixel_width &&
+              adopted.pixel_height == shown_surface.pixel_height &&
+              frontend.surface_updates == 0U &&
+              frontend.render_attempts.size() == 1U &&
+              session.last_consumed_scene_snapshot_id() == 1U &&
+              session.last_frontend_frame_id() == 0U,
+          "callback-committed surface was duplicated or stale capture rendered");
+
+  source.frame.simulation_tick = 42U;
+  source.frame.simulation_time_seconds = 1.1;
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult resubmitted =
+      session.PostUpdatedScene(source);
+  Require(resubmitted.status ==
+                  RendererInProcessSessionStatus::FRAME_COMPLETED &&
+              resubmitted.ok() && !session.terminal() &&
+              resubmitted.scene_snapshot_id == 2U &&
+              resubmitted.frontend_frame_id == 1U &&
+              source.captures == 2U && source.commits == 2U &&
+              frontend.render_attempts.size() == 2U &&
+              frontend.rendered.size() == 1U &&
+              frontend.render_attempts[0U].frame_id == 1U &&
+              frontend.render_attempts[1U].frame_id == 1U &&
+              frontend.render_attempts[1U].views.front().width == 1024U &&
+              frontend.render_attempts[1U].views.front().height == 768U &&
+              frontend.rendered.front().scene_snapshot->snapshot_id() == 2U &&
+              session.last_consumed_scene_snapshot_id() == 2U &&
+              session.last_frontend_frame_id() == 1U,
+          "fresh post-show capture did not resubmit without a frame-ID gap");
+  Require(session.Shutdown().ok(),
+          "show-surface resubmit session did not close");
+}
+
+void TestOnlyTypedPresentationSurfaceStaleIsRetryable() {
+  for (const RenderOperationCode code : {RenderOperationCode::RESOURCE_STALE,
+                                         RenderOperationCode::BACKEND_FAILURE}) {
+    std::vector<std::string> log;
+    FakeFrontend frontend(log);
+    FakeEventPump events(log);
+    FakeFramePolicy frame_policy;
+    RendererInProcessSession session(frontend, events, frame_policy);
+    Require(session.Start(Config(code == RenderOperationCode::RESOURCE_STALE
+                                     ? 0x554E545950454453ULL
+                                     : 0x4241434B454E4446ULL))
+                .ok(),
+            "terminal render-failure session did not initialize");
+    FakeSceneSource source(log);
+    frontend.render_failure = code;
+    events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+    Require(session.PumpEventsBeforeSimulation().simulation_may_advance,
+            "terminal render-failure simulation grant was not established");
+    events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+
+    const RendererInProcessSessionResult failed =
+        session.PostUpdatedScene(source);
+    Require(failed.status == RendererInProcessSessionStatus::FAILED_DISPATCH &&
+                failed.frontend_code == code && failed.terminal &&
+                session.terminal() &&
+                session.last_consumed_scene_snapshot_id() == 0U &&
+                session.last_frontend_frame_id() == 0U,
+            "untyped RESOURCE_STALE or backend failure became retryable");
+    (void)session.Shutdown();
+  }
+}
+
+void TestFailedStartQuiescesAfterFrontendRollback() {
+  {
+    std::vector<std::string> log;
+    FakeFrontend frontend(log);
+    FakeEventPump events(log);
+    FakeFramePolicy frame_policy;
+    frontend.initialization_failure = RenderOperationCode::BACKEND_FAILURE;
+    RendererInProcessSession session(frontend, events, frame_policy);
+
+    const RendererInProcessSessionResult failed =
+        session.Start(Config(0x5354415254464149ULL));
+    Require(failed.status ==
+                    RendererInProcessSessionStatus::
+                        FAILED_FRONTEND_INITIALIZATION &&
+                failed.terminal && session.terminal() &&
+                frontend.initializations == 1U && frontend.shutdowns == 1U &&
+                events.shutdowns == 1U,
+            "fatal Start did not roll back frontend and quiesce its event pump");
+    const std::size_t initialized = FindAfter(log, "frontend-initialize");
+    const std::size_t frontend_shutdown =
+        FindAfter(log, "frontend-shutdown", initialized + 1U);
+    const std::size_t event_shutdown =
+        FindAfter(log, "event-shutdown", frontend_shutdown + 1U);
+    Require(initialized < frontend_shutdown &&
+                frontend_shutdown < event_shutdown,
+            "fatal Start quiesced native ownership before frontend rollback");
+    Require(
+        session.Shutdown().status == RendererInProcessSessionStatus::CLOSED &&
+            frontend.shutdowns == 1U && events.shutdowns == 1U,
+        "closed failed-Start cleanup was not idempotent");
+  }
+  {
+    std::vector<std::string> log;
+    FakeFrontend frontend(log);
+    FakeEventPump events(log);
+    FakeFramePolicy frame_policy;
+    frontend.initialization_failure = RenderOperationCode::BACKEND_FAILURE;
+    frontend.shutdown_timeouts = 1U;
+    RendererInProcessSession session(frontend, events, frame_policy);
+
+    const RendererInProcessSessionResult failed =
+        session.Start(Config(0x5354415254524554ULL));
+    Require(failed.terminal && frontend.shutdowns == 1U &&
+                events.shutdowns == 0U,
+            "failed Start released event/window ownership after shutdown timeout");
+    const RendererInProcessSessionResult closed = session.Shutdown();
+    Require(closed.status == RendererInProcessSessionStatus::CLOSED &&
+                frontend.shutdowns == 2U && events.shutdowns == 1U,
+            "failed Start did not preserve retryable frontend cleanup");
+    const std::size_t successful_shutdown =
+        FindAfter(log, "frontend-shutdown", 2U);
+    const std::size_t event_shutdown =
+        FindAfter(log, "event-shutdown", successful_shutdown + 1U);
+    Require(successful_shutdown < event_shutdown,
+            "failed-Start retry quiesced before frontend shutdown completed");
+  }
+}
+
 void TestSurfaceBackpressureRetainsAndRetiresExactCapture() {
   std::vector<std::string> log;
   FakeFrontend frontend(log);
@@ -636,6 +832,9 @@ void TestStatusSurface() {
   Require(std::string(ToString(
               RendererInProcessSessionStatus::PENDING_BACKPRESSURE)) ==
               "pending_backpressure" &&
+              std::string(ToString(RendererInProcessSessionStatus::
+                                       PENDING_FRONTEND_SURFACE)) ==
+                  "pending_frontend_surface" &&
               std::string(ToString(static_cast<
                               RendererInProcessSessionStatus>(255U))) ==
                   "invalid",
@@ -648,6 +847,9 @@ int main() {
   TestStatusSurface();
   TestCaptureRollbackAndTypedSubmissionOrder();
   TestThrowingPostCapturePolicyDiscardsSourceTransaction();
+  TestFirstRenderSurfaceStaleRetiresThenResubmitsFreshCapture();
+  TestOnlyTypedPresentationSurfaceStaleIsRetryable();
+  TestFailedStartQuiescesAfterFrontendRollback();
   TestSurfaceBackpressureRetainsAndRetiresExactCapture();
   std::cout << "renderer in-process session tests passed\n";
   return EXIT_SUCCESS;

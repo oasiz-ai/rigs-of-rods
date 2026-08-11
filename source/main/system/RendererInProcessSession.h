@@ -35,6 +35,11 @@ struct RendererInProcessEventObservation final {
   /// Present only when the native owner has committed a strictly newer
   /// surface state. The session applies it to the frontend transactionally.
   std::optional<Render::FrontendSurfaceUpdate> surface_update;
+  /// True only for the exact surface synchronously adopted by Render() before
+  /// it returned the typed presentation-surface-stale recovery. The session
+  /// adopts this observation locally without calling UpdateSurface a second
+  /// time. It is invalid without both that pending recovery and surface_update.
+  bool surface_update_already_committed_to_frontend = false;
   bool shutdown_requested = false;
 };
 
@@ -91,6 +96,7 @@ enum class RendererInProcessSessionStatus : std::uint8_t {
   FRAME_COMPLETED,
   FRAME_RETIRED,
   PENDING_BACKPRESSURE,
+  PENDING_FRONTEND_SURFACE,
   CAPTURE_REJECTED,
   SCENE_GENERATION_RESET,
   SHUTDOWN_REQUESTED,
@@ -135,7 +141,10 @@ struct RendererInProcessSessionResult final {
 /// scene producer, and submitted as typed asset then scene objects on the same
 /// thread. A surface timeout retains that exact immutable production for retry;
 /// no newer capture can overtake it. Map reset preserves process-lifetime asset,
-/// snapshot, and frontend-frame identities.
+/// snapshot, and frontend-frame identities. If the first Render synchronously
+/// adopts a newer show surface, that typed recovery retains the old-extent
+/// production only long enough to retire it; the next grant captures a fresh
+/// camera at the adopted extent without skipping a frontend frame ID.
 class RendererInProcessSession final {
 public:
   RendererInProcessSession(Render::IRendererFrontend &frontend,
