@@ -82,6 +82,29 @@ void TestNativeParticleColourByteDecode() {
           "asymmetric colour golden cannot detect a red/alpha swap");
 }
 
+void TestInactiveFirstAdmissionStateTable() {
+  using namespace RoR::Render;
+  using Decision = Ogre14ParticleSystemAdmissionDecision;
+  Require(ClassifyOgre14ParticleSystemAdmission(false, false, 0U) ==
+              Decision::DEFER_INACTIVE_FIRST_OBSERVATION,
+          "unseen stopped empty system was not deferred");
+  Require(ClassifyOgre14ParticleSystemAdmission(false, true, 0U) ==
+              Decision::ADMIT_FIRST_ACTIVITY,
+          "unseen emitting empty system was not admitted");
+  Require(ClassifyOgre14ParticleSystemAdmission(false, false, 1U) ==
+              Decision::ADMIT_FIRST_ACTIVITY,
+          "unseen stopped system with a live particle was not admitted");
+  Require(ClassifyOgre14ParticleSystemAdmission(true, false, 0U) ==
+              Decision::RETAIN_ADMITTED,
+          "admitted stopped empty system was not retained");
+  Require(ClassifyOgre14ParticleSystemAdmission(true, true, 0U) ==
+              Decision::RETAIN_ADMITTED,
+          "admitted emitting system changed identity state");
+  Require(ClassifyOgre14ParticleSystemAdmission(true, false, 1U) ==
+              Decision::RETAIN_ADMITTED,
+          "admitted stopped system with a live particle changed identity state");
+}
+
 RoR::Render::RenderAssetReference Material(std::uint64_t low = 7U,
                                            std::uint64_t revision = 1U) {
   using namespace RoR::Render;
@@ -1084,6 +1107,107 @@ bool SameSentinelOutput(const RoR::Render::Ogre14ParticleCapturedFrame &lhs,
          SameParticleBits(lhs_system.particles[0U], rhs_system.particles[0U]);
 }
 
+void TestDeferredEmptyFrameThenAtomicFirstCreate() {
+  using namespace RoR::Render;
+  Ogre14ParticleCaptureSource source;
+  Ogre14ParticleCapturedFrame output;
+  ValidationResult result =
+      source.Capture(Frame(1U, 1U, {}, {}), Catalog(), output);
+  Require(result.ok() && output.source_sequence == 1U &&
+              output.commands.empty() && source.last_source_sequence() == 1U &&
+              source.highest_system_id() == 0U &&
+              source.highest_event_id() == 0U &&
+              source.known_system_count() == 0U &&
+              source.live_system_count() == 0U,
+          "empty deferred inventory minted first-activity lifecycle state");
+
+  Ogre14ParticleSystemCapture active = System(1U, {});
+  active.emitting = true;
+  Ogre14ParticleSystemCapture missing_source = active;
+  missing_source.material_closure.source_texture = Texture(99U);
+  output = SentinelOutput();
+  const Ogre14ParticleCapturedFrame failure_sentinel = output;
+  result = source.Capture(
+      Frame(2U, 2U, {missing_source},
+            {Event(1U, 1U, Ogre14ParticleLifecycleOperation::CREATE)}),
+      Catalog(), output);
+  Require(!result && result.code == ValidationCode::MISSING_REFERENCE &&
+              result.field == "particle_system.material_closure.source_assets" &&
+              SameSentinelOutput(output, failure_sentinel) &&
+              source.last_source_sequence() == 1U &&
+              source.highest_system_id() == 0U &&
+              source.highest_event_id() == 0U &&
+              source.known_system_count() == 0U &&
+              source.live_system_count() == 0U &&
+              source.lifetime_particle_count() == 0U &&
+              source.lifetime_event_count() == 0U,
+          "failed first CREATE consumed identity, sequence, event, or output state");
+
+  result = source.Capture(
+      Frame(2U, 2U, {active},
+            {Event(1U, 1U, Ogre14ParticleLifecycleOperation::CREATE)}),
+      Catalog(), output);
+  Require(result.ok() && output.source_sequence == 2U &&
+              output.commands.size() == 1U &&
+              output.commands[0U].operation ==
+                  Ogre14ParticleLifecycleOperation::CREATE &&
+              output.commands[0U].system != nullptr &&
+              output.commands[0U].system->system_id == 1U &&
+              output.commands[0U].system->particles.empty() &&
+              output.commands[0U].system->material_closure.material ==
+                  Material(1U) &&
+              output.commands[0U].system->material_closure.source_texture ==
+                  Texture(1U) &&
+              output.commands[0U].system->material_closure.sampler ==
+                  Sampler(1U) &&
+              output.commands[0U].system->material_closure
+                  .source_backed_texture &&
+              !output.commands[0U].system->material_closure
+                   .gpu_readback_used &&
+              source.highest_system_id() == 1U &&
+              source.highest_event_id() == 1U &&
+              source.known_system_count() == 1U &&
+              source.live_system_count() == 1U,
+          "retry did not atomically publish exact zero-readback first CREATE");
+
+  active.emitting = false;
+  result = source.Capture(
+      Frame(3U, 3U, {active},
+            {Event(2U, 1U, Ogre14ParticleLifecycleOperation::STOP)}),
+      Catalog(), output);
+  Require(result.ok() && output.commands.size() == 1U &&
+              output.commands[0U].operation ==
+                  Ogre14ParticleLifecycleOperation::STOP &&
+              output.commands[0U].system != nullptr &&
+              !output.commands[0U].system->emitting &&
+              source.known_system_count() == 1U &&
+              source.live_system_count() == 1U,
+          "admitted stopped empty system was not retained");
+
+  result = source.Capture(Frame(4U, 4U, {active}, {}), Catalog(), output);
+  Require(result.ok() && output.commands.empty() &&
+              source.highest_system_id() == 1U &&
+              source.highest_event_id() == 2U &&
+              source.known_system_count() == 1U &&
+              source.live_system_count() == 1U,
+          "unchanged stopped empty system was destroyed or recreated");
+
+  active.emitting = true;
+  result = source.Capture(
+      Frame(5U, 5U, {active},
+            {Event(3U, 1U, Ogre14ParticleLifecycleOperation::UPDATE)}),
+      Catalog(), output);
+  Require(result.ok() && output.commands.size() == 1U &&
+              output.commands[0U].operation ==
+                  Ogre14ParticleLifecycleOperation::UPDATE &&
+              output.commands[0U].system != nullptr &&
+              output.commands[0U].system->system_id == 1U &&
+              output.commands[0U].system->emitting &&
+              source.highest_system_id() == 1U &&
+              source.known_system_count() == 1U,
+          "stopped empty system did not resume as UPDATE under one identity");
+}
+
 class FaultInjector final
     : public RoR::Render::IOgre14ParticleCaptureFaultInjector {
 public:
@@ -1194,6 +1318,7 @@ void TestInjectedFailureIsStronglyTransactional() {
 int main() {
   TestPoolIdentityRequiresExpirationSurvivalProof();
   TestNativeParticleColourByteDecode();
+  TestInactiveFirstAdmissionStateTable();
   TestCanonicalCreateAndEffectiveVisibility();
   TestReplayUnchangedStopDestroyAndResurrection();
   TestSceneGenerationFinalizationDestroysAndResets();
@@ -1203,6 +1328,7 @@ int main() {
   TestMaterialClosureReceiptAndCatalogLineage();
   TestReceiptOnlyCatalogAdvanceDoesNotInventUpdate();
   TestHostileNumericFeatureAndCapValidation();
+  TestDeferredEmptyFrameThenAtomicFirstCreate();
   TestInjectedFailureIsStronglyTransactional();
   std::cout << "OGRE 14 particle capture source tests passed\n";
   return EXIT_SUCCESS;

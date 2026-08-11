@@ -298,6 +298,87 @@ class Ogre14ParticleCaptureContractTests(unittest.TestCase):
             "setAsRGBA(native_particle->mColour)", self.gfx_scene
         )
 
+    def test_inactive_pool_defers_first_identity_and_material_atomically(
+        self,
+    ) -> None:
+        for token in (
+            "Ogre14ParticleSystemAdmissionDecision",
+            "DEFER_INACTIVE_FIRST_OBSERVATION",
+            "ADMIT_FIRST_ACTIVITY",
+            "RETAIN_ADMITTED",
+            "ClassifyOgre14ParticleSystemAdmission(",
+        ):
+            with self.subTest(admission_token=token):
+                self.assertIn(token, self.header + self.source)
+        for proof in (
+            "unseen stopped empty system was not deferred",
+            "unseen emitting empty system was not admitted",
+            "unseen stopped system with a live particle was not admitted",
+            "admitted stopped empty system was not retained",
+            "empty deferred inventory minted first-activity lifecycle state",
+            "failed first CREATE consumed identity, sequence, event, or output state",
+            "retry did not atomically publish exact zero-readback first CREATE",
+            "stopped empty system did not resume as UPDATE under one identity",
+        ):
+            with self.subTest(test_proof=proof):
+                self.assertIn(proof, self.cpp_test)
+
+        capture_begin = self.gfx_scene.index(
+            "GfxScene::CaptureOgre14GraphicsScene("
+        )
+        commit_begin = self.gfx_scene.index(
+            "void GfxScene::CommitOgre14GraphicsSceneCapture()", capture_begin
+        )
+        capture = self.gfx_scene[capture_begin:commit_begin]
+        emitting = capture.index("bool native_emitting = false;")
+        classification = capture.index(
+            "ClassifyOgre14ParticleSystemAdmission(", emitting
+        )
+        deferral = capture.index(
+            "DEFER_INACTIVE_FIRST_OBSERVATION", classification
+        )
+        identity_allocation = capture.index(".next_system_id++", deferral)
+        material_gate = capture.index(
+            "if (!captured_dust_systems.empty())", identity_allocation
+        )
+        material_projection = capture.index(
+            '.TryProject("particle/tracks/Dust"', material_gate
+        )
+        pending_publication = capture.index(
+            "m_ogre14_pending_capture = std::move(pending);",
+            material_projection,
+        )
+        self.assertLess(emitting, classification)
+        self.assertLess(classification, deferral)
+        self.assertLess(deferral, identity_allocation)
+        self.assertLess(identity_allocation, material_gate)
+        self.assertLess(material_gate, material_projection)
+        self.assertLess(material_projection, pending_publication)
+        self.assertIn("deferred_inactive_systems = 0U;", capture)
+        self.assertIn(".deferred_inactive_systems;", capture)
+        coverage = capture[
+            capture.index(
+                "if (pending->particle_capture_state.captured_systems +"
+            ) : capture.index(
+                "if (pending->particle_capture_state.next_source_sequence =="
+            )
+        ]
+        self.assertIn(".deferred_inactive_systems +", coverage)
+        self.assertIn("deferred_inactive_systems={} ", self.gfx_scene)
+
+        commit = self.gfx_scene[commit_begin:]
+        self.assertIn(
+            "swap(m_ogre14_particle_capture_state,", commit
+        )
+        self.assertIn(
+            "m_ogre14_pending_capture->particle_capture_state", commit
+        )
+        self.assertIn(
+            "void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept",
+            commit,
+        )
+        self.assertIn("m_ogre14_pending_capture.reset();", commit)
+
     def test_shipped_dust_fixture_uses_default_texcoord_rotator(self) -> None:
         dust = self.dust_script.split(
             "particle_system tracks/Dust", 1

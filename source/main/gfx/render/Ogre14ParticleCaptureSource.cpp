@@ -582,6 +582,19 @@ BuildCapturedState(const Ogre14ParticleSystemCapture &source) {
 
 } // namespace
 
+Ogre14ParticleSystemAdmissionDecision ClassifyOgre14ParticleSystemAdmission(
+    bool was_previously_admitted, bool emitting,
+    std::uint64_t active_particle_count) noexcept {
+  if (was_previously_admitted) {
+    return Ogre14ParticleSystemAdmissionDecision::RETAIN_ADMITTED;
+  }
+  if (!emitting && active_particle_count == 0U) {
+    return Ogre14ParticleSystemAdmissionDecision::
+        DEFER_INACTIVE_FIRST_OBSERVATION;
+  }
+  return Ogre14ParticleSystemAdmissionDecision::ADMIT_FIRST_ACTIVITY;
+}
+
 Float4 DecodeOgre14ParticleColourBytes(
     const std::array<std::uint8_t, 4U> &rgba_bytes) noexcept {
   return {static_cast<float>(rgba_bytes[0U]) / 255.0F,

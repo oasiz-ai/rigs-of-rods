@@ -26,6 +26,22 @@ constexpr std::uint32_t kOgre14ParticleCaptureVersion = 1U;
 constexpr std::uint32_t kOgre14ParticleCapturedFrameVersion = 1U;
 constexpr std::uint32_t kOgre14ParticleMaterialClosureReceiptVersion = 1U;
 
+/// First admission is activity-gated so a preallocated native pool cannot
+/// force material projection before it has anything to render. Once admitted,
+/// an empty stopped system remains retained under the same identity until the
+/// native inventory removes it.
+enum class Ogre14ParticleSystemAdmissionDecision : std::uint8_t {
+  DEFER_INACTIVE_FIRST_OBSERVATION = 0U,
+  ADMIT_FIRST_ACTIVITY = 1U,
+  RETAIN_ADMITTED = 2U,
+};
+
+[[nodiscard]] Ogre14ParticleSystemAdmissionDecision
+ClassifyOgre14ParticleSystemAdmission(bool was_previously_admitted,
+                                      bool emitting,
+                                      std::uint64_t active_particle_count)
+    noexcept;
+
 /// Returns true only across exactly one native OGRE update when the active
 /// particle's prior remaining lifetime proves that its pool slot could not
 /// have expired. The interval is the exact native Real value passed to

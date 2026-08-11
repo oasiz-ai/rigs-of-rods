@@ -229,6 +229,7 @@ private:
         std::uint64_t captured_particles = 0U;
         std::uint64_t observed_systems = 0U;
         std::uint64_t observed_particles = 0U;
+        std::uint64_t deferred_inactive_systems = 0U;
         std::uint64_t excluded_systems = 0U;
         std::uint64_t excluded_particles = 0U;
         std::uint64_t excluded_non_dust_systems = 0U;

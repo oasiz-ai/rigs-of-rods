@@ -3412,6 +3412,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     pending->particle_capture_state.captured_particles = 0U;
     pending->particle_capture_state.observed_systems = 0U;
     pending->particle_capture_state.observed_particles = 0U;
+    pending->particle_capture_state.deferred_inactive_systems = 0U;
     pending->particle_capture_state.excluded_systems = 0U;
     pending->particle_capture_state.excluded_particles = 0U;
     pending->particle_capture_state.excluded_non_dust_systems = 0U;
@@ -3696,9 +3697,36 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         timing_observation->second
                             .latest_effective_interval_seconds;
 
+                    bool native_emitting = false;
+                    for (unsigned short emitter_index = 0U;
+                         emitter_index < psys->getNumEmitters();
+                         ++emitter_index)
+                    {
+                        Ogre::ParticleEmitter* const emitter =
+                            psys->getEmitter(emitter_index);
+                        native_emitting = native_emitting ||
+                            (emitter != nullptr && emitter->getEnabled());
+                    }
+
                     auto system_identity =
                         pending->particle_capture_state.systems.find(
                             native_name);
+                    const bool was_previously_admitted =
+                        system_identity != pending->particle_capture_state
+                                               .systems.end();
+                    const Render::Ogre14ParticleSystemAdmissionDecision
+                        admission = Render::
+                            ClassifyOgre14ParticleSystemAdmission(
+                                was_previously_admitted,
+                                native_emitting, native_particle_count);
+                    if (admission == Render::
+                            Ogre14ParticleSystemAdmissionDecision::
+                                DEFER_INACTIVE_FIRST_OBSERVATION)
+                    {
+                        ++pending->particle_capture_state
+                              .deferred_inactive_systems;
+                        continue;
+                    }
                     if (system_identity ==
                         pending->particle_capture_state.systems.end())
                     {
@@ -3740,16 +3768,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         psys->getParentSceneNode();
                     system.parent_visible = parent != nullptr &&
                         parent->isInSceneGraph();
-                    system.emitting = false;
-                    for (unsigned short emitter_index = 0U;
-                         emitter_index < psys->getNumEmitters();
-                         ++emitter_index)
-                    {
-                        Ogre::ParticleEmitter* const emitter =
-                            psys->getEmitter(emitter_index);
-                        system.emitting = system.emitting ||
-                            (emitter != nullptr && emitter->getEnabled());
-                    }
+                    system.emitting = native_emitting;
 
                     std::map<std::uintptr_t,
                              GfxScene::Ogre14DustParticleIdentity>
@@ -4128,6 +4147,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                                .lifetime_max_captured_particles,
                            pending->particle_capture_state.captured_particles);
             if (pending->particle_capture_state.captured_systems +
+                        pending->particle_capture_state
+                            .deferred_inactive_systems +
                         pending->particle_capture_state.excluded_systems !=
                     pending->particle_capture_state.observed_systems ||
                 pending->particle_capture_state.captured_particles +
@@ -4156,7 +4177,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 return Render::ValidationResult::Failure(
                     Render::ValidationCode::SIZE_MISMATCH,
                     "continuous_particles.coverage_denominators",
-                    "admitted and named-exclusion system/particle counts do not exactly recount the observed OGRE14 inventory");
+                    "admitted, inactive-deferred, and named-exclusion system counts plus admitted/excluded particle counts do not exactly recount the observed OGRE14 inventory");
             }
             if (pending->particle_capture_state.next_source_sequence ==
                 (std::numeric_limits<std::uint64_t>::max)())
@@ -4501,7 +4522,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_particle_capture_state;
     const std::string particle_snapshot = fmt::format(
         "observed_systems={} observed_particles={} admitted_systems={} "
-        "admitted_particles={} excluded_systems={} excluded_particles={} "
+        "admitted_particles={} deferred_inactive_systems={} "
+        "excluded_systems={} excluded_particles={} "
         "excluded_non_dust_systems={} excluded_sparks_systems={} "
         "excluded_ripple_systems={} excluded_other_non_dust_systems={} "
         "excluded_billboard_modes={} "
@@ -4512,6 +4534,7 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         "lifetime_max_admitted_particles={}",
         particles.observed_systems, particles.observed_particles,
         particles.captured_systems, particles.captured_particles,
+        particles.deferred_inactive_systems,
         particles.excluded_systems, particles.excluded_particles,
         particles.excluded_non_dust_systems,
         particles.excluded_sparks_systems,

@@ -418,13 +418,18 @@ after construction; texture pixels are never read back. Capture and frontend
 telemetry retain lifetime maxima so a short dust burst remains auditable after
 its particles age out.
 
-A system first observed with emission disabled is still created explicitly with
-`CREATE` and a stopped complete state. A previously stopped but not destroyed
-system may resume emission under the same identity; that transition is an
-`UPDATE`, not a second `CREATE`. While a system remains stopped, retained
-particles may update or age out, but the complete snapshot may not introduce a
-new particle identity until emission resumes. `DESTROY` remains the permanent
-identity boundary.
+An exact supported system first observed with emission disabled and zero
+realized particles is deferred. It contributes to the explicit
+`deferred_inactive_systems` coverage denominator, but allocates no system,
+particle, or event identity and triggers no material/texture/sampler projection.
+Emission or a realized particle is first activity: the pending capture then
+resolves the exact source-backed closure and publishes `CREATE` atomically, or
+discards every candidate identity and sequence advance on failure. Once
+admitted, a previously stopped but not destroyed system remains live under the
+same identity even when empty. It may resume with
+`UPDATE`, not a second `CREATE`; retained particles may update or age out while
+stopped, but no new particle identity may appear until emission resumes.
+`DESTROY` remains the permanent identity boundary.
 
 Compatibility-material fallback version 2 is intentionally factor-only. It
 preserves first-pass diffuse/emissive factors, lighting, shininess-derived
