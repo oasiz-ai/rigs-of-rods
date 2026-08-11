@@ -71,6 +71,9 @@ public:
   operator=(RendererOgreNextSdlWindowRuntime &&) = delete;
 
   RendererOgreNextWindowHostRuntime Runtime() noexcept;
+  /// Validates the thread claimed during host initialization before a direct
+  /// SDL operation owned by the in-process presenter.
+  bool ValidateOwnerThread();
   /// Drains and normalizes close/focus/resize/minimize/restore/display events
   /// for exactly the SDL window owned by the matching host runtime.
   bool PollWindowEvents(

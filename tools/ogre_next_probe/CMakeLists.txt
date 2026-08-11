@@ -138,6 +138,7 @@ list(APPEND _ror_relevant_source_files
     "tools/ogre_next_probe/src/embedded_namespace/main.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm"
     "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/presenter_link_adapter.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp"
     "CMakeLists.txt"
@@ -259,6 +260,8 @@ list(APPEND _ror_relevant_source_files
     "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
     "source/main/system/RendererOgreNextSdlWindowRuntime.h"
     "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+    "source/main/system/RendererOgreNextInProcessPresenter.cpp"
+    "source/main/system/RendererOgreNextInProcessPresenter.h"
     "source/main/system/RendererOgreNextWindowHost.cpp"
     "source/main/system/RendererOgreNextWindowHost.h"
     "source/main/system/RendererLauncherMain.cpp"
@@ -1135,10 +1138,92 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             "Embedded N1 must use the namespace remap and production sources")
     endif ()
 
+    add_library(
+        ror_ogre_next_embedded_sdl_window_runtime STATIC
+        "${_ror_system_root}/RendererOgreNextWindowHost.cpp"
+        "${_ror_system_root}/RendererOgreNextSdlWindowRuntime.cpp"
+        "${_ror_system_root}/RendererOgreNextSdlWindowRuntimeCocoa.mm")
+    target_compile_options(
+        ror_ogre_next_embedded_sdl_window_runtime
+        PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_include_directories(
+        ror_ogre_next_embedded_sdl_window_runtime
+        PUBLIC "${_ror_system_root}"
+        SYSTEM PRIVATE
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+    target_link_libraries(
+        ror_ogre_next_embedded_sdl_window_runtime
+        PUBLIC SDL2::SDL2-static Threads::Threads
+        PRIVATE RenderSystem_Metal OgreNextMain)
+    set_target_properties(
+        ror_ogre_next_embedded_sdl_window_runtime
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+    # Only the Cocoa adapter includes OgreNext headers. The portable C++ host
+    # and SDL state machine stay renderer-neutral for the combined runtime.
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_embedded_sdl_window_runtime LANGUAGES OBJCXX)
+
+    add_library(
+        ror_ogre_next_embedded_game_input_target STATIC
+        "${_ror_system_root}/RendererGameInputTarget.cpp")
+    target_include_directories(
+        ror_ogre_next_embedded_game_input_target PUBLIC "${_ror_system_root}")
+    set_target_properties(
+        ror_ogre_next_embedded_game_input_target
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+
+    add_library(
+        ror_ogre_next_in_process_presenter STATIC
+        "${_ror_system_root}/RendererOgreNextInProcessPresenter.cpp")
+    target_compile_definitions(
+        ror_ogre_next_in_process_presenter PRIVATE ROR_OGRE_NEXT_N1_METAL=1)
+    target_include_directories(
+        ror_ogre_next_in_process_presenter
+        PUBLIC
+            "${_ror_render_root}/.."
+            "${_ror_render_root}"
+            "${_ror_system_root}"
+        SYSTEM PRIVATE
+            "${ogre_next_SOURCE_DIR}/OgreMain/include"
+            "${ogre_next_BINARY_DIR}/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Common/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
+            "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
+            "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+            "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+    target_link_libraries(
+        ror_ogre_next_in_process_presenter
+        PUBLIC
+            ror_ogre_next_embedded_n1_runtime
+            ror_ogre_next_embedded_direct_contract
+            ror_ogre_next_embedded_game_input_target
+            ror_ogre_next_embedded_sdl_window_runtime
+            SDL2::SDL2-static
+            Threads::Threads)
+    target_compile_options(
+        ror_ogre_next_in_process_presenter
+        PRIVATE -fno-fast-math -ffp-contract=off)
+    set_target_properties(
+        ror_ogre_next_in_process_presenter
+        PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES)
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_in_process_presenter LANGUAGES CXX)
+
     add_executable(
         ror_ogre_next_dual_runtime_link_smoke
         src/embedded_namespace/main.cpp
         src/embedded_namespace/n1_session_adapter.cpp
+        src/embedded_namespace/presenter_link_adapter.cpp
         $<TARGET_OBJECTS:ror_ogre_next_dual_runtime_next_adapter>
         $<TARGET_OBJECTS:ror_ogre_next_dual_runtime_ogre14_adapter>)
     target_include_directories(
@@ -1152,6 +1237,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         PRIVATE
             ror_ogre_next_embedded_n1_runtime
             ror_ogre_next_embedded_direct_contract
+            ror_ogre_next_in_process_presenter
             OgreNextHlmsPbs
             OgreNextHlmsUnlit
             OgreNextOverlay
@@ -1201,6 +1287,12 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             --next-archive "$<TARGET_FILE:OgreNextHlmsPbs>"
             --next-archive "$<TARGET_FILE:OgreNextHlmsUnlit>"
             --next-archive "$<TARGET_FILE:OgreNextOverlay>"
+            --next-archive
+                "$<TARGET_FILE:ror_ogre_next_in_process_presenter>"
+            --next-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_sdl_window_runtime>"
+            --next-archive
+                "$<TARGET_FILE:ror_ogre_next_embedded_game_input_target>"
             --embedded-runtime-archive
                 "$<TARGET_FILE:ror_ogre_next_embedded_n1_runtime>"
             --direct-contract-archive
@@ -1229,6 +1321,8 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/main.cpp"
             --session-adapter
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/n1_session_adapter.cpp"
+            --presenter-adapter
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/presenter_link_adapter.cpp"
             --embedded-target-name
                 ror_ogre_next_embedded_n1_runtime
             ${_ror_embedded_source_audit_arguments}
@@ -1260,6 +1354,8 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextD3D12DxrBootstrap.cpp"
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+            --namespaced-source
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextInProcessPresenter.cpp"
             --namespaced-source-if-present
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/vulkan_rt5_smoke.cpp"
             --namespaced-source-if-present
@@ -1278,15 +1374,24 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendPresentationPolicy.cpp"
             --neutral-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
+            --neutral-source
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererOgreNextWindowHost.cpp"
+            --neutral-source
+                "${ROR_REPOSITORY_ROOT}/source/main/system/RendererGameInputTarget.cpp"
             --neutral-source-if-present
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/frontend_n1_smoke.cpp"
             --neutral-source-if-present
                 "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/n1_session_adapter.cpp"
+            --neutral-source
+                "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded_namespace/presenter_link_adapter.cpp"
             --report "${_ror_embedded_namespace_audit_report}"
         DEPENDS
             ror_ogre_next_dual_runtime_link_smoke
             ror_ogre_next_embedded_n1_runtime
             ror_ogre_next_embedded_direct_contract
+            ror_ogre_next_in_process_presenter
+            ror_ogre_next_embedded_sdl_window_runtime
+            ror_ogre_next_embedded_game_input_target
             ror_ogre_next_embedded_plugin_export_probe
             RenderSystem_Metal
             OgreNextHlmsPbs
@@ -2030,7 +2135,6 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PROPERTIES
             CXX_VISIBILITY_PRESET hidden
             VISIBILITY_INLINES_HIDDEN YES)
-
     add_executable(
         ror_renderer_ogre_next_window_host_smoke
         src/window_host_smoke.cpp)
@@ -2913,6 +3017,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tools/ogre_next_probe/src/embedded_namespace/main.cpp
             tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm
             tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp
+            tools/ogre_next_probe/src/embedded_namespace/presenter_link_adapter.cpp
             tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp
             tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp
             CMakeLists.txt
@@ -3034,6 +3139,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             source/main/system/RendererOgreNextSdlWindowRuntime.cpp
             source/main/system/RendererOgreNextSdlWindowRuntime.h
             source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
+            source/main/system/RendererOgreNextInProcessPresenter.cpp
+            source/main/system/RendererOgreNextInProcessPresenter.h
             source/main/system/RendererOgreNextWindowHost.cpp
             source/main/system/RendererOgreNextWindowHost.h
             source/main/system/RendererLauncherMain.cpp

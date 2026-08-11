@@ -91,6 +91,7 @@ source/main/system/RendererOgreNextChild.* text eol=lf
 source/main/system/RendererOgreNextLiveSession.* text eol=lf
 source/main/system/RendererOgreNextProductionSession.* text eol=lf
 source/main/system/RendererOgreNextSdlWindowRuntime* text eol=lf
+source/main/system/RendererOgreNextInProcessPresenter.* text eol=lf
 source/main/system/RendererOgreNextWindowHost.* text eol=lf
 source/main/system/RendererLauncherMain.cpp text eol=lf
 source/main/system/RendererLauncherPackageConfig.h.in text eol=lf

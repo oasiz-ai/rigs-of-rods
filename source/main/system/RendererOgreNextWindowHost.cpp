@@ -547,6 +547,43 @@ RendererOgreNextWindowHostStatus RendererOgreNextWindowHost::Resize(
 }
 
 RendererOgreNextWindowHostStatus
+RendererOgreNextWindowHost::AdoptExternalResize(
+    std::uint32_t logical_width, std::uint32_t logical_height) noexcept {
+  if ((m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+       m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&
+       m_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) ||
+      !HasValidExtent(logical_width, logical_height)) {
+    return RendererOgreNextWindowHostStatus::REJECTED_INVALID_REQUEST;
+  }
+  if (!IsOwnerThread()) {
+    return RendererOgreNextWindowHostStatus::REJECTED_OWNER_THREAD_REQUIRED;
+  }
+  try {
+    RendererOgreNextSdlNativeWindow candidate;
+    if (!m_runtime.query_sdl_native_window(
+            m_runtime.context, m_native.sdl_window, &candidate) ||
+        !IsSameNativeWindow(candidate, m_native, m_request)) {
+      FailClosedAfterLiveWindowFailure();
+      return RendererOgreNextWindowHostStatus::FAILED_NATIVE_WINDOW_QUERY;
+    }
+    candidate.native_render_view = m_native.native_render_view;
+    if (!CommitMetrics(logical_width, logical_height,
+                       candidate.drawable_width, candidate.drawable_height,
+                       m_metrics)) {
+      FailClosedAfterLiveWindowFailure();
+      return RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
+    }
+    m_native = candidate;
+    m_request.logical_width = logical_width;
+    m_request.logical_height = logical_height;
+    return RendererOgreNextWindowHostStatus::COMPLETED;
+  } catch (...) {
+    FailClosedAfterLiveWindowFailure();
+    return RendererOgreNextWindowHostStatus::FAILED_INTERNAL;
+  }
+}
+
+RendererOgreNextWindowHostStatus
 RendererOgreNextWindowHost::RefreshMetrics() noexcept {
   if (m_lifecycle != RendererOgreNextWindowLifecycle::READY_HIDDEN &&
       m_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&

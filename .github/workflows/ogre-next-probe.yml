@@ -96,6 +96,7 @@ on:
       - source/main/system/RendererOgreNextLiveSession.*
       - source/main/system/RendererOgreNextProductionSession.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
+      - source/main/system/RendererOgreNextInProcessPresenter.*
       - source/main/system/RendererOgreNextWindowHost.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in
@@ -244,6 +245,7 @@ on:
       - source/main/system/RendererOgreNextLiveSession.*
       - source/main/system/RendererOgreNextProductionSession.*
       - source/main/system/RendererOgreNextSdlWindowRuntime*
+      - source/main/system/RendererOgreNextInProcessPresenter.*
       - source/main/system/RendererOgreNextWindowHost.*
       - source/main/system/RendererLauncherMain.cpp
       - source/main/system/RendererLauncherPackageConfig.h.in

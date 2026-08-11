@@ -17,6 +17,7 @@ set(_ror_n2_relevant_source_paths
     tools/ogre_next_probe/src/embedded_namespace/main.cpp
     tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm
     tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp
+    tools/ogre_next_probe/src/embedded_namespace/presenter_link_adapter.cpp
     tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp
     tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp
     CMakeLists.txt
@@ -139,6 +140,8 @@ set(_ror_n2_relevant_source_paths
     source/main/system/RendererOgreNextSdlWindowRuntime.cpp
     source/main/system/RendererOgreNextSdlWindowRuntime.h
     source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm
+    source/main/system/RendererOgreNextInProcessPresenter.cpp
+    source/main/system/RendererOgreNextInProcessPresenter.h
     source/main/system/RendererOgreNextWindowHost.cpp
     source/main/system/RendererOgreNextWindowHost.h
     source/main/system/RendererLauncherMain.cpp
@@ -311,6 +314,7 @@ list(APPEND _ror_n2_relevant_source_files
     "tools/ogre_next_probe/src/embedded_namespace/main.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm"
     "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp"
+    "tools/ogre_next_probe/src/embedded_namespace/presenter_link_adapter.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp"
     "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp"
     "CMakeLists.txt"
@@ -433,6 +437,8 @@ list(APPEND _ror_n2_relevant_source_files
     "source/main/system/RendererOgreNextSdlWindowRuntime.cpp"
     "source/main/system/RendererOgreNextSdlWindowRuntime.h"
     "source/main/system/RendererOgreNextSdlWindowRuntimeCocoa.mm"
+    "source/main/system/RendererOgreNextInProcessPresenter.cpp"
+    "source/main/system/RendererOgreNextInProcessPresenter.h"
     "source/main/system/RendererOgreNextWindowHost.cpp"
     "source/main/system/RendererOgreNextWindowHost.h"
     "source/main/system/RendererLauncherMain.cpp"

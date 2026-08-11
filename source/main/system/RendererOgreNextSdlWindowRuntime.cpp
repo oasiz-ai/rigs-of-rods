@@ -200,6 +200,10 @@ RendererOgreNextSdlWindowRuntime::Runtime() noexcept {
   return runtime;
 }
 
+bool RendererOgreNextSdlWindowRuntime::ValidateOwnerThread() {
+  return RequireOwnerThread("SDL in-process presenter operation");
+}
+
 bool RendererOgreNextSdlWindowRuntime::PollWindowEvents(
     void *sdl_window, RendererOgreNextSdlWindowEventBatch &batch) {
   m_last_error.clear();

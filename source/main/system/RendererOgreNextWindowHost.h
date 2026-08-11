@@ -247,6 +247,12 @@ public:
   RendererOgreNextWindowHostStatus Resize(
       std::uint32_t logical_width,
       std::uint32_t logical_height) noexcept;
+  /// Adopts a logical resize already acknowledged by the native window
+  /// system. Unlike Resize(), this never issues SDL_SetWindowSize or waits for
+  /// another configure event; it queries and commits the current drawable.
+  RendererOgreNextWindowHostStatus AdoptExternalResize(
+      std::uint32_t logical_width,
+      std::uint32_t logical_height) noexcept;
   /// Observes drawable-pixel changes without issuing a logical resize. Use for
   /// display/content-scale changes such as Retina migration at the same SDL
   /// logical extent.

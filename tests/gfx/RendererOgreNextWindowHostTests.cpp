@@ -448,6 +448,16 @@ void TestCocoaMetalViewTranslationAndLifecycle() {
               fake.calls.back() == "window-query",
           "same-logical HiDPI migration issued a resize instead of refresh");
   RequireMetrics(host, 4U, 1024U, 700U, 2560U, 1750U);
+  const std::size_t resize_commands_before_external =
+      CountCall(fake, "window-resize-await-configure");
+  fake.drawable_width = 2400U;
+  fake.drawable_height = 1600U;
+  Require(host.AdoptExternalResize(1200U, 800U) ==
+                  RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
+              CountCall(fake, "window-resize-await-configure") ==
+                  resize_commands_before_external,
+          "external resize adoption issued a second native resize command");
+  RequireMetrics(host, 5U, 1200U, 800U, 2400U, 1600U);
   Require(host.Suspend() ==
               RoR::RendererOgreNextWindowHostStatus::COMPLETED &&
               !fake.visible,
@@ -685,6 +695,10 @@ void TestOwnerThreadAffinityIsFailClosed() {
                   [&host]() { return host.Resize(900U, 700U); }) ==
                   RoR::RendererOgreNextWindowHostStatus::
                       REJECTED_OWNER_THREAD_REQUIRED &&
+              RunOnForeignThread([&host]() {
+                return host.AdoptExternalResize(900U, 700U);
+              }) == RoR::RendererOgreNextWindowHostStatus::
+                        REJECTED_OWNER_THREAD_REQUIRED &&
               RunOnForeignThread([&host]() { return host.RefreshMetrics(); }) ==
                   RoR::RendererOgreNextWindowHostStatus::
                       REJECTED_OWNER_THREAD_REQUIRED &&
@@ -692,12 +706,13 @@ void TestOwnerThreadAffinityIsFailClosed() {
                   RoR::RendererOgreNextWindowHostStatus::
                       REJECTED_OWNER_THREAD_REQUIRED,
           "a foreign thread reached a live lifecycle operation");
-  Require(fake.calls.size() == calls_before + 5U &&
+  Require(fake.calls.size() == calls_before + 6U &&
               fake.calls[calls_before] == "owner-thread" &&
               fake.calls[calls_before + 1U] == "owner-thread" &&
               fake.calls[calls_before + 2U] == "owner-thread" &&
               fake.calls[calls_before + 3U] == "owner-thread" &&
               fake.calls[calls_before + 4U] == "owner-thread" &&
+              fake.calls[calls_before + 5U] == "owner-thread" &&
               host.Lifecycle() ==
                   RoR::RendererOgreNextWindowLifecycle::ACTIVE &&
               host.Binding() == binding && host.Metrics() != nullptr &&

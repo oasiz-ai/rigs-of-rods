@@ -1,0 +1,1460 @@
+/*
+    This source file is part of Rigs of Rods
+
+    Rigs of Rods is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License version 3, as
+    published by the Free Software Foundation.
+*/
+
+#include "RendererOgreNextInProcessPresenter.h"
+
+#include "OgreNextN1Frontend.h"
+#include "RendererOgreNextSdlWindowRuntime.h"
+
+#include <SDL.h>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
+#include <new>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace RoR {
+namespace {
+
+using namespace Render;
+
+constexpr std::uint64_t kInitialSurfaceRevision = 1U;
+
+RendererOgreNextWindowPlatform HostWindowPlatform() noexcept {
+#if defined(__APPLE__)
+  return RendererOgreNextWindowPlatform::MACOS_COCOA_METAL;
+#elif defined(_WIN32)
+  return RendererOgreNextWindowPlatform::WINDOWS_WIN32;
+#elif defined(__linux__)
+  return RendererOgreNextWindowPlatform::LINUX_X11_XCB;
+#else
+  return RendererOgreNextWindowPlatform::UNKNOWN;
+#endif
+}
+
+NativeWindowHandle MakeWindowHandle(
+    const RendererOgreNextSdlNativeWindow &native) noexcept {
+  NativeWindowHandle result;
+  result.generation = 1U;
+#if defined(__APPLE__)
+  result.system = NativeWindowSystem::COCOA;
+  result.surface =
+      reinterpret_cast<std::uintptr_t>(native.native_render_view);
+#elif defined(_WIN32)
+  result.system = NativeWindowSystem::WINDOWS;
+  result.surface = native.native_window;
+#elif defined(__linux__)
+  result.system = NativeWindowSystem::X11;
+  result.connection =
+      reinterpret_cast<std::uintptr_t>(native.native_display);
+  result.surface = native.native_window;
+#endif
+  return result;
+}
+
+Float2 ContentScale(const RendererOgreNextWindowMetrics &metrics) noexcept {
+  return {static_cast<float>(metrics.content_scale_x),
+          static_cast<float>(metrics.content_scale_y)};
+}
+
+FrontendSurfaceUpdate MakeSurface(
+    const NativeWindowHandle &window,
+    const RendererOgreNextWindowMetrics &metrics,
+    std::uint64_t revision, bool suspended) noexcept {
+  FrontendSurfaceUpdate update;
+  update.surface_revision = revision;
+  update.window = window;
+  update.pixel_width = suspended ? 0U : metrics.drawable_width;
+  update.pixel_height = suspended ? 0U : metrics.drawable_height;
+  update.content_scale = ContentScale(metrics);
+  update.suspended = suspended;
+  return update;
+}
+
+bool SameSurface(const FrontendSurfaceUpdate &left,
+                 const FrontendSurfaceUpdate &right) noexcept {
+  return left.surface_revision == right.surface_revision &&
+         left.window.system == right.window.system &&
+         left.window.connection == right.window.connection &&
+         left.window.surface == right.window.surface &&
+         left.window.generation == right.window.generation &&
+         left.pixel_width == right.pixel_width &&
+         left.pixel_height == right.pixel_height &&
+         left.content_scale == right.content_scale &&
+         left.suspended == right.suspended;
+}
+
+template <std::size_t DestinationCapacity, std::size_t SourceCapacity>
+bool CopyParameters(
+    const std::array<RendererOgreNextWindowParameter, SourceCapacity> &source,
+    std::size_t source_count,
+    std::array<OgreNextN1PresentationParameter, DestinationCapacity>
+        &destination,
+    std::size_t &destination_count) {
+  if (source_count > source.size() || source_count > destination.size()) {
+    return false;
+  }
+  destination_count = source_count;
+  for (std::size_t index = 0U; index < source_count; ++index) {
+    destination[index].name = source[index].name;
+    destination[index].value = source[index].value;
+  }
+  return true;
+}
+
+template <typename Value>
+void SetPressed(std::vector<Value> &pressed, Value value, bool down) {
+  const auto position = std::lower_bound(pressed.begin(), pressed.end(), value);
+  if (down && (position == pressed.end() || *position != value)) {
+    pressed.insert(position, value);
+  } else if (!down && position != pressed.end() && *position == value) {
+    pressed.erase(position);
+  }
+}
+
+std::int32_t SaturatingAdd(std::int32_t left,
+                           std::int32_t right) noexcept {
+  const std::int64_t sum = static_cast<std::int64_t>(left) + right;
+  return static_cast<std::int32_t>((std::max)(
+      static_cast<std::int64_t>((std::numeric_limits<std::int32_t>::min)()),
+      (std::min)(
+          static_cast<std::int64_t>(
+              (std::numeric_limits<std::int32_t>::max)()),
+          sum)));
+}
+
+std::int32_t ScaledPixels(int logical, double scale) noexcept {
+  const double value = static_cast<double>(logical) * scale;
+  if (!std::isfinite(value)) {
+    return 0;
+  }
+  if (value <=
+      static_cast<double>((std::numeric_limits<std::int32_t>::min)())) {
+    return (std::numeric_limits<std::int32_t>::min)();
+  }
+  if (value >=
+      static_cast<double>((std::numeric_limits<std::int32_t>::max)())) {
+    return (std::numeric_limits<std::int32_t>::max)();
+  }
+  return static_cast<std::int32_t>(std::llround(value));
+}
+
+float SaturatingWheel(double value) noexcept {
+  constexpr double kMaximum = 8192.0;
+  if (!std::isfinite(value)) {
+    return 0.0F;
+  }
+  return static_cast<float>((std::max)(-kMaximum,
+                                        (std::min)(kMaximum, value)));
+}
+
+ValidationResult Failure(ValidationCode code, const char *field,
+                         const char *detail) {
+  return ValidationResult::Failure(code, field, detail);
+}
+
+bool ValidConfiguration(
+    const RendererOgreNextInProcessPresenterConfiguration &configuration)
+    noexcept {
+  return configuration.version ==
+             kRendererOgreNextInProcessPresenterContractVersion &&
+         !configuration.shader_media_root.empty() &&
+         !configuration.presentation_media_root.empty() &&
+         configuration.logical_width > 0U &&
+         configuration.logical_height > 0U &&
+         configuration.logical_width <= 32768U &&
+         configuration.logical_height <= 32768U;
+}
+
+bool IsKnownPollPoint(RendererInProcessEventPollPoint point) noexcept {
+  switch (point) {
+  case RendererInProcessEventPollPoint::BEFORE_SIMULATION:
+  case RendererInProcessEventPollPoint::BEFORE_PRESENT:
+    return true;
+  }
+  return false;
+}
+
+} // namespace
+
+class RendererOgreNextInProcessPresenter::Impl final {
+public:
+  struct InputDevice final {
+    SDL_GameController *controller = nullptr;
+    SDL_Joystick *joystick = nullptr;
+    SDL_JoystickID instance_id = -1;
+    std::uint64_t generation = 0U;
+    std::size_t slot = 0U;
+    std::string vendor;
+    std::vector<std::int32_t> axes;
+    std::vector<std::int32_t> relative_axes;
+    std::vector<bool> buttons;
+    std::vector<std::uint8_t> hats;
+    std::size_t axis_count = 0U;
+    std::size_t button_count = 0U;
+    std::size_t hat_count = 0U;
+    bool standardized = false;
+  };
+
+  static constexpr std::size_t kMaximumAxes = 32U;
+  static constexpr std::size_t kMaximumHats = 4U;
+
+  static bool ShowAfterWorkspaceReady(
+      void *opaque, FrontendSurfaceUpdate *acknowledged_surface) {
+    auto *self = static_cast<Impl *>(opaque);
+    if (self == nullptr || acknowledged_surface == nullptr ||
+        !self->prepared || self->quiesced ||
+        self->host.Resume() != RendererOgreNextWindowHostStatus::COMPLETED ||
+        self->host.Lifecycle() != RendererOgreNextWindowLifecycle::ACTIVE) {
+      return false;
+    }
+    const RendererOgreNextWindowMetrics *metrics = self->host.Metrics();
+    bool changed = false;
+    if (metrics == nullptr ||
+        !self->ObserveMetrics(*metrics, false, &changed)) {
+      return false;
+    }
+    if (changed) {
+      self->pending_surface_notification = self->surface;
+    }
+    *acknowledged_surface = self->surface;
+    return true;
+  }
+
+  bool ObserveMetrics(const RendererOgreNextWindowMetrics &metrics,
+                      bool suspended, bool *changed_out = nullptr) noexcept {
+    if (surface_revision == 0U ||
+        surface_revision == (std::numeric_limits<std::uint64_t>::max)()) {
+      return false;
+    }
+    const bool changed = metrics_generation != metrics.generation ||
+                         surface.suspended != suspended;
+    if (changed) {
+      ++surface_revision;
+    }
+    metrics_generation = metrics.generation;
+    surface = MakeSurface(window, metrics, surface_revision, suspended);
+    if (changed_out != nullptr) {
+      *changed_out = changed;
+    }
+    return true;
+  }
+
+  RendererOgreNextInProcessPresenterStatus Prepare(
+      const RendererOgreNextInProcessPresenterConfiguration &candidate) {
+    if (prepared || !ValidConfiguration(candidate)) {
+      return prepared
+                 ? RendererOgreNextInProcessPresenterStatus::
+                       REJECTED_LIFECYCLE
+                 : RendererOgreNextInProcessPresenterStatus::
+                       REJECTED_CONFIGURATION;
+    }
+    RendererOgreNextWindowRequest request;
+    request.platform = HostWindowPlatform();
+    request.logical_width = candidate.logical_width;
+    request.logical_height = candidate.logical_height;
+    request.fsaa_samples = 0U;
+#if !defined(__APPLE__)
+    request.vertical_sync = false;
+    request.vertical_sync_interval = 0U;
+#endif
+    if (host.Initialize(request, runtime.Runtime()) !=
+        RendererOgreNextWindowHostStatus::COMPLETED) {
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_WINDOW_INITIALIZATION;
+    }
+    const RendererOgreNextWindowBinding *binding = host.Binding();
+    const RendererOgreNextSdlNativeWindow *native = host.NativeWindow();
+    const RendererOgreNextWindowMetrics *metrics = host.Metrics();
+    if (binding == nullptr || native == nullptr || metrics == nullptr) {
+      (void)host.Shutdown();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_WINDOW_INITIALIZATION;
+    }
+    window = MakeWindowHandle(*native);
+    sdl_window = native->sdl_window;
+    if (!window.valid() || sdl_window == nullptr) {
+      (void)host.Shutdown();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_WINDOW_INITIALIZATION;
+    }
+
+    OgreNextN1Configuration frontend_configuration;
+    frontend_configuration.shader_media_root = candidate.shader_media_root;
+    frontend_configuration.raster_feature_tier =
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    frontend_configuration.directional_shadow_mode =
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+    frontend_configuration.enable_hdr_compositor = false;
+    frontend_configuration.presentation.enabled = true;
+    frontend_configuration.presentation.mode =
+        OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;
+    frontend_configuration.presentation.gpu_only_output = true;
+    frontend_configuration.presentation.shader_media_root =
+        candidate.presentation_media_root;
+    frontend_configuration.presentation.exact_window = window;
+    if (!CopyParameters(
+            binding->renderer_options, binding->renderer_option_count,
+            frontend_configuration.presentation.renderer_options,
+            frontend_configuration.presentation.renderer_option_count) ||
+        !CopyParameters(
+            binding->bootstrap_window_parameters,
+            binding->bootstrap_window_parameter_count,
+            frontend_configuration.presentation.bootstrap_window_parameters,
+            frontend_configuration.presentation
+                .bootstrap_window_parameter_count) ||
+        !CopyParameters(
+            binding->presentation_window_parameters,
+            binding->presentation_window_parameter_count,
+            frontend_configuration.presentation
+                .presentation_window_parameters,
+            frontend_configuration.presentation
+                .presentation_window_parameter_count)) {
+      (void)host.Shutdown();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_FRONTEND_CONFIGURATION;
+    }
+    frontend_configuration.presentation.show_callback_context = this;
+    frontend_configuration.presentation.show_after_workspace_ready =
+        &ShowAfterWorkspaceReady;
+
+    frontend =
+        std::make_unique<OgreNextN1Frontend>(std::move(frontend_configuration));
+    configuration = candidate;
+    surface_revision = kInitialSurfaceRevision;
+    metrics_generation = metrics->generation;
+    surface = MakeSurface(window, *metrics, surface_revision, false);
+    initialization.initial_surface_revision = surface.surface_revision;
+    initialization.window = surface.window;
+    initialization.initial_width = surface.pixel_width;
+    initialization.initial_height = surface.pixel_height;
+    initialization.initial_content_scale = surface.content_scale;
+    initialization.maximum_frames_in_flight = 1U;
+    initialization.headless = false;
+    initialization.vertical_sync = false;
+    last_drawable_width = metrics->drawable_width;
+    last_drawable_height = metrics->drawable_height;
+    has_drawable_baseline = true;
+    prepared = true;
+    return RendererOgreNextInProcessPresenterStatus::COMPLETED;
+  }
+
+  RendererOgreNextInProcessPresenterStatus ProtectHidden(
+      void *hidden_window) noexcept {
+    if (!prepared || (quiesced && hidden_window != nullptr) ||
+        (hidden_window != nullptr && hidden_window == sdl_window) ||
+        !runtime.ValidateOwnerThread()) {
+      return RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE;
+    }
+    if (hidden_window != nullptr) {
+      SDL_Window *const candidate = static_cast<SDL_Window *>(hidden_window);
+      if (SDL_GetWindowID(candidate) == 0U) {
+        return RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE;
+      }
+      SDL_HideWindow(candidate);
+      if ((SDL_GetWindowFlags(candidate) & SDL_WINDOW_HIDDEN) == 0U) {
+        return RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE;
+      }
+    }
+    protected_hidden_window = hidden_window;
+    return RendererOgreNextInProcessPresenterStatus::COMPLETED;
+  }
+
+  void CloseDevice(InputDevice &device) noexcept {
+    if (device.controller != nullptr) {
+      SDL_GameControllerClose(device.controller);
+    } else if (device.joystick != nullptr) {
+      SDL_JoystickClose(device.joystick);
+    }
+    device = InputDevice{};
+  }
+
+  void ShutdownControllers() noexcept {
+    for (InputDevice &device : input_devices) {
+      CloseDevice(device);
+    }
+    if (owns_controller_subsystem) {
+      SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
+      owns_controller_subsystem = false;
+    }
+    controllers_initialized = false;
+  }
+
+  bool FindDevice(SDL_JoystickID instance_id,
+                  std::size_t &slot) const noexcept {
+    for (std::size_t index = 0U; index < input_devices.size(); ++index) {
+      if (input_devices[index].joystick != nullptr &&
+          input_devices[index].instance_id == instance_id) {
+        slot = index;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void RefreshDeviceState(InputDevice &device) noexcept {
+    if (device.joystick == nullptr) {
+      return;
+    }
+    device.relative_axes.assign(device.axis_count, 0);
+    device.axes.resize(device.axis_count, 0);
+    for (std::size_t axis = 0U; axis < device.axis_count; ++axis) {
+      device.axes[axis] = device.standardized
+          ? SDL_GameControllerGetAxis(
+                device.controller,
+                static_cast<SDL_GameControllerAxis>(axis))
+          : SDL_JoystickGetAxis(device.joystick,
+                                static_cast<int>(axis));
+    }
+    device.buttons.resize(device.button_count, false);
+    for (std::size_t button = 0U; button < device.button_count; ++button) {
+      device.buttons[button] = device.standardized
+          ? SDL_GameControllerGetButton(
+                device.controller,
+                static_cast<SDL_GameControllerButton>(button)) != 0U
+          : SDL_JoystickGetButton(device.joystick,
+                                  static_cast<int>(button)) != 0U;
+    }
+    device.hats.resize(device.hat_count, 0U);
+    if (!device.standardized) {
+      for (std::size_t hat = 0U; hat < device.hat_count; ++hat) {
+        device.hats[hat] = SDL_JoystickGetHat(
+            device.joystick, static_cast<int>(hat));
+      }
+    }
+  }
+
+  void RefreshAllDeviceStates() noexcept {
+    SDL_GameControllerUpdate();
+    SDL_JoystickUpdate();
+    for (InputDevice &device : input_devices) {
+      RefreshDeviceState(device);
+    }
+  }
+
+  bool OpenDevice(int device_index) {
+    if (!controllers_initialized || device_index < 0) {
+      return false;
+    }
+    const SDL_JoystickID advertised =
+        SDL_JoystickGetDeviceInstanceID(device_index);
+    std::size_t existing = 0U;
+    if (advertised >= 0 && FindDevice(advertised, existing)) {
+      return true;
+    }
+    const auto free = std::find_if(
+        input_devices.begin(), input_devices.end(),
+        [](const InputDevice &device) { return device.joystick == nullptr; });
+    if (free == input_devices.end() ||
+        next_device_generation ==
+            (std::numeric_limits<std::uint64_t>::max)()) {
+      return false;
+    }
+
+    const SDL_JoystickType type = SDL_JoystickGetDeviceType(device_index);
+    const bool specialized = type == SDL_JOYSTICK_TYPE_WHEEL ||
+                             type == SDL_JOYSTICK_TYPE_FLIGHT_STICK ||
+                             type == SDL_JOYSTICK_TYPE_THROTTLE;
+    const bool standardized =
+        !specialized && SDL_IsGameController(device_index) == SDL_TRUE;
+    SDL_GameController *controller = nullptr;
+    SDL_Joystick *joystick = nullptr;
+    if (standardized) {
+      controller = SDL_GameControllerOpen(device_index);
+      if (controller != nullptr) {
+        joystick = SDL_GameControllerGetJoystick(controller);
+      }
+    } else {
+      joystick = SDL_JoystickOpen(device_index);
+    }
+    if (joystick == nullptr) {
+      if (controller != nullptr) {
+        SDL_GameControllerClose(controller);
+      }
+      return false;
+    }
+    const SDL_JoystickID instance_id = SDL_JoystickInstanceID(joystick);
+    if (instance_id < 0 || FindDevice(instance_id, existing)) {
+      if (controller != nullptr) {
+        SDL_GameControllerClose(controller);
+      } else {
+        SDL_JoystickClose(joystick);
+      }
+      return instance_id >= 0;
+    }
+
+    int axes = SDL_CONTROLLER_AXIS_MAX;
+    int buttons = SDL_CONTROLLER_BUTTON_MAX;
+    int hats = 0;
+    if (!standardized) {
+      axes = SDL_JoystickNumAxes(joystick);
+      buttons = SDL_JoystickNumButtons(joystick);
+      hats = SDL_JoystickNumHats(joystick);
+    }
+    if (axes < 0 || buttons < 0 || hats < 0) {
+      if (controller != nullptr) {
+        SDL_GameControllerClose(controller);
+      } else {
+        SDL_JoystickClose(joystick);
+      }
+      return false;
+    }
+
+    InputDevice candidate;
+    candidate.controller = controller;
+    candidate.joystick = joystick;
+    candidate.instance_id = instance_id;
+    candidate.generation = ++next_device_generation;
+    candidate.slot = static_cast<std::size_t>(free - input_devices.begin());
+    candidate.axis_count = static_cast<std::size_t>((std::min)(
+        axes, static_cast<int>(kMaximumAxes)));
+    candidate.button_count = static_cast<std::size_t>((std::min)(
+        buttons,
+        static_cast<int>(kRendererGameMaximumJoystickButtons)));
+    candidate.hat_count = static_cast<std::size_t>((std::min)(
+        hats, static_cast<int>(kMaximumHats)));
+    candidate.standardized = standardized;
+    const char *name = standardized ? SDL_GameControllerName(controller)
+                                    : SDL_JoystickName(joystick);
+    candidate.vendor = name != nullptr ? name : "unknown";
+    RefreshDeviceState(candidate);
+    *free = std::move(candidate);
+    return true;
+  }
+
+  void CloseDeviceById(SDL_JoystickID instance_id) noexcept {
+    std::size_t slot = 0U;
+    if (FindDevice(instance_id, slot)) {
+      CloseDevice(input_devices[slot]);
+    }
+  }
+
+  bool InitializeControllers() {
+    if (controllers_initialized) {
+      return true;
+    }
+    SDL_SetHintWithPriority(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0",
+                            SDL_HINT_OVERRIDE);
+    owns_controller_subsystem =
+        SDL_WasInit(SDL_INIT_GAMECONTROLLER) == 0U;
+    if (owns_controller_subsystem &&
+        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
+      owns_controller_subsystem = false;
+      return false;
+    }
+    if (SDL_GameControllerEventState(SDL_ENABLE) != SDL_ENABLE ||
+        SDL_JoystickEventState(SDL_ENABLE) != SDL_ENABLE) {
+      ShutdownControllers();
+      return false;
+    }
+    controllers_initialized = true;
+    const int count = SDL_NumJoysticks();
+    if (count < 0) {
+      ShutdownControllers();
+      return false;
+    }
+    for (int index = 0; index < count; ++index) {
+      const std::size_t active = static_cast<std::size_t>(std::count_if(
+          input_devices.begin(), input_devices.end(),
+          [](const InputDevice &device) { return device.joystick != nullptr; }));
+      if (active == input_devices.size()) {
+        break;
+      }
+      // An unsupported or temporarily unavailable physical device must not
+      // disable keyboard/mouse or already-open wheels. Hotplug can retry it.
+      (void)OpenDevice(index);
+    }
+    return true;
+  }
+
+  RendererOgreNextInProcessPresenterStatus Attach(
+      IRendererGameInputTarget &candidate) noexcept {
+    if (!prepared || quiesced || target != nullptr ||
+        !runtime.ValidateOwnerThread()) {
+      return RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE;
+    }
+    try {
+      if (!InitializeControllers()) {
+        return RendererOgreNextInProcessPresenterStatus::
+            FAILED_INPUT_ACTIVATION;
+      }
+    } catch (...) {
+      ShutdownControllers();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_INPUT_ACTIVATION;
+    }
+    if (!candidate.ActivateInput()) {
+      ShutdownControllers();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_INPUT_ACTIVATION;
+    }
+    target = &candidate;
+    return RendererOgreNextInProcessPresenterStatus::COMPLETED;
+  }
+
+  ValidationResult ApplySurfaceEvents(
+      const RendererOgreNextSdlWindowEventBatch &events,
+      std::optional<FrontendSurfaceUpdate> &update) {
+    RendererOgreNextWindowLifecycle lifecycle = host.Lifecycle();
+    if ((events.minimized || events.hidden) &&
+        lifecycle == RendererOgreNextWindowLifecycle::ACTIVE) {
+      if (host.Suspend() != RendererOgreNextWindowHostStatus::COMPLETED) {
+        return Failure(ValidationCode::INVALID_HANDLE,
+                       "in_process_presenter.surface",
+                       "failed to suspend the native presentation window");
+      }
+      const RendererOgreNextWindowMetrics *metrics = host.Metrics();
+      if (metrics == nullptr || !ObserveMetrics(*metrics, true)) {
+        return Failure(ValidationCode::INVALID_DIMENSIONS,
+                       "in_process_presenter.surface",
+                       "invalid suspended presentation metrics");
+      }
+      update = surface;
+      return ValidationResult::Success();
+    }
+    if (!events.minimized && !events.hidden &&
+        lifecycle == RendererOgreNextWindowLifecycle::SUSPENDED) {
+      if (host.Resume() != RendererOgreNextWindowHostStatus::COMPLETED ||
+          host.RefreshMetrics() !=
+              RendererOgreNextWindowHostStatus::COMPLETED) {
+        return Failure(ValidationCode::INVALID_HANDLE,
+                       "in_process_presenter.surface",
+                       "failed to resume the native presentation window");
+      }
+      lifecycle = host.Lifecycle();
+    }
+    if (events.resize_events != 0U &&
+        (lifecycle == RendererOgreNextWindowLifecycle::ACTIVE ||
+         lifecycle == RendererOgreNextWindowLifecycle::READY_HIDDEN)) {
+      if (host.AdoptExternalResize(events.logical_width,
+                                   events.logical_height) !=
+          RendererOgreNextWindowHostStatus::COMPLETED) {
+        return Failure(ValidationCode::INVALID_DIMENSIONS,
+                       "in_process_presenter.surface",
+                       "native presentation resize adoption failed");
+      }
+    } else if (events.drawable_size_changed &&
+               (lifecycle == RendererOgreNextWindowLifecycle::ACTIVE ||
+                lifecycle == RendererOgreNextWindowLifecycle::READY_HIDDEN) &&
+               host.RefreshMetrics() !=
+                   RendererOgreNextWindowHostStatus::COMPLETED) {
+      return Failure(ValidationCode::INVALID_DIMENSIONS,
+                     "in_process_presenter.surface",
+                     "native drawable metrics refresh failed");
+    }
+    const RendererOgreNextWindowMetrics *metrics = host.Metrics();
+    if (metrics == nullptr) {
+      return Failure(ValidationCode::INVALID_DIMENSIONS,
+                     "in_process_presenter.surface",
+                     "native presentation metrics are unavailable");
+    }
+    const RendererOgreNextWindowLifecycle observed_lifecycle =
+        host.Lifecycle();
+    if (observed_lifecycle != RendererOgreNextWindowLifecycle::ACTIVE &&
+        observed_lifecycle !=
+            RendererOgreNextWindowLifecycle::READY_HIDDEN &&
+        observed_lifecycle != RendererOgreNextWindowLifecycle::SUSPENDED) {
+      return Failure(ValidationCode::INVALID_HANDLE,
+                     "in_process_presenter.surface",
+                     "native presentation window entered a failed state");
+    }
+    // READY_HIDDEN is intentionally renderable: the first N1 Render creates
+    // the workspace and invokes ShowAfterWorkspaceReady. Marking it suspended
+    // here would deadlock before the only operation that can make it visible.
+    const bool suspended = observed_lifecycle ==
+                           RendererOgreNextWindowLifecycle::SUSPENDED;
+    if (metrics_generation != metrics->generation ||
+        surface.suspended != suspended) {
+      if (!ObserveMetrics(*metrics, suspended)) {
+        return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                       "in_process_presenter.surface_revision",
+                       "surface revision overflow");
+      }
+      update = surface;
+    }
+    return ValidationResult::Success();
+  }
+
+  bool AdvanceInputEvent() noexcept {
+    if (next_event_id == 0U ||
+        next_event_id == (std::numeric_limits<std::uint64_t>::max)()) {
+      return false;
+    }
+    ++next_event_id;
+    return true;
+  }
+
+  bool CanAdvanceInputEvent() const noexcept {
+    return next_event_id != 0U &&
+           next_event_id != (std::numeric_limits<std::uint64_t>::max)();
+  }
+
+  ValidationResult AdvanceInputEventOrFailure() {
+    return AdvanceInputEvent()
+        ? ValidationResult::Success()
+        : Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                  "in_process_presenter.input_event_id",
+                  "direct input event identity overflow");
+  }
+
+  ValidationResult DispatchFocus(bool next_focused) {
+    if (focus_observed && focused == next_focused) {
+      return ValidationResult::Success();
+    }
+    ValidationResult reserved = AdvanceInputEventOrFailure();
+    if (!reserved) {
+      return reserved;
+    }
+    focus_observed = true;
+    focused = next_focused;
+    if (!focused) {
+      pressed_keys.clear();
+      pressed_mouse_buttons.clear();
+      SDL_StopTextInput();
+    } else {
+      RefreshAllDeviceStates();
+      SDL_StartTextInput();
+    }
+    target->FocusChanged(focused);
+    return ValidationResult::Success();
+  }
+
+  ValidationResult DispatchClose() {
+    if (close_requested) {
+      return ValidationResult::Success();
+    }
+    ValidationResult reserved = AdvanceInputEventOrFailure();
+    if (!reserved) {
+      return reserved;
+    }
+    close_requested = true;
+    target->WindowCloseRequested();
+    return ValidationResult::Success();
+  }
+
+  ValidationResult BuildJoystickState(RendererGameInputState &state,
+                                      bool controls_active) {
+    state.joysticks.clear();
+    state.joysticks.reserve(input_devices.size());
+    for (InputDevice &device : input_devices) {
+      if (device.joystick == nullptr) {
+        continue;
+      }
+      RendererGameJoystickState joystick;
+      joystick.slot = device.slot;
+      joystick.raw_device = !device.standardized;
+      joystick.device_id =
+          static_cast<std::uint64_t>(
+              static_cast<std::uint32_t>(device.instance_id)) +
+          1U;
+      joystick.connection_generation = device.generation;
+      joystick.vendor = device.vendor;
+      if (controls_active) {
+        joystick.axes_absolute = device.axes;
+        joystick.axes_relative = device.relative_axes;
+        joystick.buttons = device.buttons;
+        joystick.hats = device.hats;
+      } else {
+        joystick.axes_absolute.assign(device.axis_count, 0);
+        joystick.axes_relative.assign(device.axis_count, 0);
+        joystick.buttons.assign(device.button_count, false);
+        joystick.hats.assign(device.hat_count, 0U);
+      }
+      state.joysticks.push_back(std::move(joystick));
+      std::fill(device.relative_axes.begin(), device.relative_axes.end(), 0);
+    }
+    return ValidationResult::Success();
+  }
+
+  ValidationResult PollOrderedSdl(
+      RendererOgreNextSdlWindowEventBatch &window_events,
+      RendererGameInputState &state) {
+    if (target == nullptr) {
+      return Failure(ValidationCode::MISSING_REFERENCE,
+                     "in_process_presenter.input_target",
+                     "direct game input target is not attached");
+    }
+    const Uint32 presented_window_id =
+        SDL_GetWindowID(static_cast<SDL_Window *>(sdl_window));
+    if (presented_window_id == 0U) {
+      return Failure(ValidationCode::INVALID_HANDLE,
+                     "in_process_presenter.input_window",
+                     "SDL presentation window identity is invalid");
+    }
+    const Uint32 protected_window_id = protected_hidden_window == nullptr
+        ? 0U
+        : SDL_GetWindowID(
+              static_cast<SDL_Window *>(protected_hidden_window));
+    if (protected_hidden_window != nullptr && protected_window_id == 0U) {
+      return Failure(ValidationCode::INVALID_HANDLE,
+                     "in_process_presenter.hidden_window",
+                     "protected SDL resource window identity is invalid");
+    }
+
+    window_events = RendererOgreNextSdlWindowEventBatch{};
+    for (InputDevice &device : input_devices) {
+      std::fill(device.relative_axes.begin(), device.relative_axes.end(), 0);
+    }
+    SDL_PumpEvents();
+    SDL_Event event{};
+    while (SDL_PollEvent(&event) != 0) {
+      ++window_events.polled_events;
+      if (event.type == SDL_QUIT) {
+        ++window_events.close_events;
+        window_events.close_requested = true;
+        ValidationResult result = DispatchClose();
+        if (!result) {
+          return result;
+        }
+        continue;
+      }
+      if (event.type == SDL_WINDOWEVENT) {
+        if (event.window.windowID == protected_window_id &&
+            (event.window.event == SDL_WINDOWEVENT_SHOWN ||
+             event.window.event == SDL_WINDOWEVENT_RESTORED ||
+             event.window.event == SDL_WINDOWEVENT_MAXIMIZED)) {
+          SDL_HideWindow(
+              static_cast<SDL_Window *>(protected_hidden_window));
+          continue;
+        }
+        if (event.window.windowID != presented_window_id) {
+          continue;
+        }
+        ++window_events.matched_window_events;
+        ValidationResult transition = ValidationResult::Success();
+        switch (event.window.event) {
+        case SDL_WINDOWEVENT_CLOSE:
+          ++window_events.close_events;
+          window_events.close_requested = true;
+          transition = DispatchClose();
+          break;
+        case SDL_WINDOWEVENT_FOCUS_GAINED:
+          ++window_events.focus_gained_events;
+          transition = DispatchFocus(true);
+          break;
+        case SDL_WINDOWEVENT_FOCUS_LOST:
+          ++window_events.focus_lost_events;
+          transition = DispatchFocus(false);
+          break;
+        case SDL_WINDOWEVENT_RESIZED:
+        case SDL_WINDOWEVENT_SIZE_CHANGED:
+          ++window_events.resize_events;
+          break;
+        case SDL_WINDOWEVENT_MINIMIZED:
+          ++window_events.minimize_events;
+          window_input_suppressed = true;
+          transition = DispatchFocus(false);
+          break;
+        case SDL_WINDOWEVENT_HIDDEN:
+          window_input_suppressed = true;
+          transition = DispatchFocus(false);
+          break;
+        case SDL_WINDOWEVENT_SHOWN:
+          window_input_suppressed = false;
+          break;
+        case SDL_WINDOWEVENT_RESTORED:
+        case SDL_WINDOWEVENT_MAXIMIZED:
+          ++window_events.restore_events;
+          window_input_suppressed = false;
+          break;
+        case SDL_WINDOWEVENT_DISPLAY_CHANGED:
+          ++window_events.display_change_events;
+          break;
+        default:
+          break;
+        }
+        if (!transition) {
+          return transition;
+        }
+        continue;
+      }
+      if (event.type == SDL_JOYDEVICEADDED) {
+        const SDL_JoystickID advertised =
+            SDL_JoystickGetDeviceInstanceID(event.jdevice.which);
+        std::size_t slot = 0U;
+        if (advertised >= 0 && FindDevice(advertised, slot)) {
+          continue;
+        }
+        const bool full = std::none_of(
+            input_devices.begin(), input_devices.end(),
+            [](const InputDevice &device) {
+              return device.joystick == nullptr;
+            });
+        if (full) {
+          continue;
+        }
+        if (!CanAdvanceInputEvent()) {
+          return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                         "in_process_presenter.input_event_id",
+                         "direct input event identity overflow");
+        }
+        if (OpenDevice(event.jdevice.which)) {
+          (void)AdvanceInputEvent();
+        }
+        continue;
+      }
+      if (event.type == SDL_JOYDEVICEREMOVED ||
+          event.type == SDL_CONTROLLERDEVICEREMOVED) {
+        const SDL_JoystickID instance_id = event.type == SDL_JOYDEVICEREMOVED
+            ? event.jdevice.which
+            : event.cdevice.which;
+        std::size_t slot = 0U;
+        if (!FindDevice(instance_id, slot)) {
+          continue;
+        }
+        ValidationResult reserved = AdvanceInputEventOrFailure();
+        if (!reserved) {
+          return reserved;
+        }
+        CloseDevice(input_devices[slot]);
+        continue;
+      }
+      if (event.type == SDL_CONTROLLERDEVICEADDED) {
+        // SDL also emits JOYDEVICEADDED for this physical device; the raw
+        // family owns deterministic open/slot assignment.
+        continue;
+      }
+      if (event.type == SDL_CONTROLLERDEVICEREMAPPED) {
+        std::size_t slot = 0U;
+        if (!FindDevice(event.cdevice.which, slot) ||
+            !input_devices[slot].standardized) {
+          continue;
+        }
+        ValidationResult reserved = AdvanceInputEventOrFailure();
+        if (!reserved) {
+          return reserved;
+        }
+        RefreshDeviceState(input_devices[slot]);
+        continue;
+      }
+      if (event.type == SDL_JOYAXISMOTION ||
+          event.type == SDL_JOYBUTTONDOWN ||
+          event.type == SDL_JOYBUTTONUP ||
+          event.type == SDL_JOYHATMOTION ||
+          event.type == SDL_CONTROLLERAXISMOTION ||
+          event.type == SDL_CONTROLLERBUTTONDOWN ||
+          event.type == SDL_CONTROLLERBUTTONUP) {
+        SDL_JoystickID instance_id = -1;
+        std::size_t component = 0U;
+        std::int32_t value = 0;
+        enum class Component { AXIS, BUTTON, HAT } component_kind =
+            Component::AXIS;
+        const bool standardized_event =
+            event.type == SDL_CONTROLLERAXISMOTION ||
+            event.type == SDL_CONTROLLERBUTTONDOWN ||
+            event.type == SDL_CONTROLLERBUTTONUP;
+        switch (event.type) {
+        case SDL_JOYAXISMOTION:
+          instance_id = event.jaxis.which;
+          component = event.jaxis.axis;
+          value = event.jaxis.value;
+          component_kind = Component::AXIS;
+          break;
+        case SDL_JOYBUTTONDOWN:
+        case SDL_JOYBUTTONUP:
+          instance_id = event.jbutton.which;
+          component = event.jbutton.button;
+          value = event.jbutton.state;
+          component_kind = Component::BUTTON;
+          break;
+        case SDL_JOYHATMOTION:
+          instance_id = event.jhat.which;
+          component = event.jhat.hat;
+          value = event.jhat.value;
+          component_kind = Component::HAT;
+          break;
+        case SDL_CONTROLLERAXISMOTION:
+          instance_id = event.caxis.which;
+          component = event.caxis.axis;
+          value = event.caxis.value;
+          component_kind = Component::AXIS;
+          break;
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP:
+          instance_id = event.cbutton.which;
+          component = event.cbutton.button;
+          value = event.cbutton.state;
+          component_kind = Component::BUTTON;
+          break;
+        default:
+          break;
+        }
+        std::size_t slot = 0U;
+        if (!focused || window_input_suppressed ||
+            !FindDevice(instance_id, slot)) {
+          continue;
+        }
+        InputDevice &device = input_devices[slot];
+        if (device.standardized != standardized_event) {
+          continue;
+        }
+        bool valid = false;
+        switch (component_kind) {
+        case Component::AXIS:
+          valid = component < device.axes.size() && value >= -32768 &&
+                  value <= 32767;
+          break;
+        case Component::BUTTON:
+          valid = component < device.buttons.size() &&
+                  (value == 0 || value == 1);
+          break;
+        case Component::HAT: {
+          const bool opposite_vertical =
+              (value & 1) != 0 && (value & 4) != 0;
+          const bool opposite_horizontal =
+              (value & 2) != 0 && (value & 8) != 0;
+          valid = component < device.hats.size() && value >= 0 &&
+                  (value & ~0x0f) == 0 && !opposite_vertical &&
+                  !opposite_horizontal;
+          break;
+        }
+        }
+        if (!valid) {
+          continue;
+        }
+        ValidationResult reserved = AdvanceInputEventOrFailure();
+        if (!reserved) {
+          return reserved;
+        }
+        switch (component_kind) {
+        case Component::AXIS: {
+          const std::int32_t previous = device.axes[component];
+          device.axes[component] = value;
+          device.relative_axes[component] = SaturatingAdd(
+              device.relative_axes[component], value - previous);
+          break;
+        }
+        case Component::BUTTON:
+          device.buttons[component] = value != 0;
+          break;
+        case Component::HAT:
+          device.hats[component] = static_cast<std::uint8_t>(value);
+          break;
+        }
+        continue;
+      }
+
+      bool belongs_to_presenter = false;
+      switch (event.type) {
+      case SDL_KEYDOWN:
+      case SDL_KEYUP:
+        belongs_to_presenter = event.key.windowID == presented_window_id;
+        break;
+      case SDL_TEXTINPUT:
+        belongs_to_presenter = event.text.windowID == presented_window_id;
+        break;
+      case SDL_MOUSEMOTION:
+        belongs_to_presenter = event.motion.windowID == presented_window_id;
+        break;
+      case SDL_MOUSEBUTTONDOWN:
+      case SDL_MOUSEBUTTONUP:
+        belongs_to_presenter = event.button.windowID == presented_window_id;
+        break;
+      case SDL_MOUSEWHEEL:
+        belongs_to_presenter = event.wheel.windowID == presented_window_id;
+        break;
+      default:
+        break;
+      }
+      if (!belongs_to_presenter || window_input_suppressed) {
+        continue;
+      }
+      switch (event.type) {
+      case SDL_KEYDOWN:
+      case SDL_KEYUP: {
+        if (event.type == SDL_KEYDOWN && event.key.repeat != 0U) {
+          break;
+        }
+        const RendererGameKey key = TranslateRendererSdlScancodeToGame(
+            static_cast<std::uint16_t>(event.key.keysym.scancode));
+        if (key == RendererGameKey::UNASSIGNED) {
+          break;
+        }
+        ValidationResult result = AdvanceInputEventOrFailure();
+        if (!result) {
+          return result;
+        }
+        const bool down = event.type == SDL_KEYDOWN;
+        SetPressed(pressed_keys, key, down);
+        target->KeyChanged(key, down);
+        break;
+      }
+      case SDL_TEXTINPUT:
+        if (event.text.text[0] != '\0') {
+          ValidationResult result = AdvanceInputEventOrFailure();
+          if (!result) {
+            return result;
+          }
+          target->TextInput(event.text.text);
+        }
+        break;
+      case SDL_MOUSEMOTION: {
+        const RendererOgreNextWindowMetrics *metrics = host.Metrics();
+        if (metrics == nullptr) {
+          return Failure(ValidationCode::INVALID_DIMENSIONS,
+                         "in_process_presenter.window_metrics",
+                         "native presentation metrics are unavailable");
+        }
+        const std::int32_t delta_x =
+            ScaledPixels(event.motion.xrel, metrics->content_scale_x);
+        const std::int32_t delta_y =
+            ScaledPixels(event.motion.yrel, metrics->content_scale_y);
+        ValidationResult result = AdvanceInputEventOrFailure();
+        if (!result) {
+          return result;
+        }
+        mouse_x_pixels =
+            ScaledPixels(event.motion.x, metrics->content_scale_x);
+        mouse_y_pixels =
+            ScaledPixels(event.motion.y, metrics->content_scale_y);
+        state.mouse_delta_x_pixels =
+            SaturatingAdd(state.mouse_delta_x_pixels, delta_x);
+        state.mouse_delta_y_pixels =
+            SaturatingAdd(state.mouse_delta_y_pixels, delta_y);
+        target->MouseMoved(mouse_x_pixels, mouse_y_pixels, delta_x, delta_y);
+        break;
+      }
+      case SDL_MOUSEBUTTONDOWN:
+      case SDL_MOUSEBUTTONUP: {
+        RendererGameMouseButton button = RendererGameMouseButton::LEFT;
+        if (!TryTranslateRendererSdlMouseButtonToGame(event.button.button,
+                                                      button)) {
+          break;
+        }
+        ValidationResult result = AdvanceInputEventOrFailure();
+        if (!result) {
+          return result;
+        }
+        const bool down = event.type == SDL_MOUSEBUTTONDOWN;
+        SetPressed(pressed_mouse_buttons, button, down);
+        target->MouseButtonChanged(button, down);
+        break;
+      }
+      case SDL_MOUSEWHEEL: {
+        double delta_x = event.wheel.preciseX;
+        double delta_y = event.wheel.preciseY;
+        if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+          delta_x = -delta_x;
+          delta_y = -delta_y;
+        }
+        const float wheel_x = SaturatingWheel(delta_x);
+        const float wheel_y = SaturatingWheel(delta_y);
+        ValidationResult result = AdvanceInputEventOrFailure();
+        if (!result) {
+          return result;
+        }
+        state.wheel_delta_x = SaturatingWheel(
+            static_cast<double>(state.wheel_delta_x) + wheel_x);
+        state.wheel_delta_y = SaturatingWheel(
+            static_cast<double>(state.wheel_delta_y) + wheel_y);
+        target->MouseWheel(wheel_x, wheel_y);
+        break;
+      }
+      default:
+        break;
+      }
+    }
+
+    SDL_Window *const presented = static_cast<SDL_Window *>(sdl_window);
+    int logical_width = 0;
+    int logical_height = 0;
+    int drawable_width = 0;
+    int drawable_height = 0;
+    SDL_GetWindowSize(presented, &logical_width, &logical_height);
+    SDL_GetWindowSizeInPixels(presented, &drawable_width, &drawable_height);
+    const Uint32 flags = SDL_GetWindowFlags(presented);
+    window_events.focused = (flags & SDL_WINDOW_INPUT_FOCUS) != 0U;
+    window_events.minimized = (flags & SDL_WINDOW_MINIMIZED) != 0U;
+    window_events.hidden = (flags & SDL_WINDOW_HIDDEN) != 0U;
+    window_input_suppressed =
+        window_events.hidden || window_events.minimized;
+    if (logical_width <= 0 || logical_height <= 0 || drawable_width < 0 ||
+        drawable_height < 0 ||
+        ((drawable_width == 0 || drawable_height == 0) &&
+         !window_events.minimized && !window_events.hidden)) {
+      return Failure(ValidationCode::INVALID_DIMENSIONS,
+                     "in_process_presenter.window_metrics",
+                     "SDL reported invalid presentation metrics");
+    }
+    window_events.logical_width =
+        static_cast<std::uint32_t>(logical_width);
+    window_events.logical_height =
+        static_cast<std::uint32_t>(logical_height);
+    window_events.drawable_width =
+        static_cast<std::uint32_t>(drawable_width);
+    window_events.drawable_height =
+        static_cast<std::uint32_t>(drawable_height);
+    if (drawable_width > 0 && drawable_height > 0) {
+      window_events.drawable_size_changed =
+          has_drawable_baseline &&
+          (last_drawable_width != window_events.drawable_width ||
+           last_drawable_height != window_events.drawable_height);
+      last_drawable_width = window_events.drawable_width;
+      last_drawable_height = window_events.drawable_height;
+      has_drawable_baseline = true;
+    }
+    ValidationResult focus = DispatchFocus(
+        window_events.focused && !window_input_suppressed);
+    if (!focus) {
+      return focus;
+    }
+    if (window_events.close_requested) {
+      ValidationResult close = DispatchClose();
+      if (!close) {
+        return close;
+      }
+    }
+
+    state.through_event_id = next_event_id - 1U;
+    state.focused = focused;
+    state.window_close_requested = close_requested;
+    state.pressed_keys = pressed_keys;
+    state.pressed_mouse_buttons = pressed_mouse_buttons;
+    state.mouse_x_pixels = mouse_x_pixels;
+    state.mouse_y_pixels = mouse_y_pixels;
+    ValidationResult devices = BuildJoystickState(
+        state, focused && !window_input_suppressed);
+    if (!devices) {
+      return devices;
+    }
+    if (!target->Reconcile(state)) {
+      return Failure(ValidationCode::INVALID_HANDLE,
+                     "in_process_presenter.input_reconcile",
+                     "game input target rejected authoritative state");
+    }
+    return ValidationResult::Success();
+  }
+
+  ValidationResult Poll(RendererInProcessEventPollPoint point,
+                        RendererInProcessEventObservation &observation) {
+    if (!prepared || quiesced || target == nullptr || frontend == nullptr ||
+        !IsKnownPollPoint(point) || !runtime.ValidateOwnerThread()) {
+      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                     "in_process_presenter.lifecycle",
+                     "event poll is outside the active presenter lifetime");
+    }
+    observation = RendererInProcessEventObservation{};
+    RendererOgreNextSdlWindowEventBatch events;
+    RendererGameInputState state;
+    ValidationResult polled = PollOrderedSdl(events, state);
+    if (!polled) {
+      return polled;
+    }
+    std::optional<FrontendSurfaceUpdate> callback_acknowledged_surface;
+    if (pending_surface_notification.has_value()) {
+      callback_acknowledged_surface = pending_surface_notification;
+      observation.surface_update = pending_surface_notification;
+      pending_surface_notification.reset();
+    }
+    ValidationResult surface_result =
+        ApplySurfaceEvents(events, observation.surface_update);
+    if (!surface_result) {
+      return surface_result;
+    }
+    observation.surface_update_already_committed_to_frontend =
+        callback_acknowledged_surface.has_value() &&
+        observation.surface_update.has_value() &&
+        SameSurface(*callback_acknowledged_surface,
+                    *observation.surface_update);
+    observation.shutdown_requested = close_requested;
+    return ValidationResult::Success();
+  }
+
+  void Quiesce() noexcept {
+    if (quiesced || !prepared || !runtime.ValidateOwnerThread()) {
+      return;
+    }
+    SDL_StopTextInput();
+    ShutdownControllers();
+    target = nullptr;
+    quiesced = true;
+  }
+
+  RendererOgreNextInProcessPresenterStatus Shutdown() noexcept {
+    if (!prepared || !quiesced || protected_hidden_window != nullptr ||
+        !runtime.ValidateOwnerThread()) {
+      return RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE;
+    }
+    frontend.reset();
+    RendererOgreNextWindowHostStatus shutdown = host.Shutdown();
+    if (shutdown != RendererOgreNextWindowHostStatus::COMPLETED) {
+      shutdown = host.Shutdown();
+    }
+    if (shutdown != RendererOgreNextWindowHostStatus::COMPLETED) {
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_WINDOW_SHUTDOWN;
+    }
+    prepared = false;
+    sdl_window = nullptr;
+    window = NativeWindowHandle{};
+    surface = FrontendSurfaceUpdate{};
+    return RendererOgreNextInProcessPresenterStatus::COMPLETED;
+  }
+
+  RendererOgreNextSdlWindowRuntime runtime;
+  RendererOgreNextWindowHost host;
+  std::unique_ptr<OgreNextN1Frontend> frontend;
+  RendererOgreNextInProcessPresenterConfiguration configuration;
+  FrontendInitializationRequest initialization;
+  FrontendSurfaceUpdate surface;
+  std::optional<FrontendSurfaceUpdate> pending_surface_notification;
+  NativeWindowHandle window;
+  IRendererGameInputTarget *target = nullptr;
+  void *sdl_window = nullptr;
+  void *protected_hidden_window = nullptr;
+  std::uint64_t surface_revision = 0U;
+  std::uint64_t metrics_generation = 0U;
+  std::uint64_t next_event_id = 1U;
+  std::uint64_t next_device_generation = 0U;
+  std::array<InputDevice, kRendererGameJoystickSlots> input_devices{};
+  std::vector<RendererGameKey> pressed_keys;
+  std::vector<RendererGameMouseButton> pressed_mouse_buttons;
+  std::int32_t mouse_x_pixels = 0;
+  std::int32_t mouse_y_pixels = 0;
+  std::uint32_t last_drawable_width = 0U;
+  std::uint32_t last_drawable_height = 0U;
+  bool has_drawable_baseline = false;
+  bool owns_controller_subsystem = false;
+  bool controllers_initialized = false;
+  bool window_input_suppressed = true;
+  bool focus_observed = false;
+  bool focused = false;
+  bool close_requested = false;
+  bool prepared = false;
+  bool quiesced = false;
+};
+
+RendererOgreNextInProcessPresenter::RendererOgreNextInProcessPresenter()
+    : impl_(std::make_unique<Impl>()) {}
+
+RendererOgreNextInProcessPresenter::~RendererOgreNextInProcessPresenter() =
+    default;
+
+RendererOgreNextInProcessPresenterStatus
+RendererOgreNextInProcessPresenter::PrepareWindow(
+    const RendererOgreNextInProcessPresenterConfiguration &configuration)
+    noexcept {
+  try {
+    return impl_->Prepare(configuration);
+  } catch (const std::bad_alloc &) {
+    impl_->frontend.reset();
+    (void)impl_->host.Shutdown();
+    return RendererOgreNextInProcessPresenterStatus::FAILED_ALLOCATION;
+  } catch (...) {
+    impl_->frontend.reset();
+    (void)impl_->host.Shutdown();
+    return RendererOgreNextInProcessPresenterStatus::FAILED_INTERNAL;
+  }
+}
+
+RendererOgreNextInProcessPresenterStatus
+RendererOgreNextInProcessPresenter::ProtectHiddenResourceWindow(
+    void *sdl_window) noexcept {
+  return impl_->ProtectHidden(sdl_window);
+}
+
+RendererOgreNextInProcessPresenterStatus
+RendererOgreNextInProcessPresenter::AttachInputTarget(
+    IRendererGameInputTarget &target) noexcept {
+  return impl_->Attach(target);
+}
+
+IRendererFrontend *RendererOgreNextInProcessPresenter::Frontend() noexcept {
+  return impl_->frontend.get();
+}
+
+const IRendererFrontend *
+RendererOgreNextInProcessPresenter::Frontend() const noexcept {
+  return impl_->frontend.get();
+}
+
+FrontendInitializationRequest
+RendererOgreNextInProcessPresenter::InitialFrontendRequest() const noexcept {
+  return impl_->initialization;
+}
+
+FrontendSurfaceUpdate
+RendererOgreNextInProcessPresenter::CurrentSurface() const noexcept {
+  return impl_->surface;
+}
+
+ValidationResult RendererOgreNextInProcessPresenter::PollEvents(
+    RendererInProcessEventPollPoint point,
+    RendererInProcessEventObservation &observation) {
+  return impl_->Poll(point, observation);
+}
+
+void RendererOgreNextInProcessPresenter::ShutdownEventPump() noexcept {
+  impl_->Quiesce();
+}
+
+RendererOgreNextInProcessPresenterStatus
+RendererOgreNextInProcessPresenter::ShutdownWindow() noexcept {
+  return impl_->Shutdown();
+}
+
+bool RendererOgreNextInProcessPresenter::prepared() const noexcept {
+  return impl_->prepared;
+}
+
+bool RendererOgreNextInProcessPresenter::input_attached() const noexcept {
+  return impl_->target != nullptr;
+}
+
+bool RendererOgreNextInProcessPresenter::quiesced() const noexcept {
+  return impl_->quiesced;
+}
+
+bool IsKnownRendererOgreNextInProcessPresenterStatus(
+    RendererOgreNextInProcessPresenterStatus status) noexcept {
+  switch (status) {
+  case RendererOgreNextInProcessPresenterStatus::COMPLETED:
+  case RendererOgreNextInProcessPresenterStatus::REJECTED_CONFIGURATION:
+  case RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE:
+  case RendererOgreNextInProcessPresenterStatus::FAILED_WINDOW_INITIALIZATION:
+  case RendererOgreNextInProcessPresenterStatus::FAILED_FRONTEND_CONFIGURATION:
+  case RendererOgreNextInProcessPresenterStatus::FAILED_INPUT_ACTIVATION:
+  case RendererOgreNextInProcessPresenterStatus::FAILED_WINDOW_SHUTDOWN:
+  case RendererOgreNextInProcessPresenterStatus::FAILED_ALLOCATION:
+  case RendererOgreNextInProcessPresenterStatus::FAILED_INTERNAL:
+    return true;
+  }
+  return false;
+}
+
+const char *ToString(
+    RendererOgreNextInProcessPresenterStatus status) noexcept {
+  switch (status) {
+  case RendererOgreNextInProcessPresenterStatus::COMPLETED:
+    return "completed";
+  case RendererOgreNextInProcessPresenterStatus::REJECTED_CONFIGURATION:
+    return "rejected-configuration";
+  case RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE:
+    return "rejected-lifecycle";
+  case RendererOgreNextInProcessPresenterStatus::FAILED_WINDOW_INITIALIZATION:
+    return "failed-window-initialization";
+  case RendererOgreNextInProcessPresenterStatus::FAILED_FRONTEND_CONFIGURATION:
+    return "failed-frontend-configuration";
+  case RendererOgreNextInProcessPresenterStatus::FAILED_INPUT_ACTIVATION:
+    return "failed-input-activation";
+  case RendererOgreNextInProcessPresenterStatus::FAILED_WINDOW_SHUTDOWN:
+    return "failed-window-shutdown";
+  case RendererOgreNextInProcessPresenterStatus::FAILED_ALLOCATION:
+    return "failed-allocation";
+  case RendererOgreNextInProcessPresenterStatus::FAILED_INTERNAL:
+    return "failed-internal";
+  }
+  return "unknown";
+}
+
+} // namespace RoR

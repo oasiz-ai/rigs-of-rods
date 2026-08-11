@@ -338,6 +338,7 @@ def main() -> int:
     parser.add_argument("--legacy-adapter", required=True)
     parser.add_argument("--main-source", required=True)
     parser.add_argument("--session-adapter", required=True)
+    parser.add_argument("--presenter-adapter", required=True)
     parser.add_argument("--embedded-target-name", required=True)
     parser.add_argument("--embedded-source", action="append", required=True)
     parser.add_argument("--direct-target-name", required=True)
@@ -388,6 +389,9 @@ def main() -> int:
     main_source = exact_regular_file(args.main_source, "dual-runtime main source")
     session_adapter = exact_regular_file(
         args.session_adapter, "direct session adapter source"
+    )
+    presenter_adapter = exact_regular_file(
+        args.presenter_adapter, "in-process presenter adapter source"
     )
     embedded_sources = [
         exact_regular_file(value, "embedded N1 source")
@@ -659,6 +663,13 @@ def main() -> int:
         executable_demangled,
         "dual-runtime executable does not contain both production destructors",
     )
+    require(
+        "RoR::RendererOgreNextInProcessPresenter::RendererOgreNextInProcessPresenter" in
+        executable_demangled
+        and "RoR::RendererOgreNextInProcessPresenter::~RendererOgreNextInProcessPresenter" in
+        executable_demangled,
+        "dual-runtime executable does not contain the concrete presenter lifecycle",
+    )
     linked_libraries = output("otool", "-L", str(executable))
     require(legacy_main_library.name in linked_libraries,
             "dual-runtime executable has no load command for OGRE14")
@@ -719,6 +730,11 @@ def main() -> int:
             entries, session_adapter, "ror_ogre_next_dual_runtime_link_smoke"
         )
     )
+    presenter_adapter_command = command_text(
+        one_target_compile_entry(
+            entries, presenter_adapter, "ror_ogre_next_dual_runtime_link_smoke"
+        )
+    )
     require(str(remap_header) in next_command,
             "the OgreNext adapter does not receive the fork remap")
     require(str(remap_header) not in legacy_command and
@@ -730,6 +746,11 @@ def main() -> int:
         str(remap_header) not in session_command
         and "Ogre=RoROgreNext" not in session_command,
         "the fork remap leaked into the renderer-neutral session adapter",
+    )
+    require(
+        str(remap_header) not in presenter_adapter_command
+        and "Ogre=RoROgreNext" not in presenter_adapter_command,
+        "the fork remap leaked into the renderer-neutral presenter adapter",
     )
     require(str(legacy_include) not in next_command,
             "the OgreNext adapter sees OGRE14 headers")
@@ -819,6 +840,7 @@ def main() -> int:
             "ogre14_adapter_forced_remap": False,
             "main_forced_remap": False,
             "session_adapter_forced_remap": False,
+            "presenter_adapter_forced_remap": False,
             "embedded_n1_sources_forced_remap": len(embedded_commands),
             "direct_contract_sources_forced_remap": 0,
             "direct_contract_sources": len(direct_commands),
@@ -829,6 +851,7 @@ def main() -> int:
             "namespace_and_dual_root_link": True,
             "full_n1_runtime_link": True,
             "renderer_neutral_in_process_session_link": True,
+            "concrete_in_process_presenter_link": True,
         },
     }
     report.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",

@@ -47,6 +47,7 @@ EMBEDDED_PROVENANCE_PATHS = (
     "tools/ogre_next_probe/src/embedded_namespace/main.cpp",
     "tools/ogre_next_probe/src/embedded_namespace/metal_plugin_export_probe.mm",
     "tools/ogre_next_probe/src/embedded_namespace/n1_session_adapter.cpp",
+    "tools/ogre_next_probe/src/embedded_namespace/presenter_link_adapter.cpp",
     "tools/ogre_next_probe/src/embedded_namespace/next_adapter.cpp",
     "tools/ogre_next_probe/src/embedded_namespace/ogre14_adapter.cpp",
 )

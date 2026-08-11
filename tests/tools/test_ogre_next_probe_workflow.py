@@ -2290,6 +2290,50 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertNotIn("git clone", self.workflow)
         self.assertNotIn("ogre-next master", self.workflow.lower())
 
+    def test_in_process_presenter_has_direct_namespaced_closure(self) -> None:
+        header = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgreNextInProcessPresenter.h"
+        ).read_text(encoding="utf-8")
+        implementation = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgreNextInProcessPresenter.cpp"
+        ).read_text(encoding="utf-8")
+        cmake = (
+            REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("IRendererInProcessEventPump", header)
+        self.assertIn("IRendererGameInputTarget", header)
+        self.assertNotIn("InputEventTransport", header)
+        self.assertNotIn("RendererBridge", header)
+        self.assertNotIn("InputEventTransport", implementation)
+        self.assertNotIn("RendererBridge", implementation)
+        self.assertIn("TranslateRendererSdlScancodeToGame", implementation)
+        self.assertIn("TryTranslateRendererSdlMouseButtonToGame", implementation)
+        presenter_start = cmake.index(
+            "add_library(\n        ror_ogre_next_in_process_presenter"
+        )
+        presenter_end = cmake.index(
+            "add_executable(\n        ror_ogre_next_dual_runtime_link_smoke",
+            presenter_start,
+        )
+        presenter = cmake[presenter_start:presenter_end]
+        self.assertIn("ror_ogre_next_embedded_n1_runtime", presenter)
+        self.assertIn("ror_ogre_next_embedded_direct_contract", presenter)
+        self.assertIn("ror_ogre_next_embedded_game_input_target", presenter)
+        self.assertIn("ror_ogre_next_embedded_sdl_window_runtime", presenter)
+        self.assertIn(
+            "ror_ogre_next_enable_embedded_namespace(\n"
+            "        ror_ogre_next_in_process_presenter LANGUAGES CXX)",
+            presenter,
+        )
+        self.assertIn(
+            "ror_ogre_next_embedded_sdl_window_runtime LANGUAGES OBJCXX",
+            cmake,
+        )
+        self.assertIn("src/embedded_namespace/presenter_link_adapter.cpp", cmake)
+        self.assertIn("--presenter-adapter", cmake)
+
 
 if __name__ == "__main__":
     unittest.main()
