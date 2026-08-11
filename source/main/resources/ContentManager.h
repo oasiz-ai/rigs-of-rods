@@ -28,6 +28,7 @@
 #include "TerrainBundleArchiveVerifier.h"
 
 #include <OgreResourceGroupManager.h>
+#include <OgreDataStream.h>
 #include <OgreMeshSerializer.h>
 #include <OgreScriptCompiler.h>
 #include <rapidjson/document.h>
@@ -42,6 +43,7 @@
 #include "gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h"
 #include "gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.h"
 #include "gfx/ogre14/Ogre14AuthenticatedTextureReceipt.h"
+#include "gfx/ogre14/Ogre14SelectedTextureSource.h"
 #endif
 
 namespace RoR {
@@ -59,6 +61,7 @@ class ContentManager:
     , public Render::IOgre14AuthenticatedTextureResolver
     , public Render::IOgre14AuthenticatedTextureAuthorityProvider
     , public Render::IOgre14AuthenticatedMaterialScriptResolver
+    , public Render::IOgre14SelectedTextureSourceResolver
 #endif
 {
 public:
@@ -147,6 +150,14 @@ public:
         Ogre::Texture& texture,
         const Render::Ogre14AuthenticatedTextureResolution& resolution) const
         noexcept override;
+    [[nodiscard]] Render::ValidationResult ResolveSelectedTextureSource(
+        Ogre::Texture& texture,
+        Render::Ogre14SelectedTextureSourceResolution& resolution) const
+        override;
+    [[nodiscard]] bool RevalidateSelectedTextureSource(
+        Ogre::Texture& texture,
+        const Render::Ogre14SelectedTextureSourceResolution& resolution) const
+        noexcept override;
     [[nodiscard]] Render::ValidationResult
     CaptureAuthenticatedTextureAuthoritySnapshot(
         Render::Ogre14AuthenticatedTextureAuthoritySnapshot& snapshot) const
@@ -182,6 +193,13 @@ private:
     void BindAuthenticatedResourceThread();
     void RequireAuthenticatedResourceThread(const char* operation) const;
     [[nodiscard]] bool IsAuthenticatedResourceThread() const noexcept;
+    Ogre::DataStreamPtr OpenSelectedTextureSourceStream(
+        const Ogre::String& name,
+        const Ogre::String& group,
+        Ogre::Resource* resource,
+        const Ogre::Archive* selected_archive,
+        const Ogre::FileInfo* exact_file_info,
+        bool& handled);
 #endif
 
     // Ogre::ResourceGroupListener
@@ -259,10 +277,24 @@ private:
 
 #if OGRE_VERSION_MAJOR >= 14
     struct AuthenticatedMaterialScriptGroupCandidate;
+    struct SelectedTextureSourceStage
+    {
+        Render::Ogre14SelectedTextureSourceReceipt receipt;
+        Ogre::DataStreamPtr expected_stream;
+        Ogre::MemoryDataStream* expected_memory_stream = nullptr;
+        std::uint64_t retained_source_charge = 0U;
+        std::uint64_t retained_identity_charge = 0U;
+    };
 #endif
 
     void EraseAuthenticatedMeshBindingsForGroupLocked(
         const Ogre::String& resource_group);
+#if OGRE_VERSION_MAJOR >= 14
+    void EraseSelectedTextureSourceStageLocked(
+        const Ogre::Resource* resource) noexcept;
+    void EraseSelectedTextureSourceStagesForGroupLocked(
+        const Ogre::String& resource_group) noexcept;
+#endif
     std::uint64_t AdvanceLegacyMaterialGroupGenerationLocked(
         const Ogre::String& resource_group);
 
@@ -309,6 +341,14 @@ private:
         m_authenticated_texture_receipt_configuration;
     Render::Ogre14AuthenticatedTextureReceiptRegistry
         m_authenticated_texture_receipts;
+    Render::Ogre14SelectedTextureSourceRegistryConfiguration
+        m_selected_texture_source_configuration;
+    Render::Ogre14SelectedTextureSourceReceiptRegistry
+        m_selected_texture_sources;
+    std::unordered_map<const Ogre::Resource*, SelectedTextureSourceStage>
+        m_selected_texture_source_stages;
+    std::uint64_t m_selected_texture_source_staged_bytes = 0U;
+    std::uint64_t m_selected_texture_source_staged_identity_bytes = 0U;
     Render::Ogre14AuthenticatedMaterialScriptRegistryConfiguration
         m_authenticated_material_script_configuration;
     Render::Ogre14AuthenticatedMaterialScriptRegistry

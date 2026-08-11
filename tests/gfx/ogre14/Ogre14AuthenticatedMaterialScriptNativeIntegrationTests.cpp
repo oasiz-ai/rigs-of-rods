@@ -10,6 +10,7 @@
 #include <OgreMaterialManager.h>
 #include <OgreRoot.h>
 #include <OgreScriptCompiler.h>
+#include <OgreTextureManager.h>
 
 #include <openssl/evp.h>
 
@@ -72,6 +73,56 @@ public:
     {
         content.m_force_next_authenticated_material_event_empty_for_testing =
             true;
+    }
+
+    static Render::ValidationResult FindSelectedTextureSourceReceipt(
+        ContentManager& content,
+        Ogre::Texture& texture,
+        Render::Ogre14SelectedTextureSourceReceipt& receipt)
+    {
+        std::lock_guard<std::mutex> state_lock(
+            content.m_legacy_material_state_mutex);
+        const auto generation =
+            content.m_legacy_material_group_generations.find(
+                texture.getGroup());
+        if (generation ==
+            content.m_legacy_material_group_generations.end())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "native_selected_texture.group_generation",
+                "selected texture has no native test generation");
+        }
+        return content.m_selected_texture_sources.FindResource(
+            texture.getGroup(), generation->second,
+            reinterpret_cast<std::uintptr_t>(&texture),
+            static_cast<std::uint64_t>(texture.getHandle()),
+            texture.getName(), receipt);
+    }
+
+    static bool InstallAuthenticatedNameMapOnly(
+        ContentManager& content,
+        const Ogre::String& group)
+    {
+        std::lock_guard<std::mutex> state_lock(
+            content.m_legacy_material_state_mutex);
+        const bool bindings_absent =
+            content.m_authenticated_package_archive_bindings_by_group.find(
+                group) ==
+            content.m_authenticated_package_archive_bindings_by_group.end();
+        const auto inserted =
+            content.m_authenticated_package_archives_by_group.try_emplace(
+                group);
+        return bindings_absent && inserted.second;
+    }
+
+    static void RemoveAuthenticatedNameMapOnly(
+        ContentManager& content,
+        const Ogre::String& group)
+    {
+        std::lock_guard<std::mutex> state_lock(
+            content.m_legacy_material_state_mutex);
+        content.m_authenticated_package_archives_by_group.erase(group);
     }
 };
 
@@ -274,6 +325,147 @@ std::vector<std::uint8_t> MakeStoredZip(const ArchiveEntries& entries)
     return bytes;
 }
 
+std::string MakeOrdinaryDds(std::uint8_t red, std::uint8_t green,
+                            std::uint8_t blue)
+{
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(144U);
+    AppendU32(bytes, 0x20534444U); // DDS magic.
+    AppendU32(bytes, 124U);
+    AppendU32(bytes, 0x0000100fU);
+    AppendU32(bytes, 2U);
+    AppendU32(bytes, 2U);
+    AppendU32(bytes, 8U);
+    AppendU32(bytes, 0U);
+    AppendU32(bytes, 0U);
+    for (std::size_t index = 0U; index < 11U; ++index)
+    {
+        AppendU32(bytes, 0U);
+    }
+    AppendU32(bytes, 32U);
+    AppendU32(bytes, 0x00000041U);
+    AppendU32(bytes, 0U);
+    AppendU32(bytes, 32U);
+    AppendU32(bytes, 0x00ff0000U);
+    AppendU32(bytes, 0x0000ff00U);
+    AppendU32(bytes, 0x000000ffU);
+    AppendU32(bytes, 0xff000000U);
+    AppendU32(bytes, 0x00001000U);
+    AppendU32(bytes, 0U);
+    AppendU32(bytes, 0U);
+    AppendU32(bytes, 0U);
+    AppendU32(bytes, 0U);
+    for (std::size_t pixel = 0U; pixel < 4U; ++pixel)
+    {
+        bytes.push_back(blue);
+        bytes.push_back(green);
+        bytes.push_back(red);
+        bytes.push_back(255U);
+    }
+    Require(bytes.size() == 144U,
+            "ordinary DDS fixture has an invalid byte count");
+    return std::string(
+        reinterpret_cast<const char*>(bytes.data()), bytes.size());
+}
+
+std::filesystem::path WriteOrdinaryZip(
+    const ArchiveEntries& entries,
+    const std::string& label)
+{
+    static std::uint64_t sequence = 0U;
+    const auto nonce = static_cast<std::uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() /
+        ("ror-ogre14-selected-texture-native-" + label + "-" +
+         std::to_string(nonce) + "-" + std::to_string(++sequence) + ".zip");
+    const std::vector<std::uint8_t> archive = MakeStoredZip(entries);
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    Require(stream.good(), "could not create ordinary ZIP fixture");
+    stream.write(
+        reinterpret_cast<const char*>(archive.data()),
+        static_cast<std::streamsize>(archive.size()));
+    Require(stream.good(), "could not write ordinary ZIP fixture");
+    return path;
+}
+
+class SelectedSourceTestTexture final : public Ogre::Texture
+{
+public:
+    SelectedSourceTestTexture(
+        Ogre::ResourceManager* creator,
+        const Ogre::String& name,
+        Ogre::ResourceHandle handle,
+        const Ogre::String& group,
+        bool is_manual,
+        Ogre::ManualResourceLoader* loader)
+        : Ogre::Texture(
+              creator, name, handle, group, is_manual, loader)
+    {
+    }
+
+    const std::string& observed_bytes() const noexcept
+    {
+        return m_observed_bytes;
+    }
+
+    void FailAfterNextSelectedStream() noexcept
+    {
+        m_fail_after_next_selected_stream = true;
+    }
+
+protected:
+    void prepareImpl() override {}
+    void unprepareImpl() override {}
+    void loadImpl() override
+    {
+        Ogre::DataStreamPtr stream =
+            Ogre::ResourceGroupManager::getSingleton().openResource(
+                this->getName(), this->getGroup(), this, true);
+        Require(stream != nullptr,
+                "selected-source test texture received no stream");
+        m_observed_bytes = stream->getAsString();
+        if (m_fail_after_next_selected_stream)
+        {
+            m_fail_after_next_selected_stream = false;
+            throw std::runtime_error(
+                "intentional failure after selected stream delivery");
+        }
+    }
+    void unloadImpl() override {}
+    void createInternalResourcesImpl() override {}
+    void freeInternalResourcesImpl() override {}
+
+private:
+    std::string m_observed_bytes;
+    bool m_fail_after_next_selected_stream = false;
+};
+
+class SelectedSourceTestTextureManager final : public Ogre::TextureManager
+{
+public:
+    Ogre::PixelFormat getNativeFormat(
+        Ogre::TextureType,
+        Ogre::PixelFormat format,
+        int) override
+    {
+        return format;
+    }
+
+protected:
+    Ogre::Resource* createImpl(
+        const Ogre::String& name,
+        Ogre::ResourceHandle handle,
+        const Ogre::String& group,
+        bool is_manual,
+        Ogre::ManualResourceLoader* loader,
+        const Ogre::NameValuePairList*) override
+    {
+        return OGRE_NEW SelectedSourceTestTexture(
+            this, name, handle, group, is_manual, loader);
+    }
+};
+
 std::vector<std::uint8_t> MakeZip64CountEnvelope(std::uint64_t entry_count)
 {
     std::vector<std::uint8_t> bytes;
@@ -441,6 +633,335 @@ void ExpectPreMountZipAdmissionRejection(
     groups.destroyResourceGroup(group);
     Require(!groups.resourceGroupExists(group),
             "pre-mount rejection group survived native destruction");
+}
+
+std::string SelectedTextureReceiptBytes(
+    const RoR::Render::Ogre14SelectedTextureSourceResolution& resolution)
+{
+    const auto* receipt = resolution.source_receipt();
+    Require(receipt != nullptr && receipt->source_bytes() != nullptr &&
+                receipt->source_size() != 0U,
+            "selected texture resolution has no immutable source bytes");
+    return std::string(
+        reinterpret_cast<const char*>(receipt->source_bytes()),
+        receipt->source_size());
+}
+
+void TestOrdinarySelectedTextureScope(
+    RoR::ContentManager& content,
+    SelectedSourceTestTextureManager& texture_manager)
+{
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    const Ogre::String member = "textures/scope.dds";
+
+    const Ogre::String unregistered_group =
+        "NativeUnregisteredSelectedTexture";
+    const std::string unregistered_payload =
+        MakeOrdinaryDds(12U, 34U, 56U);
+    const std::filesystem::path unregistered_archive = WriteOrdinaryZip(
+        {{member, unregistered_payload}}, "unregistered");
+    groups.createResourceGroup(unregistered_group, false);
+    groups.addResourceLocation(
+        unregistered_archive.string(), "Zip", unregistered_group,
+        false, true);
+    Ogre::TexturePtr unregistered_texture =
+        texture_manager.create(member, unregistered_group);
+    unregistered_texture->load();
+    auto* unregistered_native =
+        dynamic_cast<SelectedSourceTestTexture*>(
+            unregistered_texture.get());
+    RoR::Render::Ogre14SelectedTextureSourceResolution
+        unregistered_resolution;
+    const RoR::Render::ValidationResult unregistered_resolved =
+        content.ResolveSelectedTextureSource(
+            *unregistered_texture, unregistered_resolution);
+    Require(unregistered_native != nullptr &&
+                unregistered_texture->isLoaded() &&
+                unregistered_native->observed_bytes() ==
+                    unregistered_payload &&
+                !unregistered_resolved &&
+                !unregistered_resolution.initialized(),
+            "unregistered texture did not load normally without selected-source authority");
+    groups.removeResourceLocation(
+        unregistered_archive.string(), unregistered_group);
+    unregistered_texture.setNull();
+    groups.destroyResourceGroup(unregistered_group);
+    std::error_code remove_error;
+    Require(std::filesystem::remove(
+                unregistered_archive, remove_error) &&
+                !remove_error,
+            "unregistered selected-texture fixture was not removed");
+
+    const Ogre::String shared_group = "NativeSharedSelectedTexture";
+    const std::string shared_payload =
+        MakeOrdinaryDds(76U, 98U, 120U);
+    const std::filesystem::path marker_archive = WriteOrdinaryZip(
+        {{"package-marker.txt", "ordinary package marker"}}, "marker");
+    const std::filesystem::path shared_archive = WriteOrdinaryZip(
+        {{member, shared_payload}}, "shared");
+    groups.createResourceGroup(shared_group, false);
+    groups.addResourceLocation(
+        marker_archive.string(), "Zip", shared_group, false, true);
+    groups.addResourceLocation(
+        shared_archive.string(), "Zip", shared_group, false, true);
+    content.RegisterPackageResourceLocation(
+        shared_group, marker_archive.string());
+    Ogre::TexturePtr shared_texture =
+        texture_manager.create(member, shared_group);
+    shared_texture->load();
+    auto* shared_native =
+        dynamic_cast<SelectedSourceTestTexture*>(shared_texture.get());
+    RoR::Render::Ogre14SelectedTextureSourceResolution shared_resolution;
+    const RoR::Render::ValidationResult shared_resolved =
+        content.ResolveSelectedTextureSource(
+            *shared_texture, shared_resolution);
+    const auto* shared_receipt = shared_resolution.source_receipt();
+    const auto* shared_metadata =
+        shared_receipt != nullptr ? shared_receipt->metadata() : nullptr;
+    Require(shared_native != nullptr && shared_texture->isLoaded() &&
+                shared_native->observed_bytes() == shared_payload &&
+                shared_resolved && shared_metadata != nullptr &&
+                shared_metadata->source.selected_archive_name ==
+                    shared_archive.string() &&
+                shared_metadata->source.selected_archive_name !=
+                    marker_archive.string() &&
+                shared_metadata->source.exact_member_name == member &&
+                SelectedTextureReceiptBytes(shared_resolution) ==
+                    shared_payload,
+            "registered package marker did not capture the exact distinct attached archive");
+    Require(
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            InstallAuthenticatedNameMapOnly(content, shared_group),
+        "could not stage a post-commit authenticated-map inconsistency");
+    RoR::Render::Ogre14SelectedTextureSourceResolution blocked_resolution;
+    const RoR::Render::ValidationResult blocked_resolve =
+        content.ResolveSelectedTextureSource(
+            *shared_texture, blocked_resolution);
+    Require(!content.RevalidateSelectedTextureSource(
+                *shared_texture, shared_resolution) &&
+                !blocked_resolve && !blocked_resolution.initialized(),
+            "post-commit authenticated-map inconsistency retained or minted ordinary authority");
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        RemoveAuthenticatedNameMapOnly(content, shared_group);
+    Require(content.RevalidateSelectedTextureSource(
+                *shared_texture, shared_resolution),
+            "restored ordinary source mode did not revalidate its unchanged exact receipt");
+    content.UnregisterPackageResourceGroup(shared_group);
+    groups.removeResourceLocation(
+        shared_archive.string(), shared_group);
+    groups.removeResourceLocation(
+        marker_archive.string(), shared_group);
+    shared_texture.setNull();
+    groups.destroyResourceGroup(shared_group);
+    remove_error.clear();
+    const bool removed_shared =
+        std::filesystem::remove(shared_archive, remove_error) &&
+        !remove_error;
+    remove_error.clear();
+    const bool removed_marker =
+        std::filesystem::remove(marker_archive, remove_error) &&
+        !remove_error;
+    Require(removed_shared && removed_marker,
+            "shared selected-texture fixtures were not removed");
+
+    const Ogre::String inconsistent_group =
+        "NativeInconsistentSelectedTexture";
+    const std::string inconsistent_payload =
+        MakeOrdinaryDds(132U, 154U, 176U);
+    const std::filesystem::path inconsistent_archive = WriteOrdinaryZip(
+        {{member, inconsistent_payload}}, "inconsistent-auth-map");
+    groups.createResourceGroup(inconsistent_group, false);
+    groups.addResourceLocation(
+        inconsistent_archive.string(), "Zip", inconsistent_group,
+        false, true);
+    content.RegisterPackageResourceLocation(
+        inconsistent_group, inconsistent_archive.string());
+    Require(
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            InstallAuthenticatedNameMapOnly(content, inconsistent_group),
+        "could not stage the one-map authenticated inconsistency");
+    Ogre::TexturePtr inconsistent_texture =
+        texture_manager.create(member, inconsistent_group);
+    inconsistent_texture->load();
+    auto* inconsistent_native =
+        dynamic_cast<SelectedSourceTestTexture*>(
+            inconsistent_texture.get());
+    RoR::Render::Ogre14SelectedTextureSourceResolution
+        inconsistent_resolution;
+    const RoR::Render::ValidationResult inconsistent_resolved =
+        content.ResolveSelectedTextureSource(
+            *inconsistent_texture, inconsistent_resolution);
+    Require(inconsistent_native != nullptr &&
+                inconsistent_texture->isLoaded() &&
+                inconsistent_native->observed_bytes() ==
+                    inconsistent_payload &&
+                !inconsistent_resolved &&
+                !inconsistent_resolution.initialized(),
+            "one-map authenticated inconsistency was laundered into ordinary selected-source authority");
+    RoR::ContentManagerNativeIntegrationTestAccess::
+        RemoveAuthenticatedNameMapOnly(content, inconsistent_group);
+    content.UnregisterPackageResourceGroup(inconsistent_group);
+    groups.removeResourceLocation(
+        inconsistent_archive.string(), inconsistent_group);
+    inconsistent_texture.setNull();
+    groups.destroyResourceGroup(inconsistent_group);
+    remove_error.clear();
+    Require(std::filesystem::remove(
+                inconsistent_archive, remove_error) &&
+                !remove_error,
+            "inconsistent selected-texture fixture was not removed");
+}
+
+void TestOrdinarySelectedTextureLifecycle(
+    RoR::ContentManager& content,
+    SelectedSourceTestTextureManager& texture_manager)
+{
+    const Ogre::String group = "NativeOrdinarySelectedTexture";
+    const Ogre::String member = "textures/ordinary.dds";
+    const std::string first_payload = MakeOrdinaryDds(220U, 40U, 25U);
+    const std::string second_payload = MakeOrdinaryDds(20U, 80U, 230U);
+    const std::filesystem::path first_archive = WriteOrdinaryZip(
+        {{member, first_payload}}, "first");
+    std::filesystem::path second_archive;
+
+    Ogre::ResourceGroupManager& groups =
+        Ogre::ResourceGroupManager::getSingleton();
+    Require(!groups.resourceGroupExists(group),
+            "ordinary selected-texture group already exists");
+    groups.createResourceGroup(group, false);
+    groups.addResourceLocation(
+        first_archive.string(), "Zip", group, false, true);
+    content.RegisterPackageResourceLocation(
+        group, first_archive.string());
+
+    Ogre::TexturePtr texture = texture_manager.create(member, group);
+    Require(texture != nullptr && !texture->isLoaded(),
+            "ordinary selected-texture resource was not created unloaded");
+    auto* native_texture =
+        dynamic_cast<SelectedSourceTestTexture*>(texture.get());
+    Require(native_texture != nullptr,
+            "ordinary texture manager returned the wrong native resource");
+    native_texture->FailAfterNextSelectedStream();
+    bool first_load_failed = false;
+    try
+    {
+        texture->load();
+    }
+    catch (...)
+    {
+        first_load_failed = true;
+    }
+    RoR::Render::Ogre14SelectedTextureSourceReceipt failed_receipt;
+    const RoR::Render::ValidationResult failed_receipt_found =
+        RoR::ContentManagerNativeIntegrationTestAccess::
+            FindSelectedTextureSourceReceipt(
+                content, *texture, failed_receipt);
+    const auto* failed_metadata = failed_receipt.metadata();
+    Require(first_load_failed && !texture->isLoaded() &&
+                failed_receipt_found && failed_metadata != nullptr &&
+                failed_metadata->source.opened_stream_pointer_token != 0U &&
+                failed_receipt.ReplacementBytesMatch(
+                    first_payload.data(), first_payload.size()),
+            "failed native load did not retain its exact post-open receipt");
+    const std::uint64_t failed_preload_state =
+        failed_metadata->source.resource_state_count_before_load;
+
+    texture->load();
+    Require(texture->isLoaded() &&
+                native_texture->observed_bytes() == first_payload,
+            "ordinary texture retry did not consume the selected replacement bytes");
+
+    RoR::Render::Ogre14SelectedTextureSourceResolution first_resolution;
+    const RoR::Render::ValidationResult first_resolved =
+        content.ResolveSelectedTextureSource(
+            *texture, first_resolution);
+    const auto* first_receipt = first_resolution.source_receipt();
+    const auto* first_metadata =
+        first_receipt != nullptr ? first_receipt->metadata() : nullptr;
+    const std::vector<std::uint8_t> first_bytes(
+        first_payload.begin(), first_payload.end());
+    Require(first_resolved && first_resolution.initialized() &&
+                first_metadata != nullptr &&
+                first_metadata->source.source_kind ==
+                    RoR::Render::Ogre14SelectedTextureSourceKind::
+                        UNAUTHENTICATED_PACKAGE_ARCHIVE_MEMBER &&
+                first_metadata->source.effective_resource_group == group &&
+                first_metadata->source.exact_resource_name == member &&
+                first_metadata->source.exact_member_name == member &&
+                first_metadata->source.selected_archive_name ==
+                    first_archive.string() &&
+                first_metadata->source.selected_archive_type == "Zip" &&
+                first_metadata->source.opened_stream_pointer_token != 0U &&
+                !first_receipt->SharesImmutableStateWith(failed_receipt) &&
+                first_metadata->source.resource_state_count_before_load ==
+                    failed_preload_state &&
+                first_metadata->byte_count == first_payload.size() &&
+                first_metadata->observed_bytes_sha256 ==
+                    Sha256(first_bytes) &&
+                SelectedTextureReceiptBytes(first_resolution) ==
+                    first_payload &&
+                content.RevalidateSelectedTextureSource(
+                    *texture, first_resolution),
+            "ordinary selected-stream retry did not refresh exact ZIP/DDS stream attribution");
+
+    groups.removeResourceLocation(first_archive.string(), group);
+    std::error_code remove_error;
+    Require(std::filesystem::remove(first_archive, remove_error) &&
+                !remove_error &&
+                texture->isLoaded() &&
+                native_texture->observed_bytes() == first_payload &&
+                SelectedTextureReceiptBytes(first_resolution) ==
+                    first_payload &&
+                content.RevalidateSelectedTextureSource(
+                    *texture, first_resolution),
+            "selected texture receipt did not outlive deleted archive bytes");
+
+    texture->unload();
+    Require(!content.RevalidateSelectedTextureSource(
+                *texture, first_resolution),
+            "unloaded texture retained a live selected-source resolution");
+    second_archive = WriteOrdinaryZip(
+        {{member, second_payload}}, "reload");
+    groups.addResourceLocation(
+        second_archive.string(), "Zip", group, false, true);
+    content.RegisterPackageResourceLocation(
+        group, second_archive.string());
+    Require(!content.RevalidateSelectedTextureSource(
+                *texture, first_resolution),
+            "group reload did not revoke the prior selected-source snapshot");
+
+    texture->load();
+    Require(texture->isLoaded() &&
+                native_texture->observed_bytes() == second_payload,
+            "reloaded texture did not consume the replacement archive bytes");
+    RoR::Render::Ogre14SelectedTextureSourceResolution second_resolution;
+    const RoR::Render::ValidationResult second_resolved =
+        content.ResolveSelectedTextureSource(
+            *texture, second_resolution);
+    Require(second_resolved && second_resolution.initialized() &&
+                SelectedTextureReceiptBytes(second_resolution) ==
+                    second_payload &&
+                content.RevalidateSelectedTextureSource(
+                    *texture, second_resolution) &&
+                !second_resolution.SharesLoadedResourceAuthorityWith(
+                    first_resolution),
+            "ordinary texture reload reused stale selected-source authority");
+
+    content.UnregisterPackageResourceGroup(group);
+    Require(!content.RevalidateSelectedTextureSource(
+                *texture, second_resolution) &&
+                SelectedTextureReceiptBytes(first_resolution) ==
+                    first_payload &&
+                SelectedTextureReceiptBytes(second_resolution) ==
+                    second_payload,
+            "ordinary group teardown retained live authority or lost immutable receipts");
+    groups.destroyResourceGroup(group);
+    texture.setNull();
+    remove_error.clear();
+    Require(std::filesystem::remove(second_archive, remove_error) &&
+                !remove_error && !groups.resourceGroupExists(group),
+            "ordinary selected-texture teardown left its ZIP or group live");
 }
 
 std::string ReceiptBytes(
@@ -1075,11 +1596,17 @@ int RoR::RunOgre14AuthenticatedMaterialScriptNativeIntegrationTests(
         Require(Ogre::ResourceGroupManager::getSingletonPtr() != nullptr &&
                     Ogre::ArchiveManager::getSingletonPtr() != nullptr &&
                     Ogre::ScriptCompilerManager::getSingletonPtr() != nullptr &&
-                    Ogre::MaterialManager::getSingletonPtr() != nullptr,
+                    Ogre::MaterialManager::getSingletonPtr() != nullptr &&
+                    Ogre::TextureManager::getSingletonPtr() == nullptr,
                 "pinned OGRE did not construct the required native managers");
 
+        SelectedSourceTestTextureManager texture_manager;
+        Require(Ogre::TextureManager::getSingletonPtr() == &texture_manager,
+                "native selected-source TextureManager was not installed");
         RoR::ContentManager content;
         InstallListeners(content);
+        TestOrdinarySelectedTextureScope(content, texture_manager);
+        TestOrdinarySelectedTextureLifecycle(content, texture_manager);
         TestPreMountZipAdmissionRejection(content);
         TestNativeDirectoryIndexParity(content);
         TestSuccessfulLifecycleAndReload(content);

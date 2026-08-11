@@ -480,6 +480,21 @@ ContentManager::ContentManager():
                 texture_registry_initialization.field),
             "ContentManager::ContentManager");
     }
+    const Render::ValidationResult selected_texture_initialization =
+        Render::InitializeOgre14SelectedTextureSourceRegistry(
+            m_selected_texture_source_configuration,
+            m_selected_texture_sources);
+    if (!selected_texture_initialization)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Could not initialize selected source-texture receipt "
+                "registry: {} ({})",
+                selected_texture_initialization.detail,
+                selected_texture_initialization.field),
+            "ContentManager::ContentManager");
+    }
     const Render::ValidationResult material_script_initialization =
         m_authenticated_material_scripts.Initialize(
             m_authenticated_material_script_configuration);
@@ -847,6 +862,220 @@ bool ContentManager::RevalidateAuthenticatedTexture(
     }
 }
 
+Render::ValidationResult ContentManager::ResolveSelectedTextureSource(
+    Ogre::Texture& texture,
+    Render::Ogre14SelectedTextureSourceResolution& resolution) const
+{
+    this->RequireAuthenticatedResourceThread(
+        "ContentManager::ResolveSelectedTextureSource");
+    try
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        Ogre::TextureManager* manager =
+            Ogre::TextureManager::getSingletonPtr();
+        if (manager == nullptr || texture.getCreator() != manager ||
+            manager->getResourceType() != "Texture")
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_ASSET_REFERENCE,
+                "selected_texture_resolution.texture_manager",
+                "loaded resource is not owned by the active TextureManager");
+        }
+        if (!texture.isLoaded())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "selected_texture_resolution.loaded",
+                "selected source texture must be completely loaded");
+        }
+        const auto package_group =
+            m_package_archives_by_group.find(texture.getGroup());
+        if (package_group == m_package_archives_by_group.end() ||
+            package_group->second.empty() ||
+            m_authenticated_package_archives_by_group.find(
+                texture.getGroup()) !=
+                m_authenticated_package_archives_by_group.end() ||
+            m_authenticated_package_archive_bindings_by_group.find(
+                texture.getGroup()) !=
+                m_authenticated_package_archive_bindings_by_group.end())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_ASSET_REFERENCE,
+                "selected_texture_resolution.source_mode",
+                "texture group is not a live ordinary package source");
+        }
+        const Ogre::ResourcePtr by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr by_name = manager->getResourceByName(
+            texture.getName(), texture.getGroup());
+        if (!by_handle || !by_name || by_handle.get() != &texture ||
+            by_name.get() != &texture)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::INVALID_HANDLE,
+                "selected_texture_resolution.texture_manager",
+                "TextureManager indices do not resolve to the exact texture pointer");
+        }
+        const auto generation =
+            m_legacy_material_group_generations.find(texture.getGroup());
+        if (generation == m_legacy_material_group_generations.end())
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::MISSING_REFERENCE,
+                "selected_texture_resolution.group_generation",
+                "texture group has no active selected-source generation");
+        }
+        const std::size_t native_state_count = texture.getStateCount();
+        const std::uint64_t loaded_state_count =
+            static_cast<std::uint64_t>(native_state_count);
+        if (static_cast<std::size_t>(loaded_state_count) !=
+            native_state_count)
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "selected_texture_resolution.resource_state_count",
+                "texture state count exceeds the selected-source integer range");
+        }
+        const std::uintptr_t resolver_pointer_token =
+            reinterpret_cast<std::uintptr_t>(
+                static_cast<const
+                    Render::IOgre14SelectedTextureSourceResolver*>(this));
+        Render::Ogre14SelectedTextureSourceResolution candidate;
+        const Render::ValidationResult mint =
+            m_selected_texture_sources.MintLoadedResourceResolution(
+                texture.getGroup(), generation->second,
+                reinterpret_cast<std::uintptr_t>(&texture),
+                static_cast<std::uint64_t>(texture.getHandle()),
+                texture.getName(), loaded_state_count,
+                resolver_pointer_token, candidate);
+        if (!mint)
+        {
+            return mint;
+        }
+        const Ogre::ResourcePtr current_by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr current_by_name =
+            manager->getResourceByName(
+                texture.getName(), texture.getGroup());
+        if (!texture.isLoaded() || current_by_handle.get() != &texture ||
+            current_by_name.get() != &texture ||
+            texture.getStateCount() != native_state_count ||
+            !m_selected_texture_sources.RevalidateLoadedResourceResolution(
+                candidate, resolver_pointer_token,
+                reinterpret_cast<std::uintptr_t>(&texture),
+                static_cast<std::uint64_t>(texture.getHandle()),
+                texture.getGroup(), texture.getName(), loaded_state_count))
+        {
+            return Render::ValidationResult::Failure(
+                Render::ValidationCode::REVISION_MISMATCH,
+                "selected_texture_resolution.revalidation",
+                "texture or registry changed while minting its selected-source resolution");
+        }
+        resolution = std::move(candidate);
+        return Render::ValidationResult::Success();
+    }
+    catch (const Ogre::Exception&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::MISSING_REFERENCE,
+            "selected_texture_resolution.ogre_exception",
+            "OGRE rejected the exact TextureManager identity lookup");
+    }
+    catch (const std::bad_alloc&)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::EMPTY_PAYLOAD,
+            "selected_texture_resolution.allocation",
+            "allocation failed before selected-source resolution publication");
+    }
+    catch (...)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "selected_texture_resolution.exception",
+            "unexpected exception before selected-source resolution publication");
+    }
+}
+
+bool ContentManager::RevalidateSelectedTextureSource(
+    Ogre::Texture& texture,
+    const Render::Ogre14SelectedTextureSourceResolution& resolution) const
+    noexcept
+{
+    try
+    {
+        this->RequireAuthenticatedResourceThread(
+            "ContentManager::RevalidateSelectedTextureSource");
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        Ogre::TextureManager* manager =
+            Ogre::TextureManager::getSingletonPtr();
+        if (manager == nullptr || texture.getCreator() != manager ||
+            manager->getResourceType() != "Texture" ||
+            !texture.isLoaded())
+        {
+            return false;
+        }
+        const auto package_group =
+            m_package_archives_by_group.find(texture.getGroup());
+        if (package_group == m_package_archives_by_group.end() ||
+            package_group->second.empty() ||
+            m_authenticated_package_archives_by_group.find(
+                texture.getGroup()) !=
+                m_authenticated_package_archives_by_group.end() ||
+            m_authenticated_package_archive_bindings_by_group.find(
+                texture.getGroup()) !=
+                m_authenticated_package_archive_bindings_by_group.end())
+        {
+            return false;
+        }
+        const Ogre::ResourcePtr by_handle =
+            manager->getByHandle(texture.getHandle());
+        const Ogre::ResourcePtr by_name = manager->getResourceByName(
+            texture.getName(), texture.getGroup());
+        if (!by_handle || !by_name || by_handle.get() != &texture ||
+            by_name.get() != &texture)
+        {
+            return false;
+        }
+        const auto generation =
+            m_legacy_material_group_generations.find(texture.getGroup());
+        const auto* receipt = resolution.source_receipt();
+        const auto* metadata =
+            receipt != nullptr ? receipt->metadata() : nullptr;
+        if (generation == m_legacy_material_group_generations.end() ||
+            metadata == nullptr ||
+            metadata->source.effective_resource_group != texture.getGroup() ||
+            metadata->source.group_generation != generation->second)
+        {
+            return false;
+        }
+        const std::size_t native_state_count = texture.getStateCount();
+        const std::uint64_t loaded_state_count =
+            static_cast<std::uint64_t>(native_state_count);
+        if (static_cast<std::size_t>(loaded_state_count) !=
+            native_state_count)
+        {
+            return false;
+        }
+        const std::uintptr_t resolver_pointer_token =
+            reinterpret_cast<std::uintptr_t>(
+                static_cast<const
+                    Render::IOgre14SelectedTextureSourceResolver*>(this));
+        return m_selected_texture_sources.
+            RevalidateLoadedResourceResolution(
+                resolution, resolver_pointer_token,
+                reinterpret_cast<std::uintptr_t>(&texture),
+                static_cast<std::uint64_t>(texture.getHandle()),
+                texture.getGroup(), texture.getName(), loaded_state_count);
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 Render::ValidationResult
 ContentManager::ResolveAuthenticatedMaterialScript(
     Ogre::Material& material,
@@ -1029,6 +1258,76 @@ void ContentManager::EraseAuthenticatedMeshBindingsForGroupLocked(
     }
 }
 
+#if OGRE_VERSION_MAJOR >= 14
+void ContentManager::EraseSelectedTextureSourceStageLocked(
+    const Ogre::Resource* resource) noexcept
+{
+    const auto stage = m_selected_texture_source_stages.find(resource);
+    if (stage == m_selected_texture_source_stages.end())
+    {
+        return;
+    }
+    m_selected_texture_source_stages.erase(stage);
+    // Recompute both exact aggregate charges from every surviving stage.
+    // Saturation fails closed if an impossible accounting value is ever
+    // observed; it must never make another pending stream appear cheaper.
+    std::uint64_t recomputed_source = 0U;
+    std::uint64_t recomputed_identity = 0U;
+    for (const auto& remaining : m_selected_texture_source_stages)
+    {
+        const std::uint64_t remaining_source =
+            remaining.second.retained_source_charge;
+        if (recomputed_source >
+            (std::numeric_limits<std::uint64_t>::max)() -
+                remaining_source)
+        {
+            recomputed_source =
+                (std::numeric_limits<std::uint64_t>::max)();
+        }
+        else
+        {
+            recomputed_source += remaining_source;
+        }
+        const std::uint64_t remaining_identity =
+            remaining.second.retained_identity_charge;
+        if (recomputed_identity >
+            (std::numeric_limits<std::uint64_t>::max)() -
+                remaining_identity)
+        {
+            recomputed_identity =
+                (std::numeric_limits<std::uint64_t>::max)();
+        }
+        else
+        {
+            recomputed_identity += remaining_identity;
+        }
+    }
+    m_selected_texture_source_staged_bytes = recomputed_source;
+    m_selected_texture_source_staged_identity_bytes = recomputed_identity;
+}
+
+void ContentManager::EraseSelectedTextureSourceStagesForGroupLocked(
+    const Ogre::String& resource_group) noexcept
+{
+    for (auto stage = m_selected_texture_source_stages.begin();
+         stage != m_selected_texture_source_stages.end();)
+    {
+        const auto* metadata = stage->second.receipt.metadata();
+        if (metadata == nullptr ||
+            metadata->source.effective_resource_group == resource_group)
+        {
+            const Ogre::Resource* resource = stage->first;
+            ++stage;
+            this->EraseSelectedTextureSourceStageLocked(resource);
+        }
+        else
+        {
+            ++stage;
+        }
+    }
+}
+#endif
+
 std::uint64_t ContentManager::AdvanceLegacyMaterialGroupGenerationLocked(
     const Ogre::String& resource_group)
 {
@@ -1071,6 +1370,24 @@ std::uint64_t ContentManager::AdvanceLegacyMaterialGroupGenerationLocked(
                 texture_transition.field),
             "ContentManager::AdvanceLegacyMaterialGroupGenerationLocked");
     }
+    Render::Ogre14SelectedTextureSourceReceiptRegistry
+        selected_texture_candidate = m_selected_texture_sources;
+    const Render::ValidationResult selected_texture_transition =
+        Render::AdvanceOgre14SelectedTextureSourceGroupGeneration(
+            resource_group, next_generation, selected_texture_candidate);
+    if (!selected_texture_transition)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Selected source-texture group '{}' could not advance to "
+                "generation {}: {} ({})",
+                resource_group,
+                next_generation,
+                selected_texture_transition.detail,
+                selected_texture_transition.field),
+            "ContentManager::AdvanceLegacyMaterialGroupGenerationLocked");
+    }
     Render::Ogre14AuthenticatedMaterialScriptRegistry
         material_script_candidate = m_authenticated_material_scripts;
     const Render::ValidationResult material_script_transition =
@@ -1092,7 +1409,9 @@ std::uint64_t ContentManager::AdvanceLegacyMaterialGroupGenerationLocked(
     m_legacy_material_group_generations[resource_group] =
         next_generation;
     m_next_legacy_material_group_generation = next_generation;
+    this->EraseSelectedTextureSourceStagesForGroupLocked(resource_group);
     m_authenticated_texture_receipts = std::move(texture_candidate);
+    m_selected_texture_sources = std::move(selected_texture_candidate);
     m_authenticated_material_scripts =
         std::move(material_script_candidate);
     // Generation authority and all compatibility indexes transition under the
@@ -1140,11 +1459,42 @@ void ContentManager::RegisterPackageResourceLocation(
     const Ogre::String& resource_group,
     const Ogre::String& archive_name)
 {
+#if OGRE_VERSION_MAJOR >= 14
+    this->BindAuthenticatedResourceThread();
+#endif
     std::scoped_lock<std::mutex, std::mutex> legacy_material_lock(
         m_legacy_material_resolution_mutex,
         m_legacy_material_state_mutex);
+    auto package_archives_candidate = m_package_archives_by_group;
+#if OGRE_VERSION_MAJOR >= 14
+    if (package_archives_candidate.find(resource_group) ==
+            package_archives_candidate.end() &&
+        package_archives_candidate.size() >=
+            Render::kOgre14SelectedTextureSourceMaximumGroupRecords)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Ordinary package resource-group capacity is exhausted",
+            "ContentManager::RegisterPackageResourceLocation");
+    }
+#endif
+    auto& archive_names = package_archives_candidate[resource_group];
+#if OGRE_VERSION_MAJOR >= 14
+    if (archive_names.count(archive_name) == 0U &&
+        archive_names.size() >=
+            Render::kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            "Ordinary package archive-binding capacity is exhausted",
+            "ContentManager::RegisterPackageResourceLocation");
+    }
+#endif
+    archive_names.insert(archive_name);
     this->AdvanceLegacyMaterialGroupGenerationLocked(resource_group);
-    m_package_archives_by_group[resource_group].insert(archive_name);
+    static_assert(noexcept(m_package_archives_by_group.swap(
+        package_archives_candidate)));
+    m_package_archives_by_group.swap(package_archives_candidate);
 }
 
 void ContentManager::MountAuthenticatedPackageResourceLocation(
@@ -1383,6 +1733,8 @@ void ContentManager::MountAuthenticatedPackageResourceLocation(
     }
     Render::Ogre14AuthenticatedTextureReceiptRegistry texture_candidate =
         m_authenticated_texture_receipts;
+    Render::Ogre14SelectedTextureSourceReceiptRegistry
+        selected_texture_candidate = m_selected_texture_sources;
     Render::Ogre14AuthenticatedMaterialScriptRegistry
         material_script_candidate = m_authenticated_material_scripts;
 
@@ -1477,6 +1829,22 @@ void ContentManager::MountAuthenticatedPackageResourceLocation(
                 mount_generation,
                 texture_transition.detail,
                 texture_transition.field),
+            "ContentManager::MountAuthenticatedPackageResourceLocation");
+    }
+    const Render::ValidationResult selected_texture_transition =
+        Render::AdvanceOgre14SelectedTextureSourceGroupGeneration(
+            resource_group, mount_generation, selected_texture_candidate);
+    if (!selected_texture_transition)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Selected source-texture group '{}' could not advance to "
+                "mount generation {}: {} ({})",
+                resource_group,
+                mount_generation,
+                selected_texture_transition.detail,
+                selected_texture_transition.field),
             "ContentManager::MountAuthenticatedPackageResourceLocation");
     }
     const Render::ValidationResult material_script_transition =
@@ -1859,6 +2227,9 @@ void ContentManager::MountAuthenticatedPackageResourceLocation(
             noexcept(m_authenticated_texture_receipts =
                          std::move(texture_candidate)));
         static_assert(
+            noexcept(m_selected_texture_sources =
+                         std::move(selected_texture_candidate)));
+        static_assert(
             noexcept(m_authenticated_material_scripts =
                          std::move(material_script_candidate)));
         static_assert(
@@ -1881,6 +2252,8 @@ void ContentManager::MountAuthenticatedPackageResourceLocation(
                 decltype(mesh_bindings_candidate)> &&
             std::is_nothrow_destructible_v<
                 decltype(texture_candidate)> &&
+            std::is_nothrow_destructible_v<
+                decltype(selected_texture_candidate)> &&
             std::is_nothrow_destructible_v<
                 decltype(material_script_candidate)> &&
             std::is_nothrow_destructible_v<
@@ -1911,7 +2284,9 @@ void ContentManager::MountAuthenticatedPackageResourceLocation(
             reported_texture_fallbacks_candidate);
         m_committed_material_script_generations.swap(
             committed_material_script_generations_candidate);
+        this->EraseSelectedTextureSourceStagesForGroupLocked(resource_group);
         m_authenticated_texture_receipts = std::move(texture_candidate);
+        m_selected_texture_sources = std::move(selected_texture_candidate);
         m_authenticated_material_scripts =
             std::move(material_script_candidate);
         if (reset_material_script_candidate)
@@ -2135,6 +2510,42 @@ void ContentManager::UnregisterPackageResourceGroup(
                 teardown_generation,
                 texture_teardown.detail,
                 texture_teardown.field),
+            "ContentManager::UnregisterPackageResourceGroup");
+    }
+    Render::Ogre14SelectedTextureSourceReceiptRegistry
+        selected_texture_candidate = m_selected_texture_sources;
+    const Render::ValidationResult selected_texture_advance =
+        Render::AdvanceOgre14SelectedTextureSourceGroupGeneration(
+            resource_group, teardown_generation,
+            selected_texture_candidate);
+    if (!selected_texture_advance)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Selected source-texture group '{}' could not advance to "
+                "teardown generation {}: {} ({})",
+                resource_group,
+                teardown_generation,
+                selected_texture_advance.detail,
+                selected_texture_advance.field),
+            "ContentManager::UnregisterPackageResourceGroup");
+    }
+    const Render::ValidationResult selected_texture_teardown =
+        Render::TeardownOgre14SelectedTextureSourceGroup(
+            resource_group, teardown_generation,
+            selected_texture_candidate);
+    if (!selected_texture_teardown)
+    {
+        OGRE_EXCEPT(
+            Ogre::Exception::ERR_INVALID_STATE,
+            fmt::format(
+                "Selected source-texture group '{}' generation {} could "
+                "not tear down: {} ({})",
+                resource_group,
+                teardown_generation,
+                selected_texture_teardown.detail,
+                selected_texture_teardown.field),
             "ContentManager::UnregisterPackageResourceGroup");
     }
     Render::Ogre14AuthenticatedMaterialScriptRegistry
@@ -2447,6 +2858,9 @@ void ContentManager::UnregisterPackageResourceGroup(
         noexcept(m_authenticated_texture_receipts =
                      std::move(texture_candidate)));
     static_assert(
+        noexcept(m_selected_texture_sources =
+                     std::move(selected_texture_candidate)));
+    static_assert(
         noexcept(m_authenticated_material_scripts =
                      std::move(material_script_candidate)));
     static_assert(
@@ -2483,7 +2897,9 @@ void ContentManager::UnregisterPackageResourceGroup(
         committed_material_script_generations_candidate);
     m_authenticated_mesh_bindings.swap(mesh_bindings_candidate);
     m_next_legacy_material_group_generation = teardown_generation;
+    this->EraseSelectedTextureSourceStagesForGroupLocked(resource_group);
     m_authenticated_texture_receipts = std::move(texture_candidate);
+    m_selected_texture_sources = std::move(selected_texture_candidate);
     m_authenticated_material_scripts =
         std::move(material_script_candidate);
     m_authenticated_package_archive_retained_bytes -= removed_archive_bytes;
@@ -3148,6 +3564,34 @@ void ContentManager::resourceRemove(const Ogre::ResourcePtr& resource)
     {
         std::lock_guard<std::mutex> state_lock(
             m_legacy_material_state_mutex);
+        this->EraseSelectedTextureSourceStageLocked(resource.get());
+        const auto generation =
+            m_legacy_material_group_generations.find(resource->getGroup());
+        if (generation != m_legacy_material_group_generations.end())
+        {
+            const Render::ValidationResult selected_removal =
+                Render::RemoveOgre14SelectedTextureSourceResource(
+                    resource->getGroup(), generation->second,
+                    reinterpret_cast<std::uintptr_t>(resource.get()),
+                    static_cast<std::uint64_t>(resource->getHandle()),
+                    resource->getName(), m_selected_texture_sources);
+            if (!selected_removal)
+            {
+                // ResourceManager has already removed the external lookup
+                // indices. A failed matching COW revocation is the one
+                // boundary where ordinary selected-source authority must be
+                // poisoned terminally.
+                Render::PoisonOgre14SelectedTextureSourceRegistry(
+                    m_selected_texture_sources);
+                LOG(fmt::format(
+                    "[RoR|ContentManager|SelectedTextureSource] Refused "
+                    "stale resource removal for '{}' in group '{}'; "
+                    "selected-source authority is terminally poisoned: {} "
+                    "({})",
+                    resource->getName(), resource->getGroup(),
+                    selected_removal.detail, selected_removal.field));
+            }
+        }
         const Render::ValidationResult removal =
             Render::RemoveOgre14AuthenticatedTextureResource(
                 resource->getGroup(),
@@ -4317,6 +4761,39 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
     const bool is_exact_texture_resource = false;
 #endif
 #if OGRE_VERSION_MAJOR >= 14
+    if (is_exact_texture_resource)
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        this->EraseSelectedTextureSourceStageLocked(resource);
+        const auto generation =
+            m_legacy_material_group_generations.find(group);
+        if (generation != m_legacy_material_group_generations.end())
+        {
+            const Render::ValidationResult removal =
+                Render::RemoveOgre14SelectedTextureSourceResource(
+                    group, generation->second,
+                    reinterpret_cast<std::uintptr_t>(resource),
+                    static_cast<std::uint64_t>(resource->getHandle()),
+                    name, m_selected_texture_sources);
+            if (!removal)
+            {
+                // No source load has completed yet, so reject this load
+                // attempt without poisoning previously published ordinary
+                // groups. Poison is reserved for a failed revocation after an
+                // external OGRE mutation.
+                OGRE_EXCEPT(
+                    Ogre::Exception::ERR_INVALID_STATE,
+                    fmt::format(
+                        "Selected texture '{}' in group '{}' could not "
+                        "revoke its prior source receipt before reload: {} "
+                        "({})",
+                        name, group, removal.detail, removal.field),
+                    "ContentManager::resourceLoading");
+            }
+        }
+    }
+
     // ScriptCompiler imports enter openResourceImpl with a null Resource
     // before archive selection. Stage that exact attempt now: a missing import
     // never reaches the pre-open seam, so an unconsumed marker must poison the
@@ -5726,6 +6203,417 @@ Ogre::DataStreamPtr ContentManager::resourceLoading(const Ogre::String& name, co
 }
 
 #if OGRE_VERSION_MAJOR >= 14
+Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
+    const Ogre::String& name,
+    const Ogre::String& group,
+    Ogre::Resource* resource,
+    const Ogre::Archive* selected_archive,
+    const Ogre::FileInfo* exact_file_info,
+    bool& handled)
+{
+    handled = false;
+    Ogre::TextureManager* texture_manager =
+        Ogre::TextureManager::getSingletonPtr();
+    if (resource == nullptr || texture_manager == nullptr ||
+        resource->getCreator() != texture_manager ||
+        texture_manager->getResourceType() != "Texture" ||
+        resource->getName() != name || resource->getGroup() != group ||
+        selected_archive == nullptr || exact_file_info == nullptr)
+    {
+        return Ogre::DataStreamPtr();
+    }
+
+    std::uint64_t group_generation = 0U;
+    std::uint64_t state_count_before_load = 0U;
+    const std::uintptr_t resource_pointer_token =
+        reinterpret_cast<std::uintptr_t>(resource);
+    const std::uint64_t resource_handle =
+        static_cast<std::uint64_t>(resource->getHandle());
+    const std::uintptr_t selected_archive_pointer_token =
+        reinterpret_cast<std::uintptr_t>(selected_archive);
+
+    {
+        std::lock_guard<std::mutex> state_lock(
+            m_legacy_material_state_mutex);
+        const auto package_group = m_package_archives_by_group.find(group);
+        const auto generation =
+            m_legacy_material_group_generations.find(group);
+        const bool authenticated_names_absent =
+            m_authenticated_package_archives_by_group.find(group) ==
+            m_authenticated_package_archives_by_group.end();
+        const bool authenticated_bindings_absent =
+            m_authenticated_package_archive_bindings_by_group.find(group) ==
+            m_authenticated_package_archive_bindings_by_group.end();
+        if (package_group == m_package_archives_by_group.end() ||
+            package_group->second.empty() ||
+            generation == m_legacy_material_group_generations.end() ||
+            !authenticated_names_absent ||
+            !authenticated_bindings_absent ||
+            !m_authenticated_texture_receipts.initialized() ||
+            !m_selected_texture_sources.initialized() ||
+            !resource->isLoading() || resource->isLoaded())
+        {
+            return Ogre::DataStreamPtr();
+        }
+        const Ogre::ResourcePtr by_handle =
+            texture_manager->getByHandle(resource->getHandle());
+        const Ogre::ResourcePtr by_name =
+            texture_manager->getResourceByName(name, group);
+        if (!by_handle || !by_name || by_handle.get() != resource ||
+            by_name.get() != resource)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        const std::size_t native_state_count = resource->getStateCount();
+        state_count_before_load =
+            static_cast<std::uint64_t>(native_state_count);
+        if (static_cast<std::size_t>(state_count_before_load) !=
+                native_state_count ||
+            state_count_before_load ==
+                (std::numeric_limits<std::uint64_t>::max)())
+        {
+            return Ogre::DataStreamPtr();
+        }
+        group_generation = generation->second;
+
+        // Defensive duplicate callback closure. resourceLoading() normally
+        // performs this exact revocation first; repeating it here prevents a
+        // direct pre-open callback from retaining stale authority.
+        this->EraseSelectedTextureSourceStageLocked(resource);
+        const Render::ValidationResult removal =
+            Render::RemoveOgre14SelectedTextureSourceResource(
+                group, group_generation, resource_pointer_token,
+                resource_handle, name, m_selected_texture_sources);
+        if (!removal)
+        {
+            OGRE_EXCEPT(
+                Ogre::Exception::ERR_INVALID_STATE,
+                fmt::format(
+                    "Selected texture '{}' in group '{}' could not revoke "
+                    "its prior receipt before exact archive selection: {} "
+                    "({})",
+                    name, group, removal.detail, removal.field),
+                "ContentManager::OpenSelectedTextureSourceStream");
+        }
+
+        Render::Ogre14AuthenticatedTextureReceipt authenticated_receipt;
+        const Render::ValidationResult authenticated_lookup =
+            m_authenticated_texture_receipts.FindResource(
+                group, group_generation, resource_pointer_token,
+                resource_handle, name, authenticated_receipt);
+        if (authenticated_lookup ||
+            authenticated_lookup.code !=
+                Render::ValidationCode::MISSING_REFERENCE ||
+            authenticated_lookup.field !=
+                "texture_registry.resource_lookup")
+        {
+            // A live authenticated binding, poisoned registry, or generation
+            // inconsistency is terminal for ordinary attribution. Never
+            // relabel that state as an unauthenticated observation.
+            return Ogre::DataStreamPtr();
+        }
+        Render::Ogre14SelectedTextureSourceReceipt selected_receipt;
+        const Render::ValidationResult selected_lookup =
+            m_selected_texture_sources.FindResource(
+                group, group_generation, resource_pointer_token,
+                resource_handle, name, selected_receipt);
+        if (selected_lookup ||
+            selected_lookup.code !=
+                Render::ValidationCode::MISSING_REFERENCE ||
+            selected_lookup.field !=
+                "selected_texture_registry.resource_lookup")
+        {
+            return Ogre::DataStreamPtr();
+        }
+    }
+
+    Ogre::DataStreamPtr opened_stream;
+    Ogre::DataStreamPtr replacement;
+    Ogre::MemoryDataStream* replacement_memory = nullptr;
+    std::uintptr_t opened_stream_pointer_token = 0U;
+    Ogre::String selected_archive_name;
+    Ogre::String selected_archive_type;
+    Ogre::String file_info_filename;
+    Ogre::String file_info_path;
+    Ogre::String file_info_basename;
+    Ogre::String exact_member;
+    Ogre::String opened_stream_name;
+    std::uint64_t compressed_size = 0U;
+    std::uint64_t uncompressed_size = 0U;
+    std::uint64_t opened_stream_size = 0U;
+    try
+    {
+        std::lock_guard<std::mutex> archive_lock(
+            m_legacy_material_archive_io_mutex);
+        Ogre::ResourceGroupManager* resource_manager =
+            Ogre::ResourceGroupManager::getSingletonPtr();
+        if (resource_manager == nullptr ||
+            !resource_manager->resourceGroupExists(group))
+        {
+            return Ogre::DataStreamPtr();
+        }
+        std::size_t matching_location_count = 0U;
+        const Ogre::ResourceGroupManager::LocationList& locations =
+            resource_manager->getResourceLocationList(group);
+        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+             locations)
+        {
+            if (location.archive == selected_archive)
+            {
+                ++matching_location_count;
+            }
+        }
+        if (matching_location_count != 1U ||
+            exact_file_info->archive != selected_archive)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        selected_archive_name = selected_archive->getName();
+        selected_archive_type = selected_archive->getType();
+        file_info_filename = exact_file_info->filename;
+        file_info_path = exact_file_info->path;
+        file_info_basename = exact_file_info->basename;
+        exact_member = file_info_path + file_info_basename;
+        compressed_size =
+            static_cast<std::uint64_t>(exact_file_info->compressedSize);
+        uncompressed_size =
+            static_cast<std::uint64_t>(exact_file_info->uncompressedSize);
+        if (selected_archive_name.empty() ||
+            selected_archive_type.empty() || exact_member.empty() ||
+            exact_member != name || compressed_size == 0U ||
+            uncompressed_size == 0U ||
+            uncompressed_size >
+                m_selected_texture_source_configuration.maximum_source_bytes ||
+            uncompressed_size >
+                static_cast<std::uint64_t>(
+                    (std::numeric_limits<std::size_t>::max)()))
+        {
+            return Ogre::DataStreamPtr();
+        }
+
+        opened_stream = const_cast<Ogre::Archive*>(selected_archive)->open(
+            exact_member);
+        if (!opened_stream || opened_stream->size() !=
+                static_cast<std::size_t>(uncompressed_size) ||
+            opened_stream->getName().empty())
+        {
+            return Ogre::DataStreamPtr();
+        }
+        opened_stream_pointer_token =
+            reinterpret_cast<std::uintptr_t>(opened_stream.get());
+        opened_stream_name = opened_stream->getName();
+        opened_stream_size =
+            static_cast<std::uint64_t>(opened_stream->size());
+
+        replacement_memory = OGRE_NEW Ogre::MemoryDataStream(
+            name, static_cast<std::size_t>(uncompressed_size), true, false);
+        replacement = Ogre::DataStreamPtr(replacement_memory);
+        if (opened_stream->read(
+                replacement_memory->getPtr(),
+                static_cast<std::size_t>(uncompressed_size)) !=
+                static_cast<std::size_t>(uncompressed_size) ||
+            opened_stream->tell() !=
+                static_cast<std::size_t>(uncompressed_size))
+        {
+            return Ogre::DataStreamPtr();
+        }
+        replacement->seek(0U);
+    }
+    catch (...)
+    {
+        // Ordinary observations are opportunistic. Archive, allocation, and
+        // stream failures preserve OGRE's normal selected-location load.
+        return Ogre::DataStreamPtr();
+    }
+
+    Render::Ogre14SelectedTextureSourceReceipt receipt;
+    try
+    {
+        Render::Ogre14SelectedTextureSourceCaptureInput capture_input;
+        capture_input.effective_resource_group = group;
+        capture_input.group_generation = group_generation;
+        capture_input.selected_archive_name = selected_archive_name;
+        capture_input.selected_archive_type = selected_archive_type;
+        capture_input.selected_archive_pointer_token =
+            selected_archive_pointer_token;
+        capture_input.file_info_archive_pointer_token =
+            selected_archive_pointer_token;
+        capture_input.file_info_filename = file_info_filename;
+        capture_input.file_info_path = file_info_path;
+        capture_input.file_info_basename = file_info_basename;
+        capture_input.exact_member_name = exact_member;
+        capture_input.file_info_compressed_size = compressed_size;
+        capture_input.file_info_uncompressed_size = uncompressed_size;
+        capture_input.opened_stream_pointer_token =
+            opened_stream_pointer_token;
+        capture_input.opened_stream_name = opened_stream_name;
+        capture_input.opened_stream_size = opened_stream_size;
+        capture_input.resource_pointer_token = resource_pointer_token;
+        capture_input.resource_handle = resource_handle;
+        capture_input.exact_resource_name = name;
+        capture_input.resource_state_count_before_load =
+            state_count_before_load;
+
+        const Render::ValidationResult built =
+            Render::BuildOgre14SelectedTextureSourceReceipt(
+                m_selected_texture_source_configuration,
+                capture_input,
+                replacement_memory->getPtr(),
+                static_cast<std::size_t>(uncompressed_size),
+                receipt);
+        if (!built)
+        {
+            return Ogre::DataStreamPtr();
+        }
+    }
+    catch (...)
+    {
+        // Identity snapshots are opportunistic for ordinary locations. An
+        // allocation failure before publication must leave OGRE's normal
+        // archive load path available.
+        return Ogre::DataStreamPtr();
+    }
+
+    try
+    {
+        std::scoped_lock<std::mutex, std::mutex> capture_lock(
+            m_legacy_material_archive_io_mutex,
+            m_legacy_material_state_mutex);
+        Ogre::ResourceGroupManager* resource_manager =
+            Ogre::ResourceGroupManager::getSingletonPtr();
+        std::size_t matching_location_count = 0U;
+        if (resource_manager != nullptr &&
+            resource_manager->resourceGroupExists(group))
+        {
+            const Ogre::ResourceGroupManager::LocationList& locations =
+                resource_manager->getResourceLocationList(group);
+            for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+                 locations)
+            {
+                if (location.archive == selected_archive)
+                {
+                    ++matching_location_count;
+                }
+            }
+        }
+        const auto package_group = m_package_archives_by_group.find(group);
+        const auto generation =
+            m_legacy_material_group_generations.find(group);
+        const Ogre::ResourcePtr by_handle =
+            texture_manager->getByHandle(resource->getHandle());
+        const Ogre::ResourcePtr by_name =
+            texture_manager->getResourceByName(name, group);
+        if (matching_location_count != 1U ||
+            package_group == m_package_archives_by_group.end() ||
+            package_group->second.empty() ||
+            generation == m_legacy_material_group_generations.end() ||
+            generation->second != group_generation ||
+            m_authenticated_package_archives_by_group.find(group) !=
+                m_authenticated_package_archives_by_group.end() ||
+            m_authenticated_package_archive_bindings_by_group.find(group) !=
+                m_authenticated_package_archive_bindings_by_group.end() ||
+            !m_authenticated_texture_receipts.initialized() ||
+            !m_selected_texture_sources.initialized() ||
+            selected_archive->getName() != selected_archive_name ||
+            selected_archive->getType() != selected_archive_type ||
+            exact_file_info->archive != selected_archive ||
+            exact_file_info->filename != file_info_filename ||
+            exact_file_info->path != file_info_path ||
+            exact_file_info->basename != file_info_basename ||
+            static_cast<std::uint64_t>(exact_file_info->compressedSize) !=
+                compressed_size ||
+            static_cast<std::uint64_t>(exact_file_info->uncompressedSize) !=
+                uncompressed_size ||
+            exact_member != name ||
+            !resource->isLoading() || resource->isLoaded() ||
+            resource->getStateCount() !=
+                static_cast<std::size_t>(state_count_before_load) ||
+            resource->getHandle() !=
+                static_cast<Ogre::ResourceHandle>(resource_handle) ||
+            resource->getName() != name || resource->getGroup() != group ||
+            !by_handle || !by_name || by_handle.get() != resource ||
+            by_name.get() != resource ||
+            replacement.get() != replacement_memory ||
+            replacement->getName() != name || replacement->tell() != 0U ||
+            replacement->size() !=
+                static_cast<std::size_t>(uncompressed_size) ||
+            !receipt.ReplacementBytesMatch(
+                replacement_memory->getPtr(), replacement->size()))
+        {
+            return Ogre::DataStreamPtr();
+        }
+
+        const std::uint64_t source_bytes =
+            static_cast<std::uint64_t>(receipt.source_size());
+        if (source_bytes >
+                (std::numeric_limits<std::uint64_t>::max)() / 2U)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        const std::uint64_t stage_charge = source_bytes * 2U;
+        const std::size_t native_replacement_name_bytes =
+            replacement->getName().size();
+        const std::uint64_t replacement_name_bytes =
+            static_cast<std::uint64_t>(native_replacement_name_bytes);
+        if (static_cast<std::size_t>(replacement_name_bytes) !=
+                native_replacement_name_bytes ||
+            receipt.identity_size() >
+                (std::numeric_limits<std::uint64_t>::max)() -
+                    replacement_name_bytes)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        const std::uint64_t identity_charge =
+            receipt.identity_size() + replacement_name_bytes;
+        if (m_selected_texture_source_stages.size() >=
+                m_selected_texture_source_configuration.
+                    maximum_live_receipts ||
+            stage_charge >
+                m_selected_texture_source_configuration.
+                    maximum_retained_source_bytes ||
+            m_selected_texture_source_staged_bytes >
+                m_selected_texture_source_configuration.
+                        maximum_retained_source_bytes -
+                    stage_charge ||
+            identity_charge >
+                m_selected_texture_source_configuration.
+                    maximum_total_identity_bytes ||
+            m_selected_texture_source_staged_identity_bytes >
+                m_selected_texture_source_configuration.
+                        maximum_total_identity_bytes -
+                    identity_charge ||
+            m_selected_texture_source_stages.find(resource) !=
+                m_selected_texture_source_stages.end())
+        {
+            return Ogre::DataStreamPtr();
+        }
+
+        SelectedTextureSourceStage stage;
+        stage.receipt = receipt;
+        stage.expected_stream = replacement;
+        stage.expected_memory_stream = replacement_memory;
+        stage.retained_source_charge = stage_charge;
+        stage.retained_identity_charge = identity_charge;
+        const auto inserted = m_selected_texture_source_stages.emplace(
+            resource, std::move(stage));
+        if (!inserted.second)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        m_selected_texture_source_staged_bytes += stage_charge;
+        m_selected_texture_source_staged_identity_bytes += identity_charge;
+        handled = true;
+        return replacement;
+    }
+    catch (...)
+    {
+        // No stage or registry state was published before the final emplace.
+        // A failed emplace is strongly exception-safe; normal OGRE loading
+        // remains authoritative for this ordinary source.
+        return Ogre::DataStreamPtr();
+    }
+}
+
 bool ContentManager::resourceStreamOpeningEnabled() const
 {
     return true;
@@ -5744,7 +6632,9 @@ Ogre::DataStreamPtr ContentManager::resourceStreamOpening(
     handled = false;
     if (resource != nullptr)
     {
-        return Ogre::DataStreamPtr();
+        return this->OpenSelectedTextureSourceStream(
+            name, group, resource, selected_archive,
+            exact_file_info, handled);
     }
 
     std::uint64_t parse_token = 0U;
@@ -6416,35 +7306,185 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
         Ogre::TextureManager::getSingletonPtr() != nullptr &&
         resource->getCreator() == Ogre::TextureManager::getSingletonPtr())
     {
-        // A tracked authenticated texture is returned directly from
-        // resourceLoading(). Reaching this callback means OGRE opened another
-        // location, so remove only an exact stale binding and never bless the
-        // callback stream by resource name or AUTODETECT lookup.
-        std::lock_guard<std::mutex> state_lock(
-            m_legacy_material_state_mutex);
-        const Render::ValidationResult removal =
-            Render::RemoveOgre14AuthenticatedTextureResource(
-                resource->getGroup(),
-                reinterpret_cast<std::uintptr_t>(resource),
-                static_cast<std::uint64_t>(resource->getHandle()),
-                resource->getName(),
-                m_authenticated_texture_receipts);
-        if (!removal)
+        Render::Ogre14SelectedTextureSourceReceipt committed_receipt;
+        bool committed_selected_source = false;
         {
-            // This callback proves OGRE selected an untrusted stream after the
-            // authenticated resource binding was minted. If copy-on-write
-            // removal cannot publish, invalidate all current texture authority
-            // before formatting or logging anything fallible.
-            Render::PoisonOgre14AuthenticatedTextureReceiptRegistry(
-                m_authenticated_texture_receipts);
-            LOG(fmt::format(
-                "[RoR|ContentManager|AuthenticatedTexture] Refused stale "
-                "stream-open binding removal for '{}' in group '{}'; texture "
-                "authority is terminally poisoned: {} ({})",
-                resource->getName(),
-                resource->getGroup(),
-                removal.detail,
-                removal.field));
+            std::lock_guard<std::mutex> state_lock(
+                m_legacy_material_state_mutex);
+            const auto staged =
+                m_selected_texture_source_stages.find(resource);
+            if (staged != m_selected_texture_source_stages.end())
+            {
+                const auto* metadata = staged->second.receipt.metadata();
+                Ogre::TextureManager* manager =
+                    Ogre::TextureManager::getSingletonPtr();
+                const auto generation =
+                    m_legacy_material_group_generations.find(group);
+                const auto package_group =
+                    m_package_archives_by_group.find(group);
+                const Ogre::ResourcePtr by_handle =
+                    manager->getByHandle(resource->getHandle());
+                const Ogre::ResourcePtr by_name =
+                    manager->getResourceByName(name, group);
+                const bool exact_delivery =
+                    metadata != nullptr && dataStream &&
+                    staged->second.expected_stream &&
+                    staged->second.expected_memory_stream != nullptr &&
+                    staged->second.expected_stream.get() ==
+                        dataStream.get() &&
+                    staged->second.expected_memory_stream ==
+                        dataStream.get() &&
+                    dataStream->getName() == name &&
+                    dataStream->size() ==
+                        staged->second.receipt.source_size() &&
+                    dataStream->tell() == 0U &&
+                    staged->second.receipt.ReplacementBytesMatch(
+                        staged->second.expected_memory_stream->getPtr(),
+                        dataStream->size()) &&
+                    metadata->source.effective_resource_group == group &&
+                    metadata->source.group_generation != 0U &&
+                    generation !=
+                        m_legacy_material_group_generations.end() &&
+                    generation->second ==
+                        metadata->source.group_generation &&
+                    package_group != m_package_archives_by_group.end() &&
+                    !package_group->second.empty() &&
+                    m_authenticated_package_archives_by_group.find(group) ==
+                        m_authenticated_package_archives_by_group.end() &&
+                    m_authenticated_package_archive_bindings_by_group.find(
+                        group) ==
+                        m_authenticated_package_archive_bindings_by_group.end() &&
+                    resource->getName() == name &&
+                    resource->getGroup() == group &&
+                    reinterpret_cast<std::uintptr_t>(resource) ==
+                        metadata->source.resource_pointer_token &&
+                    static_cast<std::uint64_t>(resource->getHandle()) ==
+                        metadata->source.resource_handle &&
+                    resource->getStateCount() ==
+                        static_cast<std::size_t>(
+                            metadata->source.
+                                resource_state_count_before_load) &&
+                    resource->isLoading() && !resource->isLoaded() &&
+                    by_handle && by_name && by_handle.get() == resource &&
+                    by_name.get() == resource;
+
+                if (exact_delivery)
+                {
+                    Render::Ogre14SelectedTextureSourceReceiptRegistry
+                        registry_candidate = m_selected_texture_sources;
+                    const Render::ValidationResult commit =
+                        Render::CommitOgre14SelectedTextureSourceReceipt(
+                            staged->second.receipt,
+                            registry_candidate);
+                    if (commit)
+                    {
+                        committed_receipt = staged->second.receipt;
+                        m_selected_texture_sources =
+                            std::move(registry_candidate);
+                        committed_selected_source = true;
+                    }
+                }
+                this->EraseSelectedTextureSourceStageLocked(resource);
+
+                if (!committed_selected_source)
+                {
+                    // The archive stream is already open but the native
+                    // Texture has not yet completed its load. Drop the
+                    // pre-publication candidate and allow ordinary OGRE
+                    // loading to continue without a selected-source receipt.
+                    return;
+                }
+            }
+            else
+            {
+                const auto generation =
+                    m_legacy_material_group_generations.find(
+                        resource->getGroup());
+                if (generation !=
+                    m_legacy_material_group_generations.end())
+                {
+                    const Render::ValidationResult selected_removal =
+                        Render::RemoveOgre14SelectedTextureSourceResource(
+                            resource->getGroup(), generation->second,
+                            reinterpret_cast<std::uintptr_t>(resource),
+                            static_cast<std::uint64_t>(
+                                resource->getHandle()),
+                            resource->getName(),
+                            m_selected_texture_sources);
+                    if (!selected_removal)
+                    {
+                        // The Texture has not loaded yet. Throwing aborts the
+                        // external mutation; the selected registry remains
+                        // unpoisoned and retains its prior publication.
+                        OGRE_EXCEPT(
+                            Ogre::Exception::ERR_INVALID_STATE,
+                            fmt::format(
+                                "Selected texture '{}' in group '{}' could "
+                                "not revoke a stale receipt at stream open: "
+                                "{} ({})",
+                                resource->getName(), resource->getGroup(),
+                                selected_removal.detail,
+                                selected_removal.field),
+                            "ContentManager::resourceStreamOpened");
+                    }
+                }
+
+                // A tracked authenticated texture is returned directly from
+                // resourceLoading(). Reaching this callback without an exact
+                // ordinary stage means OGRE opened another location, so
+                // remove only an exact stale authenticated binding.
+                const Render::ValidationResult removal =
+                    Render::RemoveOgre14AuthenticatedTextureResource(
+                        resource->getGroup(),
+                        reinterpret_cast<std::uintptr_t>(resource),
+                        static_cast<std::uint64_t>(resource->getHandle()),
+                        resource->getName(),
+                        m_authenticated_texture_receipts);
+                if (!removal)
+                {
+                    // This callback proves OGRE selected an untrusted stream
+                    // after authenticated authority was minted. Invalidate
+                    // all current authenticated texture authority before any
+                    // fallible diagnostic formatting.
+                    Render::PoisonOgre14AuthenticatedTextureReceiptRegistry(
+                        m_authenticated_texture_receipts);
+                    LOG(fmt::format(
+                        "[RoR|ContentManager|AuthenticatedTexture] Refused "
+                        "stale stream-open binding removal for '{}' in group "
+                        "'{}'; texture authority is terminally poisoned: {} "
+                        "({})",
+                        resource->getName(),
+                        resource->getGroup(),
+                        removal.detail,
+                        removal.field));
+                }
+                return;
+            }
+        }
+
+        if (committed_selected_source)
+        {
+            try
+            {
+                const auto* metadata = committed_receipt.metadata();
+                if (metadata != nullptr)
+                {
+                    LOG(fmt::format(
+                        "[RoR|ContentManager|SelectedTextureSource] "
+                        "Committed ordinary selected-stream receipt "
+                        "group='{}' texture='{}' member='{}' bytes={} "
+                        "observed_bytes_sha256={}",
+                        metadata->source.effective_resource_group,
+                        metadata->source.exact_resource_name,
+                        metadata->source.exact_member_name,
+                        metadata->byte_count,
+                        metadata->observed_bytes_sha256));
+                }
+            }
+            catch (...)
+            {
+                // Diagnostics are never part of receipt authority.
+            }
         }
         return;
     }
