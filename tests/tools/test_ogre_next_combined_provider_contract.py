@@ -338,6 +338,9 @@ class CombinedProviderContractTests(unittest.TestCase):
         for evidence in (
             "REQUIRED_SYMBOL_TOKENS",
             "FORBIDDEN_SYMBOL_TOKENS",
+            "FORBIDDEN_ROOT_IMAGE_CODEC_ARCHIVE_TOKENS",
+            "FORBIDDEN_EXTERNAL_IMAGE_CODEC_SYMBOL_PREFIXES",
+            "_external_image_codec_symbol_violations",
             "missing_archive_evidence",
             "extracted_sdl_members",
             "verified_audited_archives",
@@ -426,6 +429,115 @@ class CombinedProviderContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "do not cover every"):
                     module._verify_strict_fp_receipts(provider, hostile)
 
+    def test_authenticated_source_decoder_is_exactly_receipt_bound(self) -> None:
+        for source in (
+            "cmake/VerifyStbImageSource.cmake",
+            "tests/gfx/render/Ogre14SourceTextureDecoderTests.cpp",
+            "tests/tools/test_ogre14_source_texture_decoder_contract.py",
+        ):
+            self.assertIn(f'"{source}"', PROVIDER)
+        for token in (
+            '"authenticated_source_image_decoder": {',
+            '"schema": "@ROR_STB_IMAGE_SOURCE_SCHEMA@"',
+            '"upstream_commit": "@ROR_STB_IMAGE_UPSTREAM_COMMIT@"',
+            '"macro_contract_verified": '
+            "@ROR_STB_IMAGE_MACRO_CONTRACT_VERIFIED_JSON@",
+            '"path": "@ROR_STB_IMAGE_HEADER_PATH@"',
+            '"sha256": "@ROR_STB_IMAGE_HEADER_SHA256@"',
+            '"size": @ROR_STB_IMAGE_LICENSE_SIZE@',
+        ):
+            self.assertIn(token, PROVIDER_CONTRACT)
+        self.assertIn(
+            "_verify_authenticated_source_image_decoder", VERIFIER
+        )
+        self.assertIn(
+            '"authenticated_source_image_decoder": (', VERIFIER
+        )
+
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_stb_image", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        source_records: dict[str, dict[str, object]] = {}
+        manifest_lines = []
+        for name, expected in module.STB_IMAGE_SOURCE_FILES.items():
+            relative_path = expected["relative_path"]
+            path = ROOT.joinpath(*Path(relative_path).parts)
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            record: dict[str, object] = {
+                "relative_path": relative_path,
+                "path": str(path),
+                "sha256": digest,
+            }
+            if "size" in expected:
+                record["size"] = path.stat().st_size
+            source_records[name] = record
+            manifest_lines.append(
+                f"{relative_path}|{path.stat().st_size}|{digest}"
+            )
+
+        provider = {
+            "authenticated_source_image_decoder": {
+                "schema": module.STB_IMAGE_SOURCE_SCHEMA,
+                "upstream_commit": module.STB_IMAGE_UPSTREAM_COMMIT,
+                "macro_contract_verified": True,
+                **source_records,
+            }
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            manifest = Path(temporary) / "provider-source-manifest.txt"
+            manifest.write_text(
+                "\n".join(sorted(manifest_lines)) + "\n", encoding="utf-8"
+            )
+            report = module._verify_authenticated_source_image_decoder(
+                provider, manifest, ROOT
+            )
+            self.assertEqual(report["schema"], module.STB_IMAGE_SOURCE_SCHEMA)
+            self.assertTrue(report["macro_contract_verified"])
+            self.assertEqual(set(report["files"]), set(source_records))
+            self.assertTrue(
+                all(
+                    item["provider_source_manifest_attested"] is True
+                    for item in report["files"].values()
+                )
+            )
+
+            hostile = json.loads(json.dumps(provider))
+            hostile["authenticated_source_image_decoder"][
+                "macro_contract_verified"
+            ] = 1
+            with self.assertRaisesRegex(ValueError, "identity changed"):
+                module._verify_authenticated_source_image_decoder(
+                    hostile, manifest, ROOT
+                )
+
+            hostile = json.loads(json.dumps(provider))
+            hostile["authenticated_source_image_decoder"]["header"][
+                "sha256"
+            ] = "0" * 64
+            with self.assertRaisesRegex(ValueError, "contract digest changed"):
+                module._verify_authenticated_source_image_decoder(
+                    hostile, manifest, ROOT
+                )
+
+            manifest.write_text(
+                "\n".join(
+                    line
+                    for line in sorted(manifest_lines)
+                    if "stb_image.h" not in line
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "not attested exactly once"):
+                module._verify_authenticated_source_image_decoder(
+                    provider, manifest, ROOT
+                )
+
     def test_overlay_remains_audited_without_fabricated_runtime_use(self) -> None:
         production_n1_link = block(
             PROVIDER,
@@ -468,8 +580,51 @@ class CombinedProviderContractTests(unittest.TestCase):
             module._link_map_contains(payload, "RendererBridgeChannel.cpp.o")
         )
         self.assertFalse(module._link_map_contains(payload, "libSDL2.a("))
+        self.assertFalse(module._link_map_contains(payload, "libpng.a("))
         self.assertIn("link_map.read_bytes()", VERIFIER)
         self.assertNotIn("link_map.read_text", VERIFIER)
+
+    def test_binary_proof_rejects_external_or_static_image_codec_leakage(
+        self,
+    ) -> None:
+        specification = importlib.util.spec_from_file_location(
+            "combined_binary_verifier_image_codecs", VERIFIER_PATH
+        )
+        self.assertIsNotNone(specification)
+        self.assertIsNotNone(specification.loader)
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+
+        symbols = (
+            "0000000100001000 T _png_create_read_struct\n"
+            "0000000100002000 T _jpeg_std_error\n"
+            "0000000100003000 T _stbi_load_from_memory\n"
+            "0000000100004000 T _unrelated_symbol\n"
+        )
+        self.assertEqual(
+            module._external_image_codec_symbol_violations(symbols),
+            ["_jpeg_std_error", "_png_create_read_struct", "_stbi_load_from_memory"],
+        )
+
+        hostile_map = (
+            b"/locked/lib/libpng16.a(pngread.o)\n"
+            b"/locked/lib/libjpeg-static.a(jdapimin.o)\n"
+        )
+        extracted = sorted(
+            token
+            for token in module.FORBIDDEN_ROOT_IMAGE_CODEC_ARCHIVE_TOKENS
+            if module._link_map_contains(hostile_map, token)
+        )
+        self.assertEqual(extracted, ["libjpeg-static.a(", "libpng16.a("])
+
+        for token in (
+            "RoR::Render::DecodeOgre14SourceTexture(",
+            "RoR::Gfx::Detail::OgreNextDemoMaterialSource::",
+            '"external_image_codec_symbols_present": False',
+            '"root_image_codec_static_archive_members_extracted": False',
+            '"authenticated_source_texture_decoder_present": True',
+        ):
+            self.assertIn(token, VERIFIER)
 
     def test_manifests_bind_build_authority_and_rehash_at_postlink(self) -> None:
         for path in (

@@ -78,6 +78,25 @@ REQUIRED_SYMBOL_TOKENS = (
     "RoR::RendererOgreNextSdlWindowRuntime::",
     "RoR::Render::OgreNextN1Frontend::",
     "RoR::Render::OgreNextDisplayDomainUnlit::",
+    "RoR::Render::DecodeOgre14SourceTexture(",
+    "RoR::Gfx::Detail::OgreNextDemoMaterialSource::",
+)
+
+FORBIDDEN_ROOT_IMAGE_CODEC_ARCHIVE_TOKENS = (
+    "libpng.a(",
+    "libpng.a[",
+    "libpng16.a(",
+    "libpng16.a[",
+    "libjpeg.a(",
+    "libjpeg.a[",
+    "libjpeg-static.a(",
+    "libjpeg-static.a[",
+)
+
+FORBIDDEN_EXTERNAL_IMAGE_CODEC_SYMBOL_PREFIXES = (
+    "_png_",
+    "_jpeg_",
+    "_stbi_",
 )
 
 REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS = (
@@ -89,6 +108,34 @@ REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS = (
 REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST = (
     "__ZNSt3__119piecewise_constructE",
 )
+
+STB_IMAGE_SOURCE_SCHEMA = "ror.ogre14_source_image_codec.v1"
+STB_IMAGE_UPSTREAM_COMMIT = "2c980bb59875b0d32144a71867fbdebb2f77cd20"
+STB_IMAGE_SOURCE_FILES = {
+    "source_lock": {
+        "relative_path": (
+            "source/main/gfx/render/third_party/stb/"
+            "stb-image-source.lock.json"
+        ),
+        "sha256": (
+            "9902dd2891f8d8733d24cc06316ec98e23eac5b108ccca6c1a519cc94ddf61b6"
+        ),
+    },
+    "header": {
+        "relative_path": "source/main/gfx/render/third_party/stb/stb_image.h",
+        "size": 283010,
+        "sha256": (
+            "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
+        ),
+    },
+    "license": {
+        "relative_path": "source/main/gfx/render/third_party/stb/LICENSE.txt",
+        "size": 2362,
+        "sha256": (
+            "771d43eb5017cb859978ad3ddb027fb80ea6119681f286950053404d95b21707"
+        ),
+    },
+}
 
 
 def _regular_absolute(path: str, description: str) -> Path:
@@ -122,6 +169,22 @@ def _sha256(path: Path) -> str:
 def _link_map_contains(payload: bytes, token: str) -> bool:
     """Search Apple link-map bytes without interpreting embedded literals as text."""
     return token.encode("utf-8", errors="strict") in payload
+
+
+def _external_image_codec_symbol_violations(payload: str) -> list[str]:
+    """Return exact externally-defined C codec symbols from an nm listing."""
+    violations: list[str] = []
+    for line in payload.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        symbol = fields[-1]
+        if any(
+            symbol.startswith(prefix)
+            for prefix in FORBIDDEN_EXTERNAL_IMAGE_CODEC_SYMBOL_PREFIXES
+        ):
+            violations.append(symbol)
+    return sorted(set(violations))
 
 
 def _reject_duplicate_pairs(
@@ -270,6 +333,101 @@ def _verify_strict_fp_receipts(
     }
 
 
+def _source_manifest_file_record(
+    manifest: Path,
+    relative_path: str,
+    description: str,
+) -> tuple[int, str]:
+    matches: list[tuple[int, str]] = []
+    for line in manifest.read_text(encoding="utf-8", errors="strict").splitlines():
+        fields = line.split("|")
+        if len(fields) == 3 and fields[0] == relative_path:
+            size_text, sha256 = fields[1:]
+            if not size_text.isdecimal() or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+                raise ValueError(f"{description} has an invalid source-manifest entry")
+            matches.append((int(size_text), sha256))
+    if len(matches) != 1:
+        raise ValueError(
+            f"{description} is not attested exactly once by the provider source manifest"
+        )
+    return matches[0]
+
+
+def _verify_authenticated_source_image_decoder(
+    provider_contract: dict[str, object],
+    provider_manifest: Path,
+    provider_source_root: Path,
+) -> dict[str, object]:
+    decoder = provider_contract.get("authenticated_source_image_decoder")
+    if not isinstance(decoder, dict):
+        raise ValueError(
+            "combined provider contract lacks authenticated source-image decoder proof"
+        )
+    if (
+        decoder.get("schema") != STB_IMAGE_SOURCE_SCHEMA
+        or decoder.get("upstream_commit") != STB_IMAGE_UPSTREAM_COMMIT
+        or decoder.get("macro_contract_verified") is not True
+    ):
+        raise ValueError(
+            "combined provider authenticated source-image decoder identity changed"
+        )
+
+    verified_files: dict[str, dict[str, object]] = {}
+    for name, expected in STB_IMAGE_SOURCE_FILES.items():
+        record = decoder.get(name)
+        if not isinstance(record, dict):
+            raise ValueError(f"stb_image {name} proof is invalid")
+        relative_path = expected["relative_path"]
+        if record.get("relative_path") != relative_path:
+            raise ValueError(f"stb_image {name} relative path changed")
+        source_path = _regular_absolute(
+            str(record.get("path", "")), f"stb_image {name}"
+        )
+        expected_source_path = provider_source_root.joinpath(
+            *PurePosixPath(relative_path).parts
+        ).resolve(strict=True)
+        if source_path != expected_source_path:
+            raise ValueError(f"stb_image {name} escaped the provider source root")
+
+        expected_sha256 = expected["sha256"]
+        if record.get("sha256") != expected_sha256:
+            raise ValueError(f"stb_image {name} contract digest changed")
+        observed_size = source_path.stat().st_size
+        observed_sha256 = _sha256(source_path)
+        if observed_sha256 != expected_sha256:
+            raise ValueError(f"stb_image {name} source bytes changed")
+        if "size" in expected and (
+            type(record.get("size")) is not int
+            or record.get("size") != expected["size"]
+            or observed_size != expected["size"]
+        ):
+            raise ValueError(f"stb_image {name} byte count changed")
+
+        manifest_size, manifest_sha256 = _source_manifest_file_record(
+            provider_manifest,
+            relative_path,
+            f"stb_image {name}",
+        )
+        if manifest_size != observed_size or manifest_sha256 != observed_sha256:
+            raise ValueError(
+                f"stb_image {name} differs from the provider source manifest"
+            )
+        verified_files[name] = {
+            "relative_path": relative_path,
+            "path": str(source_path),
+            "size": observed_size,
+            "sha256": observed_sha256,
+            "provider_source_manifest_attested": True,
+        }
+
+    return {
+        "schema": STB_IMAGE_SOURCE_SCHEMA,
+        "upstream_commit": STB_IMAGE_UPSTREAM_COMMIT,
+        "macro_contract_verified": True,
+        "files": verified_files,
+    }
+
+
 def _write_receipt(path: Path, document: dict[str, object]) -> None:
     if not path.is_absolute() or path.parent.is_symlink():
         raise ValueError(f"receipt path must be direct and absolute: {path}")
@@ -390,6 +548,13 @@ def main() -> int:
             != contract_document.get("provider_source_manifest_sha256")
         ):
             raise ValueError("combined provider contract differs from the executable")
+        authenticated_source_image_decoder = (
+            _verify_authenticated_source_image_decoder(
+                provider_contract_document,
+                provider_manifest,
+                provider_source_root,
+            )
+        )
 
         namespace_audit_document = _json_object(
             namespace_audit_report, "combined namespace audit report"
@@ -588,6 +753,9 @@ def main() -> int:
         symbol_violations = sorted(
             token for token in FORBIDDEN_SYMBOL_TOKENS if token in symbols
         )
+        external_image_codec_symbol_violations = (
+            _external_image_codec_symbol_violations(symbols)
+        )
         all_defined = subprocess.run(
             [
                 str(nm),
@@ -624,6 +792,11 @@ def main() -> int:
         extracted_sdl_members = (
             _link_map_contains(link_map_payload, "libSDL2.a(")
             or _link_map_contains(link_map_payload, "libSDL2.a[")
+        )
+        extracted_root_image_codec_members = sorted(
+            token
+            for token in FORBIDDEN_ROOT_IMAGE_CODEC_ARCHIVE_TOKENS
+            if _link_map_contains(link_map_payload, token)
         )
         missing_archive_evidence = sorted(
             str(archive)
@@ -676,8 +849,10 @@ def main() -> int:
 
         if (
             symbol_violations
+            or external_image_codec_symbol_violations
             or object_violations
             or extracted_sdl_members
+            or extracted_root_image_codec_members
             or missing_symbol_evidence
             or missing_archive_evidence
             or missing_ogre14_dylib_evidence
@@ -685,7 +860,9 @@ def main() -> int:
         ):
             details = ", ".join(
                 symbol_violations
+                + external_image_codec_symbol_violations
                 + object_violations
+                + extracted_root_image_codec_members
                 + missing_symbol_evidence
                 + missing_archive_evidence
                 + missing_ogre14_dylib_evidence
@@ -723,13 +900,23 @@ def main() -> int:
                     "audited_ogre14_dylibs": verified_audited_legacy,
                 },
                 "ogre_next_upstream_strict_fp": strict_fp_report,
+                "authenticated_source_image_decoder": (
+                    authenticated_source_image_decoder
+                ),
                 "provider_source_manifest": provider_manifest_report,
                 "selected_game_source_manifest": selected_manifest_report,
                 "defined_external_symbol_count": len(symbol_lines),
                 "all_defined_symbol_count": len(all_defined_symbol_lines),
                 "forbidden_symbol_tokens": list(FORBIDDEN_SYMBOL_TOKENS),
+                "forbidden_external_image_codec_symbol_prefixes": list(
+                    FORBIDDEN_EXTERNAL_IMAGE_CODEC_SYMBOL_PREFIXES
+                ),
+                "external_image_codec_symbols_present": False,
                 "forbidden_link_map_object_tokens": list(
                     FORBIDDEN_LINK_MAP_OBJECT_TOKENS
+                ),
+                "forbidden_root_image_codec_archive_tokens": list(
+                    FORBIDDEN_ROOT_IMAGE_CODEC_ARCHIVE_TOKENS
                 ),
                 "bridge_or_transport_symbols_present": False,
                 "bridge_or_transport_objects_present": False,
@@ -748,6 +935,8 @@ def main() -> int:
                     "required_symbols": list(REQUIRED_SDL_PROVIDER_SYMBOL_TOKENS),
                 },
                 "root_sdl_static_archive_members_extracted": False,
+                "root_image_codec_static_archive_members_extracted": False,
+                "authenticated_source_texture_decoder_present": True,
                 "ogre_next_runtime_contributors_present": True,
                 "ogre14_host_load_commands_present": True,
             },

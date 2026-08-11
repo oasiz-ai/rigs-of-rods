@@ -12,6 +12,28 @@
   "ogre_next_archive_sha256": "@ROR_OGRE_NEXT_ARCHIVE_SHA256@",
   "ogre_next_upstream_strict_fp": true,
   "ogre_next_upstream_strict_fp_target_count": @ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGET_COUNT@,
+  "authenticated_source_image_decoder": {
+    "schema": "@ROR_STB_IMAGE_SOURCE_SCHEMA@",
+    "upstream_commit": "@ROR_STB_IMAGE_UPSTREAM_COMMIT@",
+    "macro_contract_verified": @ROR_STB_IMAGE_MACRO_CONTRACT_VERIFIED_JSON@,
+    "source_lock": {
+      "relative_path": "@ROR_STB_IMAGE_SOURCE_LOCK_RELATIVE_PATH@",
+      "path": "@ROR_STB_IMAGE_SOURCE_LOCK_PATH@",
+      "sha256": "@ROR_STB_IMAGE_SOURCE_LOCK_SHA256@"
+    },
+    "header": {
+      "relative_path": "@ROR_STB_IMAGE_HEADER_RELATIVE_PATH@",
+      "path": "@ROR_STB_IMAGE_HEADER_PATH@",
+      "size": @ROR_STB_IMAGE_HEADER_SIZE@,
+      "sha256": "@ROR_STB_IMAGE_HEADER_SHA256@"
+    },
+    "license": {
+      "relative_path": "@ROR_STB_IMAGE_LICENSE_RELATIVE_PATH@",
+      "path": "@ROR_STB_IMAGE_LICENSE_PATH@",
+      "size": @ROR_STB_IMAGE_LICENSE_SIZE@,
+      "sha256": "@ROR_STB_IMAGE_LICENSE_SHA256@"
+    }
+  },
   "rapidjson_archive_sha256": "@ROR_RAPIDJSON_ARCHIVE_SHA256@",
   "rapidjson_private_include_dir": "@ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR@",
   "rapidjson_document_header": "@ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER@",
