@@ -414,6 +414,7 @@ if (ROR_OGRE14)
         gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceipt.{h,cpp}
         gfx/ogre14/Ogre14AuthenticatedResourceThreadGate.h
         gfx/ogre14/Ogre14AuthenticatedTextureReceipt.{h,cpp}
+        gfx/ogre14/Ogre14SelectedTextureSource.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.{h,cpp}
         gfx/ogre14/Ogre14TerrainCompositeNativeAdapter.cpp
         gfx/ogre14/detail/OgreNextDemoPrivatePolicy.{h,cpp}

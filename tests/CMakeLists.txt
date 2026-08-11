@@ -1161,6 +1161,15 @@ target_include_directories(
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
 )
 add_executable(
+    ror_ogre14_selected_texture_source_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
+)
+target_include_directories(
+    ror_ogre14_selected_texture_source_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+)
+add_executable(
     ror_ogre14_terrain_composite_capture_receipt_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
@@ -1358,6 +1367,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre14_live_material_coordinator_tests
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     ror_ogre14_authenticated_texture_receipt_tests
+    ror_ogre14_selected_texture_source_tests
     ror_ogre14_terrain_composite_capture_receipt_tests
     ror_ogre14_authenticated_material_script_receipt_tests
     ror_render_hdr_reference_tests
@@ -2875,6 +2885,11 @@ add_test(
 add_test(
     NAME ogre14_authenticated_texture_receipt
     COMMAND ror_ogre14_authenticated_texture_receipt_tests
+)
+
+add_test(
+    NAME ogre14_selected_texture_source
+    COMMAND ror_ogre14_selected_texture_source_tests
 )
 
 add_test(
