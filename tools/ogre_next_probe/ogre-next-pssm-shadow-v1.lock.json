@@ -285,7 +285,7 @@
     {
       "role": "metal_render_system_capabilities",
       "path": "RenderSystems/Metal/src/OgreMetalRenderSystem.mm",
-      "sha256": "bebe97dd2cb318d6aa2331eaaf0f8b181e18ac66660b02d4160802e0ed8ed0eb"
+      "sha256": "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222"
     },
     {
       "role": "vulkan_d32_mapping",
