@@ -165,6 +165,21 @@ class CombinedProviderContractTests(unittest.TestCase):
 
     def test_language_remap_and_strict_fp_are_explicit(self) -> None:
         self.assertIn("PRIVATE -fno-fast-math -ffp-contract=off", PROVIDER)
+        strict_fp = block(
+            PROVIDER,
+            "# The host's optimized configuration globally enables -ffast-math.",
+            "# The root Conan toolchain intentionally prefers config packages.",
+        )
+        for token in (
+            "ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS",
+            "ROR_OGRE_NEXT_STRICT_FP_APPLIED",
+            "-fno-fast-math",
+            "-ffp-contract=off",
+            "ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGET_COUNT",
+        ):
+            self.assertIn(token, strict_fp)
+        self.assertIn("--require-upstream-strict-fp", PROVIDER)
+        self.assertIn('"ogre_next_upstream_strict_fp": true', PROVIDER_CONTRACT)
         for invocation in (
             "ror_ogre_next_embedded_n1_runtime LANGUAGES CXX OBJCXX",
             "ror_ogre_next_embedded_sdl_window_runtime LANGUAGES OBJCXX",

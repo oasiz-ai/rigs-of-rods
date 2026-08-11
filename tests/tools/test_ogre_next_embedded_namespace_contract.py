@@ -233,6 +233,22 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                     require_entries=True,
                 )
 
+    def test_strict_fp_compile_order_rejects_host_fast_math_last(self) -> None:
+        AUDIT.require_strict_fp_compile_command(
+            "clang++ -O2 -ffast-math -fno-fast-math -ffp-contract=off -c a.cpp",
+            "good",
+        )
+        with self.assertRaisesRegex(RuntimeError, "does not override"):
+            AUDIT.require_strict_fp_compile_command(
+                "clang++ -fno-fast-math -ffp-contract=off -ffast-math -c a.cpp",
+                "bad-order",
+            )
+        with self.assertRaisesRegex(RuntimeError, "does not end"):
+            AUDIT.require_strict_fp_compile_command(
+                "clang++ -ffast-math -fno-fast-math -ffp-contract=fast -c a.cpp",
+                "bad-contract",
+            )
+
     def test_audit_binds_exact_contract_inputs_and_source_commit(self) -> None:
         embedded = self.lock["embedded_namespace"]
         contract = {

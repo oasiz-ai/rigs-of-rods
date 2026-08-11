@@ -10,6 +10,8 @@
   "ror_source_manifest_sha256": "@ROR_SOURCE_MANIFEST_SHA256@",
   "ogre_next_commit": "@ROR_OGRE_NEXT_COMMIT@",
   "ogre_next_archive_sha256": "@ROR_OGRE_NEXT_ARCHIVE_SHA256@",
+  "ogre_next_upstream_strict_fp": true,
+  "ogre_next_upstream_strict_fp_target_count": @ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGET_COUNT@,
   "rapidjson_archive_sha256": "@ROR_RAPIDJSON_ARCHIVE_SHA256@",
   "rapidjson_private_include_dir": "@ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR@",
   "rapidjson_document_header": "@ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER@",

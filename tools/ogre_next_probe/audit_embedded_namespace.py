@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -145,6 +146,32 @@ def command_text(entry: dict[str, object]) -> str:
     arguments = entry.get("arguments")
     require(isinstance(arguments, list), "compile entry has no command")
     return " ".join(str(value) for value in arguments)
+
+
+def require_strict_fp_compile_command(command: str, label: str) -> None:
+    tokens = shlex.split(command)
+    no_fast_math = [
+        index for index, token in enumerate(tokens)
+        if token == "-fno-fast-math"
+    ]
+    fast_math = [
+        index for index, token in enumerate(tokens)
+        if token == "-ffast-math"
+    ]
+    require(no_fast_math, f"strict FP is missing -fno-fast-math: {label}")
+    require(
+        not fast_math or no_fast_math[-1] > fast_math[-1],
+        f"strict FP does not override the final -ffast-math: {label}",
+    )
+    fp_contract = [
+        (index, token)
+        for index, token in enumerate(tokens)
+        if token.startswith("-ffp-contract=")
+    ]
+    require(
+        fp_contract and fp_contract[-1][1] == "-ffp-contract=off",
+        f"strict FP does not end with -ffp-contract=off: {label}",
+    )
 
 
 def compile_entries_for_source(
@@ -331,6 +358,7 @@ def main() -> int:
     )
     parser.add_argument("--executable", required=True)
     parser.add_argument("--compile-commands", required=True)
+    parser.add_argument("--require-upstream-strict-fp", action="store_true")
     parser.add_argument("--next-source-root", required=True)
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--expected-source-commit", required=True)
@@ -721,8 +749,13 @@ def main() -> int:
     ]
     require(upstream_entries, "no OgreNext C++/Objective-C++ compile entries found")
     for entry in upstream_entries:
-        require(str(remap_header) in command_text(entry),
+        command = command_text(entry)
+        require(str(remap_header) in command,
                 f"OgreNext source lacks forced namespace remap: {entry.get('file')}")
+        if args.require_upstream_strict_fp:
+            require_strict_fp_compile_command(
+                command, str(entry.get("file", ""))
+            )
 
     namespaced_audit = audit_compile_sources(
         entries,
@@ -870,6 +903,10 @@ def main() -> int:
             },
         },
         "upstream_compile_entries": len(upstream_entries),
+        "upstream_strict_fp_required": args.require_upstream_strict_fp,
+        "upstream_strict_fp_compile_entries": (
+            len(upstream_entries) if args.require_upstream_strict_fp else 0
+        ),
         "next_archives": [
             {"path": str(path), "sha256": digest(path)} for path in next_archives
         ],

@@ -208,6 +208,53 @@ if (NOT ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "macos-arm64-metal" OR
     message(FATAL_ERROR "The embedded provider platform/SDL policy changed")
 endif ()
 
+# The host's optimized configuration globally enables -ffast-math.  Pinned
+# Ogre-Next's scalar Aabb implementation explicitly compares against infinity
+# before transforming half extents; Apple Clang may compile those ternaries as
+# unconditional local-half copies under finite-math-only assumptions.  Keep
+# the host policy out of every fetched Ogre-Next C++/Objective-C++ target.  The
+# final options intentionally follow the inherited configuration flags.
+set(ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGETS "")
+foreach (_ror_ogre_next_target IN LISTS
+        ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_TARGETS)
+    get_target_property(_ror_ogre_next_target_type
+        ${_ror_ogre_next_target} TYPE)
+    if (_ror_ogre_next_target_type STREQUAL "UTILITY" OR
+            _ror_ogre_next_target_type STREQUAL "INTERFACE_LIBRARY")
+        continue()
+    endif ()
+    get_target_property(_ror_ogre_next_strict_fp_applied
+        ${_ror_ogre_next_target} ROR_OGRE_NEXT_STRICT_FP_APPLIED)
+    if (_ror_ogre_next_strict_fp_applied)
+        message(FATAL_ERROR
+            "OgreNext strict FP was registered twice: ${_ror_ogre_next_target}")
+    endif ()
+    if (MSVC)
+        target_compile_options(${_ror_ogre_next_target}
+            PRIVATE
+                "$<$<COMPILE_LANGUAGE:CXX>:/fp:strict>"
+                "$<$<COMPILE_LANGUAGE:OBJCXX>:/fp:strict>")
+    else ()
+        target_compile_options(${_ror_ogre_next_target}
+            PRIVATE
+                "$<$<COMPILE_LANGUAGE:CXX>:-fno-fast-math>"
+                "$<$<COMPILE_LANGUAGE:CXX>:-ffp-contract=off>"
+                "$<$<COMPILE_LANGUAGE:OBJCXX>:-fno-fast-math>"
+                "$<$<COMPILE_LANGUAGE:OBJCXX>:-ffp-contract=off>")
+    endif ()
+    set_property(TARGET ${_ror_ogre_next_target} PROPERTY
+        ROR_OGRE_NEXT_STRICT_FP_APPLIED TRUE)
+    list(APPEND ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGETS
+        ${_ror_ogre_next_target})
+endforeach ()
+list(REMOVE_DUPLICATES ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGETS)
+list(SORT ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGETS)
+list(LENGTH ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGETS
+    ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGET_COUNT)
+if (NOT ROR_OGRE_NEXT_UPSTREAM_STRICT_FP_TARGET_COUNT GREATER 0)
+    message(FATAL_ERROR "No fetched OgreNext target received strict FP")
+endif ()
+
 # The root Conan toolchain intentionally prefers config packages. On the
 # reviewed case-insensitive macOS filesystem, Ogre-Next's find_package(
 # Rapidjson) therefore resolves the root RapidJSONConfig.cmake, which exports
@@ -1099,6 +1146,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         --executable
             "$<TARGET_FILE:ror_ogre_next_root_provider_link_smoke>"
         --compile-commands "${CMAKE_BINARY_DIR}/compile_commands.json"
+        --require-upstream-strict-fp
         --next-source-root "${ogre_next_SOURCE_DIR}"
         --source-root "${CMAKE_SOURCE_DIR}"
         --expected-source-commit "${ROR_SOURCE_COMMIT}"
