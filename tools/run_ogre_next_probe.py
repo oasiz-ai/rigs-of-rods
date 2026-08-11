@@ -334,6 +334,7 @@ RELEVANT_SOURCE_PATHS = (
     "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp",
     "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp",
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+    "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp",
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp",
     "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp",
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptNativeIntegrationTests.cpp",

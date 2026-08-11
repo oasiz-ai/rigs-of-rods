@@ -1467,6 +1467,33 @@ if (ROR_OGRE14 AND TARGET RoR)
         ror_ogre14_legacy_native_asset_extractor_compile_tests)
 
     add_executable(
+        ror_ogre_next_demo_material_source_native_tests
+        "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/detail/OgreNextDemoPrivatePolicy.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14SelectedTextureSource.cpp"
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+    )
+    target_include_directories(
+        ror_ogre_next_demo_material_source_native_tests
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main"
+        SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+    )
+    if (TARGET OgreMain)
+        target_link_libraries(
+            ror_ogre_next_demo_material_source_native_tests
+            PRIVATE OgreMain
+        )
+    else ()
+        target_link_libraries(
+            ror_ogre_next_demo_material_source_native_tests
+            PRIVATE ${OGRE_LIBRARIES}
+        )
+    endif ()
+    list(APPEND ROR_RENDER_CONTRACT_TEST_TARGETS
+        ror_ogre_next_demo_material_source_native_tests)
+
+    add_executable(
         ror_ogre14_terrain_composite_native_readback_tests
         "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14TerrainCompositeCaptureReceipt.cpp"
@@ -2796,6 +2823,13 @@ if (TARGET ror_ogre14_legacy_native_asset_extractor_compile_tests)
     add_test(
         NAME ogre14_legacy_native_asset_extractor_compile
         COMMAND ror_ogre14_legacy_native_asset_extractor_compile_tests
+    )
+endif ()
+
+if (TARGET ror_ogre_next_demo_material_source_native_tests)
+    add_test(
+        NAME ogre_next_demo_material_source_native
+        COMMAND ror_ogre_next_demo_material_source_native_tests
     )
 endif ()
 

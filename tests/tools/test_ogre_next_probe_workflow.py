@@ -95,6 +95,7 @@ OGRE_NEXT_DEMO_PROVENANCE_PATHS = (
     "source/main/physics/Savegame.cpp",
     "tests/tools/test_renderer_suite_packaging_contract.py",
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+    "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp",
     "tests/tools/test_ogre_next_probe_contract.py",
 )
 OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
@@ -106,6 +107,7 @@ OGRE_NEXT_DEMO_WORKFLOW_PATHS = (
     "source/main/system/detail/OgreNextDemo*",
     "source/main/physics/Savegame.cpp",
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp",
+    "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp",
     "tests/tools/test_renderer_suite_packaging_contract.py",
 )
 
@@ -337,6 +339,33 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
         ).read_text(encoding="utf-8")
+        native_material_test = (
+            REPOSITORY_ROOT
+            / "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
+        ).read_text(encoding="utf-8")
+        native_test_cmake = (
+            REPOSITORY_ROOT / "tests/CMakeLists.txt"
+        ).read_text(encoding="utf-8")
+        for native_lifecycle_token in (
+            "OgreNextDemoMaterialSource source",
+            "receipt mutation was flattened",
+            "native reload reused a stale frozen material projection",
+            "in-place sampler mutation escaped",
+            "failed Apply partially published assets after unmount",
+            "unreachable cache owner probed selected-source authority",
+            "native GPU texture readback is forbidden",
+            "native.reset()",
+            "same-name remount reused or dereferenced stale native cache owners",
+        ):
+            with self.subTest(native_lifecycle_token=native_lifecycle_token):
+                self.assertIn(native_lifecycle_token, native_material_test)
+        self.assertIn(
+            "ror_ogre_next_demo_material_source_native_tests",
+            native_test_cmake,
+        )
+        self.assertIn(
+            "NAME ogre_next_demo_material_source_native", native_test_cmake
+        )
         self.assertIn("texture.mip_levels.size() != 1U", private_policy)
         self.assertIn("CompleteOgreNextDemoSrgbPbrMipChain", private_policy)
         self.assertIn(

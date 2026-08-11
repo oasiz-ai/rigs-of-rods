@@ -334,6 +334,7 @@ list(APPEND _ror_relevant_source_files
     "tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp"
     "tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp"
+    "tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp"
     "doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md"
     "tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp"
     "tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp"
@@ -3268,6 +3269,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             tests/gfx/ogre14/Ogre14TerrainCompositeCaptureReceiptTests.cpp
             tests/gfx/ogre14/Ogre14TerrainCompositeNativeReadbackTests.cpp
             tests/gfx/ogre14/OgreNextDemoPrivatePolicyTests.cpp
+            tests/gfx/ogre14/OgreNextDemoMaterialSourceNativeTests.cpp
             doc/nextgen/OGRE14_TERRAIN_COMPOSITE_CAPTURE_RECEIPTS.md
             tests/gfx/ogre14/Ogre14AuthenticatedMaterialScriptReceiptTests.cpp
             tests/gfx/ogre14/Ogre14AuthenticatedArchiveLocationClosureTests.cpp
