@@ -146,6 +146,7 @@ struct NativeMip final {
 };
 
 struct NativePageReadback final {
+  Ogre::Terrain *terrain = nullptr;
   Render::TextureResourceDescriptor texture;
   Render::SamplerResourceDescriptor sampler;
 };
@@ -433,9 +434,9 @@ Render::ValidationResult CaptureExactNativeState(
   return Render::ValidationResult::Success();
 }
 
-Render::ValidationResult CaptureNativePage(
+Render::ValidationResult JoinNativePage(
     Ogre::TerrainGroup &group, std::int32_t slot_x, std::int32_t slot_y,
-    NativePageReadback &readback) {
+    Ogre::Terrain *&joined_terrain) {
   const std::uint32_t packed = group.packIndex(slot_x, slot_y);
   const auto found = group.getTerrainSlots().find(packed);
   Ogre::Terrain *const terrain =
@@ -459,9 +460,23 @@ Render::ValidationResult CaptureNativePage(
                    "requested terrain page remained mutable after the demo join");
   }
 
-  // This render-thread call flushes the exact runtime composite. Even when no
-  // dirty rectangle remains, every capture below performs a fresh readback;
-  // Texture::stateCount is observation evidence, never a payload cache key.
+  joined_terrain = terrain;
+  return Render::ValidationResult::Success();
+}
+
+Render::ValidationResult CaptureNativePage(
+    Ogre::TerrainGroup &group, std::int32_t slot_x, std::int32_t slot_y,
+    NativePageReadback &readback) {
+  Ogre::Terrain *terrain = nullptr;
+  Render::ValidationResult validation =
+      JoinNativePage(group, slot_x, slot_y, terrain);
+  if (!validation) {
+    return validation;
+  }
+
+  // The first render-thread capture flushes and reads the exact runtime
+  // composite. The disposable product freezes this result until the next map
+  // generation; Texture::stateCount is not treated as an exact revision.
   terrain->updateCompositeMap();
   const Ogre::TexturePtr texture = terrain->getCompositeMap();
   if (!texture) {
@@ -470,8 +485,7 @@ Render::ValidationResult CaptureNativePage(
                    "terrain composite flush produced no texture");
   }
   std::vector<NativeMip> mips;
-  Render::ValidationResult validation =
-      AcquireNativeMipInventory(*texture, mips);
+  validation = AcquireNativeMipInventory(*texture, mips);
   if (!validation) {
     return validation;
   }
@@ -587,6 +601,7 @@ Render::ValidationResult CaptureNativePage(
     return validation;
   }
   NativePageReadback candidate;
+  candidate.terrain = terrain;
   candidate.texture = std::move(output_texture);
   candidate.sampler = std::move(output_sampler);
   readback = std::move(candidate);
@@ -597,20 +612,168 @@ Render::ValidationResult CaptureNativePage(
 
 struct Ogre14ToOgreNextTerrainSource::State final {
   struct PageOwner final {
+    std::int32_t slot_x = 0;
+    std::int32_t slot_y = 0;
+    const void *native_terrain = nullptr;
     std::vector<Render::GraphicsSceneAssetInput> assets;
     Render::GraphicsSceneStaticMeshInput instance;
   };
 
+  bool captured = false;
+  const void *native_group = nullptr;
   OgreNextDemoIdentityRegistry identities;
   std::set<std::string, std::less<>> known_pages;
   std::set<std::string, std::less<>> live_pages;
   std::map<std::string, PageOwner, std::less<>> page_owners;
 };
 
+namespace {
+
+template <typename StateType>
+Render::ValidationResult BuildCommittedCapture(
+    const StateType &state,
+    OgreNextDemoTerrainCapture &capture) {
+  if (!state.captured || state.live_pages.size() != state.page_owners.size()) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.terrain.frozen_state",
+                   "committed terrain capture state is incomplete");
+  }
+  OgreNextDemoTerrainCapture candidate;
+  candidate.assets.reserve(state.page_owners.size() * 4U);
+  candidate.static_meshes.reserve(state.page_owners.size());
+  for (const auto &entry : state.page_owners) {
+    if (state.live_pages.find(entry.first) == state.live_pages.end() ||
+        entry.second.native_terrain == nullptr ||
+        entry.second.assets.size() != 4U) {
+      return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                     "ogre_next_demo.terrain.frozen_owner",
+                     "committed terrain page owner is incomplete");
+    }
+    candidate.assets.insert(candidate.assets.end(),
+                            entry.second.assets.begin(),
+                            entry.second.assets.end());
+    candidate.static_meshes.push_back(entry.second.instance);
+  }
+  std::sort(candidate.assets.begin(), candidate.assets.end(),
+            [](const auto &first, const auto &second) {
+              return first.source_asset_id < second.source_asset_id;
+            });
+  std::sort(candidate.static_meshes.begin(), candidate.static_meshes.end(),
+            [](const auto &first, const auto &second) {
+              return first.source_object_id < second.source_object_id;
+            });
+  capture = std::move(candidate);
+  return Render::ValidationResult::Success();
+}
+
+} // namespace
+
 Ogre14ToOgreNextTerrainSource::Ogre14ToOgreNextTerrainSource()
     : committed_(std::make_unique<State>()) {}
 
 Ogre14ToOgreNextTerrainSource::~Ogre14ToOgreNextTerrainSource() = default;
+
+bool Ogre14ToOgreNextTerrainSource::HasCommittedCapture() const noexcept {
+  return committed_ != nullptr && committed_->captured;
+}
+
+Render::ValidationResult Ogre14ToOgreNextTerrainSource::CaptureCommitted(
+    Ogre::TerrainGroup *terrain_group,
+    OgreNextDemoTerrainCapture &capture) try {
+  if (pending_ != nullptr) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.terrain.pending",
+                   "the preceding terrain capture must be committed or discarded");
+  }
+  if (!HasCommittedCapture()) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.terrain.frozen_state",
+                   "no committed map-generation terrain capture exists");
+  }
+  if (terrain_group != committed_->native_group) {
+    return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                   "ogre_next_demo.terrain.group",
+                   "TerrainGroup identity changed inside one map generation");
+  }
+  if (terrain_group == nullptr) {
+    if (!committed_->page_owners.empty()) {
+      return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                     "ogre_next_demo.terrain.frozen_owner",
+                     "null TerrainGroup retained committed page owners");
+    }
+  } else {
+    const Ogre::TerrainGroup::TerrainSlotMap &slots =
+        terrain_group->getTerrainSlots();
+    if (slots.size() != committed_->page_owners.size() ||
+        terrain_group->getNumTerrainPrepareRequests() != 0U) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.terrain.slot_inventory",
+                     "TerrainGroup slot inventory changed inside one map generation");
+    }
+    std::map<std::uint32_t, const State::PageOwner *> owners_by_slot;
+    for (const auto &entry : committed_->page_owners) {
+      const std::uint32_t packed = terrain_group->packIndex(
+          entry.second.slot_x, entry.second.slot_y);
+      if (!owners_by_slot.emplace(packed, &entry.second).second) {
+        return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                       "ogre_next_demo.terrain.slot_inventory",
+                       "committed terrain slots are duplicated");
+      }
+    }
+    for (const auto &slot_entry : slots) {
+      const Ogre::TerrainGroup::TerrainSlot *const slot = slot_entry.second;
+      const auto expected = owners_by_slot.find(slot_entry.first);
+      if (slot == nullptr || expected == owners_by_slot.end() ||
+          terrain_group->packIndex(slot->x, slot->y) != slot_entry.first ||
+          slot->x != expected->second->slot_x ||
+          slot->y != expected->second->slot_y) {
+        return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                       "ogre_next_demo.terrain.slot_inventory",
+                       "TerrainGroup packed slot keys changed inside one map generation");
+      }
+      Ogre::Terrain *joined = nullptr;
+      Render::ValidationResult validation = JoinNativePage(
+          *terrain_group, slot->x, slot->y, joined);
+      if (!validation) {
+        return validation;
+      }
+      if (joined != expected->second->native_terrain) {
+        return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                       "ogre_next_demo.terrain.native_page",
+                       "terrain page identity changed inside one map generation");
+      }
+    }
+    if (terrain_group->getNumTerrainPrepareRequests() != 0U ||
+        terrain_group->isDerivedDataUpdateInProgress()) {
+      return Failure(Render::ValidationCode::REVISION_MISMATCH,
+                     "ogre_next_demo.terrain.native_update",
+                     "TerrainGroup changed while joining the frozen capture");
+    }
+  }
+
+  auto candidate_state = std::make_unique<State>(*committed_);
+  OgreNextDemoTerrainCapture candidate_capture;
+  Render::ValidationResult validation =
+      BuildCommittedCapture(*candidate_state, candidate_capture);
+  if (!validation) {
+    return validation;
+  }
+  pending_ = std::move(candidate_state);
+  capture = std::move(candidate_capture);
+  return Render::ValidationResult::Success();
+} catch (const Ogre::Exception &) {
+  return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                 "ogre_next_demo.terrain.ogre_exception",
+                 "OGRE failed before the frozen terrain capture was published");
+} catch (const std::bad_alloc &) {
+  return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                 "ogre_next_demo.terrain.allocation",
+                 "allocation failed before the frozen terrain capture was published");
+} catch (...) {
+  return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                 "ogre_next_demo.terrain.exception",
+                 "unexpected exception before the frozen terrain capture was published");
+}
 
 Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     Ogre::TerrainGroup *terrain_group,
@@ -626,16 +789,23 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
                    "ogre_next_demo.terrain.committed",
                    "terrain source has no committed identity state");
   }
+  if (committed_->captured) {
+    return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
+                   "ogre_next_demo.terrain.frozen_state",
+                   "fresh terrain capture is closed until the next map generation");
+  }
   if (terrain_group == nullptr && !pages.empty()) {
     return Failure(Render::ValidationCode::MISSING_REFERENCE,
                    "ogre_next_demo.terrain.group",
                    "TerrainGroup and exact page inventory must coexist");
   }
   auto candidate_state = std::make_unique<State>(*committed_);
+  candidate_state->native_group = terrain_group;
   candidate_state->live_pages.clear();
   candidate_state->page_owners.clear();
   OgreNextDemoTerrainCapture candidate_capture;
   if (pages.empty()) {
+    candidate_state->captured = true;
     pending_ = std::move(candidate_state);
     capture = std::move(candidate_capture);
     return Render::ValidationResult::Success();
@@ -782,6 +952,9 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     }
 
     State::PageOwner owner;
+    owner.slot_x = page.slot_x;
+    owner.slot_y = page.slot_y;
+    owner.native_terrain = native.terrain;
     owner.assets.reserve(4U);
     Render::GraphicsSceneAssetInput mesh_asset;
     mesh_asset.source_asset_id = mesh_id;
@@ -827,6 +1000,7 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
 
   candidate_state->known_pages.insert(candidate_state->live_pages.begin(),
                                       candidate_state->live_pages.end());
+  candidate_state->captured = true;
   std::sort(candidate_capture.assets.begin(), candidate_capture.assets.end(),
             [](const auto &first, const auto &second) {
               return first.source_asset_id < second.source_asset_id;

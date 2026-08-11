@@ -274,12 +274,12 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         gfx_scene = (REPOSITORY_ROOT / "source/main/gfx/GfxScene.cpp").read_text(
             encoding="utf-8"
         )
-        native_page = terrain_source[
-            terrain_source.index("Render::ValidationResult CaptureNativePage(") :
+        joined_page = terrain_source[
+            terrain_source.index("Render::ValidationResult JoinNativePage(") :
         ]
         self.assertLess(
-            native_page.index("waitForDerivedProcesses()"),
-            native_page.index("isDerivedDataUpdateInProgress()"),
+            joined_page.index("waitForDerivedProcesses()"),
+            joined_page.index("isDerivedDataUpdateInProgress()"),
         )
         self.assertEqual(
             terrain_source.count("blitToMemory(destination)"), 1
@@ -301,6 +301,21 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         self.assertIn("NormalizeOgreNextDemoMatteMesh", gfx_scene)
         self.assertIn("BuildOgreNextDemoMatteTangents", gfx_scene)
+        frozen_branch = gfx_scene[
+            gfx_scene.index(
+                "m_ogre_next_demo_terrain_source.HasCommittedCapture()"
+            ) :
+        ]
+        self.assertLess(
+            frozen_branch.index("CaptureCommitted("),
+            frozen_branch.index("CaptureOgre14TerrainPages("),
+        )
+        self.assertIn("BuildCommittedCapture", terrain_source)
+        self.assertIn(
+            "slots.size() != committed_->page_owners.size()",
+            terrain_source,
+        )
+        self.assertIn("terrain_group != committed_->native_group", terrain_source)
 
         attributes = (REPOSITORY_ROOT / ".gitattributes").read_text(
             encoding="utf-8"

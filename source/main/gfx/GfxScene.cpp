@@ -2906,22 +2906,30 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 terrain != nullptr ? terrain->getObjectManager() : nullptr;
             TerrainGeometryManager* const geometry_manager =
                 terrain != nullptr ? terrain->getGeometryManager() : nullptr;
-            std::vector<Gfx::Detail::OgreNextDemoTerrainPageMesh>
-                terrain_pages;
-            Render::ValidationResult static_validation =
-                CaptureOgre14TerrainPages(
-                    geometry_manager, m_ogre14_terrain_page_cache,
-                    pending->terrain_page_cache, terrain_pages);
-            if (!static_validation)
-            {
-                return static_validation;
-            }
             Gfx::Detail::OgreNextDemoTerrainCapture terrain_capture;
-            static_validation = m_ogre_next_demo_terrain_source.Capture(
+            Ogre::TerrainGroup* const terrain_group =
                 geometry_manager != nullptr
                     ? geometry_manager->getTerrainGroup()
-                    : nullptr,
-                terrain_pages, terrain_capture);
+                    : nullptr;
+            Render::ValidationResult static_validation;
+            if (m_ogre_next_demo_terrain_source.HasCommittedCapture())
+            {
+                static_validation =
+                    m_ogre_next_demo_terrain_source.CaptureCommitted(
+                        terrain_group, terrain_capture);
+            }
+            else
+            {
+                std::vector<Gfx::Detail::OgreNextDemoTerrainPageMesh>
+                    terrain_pages;
+                static_validation = CaptureOgre14TerrainPages(
+                    geometry_manager, m_ogre14_terrain_page_cache,
+                    pending->terrain_page_cache, terrain_pages);
+                if (!static_validation)
+                    return static_validation;
+                static_validation = m_ogre_next_demo_terrain_source.Capture(
+                    terrain_group, terrain_pages, terrain_capture);
+            }
             if (!static_validation)
                 return static_validation;
             terrain_pending_guard.Arm();

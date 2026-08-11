@@ -24,8 +24,9 @@ installed legacy `RoR.app` by LaunchServices.
 
 - Each loaded terrain page keeps the existing CPU geometry extraction. Its
   active OGRE 14 composite is synchronously updated and freshly read back on
-  every capture. The adapter reobserves exact terrain, texture, TUS0, sampler,
-  UV, gamma, fog, and native mip identities after readback before publishing.
+  the first accepted capture of each map generation. The adapter reobserves
+  exact terrain, texture, TUS0, sampler, UV, gamma, fog, and native mip
+  identities after readback before publishing.
 - The native RGBA8 base level keeps byte-identical RGB and receives opaque
   alpha. Every tail mip is generated through 1x1 with the deterministic integer
   2x2 display-domain box rule. This unconditional cross-platform rule avoids a
@@ -75,10 +76,13 @@ Directional-shadow casters wholly outside this receiver envelope are likewise
 deferred until approached; that is an explicit disposable-demo tradeoff, not a
 general renderer culling contract.
 
-Fresh base-level GPU readback and synchronous derived-work joining are
-correctness-first and may stall. A later demo optimization may cache only at a
-private map-generation boundary after proving equivalent native identity; it
-must not turn this disposable adapter into a public receipt API.
+After the first accepted frame, terrain geometry, composite bytes, sampler,
+material, and instance owners are frozen until the ordered map-generation
+reset. Later captures still join OGRE derived work and require the exact native
+Terrain pointer, but deliberately do not rebuild the million-vertex portable
+mesh or read the composite again. SkyX lighting changes therefore do not alter
+the already-published terrain texture. This is an explicit performance-first
+demo tradeoff, not a generalized texture revision or receipt contract.
 
 The first demo intentionally does not add Alexis's twelve suspension props.
 CityWorld's two unresolved `wrecker.truck` references remain omitted content,

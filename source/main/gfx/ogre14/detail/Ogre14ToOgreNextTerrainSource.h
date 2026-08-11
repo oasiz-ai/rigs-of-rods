@@ -42,10 +42,11 @@ struct OgreNextDemoTerrainCapture final {
   std::vector<Render::GraphicsSceneStaticMeshInput> static_meshes;
 };
 
-/// One-use migration source for the first playable OgreNext demo. It reads an
-/// OGRE 14 terrain composite afresh on every capture and publishes only normal
-/// renderer assets. Candidate identity and immutable payload owners remain
-/// pending until the enclosing joined-scene transaction is committed.
+/// One-use migration source for the first playable OgreNext demo. It captures
+/// the OGRE 14 terrain once per map generation, then republishes the committed
+/// immutable owners while still joining native derived work. Candidate
+/// identity and payload owners remain pending until the enclosing joined-scene
+/// transaction is committed.
 class Ogre14ToOgreNextTerrainSource final {
 public:
   Ogre14ToOgreNextTerrainSource();
@@ -59,6 +60,10 @@ public:
   [[nodiscard]] Render::ValidationResult Capture(
       Ogre::TerrainGroup *terrain_group,
       const std::vector<OgreNextDemoTerrainPageMesh> &pages,
+      OgreNextDemoTerrainCapture &capture);
+  [[nodiscard]] bool HasCommittedCapture() const noexcept;
+  [[nodiscard]] Render::ValidationResult CaptureCommitted(
+      Ogre::TerrainGroup *terrain_group,
       OgreNextDemoTerrainCapture &capture);
   void Commit() noexcept;
   void Discard() noexcept;
