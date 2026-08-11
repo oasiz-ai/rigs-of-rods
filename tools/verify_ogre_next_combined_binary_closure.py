@@ -422,7 +422,7 @@ def _link_map_object_basename(object_row: str) -> str:
 
 def _is_private_stbi_link_map_symbol(symbol: bytes) -> bool:
     return re.fullmatch(
-        rb"(?:_stbi_.+|__Z(?:Z)?L.+stbi_.+)",
+        rb"(?:_stbi_.+|__Z(?:Z)?L[1-9][0-9]*stbi_.+)",
         symbol,
     ) is not None
 

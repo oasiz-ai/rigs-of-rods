@@ -786,6 +786,7 @@ class CombinedProviderContractTests(unittest.TestCase):
                 sdl_import_stub: bool = False,
                 inject_second_header: bool = False,
                 retired_object_row=None,
+                unrelated_stbi_type_symbol: bool = False,
             ) -> bytes:
                 rows = [
                     "# Path: bin/RoR-Combined",
@@ -800,6 +801,8 @@ class CombinedProviderContractTests(unittest.TestCase):
                     rows.append("[  4] /authenticated/libOgreBites.dylib")
                 if retired_object_row is not None:
                     rows.append(f"[  5] {retired_object_row}")
+                if unrelated_stbi_type_symbol:
+                    rows.append("[  6] generated/unrelated_helper.cpp.o")
                 rows.extend(
                     [
                         "# Sections:",
@@ -817,6 +820,11 @@ class CombinedProviderContractTests(unittest.TestCase):
                     rows.append("0x1020 0x10 [  2] _SDL_Init")
                 if sdl_import_stub:
                     rows.append("0x1028 0x10 [  4] _SDL_Init.stub")
+                if unrelated_stbi_type_symbol:
+                    rows.append(
+                        "0x102C 0x10 [  6] "
+                        "__ZL11other_ownerP13stbi__context"
+                    )
                 if dead_extra_owner:
                     rows.extend(
                         [
@@ -845,6 +853,44 @@ class CombinedProviderContractTests(unittest.TestCase):
             )
             self.assertEqual(report["missing_required_archives"], [])
             self.assertEqual(report["stb_image_symbol_count"], 1)
+            self.assertTrue(
+                module._is_private_stbi_link_map_symbol(b"_stbi_image_free")
+            )
+            self.assertTrue(
+                module._is_private_stbi_link_map_symbol(
+                    b"__ZL15stbi__load_mainP"
+                )
+            )
+            self.assertTrue(
+                module._is_private_stbi_link_map_symbol(
+                    b"__ZZL22stbi__check_png_headerP13stbi__contextE7png_sig"
+                )
+            )
+            self.assertFalse(
+                module._is_private_stbi_link_map_symbol(
+                    b"l___const._ZL22stbi__create_png_imageP9stbi__png.xorig"
+                )
+            )
+            self.assertFalse(
+                module._is_private_stbi_link_map_symbol(
+                    b"__ZL11other_ownerP13stbi__context"
+                )
+            )
+            unrelated_report = module._structural_link_map_evidence(
+                payload(
+                    "bin/librequired.a(member.o)",
+                    unrelated_stbi_type_symbol=True,
+                ),
+                binary,
+                build,
+                [archive],
+                decoder_symbols | {"__ZL11other_ownerP13stbi__context"},
+            )
+            self.assertEqual(unrelated_report["stb_image_symbol_count"], 1)
+            self.assertEqual(
+                unrelated_report["stb_image_owner_objects"],
+                [str((build / decoder_object).resolve(strict=False))],
+            )
             bracket_report = module._structural_link_map_evidence(
                 payload("bin/librequired.a[member.o]"),
                 binary,
