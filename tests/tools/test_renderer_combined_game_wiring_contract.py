@@ -114,7 +114,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.main[showcase_branch:post],
         )
 
-    def test_native_showcase_selects_the_authored_raster_shadow_preview(self) -> None:
+    def test_native_showcase_selects_the_one_scene_hdr_pssm_preview(self) -> None:
         configure = self.main.index(
             "presenter_config.enable_native_showcase_pssm_preview ="
         )
@@ -123,18 +123,39 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "renderer_combined_native_visual_showcase",
             self.main[configure:prepare],
         )
-        self.assertIn("rt4_pbr_pssm_raster_preview", self.main)
-        self.assertIn("hdr=false", self.main)
-        self.assertIn("native_rt=false", self.main)
+        showcase_log_start = self.main.index(
+            "[RoR|RendererCombined|NativeShowcase] Selected exact"
+        )
+        showcase_log_end = self.main.index("else", showcase_log_start)
+        showcase_log = self.main[showcase_log_start:showcase_log_end]
+        self.assertIn("rt4_pbr_pssm_hdr_preview", showcase_log)
+        self.assertIn("hdr=true", showcase_log)
+        self.assertNotIn("hdr=false", showcase_log)
+        self.assertIn("native_rt=false", showcase_log)
+
+        frontend_configuration = self.presenter[
+            self.presenter.index("OgreNextN1Configuration frontend_configuration;") :
+            self.presenter.index("if (!CopyParameters(")
+        ]
         self.assertIn(
             "candidate.enable_native_showcase_pssm_preview\n"
             "            ? OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1\n"
             "            : OgreNextDirectionalShadowMode::DISABLED",
-            self.presenter,
+            frontend_configuration,
         )
         self.assertIn(
-            "!candidate.enable_native_showcase_pssm_preview",
-            self.presenter,
+            "frontend_configuration.enable_hdr_compositor = true;",
+            frontend_configuration,
+        )
+        self.assertIn(
+            "candidate.enable_native_showcase_pssm_preview\n"
+            "            ? OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1\n"
+            "            : OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2",
+            frontend_configuration,
+        )
+        self.assertIn(
+            "frontend_configuration.presentation.gpu_only_output = true;",
+            frontend_configuration,
         )
 
     def test_native_showcase_enables_audited_opaque_turntable_motion(self) -> None:
@@ -177,6 +198,50 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "kNativeVisualShowcaseTurntableTicksPerRevolution",
             audit_block,
         )
+
+    def test_lighting_receipt_maps_topology_and_zero_legacy_readbacks(self) -> None:
+        audit_start = self.presenter.index(
+            "RendererNativeLightingAudit\n  NativeLightingAudit() const noexcept"
+        )
+        audit_end = self.presenter.index(
+            "static constexpr std::size_t kMaximumAxes", audit_start
+        )
+        audit = self.presenter[audit_start:audit_end]
+        for mapping in (
+            "output.production_content_readbacks =\n"
+            "        audit.production_content_readbacks;",
+            "output.production_framebuffer_readbacks =\n"
+            "        audit.production_framebuffer_readbacks;",
+            "output.ogre14_lighting_passes = audit.ogre14_lighting_passes;",
+            "output.hdr_scene_topology =\n"
+            "        static_cast<std::uint32_t>(audit.hdr_scene_topology);",
+            "output.pssm_finalized_with_populated_scene =\n"
+            "        audit.pssm_finalized_with_populated_scene;",
+            "output.raster_scene_evaluations = audit.raster_scene_evaluations;",
+            "output.production_gpu_only = audit.production_gpu_only;",
+            "output.no_ogre14_lighting = audit.no_ogre14_lighting;",
+        ):
+            with self.subTest(mapping=mapping):
+                self.assertIn(mapping, audit)
+
+        lighting_log_start = self.main.index(
+            '"schema_version={} available={} "'
+        )
+        lighting_log_end = self.main.index(
+            "if (lighting_audit_signature !=", lighting_log_start
+        )
+        lighting_log = self.main[lighting_log_start:lighting_log_end]
+        for field in (
+            "hdr_topology={}",
+            "pssm_populated_finalize={}",
+            "scene_evaluations={}",
+            "production_content_readbacks={}",
+            "production_framebuffer_readbacks={}",
+            "ogre14_lighting_passes={}",
+            "no_ogre14_lighting={}",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, lighting_log)
 
     def test_showcase_package_is_exact_and_staged_beside_executable_resources(self) -> None:
         expected = (

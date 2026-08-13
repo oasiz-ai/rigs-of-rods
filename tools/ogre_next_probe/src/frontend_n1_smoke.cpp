@@ -170,6 +170,22 @@ struct SmokeResult final {
   } analytic_sky;
   bool non_uniform_scale_rejected_before_submission = false;
   struct HdrCompositorEvidence final {
+    struct SingleScenePssmEvidence final {
+      OgreNextHdrCompositorAudit initialized;
+      OgreNextHdrCompositorAudit committed;
+      OgreNextHdrCompositorAudit resized;
+      OgreNextHdrCompositorAudit resized_committed;
+      OgreNextHdrCompositorAudit shutdown;
+      OgreNextNativeLightingPassAudit lighting;
+      OgreNextNativeLightingPassAudit resized_lighting;
+      OgreNextPssmShadowRuntimeAudit initialized_shadow;
+      OgreNextPssmShadowRuntimeAudit shutdown_shadow;
+      std::uint32_t rollback_stages_verified = 0U;
+      bool warmup_counter_drift_rejected = false;
+      bool downstream_failure_rollback_verified = false;
+      bool resize_rebuild_verified = false;
+      bool clean_shutdown = false;
+    } single_scene_pssm;
     OgreNextHdrCompositorAudit initialized;
     OgreNextHdrCompositorAudit committed;
     OgreNextNativeLightingPassAudit lighting;
@@ -1251,9 +1267,8 @@ MakeRetirementScene(std::uint64_t revision) {
   return result.snapshot;
 }
 
-Matrix4x4 Projection() {
-  constexpr float near_plane = 0.1F;
-  constexpr float far_plane = 20.0F;
+Matrix4x4 Projection(float near_plane = 0.1F,
+                     float far_plane = 20.0F) {
   Matrix4x4 projection;
   projection.elements.fill(0.0F);
   projection.elements[0U] = 1.0F;
@@ -1285,6 +1300,19 @@ RenderFrameRequest MakeFrame(
   view.clip_from_view = Projection();
   view.previous_clip_from_view = view.clip_from_view;
   request.views.push_back(view);
+  return request;
+}
+
+RenderFrameRequest MakeSingleSceneHdrPssmFrame(
+    std::uint64_t frame_id,
+    const std::shared_ptr<const SceneSnapshot> &scene) {
+  RenderFrameRequest request =
+      MakeFrame(frame_id, scene, PixelFormat::RGBA8_SRGB);
+  CameraViewRequest &view = request.views.front();
+  view.near_plane = 0.5F;
+  view.far_plane = 350.0F;
+  view.clip_from_view = Projection(view.near_plane, view.far_plane);
+  view.previous_clip_from_view = view.clip_from_view;
   return request;
 }
 
@@ -2870,6 +2898,125 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << "    \"clean_shutdown\": "
            << (compositor.clean_shutdown ? "true" : "false") << "\n"
            << "  },\n"
+           << "  \"hdr_pssm_single_scene\": {\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_pssm_single_scene.v1\",\n"
+           << "    \"topology\": \"SINGLE_EVALUATION_PSSM_V1\",\n"
+           << "    \"hdr_enabled\": "
+           << (compositor.single_scene_pssm.committed.enabled ? "true"
+                                                              : "false")
+           << ",\n"
+           << "    \"scene_format\": \"RGBA16_FLOAT\",\n"
+           << "    \"history_format\": \"R16_FLOAT\",\n"
+           << "    \"pssm\": "
+           << (compositor.single_scene_pssm.lighting.shadow_mode ==
+                       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"pssm_deferred_until_populated_scene\": "
+           << (compositor.single_scene_pssm.committed
+                       .pssm_deferred_until_scene_population
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"pssm_finalized_with_populated_scene\": "
+           << (compositor.single_scene_pssm.committed
+                       .pssm_finalized_with_populated_scene
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"zero_light_pssm_warmup_avoided\": "
+           << (compositor.single_scene_pssm.committed
+                       .zero_light_pssm_warmup_avoided
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"warmup_native_absence_checks\": "
+           << compositor.single_scene_pssm.committed
+                  .pssm_warmup_native_absence_checks
+           << ",\n"
+           << "    \"warmup_shadow_node_creates\": "
+           << compositor.single_scene_pssm.initialized_shadow
+                  .shadow_node_creates
+           << ",\n"
+           << "    \"pssm_finalization_attempts\": "
+           << compositor.single_scene_pssm.committed
+                  .pssm_finalization_attempts
+           << ",\n"
+           << "    \"pssm_finalization_commits\": "
+           << compositor.single_scene_pssm.committed
+                  .pssm_finalization_commits
+           << ",\n"
+           << "    \"scene_evaluations\": "
+           << compositor.single_scene_pssm.lighting.raster_scene_evaluations
+           << ",\n"
+           << "    \"single_history_step\": "
+           << (compositor.single_scene_pssm.lighting.single_step_hdr_history
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"rgba16_hdr\": "
+           << (compositor.single_scene_pssm.lighting.linear_rgba16_hdr_target
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"auto_exposure\": "
+           << (compositor.single_scene_pssm.lighting.hdr_auto_exposure
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"bloom\": "
+           << (compositor.single_scene_pssm.lighting.hdr_bloom ? "true"
+                                                               : "false")
+           << ",\n"
+           << "    \"filmic\": "
+           << (compositor.single_scene_pssm.lighting.filmic_tone_map
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"srgb\": "
+           << (compositor.single_scene_pssm.lighting.srgb_presentation
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"production_content_readbacks\": "
+           << compositor.single_scene_pssm.lighting
+                  .production_content_readbacks
+           << ",\n"
+           << "    \"production_framebuffer_readbacks\": "
+           << compositor.single_scene_pssm.lighting
+                  .production_framebuffer_readbacks
+           << ",\n"
+           << "    \"ogre14_lighting_passes\": "
+           << compositor.single_scene_pssm.lighting.ogre14_lighting_passes
+           << ",\n"
+           << "    \"resize_rebuild_verified\": "
+           << (compositor.single_scene_pssm.resize_rebuild_verified ? "true"
+                                                                    : "false")
+           << ",\n"
+           << "    \"rollback_stages_verified\": "
+           << compositor.single_scene_pssm.rollback_stages_verified << ",\n"
+           << "    \"warmup_counter_drift_rejected\": "
+           << (compositor.single_scene_pssm.warmup_counter_drift_rejected
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"downstream_failure_rollback_verified\": "
+           << (compositor.single_scene_pssm
+                       .downstream_failure_rollback_verified
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"shadow_node_creates\": "
+           << compositor.single_scene_pssm.shutdown_shadow.shadow_node_creates
+           << ",\n"
+           << "    \"shadow_node_destroys\": "
+           << compositor.single_scene_pssm.shutdown_shadow.shadow_node_destroys
+           << ",\n"
+           << "    \"clean_shutdown\": "
+           << (compositor.single_scene_pssm.clean_shutdown ? "true" : "false")
+           << "\n"
+           << "  },\n"
            << "  \"hdr_compositor_visual\": {\n"
            << "    \"schema\": \"ror.ogre_next_hdr_compositor_visual.v2\",\n"
            << "    \"evidence_file\": \""
@@ -4013,6 +4160,310 @@ void RunAnalyticSkyVisualProof(
                  "analytic-sky visual-proof Shutdown");
 }
 
+void RunSingleSceneHdrPssmTopologyProof(
+    const std::string &media_root,
+    SmokeResult::HdrCompositorEvidence::SingleScenePssmEvidence &evidence) {
+  OgreNextN1Configuration configuration;
+  configuration.shader_media_root = media_root;
+  configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  configuration.enable_hdr_compositor = true;
+  configuration.hdr_scene_topology =
+      OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+  configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.retain_native_lighting_content_evidence = true;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend, MakeCatalog(true, &kVariantSpecs.front()));
+
+  evidence.initialized = frontend.QueryHdrCompositorAudit();
+  const OgreNextHdrCompositorAudit &initialized = evidence.initialized;
+  Require(initialized.version == 3U && initialized.enabled &&
+              initialized.scene_topology ==
+                  OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1 &&
+              initialized.native_workspace_live &&
+              initialized.native_r16_history_validated &&
+              initialized.ui_free_workspace_verified &&
+              initialized.warmup_frames == 2U &&
+              initialized.committed_frames == 0U &&
+              initialized.pssm_finalization_attempts == 0U &&
+              initialized.pssm_finalization_commits == 0U &&
+              initialized.pssm_finalization_rollbacks == 0U &&
+              initialized.pssm_warmup_native_absence_checks == 3U &&
+              initialized.pssm_deferred_until_scene_population &&
+              !initialized.pssm_finalized_with_populated_scene &&
+              initialized.zero_light_pssm_warmup_avoided,
+          "single-evaluation HDR/PSSM warmup was not truthfully deferred");
+  evidence.initialized_shadow = frontend.QueryDirectionalShadowAudit();
+  const OgreNextPssmShadowRuntimeAudit &initialized_shadow =
+      evidence.initialized_shadow;
+  Require(initialized_shadow.shadow_node_creates == 0U &&
+              initialized_shadow.shadow_node_destroys == 0U &&
+              initialized_shadow.shadow_frames_completed == 0U,
+          "single-evaluation HDR/PSSM warmup instantiated a zero-light shadow runtime");
+
+  RenderFrameOutput first_output;
+  RequireSuccess(
+      frontend.Render(
+          MakeSingleSceneHdrPssmFrame(
+              1U, MakeScene(1100U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+                            {0.0F, -0.8F, -0.6F}, 0.0F, true, true,
+                            false, true)),
+          first_output),
+      "single-evaluation HDR/PSSM first populated Render");
+  static_cast<void>(InspectSdr(first_output));
+  evidence.committed = frontend.QueryHdrCompositorAudit();
+  evidence.lighting = frontend.QueryNativeLightingPassAudit();
+  const OgreNextHdrCompositorAudit &committed = evidence.committed;
+  const OgreNextNativeLightingPassAudit &lighting = evidence.lighting;
+  Require(committed.scene_topology ==
+                  OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1 &&
+              committed.pssm_finalization_attempts == 1U &&
+              committed.pssm_finalization_commits == 1U &&
+              committed.pssm_finalization_rollbacks == 0U &&
+              committed.pssm_warmup_native_absence_checks == 3U &&
+              committed.pssm_deferred_until_scene_population &&
+              committed.pssm_finalized_with_populated_scene &&
+              committed.zero_light_pssm_warmup_avoided &&
+              committed.committed_frames == 1U &&
+              committed.native_r16_history_validated &&
+              committed.exact_current_to_old_copy_verified,
+          "single-evaluation HDR/PSSM did not finalize on the first populated scene");
+  Require(lighting.version == kOgreNextNativeLightingPassAuditVersion &&
+              lighting.completed_frames == 1U &&
+              lighting.last_frame_id == 1U &&
+              lighting.last_snapshot_id == 1100U &&
+              lighting.shadow_mode ==
+                  OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1 &&
+              lighting.hdr_scene_topology ==
+                  OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1 &&
+              lighting.pssm_finalized_with_populated_scene &&
+              lighting.native_scene_lighting_pass &&
+              lighting.linear_rgba16_hdr_target &&
+              !lighting.separate_base_hdr_target &&
+              !lighting.separate_unoccluded_sun_full_hdr_target &&
+              !lighting.separate_sun_direct_hdr_target &&
+              !lighting.gpu_sun_direct_derivation &&
+              !lighting.transactional_directional_sun_toggle &&
+              lighting.raster_lit_hdr_target &&
+              lighting.single_step_hdr_history &&
+              lighting.raster_scene_evaluations == 1U &&
+              lighting.last_directional_lights == 1U &&
+              lighting.last_shadow_casters != 0U &&
+              lighting.last_shadow_receivers != 0U &&
+              lighting.calibrated_directional_lighting &&
+              lighting.ambient_environment_lighting &&
+              lighting.pssm_shadow_response && lighting.hdr_auto_exposure &&
+              lighting.hdr_bloom &&
+              lighting.filmic_tone_map && lighting.srgb_presentation &&
+              lighting.production_content_readbacks == 0U &&
+              lighting.production_framebuffer_readbacks == 0U &&
+              lighting.ogre14_lighting_passes == 0U &&
+              lighting.no_ogre14_lighting,
+          "single-evaluation HDR/PSSM did not publish the exact one-scene lighting receipt");
+
+  constexpr std::uint32_t kResizedWidth = 160U;
+  constexpr std::uint32_t kResizedHeight = 112U;
+  FrontendSurfaceUpdate resized_surface;
+  resized_surface.surface_revision = 2U;
+  resized_surface.pixel_width = kResizedWidth;
+  resized_surface.pixel_height = kResizedHeight;
+  resized_surface.suspended = false;
+  RequireSuccess(frontend.UpdateSurface(
+                     resized_surface, true,
+                     kInfiniteRenderTimeoutNanoseconds),
+                 "single-evaluation HDR/PSSM resize UpdateSurface");
+  evidence.resized = frontend.QueryHdrCompositorAudit();
+  const OgreNextHdrCompositorAudit &resized = evidence.resized;
+  Require(resized.native_workspace_live &&
+              resized.width == kResizedWidth &&
+              resized.height == kResizedHeight &&
+              resized.pssm_finalization_attempts == 1U &&
+              resized.pssm_finalization_commits == 1U &&
+              resized.pssm_finalization_rollbacks == 0U &&
+              resized.pssm_warmup_native_absence_checks == 3U &&
+              resized.pssm_deferred_until_scene_population &&
+              !resized.pssm_finalized_with_populated_scene &&
+              resized.zero_light_pssm_warmup_avoided,
+          "single-evaluation HDR/PSSM resize did not return to the deferred warmup topology");
+
+  RenderFrameRequest resized_frame = MakeSingleSceneHdrPssmFrame(
+      2U,
+      MakeScene(1101U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+                {0.0F, -0.8F, -0.6F}, 0.0F, true, true, false, true));
+  resized_frame.views.front().width = kResizedWidth;
+  resized_frame.views.front().height = kResizedHeight;
+  RenderFrameOutput resized_output;
+  RequireSuccess(frontend.Render(resized_frame, resized_output),
+                 "single-evaluation HDR/PSSM resized Render");
+  evidence.resized_committed = frontend.QueryHdrCompositorAudit();
+  evidence.resized_lighting = frontend.QueryNativeLightingPassAudit();
+  const OgreNextHdrCompositorAudit &resized_committed =
+      evidence.resized_committed;
+  const OgreNextNativeLightingPassAudit &resized_lighting =
+      evidence.resized_lighting;
+  Require(resized_output.attachments.size() == 1U &&
+              resized_output.attachments.front().width == kResizedWidth &&
+              resized_output.attachments.front().height == kResizedHeight &&
+              resized_committed.pssm_finalization_attempts == 2U &&
+              resized_committed.pssm_finalization_commits == 2U &&
+              resized_committed.pssm_finalization_rollbacks == 0U &&
+              resized_committed.pssm_warmup_native_absence_checks == 3U &&
+              resized_committed.pssm_finalized_with_populated_scene &&
+              resized_committed.committed_frames == 2U &&
+              resized_lighting.completed_frames == 2U &&
+              resized_lighting.raster_scene_evaluations == 1U &&
+              resized_lighting.pssm_shadow_response,
+          "single-evaluation HDR/PSSM resize did not re-finalize exactly once");
+  evidence.resize_rebuild_verified = true;
+
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "single-evaluation HDR/PSSM Shutdown");
+  evidence.shutdown = frontend.QueryHdrCompositorAudit();
+  evidence.shutdown_shadow = frontend.QueryDirectionalShadowAudit();
+  const OgreNextHdrCompositorAudit &shutdown = evidence.shutdown;
+  const OgreNextPssmShadowRuntimeAudit &shutdown_shadow =
+      evidence.shutdown_shadow;
+  Require(!shutdown.native_workspace_live && shutdown.width == 0U &&
+              shutdown.height == 0U &&
+              !shutdown.pssm_finalized_with_populated_scene &&
+              shutdown_shadow.shadow_node_creates == 2U &&
+              shutdown_shadow.shadow_node_destroys == 2U,
+          "single-evaluation HDR/PSSM teardown did not balance persistent shadow ownership");
+  evidence.clean_shutdown = true;
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  const std::array<OgreNextN1HdrFailureStage, 2U> failure_stages{{
+      OgreNextN1HdrFailureStage::AFTER_SINGLE_SCENE_PSSM_DEFINITION,
+      OgreNextN1HdrFailureStage::AFTER_SINGLE_SCENE_PSSM_WORKSPACE_RECREATE,
+  }};
+  for (std::size_t index = 0U; index < failure_stages.size(); ++index) {
+    OgreNextN1Configuration rollback_configuration;
+    rollback_configuration.shader_media_root = media_root;
+    rollback_configuration.raster_feature_tier =
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    rollback_configuration.enable_hdr_compositor = true;
+    rollback_configuration.hdr_scene_topology =
+        OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+    rollback_configuration.directional_shadow_mode =
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+    rollback_configuration.retain_native_lighting_content_evidence = true;
+    rollback_configuration.hdr_failure_stage = failure_stages[index];
+    OgreNextN1Frontend rollback(std::move(rollback_configuration));
+    InitializeAndSync(rollback, MakeCatalog(true, &kVariantSpecs.front()));
+    RenderFrameOutput failed_output;
+    const RenderOperationResult injected = rollback.Render(
+        MakeSingleSceneHdrPssmFrame(
+            1U, MakeScene(1200U + index, false, true, 1U, 1U,
+                          Matrix4x4{}, 1U, {0.0F, -0.8F, -0.6F}, 0.0F,
+                          true, true, false, true)),
+        failed_output);
+    const OgreNextHdrCompositorAudit after_failure =
+        rollback.QueryHdrCompositorAudit();
+    Require(!injected &&
+                injected.code == RenderOperationCode::BACKEND_FAILURE &&
+                after_failure.native_workspace_live &&
+                after_failure.pssm_finalization_attempts == 1U &&
+                after_failure.pssm_finalization_commits == 0U &&
+                after_failure.pssm_finalization_rollbacks == 1U &&
+                !after_failure.pssm_finalized_with_populated_scene &&
+                after_failure.committed_frames == 0U,
+            "single-evaluation HDR/PSSM finalization rollback published partial state");
+    RenderFrameOutput recovered_output;
+    RequireSuccess(
+        rollback.Render(
+            MakeSingleSceneHdrPssmFrame(
+                1U, MakeScene(1200U + index, false, true, 1U, 1U,
+                              Matrix4x4{}, 1U, {0.0F, -0.8F, -0.6F},
+                              0.0F, true, true, false, true)),
+            recovered_output),
+        "single-evaluation HDR/PSSM rollback retry Render");
+    const OgreNextHdrCompositorAudit recovered =
+        rollback.QueryHdrCompositorAudit();
+    Require(recovered.pssm_finalization_attempts == 2U &&
+                recovered.pssm_finalization_commits == 1U &&
+                recovered.pssm_finalization_rollbacks == 1U &&
+                recovered.pssm_finalized_with_populated_scene &&
+                recovered.committed_frames == 1U,
+            "single-evaluation HDR/PSSM finalization rollback did not recover cleanly");
+    RequireSuccess(rollback.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                   "single-evaluation HDR/PSSM rollback Shutdown");
+    const OgreNextPssmShadowRuntimeAudit recovered_shadow =
+        rollback.QueryDirectionalShadowAudit();
+    Require(recovered_shadow.shadow_node_creates == 2U &&
+                recovered_shadow.shadow_node_destroys == 2U,
+            "single-evaluation HDR/PSSM rollback leaked a shadow definition");
+    ++evidence.rollback_stages_verified;
+  }
+
+  OgreNextN1Configuration drift_configuration;
+  drift_configuration.shader_media_root = media_root;
+  drift_configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  drift_configuration.enable_hdr_compositor = true;
+  drift_configuration.hdr_scene_topology =
+      OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+  drift_configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  drift_configuration.retain_native_lighting_content_evidence = true;
+  drift_configuration.hdr_failure_stage =
+      OgreNextN1HdrFailureStage::
+          BEFORE_SINGLE_SCENE_WARMUP_ABSENCE_CHECK_COUNTER_DRIFT;
+  OgreNextN1Frontend drift(std::move(drift_configuration));
+  const RenderOperationResult drift_failure = drift.Initialize(Initialization());
+  const OgreNextHdrCompositorAudit drift_audit =
+      drift.QueryHdrCompositorAudit();
+  Require(!drift_failure &&
+              drift_failure.code == RenderOperationCode::BACKEND_FAILURE &&
+              !drift_audit.native_workspace_live &&
+              drift_audit.pssm_warmup_native_absence_checks == 0U &&
+              !drift_audit.pssm_deferred_until_scene_population &&
+              !drift_audit.zero_light_pssm_warmup_avoided,
+          "single-evaluation HDR/PSSM accepted native shadow ownership-counter drift during warmup");
+  evidence.warmup_counter_drift_rejected = true;
+
+  OgreNextN1Configuration downstream_configuration;
+  downstream_configuration.shader_media_root = media_root;
+  downstream_configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  downstream_configuration.enable_hdr_compositor = true;
+  downstream_configuration.hdr_scene_topology =
+      OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+  downstream_configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  downstream_configuration.retain_native_lighting_content_evidence = true;
+  downstream_configuration.hdr_failure_stage =
+      OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE;
+  OgreNextN1Frontend downstream(std::move(downstream_configuration));
+  InitializeAndSync(downstream, MakeCatalog(true, &kVariantSpecs.front()));
+  RenderFrameOutput downstream_output;
+  const RenderOperationResult downstream_failure = downstream.Render(
+      MakeSingleSceneHdrPssmFrame(
+          1U, MakeScene(1300U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+                        {0.0F, -0.8F, -0.6F}, 0.0F, true, true, false,
+                        true)),
+      downstream_output);
+  const OgreNextHdrCompositorAudit downstream_audit =
+      downstream.QueryHdrCompositorAudit();
+  const OgreNextPssmShadowRuntimeAudit downstream_shadow =
+      downstream.QueryDirectionalShadowAudit();
+  Require(!downstream_failure &&
+              downstream_failure.code == RenderOperationCode::BACKEND_FAILURE &&
+              downstream_output.frame_id == 0U &&
+              downstream_audit.pssm_finalization_attempts == 1U &&
+              downstream_audit.pssm_finalization_commits == 0U &&
+              downstream_audit.pssm_finalization_rollbacks == 1U &&
+              !downstream_audit.pssm_finalized_with_populated_scene &&
+              downstream_audit.committed_frames == 0U &&
+              downstream_shadow.shadow_node_creates == 1U &&
+              downstream_shadow.shadow_node_destroys == 1U,
+          "single-evaluation HDR/PSSM published finalization before the full frame transaction committed");
+  evidence.downstream_failure_rollback_verified = true;
+  RequireSuccess(downstream.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "single-evaluation HDR/PSSM downstream rollback Shutdown");
+#endif
+}
+
 SmokeResult::HdrCompositorEvidence
 RunHdrCompositorProof(const std::string &media_root) {
   SmokeResult::HdrCompositorEvidence evidence;
@@ -4030,7 +4481,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   HdrR16Float expected_initial;
   Require(QuantizeHdrR16Float(0.01F, expected_initial).ok(),
           "HDR compositor initial R16 fixture is invalid");
-  Require(evidence.initialized.version == 2U &&
+  Require(evidence.initialized.version == 3U &&
               evidence.initialized.enabled &&
               evidence.initialized.native_workspace_live &&
               evidence.initialized.deterministic_delta_bound &&
@@ -4168,7 +4619,7 @@ RunHdrCompositorProof(const std::string &media_root) {
     throw std::runtime_error(detail.str());
   }
   Require(evidence.exposure_changed_pixels >= 512U &&
-              evidence.committed.version == 2U &&
+              evidence.committed.version == 3U &&
               evidence.committed.native_workspace_live &&
               evidence.committed.deterministic_delta_bound &&
               evidence.committed.native_r16_history_validated &&
@@ -4222,10 +4673,20 @@ RunHdrCompositorProof(const std::string &media_root) {
   const auto same_hdr_state = [](const OgreNextHdrCompositorAudit &lhs,
                                  const OgreNextHdrCompositorAudit &rhs) {
     return lhs.version == rhs.version && lhs.enabled == rhs.enabled &&
+           lhs.scene_topology == rhs.scene_topology &&
            lhs.native_workspace_live == rhs.native_workspace_live &&
            lhs.width == rhs.width && lhs.height == rhs.height &&
            lhs.warmup_frames == rhs.warmup_frames &&
            lhs.committed_frames == rhs.committed_frames &&
+           lhs.pssm_finalization_attempts == rhs.pssm_finalization_attempts &&
+           lhs.pssm_finalization_commits == rhs.pssm_finalization_commits &&
+           lhs.pssm_finalization_rollbacks == rhs.pssm_finalization_rollbacks &&
+           lhs.pssm_deferred_until_scene_population ==
+               rhs.pssm_deferred_until_scene_population &&
+           lhs.pssm_finalized_with_populated_scene ==
+               rhs.pssm_finalized_with_populated_scene &&
+           lhs.zero_light_pssm_warmup_avoided ==
+               rhs.zero_light_pssm_warmup_avoided &&
            lhs.previous_inverse_luminance_r16_bits ==
                rhs.previous_inverse_luminance_r16_bits &&
            lhs.reference_inverse_luminance_r16_bits ==
@@ -4291,7 +4752,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   const OgreNextHdrCompositorAudit resized_audit =
       frontend.QueryHdrCompositorAudit();
   evidence.resize_rebuild_verified =
-      resized_audit.version == 2U && resized_audit.enabled &&
+      resized_audit.version == 3U && resized_audit.enabled &&
       resized_audit.native_workspace_live &&
       resized_audit.ui_free_workspace_verified &&
       resized_audit.width == kResizedWidth &&
@@ -4429,6 +4890,7 @@ RunHdrCompositorProof(const std::string &media_root) {
           transaction.QueryReflectionProbeNativeOwnershipEvidence();
   evidence.aborted_hdr_audit_unchanged =
       hdr_after_abort.version == hdr_before_abort.version &&
+      hdr_after_abort.scene_topology == hdr_before_abort.scene_topology &&
       hdr_after_abort.enabled == hdr_before_abort.enabled &&
       hdr_after_abort.native_workspace_live ==
           hdr_before_abort.native_workspace_live &&
@@ -4444,6 +4906,18 @@ RunHdrCompositorProof(const std::string &media_root) {
       hdr_after_abort.height == hdr_before_abort.height &&
       hdr_after_abort.warmup_frames == hdr_before_abort.warmup_frames &&
       hdr_after_abort.committed_frames == hdr_before_abort.committed_frames &&
+      hdr_after_abort.pssm_finalization_attempts ==
+          hdr_before_abort.pssm_finalization_attempts &&
+      hdr_after_abort.pssm_finalization_commits ==
+          hdr_before_abort.pssm_finalization_commits &&
+      hdr_after_abort.pssm_finalization_rollbacks ==
+          hdr_before_abort.pssm_finalization_rollbacks &&
+      hdr_after_abort.pssm_deferred_until_scene_population ==
+          hdr_before_abort.pssm_deferred_until_scene_population &&
+      hdr_after_abort.pssm_finalized_with_populated_scene ==
+          hdr_before_abort.pssm_finalized_with_populated_scene &&
+      hdr_after_abort.zero_light_pssm_warmup_avoided ==
+          hdr_before_abort.zero_light_pssm_warmup_avoided &&
       hdr_after_abort.previous_inverse_luminance_r16_bits ==
           hdr_before_abort.previous_inverse_luminance_r16_bits &&
       hdr_after_abort.history_validation_mode ==
@@ -4642,7 +5116,7 @@ RunHdrCompositorProof(const std::string &media_root) {
                                 failure_stages[index].second);
     const OgreNextHdrCompositorAudit after_failure =
         rollback.QueryHdrCompositorAudit();
-    Require(after_failure.version == 2U && after_failure.enabled &&
+    Require(after_failure.version == 3U && after_failure.enabled &&
                 !after_failure.native_workspace_live && after_failure.width == 0U &&
                 after_failure.height == 0U && after_failure.warmup_frames == 0U &&
                 after_failure.committed_frames == 0U,
@@ -4717,6 +5191,8 @@ RunHdrCompositorProof(const std::string &media_root) {
   RequireSuccess(overlay_control.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "HDR real UI-overlay control Shutdown");
 #endif
+  RunSingleSceneHdrPssmTopologyProof(media_root,
+                                     evidence.single_scene_pssm);
   return evidence;
 }
 

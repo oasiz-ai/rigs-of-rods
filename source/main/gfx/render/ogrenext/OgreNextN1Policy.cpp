@@ -1315,18 +1315,46 @@ ValidationResult ValidateOgreNextN1Scene(
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
     bool hdr_compositor_enabled,
-    bool native_directional_shadow_enabled) {
+    bool native_directional_shadow_enabled,
+    OgreNextHdrSceneTopology hdr_scene_topology) {
   if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
                                      "raster_feature_tier",
                                      "unknown Ogre-Next raster feature tier");
   }
-  if (hdr_compositor_enabled &&
-      (shadow_mode != OgreNextDirectionalShadowMode::DISABLED ||
-       native_directional_shadow_enabled)) {
+  const bool known_hdr_scene_topology =
+      hdr_scene_topology ==
+          OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2 ||
+      hdr_scene_topology ==
+          OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+  if (!known_hdr_scene_topology) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "hdr_scene_topology",
+        "unknown Ogre-Next HDR scene topology");
+  }
+  const bool reviewed_single_scene_hdr_pssm =
+      raster_feature_tier ==
+          OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+      hdr_compositor_enabled &&
+      shadow_mode ==
+          OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1 &&
+      !native_directional_shadow_enabled &&
+      hdr_scene_topology ==
+          OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+  if ((hdr_compositor_enabled &&
+       (shadow_mode != OgreNextDirectionalShadowMode::DISABLED ||
+        native_directional_shadow_enabled)) &&
+      !reviewed_single_scene_hdr_pssm) {
     return Unsupported(
-        "directional_shadow_mode",
-        "persistent HDR and directional shadows require a reviewed shared compositor node");
+        "hdr_scene_topology",
+        "persistent HDR and directional shadows require exactly RT4/V1, PSSM_3_CASCADE_V1, native directional shadows disabled, and SINGLE_EVALUATION_PSSM_V1");
+  }
+  if (hdr_scene_topology ==
+          OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1 &&
+      !reviewed_single_scene_hdr_pssm) {
+    return Unsupported(
+        "hdr_scene_topology",
+        "SINGLE_EVALUATION_PSSM_V1 is valid only for its exact reviewed RT4 HDR/PSSM feature combination");
   }
   if (native_directional_shadow_enabled &&
       (raster_feature_tier !=
@@ -1620,7 +1648,8 @@ ValidationResult ValidateOgreNextN1Frame(
     bool hdr_compositor_enabled,
     bool native_directional_shadow_enabled,
     bool native_presentation_enabled,
-    bool native_sun_visibility_v2_enabled) {
+    bool native_sun_visibility_v2_enabled,
+    OgreNextHdrSceneTopology hdr_scene_topology) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
@@ -1707,7 +1736,8 @@ ValidationResult ValidateOgreNextN1Frame(
       *request.scene_snapshot, registry,
       capabilities.supports_dynamic_mesh_updates, raster_feature_tier,
       shadow_mode, hdr_compositor_enabled,
-      native_directional_shadow_enabled);
+      native_directional_shadow_enabled,
+      hdr_scene_topology);
   if (!validation) {
     return validation;
   }

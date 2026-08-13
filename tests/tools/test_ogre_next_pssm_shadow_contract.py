@@ -41,6 +41,9 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         cls.frontend_header = (RENDER_ROOT / "OgreNextN1Frontend.h").read_text(
             encoding="utf-8"
         )
+        cls.hdr_topology_header = (
+            RENDER_ROOT / "OgreNextHdrSceneTopology.h"
+        ).read_text(encoding="utf-8")
         cls.frontend = (RENDER_ROOT / "OgreNextN1Frontend.cpp").read_text(
             encoding="utf-8"
         )
@@ -276,6 +279,71 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "shadow_plan.native_visibility_mask != authored_view_visibility",
             self.frontend,
         )
+
+    def test_hdr_showcase_binds_real_pssm_to_exactly_one_populated_scene(self) -> None:
+        for token in (
+            "enum class OgreNextHdrSceneTopology",
+            "SINGLE_EVALUATION_PSSM_V1",
+        ):
+            self.assertIn(token, self.hdr_topology_header)
+        for token in (
+            "AFTER_SINGLE_SCENE_PSSM_DEFINITION",
+            "AFTER_SINGLE_SCENE_PSSM_WORKSPACE_RECREATE",
+        ):
+            self.assertIn(token, self.frontend_header)
+
+        bind_start = self.frontend.index("void BindAndVerifyPssmWorkspace(")
+        bind_end = self.frontend.index(
+            "void UnbindAndVerifyPssmWorkspace(", bind_start
+        )
+        bind = self.frontend[bind_start:bind_end]
+        for token in (
+            "scene_pass->mShadowNode = Ogre::IdString(shadow_node_name);",
+            "scene_pass->mShadowNodeRecalculation = Ogre::SHADOW_NODE_FIRST_ONLY;",
+            "bound_shadow_scene_passes != 1U",
+            "candidate->mIdentifier != scene_pass_identifier",
+        ):
+            self.assertIn(token, bind)
+
+        unbind_start = bind_end
+        unbind_end = self.frontend.index(
+            "struct NativePssmReadback final", unbind_start
+        )
+        unbind = self.frontend[unbind_start:unbind_end]
+        for token in (
+            "matching_scene_passes != 1U",
+            "selected->mShadowNode = Ogre::IdString();",
+            "bound_shadow_scene_passes != 0U",
+        ):
+            self.assertIn(token, unbind)
+
+        finalize_start = self.frontend.index(
+            "RenderOperationResult FinalizeSingleSceneHdrPssm("
+        )
+        finalize_end = self.frontend.index(
+            "RenderOperationResult CreateHdrCompositor(", finalize_start
+        )
+        finalize = self.frontend[finalize_start:finalize_end]
+        for token in (
+            "directional_lights != 1U",
+            "shadow_casters == 0U",
+            "shadow_receivers == 0U",
+            "CreateAndVerifyPssmShadowNode(",
+            "BindAndVerifyPssmWorkspace(",
+            "hdr_workspace->recreateAllNodes();",
+            "RefreshSingleSceneHdrRuntimeTargets(true)",
+            "hdr_pssm_finalized_with_populated_scene = true;",
+        ):
+            self.assertIn(token, finalize)
+
+        render_start = self.frontend.index(
+            "RenderOperationResult OgreNextN1Frontend::Render("
+        )
+        render = self.frontend[render_start:]
+        finalize_call = render.index("impl_->FinalizeSingleSceneHdrPssm(")
+        pssm_readback = render.index("ReadAndVerifyNativePssmState(")
+        self.assertLess(finalize_call, pssm_readback)
+        self.assertNotIn('"active_lights=0"', self.frontend)
 
     def test_reviewed_cascade_and_filter_values_are_literal_and_read_back(self) -> None:
         for declaration in (

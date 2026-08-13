@@ -159,6 +159,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.header = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.h"
         ).read_text(encoding="utf-8")
+        cls.hdr_topology_header = (
+            RENDER_ROOT / "ogrenext" / "OgreNextHdrSceneTopology.h"
+        ).read_text(encoding="utf-8")
         cls.frontend = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.cpp"
         ).read_text(encoding="utf-8")
@@ -1313,6 +1316,291 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "post_render_failure_fault_latched",
         ):
             self.assertIn(token, self.smoke)
+
+    def test_one_scene_hdr_pssm_topology_is_exact_and_audited(self) -> None:
+        for token in (
+            "enum class OgreNextHdrSceneTopology",
+            "DIRECTIONAL_SPLIT_V2 = 0U",
+            "SINGLE_EVALUATION_PSSM_V1",
+        ):
+            self.assertIn(token, self.hdr_topology_header)
+        for token in (
+            "std::uint32_t version = 3U;",
+            "OgreNextHdrSceneTopology scene_topology",
+            "OgreNextHdrSceneTopology hdr_scene_topology",
+            "pssm_finalized_with_populated_scene",
+        ):
+            self.assertIn(token, self.header)
+
+        topology_start = self.frontend.index(
+            "void CreateAndVerifyHdrSingleSceneNode("
+        )
+        topology_end = self.frontend.index(
+            "void ConfigureAndVerifyHdrPostExecutionMask(", topology_start
+        )
+        topology = self.frontend[topology_start:topology_end]
+        for token in (
+            "node->setNumLocalTextureDefinitions(2U);",
+            "scene_texture->format = Ogre::PFG_RGBA16_FLOAT;",
+            "scene_texture->width = 0U;",
+            "scene_texture->height = 0U;",
+            "scene_texture->depthBufferId = 1U;",
+            "history->format = Ogre::PFG_R16_FLOAT;",
+            "history->width = 1U;",
+            "history->height = 1U;",
+            "history->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "node->setNumTargetPass(2U);",
+            "scene_target->setNumPasses(1U);",
+            "scene_target->addPass(Ogre::PASS_SCENE)",
+            "scene->mIdentifier = kOgreNextHdrSingleScenePassIdentifier;",
+            "scene->mIncludeOverlays = false;",
+            "scene->mEnableForwardPlus = true;",
+            "scene->setVisibilityMask(kOgreNextRt4AuthoredVisibilityMask);",
+            "history_target->setNumPasses(1U);",
+            "history_target->addPass(Ogre::PASS_CLEAR)",
+            "clear_history->mNumInitialPasses = 1U;",
+            "node->setNumOutputChannels(2U);",
+            "node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);",
+            "node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);",
+            "verified_scene->mShadowNode != Ogre::IdString()",
+            "node->calculateNumPasses() != 2U",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, topology)
+        self.assertEqual(topology.count("node->addTextureDefinition("), 2)
+        self.assertEqual(topology.count("node->addTargetPass("), 2)
+        self.assertEqual(topology.count("addPass(Ogre::PASS_SCENE)"), 1)
+        self.assertEqual(topology.count("addPass(Ogre::PASS_CLEAR)"), 1)
+        for split_attachment in (
+            "kOgreNextHdrBaseTexture",
+            "kOgreNextHdrSunFullTexture",
+            "kOgreNextHdrSunDirectTexture",
+            "kOgreNextHdrVisibilityTexture",
+            "kOgreNextHdrLitTexture",
+        ):
+            self.assertNotIn(split_attachment, topology)
+
+        runtime_start = self.frontend.index(
+            "RenderOperationResult RefreshSingleSceneHdrRuntimeTargets("
+        )
+        runtime_end = self.frontend.index(
+            "bool RollbackSingleSceneHdrPssm()", runtime_start
+        )
+        runtime = self.frontend[runtime_start:runtime_end]
+        for token in (
+            "linear_scene->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT",
+            "old_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT",
+            "iterative_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT",
+            "current_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT",
+            "definition->getNumTargetPasses() == 2U",
+            "definition->calculateNumPasses() == 2U",
+            "definition->getNumOutputChannels() == 2U",
+            "hdr_auto_exposure_graph_verified",
+            "hdr_bloom_graph_verified",
+            "hdr_tone_map_graph_verified",
+            "hdr_srgb_output_verified",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, runtime)
+
+        for token in (
+            "audit.scene_topology = hdr_scene_topology;",
+            "lighting_candidate.hdr_scene_topology = impl_->hdr_scene_topology;",
+            "impl_->hdr_enabled && !impl_->SingleSceneHdrPssmEnabled() ? 3U : 1U;",
+            "impl_->hdr_scene_topology);",
+        ):
+            self.assertIn(token, self.frontend)
+        policy = self.policy_header + self.policy
+        for token in (
+            "OgreNextHdrSceneTopology hdr_scene_topology",
+            "reviewed_single_scene_hdr_pssm",
+            "OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1",
+            "OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1",
+            "!native_directional_shadow_enabled",
+            "OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1",
+            '"hdr_scene_topology"',
+            "persistent HDR and directional shadows require exactly RT4/V1, PSSM_3_CASCADE_V1, native directional shadows disabled, and SINGLE_EVALUATION_PSSM_V1",
+        ):
+            self.assertIn(token, policy)
+        self.assertNotIn("reviewed_hdr_directional_shadow_node", policy)
+
+        for token in (
+            "RunSingleSceneHdrPssmTopologyProof",
+            "ror.ogre_next_hdr_pssm_single_scene.v1",
+            '\\"topology\\": \\"SINGLE_EVALUATION_PSSM_V1\\"',
+            '\\"pssm_deferred_until_populated_scene\\"',
+            '\\"zero_light_pssm_warmup_avoided\\"',
+            '\\"warmup_native_absence_checks\\"',
+            '\\"scene_evaluations\\"',
+            '\\"single_history_step\\"',
+            '\\"rgba16_hdr\\"',
+            '\\"auto_exposure\\"',
+            '\\"bloom\\"',
+            '\\"filmic\\"',
+            '\\"srgb\\"',
+            '\\"production_content_readbacks\\"',
+            '\\"production_framebuffer_readbacks\\"',
+            '\\"ogre14_lighting_passes\\"',
+            '\\"rollback_stages_verified\\"',
+            '\\"clean_shutdown\\"',
+        ):
+            self.assertIn(token, self.smoke)
+
+    def test_one_scene_pssm_finalization_is_populated_and_transactional(self) -> None:
+        for field in (
+            "pssm_finalization_attempts",
+            "pssm_finalization_commits",
+            "pssm_finalization_rollbacks",
+            "pssm_deferred_until_scene_population",
+            "pssm_finalized_with_populated_scene",
+            "zero_light_pssm_warmup_avoided",
+            "pssm_warmup_native_absence_checks",
+        ):
+            self.assertIn(field, self.header)
+            self.assertIn(field, self.frontend)
+        for stage in (
+            "AFTER_SINGLE_SCENE_PSSM_DEFINITION",
+            "AFTER_SINGLE_SCENE_PSSM_WORKSPACE_RECREATE",
+            "BEFORE_SINGLE_SCENE_WARMUP_ABSENCE_CHECK_COUNTER_DRIFT",
+            "AFTER_FRAME_COMMIT_PREPARE",
+        ):
+            self.assertIn(stage, self.header)
+            self.assertIn(stage, self.frontend)
+
+        finalization_start = self.frontend.index(
+            "RenderOperationResult FinalizeSingleSceneHdrPssm("
+        )
+        finalization_end = self.frontend.index(
+            "RenderOperationResult CreateHdrCompositor(", finalization_start
+        )
+        finalization = self.frontend[finalization_start:finalization_end]
+        for token in (
+            "directional_lights != 1U",
+            "shadow_casters == 0U",
+            "shadow_receivers == 0U",
+            "authored_view_visibility != kOgreNextRt4AuthoredVisibilityMask",
+            "++hdr_pssm_finalization_attempts;",
+            "CreateAndVerifyPssmShadowNode(",
+            "BindAndVerifyPssmWorkspace(",
+            "kOgreNextHdrSingleScenePassIdentifier",
+            "hdr_workspace->recreateAllNodes();",
+            "RefreshSingleSceneHdrRuntimeTargets(true)",
+            "InitializeExactHdrHistory(",
+            "hdr_pssm_finalization_prepared = true;",
+            "CanCommitPreparedSingleSceneHdrPssm()",
+            "CommitPreparedSingleSceneHdrPssm()",
+            "hdr_pssm_finalized_with_populated_scene = true;",
+            "++hdr_pssm_finalization_commits;",
+            "RollbackSingleSceneHdrPssm()",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, finalization)
+        self.assertLess(
+            finalization.index("directional_lights != 1U"),
+            finalization.index("CreateAndVerifyPssmShadowNode("),
+        )
+        self.assertLess(
+            finalization.index("BindAndVerifyPssmWorkspace("),
+            finalization.index("hdr_workspace->recreateAllNodes();"),
+        )
+        self.assertLess(
+            finalization.index("RefreshSingleSceneHdrRuntimeTargets(true)"),
+            finalization.index("hdr_pssm_finalization_prepared = true;"),
+        )
+        self.assertLess(
+            finalization.index("hdr_pssm_finalization_prepared = true;"),
+            finalization.index(
+                "hdr_pssm_finalized_with_populated_scene = true;"
+            ),
+        )
+
+        for token in (
+            "VerifySingleSceneHdrWarmupShadowAbsence(",
+            "bound_shadow_scene_passes == 0U",
+            "hdr_workspace->findShadowNode(shadow_name) == nullptr",
+            "shadow_audit.shadow_node_creates == expected_shadow_node_creates",
+            "shadow_audit.shadow_node_destroys ==",
+            "hdr_pssm_warmup_native_absence_checks == 3U",
+            "hdr_pssm_deferred_until_scene_population_verified =",
+            "hdr_zero_light_pssm_warmup_avoided_verified =",
+            "abort_hdr_pssm_finalization",
+            "impl_->RollbackSingleSceneHdrPssm()",
+            "impl_->CanCommitPreparedSingleSceneHdrPssm()",
+            "impl_->CommitPreparedSingleSceneHdrPssm()",
+        ):
+            self.assertIn(token, self.frontend)
+        render_start = self.frontend.index(
+            "RenderOperationResult OgreNextN1Frontend::Render("
+        )
+        render = self.frontend[render_start:]
+        self.assertLess(
+            render.index("impl_->FinalizeSingleSceneHdrPssm("),
+            render.index(
+                "OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE"
+            ),
+        )
+        self.assertLess(
+            render.index(
+                "OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE"
+            ),
+            render.index("impl_->CommitPreparedSingleSceneHdrPssm()"),
+        )
+
+        populate_call = self.frontend.index(
+            "impl_->FinalizeSingleSceneHdrPssm("
+        )
+        production_graph = self.frontend.index(
+            "impl_->EnsureProductionPresentationGraph(", populate_call
+        )
+        self.assertLess(populate_call, production_graph)
+        populate_block = self.frontend[populate_call:production_graph]
+        for argument in (
+            "lighting_candidate.last_directional_lights",
+            "lighting_candidate.last_shadow_casters",
+            "lighting_candidate.last_shadow_receivers",
+            "authored_view_visibility",
+        ):
+            self.assertIn(argument, populate_block)
+
+        resize_start = self.frontend.index("const bool rebuild_hdr =")
+        resize_end = self.frontend.index(
+            "if (production_presentation)", resize_start
+        )
+        resize = self.frontend[resize_start:resize_end]
+        self.assertIn("impl_->DestroyHdrCompositor(false)", resize)
+        self.assertIn("impl_->CreateHdrCompositor(", resize)
+        teardown_start = self.frontend.index(
+            "DestroyHdrCompositor(bool destroy_definitions_and_resources"
+        )
+        teardown_end = self.frontend.index(
+            "RenderOperationResult ConfigureHdrParameters(", teardown_start
+        )
+        teardown = self.frontend[teardown_start:teardown_end]
+        for token in (
+            "UnbindAndVerifyPssmWorkspace(",
+            "removeShadowNodeDefinition(shadow_name)",
+            "hdr_pssm_finalized_with_populated_scene = false;",
+            "shadow_audit.shadow_node_destroys",
+        ):
+            self.assertIn(token, teardown)
+
+    def test_production_hdr_lighting_is_gpu_only_and_has_no_ogre14_pass(self) -> None:
+        for token in (
+            "production native presentation forbids all optional content readback evidence",
+            "impl_->hdr_temporal_state.PrepareGpuOnlyCommit(hdr_plan)",
+            "lighting_candidate.production_content_readbacks =",
+            "lighting_candidate.production_framebuffer_readbacks =",
+            "lighting_candidate.production_gpu_only = gpu_only_output;",
+            "lighting_candidate.no_ogre14_lighting = true;",
+            "lighting_candidate.production_content_readbacks != 0U",
+            "lighting_candidate.production_framebuffer_readbacks != 0U",
+            "!lighting_candidate.production_gpu_only",
+        ):
+            self.assertIn(token, self.frontend)
+        self.assertIn(
+            "std::uint64_t ogre14_lighting_passes = 0U;", self.header
+        )
+        self.assertIn("bool no_ogre14_lighting = true;", self.header)
 
     def test_projection_and_device_extent_paths_fail_closed(self) -> None:
         self.assertIn("TryConvertPortableProjectionToOgreClip", self.policy_header)

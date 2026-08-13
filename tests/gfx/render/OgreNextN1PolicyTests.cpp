@@ -516,14 +516,14 @@ void TestHdrFeatureCombinationPolicy() {
   RenderFrameRequest request = MakeFrame(MakeReflectionScene(kRegistryId));
 
   // This pure admission check runs without constructing a frontend or native
-  // device. Keep HDR+PSSM fail-closed until they share a reviewed compositor
-  // node instead of allowing the backend to discover the conflict later.
+  // device. HDR+PSSM remains fail-closed unless the caller identifies the
+  // exact reviewed single-evaluation topology explicitly.
   const ValidationResult hdr_pssm = ValidateOgreNextN1Frame(
       request, capabilities, registry,
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true);
   Require(hdr_pssm.code == ValidationCode::UNSUPPORTED_FEATURE &&
-              hdr_pssm.field == "directional_shadow_mode",
+              hdr_pssm.field == "hdr_scene_topology",
           "HDR+PSSM escaped pre-device feature-combination admission");
 
   Require(ValidateOgreNextN1Frame(
@@ -592,7 +592,7 @@ void TestNativeDirectionalShadowScenePolicy() {
   Require(ValidateOgreNextN1Scene(
               *scene, registry, false, kModern,
               OgreNextDirectionalShadowMode::DISABLED, true, true)
-              .field == "directional_shadow_mode",
+              .field == "hdr_scene_topology",
           "native directional shadows and persistent HDR were admitted together");
 
   const auto ambiguous = make_scene(MESH_INSTANCE_DEFAULT_FLAGS,
@@ -612,6 +612,48 @@ void TestNativeDirectionalShadowScenePolicy() {
               OgreNextDirectionalShadowMode::DISABLED, false, true)
               .ok(),
           "native directional-shadow frame incorrectly entered the PSSM planner");
+
+  request.views.front().near_plane = kOgreNextPssmNearMeters;
+  request.views.front().far_plane = kOgreNextPssmFarMeters;
+  request.views.front().clip_from_view =
+      Projection(kOgreNextPssmNearMeters, kOgreNextPssmFarMeters);
+  request.views.front().previous_clip_from_view =
+      request.views.front().clip_from_view;
+  request.color_format = PixelFormat::RGBA8_SRGB;
+  const ValidationResult reviewed_hdr_pssm = ValidateOgreNextN1Frame(
+      request, capabilities, registry, kModern,
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
+      false, false, false,
+      OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1);
+  if (!reviewed_hdr_pssm) {
+    std::cerr << "Ogre-Next N1 policy test failed: reviewed one-scene "
+                 "HDR+PSSM compositor topology was rejected ("
+              << reviewed_hdr_pssm.field << ": "
+              << reviewed_hdr_pssm.detail << ")\n";
+    std::exit(EXIT_FAILURE);
+  }
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
+              false, false, false,
+              OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2)
+              .field == "hdr_scene_topology",
+          "wrong HDR topology escaped exact HDR+PSSM admission");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
+              true, false, false,
+              OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1)
+              .field == "hdr_scene_topology",
+          "native directional shadows escaped exact HDR+PSSM admission");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry,
+              OgreNextRasterFeatureTier::STATIC_PBR_N1,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
+              false, false, false,
+              OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1)
+              .code == ValidationCode::UNSUPPORTED_FEATURE,
+          "non-RT4 tier escaped exact HDR+PSSM admission");
 }
 
 void TestInitializationPolicy() {

@@ -340,7 +340,11 @@ public:
     output.emissive_items = audit.last_emissive_items;
     output.shadow_casters = audit.last_shadow_casters;
     output.shadow_receivers = audit.last_shadow_receivers;
+    output.hdr_scene_topology =
+        static_cast<std::uint32_t>(audit.hdr_scene_topology);
     output.native_scene_lighting_pass = audit.native_scene_lighting_pass;
+    output.pssm_finalized_with_populated_scene =
+        audit.pssm_finalized_with_populated_scene;
     output.linear_rgba16_hdr_target = audit.linear_rgba16_hdr_target;
     output.separate_base_hdr_target = audit.separate_base_hdr_target;
     output.separate_unoccluded_sun_full_hdr_target =
@@ -458,19 +462,20 @@ public:
     frontend_configuration.shader_media_root = candidate.shader_media_root;
     frontend_configuration.raster_feature_tier =
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
-    // The pinned Ogre compositor cannot yet combine its PSSM shadow node with
-    // the persistent three-evaluation HDR split without losing the reviewed
-    // cascade runtime state. Keep both real paths explicit: ordinary combined
-    // presentation retains the HDR split with shadows pending, while the
-    // forward-native A0 preview selects the validated raster PSSM path and
-    // leaves HDR disabled. Neither branch silently drops authored shadow
-    // state, and neither claims native ray tracing.
+    // The showcase uses the dedicated single-evaluation HDR/PSSM topology.
+    // PSSM is intentionally absent during the scene-free HDR warmup and is
+    // finalized transactionally only after the first real RoR light,
+    // caster, and receiver set has populated the native scene. The ordinary
+    // combined runtime retains the directional-split HDR evidence topology.
     frontend_configuration.directional_shadow_mode =
         candidate.enable_native_showcase_pssm_preview
             ? OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1
             : OgreNextDirectionalShadowMode::DISABLED;
-    frontend_configuration.enable_hdr_compositor =
-        !candidate.enable_native_showcase_pssm_preview;
+    frontend_configuration.enable_hdr_compositor = true;
+    frontend_configuration.hdr_scene_topology =
+        candidate.enable_native_showcase_pssm_preview
+            ? OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1
+            : OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
     frontend_configuration.presentation.enabled = true;
     frontend_configuration.presentation.mode =
         OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;

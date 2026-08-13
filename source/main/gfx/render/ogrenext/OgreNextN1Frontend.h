@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextHdrSceneTopology.h"
 #include "OgreNextHdrTemporalContract.h"
 #include "OgreNextPssmShadowPolicy.h"
 #include "OgreNextN1ParticleRuntime.h"
@@ -34,7 +35,7 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
-constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 1U;
+constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 2U;
 
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
@@ -244,6 +245,12 @@ enum class OgreNextN1HdrFailureStage : std::uint8_t {
   AFTER_PARAMETER_BINDING,
   AFTER_WARMUP_FRAME_ONE,
   AFTER_WARMUP_FRAME_TWO,
+  AFTER_SINGLE_SCENE_PSSM_DEFINITION,
+  AFTER_SINGLE_SCENE_PSSM_WORKSPACE_RECREATE,
+  /// Corrupts only the test audit counter after the real native absence
+  /// baseline is captured. The warmup verifier must reject the drift instead
+  /// of publishing its deferred/zero-light receipts.
+  BEFORE_SINGLE_SCENE_WARMUP_ABSENCE_CHECK_COUNTER_DRIFT,
   /// Fires after native HDR history has been read and transactionally
   /// prepared, but before any public frame or audit state is committed.
   AFTER_FRAME_COMMIT_PREPARE,
@@ -320,6 +327,8 @@ struct OgreNextN1Configuration final {
   /// multi-pass bloom, filmic tone-map, and sRGB output compositor.  It is an
   /// explicit RT4 raster mode so raw linear-HDR capture remains unchanged.
   bool enable_hdr_compositor = false;
+  OgreNextHdrSceneTopology hdr_scene_topology =
+      OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
   OgreNextHdrTemporalConfiguration hdr_temporal_configuration{};
   OgreNextN1PresentationConfiguration presentation{};
 };
@@ -329,7 +338,9 @@ struct OgreNextN1Configuration final {
 /// the versioned conditioning/storage bound and the corresponding public frame
 /// has been committed. Accepted native bits are authoritative.
 struct OgreNextHdrCompositorAudit final {
-  std::uint32_t version = 2U;
+  std::uint32_t version = 3U;
+  OgreNextHdrSceneTopology scene_topology =
+      OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
   bool enabled = false;
   bool native_workspace_live = false;
   bool deterministic_delta_bound = false;
@@ -342,6 +353,13 @@ struct OgreNextHdrCompositorAudit final {
   std::uint32_t height = 0U;
   std::uint64_t warmup_frames = 0U;
   std::uint64_t committed_frames = 0U;
+  std::uint64_t pssm_finalization_attempts = 0U;
+  std::uint64_t pssm_finalization_commits = 0U;
+  std::uint64_t pssm_finalization_rollbacks = 0U;
+  std::uint64_t pssm_warmup_native_absence_checks = 0U;
+  bool pssm_deferred_until_scene_population = false;
+  bool pssm_finalized_with_populated_scene = false;
+  bool zero_light_pssm_warmup_avoided = false;
   std::uint16_t previous_inverse_luminance_r16_bits = 0U;
   std::uint16_t reference_inverse_luminance_r16_bits = 0U;
   float history_ogre_exposure = 0.0F;
@@ -386,6 +404,9 @@ struct OgreNextNativeLightingPassAudit final {
   std::uint32_t last_shadow_receivers = 0U;
   OgreNextDirectionalShadowMode shadow_mode =
       OgreNextDirectionalShadowMode::DISABLED;
+  OgreNextHdrSceneTopology hdr_scene_topology =
+      OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
+  bool pssm_finalized_with_populated_scene = false;
   bool native_scene_lighting_pass = false;
   bool linear_rgba16_hdr_target = false;
   /// Three scene evaluations share one immutable scene/camera/material state:

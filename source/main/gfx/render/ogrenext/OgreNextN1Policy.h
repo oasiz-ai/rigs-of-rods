@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../RendererFrontend.h"
+#include "OgreNextHdrSceneTopology.h"
 #include "OgreNextPssmShadowPolicy.h"
 #include "RasterFeatureTier.h"
 
@@ -178,7 +179,9 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     OgreNextDirectionalShadowMode shadow_mode =
         OgreNextDirectionalShadowMode::DISABLED,
     bool hdr_compositor_enabled = false,
-    bool native_directional_shadow_enabled = false);
+    bool native_directional_shadow_enabled = false,
+    OgreNextHdrSceneTopology hdr_scene_topology =
+        OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,
@@ -190,7 +193,9 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     bool hdr_compositor_enabled = false,
     bool native_directional_shadow_enabled = false,
     bool native_presentation_enabled = false,
-    bool native_sun_visibility_v2_enabled = false);
+    bool native_sun_visibility_v2_enabled = false,
+    OgreNextHdrSceneTopology hdr_scene_topology =
+        OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);

@@ -62,9 +62,8 @@ struct RendererOgreNextInProcessPresenterConfiguration final {
   std::uint32_t logical_width = 1280U;
   std::uint32_t logical_height = 720U;
   /// The forward-native A0 preview keeps its authored shadow sun and selects
-  /// the already-validated raster PSSM path. The ordinary combined runtime
-  /// retains the persistent HDR split while its shadow composition remains a
-  /// named pending milestone.
+  /// the dedicated one-scene RGBA16F HDR/PSSM topology. The ordinary combined
+  /// runtime retains the persistent directional-split HDR evidence path.
   bool enable_native_showcase_pssm_preview = false;
 };
 
@@ -145,7 +144,9 @@ struct RendererNativeLightingAudit final {
   std::uint32_t emissive_items = 0U;
   std::uint32_t shadow_casters = 0U;
   std::uint32_t shadow_receivers = 0U;
+  std::uint32_t hdr_scene_topology = 0U;
   bool native_scene_lighting_pass = false;
+  bool pssm_finalized_with_populated_scene = false;
   bool linear_rgba16_hdr_target = false;
   bool separate_base_hdr_target = false;
   bool separate_unoccluded_sun_full_hdr_target = false;

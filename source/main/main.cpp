@@ -932,7 +932,7 @@ int main(int argc, char *argv[])
                 "[RoR|RendererCombined|NativeShowcase] Selected exact "
                 "forward-native scene: path='{}', package='{}', "
                 "sha256='{}', assets={}, instances={}, source_version={}, "
-                "pipeline='rt4_pbr_pssm_raster_preview', hdr=false, "
+                "pipeline='rt4_pbr_pssm_hdr_preview', hdr=true, "
                 "native_rt=false, motion='turntable_opaque_gate', "
                 "fixed_hz=60, revolution_ticks={}, refraction=false, "
                 "motion_vectors=false",
@@ -3741,6 +3741,7 @@ int main(int argc, char *argv[])
                                     "frame={} snapshot={} descriptor_v={} "
                                     "directional={} pbs={} normal={} "
                                     "emissive={} casters={} receivers={} "
+                                    "hdr_topology={} pssm_populated_finalize={} "
                                     "native_scene_lighting={} rgba16_hdr={} "
                                     "base_hdr={} sun_full_unoccluded={} "
                                     "sun_direct_hdr={} gpu_sun_derivation={} "
@@ -3768,6 +3769,9 @@ int main(int argc, char *argv[])
                                     lighting_audit.emissive_items,
                                     lighting_audit.shadow_casters,
                                     lighting_audit.shadow_receivers,
+                                    lighting_audit.hdr_scene_topology,
+                                    lighting_audit
+                                        .pssm_finalized_with_populated_scene,
                                     lighting_audit.native_scene_lighting_pass,
                                     lighting_audit.linear_rgba16_hdr_target,
                                     lighting_audit.separate_base_hdr_target,
