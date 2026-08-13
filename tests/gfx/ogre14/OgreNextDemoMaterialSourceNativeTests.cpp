@@ -18,6 +18,7 @@
 #include <OgreHardwarePixelBuffer.h>
 #include <OgreLogManager.h>
 #include <OgreMaterial.h>
+#include <OgreMaterialManager.h>
 #include <OgrePass.h>
 #include <OgreRoot.h>
 #include <OgreTechnique.h>
@@ -575,6 +576,21 @@ struct SphericalNativeMaterial final {
   Ogre::SamplerPtr environment_sampler;
 };
 
+Ogre::Technique *AddCuratedTechniqueClone(
+    SphericalNativeMaterial &material, const Ogre::String &scheme,
+    bool rtss_marker) {
+  Ogre::Technique *const source = material.base.material->getTechnique(0U);
+  Require(source != nullptr, "curated source technique disappeared");
+  Ogre::Technique *const clone = material.base.material->createTechnique();
+  *clone = *source;
+  clone->setSchemeName(scheme);
+  if (rtss_marker) {
+    clone->getUserObjectBindings().setUserAny(
+        "SGTechnique", static_cast<void *>(source));
+  }
+  return clone;
+}
+
 std::vector<std::uint8_t> ReadCuratedFixtureBytes(
     const std::filesystem::path &path, std::uint64_t maximum_bytes) {
   std::error_code error;
@@ -974,9 +990,37 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
   SphericalNativeMaterial reviewed_shape(
       base_texture, specular_texture, environment_texture,
       "Material_#58/asiafacade", 191U);
+  AddCuratedTechniqueClone(reviewed_shape, Ogre::MSN_SHADERGEN, true);
   SphericalNativeMaterial unreviewed_shape(
       base_texture, specular_texture, environment_texture,
       "Material_#58/unreviewed-same-shape", 192U);
+  SphericalNativeMaterial unmarked_rtss_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/asiafacade", 193U);
+  AddCuratedTechniqueClone(unmarked_rtss_shape, Ogre::MSN_SHADERGEN, false);
+  SphericalNativeMaterial wrong_scheme_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/asiafacade", 194U);
+  AddCuratedTechniqueClone(wrong_scheme_shape, "UnreviewedScheme", true);
+  SphericalNativeMaterial duplicate_default_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/asiafacade", 195U);
+  AddCuratedTechniqueClone(duplicate_default_shape, Ogre::MSN_DEFAULT, false);
+  SphericalNativeMaterial mutated_source_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/asiafacade", 196U);
+  AddCuratedTechniqueClone(mutated_source_shape, Ogre::MSN_SHADERGEN, true);
+  mutated_source_shape.base.pass->setDepthWriteEnabled(false);
+  SphericalNativeMaterial reordered_source_shape(
+      base_texture, specular_texture, environment_texture,
+      "Material_#58/asiafacade", 197U);
+  Ogre::Technique *const reordered_default = AddCuratedTechniqueClone(
+      reordered_source_shape, Ogre::MSN_DEFAULT, false);
+  Ogre::Technique *const reordered_first =
+      reordered_source_shape.base.material->getTechnique(0U);
+  reordered_first->setSchemeName(Ogre::MSN_SHADERGEN);
+  reordered_first->getUserObjectBindings().setUserAny(
+      "SGTechnique", static_cast<void *>(reordered_default));
   OgreNextDemoMaterialSource source;
   Require(source.BindAuthenticatedTextureAuthority(
               unavailable_texture_resolver, authority_provider) &&
@@ -1010,6 +1054,25 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
             "retry reviewed name without script/texture authority");
   Require(!projected && unavailable_texture_resolver.resolve_calls == 2U,
           "retryable curated authority decision did not re-resolve");
+  const std::array<std::pair<const char *, SphericalNativeMaterial *>, 5U>
+      hostile_techniques{{
+          {"unmarked-rtss", &unmarked_rtss_shape},
+          {"wrong-scheme", &wrong_scheme_shape},
+          {"duplicate-default", &duplicate_default_shape},
+          {"mutated-source", &mutated_source_shape},
+          {"reordered-source", &reordered_source_shape},
+      }};
+  for (const auto &hostile : hostile_techniques) {
+    input = CaptureInput();
+    projected = true;
+    RequireOk(source.TryProject(
+                  std::string("static/asia/") + hostile.first,
+                  hostile.second->base.material, true, true, input,
+                  projected),
+              "reject hostile curated RTSS technique topology");
+    Require(!projected && unavailable_texture_resolver.resolve_calls == 2U,
+            "hostile curated technique topology reached source authority");
+  }
   reviewed_shape.base.sampler->setAnisotropy(2U);
   input = CaptureInput();
   projected = true;
@@ -1022,7 +1085,7 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
   Require(!projected && unavailable_texture_resolver.resolve_calls == 2U &&
               mutated_sampler.exclusions_by_reason[static_cast<std::size_t>(
                   OgreNextDemoTextureProjectionExclusion::
-                      MATERIAL_STATE_UNSUPPORTED)] == 1U,
+                      MATERIAL_STATE_UNSUPPORTED)] == 6U,
           "nondefault curated sampler retained reviewed authority");
   input = CaptureInput();
   projected = true;

@@ -19,6 +19,7 @@
 #include "gfx/render/RenderResourceDescriptors.h"
 
 #include <OgreBuildSettings.h>
+#include <OgreMaterialManager.h>
 #include <OgrePass.h>
 #include <OgrePixelFormat.h>
 #include <OgreTechnique.h>
@@ -711,13 +712,67 @@ bool IsExactCuratedCityWorldSphericalEnvironmentUnit(
          effect->second.subtype == Ogre::TextureUnitState::ENV_CURVED;
 }
 
+bool IsRtssGeneratedTechnique(const Ogre::Technique &technique) noexcept {
+  try {
+    return technique.getSchemeName() == Ogre::MSN_SHADERGEN &&
+           technique.getUserObjectBindings()
+               .getUserAny("SGTechnique")
+               .has_value();
+  } catch (...) {
+    return false;
+  }
+}
+
+bool FindCuratedCityWorldSourceTechnique(
+    const Ogre::MaterialPtr &material, Ogre::Technique *&output) noexcept {
+  try {
+    if (!material || material->getNumTechniques() == 0U) {
+      return false;
+    }
+    Ogre::Technique *source = nullptr;
+    for (unsigned short index = 0U; index < material->getNumTechniques();
+         ++index) {
+      Ogre::Technique *const technique = material->getTechnique(index);
+      if (technique == nullptr) {
+        return false;
+      }
+      const bool has_rtss_marker =
+          technique->getUserObjectBindings()
+              .getUserAny("SGTechnique")
+              .has_value();
+      if (technique->getSchemeName() == Ogre::MSN_DEFAULT &&
+          !has_rtss_marker) {
+        // Ogre RTSS derives and appends destination techniques from the
+        // authored source. Downstream material closure code is deliberately
+        // pinned to technique zero, so require that exact topology instead of
+        // accepting a reordered clone as source authority.
+        if (index != 0U || source != nullptr) {
+          return false;
+        }
+        source = technique;
+        continue;
+      }
+      if (!IsRtssGeneratedTechnique(*technique)) {
+        return false;
+      }
+    }
+    if (source == nullptr) {
+      return false;
+    }
+    output = source;
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 bool HasCuratedCityWorldSphericalFamilyShape(
     const Ogre::MaterialPtr &material) noexcept {
   try {
-    if (!material || material->getNumTechniques() != 1U) {
+    Ogre::Technique *technique = nullptr;
+    if (!FindCuratedCityWorldSourceTechnique(material, technique)) {
       return false;
     }
-    Ogre::Technique *const technique = material->getTechnique(0U);
     Ogre::Pass *const pass =
         technique != nullptr && technique->getNumPasses() == 1U
             ? technique->getPass(0U)
@@ -1654,7 +1709,6 @@ bool ObserveCuratedCityWorldNativeFacts(
                                    ? *temporarily_unavailable
                                    : ignored_temporarily_unavailable;
     if (!material || material->getName() != policy.exact_material_name ||
-        material->getNumTechniques() != 1U ||
         !material->getReceiveShadows() ||
         section_cull !=
             Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE ||
@@ -1670,7 +1724,10 @@ bool ObserveCuratedCityWorldNativeFacts(
                 SPHERICAL_AUTHORITY_BOUND_PENDING_NOT_PRESENTED) {
       return false;
     }
-    Ogre::Technique *const technique = material->getTechnique(0U);
+    Ogre::Technique *technique = nullptr;
+    if (!FindCuratedCityWorldSourceTechnique(material, technique)) {
+      return false;
+    }
     Ogre::Pass *const pass =
         technique != nullptr && technique->getNumPasses() == 1U
             ? technique->getPass(0U)

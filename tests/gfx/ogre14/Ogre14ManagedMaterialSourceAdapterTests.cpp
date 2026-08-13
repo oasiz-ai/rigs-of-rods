@@ -461,6 +461,11 @@ void TestFreshBatchAfterSuccessiveReceiptAndTusSetupMutations() {
   Ogre::Pass *specular_pass = technique->createPass();
   specular_pass->setName("SpecularMapping1");
   specular_pass->createTextureUnitState()->setName("SpecularMapping1_Tex");
+  // This test intentionally has no RenderSystem; disabling automatic pass
+  // splitting exercises Resource load-state stability without asking OGRE to
+  // split texture units against the synthetic zero-capability device.
+  material->compile(false);
+  material->load();
   RequireOk(CommitOgre14SelectedTextureSourceReceipt(
                 BuildSelectedReceipt(*specular, 0U, specular_bytes), registry),
             "commit second source receipt during TUS setup");
@@ -506,6 +511,12 @@ void TestFreshBatchAfterSuccessiveReceiptAndTusSetupMutations() {
             "bind material after all TUS setup and final source refresh");
   Require(material_binding.Revalidate(resolver, resolver),
           "fresh two-source material binding was not live");
+  const std::size_t loaded_material_state_count = material->getStateCount();
+  material->load();
+  Require(material->getStateCount() == loaded_material_state_count &&
+              material_binding.MatchesExactMaterial(material) &&
+              material_binding.Revalidate(resolver, resolver),
+          "idempotent managed material load invalidated sealed authority");
 
   const std::vector<Ogre14ManagedMaterialDeclarationBinding>
       retained_publication{retained_binding, material_binding};
@@ -573,6 +584,11 @@ void TestFreshBatchAfterSuccessiveReceiptAndTusSetupMutations() {
               unchanged_after_refresh_failure[1U].SharesImmutableStateWith(
                   refreshed_publication[1U]),
           "changed neutral source rewrote retained actor publication");
+
+  material->_dirtyState();
+  Require(material->getStateCount() != loaded_material_state_count &&
+              !material_binding.MatchesExactMaterial(material),
+          "explicit managed material state mutation escaped native authority");
 }
 
 void TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads() {

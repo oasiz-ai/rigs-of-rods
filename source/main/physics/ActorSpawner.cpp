@@ -3117,6 +3117,32 @@ void ActorSpawner::ProcessManagedMaterial(RigDef::ManagedMaterial & source_def)
                 "managed_material_actor.content_manager",
                 "ContentManager is unavailable for final source binding");
         }
+        // Seal the declaration against the first fully loaded native state.
+        // Entity creation may otherwise perform this load after publication,
+        // increment Resource::getStateCount(), and invalidate byte-identical
+        // authority. Keep this eager load inside the Ogre14 publication path;
+        // legacy/fallback material construction remains unchanged.
+        if (publication && !removed_by_tuneup)
+        {
+            try
+            {
+                material->load();
+            }
+            catch (const Ogre::Exception& e)
+            {
+                publication = Render::ValidationResult::Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "managed_material_actor.material_load",
+                    e.getFullDescription().c_str());
+            }
+            catch (...)
+            {
+                publication = Render::ValidationResult::Failure(
+                    Render::ValidationCode::MISSING_REFERENCE,
+                    "managed_material_actor.material_load",
+                    "unknown exception while loading the final native material");
+            }
+        }
         if (publication && !removed_by_tuneup)
         {
             publication = Render::Ogre14ManagedMaterialSourceAdapter::

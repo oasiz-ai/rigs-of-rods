@@ -358,11 +358,15 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
         ]
         semantic_stage = method.index("staged_source_textures[slot] = texture")
         compile_material = method.index("material->compile();")
+        load_material = method.index("material->load();")
+        insert_material = method.index("m_managed_materials.insert(")
         fresh_batch = method.index("BuildFreshAuthorityBatch(")
         seal_declaration = method.index("BuildManagedMaterialDeclaration(")
         publish = method.index("PublishManagedMaterialDeclaration(")
         self.assertLess(semantic_stage, compile_material)
-        self.assertLess(compile_material, fresh_batch)
+        self.assertLess(compile_material, insert_material)
+        self.assertLess(insert_material, load_material)
+        self.assertLess(load_material, fresh_batch)
         self.assertLess(fresh_batch, seal_declaration)
         self.assertLess(seal_declaration, publish)
         self.assertNotIn("ResolveSelectedTextureSource(",
