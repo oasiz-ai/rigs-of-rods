@@ -1,0 +1,51 @@
+{
+  "compiler": {
+    "dependencies": [
+      {
+        "path": "tools/validate_cityworld_asset.py",
+        "sha256": "9e1f433256611e4214f1532dda84ebbc2f78645214c1a4803332a01d5fa35b22"
+      },
+      {
+        "path": "tools/validate_native_render_asset.py",
+        "sha256": "82b01cbd1db47a847bf7db43b6ad18e22e65748ffa70876b5d5e34be09e51133"
+      }
+    ],
+    "format": "ror-native-render-compiler-v1",
+    "path": "tools/compile_native_render_asset.py",
+    "sha256": "26875961831e232299565ee90c32b6a988eee6934953da45af3d17516b094ce7"
+  },
+  "format": "ror-native-render-compile-report-v1",
+  "output": {
+    "body_sha256": "bb48e7b3424aab7d6547db64e9379a5ff65d9eb757feab3065a1eaa10873dab1",
+    "bytes": 100353,
+    "path": "resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
+    "record_count": 27,
+    "sha256": "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648"
+  },
+  "package_id": "rorng_a0_road_tile_12m",
+  "source": {
+    "composition": {
+      "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.composition.json",
+      "sha256": "169422fb94a71ababbd0220768cdb33f5e3d43957275c9782506ebe9e1a9bf42"
+    },
+    "glb": {
+      "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.glb",
+      "sha256": "e67238c03ad09a46b7683232456b8942377c33fbf05a4cfe439ea6dee02d6f4f"
+    },
+    "manifest_path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json",
+    "manifest_sha256": "5f3770b1638f419025e3ab1ea1c3da85f5a25ad02ece9c6483879207728acf8d"
+  },
+  "summary": {
+    "asset_count": 21,
+    "indices": 162,
+    "instance_count": 5,
+    "instances": 5,
+    "materials": 4,
+    "meshes": 5,
+    "samplers": 2,
+    "texture_bytes": 84296,
+    "textures": 10,
+    "triangles": 54,
+    "vertices": 108
+  }
+}

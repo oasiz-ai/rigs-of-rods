@@ -25,6 +25,17 @@ Grandfathering freezes scope. A new material declaration, asset family, alias,
 fallback, inferred semantic, or compatibility-only renderer branch is a new
 entry even when it extends one of the rows above.
 
+## Forward-native A0 origin records
+
+These records document new-source provenance and do not consume the legacy
+compatibility budget. An origin record is evidence of declared authorship,
+license, and byte lineage; it is not by itself the V2 visual-quality,
+performance, redistribution, or release approval.
+
+| ID | Origin class | Family | Author and license | Source evidence | Checked native product | Bounded capability evidence | Review status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `NATIVE-A0-001` | `project_original` | `rorng_a0_road_tile_12m` | Rigs of Rods contributors; `GPL-3.0-or-later` | Canonical source declaration `content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json` (`sha256:5f3770b1638f419025e3ab1ea1c3da85f5a25ad02ece9c6483879207728acf8d`) attests independently authored geometry, textures, and material declarations; canonical GLB `sha256:e67238c03ad09a46b7683232456b8942377c33fbf05a4cfe439ea6dee02d6f4f`; checked composition `sha256:169422fb94a71ababbd0220768cdb33f5e3d43957275c9782506ebe9e1a9bf42` and non-evidence preview `sha256:7cd7d43d3d81de9e95470030f3a8bf246eb7603b3eadeedbf969e0a4ecee86c0` | `resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative` (`sha256:ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648`) | Visual-only 6 m by 12 m lighting-response tile: rough asphalt with base-color sRGB plus linear normal and metallic/roughness maps; a low-roughness wet/specular strip with base, normal, and specular maps; alpha-tested lane markings; specular/emissive reflectors; a 1.45 m two-post/crossbar shadow gate; explicit flag values `{0,6,7}` for inert/receiver/gate caster-receiver roles; and explicit mipped samplers. No AO, LOD, collision, or native-terrain evidence. | Origin and hashes are mechanically gated; approval commit pending independent review |
+
 ## Post-baseline ledger
 
 This table starts empty. Each accepted entry records both the planned estimate

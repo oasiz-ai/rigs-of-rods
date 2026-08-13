@@ -1537,6 +1537,17 @@ and v1 mesh output remain optional compatibility artifacts until direct static
 and terrain binding is complete. This is one renderer and terrain world with a
 new ingestion path, not a second terrain system.
 
+The first bounded implementation milestone defines deterministic `.rornative`
+v1 and an OGRE-free decoder, plus `NATIVE-A0-001`: a project-original 6 m by
+12 m visual-only road lighting coupon with explicit base-color, normal,
+metallic/roughness, alpha-test, wet/specular, emissive, shadow-caster/receiver,
+and sampler declarations. Its 1.45 m two-post/crossbar gate supplies an
+unambiguous project-original caster over the dry and wet receiver surfaces.
+Its source declaration, checked package, origin, and capability non-claims are
+hash-gated in the forward-native ledger. This milestone proves direct offline
+authoring and renderer-neutral decode; it does not yet prove runtime scene
+publication, AO, LOD, collision, native terrain, or the complete V2 showcase.
+
 The first showcase is authored from scratch as project-original work, or is a
 rights-cleared recreation/derivative. A0 must approve distribution in either
 case. It contains one hero vehicle, one terrain/road block, one building family,

@@ -1,0 +1,77 @@
+{
+  "camera": {
+    "far_clip_m": 50.0,
+    "near_clip_m": 0.1,
+    "position_m": [
+      8.0,
+      7.0,
+      10.0
+    ],
+    "target_m": [
+      0.0,
+      0.0,
+      -0.2
+    ],
+    "up": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "vertical_fov_degrees": 50.0
+  },
+  "environment": {
+    "background_luminance_cd_m2": 2000.0,
+    "color_space": "rec709-d65-linear-unit-luminance",
+    "mode": "analytic-clear-sky"
+  },
+  "exposure": {
+    "ev100": 14.0,
+    "white_balance_kelvin": 6500.0
+  },
+  "format": "ror-native-render-composition-v1",
+  "package_id": "rorng_a0_road_tile_12m",
+  "preview": {
+    "format": "ppm-p6-rgb8",
+    "height": 360,
+    "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.composition.ppm",
+    "sha256": "7cd7d43d3d81de9e95470030f3a8bf246eb7603b3eadeedbf969e0a4ecee86c0",
+    "status": "authoring-layout-preview-not-renderer-evidence",
+    "width": 640
+  },
+  "shadow_roi": {
+    "maximum_xz_m": [
+      3.159375,
+      -0.2625
+    ],
+    "minimum_xz_m": [
+      -1.8,
+      -1.65
+    ],
+    "receiver_surface_y_m": 0.0,
+    "required_intersections": [
+      "rorng_a0_road_surface_mesh",
+      "rorng_a0_wet_asphalt_mesh"
+    ]
+  },
+  "sun": {
+    "direction_toward_scene": [
+      0.6,
+      -0.64,
+      0.48
+    ],
+    "illuminance_lux": 110000.0,
+    "spectrum": "d65"
+  },
+  "world_aabb": {
+    "maximum_m": [
+      3.0,
+      1.45,
+      6.0
+    ],
+    "minimum_m": [
+      -3.0,
+      0.0,
+      -6.0
+    ]
+  }
+}

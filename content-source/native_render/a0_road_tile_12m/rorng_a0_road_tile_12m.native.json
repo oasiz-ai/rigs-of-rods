@@ -1,0 +1,930 @@
+{
+  "claims": {
+    "ambient_occlusion": false,
+    "collision": false,
+    "lods": false,
+    "native_terrain": false,
+    "visual_only": true
+  },
+  "format": "ror-native-render-source-v1",
+  "materials": [
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "greater_equal",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a0_lane_decal_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.72,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            6.0
+          ],
+          "texture": "rorng_a0_lane_base",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        1.0,
+        0.38,
+        0.04
+      ],
+      "emissive_strength": 4.0,
+      "id": "rorng_a0_reflector_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.18,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_clamp_sampler",
+          "scale": [
+            1.0,
+            1.0
+          ],
+          "texture": "rorng_a0_reflector_base",
+          "uv_set": 0
+        },
+        "emissive": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_clamp_sampler",
+          "scale": [
+            1.0,
+            1.0
+          ],
+          "texture": "rorng_a0_reflector_emissive",
+          "uv_set": 0
+        },
+        "specular": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_clamp_sampler",
+          "scale": [
+            1.0,
+            1.0
+          ],
+          "texture": "rorng_a0_reflector_specular",
+          "uv_set": 0
+        }
+      },
+      "workflow": "specular"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a0_road_surface_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 1.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 1.0,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            4.0
+          ],
+          "texture": "rorng_a0_road_base",
+          "uv_set": 0
+        },
+        "metallic_roughness": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            4.0
+          ],
+          "texture": "rorng_a0_road_metallic_roughness",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            4.0
+          ],
+          "texture": "rorng_a0_road_normal",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a0_wet_asphalt_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.08,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            4.0
+          ],
+          "texture": "rorng_a0_wet_base",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            4.0
+          ],
+          "texture": "rorng_a0_wet_normal",
+          "uv_set": 0
+        },
+        "specular": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a0_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            4.0
+          ],
+          "texture": "rorng_a0_wet_specular",
+          "uv_set": 0
+        }
+      },
+      "workflow": "specular"
+    }
+  ],
+  "meshes": [
+    {
+      "id": "rorng_a0_lane_decal_mesh",
+      "instance_flags": [],
+      "material": "rorng_a0_lane_decal_material",
+      "node": "rorng_a0_lane_decal_mesh",
+      "object_id": "rorng_a0_lane_decal_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a0_reflector_mesh",
+      "instance_flags": [],
+      "material": "rorng_a0_reflector_material",
+      "node": "rorng_a0_reflector_mesh",
+      "object_id": "rorng_a0_reflector_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a0_road_shadow_gate_mesh",
+      "instance_flags": [
+        "casts_shadow",
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a0_road_surface_material",
+      "node": "rorng_a0_road_shadow_gate_mesh",
+      "object_id": "rorng_a0_road_shadow_gate_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a0_road_surface_mesh",
+      "instance_flags": [
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a0_road_surface_material",
+      "node": "rorng_a0_road_surface_mesh",
+      "object_id": "rorng_a0_road_surface_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a0_wet_asphalt_mesh",
+      "instance_flags": [
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a0_wet_asphalt_material",
+      "node": "rorng_a0_wet_asphalt_mesh",
+      "object_id": "rorng_a0_wet_asphalt_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "outputs": {
+    "package_path": "resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
+    "report_path": "resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.compile.json"
+  },
+  "package": {
+    "author": "Rigs of Rods contributors",
+    "creation_attestation": "Project-original geometry, textures, and material declarations were independently authored for V2; no geometry, texture, material-script, or shader bytes were copied from legacy content or another simulator.",
+    "dimensions_m": [
+      6.0,
+      1.45,
+      12.0
+    ],
+    "display_name": "A0 native 12 metre visual road tile",
+    "id": "rorng_a0_road_tile_12m",
+    "license": "GPL-3.0-or-later",
+    "modified": false,
+    "origin_class": "project_original",
+    "source_revision": "sha256-pinned-source-set-v1",
+    "source_uri": "https://github.com/RigsOfRods/rigs-of-rods"
+  },
+  "samplers": [
+    {
+      "address_u": "clamp_to_edge",
+      "address_v": "clamp_to_edge",
+      "address_w": "clamp_to_edge",
+      "anisotropy_enabled": true,
+      "border_color": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "compare_enabled": false,
+      "compare_operation": "always",
+      "id": "rorng_a0_mipped_clamp_sampler",
+      "magnification_filter": "linear",
+      "maximum_anisotropy": 4.0,
+      "maximum_lod": 3.0,
+      "minification_filter": "linear",
+      "minimum_lod": 0.0,
+      "mip_filter": "linear",
+      "mip_lod_bias": 0.0
+    },
+    {
+      "address_u": "repeat",
+      "address_v": "repeat",
+      "address_w": "repeat",
+      "anisotropy_enabled": true,
+      "border_color": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "compare_enabled": false,
+      "compare_operation": "always",
+      "id": "rorng_a0_mipped_repeat_sampler",
+      "magnification_filter": "linear",
+      "maximum_anisotropy": 4.0,
+      "maximum_lod": 6.0,
+      "minification_filter": "linear",
+      "minimum_lod": 0.0,
+      "mip_filter": "linear",
+      "mip_lod_bias": 0.0
+    }
+  ],
+  "source": {
+    "composition": {
+      "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.composition.json",
+      "sha256": "169422fb94a71ababbd0220768cdb33f5e3d43957275c9782506ebe9e1a9bf42"
+    },
+    "coordinate_system": "right-handed-y-up-meters",
+    "generator": {
+      "path": "tools/blender/native_render/generate_a0_road_tile.py",
+      "sha256": "ffc9aaf559968336c473155d983606ca2ce3f0bee6d5b9b6c64b5e8b9eefc65f"
+    },
+    "glb": {
+      "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.glb",
+      "sha256": "e67238c03ad09a46b7683232456b8942377c33fbf05a4cfe439ea6dee02d6f4f"
+    },
+    "tangent_basis": "tangent-w-times-cross-normal-tangent",
+    "uv_origin": "upper-left"
+  },
+  "textures": [
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_lane_base",
+      "mips": [
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/lane_base_mip0.tga",
+          "sha256": "1cb6d3a347930d3c6642925ced9404def846fe34016726f54613eaec4037166f",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/lane_base_mip1.tga",
+          "sha256": "245fa5a988cda2d2b4b67ed5fec2a6bf2163c79d33060f2282c96b3c4f8c7182",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/lane_base_mip2.tga",
+          "sha256": "8a6dce07fed2cc184218d8e93d48676d220f65b863017756f20a463fc23181ee",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/lane_base_mip3.tga",
+          "sha256": "e3d7fbeb380007f00c0ba7e73a64f995be6333d03f6788b3b2a49cb1e6f1030c",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/lane_base_mip4.tga",
+          "sha256": "e372815235569c12877f710682d9e4df467d360baad1a194ee83870233a22283",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_reflector_base",
+      "mips": [
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_base_mip0.tga",
+          "sha256": "093df967a9f04f11fb9d008f2b035cba61505ad846fe4cb33fdbefe822ad0cb5",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_base_mip1.tga",
+          "sha256": "9d23a2bf23d08974fbe20c6f256a084e9b0fc26321478e67cb5f65a4cf6244f4",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_base_mip2.tga",
+          "sha256": "c18fb444b934d4f86e0ea1a4071066858c69aa6a75eda101310ffc40342e45e0",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_base_mip3.tga",
+          "sha256": "59871084606accffdbf0d37573b3e8a27d1cf050cf76bdbcf40686046b47b802",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_reflector_emissive",
+      "mips": [
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_emissive_mip0.tga",
+          "sha256": "3c19e844e16f6d809d5a73bc1e51b8464cb83841cafea82a2304a33f4746452c",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_emissive_mip1.tga",
+          "sha256": "7e6576618288029ff31c866ddebce2dc5466464e2a5543aced0cc59e11476e9f",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_emissive_mip2.tga",
+          "sha256": "3977587574943e0c8a8a050488f1511de57e01a610464ec40f386b430438d9ba",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_emissive_mip3.tga",
+          "sha256": "fa7bfeffa04665ec64d482b9df6e898e0cd0069f035865cb5d3a37577d449634",
+          "width": 1
+        }
+      ],
+      "role": "emissive"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_reflector_specular",
+      "mips": [
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_specular_mip0.tga",
+          "sha256": "9694d83084e603ed577ee1c7c62e7f9fdbcea6bd3c669eabc6f22c26fb2a8136",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_specular_mip1.tga",
+          "sha256": "f2310ca6d1749a1097792a9e384ad91188af1aad57dace7cdfd0246b4f47313d",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_specular_mip2.tga",
+          "sha256": "e9233764a35e0b076ca4529e334e8a2ed6bf84577f6742fa63019086b0848ecc",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/reflector_specular_mip3.tga",
+          "sha256": "b4b78404d9da8d16d778a03e188206c81ba77ca95d5447adccde70d28ec6d04e",
+          "width": 1
+        }
+      ],
+      "role": "specular"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_road_base",
+      "mips": [
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip0.tga",
+          "sha256": "9c1a95b845ebf7d069eb65cc967c31fd328a7239e98f1a3003ec48e19051d43f",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip1.tga",
+          "sha256": "a1932e3a877888c1a1e79d5072467918ed201ccbc4e6c23f4472a05f4fa6c987",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip2.tga",
+          "sha256": "0e1c9c30a7014c7e597bccddbaa63736e1cedffca195b1afc640e0537f8889f1",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip3.tga",
+          "sha256": "40cdd0236f20c649b71ad61f863a00d8743306bf9a1af7870e5e6d2d582fb1e5",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip4.tga",
+          "sha256": "4f47d879e96054146a02fb94200a47ce68e275ae6e0ac63c8469664a2b2ffe94",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip5.tga",
+          "sha256": "ca1d721f473a7a6fb4ef40f19ff92ca0b617602d6f255db3db9b29b6610e797c",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip6.tga",
+          "sha256": "1427df1152bb939d728d5bc6473b0c13c4553e73ed1680ec2742a8278ec253f5",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_road_metallic_roughness",
+      "mips": [
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip0.tga",
+          "sha256": "334d33a560ac83605796a8788de1c1d494815c4bb4261002484442b0c3bf0b55",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip1.tga",
+          "sha256": "67b595fb212735f0deea586cd1a8d2806863d7f9ffd96182c1edfb37d000a4f2",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip2.tga",
+          "sha256": "6478bc46110d7d19e6f6f4b8ff0cc62745d20296f2a063cc77a81cb59af1ff65",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip3.tga",
+          "sha256": "81ec68e0c30e64bb2b8412e44a226585c1ba590a0c434aa3628b05f5bf849521",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip4.tga",
+          "sha256": "b23d4c8c937859ccabf0986b4c17e44a93e05b1d6f58a2e91faacc6aeb3f6e3c",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip5.tga",
+          "sha256": "bd3e6f19a23a5c8c395c41f6fb5bba0b5117853a64b076ade6b1a5af1cb89bf6",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip6.tga",
+          "sha256": "f6fa4bc94318c688e8222c6feef048dc7f4d01414cb6beec9025173fb6ae1867",
+          "width": 1
+        }
+      ],
+      "role": "metallic_roughness"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_road_normal",
+      "mips": [
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip0.tga",
+          "sha256": "b2b5d7410bdf3afcdd951ccabe1f90e93042bb4c0f15125bb01b90e01806d669",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip1.tga",
+          "sha256": "1277fd3551ae7ee59647c44af9be61d752e9de3b6459dd59f1b47579af7ad8e6",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip2.tga",
+          "sha256": "288f36403d62e28bb10ae0c63a01cdfaf429d45e24618d38662f4d386d29090e",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip3.tga",
+          "sha256": "f2a5a327b003fe0971c0e7ebe2b08e34f1f0139bc9345a247b2635dc4cb4a22e",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip4.tga",
+          "sha256": "95d1ede2467fb394c5264604f376ef3b8bc6ef162f4eafbff7e78710c4ad5a8f",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip5.tga",
+          "sha256": "13a23deecd0468b61d7a33c49e24c1a3259cb3790ab006683e11e7e3b545494b",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip6.tga",
+          "sha256": "6da578fe6916458063db5ec810afa18be961573f839245c5de150c1a01505896",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_wet_base",
+      "mips": [
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip0.tga",
+          "sha256": "48bc089ca8c461b0b020ad6fa68006a8875fabda349a8b401fa5e425ec82ecb6",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip1.tga",
+          "sha256": "56b86bf300ef7acaca72bf42e2a040575f959cec3715fcdf15cc85d17e024420",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip2.tga",
+          "sha256": "6181bf82c999859128ac44e445f3bc395308d416925d99455073baf675cd68f3",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip3.tga",
+          "sha256": "7cad44af7ac337fab5b63002f89a905c637dd3a2b07b8c29bd774761c66407fe",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip4.tga",
+          "sha256": "6bf03768f79c64fbccc16ebe8ad54200d31a06c7501e4aacc293203491d1c8dd",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip5.tga",
+          "sha256": "77e0683f888843a421dc453e08755026d73b65669eb59ea8d427117f43b2a504",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_wet_normal",
+      "mips": [
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip0.tga",
+          "sha256": "f69c8cea7d5cc7ae93aba67da5d1fd5020172b754aa5afed2483f51743ef79b5",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip1.tga",
+          "sha256": "1f98f61678114edde4a6052ac6f7fb96238f659436a929faed739cac6a8a890a",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip2.tga",
+          "sha256": "c7abb35bb20be663f1f2e4775cc8cd69db8ddbcd433d486d6e73b57452642f07",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip3.tga",
+          "sha256": "02f8494a1d70a36d6adf4fe37dbcb41e066c34d1f3545e774542f9348c834556",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip4.tga",
+          "sha256": "fc54d7de38acf4137f77c72ef5443efea718745a069b17017c42c349de3caf52",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip5.tga",
+          "sha256": "f6530b91f0099747ebbc850961ee0cfb74e56b3c5dcc5579d700c93916cee15e",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a0_wet_specular",
+      "mips": [
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip0.tga",
+          "sha256": "cd365244b9ccf2a8f213ded1ddb82678daf533fe31e688276ef46aee0c83f9a5",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip1.tga",
+          "sha256": "e9409249454f6cae5d2b7da1deaa58dd47d11bddfc7776e0e1020b2f123bb95c",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip2.tga",
+          "sha256": "aa7732a6d70093e143bae41072187b76ca2f6dfae3cf9c12ec722b36c04915df",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip3.tga",
+          "sha256": "9aca1c927152290244f40a7fa941090a1730bf6534fb68782e3edf56683ed0d5",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip4.tga",
+          "sha256": "9b2063c061bd1e33af46a933c2173a1a03a129d962b47c2760ac95b9c11417fc",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip5.tga",
+          "sha256": "bc27bc7bbe5cf67d2ab28369cb67c68014ce71ff6dd67e06cbad27c566141711",
+          "width": 1
+        }
+      ],
+      "role": "specular"
+    }
+  ]
+}

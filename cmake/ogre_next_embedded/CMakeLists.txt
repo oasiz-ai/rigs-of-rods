@@ -866,6 +866,7 @@ set(_ror_embedded_direct_contract_sources
     "${_ror_render_root}/GraphicsSceneSnapshotProducer.cpp"
     "${_ror_render_root}/HdrReference.cpp"
     "${_ror_render_root}/MaterialDescriptor.cpp"
+    "${_ror_render_root}/NativeRenderAssetPackage.cpp"
     "${_ror_render_root}/Ogre14ParticleCaptureSource.cpp"
     "${_ror_render_root}/ReflectionProbeCaptureReceipt.cpp"
     "${_ror_render_root}/ReflectionProbeRuntime.cpp"

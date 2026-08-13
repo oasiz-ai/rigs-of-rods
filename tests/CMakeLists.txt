@@ -51,6 +51,48 @@ set_tests_properties(
         TIMEOUT 60
 )
 
+set(ROR_NATIVE_RENDER_ASSET_SOURCE
+    "${ROR_REPOSITORY_ROOT}/content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json")
+add_test(
+    NAME native_render_asset_tools
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_native_render_asset.py"
+)
+add_test(
+    NAME native_render_asset_tools_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_native_render_asset.py"
+)
+add_test(
+    NAME native_render_asset_source_validation
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/validate_native_render_asset.py"
+        "${ROR_NATIVE_RENDER_ASSET_SOURCE}"
+        --repo-root "${ROR_REPOSITORY_ROOT}"
+)
+add_test(
+    NAME native_render_asset_checked_compile
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/compile_native_render_asset.py"
+        "${ROR_NATIVE_RENDER_ASSET_SOURCE}"
+        --repo-root "${ROR_REPOSITORY_ROOT}"
+        --validate-checked
+)
+set_tests_properties(
+    native_render_asset_tools
+    native_render_asset_tools_optimized
+    native_render_asset_source_validation
+    native_render_asset_checked_compile
+    PROPERTIES
+        LABELS "gfx;native-render-asset;provenance;python"
+        TIMEOUT 60
+)
+
 set(ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE
     "${CMAKE_CURRENT_BINARY_DIR}/generated/material-semantic-catalog-v2.synthetic.rormat2")
 add_custom_command(
@@ -1015,6 +1057,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/InputEventTransport.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ManagedMaterialDeclaration.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/NativeRenderAssetPackage.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ParallaxProbeReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/PbrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
@@ -1309,6 +1352,15 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RenderResourceDescriptorTests.cpp"
 )
 add_executable(
+    ror_native_render_asset_package_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/NativeRenderAssetPackageTests.cpp"
+)
+target_compile_definitions(
+    ror_native_render_asset_package_tests
+    PRIVATE
+        "ROR_NATIVE_RENDER_ASSET_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative\""
+)
+add_executable(
     ror_renderer_frontend_contract_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RendererFrontendContractTests.cpp"
 )
@@ -1446,6 +1498,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_render_transport_stream_tests
     ror_renderer_frontend_transport_dispatcher_tests
     ror_render_resource_descriptor_tests
+    ror_native_render_asset_package_tests
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
     ror_ogre_next_hdr_temporal_contract_tests
@@ -1710,11 +1763,13 @@ set(ROR_RENDERER_IN_PROCESS_LINK_CLOSURE_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/GraphicsSceneSnapshotProducer.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/Ogre14ParticleCaptureSource.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/NativeRenderAssetPackage.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeRuntime.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetId.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderAssetRegistry.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderFrame.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RenderPayloadDigest.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontend.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendDirectDispatcher.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/RendererFrontendPresentationPolicy.cpp"
@@ -3155,6 +3210,11 @@ add_test(
 add_test(
     NAME render_resource_descriptors
     COMMAND ror_render_resource_descriptor_tests
+)
+
+add_test(
+    NAME native_render_asset_package
+    COMMAND ror_native_render_asset_package_tests
 )
 
 add_test(

@@ -43,6 +43,7 @@ jobs:
           tests/tools/test_cityworld_neoq_intercity_bridge.py
           tests/tools/test_cityworld_tree_family.py
           tests/tools/test_compile_cityworld_asset.py
+          tests/tools/test_native_render_asset.py
           tests/tools/test_run_cityworld_bridge_scene.py
           tests/tools/test_run_cityworld_corridor_scene.py
           tests/tools/test_run_cityworld_curved_bridge_scene.py
@@ -72,6 +73,7 @@ jobs:
           tests/tools/test_cityworld_neoq_intercity_bridge.py
           tests/tools/test_cityworld_tree_family.py
           tests/tools/test_compile_cityworld_asset.py
+          tests/tools/test_native_render_asset.py
           tests/tools/test_run_cityworld_bridge_scene.py
           tests/tools/test_run_cityworld_corridor_scene.py
           tests/tools/test_run_cityworld_curved_bridge_scene.py
@@ -82,6 +84,17 @@ jobs:
           tests/tools/test_run_cityworld_shadow_scene.py
           tests/tools/test_solve_cityworld_bridge_corridor.py
           tests/tools/test_validate_cityworld_asset.py
+
+      - name: Verify checked forward-native A0 package
+        shell: bash
+        run: |
+          python tools/validate_native_render_asset.py \
+            content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json \
+            --repo-root .
+          python tools/compile_native_render_asset.py \
+            content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json \
+            --repo-root . \
+            --validate-checked
 
       - name: Verify checked-in CityWorld provenance and release gate
         shell: bash

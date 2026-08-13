@@ -158,3 +158,20 @@ doc/nextgen/NATIVE_RAY_TRACING_BACKEND.md text eol=lf
 doc/nextgen/ROADMAP.md text eol=lf
 doc/nextgen/OGRE14_AUTHENTICATED_TEXTURE_RECEIPTS.md text eol=lf
 doc/nextgen/evidence/OGRE_NEXT_METAL_* text eol=lf
+
+# Forward-native render sources are SHA-256 bound across platforms. Text is
+# always LF; binary geometry, texture, preview, and package payloads must never
+# pass through newline or working-tree encoding conversion.
+tools/blender/native_render/*.py text eol=lf
+tools/compile_native_render_asset.py text eol=lf
+tools/validate_native_render_asset.py text eol=lf
+tests/tools/test_native_render_asset.py text eol=lf
+tests/gfx/render/NativeRenderAssetPackageTests.cpp text eol=lf
+doc/nextgen/NATIVE_RENDER_ASSET_PACKAGE_V1.md text eol=lf
+doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md text eol=lf
+content-source/native_render/**/*.json text eol=lf
+content-source/native_render/**/*.glb -text
+content-source/native_render/**/*.tga -text
+content-source/native_render/**/*.ppm -text
+resources/nextgen/native/**/*.json text eol=lf
+resources/nextgen/native/**/*.rornative -text
