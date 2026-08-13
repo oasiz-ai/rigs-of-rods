@@ -935,6 +935,7 @@ set(_ror_embedded_n1_sources
     "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
     "${_ror_render_root}/ogrenext/OgreNextTaaContract.cpp"
     "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+    "${_ror_render_root}/ogrenext/OgreNextUvAffinePbs.cpp"
     "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
     "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
     "${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"

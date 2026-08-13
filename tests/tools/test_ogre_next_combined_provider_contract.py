@@ -192,6 +192,15 @@ class CombinedProviderContractTests(unittest.TestCase):
         ):
             self.assertIn(invocation, PROVIDER)
 
+    def test_uv_affine_pbs_implementation_is_in_product_runtime(self) -> None:
+        sources = block(
+            PROVIDER,
+            "set(_ror_embedded_n1_sources",
+            "add_library(ror_ogre_next_embedded_n1_runtime STATIC",
+        )
+        self.assertIn("OgreNextUvAffinePbs.cpp", sources)
+        self.assertIn("OgreNextN1Frontend.cpp", sources)
+
     def test_media_paths_and_stage_are_build_tree_authority(self) -> None:
         for macro in (
             "ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT",
