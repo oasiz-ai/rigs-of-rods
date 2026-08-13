@@ -528,7 +528,8 @@ file(GLOB_RECURSE _ror_n1_hlms_files
     RELATIVE "${_ror_n1_hlms_root}"
     "${_ror_n1_hlms_root}/*")
 list(APPEND _ror_n1_hlms_files
-    "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+    "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+    "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}")
 list(REMOVE_DUPLICATES _ror_n1_hlms_files)
 list(SORT _ror_n1_hlms_files)
 if (NOT _ror_n1_hlms_files)
@@ -541,6 +542,10 @@ foreach (_ror_n1_hlms_relative IN LISTS _ror_n1_hlms_files)
             ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE)
         set(_ror_n1_hlms_file
             "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    elseif (_ror_n1_hlms_relative STREQUAL
+            ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE)
+        set(_ror_n1_hlms_file
+            "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}")
     else ()
         set(_ror_n1_hlms_file
             "${_ror_n1_hlms_root}/${_ror_n1_hlms_relative}")
