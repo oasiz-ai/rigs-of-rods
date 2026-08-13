@@ -1353,6 +1353,14 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextDxr7Contract.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/NativeDirectionalShadowContract.cpp"
 )
+add_executable(
+    ror_native_sun_visibility_v2_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/NativeSunVisibilityV2ContractTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/NativeSunVisibilityV2Contract.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/NativeDirectionalShadowContract.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
+)
 target_include_directories(
     ror_ogre_next_n1_policy_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
@@ -1379,6 +1387,10 @@ target_include_directories(
 )
 target_include_directories(
     ror_ogre_next_dxr7_contract_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
+)
+target_include_directories(
+    ror_native_sun_visibility_v2_contract_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
 )
 target_include_directories(
@@ -1433,6 +1445,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_ogre_next_vulkan_rt5_contract_tests
     ror_ogre_next_vulkan_rt6_contract_tests
     ror_ogre_next_dxr7_contract_tests
+    ror_native_sun_visibility_v2_contract_tests
 )
 
 if (ROR_OGRE14 AND TARGET RoR)
@@ -3177,6 +3190,11 @@ add_test(
 add_test(
     NAME ogre_next_dxr7_contract
     COMMAND ror_ogre_next_dxr7_contract_tests
+)
+
+add_test(
+    NAME native_sun_visibility_v2_contract
+    COMMAND ror_native_sun_visibility_v2_contract_tests
 )
 
 add_test(

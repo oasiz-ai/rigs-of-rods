@@ -927,6 +927,8 @@ add_custom_target(
 
 set(_ror_embedded_n1_sources
     "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
+    "${_ror_render_root}/ogrenext/NativeSunVisibilityV2Contract.cpp"
+    "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
     "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
     "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
     "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"

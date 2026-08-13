@@ -1,0 +1,5 @@
+{
+  "schema": "ror.ogre_next_metal_sun_visibility_v2_shader_lock.v1",
+  "shader": "media/Hlms/RoR/SunVisibilityV2/SunVisibilityV2.metal",
+  "sha256": "54cf24edbbfb9c53574899b382170513a85d5d305501e9551f4705b6d5b907fe"
+}

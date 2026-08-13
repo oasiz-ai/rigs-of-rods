@@ -473,6 +473,25 @@ set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE
     "RoR/DisplayDomain/DisplayDomain_piece_ps.any")
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE
     "${CMAKE_CURRENT_SOURCE_DIR}/media/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE
+    "RoR/SunVisibilityV2/SunVisibilityV2.metal")
+set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/media/Hlms/${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK
+    "${CMAKE_CURRENT_SOURCE_DIR}/metal-sun-visibility-v2.lock.json")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_sun_visibility_v2_shader.py"
+            --root "${CMAKE_CURRENT_SOURCE_DIR}"
+            --lock "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
+    RESULT_VARIABLE _ror_sun_visibility_v2_shader_result
+    OUTPUT_VARIABLE _ror_sun_visibility_v2_shader_output
+    ERROR_VARIABLE _ror_sun_visibility_v2_shader_error)
+if (NOT _ror_sun_visibility_v2_shader_result EQUAL 0)
+    message(FATAL_ERROR
+        "Metal sun-visibility V2 shader verification failed: "
+        "${_ror_sun_visibility_v2_shader_error}")
+endif ()
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_LICENSE_EXPRESSION
     "GPL-3.0-or-later")
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_PATH
@@ -1095,6 +1114,8 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
 
     set(_ror_embedded_n1_sources
         "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
+        "${_ror_render_root}/ogrenext/NativeSunVisibilityV2Contract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
@@ -1524,6 +1545,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
 
     set(_ror_ogre_next_frontend_n1_sources
         "${_ror_render_root}/ogrenext/NativeDirectionalShadowContract.cpp"
+        "${_ror_render_root}/ogrenext/NativeSunVisibilityV2Contract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.h"
@@ -3592,6 +3615,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_OGRE_NEXT_PACKAGE_FREETYPE_OVERVIEW_SOURCE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
         "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+        "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}"
+        "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_sun_visibility_v2_shader.py"
         "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}")
     foreach (_ror_reflection_media_relative IN LISTS
             _ror_reflection_media_files)
@@ -3679,6 +3705,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         COMMAND "${CMAKE_COMMAND}" -E compare_files
                 "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/RoR/SunVisibilityV2"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/metal-sun-visibility-v2.lock.json"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/metal-sun-visibility-v2.lock.json"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/Compositors"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/Compositors"
