@@ -1333,6 +1333,11 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextHdrTemporalContract.cpp"
 )
 add_executable(
+    ror_ogre_next_taa_contract_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextTaaContractTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextTaaContract.cpp"
+)
+add_executable(
     ror_ogre_next_n2_interop_state_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/OgreNextN2InteropStateTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN2InteropState.cpp"
@@ -1367,6 +1372,10 @@ target_include_directories(
 )
 target_include_directories(
     ror_ogre_next_hdr_temporal_contract_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
+)
+target_include_directories(
+    ror_ogre_next_taa_contract_tests
     PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
 )
 target_include_directories(
@@ -1440,6 +1449,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
     ror_ogre_next_hdr_temporal_contract_tests
+    ror_ogre_next_taa_contract_tests
     ror_ogre_next_pssm_shadow_policy_tests
     ror_ogre_next_n2_interop_state_tests
     ror_ogre_next_vulkan_rt5_contract_tests
@@ -3165,6 +3175,11 @@ add_test(
 add_test(
     NAME ogre_next_hdr_temporal_contract
     COMMAND ror_ogre_next_hdr_temporal_contract_tests
+)
+
+add_test(
+    NAME ogre_next_taa_contract
+    COMMAND ror_ogre_next_taa_contract_tests
 )
 
 add_test(

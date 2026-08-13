@@ -69,6 +69,15 @@ endif ()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+function(ror_ogre_next_apply_strict_fp target_name)
+    if (MSVC)
+        target_compile_options(${target_name} PRIVATE /fp:strict)
+    else ()
+        target_compile_options(
+            ${target_name} PRIVATE -fno-fast-math -ffp-contract=off)
+    endif ()
+endfunction()
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     message(FATAL_ERROR
         "The reviewed OGRE-Next probe contract requires CMAKE_BUILD_TYPE=Release")
@@ -1117,6 +1126,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/ogrenext/NativeSunVisibilityV2Contract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextTaaContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
@@ -1136,6 +1146,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
     target_compile_options(
         ror_ogre_next_embedded_n1_runtime
         PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    ror_ogre_next_apply_strict_fp(ror_ogre_next_embedded_n1_runtime)
     target_include_directories(
         ror_ogre_next_embedded_n1_runtime
         PUBLIC
@@ -1548,6 +1559,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/NativeSunVisibilityV2Contract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextTaaContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.h"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
@@ -1559,6 +1571,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     add_library(
         ror_ogre_next_frontend_n1 STATIC
         ${_ror_ogre_next_frontend_n1_sources})
+    ror_ogre_next_apply_strict_fp(ror_ogre_next_frontend_n1)
     if (APPLE)
         set(_ror_n1_renderer_definition ROR_OGRE_NEXT_N1_METAL=1)
         set(_ror_ogre_next_frontend_n1_platform_sources
@@ -1629,6 +1642,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
     add_library(
         ror_ogre_next_frontend_n1_runtime STATIC
         ${_ror_ogre_next_frontend_n1_sources})
+    ror_ogre_next_apply_strict_fp(ror_ogre_next_frontend_n1_runtime)
     if (APPLE)
         target_sources(
             ror_ogre_next_frontend_n1_runtime

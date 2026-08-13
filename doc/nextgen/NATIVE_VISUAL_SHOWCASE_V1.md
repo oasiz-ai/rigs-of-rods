@@ -61,3 +61,37 @@ The dependency graph in the contract is normative. In broad terms it is:
 No pass may be inferred from the final image. Each must publish its own bounded
 execution and witness evidence, and failures remain named rather than silently
 selecting a lower-quality path.
+
+## Temporal anti-aliasing boundary
+
+`OgreNextTaaContract` version 1 fixes the renderer-neutral temporal policy
+before a native shader is admitted: an eight-phase Halton jitter in output
+pixels with unjittered culling; previous-pixel minus current-pixel motion with
+jitter removed; current and previous rigid/object-transform lineage;
+non-reversed `[0,1]` depth reprojection; pre-exposed linear `RGBA16_FLOAT`
+history rescaling; YCoCg variance-neighbourhood clipping; and a `[0,1]`
+reactive mask for particles, emissive, water, and transparency. Camera cuts,
+view or extent changes, suspend/restore invalidation, and excessive exposure
+changes discard history transactionally. The ping-pong history advances once
+only after the complete frame can commit, and production content/framebuffer
+readbacks must remain zero. The currently executed HDR split writes raw
+scene-referred values, so its TAA pre-exposure scalar is exactly `1.0`; the
+separate R16 auto-exposure history is consumed by bright-pass/tone mapping and
+must not be mislabeled as TAA pre-exposure.
+
+The scalar shader oracle fixes operation order and rounds every intermediate
+to binary32 with contraction and fast-math disabled in every participating
+test, embedded-runtime, and probe target. Native shader admission must follow
+that same `ordered_binary32_no_contraction_v1` arithmetic contract; repeating
+the host function alone is not accepted as GPU conformance evidence.
+
+Every frame plan and native execution receipt also carries a non-reused
+frontend lifecycle epoch. Reset and device replacement retire the preceding
+epoch, so stale plans, native texture identities, and receipts cannot be
+replayed into a new renderer lifetime.
+
+The contract and CPU pixel oracle are prerequisites, not visual evidence. The
+`temporal_aa` showcase pass remains incomplete until the native frontend
+produces the exact depth, motion, and reactive inputs, executes a GPU TAA pass,
+publishes the per-frame metadata receipt, and passes the required pass-off/on
+image and 600-frame stability witnesses.
