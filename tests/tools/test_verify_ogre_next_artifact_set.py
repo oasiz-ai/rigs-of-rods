@@ -945,8 +945,22 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             + background * (pixel_count - 1024)
         )
         compositor_overlay = bytes((255, 0, 255, 255)) * pixel_count
+        split_base = struct.pack("<4e", 0.25, 0.125, 0.0625, 1.0) * pixel_count
+        split_sun_full = (
+            struct.pack("<4e", 0.5, 0.25, 0.125, 1.0) * pixel_count
+        )
+        split_sun_direct = (
+            struct.pack("<4e", 0.25, 0.125, 0.0625, 0.0) * pixel_count
+        )
+        split_raster_lit = split_sun_full
         compositor_payload = (
-            compositor_first + compositor_final + compositor_overlay
+            compositor_first
+            + compositor_final
+            + compositor_overlay
+            + split_base
+            + split_sun_full
+            + split_sun_direct
+            + split_raster_lit
         )
         compositor_path = root / VERIFY.RT4_COMPOSITOR_ARTIFACT
         compositor_path.write_bytes(compositor_payload)
@@ -970,6 +984,35 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "bytes": len(payload),
                     "exact_fnv1a64": VERIFY._fnv1a64(payload),
                     "changed_pixels_from_first": changed,
+                }
+            )
+            compositor_slices.append(
+                {
+                    "attachment": name,
+                    "offset": attachment_offset,
+                    "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+        compositor_split_attachments = []
+        split_offset = len(compositor_first) * 3
+        for index, (name, payload) in enumerate(
+            (
+                ("base_hdr", split_base),
+                ("sun_full_unoccluded_hdr", split_sun_full),
+                ("sun_direct_hdr", split_sun_direct),
+                ("raster_lit_hdr", split_raster_lit),
+            )
+        ):
+            attachment_offset = split_offset + index * len(payload)
+            exact_hash = VERIFY._fnv1a64(payload)
+            compositor_split_attachments.append(
+                {
+                    "name": name,
+                    "offset": attachment_offset,
+                    "bytes": len(payload),
+                    "format": "RGBA16_FLOAT",
+                    "exact_fnv1a64": exact_hash,
                 }
             )
             compositor_slices.append(
@@ -1378,7 +1421,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
             ),
             "hdr_compositor": {
-                "schema": "ror.ogre_next_hdr_compositor.v4",
+                "schema": "ror.ogre_next_hdr_compositor.v5",
                 "workspace": "RoRHdrWorkspaceUiFreeV2",
                 "persistent_workspace": True,
                 "scene_format": "RGBA16_FLOAT",
@@ -1394,6 +1437,30 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "exact_current_to_old_copy_verified": True,
                 "warmup_frames": 2,
                 "committed_frames": 2,
+                "split_lighting": {
+                    "base_hdr_rgba16": True,
+                    "sun_full_unoccluded_rgba16": True,
+                    "sun_direct_rgba16": True,
+                    "gpu_max_full_minus_base": True,
+                    "transactional_sun_toggle": True,
+                    "raster_lit_rgba16": True,
+                    "scene_evaluations": 3,
+                    "single_history_step": True,
+                },
+                "split_content": {
+                    "rgb_channels_verified": pixel_count * 3,
+                    "positive_sun_direct_pixels": pixel_count,
+                    "canonical_base_full_raster_alpha_one_direct_alpha_zero": True,
+                    "base_fnv1a64": VERIFY._fnv1a64(split_base),
+                    "sun_full_fnv1a64": VERIFY._fnv1a64(split_sun_full),
+                    "sun_direct_fnv1a64": VERIFY._fnv1a64(split_sun_direct),
+                    "raster_lit_fnv1a64": VERIFY._fnv1a64(split_raster_lit),
+                },
+                "native_lighting_state_verifications": 6,
+                "lighting_test_content_readbacks": 13,
+                "lighting_production_content_readbacks": 0,
+                "lighting_production_framebuffer_readbacks": 0,
+                "ogre14_lighting_passes": 0,
                 "initial_inverse_luminance_r16_bits": 8479,
                 "final_inverse_luminance_r16_bits": history_oracle[
                     "reference_bits"
@@ -1429,6 +1496,10 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "aborted_submission_uncommitted": True,
                 "aborted_output_unchanged": True,
                 "post_render_failure_fault_latched": True,
+                "suspend_restore_preserved_graph": True,
+                "invalid_resize_rollback_verified": True,
+                "resize_rebuild_verified": True,
+                "resized_frame_verified": True,
                 "first_attachment_fnv1a64": VERIFY._fnv1a64(
                     compositor_first
                 ),
@@ -1438,13 +1509,14 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "clean_shutdown": True,
             },
             "hdr_compositor_visual": {
-                "schema": "ror.ogre_next_hdr_compositor_visual.v1",
+                "schema": "ror.ogre_next_hdr_compositor_visual.v2",
                 "evidence_file": VERIFY.RT4_COMPOSITOR_ARTIFACT,
                 "ppm_attachment": "final_ui_free",
                 "width": width,
                 "height": height,
                 "bytes_per_pixel": 4,
                 "attachments": compositor_attachments,
+                "linear_split_attachments": compositor_split_attachments,
                 "evidence_bytes": len(compositor_payload),
             },
             "hdr": {
@@ -3016,6 +3088,18 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             lambda report: report["hdr_compositor"].__setitem__(
                 "post_render_failure_fault_latched", False
             ),
+            lambda report: report["hdr_compositor"]["split_lighting"].__setitem__(
+                "scene_evaluations", 2
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "lighting_production_content_readbacks", 1
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "ogre14_lighting_passes", 1
+            ),
+            lambda report: report["hdr_compositor"].__setitem__(
+                "resize_rebuild_verified", False
+            ),
         )
         for index, mutation in enumerate(mutations):
             with self.subTest(mutation=index):
@@ -3054,6 +3138,109 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "RT4 HDR compositor report fields are incomplete or unexpected",
             ):
                 VERIFY.verify_artifact_set(root)
+
+    def test_rt4_hdr_split_bytes_are_independently_recomputed(self) -> None:
+        mutations = (
+            ("directional radiance oracle", "sun_direct_hdr", 0, b"\x00\x00"),
+            ("non-finite radiance", "base_hdr", 0, b"\x00\x7c"),
+            ("negative-zero radiance", "sun_direct_hdr", 0, b"\x00\x80"),
+            ("alpha.*mismatch", "sun_direct_hdr", 6, b"\x00\x80"),
+        )
+        for expected, attachment_name, relative_offset, replacement in mutations:
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-hdr-split-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    visual = report["hdr_compositor_visual"]
+                    entry = next(
+                        item
+                        for item in visual["linear_split_attachments"]
+                        if item["name"] == attachment_name
+                    )
+                    compositor_path = root / VERIFY.RT4_COMPOSITOR_ARTIFACT
+                    payload = bytearray(compositor_path.read_bytes())
+                    offset = entry["offset"] + relative_offset
+                    payload[offset : offset + len(replacement)] = replacement
+                    compositor_path.write_bytes(payload)
+                    block = bytes(
+                        payload[entry["offset"] : entry["offset"] + entry["bytes"]]
+                    )
+                    exact_hash = VERIFY._fnv1a64(block)
+                    entry["exact_fnv1a64"] = exact_hash
+                    hash_field = {
+                        "base_hdr": "base_fnv1a64",
+                        "sun_direct_hdr": "sun_direct_fnv1a64",
+                    }[attachment_name]
+                    report["hdr_compositor"]["split_content"][hash_field] = exact_hash
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    ppm = (root / VERIFY.RT4_PPM_ARTIFACT).read_bytes()
+                    ppm_pixels = ppm[len(b"P6\n192 128\n255\n") :]
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError, expected
+                    ):
+                        VERIFY._verify_hdr_compositor_visual(
+                            report, ppm_pixels, compositor_path
+                        )
+                    with self.assertRaisesRegex(RUNNER.ProbeError, expected):
+                        RUNNER.validate_hdr_compositor_visual_evidence(
+                            report, compositor_path, ppm_pixels
+                        )
+
+    def test_rt4_hdr_split_rejects_co_mutated_negative_radiance(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-hdr-negative-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            visual = report["hdr_compositor_visual"]
+            compositor_path = root / VERIFY.RT4_COMPOSITOR_ARTIFACT
+            payload = bytearray(compositor_path.read_bytes())
+            replacements = {
+                "base_hdr": struct.pack("<e", -1.0),
+                "sun_full_unoccluded_hdr": struct.pack("<e", -0.5),
+                "sun_direct_hdr": struct.pack("<e", 0.5),
+                "raster_lit_hdr": struct.pack("<e", -0.5),
+            }
+            hash_fields = {
+                "base_hdr": "base_fnv1a64",
+                "sun_full_unoccluded_hdr": "sun_full_fnv1a64",
+                "sun_direct_hdr": "sun_direct_fnv1a64",
+                "raster_lit_hdr": "raster_lit_fnv1a64",
+            }
+            for entry in visual["linear_split_attachments"]:
+                replacement = replacements[entry["name"]]
+                offset = entry["offset"]
+                payload[offset : offset + 2] = replacement
+                block = bytes(payload[offset : offset + entry["bytes"]])
+                exact_hash = VERIFY._fnv1a64(block)
+                entry["exact_fnv1a64"] = exact_hash
+                report["hdr_compositor"]["split_content"][
+                    hash_fields[entry["name"]]
+                ] = exact_hash
+            compositor_path.write_bytes(payload)
+            report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+            ppm = (root / VERIFY.RT4_PPM_ARTIFACT).read_bytes()
+            ppm_pixels = ppm[len(b"P6\n192 128\n255\n") :]
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "negative or non-finite"
+            ):
+                VERIFY._verify_hdr_compositor_visual(
+                    report, ppm_pixels, compositor_path
+                )
+            with self.assertRaisesRegex(
+                RUNNER.ProbeError, "negative or non-finite"
+            ):
+                RUNNER.validate_hdr_compositor_visual_evidence(
+                    report, compositor_path, ppm_pixels
+                )
 
     def test_rt4_history_oracle_rejects_co_mutated_tolerance_claims(self) -> None:
         with tempfile.TemporaryDirectory(

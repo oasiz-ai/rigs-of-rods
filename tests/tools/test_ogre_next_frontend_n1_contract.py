@@ -1047,14 +1047,29 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "for (std::uint64_t warmup = 0U; warmup < 2U; ++warmup)"
         )
         exact_history_seed = self.frontend.index(
-            "InitializeExactHdrHistory(initial_history, observed_history)",
-            warmup_loop,
+            "InitializeExactHdrHistory(", warmup_loop
         )
+        exact_history_seed_end = self.frontend.index(";", exact_history_seed)
+        exact_history_seed_call = self.frontend[
+            exact_history_seed:exact_history_seed_end
+        ]
+        self.assertIn("history_seed", exact_history_seed_call)
+        self.assertIn("observed_history", exact_history_seed_call)
         history_validation = self.frontend.index(
             "hdr_native_history_validated = true", exact_history_seed
         )
         self.assertLess(warmup_loop, exact_history_seed)
         self.assertLess(exact_history_seed, history_validation)
+        scene_reset = self.frontend.index("ResetSceneGeneration()")
+        reset_history_seed = self.frontend.index(
+            "impl_->InitializeExactHdrHistory(", scene_reset
+        )
+        reset_history_seed_end = self.frontend.index(";", reset_history_seed)
+        reset_history_seed_call = self.frontend[
+            reset_history_seed:reset_history_seed_end
+        ]
+        self.assertIn("initial_history", reset_history_seed_call)
+        self.assertIn("observed_history", reset_history_seed_call)
         self.assertIn("Ogre::v1::OverlaySystem", self.frontend)
         self.assertIn("Ogre::v1::OverlayManager", self.frontend)
         self.assertIn("kOgreNextHdrUiNode", self.frontend)
@@ -1133,7 +1148,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.entry_cmake)
         self.assertIn("RunHdrCompositorProof", self.smoke)
-        self.assertIn("ror.ogre_next_hdr_compositor.v4", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor.v5", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor_visual.v2", self.smoke)
+        for token in (
+            '\\"split_lighting\\"',
+            '\\"linear_split_attachments\\"',
+            '\\"lighting_production_content_readbacks\\"',
+            '\\"lighting_production_framebuffer_readbacks\\"',
+            '\\"ogre14_lighting_passes\\"',
+        ):
+            self.assertIn(token, self.smoke)
         self.assertIn("Ogre::v1::Overlay", self.smoke)
         self.assertIn("--compositor-evidence", self.smoke)
         history_error = self.smoke.index('"    \\"history_absolute_error\\"')
@@ -1642,6 +1666,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                     return ror_hash
                 if path == RUNNER.DISPLAY_DOMAIN_MEDIA_PATH:
                     return "7" * 64
+                if path == RUNNER.SUN_VISIBILITY_V2_MEDIA_PATH:
+                    return "8" * 64
                 return paths[path.name]
 
             manifest = {
@@ -1656,6 +1682,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                         "RoR/DisplayDomain/DisplayDomain_piece_ps.any",
                         RUNNER.DISPLAY_DOMAIN_MEDIA_PATH.stat().st_size,
                         "7" * 64,
+                    ),
+                    (
+                        "RoR/SunVisibilityV2/SunVisibilityV2.metal",
+                        RUNNER.SUN_VISIBILITY_V2_MEDIA_PATH.stat().st_size,
+                        "8" * 64,
                     ),
                 ]
             )
@@ -1690,9 +1721,18 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                     RUNNER.ProbeError, "missing or symbolic"
                 ):
                     RUNNER.validate_n1_package(Path(temp), lock)
+                indirect_sun = Path(temp) / "indirect-sun-visibility.metal"
+                indirect_sun.symlink_to(RUNNER.SUN_VISIBILITY_V2_MEDIA_PATH)
+                media_manifest.side_effect = [manifest, package_manifest]
+                with mock.patch.object(
+                    RUNNER, "SUN_VISIBILITY_V2_MEDIA_PATH", indirect_sun
+                ), self.assertRaisesRegex(
+                    RUNNER.ProbeError, "missing or symbolic"
+                ):
+                    RUNNER.validate_n1_package(Path(temp), lock)
                 media_manifest.side_effect = [manifest, manifest]
                 with self.assertRaisesRegex(
-                    RUNNER.ProbeError, "reviewed RoR display-domain manifest"
+                    RUNNER.ProbeError, "reviewed RoR shader manifest"
                 ):
                     RUNNER.validate_n1_package(Path(temp), lock)
                 (package / "RapidJSON-license.txt").unlink()

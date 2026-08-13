@@ -39,6 +39,12 @@ DISPLAY_DOMAIN_MEDIA_RELATIVE = (
 DISPLAY_DOMAIN_NOTICE_PATH = "licenses/Rigs-of-Rods-GPL-3.0.txt"
 DISPLAY_DOMAIN_LICENSE_EXPRESSION = "GPL-3.0-or-later"
 DISPLAY_DOMAIN_NOTICE_SOURCE = REPOSITORY_ROOT / "COPYING"
+SUN_VISIBILITY_V2_MEDIA_PATH = (
+    PROBE_SOURCE / "media/Hlms/RoR/SunVisibilityV2/SunVisibilityV2.metal"
+)
+SUN_VISIBILITY_V2_MEDIA_RELATIVE = (
+    "Hlms/RoR/SunVisibilityV2/SunVisibilityV2.metal"
+)
 LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
 )
@@ -2559,20 +2565,46 @@ def validate_hdr_compositor_visual_evidence(
     compositor = report.get("hdr_compositor")
     if not isinstance(visual, dict) or not isinstance(compositor, dict):
         raise ProbeError("HDR compositor visual evidence metadata is missing")
+    if set(visual) != {
+        "schema",
+        "evidence_file",
+        "ppm_attachment",
+        "width",
+        "height",
+        "bytes_per_pixel",
+        "attachments",
+        "linear_split_attachments",
+        "evidence_bytes",
+    }:
+        raise ProbeError("HDR compositor visual evidence metadata is invalid")
     attachments = visual.get("attachments")
+    split_attachments = visual.get("linear_split_attachments")
     expected_names = ("first_ui_free", "final_ui_free", "ui_overlay_control")
     expected_bytes = 192 * 128 * 4
+    expected_split_names = (
+        "base_hdr",
+        "sun_full_unoccluded_hdr",
+        "sun_direct_hdr",
+        "raster_lit_hdr",
+    )
+    expected_split_bytes = 192 * 128 * 8
+    expected_payload_bytes = (
+        expected_bytes * len(expected_names)
+        + expected_split_bytes * len(expected_split_names)
+    )
     if (
-        visual.get("schema") != "ror.ogre_next_hdr_compositor_visual.v1"
+        visual.get("schema") != "ror.ogre_next_hdr_compositor_visual.v2"
         or visual.get("evidence_file") != evidence_path.name
         or visual.get("ppm_attachment") != "final_ui_free"
-        or visual.get("width") != 192
-        or visual.get("height") != 128
-        or visual.get("bytes_per_pixel") != 4
-        or visual.get("evidence_bytes") != len(payload)
+        or not _json_exact(visual.get("width"), 192)
+        or not _json_exact(visual.get("height"), 128)
+        or not _json_exact(visual.get("bytes_per_pixel"), 4)
+        or not _json_exact(visual.get("evidence_bytes"), len(payload))
         or not isinstance(attachments, list)
         or len(attachments) != len(expected_names)
-        or len(payload) != expected_bytes * len(expected_names)
+        or not isinstance(split_attachments, list)
+        or len(split_attachments) != len(expected_split_names)
+        or len(payload) != expected_payload_bytes
     ):
         raise ProbeError("HDR compositor visual evidence contract is invalid")
     baseline = payload[:expected_bytes]
@@ -2592,10 +2624,10 @@ def validate_hdr_compositor_visual_evidence(
         changed = _changed_pixels(baseline, block, 4)
         if (
             entry.get("name") != name
-            or entry.get("offset") != offset
-            or entry.get("bytes") != expected_bytes
+            or not _json_exact(entry.get("offset"), offset)
+            or not _json_exact(entry.get("bytes"), expected_bytes)
             or entry.get("exact_fnv1a64") != _fnv1a64(block)
-            or entry.get("changed_pixels_from_first") != changed
+            or not _json_exact(entry.get("changed_pixels_from_first"), changed)
             or any(block[pixel + 3] < 250 for pixel in range(0, len(block), 4))
         ):
             raise ProbeError("HDR compositor attachment evidence mismatch")
@@ -2608,6 +2640,137 @@ def validate_hdr_compositor_visual_evidence(
                 "sha256": hashlib.sha256(block).hexdigest(),
             }
         )
+    split_report = compositor.get("split_content")
+    if not isinstance(split_report, dict) or set(split_report) != {
+        "rgb_channels_verified",
+        "positive_sun_direct_pixels",
+        "canonical_base_full_raster_alpha_one_direct_alpha_zero",
+        "base_fnv1a64",
+        "sun_full_fnv1a64",
+        "sun_direct_fnv1a64",
+        "raster_lit_fnv1a64",
+    }:
+        raise ProbeError("HDR split-content report metadata is invalid")
+    split_hash_fields = (
+        "base_fnv1a64",
+        "sun_full_fnv1a64",
+        "sun_direct_fnv1a64",
+        "raster_lit_fnv1a64",
+    )
+    split_blocks: list[bytes] = []
+    split_offset = expected_bytes * len(expected_names)
+    for index, (entry, name, hash_field) in enumerate(
+        zip(
+            split_attachments,
+            expected_split_names,
+            split_hash_fields,
+            strict=True,
+        )
+    ):
+        if not isinstance(entry, dict) or set(entry) != {
+            "name",
+            "offset",
+            "bytes",
+            "format",
+            "exact_fnv1a64",
+        }:
+            raise ProbeError("HDR split attachment metadata is invalid")
+        offset = split_offset + index * expected_split_bytes
+        block = payload[offset : offset + expected_split_bytes]
+        exact_hash = _fnv1a64(block)
+        if (
+            entry.get("name") != name
+            or not _json_exact(entry.get("offset"), offset)
+            or not _json_exact(entry.get("bytes"), expected_split_bytes)
+            or entry.get("format") != "RGBA16_FLOAT"
+            or entry.get("exact_fnv1a64") != exact_hash
+            or split_report.get(hash_field) != exact_hash
+        ):
+            raise ProbeError("HDR split attachment evidence mismatch")
+        split_blocks.append(block)
+        slices.append(
+            {
+                "attachment": name,
+                "offset": offset,
+                "bytes": expected_split_bytes,
+                "sha256": hashlib.sha256(block).hexdigest(),
+            }
+        )
+    base, sun_full, sun_direct, raster_lit = split_blocks
+    rgb_channels_verified = 0
+    positive_sun_direct_pixels = 0
+    for pixel in range(192 * 128):
+        word = pixel * 8
+        positive = False
+        for channel in range(3):
+            channel_offset = word + channel * 2
+            base_value = struct.unpack_from("<e", base, channel_offset)[0]
+            full_value = struct.unpack_from("<e", sun_full, channel_offset)[0]
+            raster_value = struct.unpack_from("<e", raster_lit, channel_offset)[0]
+            direct_value = struct.unpack_from("<e", sun_direct, channel_offset)[0]
+            half_words = (
+                int.from_bytes(base[channel_offset : channel_offset + 2], "little"),
+                int.from_bytes(
+                    sun_full[channel_offset : channel_offset + 2], "little"
+                ),
+                int.from_bytes(
+                    raster_lit[channel_offset : channel_offset + 2], "little"
+                ),
+                int.from_bytes(
+                    sun_direct[channel_offset : channel_offset + 2], "little"
+                ),
+            )
+            if not all(
+                math.isfinite(value) and value >= 0.0
+                for value in (base_value, full_value, raster_value, direct_value)
+            ):
+                raise ProbeError(
+                    "HDR split attachment contains negative or non-finite radiance"
+                )
+            if any(word & 0x8000 for word in half_words):
+                raise ProbeError(
+                    "HDR split attachment contains noncanonical negative-zero radiance"
+                )
+            try:
+                expected_direct = struct.pack(
+                    "<e", max(full_value - base_value, 0.0)
+                )
+            except (OverflowError, struct.error) as error:
+                raise ProbeError(
+                    "HDR split directional radiance is not binary16 representable"
+                ) from error
+            if sun_direct[channel_offset : channel_offset + 2] != expected_direct:
+                raise ProbeError("HDR split directional radiance oracle mismatch")
+            rgb_channels_verified += 1
+            positive = positive or expected_direct != b"\x00\x00"
+        positive_sun_direct_pixels += int(positive)
+        alpha_offset = word + 6
+        if (
+            base[alpha_offset : alpha_offset + 2] != b"\x00\x3c"
+            or sun_full[alpha_offset : alpha_offset + 2] != b"\x00\x3c"
+            or sun_direct[alpha_offset : alpha_offset + 2] != b"\x00\x00"
+            or raster_lit[alpha_offset : alpha_offset + 2] != b"\x00\x3c"
+        ):
+            raise ProbeError("HDR split attachment alpha contract mismatch")
+    if (
+        not _json_exact(
+            split_report.get("rgb_channels_verified"), rgb_channels_verified
+        )
+        or not _json_exact(
+            split_report.get("positive_sun_direct_pixels"),
+            positive_sun_direct_pixels,
+        )
+        or split_report.get(
+            "canonical_base_full_raster_alpha_one_direct_alpha_zero"
+        )
+        is not True
+        or positive_sun_direct_pixels < 128
+        or split_report.get("base_fnv1a64")
+        == split_report.get("sun_full_fnv1a64")
+        or split_report.get("sun_direct_fnv1a64") == "0000000000000000"
+        or raster_lit != sun_full
+    ):
+        raise ProbeError("HDR split-content evidence failed closed")
     final_rgb = bytes(
         channel
         for offset in range(0, len(observed["final_ui_free"]), 4)
@@ -3495,6 +3658,13 @@ def validate_n1_checkpoint(
                     "exact_current_to_old_copy_verified",
                     "warmup_frames",
                     "committed_frames",
+                    "split_lighting",
+                    "split_content",
+                    "native_lighting_state_verifications",
+                    "lighting_test_content_readbacks",
+                    "lighting_production_content_readbacks",
+                    "lighting_production_framebuffer_readbacks",
+                    "ogre14_lighting_passes",
                     "initial_inverse_luminance_r16_bits",
                     "final_inverse_luminance_r16_bits",
                     "reference_inverse_luminance_r16_bits",
@@ -3525,12 +3695,16 @@ def validate_n1_checkpoint(
                     "aborted_submission_uncommitted",
                     "aborted_output_unchanged",
                     "post_render_failure_fault_latched",
+                    "suspend_restore_preserved_graph",
+                    "invalid_resize_rollback_verified",
+                    "resize_rebuild_verified",
+                    "resized_frame_verified",
                     "first_attachment_fnv1a64",
                     "final_attachment_fnv1a64",
                     "clean_shutdown",
                 }
                 and hdr_compositor.get("schema")
-                == "ror.ogre_next_hdr_compositor.v4"
+                == "ror.ogre_next_hdr_compositor.v5"
                 and hdr_compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2"
                 and hdr_compositor.get("persistent_workspace") is True
                 and hdr_compositor.get("scene_format") == "RGBA16_FLOAT"
@@ -3549,6 +3723,91 @@ def validate_n1_checkpoint(
                 and hdr_compositor.get("warmup_frames") == 2
                 and type(hdr_compositor.get("committed_frames")) is int
                 and hdr_compositor.get("committed_frames") == 2
+                and hdr_compositor.get("split_lighting")
+                == {
+                    "base_hdr_rgba16": True,
+                    "sun_full_unoccluded_rgba16": True,
+                    "sun_direct_rgba16": True,
+                    "gpu_max_full_minus_base": True,
+                    "transactional_sun_toggle": True,
+                    "raster_lit_rgba16": True,
+                    "scene_evaluations": 3,
+                    "single_history_step": True,
+                }
+                and isinstance(hdr_compositor.get("split_content"), dict)
+                and set(hdr_compositor.get("split_content"))
+                == {
+                    "rgb_channels_verified",
+                    "positive_sun_direct_pixels",
+                    "canonical_base_full_raster_alpha_one_direct_alpha_zero",
+                    "base_fnv1a64",
+                    "sun_full_fnv1a64",
+                    "sun_direct_fnv1a64",
+                    "raster_lit_fnv1a64",
+                }
+                and type(
+                    hdr_compositor["split_content"].get("rgb_channels_verified")
+                )
+                is int
+                and hdr_compositor["split_content"].get("rgb_channels_verified")
+                == 192 * 128 * 3
+                and type(
+                    hdr_compositor["split_content"].get(
+                        "positive_sun_direct_pixels"
+                    )
+                )
+                is int
+                and hdr_compositor["split_content"].get(
+                    "positive_sun_direct_pixels"
+                )
+                >= 128
+                and hdr_compositor["split_content"].get(
+                    "canonical_base_full_raster_alpha_one_direct_alpha_zero"
+                )
+                is True
+                and all(
+                    isinstance(hdr_compositor["split_content"].get(field), str)
+                    and re.fullmatch(
+                        r"[0-9a-f]{16}",
+                        hdr_compositor["split_content"].get(field),
+                    )
+                    is not None
+                    for field in (
+                        "base_fnv1a64",
+                        "sun_full_fnv1a64",
+                        "sun_direct_fnv1a64",
+                        "raster_lit_fnv1a64",
+                    )
+                )
+                and hdr_compositor["split_content"].get("base_fnv1a64")
+                != hdr_compositor["split_content"].get("sun_full_fnv1a64")
+                and type(
+                    hdr_compositor.get("native_lighting_state_verifications")
+                )
+                is int
+                and hdr_compositor.get("native_lighting_state_verifications")
+                == 6
+                and type(hdr_compositor.get("lighting_test_content_readbacks"))
+                is int
+                and hdr_compositor.get("lighting_test_content_readbacks") == 13
+                and type(
+                    hdr_compositor.get("lighting_production_content_readbacks")
+                )
+                is int
+                and hdr_compositor.get("lighting_production_content_readbacks")
+                == 0
+                and type(
+                    hdr_compositor.get(
+                        "lighting_production_framebuffer_readbacks"
+                    )
+                )
+                is int
+                and hdr_compositor.get(
+                    "lighting_production_framebuffer_readbacks"
+                )
+                == 0
+                and type(hdr_compositor.get("ogre14_lighting_passes")) is int
+                and hdr_compositor.get("ogre14_lighting_passes") == 0
                 and type(
                     hdr_compositor.get("initial_inverse_luminance_r16_bits")
                 )
@@ -3707,6 +3966,10 @@ def validate_n1_checkpoint(
                         "aborted_submission_uncommitted",
                         "aborted_output_unchanged",
                         "post_render_failure_fault_latched",
+                        "suspend_restore_preserved_graph",
+                        "invalid_resize_rollback_verified",
+                        "resize_rebuild_verified",
+                        "resized_frame_verified",
                     )
                 )
                 and isinstance(
@@ -4108,34 +4371,34 @@ def validate_n1_package(
     )
     source_manifest = shader_media_manifest(source_media_root / "Hlms")
     package_manifest = shader_media_manifest(package_media_root / "Hlms")
-    display_relative = PurePosixPath(DISPLAY_DOMAIN_MEDIA_RELATIVE)
-    if display_relative.parts[:1] != ("Hlms",):
-        raise ProbeError("RoR display-domain media escaped the HLMS package root")
-    if (
-        DISPLAY_DOMAIN_MEDIA_PATH.is_symlink()
-        or not DISPLAY_DOMAIN_MEDIA_PATH.is_file()
-    ):
-        raise ProbeError(
-            "reviewed RoR display-domain media is missing or symbolic"
-        )
-    display_hlms_relative = PurePosixPath(*display_relative.parts[1:]).as_posix()
+    reviewed_media = (
+        (DISPLAY_DOMAIN_MEDIA_RELATIVE, DISPLAY_DOMAIN_MEDIA_PATH),
+        (SUN_VISIBILITY_V2_MEDIA_RELATIVE, SUN_VISIBILITY_V2_MEDIA_PATH),
+    )
+    reviewed_hlms_paths: dict[str, Path] = {}
+    for relative_text, source_path in reviewed_media:
+        relative = PurePosixPath(relative_text)
+        if relative.parts[:1] != ("Hlms",):
+            raise ProbeError("reviewed RoR media escaped the HLMS package root")
+        if source_path.is_symlink() or not source_path.is_file():
+            raise ProbeError("reviewed RoR media is missing or symbolic")
+        reviewed_hlms_paths[
+            PurePosixPath(*relative.parts[1:]).as_posix()
+        ] = source_path
     expected_entries = [
         entry
         for entry in source_manifest["entries"]
-        if entry[0] != display_hlms_relative
+        if entry[0] not in reviewed_hlms_paths
     ]
-    expected_entries.append(
-        (
-            display_hlms_relative,
-            DISPLAY_DOMAIN_MEDIA_PATH.stat().st_size,
-            sha256_file(DISPLAY_DOMAIN_MEDIA_PATH),
-        )
+    expected_entries.extend(
+        (relative, source.stat().st_size, sha256_file(source))
+        for relative, source in reviewed_hlms_paths.items()
     )
     expected_manifest = _shader_media_manifest_from_entries(expected_entries)
     if package_manifest != expected_manifest:
         raise ProbeError(
             "OGRE-Next N1 staged HLMS tree differs from the pinned source plus "
-            "reviewed RoR display-domain manifest"
+            "reviewed RoR shader manifest"
         )
     source_hdr_manifest = hdr_media_manifest(source_media_root)
     package_hdr_manifest = hdr_media_manifest(package_media_root)

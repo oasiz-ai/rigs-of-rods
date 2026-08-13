@@ -2144,6 +2144,13 @@ def _verify_hdr_compositor(value: object) -> None:
             "exact_current_to_old_copy_verified",
             "warmup_frames",
             "committed_frames",
+            "split_lighting",
+            "split_content",
+            "native_lighting_state_verifications",
+            "lighting_test_content_readbacks",
+            "lighting_production_content_readbacks",
+            "lighting_production_framebuffer_readbacks",
+            "ogre14_lighting_passes",
             "initial_inverse_luminance_r16_bits",
             "final_inverse_luminance_r16_bits",
             "reference_inverse_luminance_r16_bits",
@@ -2174,6 +2181,10 @@ def _verify_hdr_compositor(value: object) -> None:
             "aborted_submission_uncommitted",
             "aborted_output_unchanged",
             "post_render_failure_fault_latched",
+            "suspend_restore_preserved_graph",
+            "invalid_resize_rollback_verified",
+            "resize_rebuild_verified",
+            "resized_frame_verified",
             "first_attachment_fnv1a64",
             "final_attachment_fnv1a64",
             "clean_shutdown",
@@ -2206,7 +2217,7 @@ def _verify_hdr_compositor(value: object) -> None:
     oracle = _recompute_hdr_history_oracle(compositor)
     checks = {
         "schema": compositor.get("schema")
-        == "ror.ogre_next_hdr_compositor.v4",
+        == "ror.ogre_next_hdr_compositor.v5",
         "workspace": compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2",
         "persistence": compositor.get("persistent_workspace") is True,
         "formats": compositor.get("scene_format") == "RGBA16_FLOAT"
@@ -2225,6 +2236,68 @@ def _verify_hdr_compositor(value: object) -> None:
         is True,
         "frame_lineage": _json_exact(compositor.get("warmup_frames"), 2)
         and _json_exact(compositor.get("committed_frames"), 2),
+        "split_lighting": compositor.get("split_lighting")
+        == {
+            "base_hdr_rgba16": True,
+            "sun_full_unoccluded_rgba16": True,
+            "sun_direct_rgba16": True,
+            "gpu_max_full_minus_base": True,
+            "transactional_sun_toggle": True,
+            "raster_lit_rgba16": True,
+            "scene_evaluations": 3,
+            "single_history_step": True,
+        },
+        "split_content": isinstance(compositor.get("split_content"), dict)
+        and set(compositor["split_content"])
+        == {
+            "rgb_channels_verified",
+            "positive_sun_direct_pixels",
+            "canonical_base_full_raster_alpha_one_direct_alpha_zero",
+            "base_fnv1a64",
+            "sun_full_fnv1a64",
+            "sun_direct_fnv1a64",
+            "raster_lit_fnv1a64",
+        }
+        and _json_exact(
+            compositor["split_content"].get("rgb_channels_verified"),
+            192 * 128 * 3,
+        )
+        and type(
+            compositor["split_content"].get("positive_sun_direct_pixels")
+        )
+        is int
+        and compositor["split_content"].get("positive_sun_direct_pixels") >= 128
+        and compositor["split_content"].get(
+            "canonical_base_full_raster_alpha_one_direct_alpha_zero"
+        )
+        is True
+        and all(
+            isinstance(compositor["split_content"].get(field), str)
+            and re.fullmatch(
+                r"[0-9a-f]{16}", compositor["split_content"].get(field)
+            )
+            is not None
+            for field in (
+                "base_fnv1a64",
+                "sun_full_fnv1a64",
+                "sun_direct_fnv1a64",
+                "raster_lit_fnv1a64",
+            )
+        )
+        and compositor["split_content"].get("base_fnv1a64")
+        != compositor["split_content"].get("sun_full_fnv1a64"),
+        "native_lighting": type(
+            compositor.get("native_lighting_state_verifications")
+        )
+        is int
+        and compositor.get("native_lighting_state_verifications") == 6
+        and type(compositor.get("lighting_test_content_readbacks")) is int
+        and compositor.get("lighting_test_content_readbacks") == 13
+        and _json_exact(compositor.get("lighting_production_content_readbacks"), 0)
+        and _json_exact(
+            compositor.get("lighting_production_framebuffer_readbacks"), 0
+        )
+        and _json_exact(compositor.get("ogre14_lighting_passes"), 0),
         "initial_history": _json_exact(
             initial_bits, int.from_bytes(struct.pack("<e", 0.01), "little")
         ),
@@ -2310,6 +2383,10 @@ def _verify_hdr_compositor(value: object) -> None:
                 "aborted_submission_uncommitted",
                 "aborted_output_unchanged",
                 "post_render_failure_fault_latched",
+                "suspend_restore_preserved_graph",
+                "invalid_resize_rollback_verified",
+                "resize_rebuild_verified",
+                "resized_frame_verified",
             )
         ),
         "hashes": isinstance(first_hash, str)
@@ -2348,6 +2425,7 @@ def _verify_hdr_compositor_visual(
             "height",
             "bytes_per_pixel",
             "attachments",
+            "linear_split_attachments",
             "evidence_bytes",
         },
         "RT4 HDR compositor visual evidence",
@@ -2355,12 +2433,30 @@ def _verify_hdr_compositor_visual(
     if not isinstance(compositor, dict):
         raise ArtifactSetError("RT4 HDR compositor report is missing")
     attachments = visual.get("attachments")
+    split_attachments = visual.get("linear_split_attachments")
     names = ("first_ui_free", "final_ui_free", "ui_overlay_control")
+    split_names = (
+        "base_hdr",
+        "sun_full_unoccluded_hdr",
+        "sun_direct_hdr",
+        "raster_lit_hdr",
+    )
+    split_hash_fields = (
+        "base_fnv1a64",
+        "sun_full_fnv1a64",
+        "sun_direct_fnv1a64",
+        "raster_lit_fnv1a64",
+    )
     width = 192
     height = 128
     attachment_bytes = width * height * 4
+    split_attachment_bytes = width * height * 8
+    expected_evidence_bytes = (
+        attachment_bytes * len(names)
+        + split_attachment_bytes * len(split_names)
+    )
     if (
-        visual.get("schema") != "ror.ogre_next_hdr_compositor_visual.v1"
+        visual.get("schema") != "ror.ogre_next_hdr_compositor_visual.v2"
         or visual.get("evidence_file") != evidence_path.name
         or visual.get("ppm_attachment") != "final_ui_free"
         or not _json_exact(visual.get("width"), width)
@@ -2369,7 +2465,9 @@ def _verify_hdr_compositor_visual(
         or not _json_exact(visual.get("evidence_bytes"), len(payload))
         or not isinstance(attachments, list)
         or len(attachments) != len(names)
-        or len(payload) != attachment_bytes * len(names)
+        or not isinstance(split_attachments, list)
+        or len(split_attachments) != len(split_names)
+        or len(payload) != expected_evidence_bytes
     ):
         raise ArtifactSetError("RT4 HDR compositor visual contract mismatch")
 
@@ -2411,6 +2509,120 @@ def _verify_hdr_compositor_visual(
                 "sha256": hashlib.sha256(block).hexdigest(),
             }
         )
+
+    split_report = compositor.get("split_content")
+    if not isinstance(split_report, dict):
+        raise ArtifactSetError("RT4 HDR split-content report is missing")
+    split_blocks: list[bytes] = []
+    split_offset = attachment_bytes * len(names)
+    for index, (entry, name, hash_field) in enumerate(
+        zip(split_attachments, split_names, split_hash_fields, strict=True)
+    ):
+        entry = _require_exact_keys(
+            entry,
+            {"name", "offset", "bytes", "format", "exact_fnv1a64"},
+            f"RT4 HDR compositor {name} attachment",
+        )
+        offset = split_offset + index * split_attachment_bytes
+        block = payload[offset : offset + split_attachment_bytes]
+        exact_hash = _fnv1a64(block)
+        if (
+            entry.get("name") != name
+            or not _json_exact(entry.get("offset"), offset)
+            or not _json_exact(entry.get("bytes"), split_attachment_bytes)
+            or entry.get("format") != "RGBA16_FLOAT"
+            or entry.get("exact_fnv1a64") != exact_hash
+            or split_report.get(hash_field) != exact_hash
+        ):
+            raise ArtifactSetError(
+                f"RT4 HDR compositor {name} attachment mismatch"
+            )
+        split_blocks.append(block)
+        slices.append(
+            {
+                "attachment": name,
+                "offset": offset,
+                "bytes": split_attachment_bytes,
+                "sha256": hashlib.sha256(block).hexdigest(),
+            }
+        )
+
+    base, sun_full, sun_direct, raster_lit = split_blocks
+    rgb_channels_verified = 0
+    positive_sun_direct_pixels = 0
+    for pixel in range(width * height):
+        word = pixel * 8
+        positive = False
+        for channel in range(3):
+            channel_offset = word + channel * 2
+            base_value = struct.unpack_from("<e", base, channel_offset)[0]
+            full_value = struct.unpack_from("<e", sun_full, channel_offset)[0]
+            raster_value = struct.unpack_from("<e", raster_lit, channel_offset)[0]
+            direct_value = struct.unpack_from("<e", sun_direct, channel_offset)[0]
+            half_words = (
+                int.from_bytes(base[channel_offset : channel_offset + 2], "little"),
+                int.from_bytes(
+                    sun_full[channel_offset : channel_offset + 2], "little"
+                ),
+                int.from_bytes(
+                    raster_lit[channel_offset : channel_offset + 2], "little"
+                ),
+                int.from_bytes(
+                    sun_direct[channel_offset : channel_offset + 2], "little"
+                ),
+            )
+            if not all(
+                math.isfinite(value) and value >= 0.0
+                for value in (base_value, full_value, raster_value, direct_value)
+            ):
+                raise ArtifactSetError(
+                    "RT4 HDR split attachment contains negative or non-finite radiance"
+                )
+            if any(word & 0x8000 for word in half_words):
+                raise ArtifactSetError(
+                    "RT4 HDR split attachment contains noncanonical negative-zero radiance"
+                )
+            try:
+                expected_direct = struct.pack(
+                    "<e", max(full_value - base_value, 0.0)
+                )
+            except (OverflowError, struct.error) as error:
+                raise ArtifactSetError(
+                    "RT4 HDR split directional radiance is not binary16 representable"
+                ) from error
+            if sun_direct[channel_offset : channel_offset + 2] != expected_direct:
+                raise ArtifactSetError(
+                    "RT4 HDR split directional radiance oracle mismatch"
+                )
+            rgb_channels_verified += 1
+            positive = positive or expected_direct != b"\x00\x00"
+        positive_sun_direct_pixels += int(positive)
+        alpha_offset = word + 6
+        if (
+            base[alpha_offset : alpha_offset + 2] != b"\x00\x3c"
+            or sun_full[alpha_offset : alpha_offset + 2] != b"\x00\x3c"
+            or sun_direct[alpha_offset : alpha_offset + 2] != b"\x00\x00"
+            or raster_lit[alpha_offset : alpha_offset + 2] != b"\x00\x3c"
+        ):
+            raise ArtifactSetError("RT4 HDR split attachment alpha mismatch")
+    if (
+        not _json_exact(
+            split_report.get("rgb_channels_verified"), rgb_channels_verified
+        )
+        or not _json_exact(
+            split_report.get("positive_sun_direct_pixels"),
+            positive_sun_direct_pixels,
+        )
+        or split_report.get(
+            "canonical_base_full_raster_alpha_one_direct_alpha_zero"
+        )
+        is not True
+        or positive_sun_direct_pixels < 128
+        or split_report.get("base_fnv1a64") == split_report.get("sun_full_fnv1a64")
+        or split_report.get("sun_direct_fnv1a64") == "0000000000000000"
+        or raster_lit != sun_full
+    ):
+        raise ArtifactSetError("RT4 HDR split-content evidence failed closed")
 
     final_rgb = bytes(
         channel
