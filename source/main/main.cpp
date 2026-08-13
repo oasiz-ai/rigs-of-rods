@@ -747,8 +747,9 @@ int main(int argc, char *argv[])
         // hidden OpenGL resource host. This makes the presenter the stable
         // process-wide video/event owner from the first native window onward.
         RendererOgreNextInProcessPresenterConfiguration presenter_config;
-        presenter_config.enable_native_showcase_pssm_preview =
-            renderer_combined_native_visual_showcase;
+        // Both the ordinary playable joined scene and the explicit native
+        // showcase use the same reviewed source-neutral HDR/PSSM topology.
+        presenter_config.enable_single_evaluation_hdr_pssm = true;
         std::string presenter_config_failure;
         if (!ResolveCombinedPresenterConfiguration(
                 presenter_config, presenter_config_failure))

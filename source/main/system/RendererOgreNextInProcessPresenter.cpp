@@ -164,19 +164,6 @@ ValidationResult Failure(ValidationCode code, const char *field,
   return ValidationResult::Failure(code, field, detail);
 }
 
-bool ValidConfiguration(
-    const RendererOgreNextInProcessPresenterConfiguration &configuration)
-    noexcept {
-  return configuration.version ==
-             kRendererOgreNextInProcessPresenterContractVersion &&
-         !configuration.shader_media_root.empty() &&
-         !configuration.presentation_media_root.empty() &&
-         configuration.logical_width > 0U &&
-         configuration.logical_height > 0U &&
-         configuration.logical_width <= 32768U &&
-         configuration.logical_height <= 32768U;
-}
-
 bool IsKnownPollPoint(RendererInProcessEventPollPoint point) noexcept {
   switch (point) {
   case RendererInProcessEventPollPoint::BEFORE_SIMULATION:
@@ -421,7 +408,8 @@ public:
 
   RendererOgreNextInProcessPresenterStatus Prepare(
       const RendererOgreNextInProcessPresenterConfiguration &candidate) {
-    if (prepared || !ValidConfiguration(candidate)) {
+    if (prepared ||
+        !IsValidRendererOgreNextInProcessPresenterConfiguration(candidate)) {
       return prepared
                  ? RendererOgreNextInProcessPresenterStatus::
                        REJECTED_LIFECYCLE
@@ -462,20 +450,17 @@ public:
     frontend_configuration.shader_media_root = candidate.shader_media_root;
     frontend_configuration.raster_feature_tier =
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
-    // The showcase uses the dedicated single-evaluation HDR/PSSM topology.
-    // PSSM is intentionally absent during the scene-free HDR warmup and is
-    // finalized transactionally only after the first real RoR light,
-    // caster, and receiver set has populated the native scene. The ordinary
-    // combined runtime retains the directional-split HDR evidence topology.
+    // Every combined scene source uses the same reviewed single-evaluation
+    // HDR/PSSM topology. PSSM is intentionally absent during the scene-free
+    // HDR warmup and is finalized transactionally only after the first real
+    // RoR light, caster, and receiver set has populated the native scene.
+    // Configuration admission above rejects false instead of selecting the
+    // retained directional-split evidence topology as a product fallback.
     frontend_configuration.directional_shadow_mode =
-        candidate.enable_native_showcase_pssm_preview
-            ? OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1
-            : OgreNextDirectionalShadowMode::DISABLED;
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
     frontend_configuration.enable_hdr_compositor = true;
     frontend_configuration.hdr_scene_topology =
-        candidate.enable_native_showcase_pssm_preview
-            ? OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1
-            : OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
+        OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
     frontend_configuration.presentation.enabled = true;
     frontend_configuration.presentation.mode =
         OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;

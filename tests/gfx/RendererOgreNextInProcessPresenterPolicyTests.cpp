@@ -182,6 +182,48 @@ void TestAnalyticSkyAuditDefaultsFailClosed() {
           "unavailable analytic-sky audit did not fail closed");
 }
 
+void TestSingleEvaluationHdrPssmConfigurationFailsClosed() {
+  RoR::RendererOgreNextInProcessPresenterConfiguration configuration;
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "default presenter configuration admitted a disabled HDR/PSSM topology");
+
+  configuration.shader_media_root = "/exact/ogrenext/Hlms";
+  configuration.presentation_media_root = "/exact/ogrenext/Presentation";
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "complete media roots silently selected a non-HDR/PSSM fallback");
+
+  configuration.enable_single_evaluation_hdr_pssm = true;
+  Require(
+      RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "exact single-evaluation HDR/PSSM configuration was rejected");
+
+  configuration.enable_single_evaluation_hdr_pssm = false;
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "false single-evaluation selector was accepted");
+  configuration.enable_single_evaluation_hdr_pssm = true;
+
+  ++configuration.version;
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "stale or unknown presenter configuration version was accepted");
+  configuration.version =
+      RoR::kRendererOgreNextInProcessPresenterContractVersion;
+
+  configuration.logical_width = 0U;
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "zero-width presenter configuration was accepted");
+}
+
 } // namespace
 
 int main() {
@@ -203,6 +245,7 @@ int main() {
   TestDirectMouseCallbacksSeeOnlyTheirCurrentTransition();
   TestVisibleRetinaMetricsKeepLogicalAndPixelDomainsPaired();
   TestAnalyticSkyAuditDefaultsFailClosed();
+  TestSingleEvaluationHdrPssmConfigurationFailsClosed();
   std::cout << "renderer Ogre-Next in-process input policy tests passed\n";
   return EXIT_SUCCESS;
 }

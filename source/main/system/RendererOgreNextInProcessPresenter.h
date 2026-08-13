@@ -61,11 +61,31 @@ struct RendererOgreNextInProcessPresenterConfiguration final {
   std::string presentation_media_root;
   std::uint32_t logical_width = 1280U;
   std::uint32_t logical_height = 720U;
-  /// The forward-native A0 preview keeps its authored shadow sun and selects
-  /// the dedicated one-scene RGBA16F HDR/PSSM topology. The ordinary combined
-  /// runtime retains the persistent directional-split HDR evidence path.
-  bool enable_native_showcase_pssm_preview = false;
+  /// Selects the exact source-neutral production topology: one RT4 RGBA16F
+  /// scene evaluation with three-cascade PSSM, followed by the persistent
+  /// exposure, bloom, filmic, and sRGB presentation graph. Combined gameplay
+  /// and the forward-native showcase both require this explicit opt-in; false
+  /// is rejected rather than selecting an unreviewed fallback topology.
+  bool enable_single_evaluation_hdr_pssm = false;
 };
+
+/// Allocation-free admission used before creating SDL, Metal, or Ogre state.
+/// The exact HDR/PSSM topology is mandatory for this combined presenter; all
+/// default, partial, stale-version, or out-of-range configurations fail closed.
+[[nodiscard]] inline bool
+IsValidRendererOgreNextInProcessPresenterConfiguration(
+    const RendererOgreNextInProcessPresenterConfiguration &configuration)
+    noexcept {
+  return configuration.version ==
+             kRendererOgreNextInProcessPresenterContractVersion &&
+         !configuration.shader_media_root.empty() &&
+         !configuration.presentation_media_root.empty() &&
+         configuration.logical_width > 0U &&
+         configuration.logical_height > 0U &&
+         configuration.logical_width <= 32768U &&
+         configuration.logical_height <= 32768U &&
+         configuration.enable_single_evaluation_hdr_pssm;
+}
 
 enum class RendererOgreNextInProcessPresenterStatus : std::uint8_t {
   COMPLETED = 0U,

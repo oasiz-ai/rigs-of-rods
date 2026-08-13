@@ -114,15 +114,19 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.main[showcase_branch:post],
         )
 
-    def test_native_showcase_selects_the_one_scene_hdr_pssm_preview(self) -> None:
+    def test_all_combined_sources_select_one_scene_hdr_pssm(self) -> None:
         configure = self.main.index(
-            "presenter_config.enable_native_showcase_pssm_preview ="
+            "presenter_config.enable_single_evaluation_hdr_pssm = true;"
         )
         prepare = self.main.index("PrepareWindow(presenter_config)", configure)
-        self.assertIn(
-            "renderer_combined_native_visual_showcase",
-            self.main[configure:prepare],
+        selection = self.main.index(
+            "if (renderer_combined_native_visual_showcase)", prepare
         )
+        ordinary = self.main.index("else", selection)
+        self.assertLess(configure, prepare)
+        self.assertLess(prepare, selection)
+        self.assertLess(selection, ordinary)
+        self.assertNotIn("renderer_combined_native_visual_showcase", self.main[configure:prepare])
         showcase_log_start = self.main.index(
             "[RoR|RendererCombined|NativeShowcase] Selected exact"
         )
@@ -138,9 +142,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.presenter.index("if (!CopyParameters(")
         ]
         self.assertIn(
-            "candidate.enable_native_showcase_pssm_preview\n"
-            "            ? OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1\n"
-            "            : OgreNextDirectionalShadowMode::DISABLED",
+            "frontend_configuration.directional_shadow_mode =\n"
+            "        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;",
             frontend_configuration,
         )
         self.assertIn(
@@ -148,11 +151,12 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             frontend_configuration,
         )
         self.assertIn(
-            "candidate.enable_native_showcase_pssm_preview\n"
-            "            ? OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1\n"
-            "            : OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2",
+            "frontend_configuration.hdr_scene_topology =\n"
+            "        OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;",
             frontend_configuration,
         )
+        self.assertNotIn("OgreNextDirectionalShadowMode::DISABLED", frontend_configuration)
+        self.assertNotIn("OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2", frontend_configuration)
         self.assertIn(
             "frontend_configuration.presentation.gpu_only_output = true;",
             frontend_configuration,
