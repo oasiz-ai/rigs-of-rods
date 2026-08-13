@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -35,7 +36,7 @@ namespace {
 using namespace RoR::Render;
 
 constexpr char kCheckedPackageSha256[] =
-    "bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6";
+    "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2";
 
 void Require(bool condition, const char *message) {
   if (!condition) {
@@ -415,6 +416,10 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
       FindAsset(package, "rorng_a0_road_metallic_roughness");
   const GraphicsSceneAssetInput *road_normal_input =
       FindAsset(package, "rorng_a0_road_normal");
+  const GraphicsSceneAssetInput *wet_base_input =
+      FindAsset(package, "rorng_a0_wet_base");
+  const GraphicsSceneAssetInput *wet_normal_input =
+      FindAsset(package, "rorng_a0_wet_normal");
   const GraphicsSceneAssetInput *wet_specular_input =
       FindAsset(package, "rorng_a0_wet_specular");
   const GraphicsSceneAssetInput *lane_base_input =
@@ -422,7 +427,8 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
   const GraphicsSceneAssetInput *reflector_emissive_input =
       FindAsset(package, "rorng_a0_reflector_emissive");
   Require(road_base_input != nullptr && road_mr_input != nullptr &&
-              road_normal_input != nullptr && wet_specular_input != nullptr &&
+              road_normal_input != nullptr && wet_base_input != nullptr &&
+              wet_normal_input != nullptr && wet_specular_input != nullptr &&
               lane_base_input != nullptr && reflector_emissive_input != nullptr,
           "lighting-response texture inputs are absent");
   const auto &road_base_texture =
@@ -431,20 +437,37 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
       std::get<TextureResourceDescriptor>(*road_mr_input->payload);
   const auto &road_normal_texture =
       std::get<TextureResourceDescriptor>(*road_normal_input->payload);
+  const auto &wet_base_texture =
+      std::get<TextureResourceDescriptor>(*wet_base_input->payload);
+  const auto &wet_normal_texture =
+      std::get<TextureResourceDescriptor>(*wet_normal_input->payload);
   const auto &wet_specular_texture =
       std::get<TextureResourceDescriptor>(*wet_specular_input->payload);
   const auto &lane_base_texture =
       std::get<TextureResourceDescriptor>(*lane_base_input->payload);
   const auto &reflector_emissive_texture =
       std::get<TextureResourceDescriptor>(*reflector_emissive_input->payload);
+  const std::array<const TextureResourceDescriptor *, 6U> surface_textures{{
+      &road_base_texture,
+      &road_mr_texture,
+      &road_normal_texture,
+      &wet_base_texture,
+      &wet_normal_texture,
+      &wet_specular_texture,
+  }};
+  Require(std::all_of(surface_textures.begin(), surface_textures.end(),
+                      [](const TextureResourceDescriptor *texture) {
+                        return texture->width == 512U &&
+                               texture->height == 512U &&
+                               texture->mip_levels.size() == 10U;
+                      }),
+          "road/wet maps lost their exact 512px base or full mip chain");
   Require(road_base_texture.color_space == TextureColorSpace::SRGB &&
-              road_base_texture.mip_levels.size() == 7U &&
               road_mr_texture.color_space == TextureColorSpace::LINEAR &&
-              road_mr_texture.mip_levels.size() == 7U &&
               road_normal_texture.color_space == TextureColorSpace::LINEAR &&
-              road_normal_texture.mip_levels.size() == 7U &&
+              wet_base_texture.color_space == TextureColorSpace::SRGB &&
+              wet_normal_texture.color_space == TextureColorSpace::LINEAR &&
               wet_specular_texture.color_space == TextureColorSpace::LINEAR &&
-              wet_specular_texture.mip_levels.size() == 6U &&
               lane_base_texture.color_space == TextureColorSpace::SRGB &&
               reflector_emissive_texture.color_space == TextureColorSpace::SRGB,
           "lighting-response color-space or mip declarations changed");
@@ -508,7 +531,9 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
               repeat_sampler.address_v == SamplerAddressMode::REPEAT &&
               repeat_sampler.anisotropy_enabled &&
               repeat_sampler.maximum_anisotropy == 4.0F &&
-              repeat_sampler.maximum_lod == 6.0F &&
+              repeat_sampler.mip_lod_bias == 0.0F &&
+              !std::signbit(repeat_sampler.mip_lod_bias) &&
+              repeat_sampler.maximum_lod == 9.0F &&
               clamp_sampler.address_u == SamplerAddressMode::CLAMP_TO_EDGE &&
               clamp_sampler.address_v == SamplerAddressMode::CLAMP_TO_EDGE &&
               clamp_sampler.maximum_lod == 3.0F,

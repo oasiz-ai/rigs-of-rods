@@ -485,7 +485,7 @@
       "id": "rorng_a0_mipped_repeat_sampler",
       "magnification_filter": "linear",
       "maximum_anisotropy": 4.0,
-      "maximum_lod": 6.0,
+      "maximum_lod": 9.0,
       "minification_filter": "linear",
       "minimum_lod": 0.0,
       "mip_filter": "linear",
@@ -500,7 +500,7 @@
     "coordinate_system": "right-handed-y-up-meters",
     "generator": {
       "path": "tools/blender/native_render/generate_a0_road_tile.py",
-      "sha256": "1be62686714ad82b1992030dbedc63ff5b9eee2f1cf4d37db49dc2677ef123c9"
+      "sha256": "cb45a7578501edcc927efb7b88a3115d9a3798c90843019c15ad943caaad40c8"
     },
     "glb": {
       "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.glb",
@@ -650,45 +650,63 @@
       "id": "rorng_a0_road_base",
       "mips": [
         {
-          "height": 64,
+          "height": 512,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip0.tga",
-          "sha256": "9c1a95b845ebf7d069eb65cc967c31fd328a7239e98f1a3003ec48e19051d43f",
+          "sha256": "3d8b6d8d1afde7d38fb59a383befd9068eba764f8fb678872583b95fa98a34d9",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip1.tga",
+          "sha256": "cade3bbb264284052b7a5898c791680da5c6864224aa0ebecc9abd572b54f344",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip2.tga",
+          "sha256": "62520b93326de6ca03f5bb8590db87410661c06b40b72646a592077a0dcf5e3d",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip3.tga",
+          "sha256": "b04befbc41c91c435681e94e7f353fe562da879bf38e07e5e1e8bc60cf17ce39",
           "width": 64
         },
         {
           "height": 32,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip1.tga",
-          "sha256": "a1932e3a877888c1a1e79d5072467918ed201ccbc4e6c23f4472a05f4fa6c987",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip4.tga",
+          "sha256": "9ece504110324483ca67185e08ccd938e45c65681903c0dee6765aad76866f52",
           "width": 32
         },
         {
           "height": 16,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip2.tga",
-          "sha256": "0e1c9c30a7014c7e597bccddbaa63736e1cedffca195b1afc640e0537f8889f1",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip5.tga",
+          "sha256": "fa83e3bdc9b62a57289aafeab9e293f1c4d866230fe38f01d54232b1221113eb",
           "width": 16
         },
         {
           "height": 8,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip3.tga",
-          "sha256": "40cdd0236f20c649b71ad61f863a00d8743306bf9a1af7870e5e6d2d582fb1e5",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip6.tga",
+          "sha256": "9155ca9feed93d33889af9bafd59928329d24823382e9e538eb83ea1f8307934",
           "width": 8
         },
         {
           "height": 4,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip4.tga",
-          "sha256": "4f47d879e96054146a02fb94200a47ce68e275ae6e0ac63c8469664a2b2ffe94",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip7.tga",
+          "sha256": "87dc9d43f2bc0f44cc0e48eeb27e0f1005de3da41fdcd88a36e069289d4a867f",
           "width": 4
         },
         {
           "height": 2,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip5.tga",
-          "sha256": "ca1d721f473a7a6fb4ef40f19ff92ca0b617602d6f255db3db9b29b6610e797c",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip8.tga",
+          "sha256": "8427cf31e44c8a908b3866771b9c6dd12f4b4473e923d75eddf6bcf91ee45ba6",
           "width": 2
         },
         {
           "height": 1,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip6.tga",
-          "sha256": "1427df1152bb939d728d5bc6473b0c13c4553e73ed1680ec2742a8278ec253f5",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_base_mip9.tga",
+          "sha256": "62b38e04abab26756221d92687c0d4cd2d8a53e04594114aff1d1fd84261c5ae",
           "width": 1
         }
       ],
@@ -700,45 +718,63 @@
       "id": "rorng_a0_road_metallic_roughness",
       "mips": [
         {
-          "height": 64,
+          "height": 512,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip0.tga",
-          "sha256": "334d33a560ac83605796a8788de1c1d494815c4bb4261002484442b0c3bf0b55",
+          "sha256": "c8a3b7c0bd5339de0078d4a178274d4e27556d9d28320ae694d9acfa69769aa8",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip1.tga",
+          "sha256": "5add5dcc2bf3f22100f9d35245ee8f6038d3a6929e261171d4aded2c99d7e60d",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip2.tga",
+          "sha256": "a9469d6f83c0894a1ab0ed3b50e73df27e89dc92c096eec827bc621029110560",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip3.tga",
+          "sha256": "6537d859fdd5d74a9a9f34128296d16b93536582ab3d56d09aa34e979c1d0aea",
           "width": 64
         },
         {
           "height": 32,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip1.tga",
-          "sha256": "67b595fb212735f0deea586cd1a8d2806863d7f9ffd96182c1edfb37d000a4f2",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip4.tga",
+          "sha256": "3a8512afaba8f700444f8c7c31b5b3f75e338aebe3076a74c76adc70eabba24d",
           "width": 32
         },
         {
           "height": 16,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip2.tga",
-          "sha256": "6478bc46110d7d19e6f6f4b8ff0cc62745d20296f2a063cc77a81cb59af1ff65",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip5.tga",
+          "sha256": "3b1ed67022244b54fb9e9bdbc671747a6ac383e82c49d3efbc93c2e14e600e54",
           "width": 16
         },
         {
           "height": 8,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip3.tga",
-          "sha256": "81ec68e0c30e64bb2b8412e44a226585c1ba590a0c434aa3628b05f5bf849521",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip6.tga",
+          "sha256": "9a6856937d13aa99385a7906ab6d7f414064cb92e56f341b8f86d3c39be55149",
           "width": 8
         },
         {
           "height": 4,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip4.tga",
-          "sha256": "b23d4c8c937859ccabf0986b4c17e44a93e05b1d6f58a2e91faacc6aeb3f6e3c",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip7.tga",
+          "sha256": "f7faaee25f66caf288f4d5c33c87c61f28bb67f9e80dfd9e0f43df71d8643e95",
           "width": 4
         },
         {
           "height": 2,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip5.tga",
-          "sha256": "bd3e6f19a23a5c8c395c41f6fb5bba0b5117853a64b076ade6b1a5af1cb89bf6",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip8.tga",
+          "sha256": "4c1b81707477d3f107a3d61716ba944e95a9d2fd6bf7e22c9d50b59d60ff2198",
           "width": 2
         },
         {
           "height": 1,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip6.tga",
-          "sha256": "f6fa4bc94318c688e8222c6feef048dc7f4d01414cb6beec9025173fb6ae1867",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_metallic_roughness_mip9.tga",
+          "sha256": "97309b761ebc2a2cefdc2bd3cefbd5a54c2032e54e55082b20b3cd42b288e942",
           "width": 1
         }
       ],
@@ -750,45 +786,63 @@
       "id": "rorng_a0_road_normal",
       "mips": [
         {
-          "height": 64,
+          "height": 512,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip0.tga",
-          "sha256": "3b99abbe27b613332bcecd502b3437c8a5551d56828ced7fa0711b07afe76c09",
+          "sha256": "68f4698d0da712a56b582979a675e6e6338dab2adc223d2e75273c037ed134dd",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip1.tga",
+          "sha256": "99dee2c5f566ffccd21aebe3cd02aef3faef571b6e7624c35282f6d851ef3b20",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip2.tga",
+          "sha256": "4575e99d6f164f6b10bca4f4cc20d9a3614cf119a20b963fe372e2f94db13f42",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip3.tga",
+          "sha256": "96d015de5f6aa21dc8e1ae62bc1b18858e7504f87dd0dac01f6d147f1ccd4114",
           "width": 64
         },
         {
           "height": 32,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip1.tga",
-          "sha256": "3f8a682c7f04f3a6931b0f9676bcdf06e4f0b3a9a83558361f333af128628d3a",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip4.tga",
+          "sha256": "f4a133840f51ce378d591794743136f31d468866f01e25cb16eae04a81fdf731",
           "width": 32
         },
         {
           "height": 16,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip2.tga",
-          "sha256": "ba69411a010489055d446e4070344193200b44d87af25189319dd6cc250dd8c2",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip5.tga",
+          "sha256": "8b6c52cdb14387fef84ed50ad782971998bc20c30dffacdacb78632575fcd51c",
           "width": 16
         },
         {
           "height": 8,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip3.tga",
-          "sha256": "08c4f9e3305af021f6e8c7a367808a314ed1830bd759da7294c1dbc4519f0a88",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip6.tga",
+          "sha256": "d3fcba7552b1650a2f44f781ea58b74d3d2980fe2fcbc43aaef75aa98a84cb95",
           "width": 8
         },
         {
           "height": 4,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip4.tga",
-          "sha256": "fbe8b12ce119db00179790c9b529b67668387031272ca27e5d724bb627b558f5",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip7.tga",
+          "sha256": "f1c64baf34ce41c00fe52e42ab80f5c7827ba68eef1096ccb648b5e1914a97be",
           "width": 4
         },
         {
           "height": 2,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip5.tga",
-          "sha256": "a1897a116444810a5f3a951ec056744643b1792710d4b4e4af1e202ef087712b",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip8.tga",
+          "sha256": "9c3b26a6e78cc0227d2ead99dfeeba2c828ea0c5f41aa16311a967635ff5f575",
           "width": 2
         },
         {
           "height": 1,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip6.tga",
-          "sha256": "9edc7f7181e26cfadd9deb8005fdf027526a92bf74edf34771ef0f65e00d63cd",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip9.tga",
+          "sha256": "29040dc4e4e7386a7198c5011d5e7ed9321780066b67a8878f126d4263673d17",
           "width": 1
         }
       ],
@@ -800,39 +854,63 @@
       "id": "rorng_a0_wet_base",
       "mips": [
         {
-          "height": 32,
+          "height": 512,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip0.tga",
-          "sha256": "48bc089ca8c461b0b020ad6fa68006a8875fabda349a8b401fa5e425ec82ecb6",
+          "sha256": "f6d26a28c7067d124c2e758171c4187bd905a9171f53d1540446e77fd00f228d",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip1.tga",
+          "sha256": "234b9764a737880b2d02f7d3d9543de049e7b196674d9c97999a8ec7a65d2cbc",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip2.tga",
+          "sha256": "c49a8d08e4c75e3bd10bb4491b0047648912fbd1d24621e7ea480ccd4ec6dbe2",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip3.tga",
+          "sha256": "a2239507de8aeeac1980fcce2032d4f6993482c03606bde26919a2a7441e3505",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip4.tga",
+          "sha256": "5b45b27f40326e0ab69e24e4d1c3cd7aebf0ca515a47c9a7bfc16f66cdcab78f",
           "width": 32
         },
         {
           "height": 16,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip1.tga",
-          "sha256": "56b86bf300ef7acaca72bf42e2a040575f959cec3715fcdf15cc85d17e024420",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip5.tga",
+          "sha256": "1d82d237e29eadc3bbc1f5f57b02241db56784542ff9ed08b6384ffebc01b47a",
           "width": 16
         },
         {
           "height": 8,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip2.tga",
-          "sha256": "6181bf82c999859128ac44e445f3bc395308d416925d99455073baf675cd68f3",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip6.tga",
+          "sha256": "0aa70803858c4dda5ae6b95dbeefa9f35e57c7f06bdcf769608cda1df983cfeb",
           "width": 8
         },
         {
           "height": 4,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip3.tga",
-          "sha256": "7cad44af7ac337fab5b63002f89a905c637dd3a2b07b8c29bd774761c66407fe",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip7.tga",
+          "sha256": "b033a42bde9f7322d5f37b2fd1ec268f736fbd3651ca2ea4f41e6aa4119885b7",
           "width": 4
         },
         {
           "height": 2,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip4.tga",
-          "sha256": "6bf03768f79c64fbccc16ebe8ad54200d31a06c7501e4aacc293203491d1c8dd",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip8.tga",
+          "sha256": "c5253c6d406c649d2c7ba2ac2d26afa7f4b2e39f2986ee9e10ab3901cf9966a7",
           "width": 2
         },
         {
           "height": 1,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip5.tga",
-          "sha256": "77e0683f888843a421dc453e08755026d73b65669eb59ea8d427117f43b2a504",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_base_mip9.tga",
+          "sha256": "159f5df97af447f695ae2d0c47daf247a828c5fbfc6752300e4eac36019d5cf4",
           "width": 1
         }
       ],
@@ -844,39 +922,63 @@
       "id": "rorng_a0_wet_normal",
       "mips": [
         {
-          "height": 32,
+          "height": 512,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip0.tga",
-          "sha256": "f69c8cea7d5cc7ae93aba67da5d1fd5020172b754aa5afed2483f51743ef79b5",
+          "sha256": "78a9e83a28eec0bbb3217f4e688d885253588c295c4850c9191b02b99886897d",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip1.tga",
+          "sha256": "5eed50f87b8a5b7c8a7cd1c9d3afa5ee0c0d707b04519e141ba8bf2bf087348c",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip2.tga",
+          "sha256": "879a93ab2d5ab456e58bdfe965c85947f573d388625a9658e3ebd9a3fa5e9696",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip3.tga",
+          "sha256": "d12819becfb171987fbec5ebdf9760e63bbab3f072f20069448dc84b1dcde950",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip4.tga",
+          "sha256": "53d24f8dec1d9c3d44c15afa2c4b8329332052a13fb2a58593b1b3148435ce35",
           "width": 32
         },
         {
           "height": 16,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip1.tga",
-          "sha256": "47c0742710637dc92d9af5bcf55ea61f658636d40ac3ff8428a557f07c358b3f",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip5.tga",
+          "sha256": "b5e5b7977cd2ff4740b4519947503d879e0377a482f671baf4023e352c9dec6f",
           "width": 16
         },
         {
           "height": 8,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip2.tga",
-          "sha256": "d7c6d92bd06111a63d739326afd93eb4ff9bcd59d8c17d38f355e6964f88b679",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip6.tga",
+          "sha256": "63f47f38d792b5f46bca34d124b57e9d2792265b6eadfc174a45a23b493e632f",
           "width": 8
         },
         {
           "height": 4,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip3.tga",
-          "sha256": "5f601f138fee8760605fa5f1a002c3cca5da1b03d14888f1ed18b99345d248ba",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip7.tga",
+          "sha256": "caad2df572736cf2ea073750f6e8de0f6e0ac8d3e05b248079b5cc5399393a23",
           "width": 4
         },
         {
           "height": 2,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip4.tga",
-          "sha256": "b64b03d901355b23bf32a2bc0351ac0732de9f81ab6fb7f12968bcffe2ebc00d",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip8.tga",
+          "sha256": "c00ce626a58068ff56c7fb7365777c93e1c20eb8327a04d61fdcb04b5a6ee611",
           "width": 2
         },
         {
           "height": 1,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip5.tga",
-          "sha256": "29040dc4e4e7386a7198c5011d5e7ed9321780066b67a8878f126d4263673d17",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip9.tga",
+          "sha256": "f6530b91f0099747ebbc850961ee0cfb74e56b3c5dcc5579d700c93916cee15e",
           "width": 1
         }
       ],
@@ -888,39 +990,63 @@
       "id": "rorng_a0_wet_specular",
       "mips": [
         {
-          "height": 32,
+          "height": 512,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip0.tga",
-          "sha256": "cd365244b9ccf2a8f213ded1ddb82678daf533fe31e688276ef46aee0c83f9a5",
+          "sha256": "63e7b2ed11cf7f38492ed8e188745fe9a9c03937618be2cec3b9adc12a28a3f0",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip1.tga",
+          "sha256": "05563d585e40bc0195d663901361c486777d3b033c20c995a584a2f03b19260d",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip2.tga",
+          "sha256": "55ce074302251df26406c00d0b0c304e1257054a33e86d0973a6a75e652f2f64",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip3.tga",
+          "sha256": "94e54f1373f153e3604281c7c1d1bec1b84d514089c51c5ed58f451e2a843410",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip4.tga",
+          "sha256": "95e14ba372e403023a00338fdf30c9f42a09c7b3475481a589ff13a88ac21d88",
           "width": 32
         },
         {
           "height": 16,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip1.tga",
-          "sha256": "e9409249454f6cae5d2b7da1deaa58dd47d11bddfc7776e0e1020b2f123bb95c",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip5.tga",
+          "sha256": "97772724ca6f69293f6cb3ee99da48a581d935f89067015051c03fffbd12b16a",
           "width": 16
         },
         {
           "height": 8,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip2.tga",
-          "sha256": "aa7732a6d70093e143bae41072187b76ca2f6dfae3cf9c12ec722b36c04915df",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip6.tga",
+          "sha256": "9281427f60cc57c2c4601cfed865196c4126e03801f4fe1c0ec017880a03166c",
           "width": 8
         },
         {
           "height": 4,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip3.tga",
-          "sha256": "9aca1c927152290244f40a7fa941090a1730bf6534fb68782e3edf56683ed0d5",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip7.tga",
+          "sha256": "c478c2ca014186b8ac42e2d6935b90d306282666c2dfd122c3e17ee33653af08",
           "width": 4
         },
         {
           "height": 2,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip4.tga",
-          "sha256": "9b2063c061bd1e33af46a933c2173a1a03a129d962b47c2760ac95b9c11417fc",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip8.tga",
+          "sha256": "5ff2db6f1a68efcc502aee72ed2d0d8b5379623fff471ed32d00992bc63e20cd",
           "width": 2
         },
         {
           "height": 1,
-          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip5.tga",
-          "sha256": "bc27bc7bbe5cf67d2ab28369cb67c68014ce71ff6dd67e06cbad27c566141711",
+          "path": "content-source/native_render/a0_road_tile_12m/textures/wet_specular_mip9.tga",
+          "sha256": "339c68c750ac9f54c0dc371e15a3684374a6313be8c51f7a29a1ce91f7ae0dfd",
           "width": 1
         }
       ],

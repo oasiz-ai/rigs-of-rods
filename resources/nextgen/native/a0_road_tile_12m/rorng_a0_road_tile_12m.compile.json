@@ -16,11 +16,11 @@
   },
   "format": "ror-native-render-compile-report-v1",
   "output": {
-    "body_sha256": "def382f6a565a9687dbf56298c033c10f818b8a06a3824457c267f70ca1c0c22",
-    "bytes": 100353,
+    "body_sha256": "994035089526214c1875fd5adacb79b03bf36e400ea900919b850b9224163e91",
+    "bytes": 8407715,
     "path": "resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
     "record_count": 27,
-    "sha256": "bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6"
+    "sha256": "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2"
   },
   "package_id": "rorng_a0_road_tile_12m",
   "source": {
@@ -33,7 +33,7 @@
       "sha256": "e67238c03ad09a46b7683232456b8942377c33fbf05a4cfe439ea6dee02d6f4f"
     },
     "manifest_path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json",
-    "manifest_sha256": "f6da181dfad697815835d61b67c9a7326aaecc2b855252814877fa9444f432a0"
+    "manifest_sha256": "473aa35ab82f24dee8e54845a17f82a14a958fe30694927539bada46d3a2fc68"
   },
   "summary": {
     "asset_count": 21,
@@ -43,7 +43,7 @@
     "materials": 4,
     "meshes": 5,
     "samplers": 2,
-    "texture_bytes": 84296,
+    "texture_bytes": 8390984,
     "textures": 10,
     "triangles": 54,
     "vertices": 108

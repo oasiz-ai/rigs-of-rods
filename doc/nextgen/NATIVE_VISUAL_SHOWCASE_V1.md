@@ -68,7 +68,7 @@ selecting a lower-quality path.
 the current `NATIVE-A0-001` checkpoint. Its loader opens
 `resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative`
 once, authenticates the complete package against
-`bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6`,
+`226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2`,
 and retains the resulting immutable package owner. A capture publishes those
 exact asset payload owners and five authored static instances directly to
 `GraphicsSceneFrameInput`; it does not pass through OGRE 14, an ODEF or terrain

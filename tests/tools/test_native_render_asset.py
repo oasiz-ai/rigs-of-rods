@@ -207,7 +207,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                         "materials": 4,
                         "meshes": 5,
                         "samplers": 2,
-                        "texture_bytes": 84296,
+                        "texture_bytes": 8390984,
                         "textures": 10,
                         "triangles": 54,
                         "valid": True,
@@ -223,31 +223,38 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                 self.assertEqual(compiled.returncode, 0, compiled.stderr)
 
     def test_generator_reproduces_every_checked_editable_source_byte(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            copied_generator = root / GENERATOR_RELATIVE
-            copied_generator.parent.mkdir(parents=True)
-            shutil.copy2(GENERATOR, copied_generator)
-            result = subprocess.run(
-                [sys.executable, str(copied_generator), "--repo-root", str(root)],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            checked_root = REPOSITORY_ROOT / MANIFEST_RELATIVE.parent
-            generated_root = root / MANIFEST_RELATIVE.parent
-            checked = {
-                path.relative_to(checked_root).as_posix(): path.read_bytes()
-                for path in checked_root.rglob("*")
-                if path.is_file()
-            }
-            generated = {
-                path.relative_to(generated_root).as_posix(): path.read_bytes()
-                for path in generated_root.rglob("*")
-                if path.is_file()
-            }
-            self.assertEqual(generated, checked)
+        for optimized in (False, True):
+            with self.subTest(optimized=optimized), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                copied_generator = root / GENERATOR_RELATIVE
+                copied_generator.parent.mkdir(parents=True)
+                shutil.copy2(GENERATOR, copied_generator)
+                command = [sys.executable]
+                if optimized:
+                    command.append("-O")
+                command.extend(
+                    [str(copied_generator), "--repo-root", str(root)]
+                )
+                result = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                checked_root = REPOSITORY_ROOT / MANIFEST_RELATIVE.parent
+                generated_root = root / MANIFEST_RELATIVE.parent
+                checked = {
+                    path.relative_to(checked_root).as_posix(): path.read_bytes()
+                    for path in checked_root.rglob("*")
+                    if path.is_file()
+                }
+                generated = {
+                    path.relative_to(generated_root).as_posix(): path.read_bytes()
+                    for path in generated_root.rglob("*")
+                    if path.is_file()
+                }
+                self.assertEqual(generated, checked)
 
     def test_checked_normal_mips_are_vector_filtered_and_rg_canonical(self) -> None:
         manifest = json.loads(
@@ -323,6 +330,123 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                                 pixels[y * width + x], encode_average(samples)
                             )
                 previous_width, previous_height, previous = width, height, pixels
+
+    def test_a0_surface_maps_keep_512_base_full_mips_and_authored_response(self) -> None:
+        manifest = json.loads(
+            (REPOSITORY_ROOT / MANIFEST_RELATIVE).read_text(encoding="ascii")
+        )
+        textures = {texture["id"]: texture for texture in manifest["textures"]}
+        surface_ids = (
+            "rorng_a0_road_base",
+            "rorng_a0_road_metallic_roughness",
+            "rorng_a0_road_normal",
+            "rorng_a0_wet_base",
+            "rorng_a0_wet_normal",
+            "rorng_a0_wet_specular",
+        )
+        expected_dimensions = tuple(
+            (max(1, 512 >> level), max(1, 512 >> level))
+            for level in range(10)
+        )
+        for identifier in surface_ids:
+            with self.subTest(identifier=identifier):
+                texture = textures[identifier]
+                self.assertEqual(len(texture["mips"]), 10)
+                self.assertEqual(
+                    tuple((mip["width"], mip["height"]) for mip in texture["mips"]),
+                    expected_dimensions,
+                )
+
+        def base_pixels(identifier: str) -> tuple[tuple[int, int, int, int], ...]:
+            payload = (REPOSITORY_ROOT / textures[identifier]["mips"][0]["path"]).read_bytes()
+            self.assertEqual(struct.unpack_from("<HH", payload, 12), (512, 512))
+            bgra = payload[18:]
+            self.assertEqual(len(bgra), 512 * 512 * 4)
+            return tuple(
+                (bgra[index + 2], bgra[index + 1], bgra[index], bgra[index + 3])
+                for index in range(0, len(bgra), 4)
+            )
+
+        road_base = base_pixels("rorng_a0_road_base")
+        road_roughness = base_pixels("rorng_a0_road_metallic_roughness")
+        road_normal = base_pixels("rorng_a0_road_normal")
+        wet_base = base_pixels("rorng_a0_wet_base")
+        wet_normal = base_pixels("rorng_a0_wet_normal")
+        wet_specular = base_pixels("rorng_a0_wet_specular")
+        self.assertLessEqual(min(pixel[0] for pixel in road_base), 24)
+        self.assertGreaterEqual(max(pixel[0] for pixel in road_base), 70)
+        self.assertGreaterEqual(len({pixel[0] for pixel in road_base}), 40)
+        dry_roughness = tuple(pixel[1] for pixel in road_roughness)
+        self.assertGreaterEqual(min(dry_roughness), 198)
+        self.assertGreaterEqual(max(dry_roughness) - min(dry_roughness), 35)
+        self.assertTrue(all(pixel[2] == 0 for pixel in road_roughness))
+        self.assertGreaterEqual(max(pixel[0] for pixel in road_normal), 160)
+        self.assertLessEqual(min(pixel[0] for pixel in road_normal), 96)
+        self.assertGreaterEqual(max(pixel[1] for pixel in wet_base), 38)
+        self.assertLessEqual(min(pixel[1] for pixel in wet_base), 24)
+        self.assertGreaterEqual(max(pixel[0] for pixel in wet_normal), 137)
+        self.assertLessEqual(min(pixel[0] for pixel in wet_normal), 118)
+        self.assertGreaterEqual(len({pixel[:2] for pixel in wet_normal}), 200)
+        self.assertGreaterEqual(min(pixel[0] for pixel in wet_specular), 220)
+
+        wet_base_green = tuple(pixel[1] for pixel in wet_base)
+        wet_specular_red = tuple(pixel[0] for pixel in wet_specular)
+        base_mean = sum(wet_base_green) / len(wet_base_green)
+        specular_mean = sum(wet_specular_red) / len(wet_specular_red)
+        shared_field_covariance = sum(
+            (base - base_mean) * (specular - specular_mean)
+            for base, specular in zip(wet_base_green, wet_specular_red)
+        ) / len(wet_base_green)
+        self.assertLess(shared_field_covariance, -5.0)
+
+        def normal_delta(left: tuple[int, ...], right: tuple[int, ...]) -> int:
+            return sum(abs(left[channel] - right[channel]) for channel in range(3))
+
+        horizontal_seam = sum(
+            normal_delta(wet_normal[y * 512], wet_normal[y * 512 + 511])
+            for y in range(512)
+        ) / 512
+        horizontal_neighbor = sum(
+            normal_delta(wet_normal[y * 512 + x], wet_normal[y * 512 + x - 1])
+            for y in range(512)
+            for x in range(1, 512)
+        ) / (512 * 511)
+        vertical_seam = sum(
+            normal_delta(wet_normal[x], wet_normal[511 * 512 + x])
+            for x in range(512)
+        ) / 512
+        vertical_neighbor = sum(
+            normal_delta(wet_normal[y * 512 + x], wet_normal[(y - 1) * 512 + x])
+            for y in range(1, 512)
+            for x in range(512)
+        ) / (511 * 512)
+        self.assertLess(horizontal_seam, horizontal_neighbor * 1.25)
+        self.assertLess(vertical_seam, vertical_neighbor * 1.25)
+        repeated_at_64 = sum(
+            wet_normal[y * 512 + x]
+            == wet_normal[y * 512 + ((x + 64) % 512)]
+            for y in range(512)
+            for x in range(512)
+        ) / (512 * 512)
+        self.assertLess(repeated_at_64, 0.1)
+
+        materials = {material["id"]: material for material in manifest["materials"]}
+        wet_roughness = materials["rorng_a0_wet_asphalt_material"]["roughness_factor"]
+        self.assertEqual(wet_roughness, 0.08)
+        self.assertGreater(min(dry_roughness) / 255.0, wet_roughness + 0.65)
+
+        repeat_sampler = next(
+            sampler
+            for sampler in manifest["samplers"]
+            if sampler["id"] == "rorng_a0_mipped_repeat_sampler"
+        )
+        self.assertEqual(repeat_sampler["maximum_lod"], 9.0)
+        self.assertEqual(repeat_sampler["maximum_anisotropy"], 4.0)
+        self.assertTrue(repeat_sampler["anisotropy_enabled"])
+        self.assertEqual(
+            struct.pack("<f", repeat_sampler["mip_lod_bias"]),
+            b"\x00\x00\x00\x00",
+        )
 
     def test_normal_and_optimized_compilers_are_byte_identical(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

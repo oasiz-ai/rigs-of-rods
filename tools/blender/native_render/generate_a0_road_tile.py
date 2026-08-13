@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
 import hashlib
 import json
 import math
@@ -22,6 +23,7 @@ COMPOSITION_PATH = SOURCE_DIRECTORY / f"{PACKAGE_ID}.composition.json"
 PREVIEW_PATH = SOURCE_DIRECTORY / f"{PACKAGE_ID}.composition.ppm"
 PREVIEW_WIDTH = 640
 PREVIEW_HEIGHT = 360
+SURFACE_TEXTURE_SIZE = 512
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -628,6 +630,54 @@ def _noise(x: int, y: int, seed: int) -> int:
     return value & 0xFF
 
 
+def _smooth_q8(remainder: int, span: int) -> int:
+    """Return smoothstep(remainder / span) in deterministic Q8."""
+
+    phase = (remainder * 256) // span
+    return (phase * phase * (768 - 2 * phase) + 32768) // 65536
+
+
+def _lerp_q8(left: int, right: int, weight: int) -> int:
+    return (left * (256 - weight) + right * weight + 128) // 256
+
+
+def _periodic_value_noise(x: int, y: int, cell: int, seed: int) -> int:
+    """Sample a seamless, fixed-point value-noise octave in [-128, 127]."""
+
+    if SURFACE_TEXTURE_SIZE % cell:
+        raise ValueError("surface texture size must be divisible by every noise cell")
+    cell_count = SURFACE_TEXTURE_SIZE // cell
+    grid_x = x // cell
+    grid_y = y // cell
+    blend_x = _smooth_q8(x % cell, cell)
+    blend_y = _smooth_q8(y % cell, cell)
+    corners = (
+        _noise(grid_x % cell_count, grid_y % cell_count, seed) - 128,
+        _noise((grid_x + 1) % cell_count, grid_y % cell_count, seed) - 128,
+        _noise(grid_x % cell_count, (grid_y + 1) % cell_count, seed) - 128,
+        _noise(
+            (grid_x + 1) % cell_count,
+            (grid_y + 1) % cell_count,
+            seed,
+        )
+        - 128,
+    )
+    upper = _lerp_q8(corners[0], corners[1], blend_x)
+    lower = _lerp_q8(corners[2], corners[3], blend_x)
+    return _lerp_q8(upper, lower, blend_y)
+
+
+def _clamp_byte(value: int) -> int:
+    return min(255, max(0, value))
+
+
+def _triangle_wave(value: int, period: int) -> int:
+    """Return a periodic 0..period triangular ridge without libm drift."""
+
+    phase = value % period
+    return period - abs(phase * 2 - period)
+
+
 def _mip_chain(
     width: int,
     height: int,
@@ -740,35 +790,147 @@ def build_sources(repo_root: Path) -> None:
         highlight = max(150, 245 - (abs(x - 3) + abs(y - 3)) * 12)
         return (highlight, max(140, highlight - 12), max(125, highlight - 30), 255)
 
+    @lru_cache(maxsize=None)
+    def road_height_tile(x: int, y: int) -> int:
+        coarse = _periodic_value_noise(x, y, 64, 11)
+        aggregate = _periodic_value_noise(x, y, 16, 13)
+        grit = _periodic_value_noise(x, y, 4, 17)
+        grain = _noise(x % SURFACE_TEXTURE_SIZE, y % SURFACE_TEXTURE_SIZE, 19) - 128
+        pore = max(0, -88 - grit)
+        stone = max(0, grain - 112)
+        return (
+            coarse // 10
+            + aggregate // 6
+            + grit // 4
+            + grain // 7
+            - pore * 2
+            + stone
+        )
+
+    def road_height(x: int, y: int) -> int:
+        return road_height_tile(
+            x % SURFACE_TEXTURE_SIZE,
+            y % SURFACE_TEXTURE_SIZE,
+        )
+
     def road_base(x: int, y: int) -> Pixel:
-        noise = _noise(x, y, 11)
-        aggregate = 16 if noise > 246 else (-11 if noise < 10 else (noise % 9) - 4)
-        value = max(25, min(78, 48 + aggregate))
-        return (value - 2, value, value + 2, 255)
+        broad = _periodic_value_noise(x, y, 128, 23)
+        aggregate = _periodic_value_noise(x, y, 32, 29)
+        grit = _periodic_value_noise(x, y, 4, 31)
+        grain = _noise(
+            x % SURFACE_TEXTURE_SIZE,
+            y % SURFACE_TEXTURE_SIZE,
+            37,
+        ) - 128
+        pit = max(0, -86 - grit)
+        exposed_stone = max(0, grain - 115)
+        value = _clamp_byte(
+            52
+            + broad // 16
+            + aggregate // 18
+            + grit // 28
+            + grain // 72
+            - pit // 3
+            + exposed_stone // 2
+        )
+        warmth = exposed_stone // 10
+        return (
+            _clamp_byte(value + warmth),
+            _clamp_byte(value - 1),
+            _clamp_byte(value - 2 - warmth // 2),
+            255,
+        )
 
     def road_metallic_roughness(x: int, y: int) -> Pixel:
-        noise = _noise(x, y, 23)
-        roughness = 198 + (noise % 44)
+        broad = _periodic_value_noise(x, y, 128, 41)
+        aggregate = _periodic_value_noise(x, y, 16, 43)
+        grit = _periodic_value_noise(x, y, 4, 47)
+        grain = _noise(
+            x % SURFACE_TEXTURE_SIZE,
+            y % SURFACE_TEXTURE_SIZE,
+            53,
+        ) - 128
+        pit = max(0, -90 - grit)
+        polished_stone = max(0, grain - 116)
+        roughness = max(
+            198,
+            min(
+                244,
+                220
+                + broad // 20
+                + aggregate // 25
+                + grit // 32
+                + pit // 2
+                - polished_stone // 2,
+            ),
+        )
+        # Canonical metallic/roughness packing: roughness G, metallic B.
         return (255, roughness, 0, 255)
 
     def road_normal(x: int, y: int) -> Pixel:
-        nx = (_noise(x, y, 31) % 23) - 11
-        ny = (_noise(x, y, 37) % 23) - 11
-        return (128 + nx, 128 + ny, 254, 255)
+        derivative_x = road_height(x + 1, y) - road_height(x - 1, y)
+        derivative_y = road_height(x, y + 1) - road_height(x, y - 1)
+        tangent_x = max(-38, min(38, -derivative_x))
+        tangent_y = max(-38, min(38, -derivative_y))
+        return (128 + tangent_x, 128 + tangent_y, 255, 255)
+
+    @lru_cache(maxsize=None)
+    def wet_film_tile(x: int, y: int) -> tuple[int, int, int]:
+        return (
+            _periodic_value_noise(x, y, 128, 67),
+            _periodic_value_noise(x, y, 32, 71),
+            _periodic_value_noise(x, y, 8, 73),
+        )
+
+    def wet_film(x: int, y: int) -> tuple[int, int, int]:
+        return wet_film_tile(
+            x % SURFACE_TEXTURE_SIZE,
+            y % SURFACE_TEXTURE_SIZE,
+        )
+
+    @lru_cache(maxsize=None)
+    def wet_height_tile(x: int, y: int) -> int:
+        film, flow, micro = wet_film(x, y)
+        warp = film // 2 + flow // 3
+        diagonal_ripple = _triangle_wave(x + y * 3 + warp, 64) - 32
+        cross_ripple = _triangle_wave(x * 3 - y - warp, 32) - 16
+        diagonal_weight = max(0, flow + 56)
+        cross_weight = max(0, -flow - 8)
+        return (
+            film // 28
+            + flow // 22
+            + micro // 14
+            + diagonal_ripple * diagonal_weight // 640
+            + cross_ripple * cross_weight // 1024
+        )
+
+
+    def wet_height(x: int, y: int) -> int:
+        return wet_height_tile(
+            x % SURFACE_TEXTURE_SIZE,
+            y % SURFACE_TEXTURE_SIZE,
+        )
 
     def wet_base(x: int, y: int) -> Pixel:
-        noise = _noise(x, y, 41)
-        ripple = 5 if (x + y * 3) % 13 == 0 else 0
-        return (24 + noise % 7, 30 + noise % 9, 35 + noise % 10 + ripple, 255)
+        film, flow, micro = wet_film(x, y)
+        value = _clamp_byte(31 - film // 20 - flow // 32 + micro // 56)
+        return (
+            _clamp_byte(value - 4),
+            _clamp_byte(value),
+            _clamp_byte(value + 5),
+            255,
+        )
 
     def wet_normal(x: int, y: int) -> Pixel:
-        nx = ((_noise(x, y, 47) % 9) - 4) + (2 if y % 9 == 0 else 0)
-        ny = ((_noise(x, y, 53) % 9) - 4) - (2 if y % 9 == 0 else 0)
-        return (128 + nx, 128 + ny, 255, 255)
+        derivative_x = wet_height(x + 1, y) - wet_height(x - 1, y)
+        derivative_y = wet_height(x, y + 1) - wet_height(x, y - 1)
+        tangent_x = max(-16, min(16, -derivative_x))
+        tangent_y = max(-16, min(16, -derivative_y))
+        return (128 + tangent_x, 128 + tangent_y, 255, 255)
 
     def wet_specular(x: int, y: int) -> Pixel:
-        noise = _noise(x, y, 59)
-        value = 220 + noise % 32
+        film, flow, micro = wet_film(x, y)
+        value = max(220, min(252, 236 + film // 18 + flow // 28 + micro // 56))
         return (value, value, min(255, value + 3), 255)
 
     texture_definitions = (
@@ -776,12 +938,12 @@ def build_sources(repo_root: Path) -> None:
         ("rorng_a0_reflector_base", "base_color", "srgb", "reflector_base", 8, 8, reflector_base),
         ("rorng_a0_reflector_emissive", "emissive", "srgb", "reflector_emissive", 8, 8, reflector_emissive),
         ("rorng_a0_reflector_specular", "specular", "linear", "reflector_specular", 8, 8, reflector_specular),
-        ("rorng_a0_road_base", "base_color", "srgb", "road_base", 64, 64, road_base),
-        ("rorng_a0_road_metallic_roughness", "metallic_roughness", "linear", "road_metallic_roughness", 64, 64, road_metallic_roughness),
-        ("rorng_a0_road_normal", "normal", "linear", "road_normal", 64, 64, road_normal),
-        ("rorng_a0_wet_base", "base_color", "srgb", "wet_base", 32, 32, wet_base),
-        ("rorng_a0_wet_normal", "normal", "linear", "wet_normal", 32, 32, wet_normal),
-        ("rorng_a0_wet_specular", "specular", "linear", "wet_specular", 32, 32, wet_specular),
+        ("rorng_a0_road_base", "base_color", "srgb", "road_base", SURFACE_TEXTURE_SIZE, SURFACE_TEXTURE_SIZE, road_base),
+        ("rorng_a0_road_metallic_roughness", "metallic_roughness", "linear", "road_metallic_roughness", SURFACE_TEXTURE_SIZE, SURFACE_TEXTURE_SIZE, road_metallic_roughness),
+        ("rorng_a0_road_normal", "normal", "linear", "road_normal", SURFACE_TEXTURE_SIZE, SURFACE_TEXTURE_SIZE, road_normal),
+        ("rorng_a0_wet_base", "base_color", "srgb", "wet_base", SURFACE_TEXTURE_SIZE, SURFACE_TEXTURE_SIZE, wet_base),
+        ("rorng_a0_wet_normal", "normal", "linear", "wet_normal", SURFACE_TEXTURE_SIZE, SURFACE_TEXTURE_SIZE, wet_normal),
+        ("rorng_a0_wet_specular", "specular", "linear", "wet_specular", SURFACE_TEXTURE_SIZE, SURFACE_TEXTURE_SIZE, wet_specular),
     )
     texture_payloads: dict[str, bytes] = {}
     texture_specs: list[tuple[str, str, str, tuple[tuple[str, int, int], ...]]] = []
@@ -997,7 +1159,7 @@ def build_sources(repo_root: Path) -> None:
                 "id": "rorng_a0_mipped_repeat_sampler",
                 "magnification_filter": "linear",
                 "maximum_anisotropy": 4.0,
-                "maximum_lod": 6.0,
+                "maximum_lod": 9.0,
                 "minimum_lod": 0.0,
                 "minification_filter": "linear",
                 "mip_filter": "linear",
