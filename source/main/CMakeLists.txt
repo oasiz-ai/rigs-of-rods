@@ -1512,7 +1512,7 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     set(_ror_native_visual_showcase_package_source
         "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative")
     set(_ror_native_visual_showcase_package_sha256
-        "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648")
+        "bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6")
     if (NOT EXISTS "${_ror_native_visual_showcase_package_source}" OR
             IS_DIRECTORY "${_ror_native_visual_showcase_package_source}" OR
             IS_SYMLINK "${_ror_native_visual_showcase_package_source}")

@@ -28,7 +28,7 @@ constexpr char kNativeVisualShowcaseExecutableResourceRelativePath[] =
     "rorng_a0_road_tile_12m.rornative";
 constexpr char kNativeVisualShowcasePackageId[] = "rorng_a0_road_tile_12m";
 constexpr char kNativeVisualShowcasePackageSha256Hex[] =
-    "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648";
+    "bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6";
 constexpr RenderPayloadDigest kNativeVisualShowcasePackageSha256{{
     0xBDU, 0x37U, 0x10U, 0x2FU, 0x9AU, 0xBFU, 0x1FU, 0x91U, 0x49U, 0x10U, 0xC2U,
     0xD7U, 0xD5U, 0x9AU, 0x0EU, 0x9FU, 0x5AU, 0x4AU, 0x5BU, 0xC9U, 0x6AU, 0xDDU,

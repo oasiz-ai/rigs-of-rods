@@ -116,7 +116,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
 
     def test_showcase_package_is_exact_and_staged_beside_executable_resources(self) -> None:
         expected = (
-            "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648"
+            "bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6"
         )
         self.assertIn(expected, self.main_cmake)
         self.assertIn(expected, self.showcase_header)
