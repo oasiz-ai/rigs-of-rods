@@ -1058,6 +1058,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ManagedMaterialDeclaration.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/MaterialDescriptor.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/NativeRenderAssetPackage.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/NativeVisualShowcaseSceneSource.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ParallaxProbeReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/PbrReference.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ReflectionProbeCaptureReceipt.cpp"
@@ -1361,6 +1362,21 @@ target_compile_definitions(
         "ROR_NATIVE_RENDER_ASSET_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative\""
 )
 add_executable(
+    ror_native_visual_showcase_scene_source_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/NativeVisualShowcaseSceneSourceTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN1Policy.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextPssmShadowPolicy.cpp"
+)
+target_include_directories(
+    ror_native_visual_showcase_scene_source_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext"
+)
+target_compile_definitions(
+    ror_native_visual_showcase_scene_source_tests
+    PRIVATE
+        "ROR_NATIVE_VISUAL_SHOWCASE_PACKAGE_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative\""
+)
+add_executable(
     ror_renderer_frontend_contract_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/RendererFrontendContractTests.cpp"
 )
@@ -1500,6 +1516,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_renderer_frontend_transport_dispatcher_tests
     ror_render_resource_descriptor_tests
     ror_native_render_asset_package_tests
+    ror_native_visual_showcase_scene_source_tests
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
     ror_ogre_next_hdr_temporal_contract_tests
@@ -3216,6 +3233,11 @@ add_test(
 add_test(
     NAME native_render_asset_package
     COMMAND ror_native_render_asset_package_tests
+)
+
+add_test(
+    NAME native_visual_showcase_scene_source
+    COMMAND ror_native_visual_showcase_scene_source_tests
 )
 
 add_test(

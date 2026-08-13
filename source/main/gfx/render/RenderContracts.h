@@ -16,6 +16,7 @@
 #include "InputEventTransport.h"
 #include "MaterialDescriptor.h"
 #include "NativeRenderAssetPackage.h"
+#include "NativeVisualShowcaseSceneSource.h"
 #include "Ogre14LegacyAssetTranslator.h"
 #include "Ogre14LegacyMaterialClosure.h"
 #include "Ogre14ParticleCaptureSource.h"

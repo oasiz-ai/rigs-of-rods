@@ -58,6 +58,7 @@ set(SOURCE_FILES
         gfx/render/ManagedMaterialDeclaration.{h,cpp}
         gfx/render/MaterialDescriptor.{h,cpp}
         gfx/render/NativeRenderAssetPackage.{h,cpp}
+        gfx/render/NativeVisualShowcaseSceneSource.{h,cpp}
         gfx/render/ParallaxProbeReference.{h,cpp}
         gfx/render/PbrReference.{h,cpp}
         gfx/render/ReflectionProbeCaptureReceipt.{h,cpp}
@@ -666,6 +667,7 @@ set(ROR_RENDER_CONTRACT_SOURCES
         gfx/render/ManagedMaterialDeclaration.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/NativeRenderAssetPackage.cpp
+        gfx/render/NativeVisualShowcaseSceneSource.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
         gfx/render/ReflectionProbeCaptureReceipt.cpp
@@ -711,6 +713,7 @@ set(ROR_RENDER_CONTRACT_STRICT_FP_SOURCES
         gfx/render/ManagedMaterialDeclaration.cpp
         gfx/render/MaterialDescriptor.cpp
         gfx/render/NativeRenderAssetPackage.cpp
+        gfx/render/NativeVisualShowcaseSceneSource.cpp
         gfx/render/ParallaxProbeReference.cpp
         gfx/render/PbrReference.cpp
         gfx/render/ReflectionProbeCaptureReceipt.cpp

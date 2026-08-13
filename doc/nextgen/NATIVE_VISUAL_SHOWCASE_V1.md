@@ -62,6 +62,39 @@ No pass may be inferred from the final image. Each must publish its own bounded
 execution and witness evidence, and failures remain named rather than silently
 selecting a lower-quality path.
 
+## Forward-native scene source checkpoint
+
+`NativeVisualShowcaseSceneSource` is the renderer-neutral runtime consumer for
+the current `NATIVE-A0-001` checkpoint. Its loader opens
+`resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative`
+once, authenticates the complete package against
+`ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648`,
+and retains the resulting immutable package owner. A capture publishes those
+exact asset payload owners and five authored static instances directly to
+`GraphicsSceneFrameInput`; it does not pass through OGRE 14, an ODEF or terrain
+converter, a legacy material translator, runtime asset conversion, or another
+terrain system.
+
+The source fixes a 1920x1080 camera from the checked composition's position
+`(8,7,10)`, target `(0,0,-0.2)`, 50-degree vertical field of view, and
+`0.1/50 m` clip planes. It publishes one D65 directional sun at `110000 lux`
+with direction `(0.60,-0.64,0.48)`, an analytic sky tied to that exact light
+identity, and a deterministic 60 Hz simulation clock. The only evidence pose
+override translates the authored shadow gate by exactly `+1.5 m` on X; asset,
+material, camera, sky, time, and every non-gate transform remain unchanged.
+Capture, commit, and discard are transactional, so a rejected producer frame
+does not advance the clock or gate pose.
+
+The package's authored `TextureBinding` scale and offset fields are preserved
+exactly. In this checkpoint the road uses scale `(2,4)`, the wet strip `(1,4)`,
+and the lane `(1,6)`, all on UV0 with zero offset and rotation. The current
+RT4/V1 frontend still rejects these non-identity transforms at
+`assets.material.texture_transform`; native UV-transform support and its GPU
+evidence are a named pending frontend dependency. The scene source must not
+hide that gap by baking, rewriting, or otherwise converting package UVs at
+runtime. The asset package remains editable: a future authored revision gets a
+new reviewed digest and updates this checkpoint explicitly.
+
 ## Temporal anti-aliasing boundary
 
 `OgreNextTaaContract` version 1 fixes the renderer-neutral temporal policy
