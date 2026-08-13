@@ -513,6 +513,10 @@ set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE
     "RoR/DisplayDomain/DisplayDomain_piece_ps.any")
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE
+    "RoR/UvAffinePbs/UvAffinePbs_piece_ps.any")
+set(ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media/Hlms/${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}")
 set(_ror_stage_tuples "")
 set(_ror_stage_sources "")
 
@@ -521,7 +525,8 @@ file(GLOB_RECURSE _ror_n1_hlms_files
     RELATIVE "${_ror_n1_hlms_root}"
     "${_ror_n1_hlms_root}/*")
 list(APPEND _ror_n1_hlms_files
-    "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+    "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+    "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}")
 list(REMOVE_DUPLICATES _ror_n1_hlms_files)
 list(SORT _ror_n1_hlms_files)
 if (NOT _ror_n1_hlms_files)
@@ -533,6 +538,9 @@ foreach (_ror_hlms_relative IN LISTS _ror_n1_hlms_files)
     if (_ror_hlms_relative STREQUAL
             ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE)
         set(_ror_hlms_source "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    elseif (_ror_hlms_relative STREQUAL
+            ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE)
+        set(_ror_hlms_source "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}")
     else ()
         set(_ror_hlms_source "${_ror_n1_hlms_root}/${_ror_hlms_relative}")
     endif ()

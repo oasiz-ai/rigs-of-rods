@@ -209,6 +209,12 @@ class CombinedProviderContractTests(unittest.TestCase):
             self.assertIn(macro, PROVIDER)
         self.assertIn("ror-ogre-next-combined-resources", PROVIDER)
         self.assertIn("stage_ogre_next_combined_resources.py", PROVIDER)
+        for token in (
+            "ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE",
+            "ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE",
+            "RoR/UvAffinePbs/UvAffinePbs_piece_ps.any",
+        ):
+            self.assertIn(token, PROVIDER)
         self.assertIn('"${_ror_stage_relative}!|${_ror_source}', PROVIDER)
         self.assertIn('string(REGEX REPLACE "!$"', PROVIDER)
         self.assertIn("ror_ogre_next_combined_resources", MAIN_CMAKE)

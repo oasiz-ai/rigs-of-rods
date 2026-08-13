@@ -4285,13 +4285,13 @@ public:
     if (destroy_definitions_and_resources) {
       hdr_split_node_definition_created = false;
     }
-    if (destroy_definitions_and_resources && root) {
+    Ogre::CompositorManager2 *const compositor_manager =
+        root ? root->getCompositorManager2() : nullptr;
+    if (destroy_definitions_and_resources && compositor_manager != nullptr) {
       try {
-        Ogre::CompositorManager2 *compositors =
-            root->getCompositorManager2();
         const Ogre::IdString shadow_name(kOgreNextHdrShadowNode);
         const bool shadow_exists =
-            compositors->hasShadowNodeDefinition(shadow_name);
+            compositor_manager->hasShadowNodeDefinition(shadow_name);
         if (hdr_shadow_node_definition_created && !shadow_exists) {
           clean = false;
         }
@@ -4300,10 +4300,10 @@ public:
             hdr_shadow_node_definition_created = true;
             ++shadow_audit.shadow_node_creates;
           }
-          compositors->removeShadowNodeDefinition(shadow_name);
+          compositor_manager->removeShadowNodeDefinition(shadow_name);
           ++shadow_audit.shadow_node_destroys;
         }
-        if (compositors->hasShadowNodeDefinition(shadow_name)) {
+        if (compositor_manager->hasShadowNodeDefinition(shadow_name)) {
           clean = false;
         }
       } catch (...) {

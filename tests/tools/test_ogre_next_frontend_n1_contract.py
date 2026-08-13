@@ -724,6 +724,21 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("impl_->faulted = true", self.frontend)
         self.assertIn("return FrameCleanupFailure()", self.frontend)
         self.assertIn("fail_after_cleanup", self.frontend)
+        self.assertIn(
+            "destroy_definitions_and_resources && compositor_manager != nullptr",
+            self.frontend,
+        )
+        shadow_cleanup = self.frontend[
+            self.frontend.index(
+                "Ogre::CompositorManager2 *const compositor_manager ="
+            ) : self.frontend.index(
+                "hdr_shadow_node_definition_created = false;",
+                self.frontend.index(
+                    "Ogre::CompositorManager2 *const compositor_manager ="
+                ),
+            )
+        ]
+        self.assertNotIn("root->getCompositorManager2()->", shadow_cleanup)
         self.assertIn("[[nodiscard]] bool DestroyCatalog()", self.frontend)
         self.assertIn("[[nodiscard]] bool CleanupBackend()", self.frontend)
         self.assertIn("if (!impl_->CleanupBackend())", self.frontend)
