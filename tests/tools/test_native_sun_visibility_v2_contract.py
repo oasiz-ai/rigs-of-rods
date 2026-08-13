@@ -144,6 +144,15 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
         self.assertIn("native_storage_generation", native_interop)
         self.assertIn("binding.native_storage_generation", metal_interop)
 
+    def test_backend_fail_closes_to_the_one_raster_split_sun(self) -> None:
+        for token in (
+            "std::uint32_t directional_light_count = 0U",
+            "++directional_light_count",
+            "directional_light_count != 1U || sun == nullptr",
+            "v2-requires-exactly-one-shadow-enabled-directional-sun",
+        ):
+            self.assertIn(token, self.metal_backend)
+
     def test_persistent_tlas_and_moved_scene_lineage_are_explicit(self) -> None:
         for token in (
             "scene_plan_digest",

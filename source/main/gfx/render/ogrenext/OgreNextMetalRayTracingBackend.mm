@@ -1805,21 +1805,25 @@ public:
         *request.ray_tracing.frame.scene_snapshot;
     const CameraViewRequest &view = request.ray_tracing.frame.views.front();
     const LightDescriptor *sun = nullptr;
+    std::uint32_t directional_light_count = 0U;
     for (const LightDescriptor &light : snapshot.lights()) {
-      if (light.type == LightType::DIRECTIONAL && light.shadow_flags != 0U) {
-        if (sun != nullptr) {
-          return V2Failure(NativeSunVisibilityV2Code::UNSUPPORTED,
-                           NativeSunVisibilityV2Stage::SCENE_ADMISSION,
-                           frame_id, snapshot_id,
-                           "multiple-v2-directional-suns");
-        }
+      if (light.type != LightType::DIRECTIONAL) {
+        continue;
+      }
+      ++directional_light_count;
+      if (light.shadow_flags != 0U) {
         sun = &light;
       }
     }
-    if (sun == nullptr) {
+    // The frontend's bounded V2 split currently derives SunDirectHdr from all
+    // directional lights. Until it can isolate an explicitly selected light,
+    // admit exactly one directional so visibility cannot modulate unrelated
+    // unshadowed directional radiance.
+    if (directional_light_count != 1U || sun == nullptr) {
       return V2Failure(NativeSunVisibilityV2Code::UNSUPPORTED,
                        NativeSunVisibilityV2Stage::SCENE_ADMISSION, frame_id,
-                       snapshot_id, "missing-v2-directional-sun");
+                       snapshot_id,
+                       "v2-requires-exactly-one-shadow-enabled-directional-sun");
     }
     if (!sun_visibility_v2_lifecycle_.BeginFrame(
             frame_id, snapshot_id, view.width, view.height)) {
