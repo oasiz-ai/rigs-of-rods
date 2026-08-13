@@ -30,6 +30,20 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_renderer_combined_game_wiring_contract.py"
 )
 
+add_executable(
+    ror_renderer_combined_application_mode_tests
+    "${CMAKE_CURRENT_LIST_DIR}/system/RendererCombinedApplicationModeTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/RendererCombinedApplicationMode.cpp"
+)
+target_include_directories(
+    ror_renderer_combined_application_mode_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+add_test(
+    NAME renderer_combined_application_mode
+    COMMAND ror_renderer_combined_application_mode_tests
+)
+
 add_test(
     NAME renderer_visual_parity_oracle
     COMMAND

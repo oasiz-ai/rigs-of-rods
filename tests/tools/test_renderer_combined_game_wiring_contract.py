@@ -31,6 +31,17 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         cls.loading = (
             ROOT / "source/main/gui/panels/GUI_LoadingWindow.cpp"
         ).read_text(encoding="utf-8")
+        cls.main_cmake = (ROOT / "source/main/CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+        cls.application_mode_header = (
+            ROOT
+            / "source/main/system/RendererCombinedApplicationMode.h"
+        ).read_text(encoding="utf-8")
+        cls.showcase_header = (
+            ROOT
+            / "source/main/gfx/render/NativeVisualShowcaseSceneSource.h"
+        ).read_text(encoding="utf-8")
 
     def test_finder_launch_is_exact_cityworld_alexis_demo(self) -> None:
         start = self.main.index(
@@ -38,7 +49,10 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         )
         end = self.main.index("#else", start)
         block = self.main[start:end]
-        self.assertIn("if (argc == 1)", block)
+        self.assertIn(
+            "if (!renderer_combined_native_visual_showcase && argc == 1)",
+            block,
+        )
         for argument in (
             '"-checkcache"',
             '"-map"',
@@ -50,12 +64,86 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.assertEqual(block.count(argument), 1)
         self.assertIn("argc = 7;", block)
         self.assertIn("argv = renderer_combined_demo_arguments.data();", block)
-        self.assertEqual(block.count("if (argc"), 1)
+        self.assertEqual(block.count("renderer_combined_demo_arguments ="), 1)
+
+    def test_native_showcase_option_is_private_and_precedes_normal_cli(self) -> None:
+        resolve = self.main.index(
+            "ResolveRendererCombinedApplicationArguments(argc, argv)"
+        )
+        adopt_argc = self.main.index(
+            "argc = renderer_combined_arguments.argc();", resolve
+        )
+        adopt_argv = self.main.index(
+            "argv = renderer_combined_arguments.argv();", adopt_argc
+        )
+        normal_cli = self.main.index(
+            "App::GetConsole()->processCommandLine(argc, argv);"
+        )
+        self.assertLess(resolve, adopt_argc)
+        self.assertLess(adopt_argc, adopt_argv)
+        self.assertLess(adopt_argv, normal_cli)
+        self.assertIn(
+            '"--native-visual-showcase"', self.application_mode_header
+        )
+        self.assertNotIn(
+            '"--native-visual-showcase"', self.main[normal_cli:]
+        )
+
+    def test_showcase_owns_renderer_neutral_source_and_posts_in_main_menu(self) -> None:
+        self.assertIn(
+            "std::unique_ptr<Render::IJoinedGraphicsSceneSource>\n"
+            "        renderer_combined_scene_source;",
+            self.main,
+        )
+        load = self.main.index("LoadNativeVisualShowcaseSceneSource(")
+        assign = self.main.index(
+            "renderer_combined_scene_source = std::move(loaded.source);",
+            load,
+        )
+        loop = self.main.index("while (App::app_state", assign)
+        showcase_branch = self.main.index(
+            "renderer_combined_native_visual_showcase ||", loop
+        )
+        post = self.main.index("PostUpdatedScene(", showcase_branch)
+        skip = self.main.index("SkipUpdatedScene();", post)
+        self.assertLess(load, assign)
+        self.assertLess(showcase_branch, post)
+        self.assertLess(post, skip)
+        self.assertIn(
+            "if (!renderer_combined_native_visual_showcase)",
+            self.main[showcase_branch:post],
+        )
+
+    def test_showcase_package_is_exact_and_staged_beside_executable_resources(self) -> None:
+        expected = (
+            "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648"
+        )
+        self.assertIn(expected, self.main_cmake)
+        self.assertIn(expected, self.showcase_header)
+        self.assertIn(
+            "${RUNTIME_OUTPUT_DIRECTORY}/resources/nextgen/native/"
+            "a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
+            self.main_cmake,
+        )
+        self.assertIn(
+            "add_custom_target(ror_native_visual_showcase_package",
+            self.main_cmake,
+        )
+        self.assertIn(
+            "kNativeVisualShowcaseExecutableResourceRelativePath", self.main
+        )
+        package_path = self.main.index(
+            "kNativeVisualShowcaseExecutableResourceRelativePath"
+        )
+        self.assertIn(
+            "App::sys_resources_dir->getStr()",
+            self.main[package_path - 180 : package_path],
+        )
 
     def test_combined_entrypoint_has_no_bridge_child_or_transport_runtime(self) -> None:
         include_start = self.main.index(
             "#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)\n"
-            '#include "RendererInProcessSession.h"'
+            '#include "RendererCombinedApplicationMode.h"'
         )
         include_end = self.main.index("#else", include_start)
         combined_includes = self.main[include_start:include_end]

@@ -23,7 +23,12 @@ constexpr std::uint32_t kNativeVisualShowcaseSceneSourceVersion = 1U;
 constexpr char kNativeVisualShowcasePackageRelativePath[] =
     "resources/nextgen/native/a0_road_tile_12m/"
     "rorng_a0_road_tile_12m.rornative";
+constexpr char kNativeVisualShowcaseExecutableResourceRelativePath[] =
+    "nextgen/native/a0_road_tile_12m/"
+    "rorng_a0_road_tile_12m.rornative";
 constexpr char kNativeVisualShowcasePackageId[] = "rorng_a0_road_tile_12m";
+constexpr char kNativeVisualShowcasePackageSha256Hex[] =
+    "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648";
 constexpr RenderPayloadDigest kNativeVisualShowcasePackageSha256{{
     0xEFU, 0x96U, 0x53U, 0x71U, 0x79U, 0x79U, 0x9CU, 0xD1U, 0x16U, 0x6FU, 0x87U,
     0x1EU, 0x67U, 0x65U, 0x7BU, 0xDDU, 0x94U, 0xD7U, 0x50U, 0x88U, 0x6CU, 0x24U,

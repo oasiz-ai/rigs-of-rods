@@ -56,8 +56,10 @@
 #endif
 #include "RoRVersion.h"
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+#include "RendererCombinedApplicationMode.h"
 #include "RendererInProcessSession.h"
 #include "RendererOgreNextInProcessPresenter.h"
+#include "gfx/render/NativeVisualShowcaseSceneSource.h"
 #include "system/detail/OgreNextDemoInProcessFramePolicy.h"
 #else
 #include "RendererOgre14GameBridge.h"
@@ -486,6 +488,25 @@ int main(int argc, char *argv[])
     using namespace RoR;
 
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    RendererCombinedApplicationArguments renderer_combined_arguments =
+        ResolveRendererCombinedApplicationArguments(argc, argv);
+    if (!renderer_combined_arguments.ok())
+    {
+        std::fprintf(
+            stderr,
+            "RoR combined renderer: invalid application arguments: %s\n",
+            ToString(renderer_combined_arguments.status));
+        std::fflush(stderr);
+        return renderer_combined_arguments.status ==
+                RendererCombinedApplicationArgumentsStatus::OUT_OF_MEMORY
+            ? 70
+            : 64;
+    }
+    const bool renderer_combined_native_visual_showcase =
+        renderer_combined_arguments.native_visual_showcase;
+    argc = renderer_combined_arguments.argc();
+    argv = renderer_combined_arguments.argv();
+
     // The combined executable has no bridge endpoint, child process, or
     // transport handles. Ogre 14 is retained only as a hidden joined-scene and
     // resource host; the in-process OgreNext presenter owns visibility/input.
@@ -503,7 +524,8 @@ int main(int argc, char *argv[])
     // There is intentionally no transported menu/HUD in this first combined
     // runtime. A Finder launch supplies only argv[0], so make exactly that
     // case an immediately visible CityWorld/Alexis renderer demonstration.
-    // Any explicit invocation retains the caller's byte-for-byte arguments.
+    // The explicit forward-native showcase is consumed above and remains in
+    // MAIN_MENU; every other caller argument retains pointer identity/order.
     static char combined_check_cache[] = "-checkcache";
     static char combined_map_option[] = "-map";
     static char combined_map[] = "CityWorld.terrn2";
@@ -511,7 +533,7 @@ int main(int argc, char *argv[])
     static char combined_truck[] = "AlexisSaber.truck";
     static char combined_enter[] = "-enter";
     std::array<char*, 8U> renderer_combined_demo_arguments{};
-    if (argc == 1)
+    if (!renderer_combined_native_visual_showcase && argc == 1)
     {
         renderer_combined_demo_arguments = {{
             argv[0],
@@ -604,7 +626,7 @@ int main(int argc, char *argv[])
     Detail::OgreNextDemoInProcessFramePolicy renderer_combined_frame_policy;
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_combined_input_target;
-    std::unique_ptr<Render::Ogre14GraphicsSceneSource>
+    std::unique_ptr<Render::IJoinedGraphicsSceneSource>
         renderer_combined_scene_source;
     std::unique_ptr<RendererInProcessSession>
         renderer_combined_session;
@@ -860,18 +882,57 @@ int main(int argc, char *argv[])
         App::GetGfxScene()->GetEnvMap().SetupEnvMap(); // Needs camera
 
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
-        try
+        if (renderer_combined_native_visual_showcase)
         {
-            renderer_combined_scene_source =
-                std::make_unique<Render::Ogre14GraphicsSceneSource>(
-                    *App::GetGfxScene());
-            App::GetGfxScene()->EnableOgreNextDemoCapture();
+            const std::string native_showcase_package_path = PathCombine(
+                App::sys_resources_dir->getStr(),
+                Render::
+                    kNativeVisualShowcaseExecutableResourceRelativePath);
+            Render::NativeVisualShowcaseSceneSourceLoadResult loaded =
+                Render::LoadNativeVisualShowcaseSceneSource(
+                    native_showcase_package_path);
+            if (!loaded)
+            {
+                LOG(fmt::format(
+                    "[RoR|RendererCombined|NativeShowcase] Exact package "
+                    "load failed: path='{}', code={}, field='{}', detail='{}'",
+                    native_showcase_package_path,
+                    static_cast<unsigned int>(loaded.validation.code),
+                    loaded.validation.field,
+                    loaded.validation.detail));
+                return 70;
+            }
+            const std::size_t package_asset_count =
+                loaded.source->package_owner()->assets.size();
+            const std::size_t package_instance_count =
+                loaded.source->package_owner()->static_meshes.size();
+            renderer_combined_scene_source = std::move(loaded.source);
+            LOG(fmt::format(
+                "[RoR|RendererCombined|NativeShowcase] Selected exact "
+                "forward-native scene: path='{}', package='{}', "
+                "sha256='{}', assets={}, instances={}, source_version={}",
+                native_showcase_package_path,
+                Render::kNativeVisualShowcasePackageId,
+                Render::kNativeVisualShowcasePackageSha256Hex,
+                package_asset_count,
+                package_instance_count,
+                Render::kNativeVisualShowcaseSceneSourceVersion));
         }
-        catch (...)
+        else
         {
-            LOG("[RoR|RendererCombined|Scene] Could not initialize the "
-                "OGRE 14 joined-scene adapter");
-            return 70;
+            try
+            {
+                renderer_combined_scene_source =
+                    std::make_unique<Render::Ogre14GraphicsSceneSource>(
+                        *App::GetGfxScene());
+                App::GetGfxScene()->EnableOgreNextDemoCapture();
+            }
+            catch (...)
+            {
+                LOG("[RoR|RendererCombined|Scene] Could not initialize the "
+                    "OGRE 14 joined-scene adapter");
+                return 70;
+            }
         }
 #else
         if (renderer_game_bridge.active())
@@ -3408,18 +3469,37 @@ int main(int argc, char *argv[])
 
             // Scene and GUI updates
             OgreProfileBegin("Scene and GUI"); // Adds up to existing profile
-            if (App::app_state->getEnum<AppState>() == AppState::MAIN_MENU)
+            if (App::app_state->getEnum<AppState>() == AppState::MAIN_MENU
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                && !renderer_combined_native_visual_showcase
+#endif
+                )
             {
                 App::GetGuiManager()->DrawMainMenuGui();
             }
-            else if (App::app_state->getEnum<AppState>() == AppState::SIMULATION)
+            else if (
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                renderer_combined_native_visual_showcase ||
+#endif
+                App::app_state->getEnum<AppState>() == AppState::SIMULATION)
             {
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                // The forward-native source already owns an immutable complete
+                // camera/light/asset scene. Keep the hidden Ogre 14 host in its
+                // current application state and submit the native source on
+                // every session grant, including while RoR is in MAIN_MENU.
+                if (!renderer_combined_native_visual_showcase)
+                {
+#endif
                 App::GetGfxScene()->UpdateScene(dt_sim); // Draws GUI as well
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
-                // UpdateScene has consumed the copied simulation buffers and
-                // joined flex/wheel work. Capture that exact completed Ogre 14
-                // scene and dispatch it directly into the co-resident N1
-                // frontend; no bridge serialization or child runtime exists.
+                }
+#endif
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                // The ordinary path captures the exact completed Ogre 14
+                // UpdateScene above. The explicit showcase instead captures
+                // its authenticated forward-native owner. Both dispatch into
+                // the co-resident N1 frontend without transport or a child.
                 if (renderer_combined_simulation_granted &&
                     renderer_combined_scene_source != nullptr &&
                     renderer_combined_session != nullptr &&
@@ -3719,9 +3799,9 @@ int main(int argc, char *argv[])
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
             if (renderer_combined_simulation_granted)
             {
-                // MAIN_MENU has no valid joined terrain light/camera capture.
-                // Consume the one session grant without manufacturing an
-                // invalid empty PSSM scene; the next iteration polls anew.
+                // Ordinary MAIN_MENU has no valid joined terrain light/camera
+                // capture. Consume any unmatched grant without manufacturing
+                // an invalid empty PSSM scene; the next iteration polls anew.
                 const RendererInProcessSessionResult skipped =
                     renderer_combined_session->SkipUpdatedScene();
                 renderer_combined_simulation_granted = false;

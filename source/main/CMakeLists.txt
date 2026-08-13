@@ -305,6 +305,7 @@ set(SOURCE_FILES
         system/RendererGameInputTarget.{h,cpp}
         system/RendererOgre14InputAdapter.{h,cpp}
         system/RendererGameInputEngineTarget.{h,cpp}
+        system/RendererCombinedApplicationMode.{h,cpp}
         system/RendererOgre14ProductSession.{h,cpp}
         system/detail/OgreNextDemoFrameNormalization.{h,cpp}
         system/RendererInProcessSession.{h,cpp}
@@ -1508,9 +1509,42 @@ fast_copy("${CMAKE_SOURCE_DIR}/languages" "${RUNTIME_OUTPUT_DIRECTORY}/languages
 # ALL, but ALL does not participate when callers request only
 # ror_ogre_next_combined_verified (as the acceptance and CI jobs do).
 if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    set(_ror_native_visual_showcase_package_source
+        "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative")
+    set(_ror_native_visual_showcase_package_sha256
+        "ef96537179799cd1166f871e67657bdd94d750886c24f8aac37ff09aa5fef648")
+    if (NOT EXISTS "${_ror_native_visual_showcase_package_source}" OR
+            IS_DIRECTORY "${_ror_native_visual_showcase_package_source}" OR
+            IS_SYMLINK "${_ror_native_visual_showcase_package_source}")
+        message(FATAL_ERROR
+            "RoR-Combined native showcase package is missing or indirect: ${_ror_native_visual_showcase_package_source}")
+    endif ()
+    file(SHA256
+        "${_ror_native_visual_showcase_package_source}"
+        _ror_native_visual_showcase_package_actual_sha256)
+    if (NOT _ror_native_visual_showcase_package_actual_sha256 STREQUAL
+            _ror_native_visual_showcase_package_sha256)
+        message(FATAL_ERROR
+            "RoR-Combined native showcase package checkpoint mismatch: expected=${_ror_native_visual_showcase_package_sha256}, actual=${_ror_native_visual_showcase_package_actual_sha256}")
+    endif ()
+    set(_ror_native_visual_showcase_package_staged
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative")
+    add_custom_command(
+        OUTPUT "${_ror_native_visual_showcase_package_staged}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${RUNTIME_OUTPUT_DIRECTORY}/resources/nextgen/native/a0_road_tile_12m"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${_ror_native_visual_showcase_package_source}"
+            "${_ror_native_visual_showcase_package_staged}"
+        DEPENDS "${_ror_native_visual_showcase_package_source}"
+        COMMENT "Staging authenticated forward-native visual showcase package"
+        VERBATIM)
+    add_custom_target(ror_native_visual_showcase_package
+        DEPENDS "${_ror_native_visual_showcase_package_staged}")
     add_dependencies(
         ${BINNAME}
         zip_folder_resources
+        ror_native_visual_showcase_package
         fast_copy_managed_materials
         fast_copy_fonts
         fast_copy_languages)
