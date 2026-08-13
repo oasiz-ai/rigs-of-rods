@@ -114,6 +114,29 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.main[showcase_branch:post],
         )
 
+    def test_native_showcase_selects_the_authored_raster_shadow_preview(self) -> None:
+        configure = self.main.index(
+            "presenter_config.enable_native_showcase_pssm_preview ="
+        )
+        prepare = self.main.index("PrepareWindow(presenter_config)", configure)
+        self.assertIn(
+            "renderer_combined_native_visual_showcase",
+            self.main[configure:prepare],
+        )
+        self.assertIn("rt4_pbr_pssm_raster_preview", self.main)
+        self.assertIn("hdr=false", self.main)
+        self.assertIn("native_rt=false", self.main)
+        self.assertIn(
+            "candidate.enable_native_showcase_pssm_preview\n"
+            "            ? OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1\n"
+            "            : OgreNextDirectionalShadowMode::DISABLED",
+            self.presenter,
+        )
+        self.assertIn(
+            "!candidate.enable_native_showcase_pssm_preview",
+            self.presenter,
+        )
+
     def test_showcase_package_is_exact_and_staged_beside_executable_resources(self) -> None:
         expected = (
             "bd37102f9abf1f914910c2d7d59a0e9f5a4a5bc96add0bdb957186a8514d19c6"

@@ -460,12 +460,17 @@ public:
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
     // The pinned Ogre compositor cannot yet combine its PSSM shadow node with
     // the persistent three-evaluation HDR split without losing the reviewed
-    // cascade runtime state. Keep the production HDR path explicit and safe;
-    // standalone PSSM remains covered by its dedicated native smoke, while
-    // the four-image V2 tier supplies directional visibility separately.
+    // cascade runtime state. Keep both real paths explicit: ordinary combined
+    // presentation retains the HDR split with shadows pending, while the
+    // forward-native A0 preview selects the validated raster PSSM path and
+    // leaves HDR disabled. Neither branch silently drops authored shadow
+    // state, and neither claims native ray tracing.
     frontend_configuration.directional_shadow_mode =
-        OgreNextDirectionalShadowMode::DISABLED;
-    frontend_configuration.enable_hdr_compositor = true;
+        candidate.enable_native_showcase_pssm_preview
+            ? OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1
+            : OgreNextDirectionalShadowMode::DISABLED;
+    frontend_configuration.enable_hdr_compositor =
+        !candidate.enable_native_showcase_pssm_preview;
     frontend_configuration.presentation.enabled = true;
     frontend_configuration.presentation.mode =
         OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;

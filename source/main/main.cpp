@@ -743,6 +743,8 @@ int main(int argc, char *argv[])
         // hidden OpenGL resource host. This makes the presenter the stable
         // process-wide video/event owner from the first native window onward.
         RendererOgreNextInProcessPresenterConfiguration presenter_config;
+        presenter_config.enable_native_showcase_pssm_preview =
+            renderer_combined_native_visual_showcase;
         std::string presenter_config_failure;
         if (!ResolveCombinedPresenterConfiguration(
                 presenter_config, presenter_config_failure))
@@ -910,7 +912,9 @@ int main(int argc, char *argv[])
             LOG(fmt::format(
                 "[RoR|RendererCombined|NativeShowcase] Selected exact "
                 "forward-native scene: path='{}', package='{}', "
-                "sha256='{}', assets={}, instances={}, source_version={}",
+                "sha256='{}', assets={}, instances={}, source_version={}, "
+                "pipeline='rt4_pbr_pssm_raster_preview', hdr=false, "
+                "native_rt=false",
                 native_showcase_package_path,
                 Render::kNativeVisualShowcasePackageId,
                 Render::kNativeVisualShowcasePackageSha256Hex,
