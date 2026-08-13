@@ -419,7 +419,7 @@ RenderOperationResult OgreNextN2InteropState::AcquireGeometry(
 
 RenderOperationResult OgreNextN2InteropState::BeginExternalFrame(
     std::uint64_t frame_id, std::uint64_t snapshot_id,
-    NativeFrameSynchronization &output) {
+    NativeFrameSynchronization &output, bool has_additive_image_lease) {
   const RenderOperationResult initialized = RequireInitialized();
   if (!initialized) {
     return initialized;
@@ -458,6 +458,12 @@ RenderOperationResult OgreNextN2InteropState::BeginExternalFrame(
   candidate.frontend_release_state =
       NativeGeometryBufferState::READ_ONLY_ACCELERATION_STRUCTURE_BUILD;
   candidate.external_return_state = candidate.frontend_release_state;
+  if (has_additive_image_lease) {
+    candidate.frontend_image_release_state =
+        NativeImageState::GENERAL_READ_WRITE;
+    candidate.external_image_return_state =
+        candidate.frontend_image_release_state;
+  }
   for (const auto &entry : image_leases_) {
     if (entry.second.frame_id == frame_id &&
         entry.second.snapshot_id == snapshot_id) {

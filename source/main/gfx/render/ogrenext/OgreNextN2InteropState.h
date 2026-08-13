@@ -70,7 +70,8 @@ public:
                                      NativeImageExport &output);
   RenderOperationResult
   BeginExternalFrame(std::uint64_t frame_id, std::uint64_t snapshot_id,
-                     NativeFrameSynchronization &output);
+                     NativeFrameSynchronization &output,
+                     bool has_additive_image_lease = false);
   RenderOperationResult
   ArmExternalCompletion(NativeFrameSynchronization &synchronization);
   RenderOperationResult MarkExternalSubmitted(

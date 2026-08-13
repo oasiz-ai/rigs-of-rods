@@ -1415,6 +1415,7 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/NativeSunVisibilityV2ContractTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/NativeSunVisibilityV2Contract.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextSunVisibilityV2Interop.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextSunVisibilityV2InteropState.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/NativeDirectionalShadowContract.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/HdrReference.cpp"
 )

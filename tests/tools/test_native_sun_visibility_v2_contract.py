@@ -31,6 +31,9 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
         cls.interop_implementation = (
             OGRE_NEXT / "OgreNextSunVisibilityV2Interop.cpp"
         ).read_text()
+        cls.metal_backend = (
+            OGRE_NEXT / "OgreNextMetalRayTracingBackend.mm"
+        ).read_text()
         cls.lock = json.loads(
             (PROBE / "metal-sun-visibility-v2.lock.json").read_text()
         )
@@ -38,12 +41,27 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
     def test_v1_contract_and_backend_shader_are_untouched(self) -> None:
         # V2 must live beside, not silently reinterpret, the reviewed V1 API.
         self.assertIn("kNativeSunVisibilityV2ContractVersion = 2U", self.header)
-        self.assertNotIn("NativeSunVisibilityV2", (
-            OGRE_NEXT / "NativeDirectionalShadowContract.h"
-        ).read_text())
-        self.assertNotIn("sun_visibility_v2", (
-            OGRE_NEXT / "OgreNextMetalRayTracingBackend.mm"
-        ).read_text())
+        frozen_files = {
+            OGRE_NEXT / "NativeDirectionalShadowContract.h":
+                "554e5d00a2a4cf894f80eba5f9fa65683869f61180b5e1560d11fbb637c7435e",
+            OGRE_NEXT / "NativeDirectionalShadowContract.cpp":
+                "50abad378461ceee1c2e2c9c5de69348b463079d1050f0de5a9ef67cf6e5cc81",
+            PROBE / "src/metal_n4_directional_shadow_smoke.cpp":
+                "c25a76c8eb833a971ac0ee9ead0c0c59a9663a8d6da7bff0921f0d207216bb4e",
+        }
+        for path, expected in frozen_files.items():
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), expected)
+        shader_start = self.metal_backend.index(
+            "    static NSString *const directional_shadow_shader_source ="
+        )
+        shader_end = self.metal_backend.index(
+            "      NSError *directional_library_error = nil;", shader_start
+        )
+        frozen_shader = self.metal_backend[shader_start:shader_end].encode()
+        self.assertEqual(
+            hashlib.sha256(frozen_shader).hexdigest(),
+            "1250501c0e21d2b409dabb8d05439aa2c36211b0b5f0407c0c895fd75cde6a93",
+        )
 
     def test_shader_composes_only_sun_direct_and_forces_opaque_alpha(self) -> None:
         for token in (
@@ -83,6 +101,42 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
         self.assertIn("production_cpu_content_readbacks != 0U", self.implementation)
         self.assertIn("production_gpu_content_readbacks != 0U", self.implementation)
         self.assertIn("may not read image content back", self.implementation)
+        v2_start = self.metal_backend.index(
+            "  NativeSunVisibilityV2Result RenderSunVisibilityV2("
+        )
+        v2_end = self.metal_backend.index(
+            "  RenderOperationResult ValidateInteropEvidence(", v2_start
+        )
+        v2_execution = self.metal_backend[v2_start:v2_end]
+        for forbidden in ("copyFromTexture", "getBytes:",
+                          "blitCommandEncoder", "synchronizeResource"):
+            self.assertNotIn(forbidden, v2_execution)
+        self.assertIn("v2_counter_buffer_.contents", v2_execution)
+
+    def test_backend_executes_locked_persistent_same_queue_v2(self) -> None:
+        for token in (
+            "device.supportsRaytracing",
+            "MTLGPUFamilyApple9",
+            "ReadLockedSunVisibilityV2Shader",
+            "kSunVisibilityV2ShaderSha256",
+            "SunVisibilityV2BlasCacheEntry",
+            "BlasWork::Operation::BUILD",
+            "BlasWork::Operation::REFIT",
+            "BlasWork::Operation::HIT",
+            "TlasOperation::BUILD",
+            "TlasOperation::REFIT",
+            "TlasOperation::HIT",
+            "encodeWaitForEvent:timeline",
+            "encodeSignalEvent:timeline",
+            "ContinuePresentationFromSunVisibilityV2LitHdr",
+        ):
+            self.assertIn(token, self.metal_backend)
+        native_interop = (
+            OGRE_NEXT / "OgreNextN1NativeInterop.h"
+        ).read_text()
+        metal_interop = (OGRE_NEXT / "OgreNextMetalInterop.mm").read_text()
+        self.assertIn("native_storage_generation", native_interop)
+        self.assertIn("binding.native_storage_generation", metal_interop)
 
     def test_persistent_tlas_and_moved_scene_lineage_are_explicit(self) -> None:
         for token in (

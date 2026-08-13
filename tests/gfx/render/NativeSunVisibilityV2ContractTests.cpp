@@ -1,5 +1,6 @@
 #include "NativeSunVisibilityV2Contract.h"
 #include "OgreNextSunVisibilityV2Interop.h"
+#include "OgreNextSunVisibilityV2InteropState.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -197,6 +198,48 @@ RoR::Render::OgreNextSunVisibilityV2ImageBinding Binding(
   return binding;
 }
 
+class TestPresentationContinuation final
+    : public RoR::Render::OgreNextSunVisibilityV2PresentationContinuation {
+public:
+  RoR::Render::NativeSunVisibilityV2Result ContinueFromLitHdr(
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      std::uint64_t view_id,
+      std::uintptr_t ogre_lit_hdr_texture) override {
+    ++call_count;
+    observed_view_id = view_id;
+    observed_lit_hdr_texture = ogre_lit_hdr_texture;
+    RoR::Render::NativeSunVisibilityV2Result result;
+    result.stage = RoR::Render::NativeSunVisibilityV2Stage::PRESENT_CONTINUATION;
+    result.frame_id = frame_id;
+    result.snapshot_id = snapshot_id;
+    return result;
+  }
+
+  std::uint32_t call_count = 0U;
+  std::uint64_t observed_view_id = 0U;
+  std::uintptr_t observed_lit_hdr_texture = 0U;
+};
+
+RoR::Render::OgreNextSunVisibilityV2FrameImageBinding RawBinding(
+    const RoR::Render::OgreNextSunVisibilityV2ImageSetRequest &request,
+    TestPresentationContinuation &continuation) {
+  using namespace RoR::Render;
+  OgreNextSunVisibilityV2FrameImageBinding binding;
+  binding.frame_id = request.frame_id;
+  binding.snapshot_id = request.snapshot_id;
+  binding.view_id = request.view_id;
+  binding.scene_snapshot = request.scene_snapshot;
+  binding.view = request.view;
+  binding.width = request.width;
+  binding.height = request.height;
+  binding.ogre_base_hdr_texture = 101U;
+  binding.ogre_sun_direct_hdr_texture = 102U;
+  binding.ogre_visibility_texture = 103U;
+  binding.ogre_lit_hdr_texture = 104U;
+  binding.presentation_continuation = &continuation;
+  return binding;
+}
+
 } // namespace
 
 int main() {
@@ -267,6 +310,89 @@ int main() {
   Require(!ValidateOgreNextSunVisibilityV2ImageSetExport(
               image_request, image_set, MetalContext()),
           "aliased V2 image roles were accepted after generation spoofing");
+
+  image_set.visibility = Binding(
+      OgreNextSunVisibilityV2ImageRole::VISIBILITY_R16,
+      OgreNextSunVisibilityV2ImageFormat::R16_FLOAT, 12U);
+  synchronization.snapshot_id = image_request.snapshot_id;
+  TestPresentationContinuation continuation;
+  const OgreNextSunVisibilityV2FrameImageBinding raw_binding =
+      RawBinding(image_request, continuation);
+  OgreNextSunVisibilityV2InteropState image_state;
+  Require(image_state.Initialize(MetalContext()).code ==
+              NativeSunVisibilityV2Code::OK,
+          "V2 image-state initialization failed");
+  Require(image_state.PreparePublish(raw_binding, image_set).code ==
+              NativeSunVisibilityV2Code::OK &&
+              image_state.CanCommitPrepared(image_request.frame_id,
+                                             image_request.snapshot_id) &&
+              !image_state.CanCommitPrepared(image_request.frame_id + 1U,
+                                              image_request.snapshot_id),
+          "V2 prepared publication did not preserve exact lineage");
+  OgreNextSunVisibilityV2ImageSetExport leased_images;
+  Require(image_state.Acquire(image_request, leased_images).code ==
+              NativeSunVisibilityV2Code::RESOURCE_STALE,
+          "uncommitted V2 image publication was acquired");
+  image_state.CommitPrepared();
+  Require(image_state.Acquire(image_request, leased_images).code ==
+              NativeSunVisibilityV2Code::OK &&
+              image_state.HasOutstandingLease() &&
+              leased_images.export_id != image_set.export_id,
+          "atomic V2 image set was not acquired as one new lease");
+  OgreNextSunVisibilityV2ImageSetExport spoofed_lease = leased_images;
+  ++spoofed_lease.visibility.image.generation;
+  Require(image_state.ValidateLease(spoofed_lease).code ==
+              NativeSunVisibilityV2Code::RESOURCE_STALE,
+          "V2 image lease accepted spoofed token generation");
+  Require(image_state.ContinuePresentation(leased_images, synchronization)
+                  .code == NativeSunVisibilityV2Code::RESOURCE_STALE,
+          "V2 LitHdr continuation ran before the external frame");
+  image_state.ObserveExternalFrameBegun(synchronization);
+  image_state.Release(leased_images.export_id);
+  Require(image_state.HasOutstandingLease(),
+          "begun V2 image lease released before rollback or continuation");
+  Require(image_state.ContinuePresentation(leased_images, synchronization)
+                  .code == NativeSunVisibilityV2Code::RESOURCE_STALE,
+          "V2 LitHdr continuation ran before EndExternalFrame");
+  image_state.ObserveExternalFrameEnded(synchronization);
+  const NativeSunVisibilityV2Result continued =
+      image_state.ContinuePresentation(leased_images, synchronization);
+  Require(continued.code == NativeSunVisibilityV2Code::OK &&
+              continued.stage ==
+                  NativeSunVisibilityV2Stage::PRESENT_CONTINUATION &&
+              continuation.call_count == 1U &&
+              continuation.observed_view_id == image_request.view_id &&
+              continuation.observed_lit_hdr_texture ==
+                  raw_binding.ogre_lit_hdr_texture,
+          "post-external V2 LitHdr continuation lost its exact texture");
+  Require(image_state.ContinuePresentation(leased_images, synchronization)
+                  .code == NativeSunVisibilityV2Code::RESOURCE_STALE &&
+              continuation.call_count == 1U,
+          "V2 LitHdr continuation executed more than once");
+  image_state.Release(leased_images.export_id);
+  Require(!image_state.HasOutstandingLease(),
+          "completed V2 image lease was not released");
+
+  Require(image_state.Acquire(image_request, leased_images).code ==
+              NativeSunVisibilityV2Code::OK,
+          "V2 rollback lease setup failed");
+  NativeSunVisibilityV2Result image_failure;
+  image_failure.code = NativeSunVisibilityV2Code::RESOURCE_STALE;
+  image_failure.stage = NativeSunVisibilityV2Stage::IMAGE_EXPORT;
+  image_failure.frame_id = image_request.frame_id;
+  image_failure.snapshot_id = image_request.snapshot_id;
+  image_failure.detail = "lit-hdr-generation-stale";
+  const NativeSunVisibilityV2Result image_rollback =
+      image_state.AbortBeforeSubmission(leased_images, synchronization,
+                                        image_failure);
+  Require(image_rollback.code == image_failure.code &&
+              image_rollback.stage == image_failure.stage &&
+              image_rollback.detail == image_failure.detail,
+          "V2 image rollback lost the exact result stage/detail");
+  image_state.Release(leased_images.export_id);
+  Require(!image_state.HasOutstandingLease(),
+          "rolled-back V2 image lease was not released");
+  image_state.Reset();
 
   const std::vector<NativeSunVisibilityV2InstanceSelection> selection =
       SmokeSelection();

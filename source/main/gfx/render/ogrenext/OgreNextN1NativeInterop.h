@@ -27,6 +27,10 @@ enum class OgreNextNativeFeatureTier : std::uint8_t {
   /// complete RT4/PSSM raster fallback and is admitted only by its separate
   /// renderer-neutral shadow contract and native evidence gate.
   METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW = 3,
+  /// Versioned four-image BaseHdr/SunDirectHdr/Visibility/LitHdr hardware-RT
+  /// composition. This is additive and never reinterprets the frozen N4 V1
+  /// single-colour lease or hard-shadow oracle.
+  METAL_RAY_TRACING_V2_SUN_VISIBILITY = 4,
 };
 
 /// Exact reviewed interleaved vertex layouts which may cross the Ogre/native
@@ -52,6 +56,11 @@ struct OgreNextN2FrameGeometryBinding {
   RenderAssetReference mesh;
   std::uint64_t topology_revision = 0U;
   std::uint64_t deformation_revision = 0U;
+  /// Monotonic within one live Ogre Metal context and stable for the lifetime
+  /// of the exact vertex/index allocation pair. It changes on reallocation,
+  /// not every frame, so persistent BLAS keys distinguish reuse from a
+  /// recycled native address without inventing false frame generations.
+  std::uint64_t native_storage_generation = 0U;
   MeshPrimitiveTopology topology = MeshPrimitiveTopology::TRIANGLE_LIST;
   std::uintptr_t ogre_vertex_buffer = 0U;
   std::uintptr_t ogre_index_buffer = 0U;

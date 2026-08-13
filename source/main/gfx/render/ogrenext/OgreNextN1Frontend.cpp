@@ -393,6 +393,7 @@ bool TryResolveNativeVertexLayout(
       return true;
     case OgreNextNativeFeatureTier::
         METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW:
+    case OgreNextNativeFeatureTier::METAL_RAY_TRACING_V2_SUN_VISIBILITY:
       // N4 consumes the complete RT4 tangent/UV material layout and never
       // silently degrades to the texture-free N1 geometry contract.
       return false;
@@ -404,6 +405,7 @@ bool TryResolveNativeVertexLayout(
     case OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3:
     case OgreNextNativeFeatureTier::
         METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW:
+    case OgreNextNativeFeatureTier::METAL_RAY_TRACING_V2_SUN_VISIBILITY:
       layout = OgreNextNativeVertexLayout::
           POSITION_NORMAL_TANGENT_UV0_FLOAT32_48;
       return true;
@@ -1575,6 +1577,7 @@ public:
     OgreNextNativeVertexLayout vertex_layout =
         OgreNextNativeVertexLayout::INVALID;
     std::uint32_t vertex_stride_bytes = 0U;
+    std::uint64_t native_storage_generation = 0U;
     std::string name;
   };
 
@@ -1798,6 +1801,13 @@ public:
                         const MeshResourceDescriptor &descriptor,
                         const std::string &name_suffix = {}) {
     NativeMesh native;
+    if (next_native_storage_generation == 0U ||
+        next_native_storage_generation ==
+            (std::numeric_limits<std::uint64_t>::max)()) {
+      throw std::overflow_error(
+          "Ogre-Next native mesh storage generation exhausted");
+    }
+    native.native_storage_generation = next_native_storage_generation++;
     native.asset = asset;
     native.vertex_layout = native_vertex_layout;
     native.name = AssetName("RoRN1Mesh", asset) + name_suffix;
@@ -4577,6 +4587,7 @@ public:
     particle_native_state_verifications = 0U;
     analytic_sky_audit = {};
     scene_generation = 1U;
+    next_native_storage_generation = 1U;
     maximum_texture_dimension =
         kOgreNextN1ConservativeMaximumTextureDimension;
     maximum_anisotropy = 1.0F;
@@ -4673,6 +4684,7 @@ public:
   std::uint64_t texture_retired_name_lookups = 0U;
   std::uint64_t texture_retired_name_rejections = 0U;
   std::uint64_t scene_generation = 1U;
+  std::uint64_t next_native_storage_generation = 1U;
   std::uint32_t maximum_texture_dimension =
       kOgreNextN1ConservativeMaximumTextureDimension;
   float maximum_anisotropy = 1.0F;
@@ -6951,6 +6963,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
         binding.mesh = instance.mesh;
         binding.topology_revision = instance.topology_revision;
         binding.deformation_revision = instance.deformation_revision;
+        binding.native_storage_generation =
+            render_mesh->native_storage_generation;
         binding.topology = MeshPrimitiveTopology::TRIANGLE_LIST;
         binding.ogre_vertex_buffer = reinterpret_cast<std::uintptr_t>(
             render_mesh->vertex_buffer);

@@ -14,6 +14,7 @@
 
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN2InteropState.h"
+#include "OgreNextSunVisibilityV2InteropState.h"
 
 #include "OgreMetalDevice.h"
 #include "OgreMetalRenderSystem.h"
@@ -25,6 +26,7 @@
 #include "Vao/OgreVertexBufferPacked.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -119,7 +121,8 @@ std::string MetalError(id<MTLCommandBuffer> command_buffer,
   return detail.str();
 }
 
-class OgreNextMetalInterop final : public OgreNextN1NativeInteropBridge {
+class OgreNextMetalInterop final : public OgreNextN1NativeInteropBridge,
+                                   public OgreNextSunVisibilityV2NativeInterop {
 public:
   OgreNextMetalInterop(Ogre::MetalDevice *metal_device,
                        id<MTLSharedEvent> timeline,
@@ -138,12 +141,22 @@ public:
                 OgreNextNativeFeatureTier::METAL_RAY_TRACING_N3 ||
             native_feature_tier == OgreNextNativeFeatureTier::
                                        METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW),
+        sun_visibility_v2_enabled_(
+            native_feature_tier == OgreNextNativeFeatureTier::
+                                       METAL_RAY_TRACING_V2_SUN_VISIBILITY),
         owner_thread_(std::this_thread::get_id()) {
     const RenderOperationResult initialized = state_.Initialize(
         context_, Token(NativeObjectKind::TIMELINE_SYNC, timeline_,
                         context_.context_id, context_.device.generation));
     if (!initialized) {
       throw std::runtime_error(initialized.detail);
+    }
+    if (sun_visibility_v2_enabled_) {
+      const NativeSunVisibilityV2Result v2_initialized =
+          sun_visibility_v2_state_.Initialize(context_);
+      if (v2_initialized.code != NativeSunVisibilityV2Code::OK) {
+        throw std::runtime_error(v2_initialized.detail);
+      }
     }
   }
 
@@ -189,6 +202,96 @@ public:
     return native_feature_tier_;
   }
 
+  NativeSunVisibilityV2Result PreparePublishSunVisibilityV2ImageSet(
+      const OgreNextSunVisibilityV2FrameImageBinding &binding) override {
+    const RenderOperationResult ready = Ready();
+    if (!ready || !sun_visibility_v2_enabled_) {
+      return V2Failure(
+          ready.code == RenderOperationCode::OK
+              ? NativeSunVisibilityV2Code::UNSUPPORTED
+              : ToV2Code(ready.code),
+          NativeSunVisibilityV2Stage::IMAGE_EXPORT, binding.frame_id,
+          binding.snapshot_id, "v2-image-publication-unavailable");
+    }
+    OgreNextSunVisibilityV2ImageSetExport converted;
+    const NativeSunVisibilityV2Result conversion =
+        ConvertSunVisibilityV2Binding(binding, converted);
+    if (conversion.code != NativeSunVisibilityV2Code::OK) {
+      return conversion;
+    }
+    return sun_visibility_v2_state_.PreparePublish(binding, converted);
+  }
+
+  bool CanCommitPreparedSunVisibilityV2ImageSet(
+      std::uint64_t frame_id,
+      std::uint64_t snapshot_id) const noexcept override {
+    return valid_ && !faulted_ && !frontend_revoked_ &&
+           sun_visibility_v2_enabled_ && OnOwnerThread() &&
+           sun_visibility_v2_state_.CanCommitPrepared(frame_id, snapshot_id);
+  }
+
+  void CommitPreparedSunVisibilityV2ImageSet() noexcept override {
+    sun_visibility_v2_state_.CommitPrepared();
+  }
+
+  void AbortPreparedSunVisibilityV2ImageSet() noexcept override {
+    sun_visibility_v2_state_.AbortPrepared();
+  }
+
+  NativeSunVisibilityV2Result AcquireSunVisibilityV2ImageSet(
+      const OgreNextSunVisibilityV2ImageSetRequest &request,
+      OgreNextSunVisibilityV2ImageSetExport &output) override {
+    const RenderOperationResult ready = Ready();
+    if (!ready || !sun_visibility_v2_enabled_) {
+      return V2Failure(
+          ready.code == RenderOperationCode::OK
+              ? NativeSunVisibilityV2Code::UNSUPPORTED
+              : ToV2Code(ready.code),
+          NativeSunVisibilityV2Stage::IMAGE_EXPORT, request.frame_id,
+          request.snapshot_id, "v2-image-acquire-unavailable");
+    }
+    return sun_visibility_v2_state_.Acquire(request, output);
+  }
+
+  NativeSunVisibilityV2Result ValidateSunVisibilityV2ImageSetLease(
+      const OgreNextSunVisibilityV2ImageSetExport &images) const override {
+    const RenderOperationResult ready = Ready();
+    if (!ready || !sun_visibility_v2_enabled_) {
+      return V2Failure(ToV2Code(ready.code),
+                       NativeSunVisibilityV2Stage::IMAGE_EXPORT,
+                       images.frame_id, images.snapshot_id,
+                       "v2-image-lease-unavailable");
+    }
+    return sun_visibility_v2_state_.ValidateLease(images);
+  }
+
+  NativeSunVisibilityV2Result ContinuePresentationFromSunVisibilityV2LitHdr(
+      const OgreNextSunVisibilityV2ImageSetExport &images,
+      const NativeFrameSynchronization &synchronization) override {
+    const RenderOperationResult ready = Ready();
+    if (!ready || !sun_visibility_v2_enabled_) {
+      return V2Failure(ToV2Code(ready.code),
+                       NativeSunVisibilityV2Stage::PRESENT_CONTINUATION,
+                       images.frame_id, images.snapshot_id,
+                       "v2-present-continuation-unavailable");
+    }
+    return sun_visibility_v2_state_.ContinuePresentation(images,
+                                                          synchronization);
+  }
+
+  NativeSunVisibilityV2Result AbortSunVisibilityV2ImageSetBeforeSubmission(
+      const OgreNextSunVisibilityV2ImageSetExport &images,
+      const NativeFrameSynchronization &synchronization,
+      const NativeSunVisibilityV2Result &failure) override {
+    return sun_visibility_v2_state_.AbortBeforeSubmission(
+        images, synchronization, failure);
+  }
+
+  void ReleaseSunVisibilityV2ImageSet(
+      std::uint64_t export_id) noexcept override {
+    sun_visibility_v2_state_.Release(export_id);
+  }
+
   RenderOperationResult AcquireContext(NativeContextExport &output) override {
     const RenderOperationResult ready = Ready();
     if (!ready) {
@@ -230,8 +333,9 @@ public:
       return ready;
     }
     NativeFrameSynchronization candidate;
-    RenderOperationResult result =
-        state_.BeginExternalFrame(frame_id, snapshot_id, candidate);
+    RenderOperationResult result = state_.BeginExternalFrame(
+        frame_id, snapshot_id, candidate,
+        sun_visibility_v2_state_.HasOutstandingLease());
     if (!result) {
       return result;
     }
@@ -254,6 +358,7 @@ public:
       [command_buffer encodeSignalEvent:timeline_
                                   value:candidate.frontend_complete_value];
       metal_device_->commitAndNextCommandBuffer();
+      sun_visibility_v2_state_.ObserveExternalFrameBegun(candidate);
       synchronization = candidate;
       return RenderOperationResult::Success();
     } catch (const std::exception &error) {
@@ -309,6 +414,7 @@ public:
         return BackendFailure(
             "native lifecycle rejected a committed Ogre return dependency");
       }
+      sun_visibility_v2_state_.ObserveExternalFrameEnded(synchronization);
       return RenderOperationResult::Success();
     } catch (const std::exception &error) {
       faulted_ = true;
@@ -455,6 +561,17 @@ public:
     if (!ready) {
       return ready;
     }
+    if (sun_visibility_v2_enabled_) {
+      const NativeSunVisibilityV2Result discarded =
+          sun_visibility_v2_state_.DiscardPublished();
+      if (discarded.code != NativeSunVisibilityV2Code::OK) {
+        return RenderOperationResult::Failure(
+            discarded.code == NativeSunVisibilityV2Code::RESOURCE_STALE
+                ? RenderOperationCode::OUTSTANDING_LEASES
+                : RenderOperationCode::BACKEND_FAILURE,
+            discarded.detail);
+      }
+    }
     return state_.DiscardPublishedFrame();
   }
 
@@ -514,6 +631,7 @@ public:
     faulted_ = true;
     dispatch_readback_passed_ = false;
     geometry_interop_passed_ = false;
+    sun_visibility_v2_state_.Reset();
     return state_.AbandonRayTracingBackendAfterFault();
   }
 
@@ -569,6 +687,7 @@ public:
     if (!result) {
       return result;
     }
+    sun_visibility_v2_state_.Reset();
     valid_ = false;
     last_return_command_buffer_ = nil;
     last_return_completion_ = nullptr;
@@ -589,6 +708,7 @@ public:
     frontend_revoked_ = true;
     dispatch_readback_passed_ = false;
     geometry_interop_passed_ = false;
+    sun_visibility_v2_state_.Reset();
     last_return_command_buffer_ = nil;
     last_return_completion_ = nullptr;
     timeline_ = nil;
@@ -598,6 +718,173 @@ public:
   }
 
 private:
+  static NativeSunVisibilityV2Code
+  ToV2Code(RenderOperationCode code) noexcept {
+    switch (code) {
+    case RenderOperationCode::UNSUPPORTED:
+      return NativeSunVisibilityV2Code::UNSUPPORTED;
+    case RenderOperationCode::INVALID_ARGUMENT:
+      return NativeSunVisibilityV2Code::INVALID_ARGUMENT;
+    case RenderOperationCode::RESOURCE_STALE:
+    case RenderOperationCode::OUTSTANDING_LEASES:
+      return NativeSunVisibilityV2Code::RESOURCE_STALE;
+    case RenderOperationCode::TIMEOUT:
+      return NativeSunVisibilityV2Code::TIMEOUT;
+    case RenderOperationCode::DEVICE_LOST:
+      return NativeSunVisibilityV2Code::DEVICE_LOST;
+    case RenderOperationCode::OK:
+    case RenderOperationCode::NOT_INITIALIZED:
+    case RenderOperationCode::OUT_OF_MEMORY:
+    case RenderOperationCode::BACKEND_FAILURE:
+      return NativeSunVisibilityV2Code::BACKEND_FAILURE;
+    }
+    return NativeSunVisibilityV2Code::BACKEND_FAILURE;
+  }
+
+  static NativeSunVisibilityV2Result V2Failure(
+      NativeSunVisibilityV2Code code, NativeSunVisibilityV2Stage stage,
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      const char *detail) {
+    NativeSunVisibilityV2Result result;
+    result.code = code == NativeSunVisibilityV2Code::OK
+                      ? NativeSunVisibilityV2Code::BACKEND_FAILURE
+                      : code;
+    result.stage = stage;
+    result.frame_id = frame_id == 0U ? 1U : frame_id;
+    result.snapshot_id = snapshot_id == 0U ? 1U : snapshot_id;
+    result.detail = detail;
+    return result;
+  }
+
+  NativeSunVisibilityV2Result ConvertSunVisibilityV2Binding(
+      const OgreNextSunVisibilityV2FrameImageBinding &binding,
+      OgreNextSunVisibilityV2ImageSetExport &output) const {
+    OgreNextSunVisibilityV2ImageSetRequest request;
+    request.frame_id = binding.frame_id;
+    request.snapshot_id = binding.snapshot_id;
+    request.view_id = binding.view_id;
+    request.scene_snapshot = binding.scene_snapshot;
+    request.view = binding.view;
+    request.width = binding.width;
+    request.height = binding.height;
+    if (binding.version != kOgreNextSunVisibilityV2ImageInteropVersion ||
+        !ValidateOgreNextSunVisibilityV2ImageSetRequest(request) ||
+        binding.presentation_continuation == nullptr) {
+      return V2Failure(NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+                       NativeSunVisibilityV2Stage::IMAGE_EXPORT,
+                       binding.frame_id, binding.snapshot_id,
+                       "invalid-v2-image-binding");
+    }
+
+    const std::array<std::uintptr_t, 4U> identities{{
+        binding.ogre_base_hdr_texture,
+        binding.ogre_sun_direct_hdr_texture,
+        binding.ogre_visibility_texture,
+        binding.ogre_lit_hdr_texture,
+    }};
+    for (std::size_t lhs = 0U; lhs < identities.size(); ++lhs) {
+      if (identities[lhs] == 0U) {
+        return V2Failure(NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+                         NativeSunVisibilityV2Stage::IMAGE_EXPORT,
+                         binding.frame_id, binding.snapshot_id,
+                         "missing-v2-ogre-texture");
+      }
+      for (std::size_t rhs = lhs + 1U; rhs < identities.size(); ++rhs) {
+        if (identities[lhs] == identities[rhs]) {
+          return V2Failure(NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+                           NativeSunVisibilityV2Stage::IMAGE_EXPORT,
+                           binding.frame_id, binding.snapshot_id,
+                           "aliased-v2-ogre-texture");
+        }
+      }
+    }
+
+    const auto convert = [&](std::uintptr_t identity,
+                             OgreNextSunVisibilityV2ImageRole role,
+                             OgreNextSunVisibilityV2ImageFormat format,
+                             OgreNextSunVisibilityV2ImageBinding &converted)
+        -> bool {
+      auto *ogre_texture =
+          reinterpret_cast<Ogre::TextureGpu *>(identity);
+      auto *metal_texture =
+          dynamic_cast<Ogre::MetalTextureGpu *>(ogre_texture);
+      const bool rgba =
+          format == OgreNextSunVisibilityV2ImageFormat::RGBA16_FLOAT;
+      const Ogre::PixelFormatGpu expected_ogre =
+          rgba ? Ogre::PFG_RGBA16_FLOAT : Ogre::PFG_R16_FLOAT;
+      const MTLPixelFormat expected_metal =
+          rgba ? MTLPixelFormatRGBA16Float : MTLPixelFormatR16Float;
+      if (metal_texture == nullptr || !ogre_texture->isUav() ||
+          ogre_texture->getPixelFormat() != expected_ogre ||
+          ogre_texture->getWidth() != binding.width ||
+          ogre_texture->getHeight() != binding.height ||
+          ogre_texture->getNumMipmaps() != 1U ||
+          ogre_texture->getNumSlices() != 1U ||
+          ogre_texture->getSampleDescription().getColourSamples() != 1U) {
+        return false;
+      }
+      id<MTLTexture> texture = metal_texture->getFinalTextureName();
+      const MTLTextureUsage required =
+          MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+      if (texture == nil || texture.device != device_ ||
+          texture.pixelFormat != expected_metal ||
+          texture.width != binding.width || texture.height != binding.height ||
+          texture.mipmapLevelCount != 1U || texture.arrayLength != 1U ||
+          texture.sampleCount != 1U ||
+          (texture.usage & required) != required ||
+          texture.storageMode == MTLStorageModeMemoryless) {
+        return false;
+      }
+      converted.role = role;
+      converted.format = format;
+      converted.usage =
+          NativeImageUsage::COLOR_ATTACHMENT_SHADER_READ_WRITE_COPY_SOURCE;
+      converted.image = Token(NativeObjectKind::IMAGE, texture,
+                              context_.context_id, binding.frame_id);
+      return true;
+    };
+
+    OgreNextSunVisibilityV2ImageSetExport candidate;
+    // The state replaces this provisional nonzero identity on acquisition.
+    candidate.export_id = 1U;
+    candidate.frame_id = binding.frame_id;
+    candidate.snapshot_id = binding.snapshot_id;
+    candidate.view_id = binding.view_id;
+    candidate.scene_snapshot = binding.scene_snapshot;
+    candidate.view = binding.view;
+    candidate.width = binding.width;
+    candidate.height = binding.height;
+    if (!convert(binding.ogre_base_hdr_texture,
+                 OgreNextSunVisibilityV2ImageRole::BASE_HDR_RGBA16,
+                 OgreNextSunVisibilityV2ImageFormat::RGBA16_FLOAT,
+                 candidate.base_hdr) ||
+        !convert(binding.ogre_sun_direct_hdr_texture,
+                 OgreNextSunVisibilityV2ImageRole::SUN_DIRECT_HDR_RGBA16,
+                 OgreNextSunVisibilityV2ImageFormat::RGBA16_FLOAT,
+                 candidate.sun_direct_hdr) ||
+        !convert(binding.ogre_visibility_texture,
+                 OgreNextSunVisibilityV2ImageRole::VISIBILITY_R16,
+                 OgreNextSunVisibilityV2ImageFormat::R16_FLOAT,
+                 candidate.visibility) ||
+        !convert(binding.ogre_lit_hdr_texture,
+                 OgreNextSunVisibilityV2ImageRole::LIT_HDR_RGBA16,
+                 OgreNextSunVisibilityV2ImageFormat::RGBA16_FLOAT,
+                 candidate.lit_hdr) ||
+        !ValidateOgreNextSunVisibilityV2ImageSetExport(request, candidate,
+                                                       context_)) {
+      return V2Failure(NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                       NativeSunVisibilityV2Stage::IMAGE_EXPORT,
+                       binding.frame_id, binding.snapshot_id,
+                       "invalid-v2-metal-texture-set");
+    }
+    output = candidate;
+    NativeSunVisibilityV2Result result;
+    result.stage = NativeSunVisibilityV2Stage::IMAGE_EXPORT;
+    result.frame_id = binding.frame_id;
+    result.snapshot_id = binding.snapshot_id;
+    return result;
+  }
+
   bool OnOwnerThread() const noexcept {
     return std::this_thread::get_id() == owner_thread_;
   }
@@ -636,7 +923,8 @@ private:
         binding.ogre_index_buffer == 0U || binding.frame_id == 0U ||
         binding.snapshot_id == 0U || binding.instance_id == 0U ||
         binding.topology_revision == 0U ||
-        binding.deformation_revision == 0U || !binding.mesh.valid() ||
+        binding.deformation_revision == 0U ||
+        binding.native_storage_generation == 0U || !binding.mesh.valid() ||
         binding.mesh.kind != RenderAssetKind::MESH ||
         binding.topology != MeshPrimitiveTopology::TRIANGLE_LIST ||
         binding.vertex_count == 0U || binding.index_count == 0U) {
@@ -767,14 +1055,14 @@ private:
     geometry.topology = binding.topology;
     geometry.positions.buffer =
         Token(NativeObjectKind::BUFFER, metal_vertex_buffer,
-              context_.context_id, binding.frame_id);
+              context_.context_id, binding.native_storage_generation);
     geometry.positions.offset_bytes = position_offset;
     geometry.positions.size_bytes = vertex_span;
     geometry.positions.stride_bytes =
         static_cast<std::uint32_t>(vertex_stride);
     geometry.indices.buffer = Token(NativeObjectKind::BUFFER,
                                     metal_index_buffer, context_.context_id,
-                                    binding.frame_id);
+                                    binding.native_storage_generation);
     geometry.indices.offset_bytes = index_pool_offset;
     geometry.indices.size_bytes = index_span;
     geometry.indices.stride_bytes =
@@ -858,11 +1146,13 @@ private:
   dispatch_semaphore_t last_return_completion_ = nullptr;
   NativeContextExport context_;
   OgreNextN2InteropState state_;
+  OgreNextSunVisibilityV2InteropState sun_visibility_v2_state_;
   bool ray_tracing_api_supported_ = false;
   bool apple_family_9_supported_ = false;
   OgreNextNativeFeatureTier native_feature_tier_ =
       OgreNextNativeFeatureTier::RASTER_N1;
   bool image_exports_enabled_ = false;
+  bool sun_visibility_v2_enabled_ = false;
   bool dispatch_readback_passed_ = false;
   bool geometry_interop_passed_ = false;
   bool last_return_completion_waited_ = false;

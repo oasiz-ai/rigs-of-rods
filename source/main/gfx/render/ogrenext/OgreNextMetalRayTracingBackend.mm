@@ -12,18 +12,25 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <simd/simd.h>
+#include <CommonCrypto/CommonDigest.h>
 
 #include "OgreNextMetalRayTracingBackend.h"
 
 #include "OgreNextN1NativeInterop.h"
+#include "OgreNextSunVisibilityV2Interop.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <limits>
+#include <map>
 #include <new>
 #include <sstream>
 #include <thread>
+#include <tuple>
 #include <utility>
 
 namespace RoR::Render {
@@ -62,11 +69,27 @@ static_assert(
     sizeof(DirectionalShadowParameters) == 96U,
     "the Metal and host N4 directional-shadow parameter ABI must remain 96 bytes");
 
+struct alignas(16) SunVisibilityV2Parameters {
+  simd_float4x4 render_from_clip;
+  simd_float4 surface_to_light_and_minimum_distance;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uint32_t reserved_0 = 0U;
+  std::uint32_t reserved_1 = 0U;
+};
+static_assert(sizeof(SunVisibilityV2Parameters) == 96U,
+              "the Metal and host V2 sun-visibility parameter ABI must remain 96 bytes");
+
+constexpr std::size_t kSunVisibilityV2CounterCount = 6U;
+constexpr char kSunVisibilityV2ShaderSha256[] =
+    "54cf24edbbfb9c53574899b382170513a85d5d305501e9551f4705b6d5b907fe";
+
 enum class SubmissionKind : std::uint8_t {
   NONE = 0,
   N2_PROBE = 1,
   N3_HYBRID = 2,
   N4_DIRECTIONAL_SHADOW = 3,
+  V2_SUN_VISIBILITY = 4,
 };
 
 struct DirectionalShadowSceneSelection final {
@@ -74,6 +97,97 @@ struct DirectionalShadowSceneSelection final {
   const MeshInstanceDescriptor *occluder = nullptr;
   const LightDescriptor *light = nullptr;
 };
+
+struct SunVisibilityV2BlasKey final {
+  RenderAssetReference mesh;
+  std::uint64_t topology_revision = 0U;
+  std::uint64_t deformation_revision = 0U;
+  NativeObjectToken vertex_buffer;
+  NativeObjectToken index_buffer;
+  std::uint64_t vertex_offset = 0U;
+  std::uint64_t vertex_size = 0U;
+  std::uint32_t vertex_stride = 0U;
+  std::uint64_t index_offset = 0U;
+  std::uint64_t index_size = 0U;
+  std::uint32_t index_stride = 0U;
+  std::uint32_t vertex_count = 0U;
+  std::uint32_t index_count = 0U;
+  NativeIndexFormat index_format = NativeIndexFormat::UINT32;
+};
+
+auto KeyTuple(const SunVisibilityV2BlasKey &key) noexcept {
+  return std::make_tuple(
+      key.mesh.id.high(), key.mesh.id.low(), key.mesh.kind,
+      key.mesh.revision, key.topology_revision, key.deformation_revision,
+      key.vertex_buffer.value, key.vertex_buffer.generation,
+      key.vertex_buffer.context_id, key.index_buffer.value,
+      key.index_buffer.generation, key.index_buffer.context_id,
+      key.vertex_offset, key.vertex_size, key.vertex_stride, key.index_offset,
+      key.index_size, key.index_stride, key.vertex_count, key.index_count,
+      key.index_format);
+}
+
+bool operator<(const SunVisibilityV2BlasKey &lhs,
+               const SunVisibilityV2BlasKey &rhs) noexcept {
+  return KeyTuple(lhs) < KeyTuple(rhs);
+}
+
+bool SameBlasKey(const SunVisibilityV2BlasKey &lhs,
+                 const SunVisibilityV2BlasKey &rhs) noexcept {
+  return !(lhs < rhs) && !(rhs < lhs);
+}
+
+bool SameRefittableGeometry(const SunVisibilityV2BlasKey &lhs,
+                            const SunVisibilityV2BlasKey &rhs) noexcept {
+  SunVisibilityV2BlasKey lhs_base = lhs;
+  SunVisibilityV2BlasKey rhs_base = rhs;
+  lhs_base.deformation_revision = 0U;
+  rhs_base.deformation_revision = 0U;
+  return !(lhs_base < rhs_base) && !(rhs_base < lhs_base);
+}
+
+struct SunVisibilityV2BlasCacheEntry final {
+  SunVisibilityV2BlasKey key;
+  id<MTLAccelerationStructure> acceleration_structure = nil;
+  std::uint64_t resident_bytes = 0U;
+};
+
+struct SunVisibilityV2TlasInstanceSignature final {
+  std::uint64_t instance_id = 0U;
+  std::uint64_t blas_identity = 0U;
+  std::uint8_t mask = 0U;
+  Matrix4x4 transform;
+};
+
+bool SameTlasMembership(
+    const std::vector<SunVisibilityV2TlasInstanceSignature> &lhs,
+    const std::vector<SunVisibilityV2TlasInstanceSignature> &rhs) noexcept {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.size(); ++index) {
+    if (lhs[index].instance_id != rhs[index].instance_id ||
+        lhs[index].blas_identity != rhs[index].blas_identity ||
+        lhs[index].mask != rhs[index].mask) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool SameTlasTransforms(
+    const std::vector<SunVisibilityV2TlasInstanceSignature> &lhs,
+    const std::vector<SunVisibilityV2TlasInstanceSignature> &rhs) noexcept {
+  if (!SameTlasMembership(lhs, rhs)) {
+    return false;
+  }
+  for (std::size_t index = 0U; index < lhs.size(); ++index) {
+    if (lhs[index].transform != rhs[index].transform) {
+      return false;
+    }
+  }
+  return true;
+}
 
 RenderOperationResult Failure(RenderOperationCode code,
                               std::string detail) {
@@ -86,6 +200,102 @@ RenderOperationResult Invalid(std::string detail) {
 
 RenderOperationResult BackendFailure(std::string detail) {
   return Failure(RenderOperationCode::BACKEND_FAILURE, std::move(detail));
+}
+
+NativeSunVisibilityV2Code ToV2Code(RenderOperationCode code) noexcept {
+  switch (code) {
+  case RenderOperationCode::UNSUPPORTED:
+    return NativeSunVisibilityV2Code::UNSUPPORTED;
+  case RenderOperationCode::INVALID_ARGUMENT:
+    return NativeSunVisibilityV2Code::INVALID_ARGUMENT;
+  case RenderOperationCode::RESOURCE_STALE:
+  case RenderOperationCode::OUTSTANDING_LEASES:
+    return NativeSunVisibilityV2Code::RESOURCE_STALE;
+  case RenderOperationCode::TIMEOUT:
+    return NativeSunVisibilityV2Code::TIMEOUT;
+  case RenderOperationCode::DEVICE_LOST:
+    return NativeSunVisibilityV2Code::DEVICE_LOST;
+  case RenderOperationCode::OK:
+  case RenderOperationCode::NOT_INITIALIZED:
+  case RenderOperationCode::OUT_OF_MEMORY:
+  case RenderOperationCode::BACKEND_FAILURE:
+    return NativeSunVisibilityV2Code::BACKEND_FAILURE;
+  }
+  return NativeSunVisibilityV2Code::BACKEND_FAILURE;
+}
+
+NativeSunVisibilityV2Result V2Result(NativeSunVisibilityV2Code code,
+                                     NativeSunVisibilityV2Stage stage,
+                                     std::uint64_t frame_id,
+                                     std::uint64_t snapshot_id,
+                                     const char *detail) {
+  NativeSunVisibilityV2Result result;
+  result.code = code;
+  result.stage = stage;
+  result.frame_id = frame_id == 0U ? 1U : frame_id;
+  result.snapshot_id = snapshot_id == 0U ? 1U : snapshot_id;
+  result.detail = detail;
+  return result;
+}
+
+NativeSunVisibilityV2Result V2Failure(
+    NativeSunVisibilityV2Code code, NativeSunVisibilityV2Stage stage,
+    std::uint64_t frame_id, std::uint64_t snapshot_id, const char *detail) {
+  return V2Result(code == NativeSunVisibilityV2Code::OK
+                      ? NativeSunVisibilityV2Code::BACKEND_FAILURE
+                      : code,
+                  stage, frame_id, snapshot_id, detail);
+}
+
+bool ReadLockedSunVisibilityV2Shader(const std::string &path,
+                                     std::string &source) {
+  if (path.empty()) {
+    return false;
+  }
+  std::ifstream input(path, std::ios::binary);
+  if (!input) {
+    return false;
+  }
+  std::ostringstream bytes;
+  bytes << input.rdbuf();
+  if (!input.good() && !input.eof()) {
+    return false;
+  }
+  std::string candidate = bytes.str();
+  if (candidate.empty() ||
+      candidate.size() >
+          static_cast<std::size_t>((std::numeric_limits<CC_LONG>::max)())) {
+    return false;
+  }
+  std::array<unsigned char, CC_SHA256_DIGEST_LENGTH> digest{};
+  if (CC_SHA256(candidate.data(), static_cast<CC_LONG>(candidate.size()),
+                digest.data()) == nullptr) {
+    return false;
+  }
+  constexpr char kHex[] = "0123456789abcdef";
+  std::string observed;
+  observed.reserve(digest.size() * 2U);
+  for (const unsigned char byte : digest) {
+    observed.push_back(kHex[(byte >> 4U) & 0x0fU]);
+    observed.push_back(kHex[byte & 0x0fU]);
+  }
+  if (observed != kSunVisibilityV2ShaderSha256) {
+    return false;
+  }
+  source = std::move(candidate);
+  return true;
+}
+
+std::uint64_t MatrixRevision(const Matrix4x4 &matrix) noexcept {
+  std::uint64_t digest = UINT64_C(14695981039346656037);
+  const auto *bytes = reinterpret_cast<const unsigned char *>(
+      matrix.elements.data());
+  for (std::size_t index = 0U;
+       index < matrix.elements.size() * sizeof(float); ++index) {
+    digest ^= bytes[index];
+    digest *= UINT64_C(1099511628211);
+  }
+  return digest == 0U ? UINT64_C(14695981039346656037) : digest;
 }
 
 bool SameToken(const NativeObjectToken &lhs,
@@ -143,6 +353,11 @@ ObjectType Decode(const NativeObjectToken &token) noexcept {
   void *identity = reinterpret_cast<void *>(
       static_cast<std::uintptr_t>(token.value));
   return (__bridge ObjectType)identity;
+}
+
+std::uint64_t NativeIdentity(id object) noexcept {
+  return static_cast<std::uint64_t>(
+      reinterpret_cast<std::uintptr_t>((__bridge void *)object));
 }
 
 std::string Utf8(NSString *value) {
@@ -439,7 +654,10 @@ bool TryComputeMetalReadbackLayout(
 
 class OgreNextMetalRayTracingBackend::Impl final {
 public:
-  explicit Impl(OgreNextMetalRayTracingMode mode) noexcept : mode_(mode) {}
+  explicit Impl(OgreNextMetalRayTracingMode mode,
+                std::string packaged_v2_shader_path = {}) noexcept
+      : packaged_v2_shader_path_(std::move(packaged_v2_shader_path)),
+        mode_(mode) {}
 
   NativeRayTracingCapabilityReport Capabilities() const {
     NativeRayTracingCapabilityReport report;
@@ -465,10 +683,12 @@ public:
         evidence_.hybrid_composite_passed;
     report.maximum_instances =
         report.hardware_accelerated
-            ? (mode_ == OgreNextMetalRayTracingMode::
-                            N4_DIRECTIONAL_HARD_SHADOW
-                   ? kNativeDirectionalShadowRequiredTlasInstanceCount
-                   : 1U)
+            ? (mode_ == OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY
+                   ? kNativeSunVisibilityV2MaximumAdmittedInstances
+                   : (mode_ == OgreNextMetalRayTracingMode::
+                                  N4_DIRECTIONAL_HARD_SHADOW
+                          ? kNativeDirectionalShadowRequiredTlasInstanceCount
+                          : 1U))
             : 0U;
     return report;
   }
@@ -479,7 +699,8 @@ public:
     }
     if (mode_ != OgreNextMetalRayTracingMode::AUTOMATIC_N2_N3 &&
         mode_ != OgreNextMetalRayTracingMode::
-                     N4_DIRECTIONAL_HARD_SHADOW) {
+                     N4_DIRECTIONAL_HARD_SHADOW &&
+        mode_ != OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY) {
       return Invalid("unknown Metal ray-tracing backend mode");
     }
     evidence_ = {};
@@ -502,8 +723,13 @@ public:
     const bool n4_frontend =
         configured_tier == OgreNextNativeFeatureTier::
                                METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW;
-    if (n4_mode != n4_frontend ||
-        (!n4_mode &&
+    const bool v2_mode =
+        mode_ == OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY;
+    const bool v2_frontend =
+        configured_tier == OgreNextNativeFeatureTier::
+                               METAL_RAY_TRACING_V2_SUN_VISIBILITY;
+    if (n4_mode != n4_frontend || v2_mode != v2_frontend ||
+        (!n4_mode && !v2_mode &&
          configured_tier !=
              OgreNextNativeFeatureTier::METAL_RAY_TRACING_N2 &&
          configured_tier !=
@@ -511,6 +737,13 @@ public:
       return Failure(
           RenderOperationCode::UNSUPPORTED,
           "Metal ray-tracing backend mode does not match the configured Ogre native feature tier");
+    }
+    auto *v2_interop =
+        dynamic_cast<OgreNextSunVisibilityV2NativeInterop *>(&interop);
+    if (v2_mode && v2_interop == nullptr) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal V2 requires the additive four-image Ogre interop interface");
     }
     NativeContextExport context;
     RenderOperationResult result = bridge->AcquireContext(context);
@@ -816,6 +1049,61 @@ public:
       }
     }
 
+    id<MTLComputePipelineState> sun_visibility_v2_pipeline = nil;
+    if (v2_mode) {
+      MTLTextureDescriptor *visibility_probe_descriptor =
+          [MTLTextureDescriptor
+              texture2DDescriptorWithPixelFormat:MTLPixelFormatR16Float
+                                           width:1U
+                                          height:1U
+                                       mipmapped:NO];
+      visibility_probe_descriptor.storageMode = MTLStorageModePrivate;
+      visibility_probe_descriptor.usage =
+          MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+      id<MTLTexture> visibility_probe =
+          [device newTextureWithDescriptor:visibility_probe_descriptor];
+      if (visibility_probe == nil ||
+          visibility_probe.pixelFormat != MTLPixelFormatR16Float) {
+        return Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "the exact Ogre Metal device cannot allocate V2 R16_FLOAT visibility");
+      }
+      std::string locked_source;
+      if (!ReadLockedSunVisibilityV2Shader(packaged_v2_shader_path_,
+                                           locked_source)) {
+        return BackendFailure(
+            "Metal V2 packaged shader is absent or differs from its SHA-256 lock");
+      }
+      NSString *source = [[NSString alloc]
+          initWithBytes:locked_source.data()
+                 length:locked_source.size()
+               encoding:NSUTF8StringEncoding];
+      if (source == nil) {
+        return BackendFailure("Metal V2 packaged shader is not UTF-8");
+      }
+      NSError *library_error = nil;
+      id<MTLLibrary> library = [device newLibraryWithSource:source
+                                                   options:nil
+                                                     error:&library_error];
+      if (library == nil) {
+        return BackendFailure("Metal V2 shader compile failed: " +
+                              Utf8(library_error.localizedDescription));
+      }
+      id<MTLFunction> function = [library
+          newFunctionWithName:@"ror_ogre_next_metal_sun_visibility_v2"];
+      if (function == nil) {
+        return BackendFailure("Metal V2 compute function was not found");
+      }
+      NSError *pipeline_error = nil;
+      sun_visibility_v2_pipeline =
+          [device newComputePipelineStateWithFunction:function
+                                                 error:&pipeline_error];
+      if (sun_visibility_v2_pipeline == nil) {
+        return BackendFailure("Metal V2 pipeline creation failed: " +
+                              Utf8(pipeline_error.localizedDescription));
+      }
+    }
+
     result = bridge->RegisterRayTracingBackend();
     if (!result) {
       return result;
@@ -827,8 +1115,14 @@ public:
     pipeline_ = pipeline;
     hybrid_pipeline_ = hybrid_pipeline;
     directional_shadow_pipeline_ = directional_shadow_pipeline;
+    sun_visibility_v2_pipeline_ = sun_visibility_v2_pipeline;
+    sun_visibility_v2_interop_ = v2_interop;
     n3_enabled_ = n3_enabled;
     owner_thread_ = std::this_thread::get_id();
+    if (v2_mode && !sun_visibility_v2_lifecycle_.Initialize()) {
+      static_cast<void>(bridge->UnregisterRayTracingBackend());
+      return BackendFailure("Metal V2 lifecycle initialization failed");
+    }
     initialized_ = true;
     return RenderOperationResult::Success();
   }
@@ -842,6 +1136,11 @@ public:
       return Failure(
           RenderOperationCode::UNSUPPORTED,
           "Metal N4 executes only through its directional-shadow image path");
+    }
+    if (mode_ == OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal V2 executes only through its four-image sun-visibility path");
     }
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
@@ -1076,6 +1375,11 @@ public:
     if (mode_ == OgreNextMetalRayTracingMode::
                      N4_DIRECTIONAL_HARD_SHADOW) {
       return RenderDirectionalShadow(request, output);
+    }
+    if (mode_ == OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY) {
+      return Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "Metal V2 is GPU-only; call RenderSunVisibilityV2 instead of the CPU output path");
     }
     if (!initialized_) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
@@ -1447,6 +1751,895 @@ public:
                           image_row_pitch, blas_sizes, tlas_sizes, output);
   }
 
+  NativeSunVisibilityV2Result RenderSunVisibilityV2(
+      const OgreNextMetalSunVisibilityV2FrameRequest &request,
+      NativeSunVisibilityV2FrameContract &contract) {
+    const std::uint64_t frame_id = request.ray_tracing.frame.frame_id;
+    const std::uint64_t snapshot_id =
+        request.ray_tracing.frame.scene_snapshot
+            ? request.ray_tracing.frame.scene_snapshot->snapshot_id()
+            : 0U;
+    if (!initialized_ ||
+        mode_ != OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY ||
+        sun_visibility_v2_pipeline_ == nil ||
+        sun_visibility_v2_interop_ == nullptr) {
+      return V2Failure(NativeSunVisibilityV2Code::UNSUPPORTED,
+                       NativeSunVisibilityV2Stage::CAPABILITY_GATE, frame_id,
+                       snapshot_id, "v2-backend-unavailable");
+    }
+    if (!OnOwnerThread()) {
+      return V2Failure(NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+                       NativeSunVisibilityV2Stage::CAPABILITY_GATE, frame_id,
+                       snapshot_id, "v2-wrong-owner-thread");
+    }
+    if (command_submitted_ || frame_live_ || v2_image_live_ ||
+        !v2_geometry_exports_.empty()) {
+      return V2Failure(NativeSunVisibilityV2Code::RESOURCE_STALE,
+                       NativeSunVisibilityV2Stage::CAPABILITY_GATE, frame_id,
+                       snapshot_id, "v2-prior-frame-live");
+    }
+    const ValidationResult request_validation =
+        ValidateNativeRayTracingFrameRequest(request.ray_tracing);
+    if (request.version != kNativeSunVisibilityV2ContractVersion ||
+        !request_validation || request.ray_tracing.frame.views.size() != 1U ||
+        request.ray_tracing.frame.requested_outputs != FrameOutputMask::COLOR ||
+        request.ray_tracing.frame.color_format != PixelFormat::RGBA16_FLOAT ||
+        request.ray_tracing.frame.allow_async_compute ||
+        request.ray_tracing.samples_per_pixel != 1U ||
+        request.ray_tracing.maximum_bounces != 1U ||
+        request.ray_tracing.denoise || request.timeout_nanoseconds == 0U) {
+      return V2Failure(NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+                       NativeSunVisibilityV2Stage::SCENE_ADMISSION, frame_id,
+                       snapshot_id, "invalid-v2-frame-request");
+    }
+
+    NativeSunVisibilityV2ScenePlan plan;
+    const ValidationResult plan_validation =
+        TryBuildNativeSunVisibilityV2ScenePlan(request.selection, plan);
+    if (!plan_validation) {
+      return V2Failure(NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+                       NativeSunVisibilityV2Stage::SCENE_ADMISSION, frame_id,
+                       snapshot_id, "invalid-v2-scene-plan");
+    }
+    const SceneSnapshot &snapshot =
+        *request.ray_tracing.frame.scene_snapshot;
+    const CameraViewRequest &view = request.ray_tracing.frame.views.front();
+    const LightDescriptor *sun = nullptr;
+    for (const LightDescriptor &light : snapshot.lights()) {
+      if (light.type == LightType::DIRECTIONAL && light.shadow_flags != 0U) {
+        if (sun != nullptr) {
+          return V2Failure(NativeSunVisibilityV2Code::UNSUPPORTED,
+                           NativeSunVisibilityV2Stage::SCENE_ADMISSION,
+                           frame_id, snapshot_id,
+                           "multiple-v2-directional-suns");
+        }
+        sun = &light;
+      }
+    }
+    if (sun == nullptr) {
+      return V2Failure(NativeSunVisibilityV2Code::UNSUPPORTED,
+                       NativeSunVisibilityV2Stage::SCENE_ADMISSION, frame_id,
+                       snapshot_id, "missing-v2-directional-sun");
+    }
+    if (!sun_visibility_v2_lifecycle_.BeginFrame(
+            frame_id, snapshot_id, view.width, view.height)) {
+      return V2Failure(NativeSunVisibilityV2Code::RESOURCE_STALE,
+                       NativeSunVisibilityV2Stage::SCENE_ADMISSION, frame_id,
+                       snapshot_id, "v2-lifecycle-begin-rejected");
+    }
+
+    const auto release_geometry = [this]() noexcept {
+      for (const NativeGeometryExport &geometry : v2_geometry_exports_) {
+        bridge_->ReleaseGeometry(geometry.export_id);
+      }
+      v2_geometry_exports_.clear();
+    };
+    const auto release_image = [this]() noexcept {
+      if (v2_image_live_) {
+        sun_visibility_v2_interop_->ReleaseSunVisibilityV2ImageSet(
+            v2_images_.export_id);
+        v2_images_ = {};
+        v2_image_live_ = false;
+      }
+    };
+    const auto fail_before_submission =
+        [this, &release_geometry, &release_image](
+            NativeSunVisibilityV2Result failure) {
+          if (frame_live_) {
+            if (v2_image_live_) {
+              failure = sun_visibility_v2_interop_
+                            ->AbortSunVisibilityV2ImageSetBeforeSubmission(
+                                v2_images_, synchronization_, failure);
+            }
+            static_cast<void>(
+                bridge_->AbortExternalFrameBeforeSubmission(synchronization_));
+            frame_live_ = false;
+          }
+          release_image();
+          release_geometry();
+          static_cast<void>(
+              sun_visibility_v2_lifecycle_.RollbackBeforeSubmission(failure));
+          synchronization_ = {};
+          return failure;
+        };
+
+    struct BlasWork final {
+      enum class Operation : std::uint8_t { BUILD, REFIT, HIT };
+      std::uint64_t mesh_id = 0U;
+      SunVisibilityV2BlasKey key;
+      MTLPrimitiveAccelerationStructureDescriptor *descriptor = nil;
+      MTLAccelerationStructureSizes sizes{};
+      id<MTLAccelerationStructure> acceleration_structure = nil;
+      Operation operation = Operation::BUILD;
+      std::uint64_t resident_bytes = 0U;
+    };
+    std::vector<const MeshInstanceDescriptor *> admitted_instances;
+    std::vector<std::size_t> instance_work_indices;
+    std::vector<BlasWork> blas_work;
+    std::map<std::uint64_t, std::size_t> mesh_work_indices;
+    std::map<SunVisibilityV2BlasKey, SunVisibilityV2BlasCacheEntry>
+        candidate_cache = sun_visibility_v2_blas_cache_;
+    try {
+      admitted_instances.reserve(plan.admitted_instances.size());
+      instance_work_indices.reserve(plan.admitted_instances.size());
+      blas_work.reserve(plan.unique_mesh_ids.size());
+      v2_geometry_exports_.reserve(plan.admitted_instances.size());
+    } catch (const std::bad_alloc &) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::GEOMETRY_EXPORT, frame_id, snapshot_id,
+          "v2-geometry-allocation-failed"));
+    }
+
+    const auto find_instance = [&snapshot](std::uint64_t instance_id)
+        -> const MeshInstanceDescriptor * {
+      for (const MeshInstanceDescriptor &instance :
+           snapshot.mesh_instances()) {
+        if (instance.instance_id == instance_id) {
+          return &instance;
+        }
+      }
+      return nullptr;
+    };
+
+    for (const NativeSunVisibilityV2InstanceSelection &selected :
+         plan.admitted_instances) {
+      const MeshInstanceDescriptor *instance =
+          find_instance(selected.instance_id);
+      if (instance == nullptr ||
+          (instance->visibility_mask & view.visibility_mask) == 0U) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::RESOURCE_STALE,
+            NativeSunVisibilityV2Stage::GEOMETRY_EXPORT, frame_id,
+            snapshot_id, "v2-selected-instance-missing"));
+      }
+      const NativeGeometryExportRequest geometry_request =
+          MakeGeometryRequest(request.ray_tracing, *instance);
+      NativeGeometryExport geometry;
+      const RenderOperationResult acquired =
+          bridge_->AcquireGeometry(geometry_request, geometry);
+      if (!acquired) {
+        return fail_before_submission(V2Failure(
+            ToV2Code(acquired.code),
+            NativeSunVisibilityV2Stage::GEOMETRY_EXPORT, frame_id,
+            snapshot_id, "v2-geometry-acquire-failed"));
+      }
+      v2_geometry_exports_.push_back(geometry);
+      const ValidationResult geometry_validation =
+          ValidateNativeGeometryExport(geometry_request, geometry,
+                                       NativeGraphicsApi::METAL,
+                                       context_.context_id);
+      id<MTLBuffer> vertices =
+          Decode<id<MTLBuffer>>(geometry.positions.buffer);
+      id<MTLBuffer> indices = Decode<id<MTLBuffer>>(geometry.indices.buffer);
+      if (!geometry_validation ||
+          geometry.topology != MeshPrimitiveTopology::TRIANGLE_LIST ||
+          geometry.index_count == 0U || geometry.index_count % 3U != 0U ||
+          vertices == nil || indices == nil || vertices.device != device_ ||
+          indices.device != device_ ||
+          geometry.positions.offset_bytes > vertices.length ||
+          geometry.positions.size_bytes >
+              vertices.length - geometry.positions.offset_bytes ||
+          geometry.indices.offset_bytes > indices.length ||
+          geometry.indices.size_bytes >
+              indices.length - geometry.indices.offset_bytes) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::RESOURCE_STALE,
+            NativeSunVisibilityV2Stage::GEOMETRY_EXPORT, frame_id,
+            snapshot_id, "invalid-v2-geometry-export"));
+      }
+
+      SunVisibilityV2BlasKey key;
+      key.mesh = geometry.mesh;
+      key.topology_revision = geometry.topology_revision;
+      key.deformation_revision = geometry.deformation_revision;
+      key.vertex_buffer = geometry.positions.buffer;
+      key.index_buffer = geometry.indices.buffer;
+      key.vertex_offset = geometry.positions.offset_bytes;
+      key.vertex_size = geometry.positions.size_bytes;
+      key.vertex_stride = geometry.positions.stride_bytes;
+      key.index_offset = geometry.indices.offset_bytes;
+      key.index_size = geometry.indices.size_bytes;
+      key.index_stride = geometry.indices.stride_bytes;
+      key.vertex_count = geometry.vertex_count;
+      key.index_count = geometry.index_count;
+      key.index_format = geometry.index_format;
+
+      const auto existing_work = mesh_work_indices.find(selected.mesh_id);
+      if (existing_work != mesh_work_indices.end()) {
+        if (!SameBlasKey(blas_work[existing_work->second].key, key)) {
+          return fail_before_submission(V2Failure(
+              NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+              NativeSunVisibilityV2Stage::GEOMETRY_EXPORT, frame_id,
+              snapshot_id, "v2-mesh-id-geometry-mismatch"));
+        }
+        admitted_instances.push_back(instance);
+        instance_work_indices.push_back(existing_work->second);
+        continue;
+      }
+
+      MTLAccelerationStructureTriangleGeometryDescriptor *triangle =
+          [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+      if (triangle == nil) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::BACKEND_FAILURE,
+            NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+            frame_id, snapshot_id, "v2-blas-descriptor-failed"));
+      }
+      triangle.vertexBuffer = vertices;
+      triangle.vertexBufferOffset =
+          static_cast<NSUInteger>(geometry.positions.offset_bytes);
+      triangle.vertexStride = geometry.positions.stride_bytes;
+      triangle.indexBuffer = indices;
+      triangle.indexBufferOffset =
+          static_cast<NSUInteger>(geometry.indices.offset_bytes);
+      triangle.indexType =
+          geometry.index_format == NativeIndexFormat::UINT16
+              ? MTLIndexTypeUInt16
+              : MTLIndexTypeUInt32;
+      triangle.triangleCount = geometry.index_count / 3U;
+      triangle.opaque = YES;
+      MTLPrimitiveAccelerationStructureDescriptor *descriptor =
+          [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+      if (descriptor == nil) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::BACKEND_FAILURE,
+            NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+            frame_id, snapshot_id, "v2-blas-descriptor-failed"));
+      }
+      descriptor.geometryDescriptors = @[ triangle ];
+      descriptor.usage = MTLAccelerationStructureUsageRefit;
+      const MTLAccelerationStructureSizes sizes =
+          [device_ accelerationStructureSizesWithDescriptor:descriptor];
+      if (sizes.accelerationStructureSize == 0U ||
+          sizes.buildScratchBufferSize == 0U ||
+          sizes.refitScratchBufferSize == 0U) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::UNSUPPORTED,
+            NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+            frame_id, snapshot_id, "v2-blas-sizes-invalid"));
+      }
+
+      BlasWork work;
+      work.mesh_id = selected.mesh_id;
+      work.key = key;
+      work.descriptor = descriptor;
+      work.sizes = sizes;
+      const auto exact = candidate_cache.find(key);
+      if (exact != candidate_cache.end()) {
+        work.operation = BlasWork::Operation::HIT;
+        work.acceleration_structure = exact->second.acceleration_structure;
+        work.resident_bytes = exact->second.resident_bytes;
+      } else {
+        auto refit = candidate_cache.end();
+        for (auto candidate = candidate_cache.begin();
+             candidate != candidate_cache.end(); ++candidate) {
+          if (SameRefittableGeometry(candidate->first, key)) {
+            refit = candidate;
+            break;
+          }
+        }
+        if (refit != candidate_cache.end()) {
+          work.operation = BlasWork::Operation::REFIT;
+          work.acceleration_structure = refit->second.acceleration_structure;
+          work.resident_bytes = refit->second.resident_bytes;
+          SunVisibilityV2BlasCacheEntry updated = refit->second;
+          candidate_cache.erase(refit);
+          updated.key = key;
+          candidate_cache.emplace(key, std::move(updated));
+        } else {
+          work.operation = BlasWork::Operation::BUILD;
+          work.acceleration_structure = [device_
+              newAccelerationStructureWithSize:sizes.accelerationStructureSize];
+          work.resident_bytes = sizes.accelerationStructureSize;
+          if (work.acceleration_structure == nil) {
+            return fail_before_submission(V2Failure(
+                NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+                frame_id, snapshot_id, "v2-blas-allocation-failed"));
+          }
+          SunVisibilityV2BlasCacheEntry added;
+          added.key = key;
+          added.acceleration_structure = work.acceleration_structure;
+          added.resident_bytes = work.resident_bytes;
+          candidate_cache.emplace(key, std::move(added));
+        }
+      }
+      if (work.acceleration_structure == nil) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::BACKEND_FAILURE,
+            NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+            frame_id, snapshot_id, "v2-blas-cache-invalid"));
+      }
+      const std::size_t work_index = blas_work.size();
+      blas_work.push_back(std::move(work));
+      mesh_work_indices.emplace(selected.mesh_id, work_index);
+      admitted_instances.push_back(instance);
+      instance_work_indices.push_back(work_index);
+    }
+
+    // Retain only the exact unique geometry set used by this frame. This
+    // bounds persistent native storage by the reviewed admitted-instance cap
+    // and prevents a stream of unrelated scenes from growing the cache.
+    std::map<SunVisibilityV2BlasKey, SunVisibilityV2BlasCacheEntry>
+        bounded_candidate_cache;
+    for (const BlasWork &work : blas_work) {
+      const auto found = candidate_cache.find(work.key);
+      if (found == candidate_cache.end()) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::BACKEND_FAILURE,
+            NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+            frame_id, snapshot_id, "v2-blas-cache-transaction-invalid"));
+      }
+      bounded_candidate_cache.emplace(found->first, found->second);
+    }
+    candidate_cache = std::move(bounded_candidate_cache);
+
+    OgreNextSunVisibilityV2ImageSetRequest image_request;
+    image_request.frame_id = frame_id;
+    image_request.snapshot_id = snapshot_id;
+    image_request.view_id = view.view_id;
+    image_request.scene_snapshot = request.ray_tracing.frame.scene_snapshot;
+    image_request.view = view;
+    image_request.width = view.width;
+    image_request.height = view.height;
+    NativeSunVisibilityV2Result image_result =
+        sun_visibility_v2_interop_->AcquireSunVisibilityV2ImageSet(
+            image_request, v2_images_);
+    if (image_result.code != NativeSunVisibilityV2Code::OK) {
+      return fail_before_submission(image_result);
+    }
+    v2_image_live_ = true;
+
+    RenderOperationResult operation = bridge_->BeginExternalFrame(
+        frame_id, snapshot_id, synchronization_);
+    if (!operation) {
+      return fail_before_submission(V2Failure(
+          ToV2Code(operation.code), NativeSunVisibilityV2Stage::TIMELINE_HANDOFF,
+          frame_id, snapshot_id, "v2-frame-begin-failed"));
+    }
+    frame_live_ = true;
+    operation = bridge_->ArmExternalCompletion(synchronization_);
+    if (!operation) {
+      return fail_before_submission(V2Failure(
+          ToV2Code(operation.code), NativeSunVisibilityV2Stage::TIMELINE_HANDOFF,
+          frame_id, snapshot_id, "v2-frame-arm-failed"));
+    }
+    const ValidationResult transaction_validation =
+        ValidateOgreNextSunVisibilityV2FrameTransaction(
+            image_request, v2_images_, context_, synchronization_, true);
+    if (!transaction_validation ||
+        !SameToken(synchronization_.interop_queue,
+                   context_.graphics_queue) ||
+        !SameToken(synchronization_.frontend_complete_timeline,
+                   synchronization_.external_complete_timeline)) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::RESOURCE_STALE,
+          NativeSunVisibilityV2Stage::TIMELINE_HANDOFF, frame_id,
+          snapshot_id, "invalid-v2-frame-transaction"));
+    }
+
+    id<MTLTexture> base_hdr =
+        Decode<id<MTLTexture>>(v2_images_.base_hdr.image);
+    id<MTLTexture> sun_direct_hdr =
+        Decode<id<MTLTexture>>(v2_images_.sun_direct_hdr.image);
+    id<MTLTexture> visibility =
+        Decode<id<MTLTexture>>(v2_images_.visibility.image);
+    id<MTLTexture> lit_hdr = Decode<id<MTLTexture>>(v2_images_.lit_hdr.image);
+    id<MTLSharedEvent> timeline = Decode<id<MTLSharedEvent>>(
+        synchronization_.frontend_complete_timeline);
+    id<MTLCommandQueue> interop_queue = Decode<id<MTLCommandQueue>>(
+        synchronization_.interop_queue);
+    if (base_hdr == nil || sun_direct_hdr == nil || visibility == nil ||
+        lit_hdr == nil || timeline == nil || interop_queue != queue_ ||
+        base_hdr.device != device_ || sun_direct_hdr.device != device_ ||
+        visibility.device != device_ || lit_hdr.device != device_ ||
+        base_hdr.pixelFormat != MTLPixelFormatRGBA16Float ||
+        sun_direct_hdr.pixelFormat != MTLPixelFormatRGBA16Float ||
+        visibility.pixelFormat != MTLPixelFormatR16Float ||
+        lit_hdr.pixelFormat != MTLPixelFormatRGBA16Float ||
+        base_hdr.width != view.width || base_hdr.height != view.height ||
+        sun_direct_hdr.width != view.width ||
+        sun_direct_hdr.height != view.height || visibility.width != view.width ||
+        visibility.height != view.height || lit_hdr.width != view.width ||
+        lit_hdr.height != view.height) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::RESOURCE_STALE,
+          NativeSunVisibilityV2Stage::IMAGE_EXPORT, frame_id, snapshot_id,
+          "invalid-v2-metal-images"));
+    }
+
+    std::vector<MTLAccelerationStructureInstanceDescriptor> native_instances;
+    std::vector<SunVisibilityV2TlasInstanceSignature> tlas_signature;
+    NSMutableArray<id<MTLAccelerationStructure>> *blas_array =
+        [NSMutableArray arrayWithCapacity:admitted_instances.size()];
+    try {
+      native_instances.resize(admitted_instances.size());
+      tlas_signature.resize(admitted_instances.size());
+    } catch (const std::bad_alloc &) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD, frame_id,
+          snapshot_id, "v2-tlas-instance-allocation-failed"));
+    }
+    std::uint64_t caster_transform_revision = 0U;
+    std::uint64_t caster_instance_id = 0U;
+    for (std::size_t index = 0U; index < admitted_instances.size(); ++index) {
+      const MeshInstanceDescriptor &instance = *admitted_instances[index];
+      const NativeSunVisibilityV2InstanceSelection &selected =
+          plan.admitted_instances[index];
+      const BlasWork &work = blas_work[instance_work_indices[index]];
+      const bool receiver =
+          (selected.flags & NATIVE_SUN_VISIBILITY_V2_RECEIVER) != 0U;
+      const bool caster =
+          (selected.flags & NATIVE_SUN_VISIBILITY_V2_CASTER) != 0U;
+      const std::uint8_t mask =
+          static_cast<std::uint8_t>((receiver ? 0x01U : 0U) |
+                                    (caster ? 0x02U : 0U));
+      native_instances[index].transformationMatrix =
+          ToMetalTransform(instance.render_from_object);
+      native_instances[index].options =
+          MTLAccelerationStructureInstanceOptionNone;
+      native_instances[index].mask = mask;
+      native_instances[index].intersectionFunctionTableOffset = 0U;
+      native_instances[index].accelerationStructureIndex =
+          static_cast<std::uint32_t>(index);
+      [blas_array addObject:work.acceleration_structure];
+      tlas_signature[index].instance_id = instance.instance_id;
+      tlas_signature[index].blas_identity =
+          NativeIdentity(work.acceleration_structure);
+      tlas_signature[index].mask = mask;
+      tlas_signature[index].transform = instance.render_from_object;
+      if (caster) {
+        caster_instance_id = instance.instance_id;
+        caster_transform_revision = MatrixRevision(instance.render_from_object);
+      }
+    }
+    if (caster_instance_id == 0U || caster_transform_revision == 0U) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::INVALID_ARGUMENT,
+          NativeSunVisibilityV2Stage::SCENE_ADMISSION, frame_id, snapshot_id,
+          "v2-caster-lineage-missing"));
+    }
+
+    id<MTLBuffer> instance_buffer = [device_
+        newBufferWithBytes:native_instances.data()
+                    length:native_instances.size() *
+                           sizeof(MTLAccelerationStructureInstanceDescriptor)
+                   options:MTLResourceStorageModeShared];
+    MTLInstanceAccelerationStructureDescriptor *tlas_descriptor =
+        [MTLInstanceAccelerationStructureDescriptor descriptor];
+    if (instance_buffer == nil || tlas_descriptor == nil) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD, frame_id,
+          snapshot_id, "v2-tlas-descriptor-failed"));
+    }
+    tlas_descriptor.instanceDescriptorBuffer = instance_buffer;
+    tlas_descriptor.instanceDescriptorBufferOffset = 0U;
+    tlas_descriptor.instanceDescriptorStride =
+        sizeof(MTLAccelerationStructureInstanceDescriptor);
+    tlas_descriptor.instanceCount = native_instances.size();
+    tlas_descriptor.instancedAccelerationStructures = blas_array;
+    tlas_descriptor.usage = MTLAccelerationStructureUsageRefit;
+    const MTLAccelerationStructureSizes tlas_sizes =
+        [device_ accelerationStructureSizesWithDescriptor:tlas_descriptor];
+    if (tlas_sizes.accelerationStructureSize == 0U ||
+        tlas_sizes.buildScratchBufferSize == 0U ||
+        tlas_sizes.refitScratchBufferSize == 0U) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::UNSUPPORTED,
+          NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD, frame_id,
+          snapshot_id, "v2-tlas-sizes-invalid"));
+    }
+
+    enum class TlasOperation : std::uint8_t { BUILD, REFIT, HIT };
+    TlasOperation tlas_operation = TlasOperation::BUILD;
+    id<MTLAccelerationStructure> candidate_tlas = sun_visibility_v2_tlas_;
+    std::uint64_t candidate_tlas_bytes = sun_visibility_v2_tlas_bytes_;
+    if (candidate_tlas == nil ||
+        !SameTlasMembership(sun_visibility_v2_tlas_signature_,
+                            tlas_signature) ||
+        candidate_tlas_bytes < tlas_sizes.accelerationStructureSize) {
+      candidate_tlas = [device_
+          newAccelerationStructureWithSize:tlas_sizes.accelerationStructureSize];
+      candidate_tlas_bytes = tlas_sizes.accelerationStructureSize;
+      tlas_operation = TlasOperation::BUILD;
+    } else if (!SameTlasTransforms(sun_visibility_v2_tlas_signature_,
+                                   tlas_signature)) {
+      tlas_operation = TlasOperation::REFIT;
+    } else {
+      tlas_operation = TlasOperation::HIT;
+    }
+    if (candidate_tlas == nil) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD, frame_id,
+          snapshot_id, "v2-tlas-allocation-failed"));
+    }
+
+    NSUInteger scratch_required = 1U;
+    for (const BlasWork &work : blas_work) {
+      if (work.operation == BlasWork::Operation::BUILD) {
+        scratch_required =
+            std::max(scratch_required, work.sizes.buildScratchBufferSize);
+      } else if (work.operation == BlasWork::Operation::REFIT) {
+        scratch_required =
+            std::max(scratch_required, work.sizes.refitScratchBufferSize);
+      }
+    }
+    if (tlas_operation == TlasOperation::BUILD) {
+      scratch_required =
+          std::max(scratch_required, tlas_sizes.buildScratchBufferSize);
+    } else if (tlas_operation == TlasOperation::REFIT) {
+      scratch_required =
+          std::max(scratch_required, tlas_sizes.refitScratchBufferSize);
+    }
+    id<MTLBuffer> candidate_scratch = sun_visibility_v2_scratch_;
+    if (candidate_scratch == nil || candidate_scratch.length < scratch_required) {
+      candidate_scratch =
+          [device_ newBufferWithLength:scratch_required
+                               options:MTLResourceStorageModePrivate];
+    }
+    std::array<std::uint32_t, kSunVisibilityV2CounterCount> zero_counters{};
+    id<MTLBuffer> counters = [device_
+        newBufferWithBytes:zero_counters.data()
+                    length:sizeof(zero_counters)
+                   options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> command_buffer = [queue_ commandBuffer];
+    if (candidate_scratch == nil || counters == nil ||
+        counters.contents == nullptr || command_buffer == nil) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD, frame_id,
+          snapshot_id, "v2-command-resources-failed"));
+    }
+
+    Matrix4x4 render_from_clip;
+    if (!Invert(Multiply(view.clip_from_view, view.view_from_render),
+                render_from_clip)) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::UNSUPPORTED,
+          NativeSunVisibilityV2Stage::VISIBILITY_AND_COMPOSITE, frame_id,
+          snapshot_id, "v2-camera-inversion-failed"));
+    }
+    SunVisibilityV2Parameters parameters;
+    parameters.render_from_clip = ToSimd(render_from_clip);
+    parameters.surface_to_light_and_minimum_distance = simd_make_float4(
+        -sun->direction.x, -sun->direction.y, -sun->direction.z, 0.0001F);
+    parameters.width = view.width;
+    parameters.height = view.height;
+
+    [command_buffer encodeWaitForEvent:timeline
+                                  value:synchronization_.frontend_complete_value];
+    const auto as_encode_start = std::chrono::steady_clock::now();
+    bool has_as_work = tlas_operation != TlasOperation::HIT;
+    for (const BlasWork &work : blas_work) {
+      has_as_work = has_as_work || work.operation != BlasWork::Operation::HIT;
+    }
+    if (has_as_work) {
+      id<MTLAccelerationStructureCommandEncoder> encoder =
+          [command_buffer accelerationStructureCommandEncoder];
+      if (encoder == nil) {
+        return fail_before_submission(V2Failure(
+            NativeSunVisibilityV2Code::BACKEND_FAILURE,
+            NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
+            frame_id, snapshot_id, "v2-as-encoder-failed"));
+      }
+      for (const BlasWork &work : blas_work) {
+        if (work.operation == BlasWork::Operation::BUILD) {
+          [encoder buildAccelerationStructure:work.acceleration_structure
+                                    descriptor:work.descriptor
+                                 scratchBuffer:candidate_scratch
+                           scratchBufferOffset:0U];
+        } else if (work.operation == BlasWork::Operation::REFIT) {
+          [encoder refitAccelerationStructure:work.acceleration_structure
+                                    descriptor:work.descriptor
+                                   destination:nil
+                                 scratchBuffer:candidate_scratch
+                           scratchBufferOffset:0U];
+        }
+      }
+      if (tlas_operation == TlasOperation::BUILD) {
+        [encoder buildAccelerationStructure:candidate_tlas
+                                  descriptor:tlas_descriptor
+                               scratchBuffer:candidate_scratch
+                         scratchBufferOffset:0U];
+      } else if (tlas_operation == TlasOperation::REFIT) {
+        [encoder refitAccelerationStructure:candidate_tlas
+                                  descriptor:tlas_descriptor
+                                 destination:nil
+                               scratchBuffer:candidate_scratch
+                         scratchBufferOffset:0U];
+      }
+      [encoder endEncoding];
+    }
+    const std::uint64_t as_encode_nanoseconds = std::max<std::uint64_t>(
+        1U, std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - as_encode_start)
+                .count());
+
+    const auto ray_encode_start = std::chrono::steady_clock::now();
+    id<MTLComputeCommandEncoder> compute =
+        [command_buffer computeCommandEncoder];
+    if (compute == nil) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::VISIBILITY_AND_COMPOSITE, frame_id,
+          snapshot_id, "v2-compute-encoder-failed"));
+    }
+    [compute setComputePipelineState:sun_visibility_v2_pipeline_];
+    [compute setAccelerationStructure:candidate_tlas atBufferIndex:0U];
+    [compute setBytes:&parameters length:sizeof(parameters) atIndex:1U];
+    [compute setBuffer:counters offset:0U atIndex:2U];
+    [compute setTexture:base_hdr atIndex:0U];
+    [compute setTexture:sun_direct_hdr atIndex:1U];
+    [compute setTexture:visibility atIndex:2U];
+    [compute setTexture:lit_hdr atIndex:3U];
+    const NSUInteger thread_width =
+        sun_visibility_v2_pipeline_.threadExecutionWidth;
+    const NSUInteger thread_height = std::max<NSUInteger>(
+        1U, sun_visibility_v2_pipeline_.maxTotalThreadsPerThreadgroup /
+                thread_width);
+    [compute dispatchThreads:MTLSizeMake(view.width, view.height, 1U)
+          threadsPerThreadgroup:MTLSizeMake(thread_width, thread_height, 1U)];
+    [compute endEncoding];
+    [command_buffer encodeSignalEvent:timeline
+                                 value:synchronization_.external_complete_value];
+    const std::uint64_t ray_encode_nanoseconds = std::max<std::uint64_t>(
+        1U, std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - ray_encode_start)
+                .count());
+
+    dispatch_semaphore_t completion = dispatch_semaphore_create(0);
+    [command_buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+      dispatch_semaphore_signal(completion);
+    }];
+    if (!sun_visibility_v2_lifecycle_.MarkSubmitted()) {
+      return fail_before_submission(V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::TIMELINE_HANDOFF, frame_id,
+          snapshot_id, "v2-lifecycle-submit-rejected"));
+    }
+    operation = bridge_->MarkExternalSubmitted(synchronization_);
+    if (!operation) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          ToV2Code(operation.code), NativeSunVisibilityV2Stage::TIMELINE_HANDOFF,
+          frame_id, snapshot_id, "v2-interop-submit-rejected");
+      static_cast<void>(AbandonAfterFault(operation));
+      return failure;
+    }
+    command_submitted_ = true;
+    submission_kind_ = SubmissionKind::V2_SUN_VISIBILITY;
+    command_buffer_ = command_buffer;
+    completion_ = completion;
+    instance_buffer_ = instance_buffer;
+    v2_counter_buffer_ = counters;
+    v2_pending_blas_cache_ = std::move(candidate_cache);
+    v2_pending_tlas_ = candidate_tlas;
+    v2_pending_tlas_bytes_ = candidate_tlas_bytes;
+    v2_pending_tlas_signature_ = tlas_signature;
+    v2_pending_scratch_ = candidate_scratch;
+    [command_buffer commit];
+
+    if (dispatch_semaphore_wait(completion_,
+                                Deadline(request.timeout_nanoseconds)) != 0) {
+      const NativeSunVisibilityV2Result timeout = V2Failure(
+          NativeSunVisibilityV2Code::TIMEOUT,
+          NativeSunVisibilityV2Stage::EXTERNAL_COMPLETION, frame_id,
+          snapshot_id, "v2-command-timeout");
+      static_cast<void>(
+          sun_visibility_v2_lifecycle_.ObserveSubmittedFault(timeout));
+      v2_submitted_fault_ = timeout;
+      return timeout;
+    }
+    completion_observed_ = true;
+    operation = ObserveSubmittedCommand();
+    if (!operation) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          ToV2Code(operation.code),
+          NativeSunVisibilityV2Stage::EXTERNAL_COMPLETION, frame_id,
+          snapshot_id, operation.code == RenderOperationCode::TIMEOUT
+                                ? "v2-observation-timeout"
+                                : "v2-command-device-lost");
+      static_cast<void>(
+          sun_visibility_v2_lifecycle_.ObserveSubmittedFault(failure));
+      static_cast<void>(AbandonAfterFault(operation));
+      return failure;
+    }
+
+    const auto *observed = static_cast<const std::uint32_t *>(
+        v2_counter_buffer_.contents);
+    const std::array<std::uint32_t, kSunVisibilityV2CounterCount>
+        observed_counters{{observed[0U], observed[1U], observed[2U],
+                           observed[3U], observed[4U], observed[5U]}};
+    const std::uint64_t pixels =
+        static_cast<std::uint64_t>(view.width) * view.height;
+    if (observed_counters[0U] != pixels ||
+        observed_counters[1U] == 0U || observed_counters[1U] > pixels ||
+        observed_counters[2U] + observed_counters[3U] != pixels ||
+        observed_counters[4U] != pixels || observed_counters[5U] != pixels) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::VISIBILITY_AND_COMPOSITE, frame_id,
+          snapshot_id, "v2-telemetry-counter-mismatch");
+      static_cast<void>(AbandonAfterFault(BackendFailure(failure.detail)));
+      return failure;
+    }
+
+    operation = bridge_->MarkExternalCompleted(synchronization_);
+    if (!operation) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          ToV2Code(operation.code),
+          NativeSunVisibilityV2Stage::EXTERNAL_COMPLETION, frame_id,
+          snapshot_id, "v2-completion-rejected");
+      static_cast<void>(AbandonAfterFault(operation));
+      return failure;
+    }
+    external_completed_ = true;
+    operation = bridge_->EndExternalFrame(synchronization_);
+    if (!operation) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          ToV2Code(operation.code),
+          NativeSunVisibilityV2Stage::PRESENT_CONTINUATION, frame_id,
+          snapshot_id, "v2-return-handoff-failed");
+      static_cast<void>(AbandonAfterFault(operation));
+      return failure;
+    }
+    frame_live_ = false;
+
+    NativeSunVisibilityV2FrameContract candidate;
+    candidate.capabilities.backend = NativeDirectionalShadowBackend::METAL;
+    candidate.capabilities.supports_raytracing = true;
+    candidate.capabilities.apple_family_9 = true;
+    candidate.capabilities.same_ogre_device = true;
+    candidate.capabilities.same_ogre_queue = true;
+    candidate.capabilities.same_ogre_timeline = true;
+    candidate.capabilities.two_level_acceleration_structures = true;
+    candidate.capabilities.r16_float_visibility = true;
+    candidate.capabilities.separate_rgba16_base_and_sun_direct = true;
+    candidate.capabilities.rgba16_float_lit_composite = true;
+    candidate.capabilities.directional_self_hit_bias = true;
+    candidate.frame_id = frame_id;
+    candidate.snapshot_id = snapshot_id;
+    candidate.view_id = view.view_id;
+    candidate.scene_plan_digest = plan.scene_plan_digest;
+    candidate.width = view.width;
+    candidate.height = view.height;
+    candidate.selected_instance_count =
+        static_cast<std::uint32_t>(request.selection.size());
+    candidate.admitted_instance_count =
+        static_cast<std::uint32_t>(plan.admitted_instances.size());
+    candidate.receiver_count = plan.receiver_count;
+    candidate.caster_count = plan.caster_count;
+    candidate.excluded_alpha_layer_count =
+        plan.excluded_alpha_layer_count;
+    candidate.excluded_decal_count = plan.excluded_decal_count;
+    candidate.excluded_rt_inert_count = plan.excluded_rt_inert_count;
+    candidate.excluded_instance_count =
+        candidate.excluded_alpha_layer_count +
+        candidate.excluded_decal_count + candidate.excluded_rt_inert_count;
+    candidate.raster_visible_receiver_count =
+        plan.raster_visible_receiver_count;
+    candidate.raster_visible_caster_count = plan.raster_visible_caster_count;
+    candidate.raster_visible_caster_receiver_count =
+        plan.raster_visible_caster_count;
+    candidate.unique_mesh_count =
+        static_cast<std::uint32_t>(plan.unique_mesh_ids.size());
+    for (const BlasWork &work : blas_work) {
+      candidate.blas_build_count +=
+          work.operation == BlasWork::Operation::BUILD;
+      candidate.blas_refit_count +=
+          work.operation == BlasWork::Operation::REFIT;
+      candidate.blas_cache_hit_count +=
+          work.operation == BlasWork::Operation::HIT;
+      candidate.blas_resident_bytes += work.resident_bytes;
+    }
+    candidate.tlas_build_count =
+        tlas_operation == TlasOperation::BUILD ? 1U : 0U;
+    candidate.tlas_refit_count =
+        tlas_operation == TlasOperation::REFIT ? 1U : 0U;
+    candidate.tlas_cache_hit_count =
+        tlas_operation == TlasOperation::HIT ? 1U : 0U;
+    candidate.tlas_instance_count =
+        static_cast<std::uint32_t>(admitted_instances.size());
+    candidate.tlas_resident_bytes = candidate_tlas_bytes;
+    candidate.acceleration_structure_scratch_peak_bytes =
+        candidate_scratch.length;
+    candidate.primary_ray_count = observed_counters[0U];
+    candidate.secondary_sun_visibility_ray_count = observed_counters[1U];
+    candidate.primary_miss_count = pixels - observed_counters[1U];
+    candidate.visible_visibility_texel_count = observed_counters[2U];
+    candidate.occluded_visibility_texel_count = observed_counters[3U];
+    candidate.visibility_texel_count = pixels;
+    candidate.composite_pixel_count = observed_counters[4U];
+    candidate.opaque_alpha_pixel_count = observed_counters[5U];
+    candidate.acceleration_structure_encode_nanoseconds =
+        as_encode_nanoseconds;
+    candidate.ray_composite_encode_nanoseconds = ray_encode_nanoseconds;
+    const double gpu_seconds =
+        command_buffer.GPUEndTime - command_buffer.GPUStartTime;
+    candidate.gpu_execution_nanoseconds = std::max<std::uint64_t>(
+        1U, std::isfinite(gpu_seconds) && gpu_seconds > 0.0
+                ? static_cast<std::uint64_t>(gpu_seconds * 1.0e9)
+                : 1U);
+    candidate.minimum_ray_distance_meters = 0.0001F;
+    candidate.self_hit_origin_bias_multiplier = 2.0F;
+    candidate.production_cpu_content_readbacks = 0U;
+    candidate.production_gpu_content_readbacks = 0U;
+    candidate.shader_lock_verified = true;
+    candidate.base_hdr_preserved_under_occlusion = true;
+    candidate.sun_direct_only_visibility_modulation = true;
+    candidate.output_opaque_alpha = true;
+    candidate.submission_completed = true;
+    candidate.acceptance_samples_validated = false;
+    candidate.acceptance_caster_instance_id = caster_instance_id;
+    candidate.acceptance_caster_transform_revision =
+        caster_transform_revision;
+    candidate.result = V2Result(NativeSunVisibilityV2Code::OK,
+                                NativeSunVisibilityV2Stage::COMPLETE,
+                                frame_id, snapshot_id, "ok");
+    const ValidationResult contract_validation =
+        ValidateNativeSunVisibilityV2FrameContract(candidate);
+    if (!contract_validation) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::PRESENT_CONTINUATION, frame_id,
+          snapshot_id, "v2-terminal-contract-invalid");
+      static_cast<void>(AbandonAfterFault(BackendFailure(failure.detail)));
+      return failure;
+    }
+    NativeSunVisibilityV2Result continuation =
+        sun_visibility_v2_interop_
+            ->ContinuePresentationFromSunVisibilityV2LitHdr(
+                v2_images_, synchronization_);
+    if (continuation.code != NativeSunVisibilityV2Code::OK) {
+      static_cast<void>(AbandonAfterFault(BackendFailure(
+          "Metal V2 LitHdr presentation continuation failed")));
+      return continuation;
+    }
+    release_image();
+    release_geometry();
+    if (!sun_visibility_v2_lifecycle_.Complete()) {
+      const NativeSunVisibilityV2Result failure = V2Failure(
+          NativeSunVisibilityV2Code::BACKEND_FAILURE,
+          NativeSunVisibilityV2Stage::PRESENT_CONTINUATION, frame_id,
+          snapshot_id, "v2-lifecycle-completion-rejected");
+      static_cast<void>(AbandonAfterFault(BackendFailure(failure.detail)));
+      return failure;
+    }
+
+    sun_visibility_v2_blas_cache_ = std::move(v2_pending_blas_cache_);
+    sun_visibility_v2_tlas_ = v2_pending_tlas_;
+    sun_visibility_v2_tlas_bytes_ = v2_pending_tlas_bytes_;
+    sun_visibility_v2_tlas_signature_ =
+        std::move(v2_pending_tlas_signature_);
+    sun_visibility_v2_scratch_ = v2_pending_scratch_;
+    ClearCompletedV2SubmissionState();
+    contract = std::move(candidate);
+    return contract.result;
+  }
+
   RenderOperationResult ValidateInteropEvidence(
       const NativeGeometryExport &geometry,
       const NativeFrameSynchronization &synchronization) const {
@@ -1489,6 +2682,14 @@ public:
       completion_observed_ = true;
     }
     if (command_submitted_) {
+      if (submission_kind_ == SubmissionKind::V2_SUN_VISIBILITY &&
+          v2_submitted_fault_.code != NativeSunVisibilityV2Code::OK) {
+        return AbandonAfterFault(Failure(
+            v2_submitted_fault_.code == NativeSunVisibilityV2Code::TIMEOUT
+                ? RenderOperationCode::TIMEOUT
+                : RenderOperationCode::DEVICE_LOST,
+            v2_submitted_fault_.detail));
+      }
       dispatch_result = ObserveSubmittedCommand();
       if (!dispatch_result &&
           (dispatch_result.code == RenderOperationCode::DEVICE_LOST ||
@@ -1516,6 +2717,10 @@ public:
     ReleaseSecondaryGeometry();
     ReleaseGeometry();
     bridge_->SetRayTracingProof(false, false);
+    if (mode_ == OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY &&
+        !sun_visibility_v2_lifecycle_.Shutdown(true)) {
+      return BackendFailure("Metal V2 lifecycle rejected clean shutdown");
+    }
     const RenderOperationResult unregistered =
         bridge_->UnregisterRayTracingBackend();
     if (!unregistered) {
@@ -2216,6 +3421,16 @@ private:
       }
       return RenderOperationResult::Success();
     }
+    if (submission_kind_ == SubmissionKind::V2_SUN_VISIBILITY) {
+      if (v2_counter_buffer_ == nil ||
+          v2_counter_buffer_.contents == nullptr ||
+          v2_counter_buffer_.length <
+              kSunVisibilityV2CounterCount * sizeof(std::uint32_t)) {
+        return BackendFailure(
+            "submitted Metal V2 command has incomplete telemetry counters");
+      }
+      return RenderOperationResult::Success();
+    }
     if (submission_kind_ == SubmissionKind::N4_DIRECTIONAL_SHADOW) {
       if (raster_readback_buffer_ == nil ||
           visibility_readback_buffer_ == nil ||
@@ -2889,11 +4104,54 @@ private:
 #endif
   }
 
+  void ClearCompletedV2SubmissionState() noexcept {
+    command_buffer_ = nil;
+    completion_ = nullptr;
+    instance_buffer_ = nil;
+    v2_counter_buffer_ = nil;
+    v2_pending_blas_cache_.clear();
+    v2_pending_tlas_ = nil;
+    v2_pending_tlas_bytes_ = 0U;
+    v2_pending_tlas_signature_.clear();
+    v2_pending_scratch_ = nil;
+    synchronization_ = {};
+    submission_kind_ = SubmissionKind::NONE;
+    command_submitted_ = false;
+    completion_observed_ = false;
+    external_completed_ = false;
+    frame_live_ = false;
+    v2_geometry_exports_.clear();
+    v2_images_ = {};
+    v2_image_live_ = false;
+    v2_submitted_fault_ = {};
+#if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
+    test_observation_ = OgreNextMetalN2TestObservation::NONE;
+#endif
+  }
+
   void ResetNativeState() noexcept {
     ClearTransientSubmissionState();
+    v2_geometry_exports_.clear();
+    v2_images_ = {};
+    v2_image_live_ = false;
+    v2_counter_buffer_ = nil;
+    sun_visibility_v2_blas_cache_.clear();
+    v2_pending_blas_cache_.clear();
+    sun_visibility_v2_tlas_ = nil;
+    sun_visibility_v2_tlas_bytes_ = 0U;
+    sun_visibility_v2_tlas_signature_.clear();
+    v2_pending_tlas_ = nil;
+    v2_pending_tlas_bytes_ = 0U;
+    v2_pending_tlas_signature_.clear();
+    sun_visibility_v2_scratch_ = nil;
+    v2_pending_scratch_ = nil;
+    v2_submitted_fault_ = {};
+    sun_visibility_v2_lifecycle_ = {};
     pipeline_ = nil;
     hybrid_pipeline_ = nil;
     directional_shadow_pipeline_ = nil;
+    sun_visibility_v2_pipeline_ = nil;
+    sun_visibility_v2_interop_ = nullptr;
     queue_ = nil;
     device_ = nil;
     n3_enabled_ = false;
@@ -2911,6 +4169,7 @@ private:
   id<MTLComputePipelineState> pipeline_ = nil;
   id<MTLComputePipelineState> hybrid_pipeline_ = nil;
   id<MTLComputePipelineState> directional_shadow_pipeline_ = nil;
+  id<MTLComputePipelineState> sun_visibility_v2_pipeline_ = nil;
   id<MTLCommandBuffer> command_buffer_ = nil;
   id<MTLBuffer> result_buffer_ = nil;
   id<MTLBuffer> scratch_ = nil;
@@ -2926,9 +4185,30 @@ private:
   id<MTLAccelerationStructure> blas_ = nil;
   id<MTLAccelerationStructure> secondary_blas_ = nil;
   id<MTLAccelerationStructure> tlas_ = nil;
+  OgreNextSunVisibilityV2NativeInterop *sun_visibility_v2_interop_ = nullptr;
+  NativeSunVisibilityV2LifecycleTracker sun_visibility_v2_lifecycle_;
+  std::vector<NativeGeometryExport> v2_geometry_exports_;
+  OgreNextSunVisibilityV2ImageSetExport v2_images_;
+  id<MTLBuffer> v2_counter_buffer_ = nil;
+  std::map<SunVisibilityV2BlasKey, SunVisibilityV2BlasCacheEntry>
+      sun_visibility_v2_blas_cache_;
+  std::map<SunVisibilityV2BlasKey, SunVisibilityV2BlasCacheEntry>
+      v2_pending_blas_cache_;
+  id<MTLAccelerationStructure> sun_visibility_v2_tlas_ = nil;
+  std::uint64_t sun_visibility_v2_tlas_bytes_ = 0U;
+  std::vector<SunVisibilityV2TlasInstanceSignature>
+      sun_visibility_v2_tlas_signature_;
+  id<MTLAccelerationStructure> v2_pending_tlas_ = nil;
+  std::uint64_t v2_pending_tlas_bytes_ = 0U;
+  std::vector<SunVisibilityV2TlasInstanceSignature>
+      v2_pending_tlas_signature_;
+  id<MTLBuffer> sun_visibility_v2_scratch_ = nil;
+  id<MTLBuffer> v2_pending_scratch_ = nil;
+  NativeSunVisibilityV2Result v2_submitted_fault_;
   dispatch_semaphore_t completion_ = nullptr;
   std::thread::id owner_thread_;
   SubmissionKind submission_kind_ = SubmissionKind::NONE;
+  std::string packaged_v2_shader_path_;
   OgreNextMetalRayTracingMode mode_ =
       OgreNextMetalRayTracingMode::AUTOMATIC_N2_N3;
   bool initialized_ = false;
@@ -2936,6 +4216,7 @@ private:
   bool geometry_live_ = false;
   bool secondary_geometry_live_ = false;
   bool image_live_ = false;
+  bool v2_image_live_ = false;
   bool frame_live_ = false;
   bool command_submitted_ = false;
   bool completion_observed_ = false;
@@ -2953,6 +4234,11 @@ OgreNextMetalRayTracingBackend::OgreNextMetalRayTracingBackend()
 OgreNextMetalRayTracingBackend::OgreNextMetalRayTracingBackend(
     OgreNextMetalRayTracingMode mode)
     : impl_(std::make_unique<Impl>(mode)) {}
+
+OgreNextMetalRayTracingBackend::OgreNextMetalRayTracingBackend(
+    OgreNextMetalRayTracingMode mode, std::string packaged_v2_shader_path)
+    : impl_(std::make_unique<Impl>(mode,
+                                  std::move(packaged_v2_shader_path))) {}
 
 OgreNextMetalRayTracingBackend::~OgreNextMetalRayTracingBackend() {
   if (impl_) {
@@ -2973,6 +4259,13 @@ OgreNextMetalRayTracingBackend::Initialize(NativeRenderInterop &interop) {
 RenderOperationResult OgreNextMetalRayTracingBackend::Render(
     const NativeRayTracingFrameRequest &request, RenderFrameOutput &output) {
   return impl_->Render(request, output);
+}
+
+NativeSunVisibilityV2Result
+OgreNextMetalRayTracingBackend::RenderSunVisibilityV2(
+    const OgreNextMetalSunVisibilityV2FrameRequest &request,
+    NativeSunVisibilityV2FrameContract &contract) {
+  return impl_->RenderSunVisibilityV2(request, contract);
 }
 
 RenderOperationResult OgreNextMetalRayTracingBackend::RunGeometryInteropProbe(

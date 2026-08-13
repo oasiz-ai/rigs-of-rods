@@ -13,6 +13,7 @@
 
 #include "../RendererFrontend.h"
 #include "NativeDirectionalShadowContract.h"
+#include "NativeSunVisibilityV2Contract.h"
 
 #include <array>
 #include <cstdint>
@@ -27,6 +28,15 @@ namespace RoR::Render {
 enum class OgreNextMetalRayTracingMode : std::uint8_t {
   AUTOMATIC_N2_N3 = 0,
   N4_DIRECTIONAL_HARD_SHADOW = 1,
+  V2_SUN_VISIBILITY = 2,
+};
+
+struct OgreNextMetalSunVisibilityV2FrameRequest final {
+  std::uint32_t version = kNativeSunVisibilityV2ContractVersion;
+  NativeRayTracingFrameRequest ray_tracing;
+  std::vector<NativeSunVisibilityV2InstanceSelection> selection;
+  std::uint64_t timeout_nanoseconds = UINT64_C(5) * UINT64_C(1000) *
+                                      UINT64_C(1000) * UINT64_C(1000);
 };
 
 #if defined(ROR_OGRE_NEXT_N2_TEST_SEAM)
@@ -122,6 +132,8 @@ public:
   OgreNextMetalRayTracingBackend();
   explicit OgreNextMetalRayTracingBackend(
       OgreNextMetalRayTracingMode mode);
+  OgreNextMetalRayTracingBackend(OgreNextMetalRayTracingMode mode,
+                                 std::string packaged_v2_shader_path);
   ~OgreNextMetalRayTracingBackend() override;
 
   OgreNextMetalRayTracingBackend(
@@ -140,6 +152,12 @@ public:
   /// camera rays, and returns a tightly packed hybrid CPU readback.
   RenderOperationResult Render(const NativeRayTracingFrameRequest &request,
                                RenderFrameOutput &output) override;
+  /// GPU-only V2 entry point. Successful completion has already queued the
+  /// frontend's post-external LitHdr continuation; no CPU FrameAttachment or
+  /// production image-content readback is produced.
+  NativeSunVisibilityV2Result RenderSunVisibilityV2(
+      const OgreNextMetalSunVisibilityV2FrameRequest &request,
+      NativeSunVisibilityV2FrameContract &contract);
   RenderOperationResult RunGeometryInteropProbe(
       const NativeRayTracingFrameRequest &request);
   [[nodiscard]] RenderOperationResult ValidateInteropEvidence(

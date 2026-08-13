@@ -82,6 +82,39 @@ struct OgreNextSunVisibilityV2ImageSetExport final {
   OgreNextSunVisibilityV2ImageBinding lit_hdr;
 };
 
+/// Frontend-owned continuation invoked only after the external Metal command
+/// completed and Ogre accepted EndExternalFrame(). The implementation queues
+/// tone mapping/presentation from the exact Ogre LitHdr texture; it never
+/// presents a native texture independently of Ogre's compositor.
+class OgreNextSunVisibilityV2PresentationContinuation {
+public:
+  virtual ~OgreNextSunVisibilityV2PresentationContinuation() = default;
+  virtual NativeSunVisibilityV2Result ContinueFromLitHdr(
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      std::uint64_t view_id, std::uintptr_t ogre_lit_hdr_texture) = 0;
+};
+
+/// Raw Ogre publication payload. Only the compile-isolated Metal adapter may
+/// decode these TextureGpu identities. The frontend retains every texture,
+/// snapshot, and continuation until the prepared/published transaction and
+/// any acquired image-set lease have been released.
+struct OgreNextSunVisibilityV2FrameImageBinding final {
+  std::uint32_t version = kOgreNextSunVisibilityV2ImageInteropVersion;
+  std::uint64_t frame_id = 0U;
+  std::uint64_t snapshot_id = 0U;
+  std::uint64_t view_id = 0U;
+  std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  CameraViewRequest view;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uintptr_t ogre_base_hdr_texture = 0U;
+  std::uintptr_t ogre_sun_direct_hdr_texture = 0U;
+  std::uintptr_t ogre_visibility_texture = 0U;
+  std::uintptr_t ogre_lit_hdr_texture = 0U;
+  OgreNextSunVisibilityV2PresentationContinuation *presentation_continuation =
+      nullptr;
+};
+
 [[nodiscard]] ValidationResult
 ValidateOgreNextSunVisibilityV2ImageSetRequest(
     const OgreNextSunVisibilityV2ImageSetRequest &request);
@@ -104,6 +137,14 @@ ValidateOgreNextSunVisibilityV2FrameTransaction(
 class OgreNextSunVisibilityV2NativeInterop {
 public:
   virtual ~OgreNextSunVisibilityV2NativeInterop() = default;
+
+  virtual NativeSunVisibilityV2Result PreparePublishSunVisibilityV2ImageSet(
+      const OgreNextSunVisibilityV2FrameImageBinding &binding) = 0;
+  [[nodiscard]] virtual bool CanCommitPreparedSunVisibilityV2ImageSet(
+      std::uint64_t frame_id,
+      std::uint64_t snapshot_id) const noexcept = 0;
+  virtual void CommitPreparedSunVisibilityV2ImageSet() noexcept = 0;
+  virtual void AbortPreparedSunVisibilityV2ImageSet() noexcept = 0;
 
   virtual NativeSunVisibilityV2Result AcquireSunVisibilityV2ImageSet(
       const OgreNextSunVisibilityV2ImageSetRequest &request,
