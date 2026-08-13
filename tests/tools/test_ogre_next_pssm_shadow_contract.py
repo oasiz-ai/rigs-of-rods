@@ -386,6 +386,8 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         for token in (
             "setCastShadows(casts_shadow)",
             "setReceiveShadows(false)",
+            "std::string(kOgreNextUvAffinePbsDatablockPrefix)",
+            '"PssmNonReceiver_f"',
             "mIncludeOverlays = false",
             "PixelFormat::RGBA16_FLOAT",
             "PixelFormat::RGBA8_SRGB",

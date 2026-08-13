@@ -8755,8 +8755,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
           material->second.Datablock();
       Ogre::HlmsPbsDatablock *instance_pbs_datablock = pbs_datablock;
       if (pbs_material && shadow_plan.enabled && !receives_shadow) {
+        // Cloned non-receiver datablocks must stay inside the same reviewed
+        // RoR PBS shader domain as their source. The custom UV0 affine piece
+        // is deliberately selected by this reserved prefix in both the
+        // normal and shadow-caster hashes; dropping it here would change the
+        // authored texture coordinates on every non-receiver.
         const std::string receiver_name =
-            "RoRPssmReceiver_f" + std::to_string(request.frame_id) + "_i" +
+            std::string(kOgreNextUvAffinePbsDatablockPrefix) +
+            "PssmNonReceiver_f" + std::to_string(request.frame_id) + "_i" +
             std::to_string(instance.instance_id);
         Ogre::HlmsDatablock *cloned = nullptr;
         bool creation_counted = false;
