@@ -1547,6 +1547,15 @@ texture, material-script, or shader bytes are forbidden unless a recorded
 license explicitly permits a derivative. Independent creation alone does not
 establish ownership or redistribution permission.
 
+Rendering fidelity is the immediate product priority; BeamNG-format and legacy
+content interoperability are nonblocking secondary lanes. The showcase is not
+complete merely because one material, sky, shadow, or native-RT proof runs. The
+versioned [native visual showcase contract](NATIVE_VISUAL_SHOWCASE_V1.md)
+requires complete Raster High and Native RT Ultra reports with visible witnesses
+for every PBR, HDR-lighting, atmosphere, shadow, reflection, water, volumetric,
+particle, temporal, and post-processing pass. Missing passes remain explicit
+roadmap work and cannot be hidden behind a compatibility conversion or fallback.
+
 V2 planning parameters:
 
 - `native_asset_default=on` and `legacy_conversion_default=off`.

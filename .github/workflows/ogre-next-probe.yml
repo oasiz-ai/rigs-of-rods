@@ -489,6 +489,7 @@ jobs:
           python tests/tools/test_ogre_next_linux_static_closure.py
           python tests/tools/test_ogre_next_metal_n3_contract.py
           python tests/tools/test_ogre_next_metal_n4_contract.py
+          python tests/tools/test_verify_native_visual_showcase.py
           python tests/tools/test_ogre_next_probe_workflow.py
           python tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py
@@ -515,6 +516,7 @@ jobs:
           python -O tests/tools/test_ogre_next_linux_static_closure.py
           python -O tests/tools/test_ogre_next_metal_n3_contract.py
           python -O tests/tools/test_ogre_next_metal_n4_contract.py
+          python -O tests/tools/test_verify_native_visual_showcase.py
           python -O tests/tools/test_ogre_next_probe_workflow.py
           python -O tests/tools/test_ogre14_authenticated_texture_capture_bridge_contract.py
           python -O tests/tools/test_ogre14_terrain_composite_capture_receipt_contract.py

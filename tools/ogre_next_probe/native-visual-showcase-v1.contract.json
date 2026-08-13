@@ -1,0 +1,238 @@
+{
+  "schema": "ror.native_visual_showcase_contract.v1",
+  "version": 1,
+  "product_path": "forward-native",
+  "minimum_width": 1920,
+  "minimum_height": 1080,
+  "minimum_main_sequence_frames": 600,
+  "required_modes": [
+    "raster_high",
+    "native_rt_ultra"
+  ],
+  "required_artifacts": [
+    "raster_all_on",
+    "native_rt_all_on",
+    "native_rt_moved_caster",
+    "water_weather_motion",
+    "particles_motion",
+    "ui_gameplay"
+  ],
+  "required_passes": [
+    {
+      "id": "pbr_geometry",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": [],
+      "minimum_completed_frames": 600,
+      "witness_metric": "distinct_material_response_regions",
+      "minimum_witness_value": 6
+    },
+    {
+      "id": "alpha_mask_and_blend",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "accepted_alpha_edge_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "emissive_materials",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "emissive_pixels",
+      "minimum_witness_value": 64
+    },
+    {
+      "id": "base_hdr",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry", "emissive_materials"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "finite_hdr_pixels",
+      "minimum_witness_value": 2073600
+    },
+    {
+      "id": "sun_direct_hdr",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "positive_direct_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "pssm_directional_shadow",
+      "version": 1,
+      "modes": ["raster_high"],
+      "depends_on": ["sun_direct_hdr"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "shadow_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "native_rt_sun_visibility",
+      "version": 2,
+      "modes": ["native_rt_ultra"],
+      "depends_on": ["sun_direct_hdr"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "ray_traced_shadow_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "analytic_atmosphere",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["base_hdr", "sun_direct_hdr"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "sky_gradient_rows",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "reflection_probe_ibl",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "probe_affected_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "screen_space_reflections",
+      "version": 1,
+      "modes": ["raster_high"],
+      "depends_on": ["base_hdr", "reflection_probe_ibl"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "screen_space_reflection_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "native_rt_reflections",
+      "version": 1,
+      "modes": ["native_rt_ultra"],
+      "depends_on": ["base_hdr", "reflection_probe_ibl"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "ray_traced_reflection_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "reflection_denoiser",
+      "version": 1,
+      "modes": ["native_rt_ultra"],
+      "depends_on": ["native_rt_reflections", "motion_vectors"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "temporally_stable_reflection_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "ambient_occlusion",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "occlusion_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "water_reflection_refraction",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["base_hdr", "reflection_probe_ibl"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "water_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "volumetric_clouds",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["analytic_atmosphere"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "cloud_covered_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "volumetric_fog_light_shafts",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["analytic_atmosphere", "sun_direct_hdr"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "fog_or_light_shaft_changed_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "transparent_particles",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["volumetric_fog_light_shafts"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "particle_covered_pixels",
+      "minimum_witness_value": 64
+    },
+    {
+      "id": "motion_vectors",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["pbr_geometry"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "nonzero_motion_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "temporal_aa",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["motion_vectors", "transparent_particles"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "stabilized_edge_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "bloom",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["emissive_materials"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "bloom_changed_pixels",
+      "minimum_witness_value": 64
+    },
+    {
+      "id": "auto_exposure",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["base_hdr"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "adapted_pixels",
+      "minimum_witness_value": 128
+    },
+    {
+      "id": "filmic_tone_mapping",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["bloom", "auto_exposure", "temporal_aa"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "tone_mapped_pixels",
+      "minimum_witness_value": 2073600
+    },
+    {
+      "id": "srgb_output_transfer",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["filmic_tone_mapping"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "output_pixels",
+      "minimum_witness_value": 2073600
+    },
+    {
+      "id": "ui_composite",
+      "version": 1,
+      "modes": ["raster_high", "native_rt_ultra"],
+      "depends_on": ["srgb_output_transfer"],
+      "minimum_completed_frames": 600,
+      "witness_metric": "ui_covered_pixels",
+      "minimum_witness_value": 64
+    }
+  ]
+}
