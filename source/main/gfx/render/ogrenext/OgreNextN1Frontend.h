@@ -546,6 +546,33 @@ struct OgreNextN1TextureAllocationAudit final {
   bool exact_usage = false;
 };
 
+constexpr std::uint32_t kOgreNextN1PbsUv0AffineStateVersion = 1U;
+
+/// Exact CPU-visible Ogre datablock receipt for one live RT4/V1 PBS material.
+/// This reads native material metadata only; it performs no framebuffer or
+/// texture-content readback. `native_texture_slot_readbacks` counts every
+/// actual PBS slot, including both native slots lowered from one authored
+/// metallic-roughness binding.
+struct OgreNextN1PbsUv0AffineState final {
+  std::uint32_t version = kOgreNextN1PbsUv0AffineStateVersion;
+  RenderAssetReference material;
+  Float2 scale{1.0F, 1.0F};
+  Float2 offset;
+  std::uint32_t portable_texture_binding_count = 0U;
+  std::uint32_t native_texture_slot_count = 0U;
+  std::uint32_t native_texture_slot_readbacks = 0U;
+  std::uint32_t native_user_value_readbacks = 0U;
+  bool live = false;
+  bool pbs = false;
+  bool transformed = false;
+  bool uv0_only = false;
+  bool positive_scale = false;
+  bool rotation_zero = false;
+  bool shared_across_bound_slots = false;
+  bool shader_piece_selected = false;
+  bool exact_native_state = false;
+};
+
 /// First production adapter behind the renderer-neutral boundary.
 ///
 /// Ogre headers and native objects are confined to the private implementation.
@@ -566,6 +593,8 @@ public:
   [[nodiscard]] FrontendCapabilityReport QueryCapabilities() const override;
   [[nodiscard]] OgreNextN1TextureAllocationAudit
   QueryTextureAllocationAudit() const noexcept;
+  [[nodiscard]] OgreNextN1PbsUv0AffineState
+  QueryPbsUv0AffineState(RenderAssetReference material) const noexcept;
   [[nodiscard]] OgreNextReflectionProbeAudit
   QueryReflectionProbeAudit() const noexcept;
   [[nodiscard]] OgreNextN1ParticleRuntimeAudit

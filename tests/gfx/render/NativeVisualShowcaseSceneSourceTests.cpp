@@ -353,7 +353,7 @@ void TestSnapshotProducerAcceptsStableAndMovedFrames() {
   }
 }
 
-void TestCurrentRt4UvTransformAdmissionRemainsExplicitlyBlocked() {
+void TestRt4UvTransformAdmissionPreservesExactA0Profiles() {
   NativeVisualShowcaseSceneSourceLoadResult loaded = LoadFixture();
   Require(loaded.ok(), "RT4 admission fixture failed to load");
   NativeVisualShowcaseSceneSource &source = *loaded.source;
@@ -369,33 +369,67 @@ void TestCurrentRt4UvTransformAdmissionRemainsExplicitlyBlocked() {
   Require(registry.Apply(*produced.production.asset_delta).ok(),
           "authored package catalog could not be reconstructed");
 
-  bool found_non_identity_scale = false;
+  std::uint32_t material_count = 0U;
+  std::uint32_t lane_profiles = 0U;
+  std::uint32_t road_profiles = 0U;
+  std::uint32_t wet_profiles = 0U;
+  std::uint32_t identity_profiles = 0U;
   const ValidationResult visit = registry.VisitRecords(
-      [&found_non_identity_scale](const RenderAssetRecord &record) {
+      [&](const RenderAssetRecord &record) {
         if (!record.live() || record.asset.kind != RenderAssetKind::MATERIAL) {
           return ValidationResult::Success();
         }
         const MaterialDescriptor &material =
             std::get<MaterialDescriptor>(*record.payload);
-        const TextureBinding *bindings[] = {
-            &material.base_color_texture, &material.metallic_roughness_texture,
-            &material.normal_texture,     &material.emissive_texture,
-            &material.specular_texture,
-        };
-        for (const TextureBinding *binding : bindings) {
-          found_non_identity_scale = found_non_identity_scale ||
-                                     (binding->texture.valid() &&
-                                      binding->scale != Float2{1.0F, 1.0F});
+        OgreNextN1PbsUv0AffineTransform transform;
+        const ValidationResult lowered =
+            BuildOgreNextN1PbsUv0AffineTransform(material, transform);
+        if (!lowered) {
+          return lowered;
+        }
+        ++material_count;
+        if (transform.offset != Float2{}) {
+          return ValidationResult::Failure(
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "assets.material.texture_transform",
+              "A0 fixture unexpectedly changed its authored zero offset");
+        }
+        if (transform.scale == Float2{1.0F, 6.0F} &&
+            transform.portable_texture_binding_count == 1U &&
+            transform.native_texture_slot_count == 1U &&
+            transform.transformed) {
+          ++lane_profiles;
+        } else if (transform.scale == Float2{2.0F, 4.0F} &&
+                   transform.portable_texture_binding_count == 3U &&
+                   transform.native_texture_slot_count == 4U &&
+                   transform.transformed) {
+          ++road_profiles;
+        } else if (transform.scale == Float2{1.0F, 4.0F} &&
+                   transform.portable_texture_binding_count == 3U &&
+                   transform.native_texture_slot_count == 3U &&
+                   transform.transformed) {
+          ++wet_profiles;
+        } else if (transform.scale == Float2{1.0F, 1.0F} &&
+                   transform.portable_texture_binding_count == 3U &&
+                   transform.native_texture_slot_count == 3U &&
+                   !transform.transformed) {
+          ++identity_profiles;
+        } else {
+          return ValidationResult::Failure(
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "assets.material.texture_transform",
+              "A0 fixture no longer matches an exact reviewed UV0 affine profile");
         }
         return ValidationResult::Success();
       });
-  Require(visit.ok() && found_non_identity_scale,
-          "fixture stopped exercising authored non-identity UV scale");
+  Require(visit.ok() && material_count == 4U && lane_profiles == 1U &&
+              road_profiles == 1U && wet_profiles == 1U &&
+              identity_profiles == 1U,
+          "fixture stopped exercising the exact A0 UV0 affine profiles");
   const ValidationResult admission = ValidateOgreNextN1AssetCatalog(
       registry, false, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1);
-  Require(admission.code == ValidationCode::UNSUPPORTED_FEATURE &&
-              admission.field == "assets.material.texture_transform",
-          "current RT4/V1 UV-transform limitation was hidden or changed");
+  Require(admission.ok(),
+          "exact A0 UV0 affine profiles were rejected by RT4/V1 admission");
 }
 
 void TestStorageAndDigestFailuresPublishNoSource() {
@@ -467,7 +501,7 @@ int main() {
   TestCaptureCommitDiscardIsTransactional();
   TestMovedEvidenceChangesOnlyGateTransform();
   TestSnapshotProducerAcceptsStableAndMovedFrames();
-  TestCurrentRt4UvTransformAdmissionRemainsExplicitlyBlocked();
+  TestRt4UvTransformAdmissionPreservesExactA0Profiles();
   TestStorageAndDigestFailuresPublishNoSource();
   TestCapturesNeverReopenPackageStorage();
   std::cout << "native visual showcase scene source tests passed\n";

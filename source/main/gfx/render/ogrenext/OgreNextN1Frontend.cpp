@@ -15,6 +15,7 @@
 #include "OgreNextN1Policy.h"
 #include "OgreNextReflectionProbeRuntime.h"
 #include "OgreNextSunVisibilityV2Interop.h"
+#include "OgreNextUvAffinePbs.h"
 #include "ror_ogre_next_n1_config.h"
 
 #include "Compositor/OgreCompositorManager2.h"
@@ -709,6 +710,16 @@ BuildPbsBlendblock(const MaterialDescriptor &descriptor) {
 
 void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
                       const MaterialDescriptor &descriptor) {
+  OgreNextN1PbsUv0AffineTransform uv0_affine;
+  const ValidationResult uv0_affine_validation =
+      BuildOgreNextN1PbsUv0AffineTransform(descriptor, uv0_affine);
+  if (!uv0_affine_validation) {
+    throw std::logic_error(
+        "validated RT4/V1 UV0 affine profile disappeared before PBS verification");
+  }
+  const Ogre::Vector4 expected_uv0_affine(
+      uv0_affine.scale.x, uv0_affine.scale.y,
+      uv0_affine.offset.x, uv0_affine.offset.y);
   const Ogre::Vector3 expected_base_color(
       descriptor.base_color_factor.x, descriptor.base_color_factor.y,
       descriptor.base_color_factor.z);
@@ -780,9 +791,13 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       datablock.getTransparencyMode() != expected_transparency ||
       !NearlyEqual(datablock.getTransparency(),
                    expected_transparency_value) ||
-      !datablock.getUseAlphaFromTextures()) {
+      !datablock.getUseAlphaFromTextures() ||
+      datablock.getUserValue(0U) != expected_uv0_affine ||
+      datablock.getUserValue(1U) != Ogre::Vector4::ZERO ||
+      datablock.getUserValue(2U) != Ogre::Vector4::ZERO ||
+      !OgreNextUvAffinePbs::SelectsUv0AffineShader(&datablock)) {
     throw std::runtime_error(
-        "Ogre-Next RT4/V1 live PBS datablock differs from the reviewed workflow, alpha, depth, cull, or blend mapping");
+        "Ogre-Next RT4/V1 live PBS datablock differs from the reviewed workflow, UV0 affine, alpha, depth, cull, or blend mapping");
   }
 }
 
@@ -899,6 +914,7 @@ RenderOperationResult ValidateShaderArchives(
   Ogre::String pbs_data;
   Ogre::StringVector pbs_libraries;
   Ogre::HlmsPbs::getDefaultPaths(pbs_data, pbs_libraries);
+  pbs_libraries.emplace_back(kOgreNextUvAffinePbsMediaPath);
   Ogre::String unlit_data;
   Ogre::StringVector unlit_libraries;
   Ogre::HlmsUnlit::getDefaultPaths(unlit_data, unlit_libraries);
@@ -917,6 +933,7 @@ Ogre::HlmsPbs *RegisterPbs(Ogre::Root &root,
   Ogre::String data_path;
   Ogre::StringVector library_paths;
   Ogre::HlmsPbs::getDefaultPaths(data_path, library_paths);
+  library_paths.emplace_back(kOgreNextUvAffinePbsMediaPath);
   const Ogre::String media_root = Ogre::String(resolved_media_root) + "/";
   Ogre::ArchiveManager &archives = Ogre::ArchiveManager::getSingleton();
   Ogre::Archive *data =
@@ -926,7 +943,7 @@ Ogre::HlmsPbs *RegisterPbs(Ogre::Root &root,
     libraries.push_back(
         archives.load(media_root + library_path, "FileSystem", true));
   }
-  Ogre::HlmsPbs *pbs = OGRE_NEW Ogre::HlmsPbs(data, &libraries);
+  Ogre::HlmsPbs *pbs = OGRE_NEW OgreNextUvAffinePbs(data, &libraries);
   root.getHlmsManager()->registerHlms(pbs);
   return pbs;
 }
@@ -2251,6 +2268,8 @@ public:
     Ogre::HlmsPbsDatablock *pbs_datablock = nullptr;
     Ogre::HlmsUnlitDatablock *display_domain_unlit_datablock = nullptr;
     std::string name;
+    OgreNextN1PbsUv0AffineTransform uv0_affine;
+    std::uint32_t native_texture_slot_mask = 0U;
 
     [[nodiscard]] Ogre::HlmsDatablock *Datablock() const noexcept {
       return kind == Kind::PBS
@@ -2326,6 +2345,72 @@ public:
         audit.retired_name_lookups == audit.native_allocation_destroys &&
         audit.retired_name_rejections == audit.retired_name_lookups;
     return audit;
+  }
+
+  OgreNextN1PbsUv0AffineState PbsUv0AffineState(
+      RenderAssetReference requested) const noexcept {
+    OgreNextN1PbsUv0AffineState state;
+    state.material = requested;
+    const auto found = materials.find(requested.id);
+    if (!initialized || faulted || !requested.valid() ||
+        requested.kind != RenderAssetKind::MATERIAL ||
+        found == materials.end() || found->second.asset != requested) {
+      return state;
+    }
+    const NativeMaterial &native = found->second;
+    state.live = true;
+    state.pbs = native.kind == NativeMaterial::Kind::PBS &&
+                native.pbs_datablock != nullptr;
+    if (!state.pbs) {
+      return state;
+    }
+    state.scale = native.uv0_affine.scale;
+    state.offset = native.uv0_affine.offset;
+    state.portable_texture_binding_count =
+        native.uv0_affine.portable_texture_binding_count;
+    state.native_texture_slot_count =
+        native.uv0_affine.native_texture_slot_count;
+    state.transformed = native.uv0_affine.transformed;
+    state.positive_scale = state.scale.x > 0.0F && state.scale.y > 0.0F;
+    state.rotation_zero = true;
+    state.shared_across_bound_slots = true;
+    state.shader_piece_selected =
+        OgreNextUvAffinePbs::SelectsUv0AffineShader(
+            native.pbs_datablock);
+
+    bool exact_slots = true;
+    for (std::uint32_t slot = 0U;
+         slot < static_cast<std::uint32_t>(Ogre::NUM_PBSM_TEXTURE_TYPES);
+         ++slot) {
+      if ((native.native_texture_slot_mask & (1U << slot)) == 0U) {
+        continue;
+      }
+      const auto pbs_slot = static_cast<Ogre::PbsTextureTypes>(slot);
+      exact_slots = exact_slots &&
+                    native.pbs_datablock->getTexture(
+                        static_cast<Ogre::uint8>(slot)) != nullptr &&
+                    native.pbs_datablock->getTextureUvSource(pbs_slot) == 0U;
+      ++state.native_texture_slot_readbacks;
+    }
+    state.uv0_only = exact_slots &&
+                     state.native_texture_slot_readbacks ==
+                         state.native_texture_slot_count;
+
+    const Ogre::Vector4 expected(
+        state.scale.x, state.scale.y, state.offset.x, state.offset.y);
+    const Ogre::Vector4 actual0 =
+        native.pbs_datablock->getUserValue(0U);
+    const Ogre::Vector4 actual1 =
+        native.pbs_datablock->getUserValue(1U);
+    const Ogre::Vector4 actual2 =
+        native.pbs_datablock->getUserValue(2U);
+    state.native_user_value_readbacks = 3U;
+    state.exact_native_state =
+        state.uv0_only && state.positive_scale && state.rotation_zero &&
+        state.shared_across_bound_slots && state.shader_piece_selected &&
+        actual0 == expected && actual1 == Ogre::Vector4::ZERO &&
+        actual2 == Ogre::Vector4::ZERO;
+    return state;
   }
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -3384,12 +3469,26 @@ public:
       }
     }
     native.name = AssetName("RoRN1Material", asset);
+    const ValidationResult uv0_affine_validation =
+        BuildOgreNextN1PbsUv0AffineTransform(descriptor,
+                                             native.uv0_affine);
+    if (!uv0_affine_validation) {
+      throw std::logic_error(
+          "validated RT4/V1 PBS UV0 affine profile disappeared before native material creation");
+    }
     const Ogre::HlmsMacroblock macroblock = BuildPbsMacroblock(descriptor);
     const Ogre::HlmsBlendblock blendblock = BuildPbsBlendblock(descriptor);
     try {
       native.pbs_datablock = static_cast<Ogre::HlmsPbsDatablock *>(
           pbs->createDatablock(native.name, native.name, macroblock,
                                blendblock, Ogre::HlmsParamVec()));
+      native.pbs_datablock->setUserValue(
+          0U, Ogre::Vector4(native.uv0_affine.scale.x,
+                            native.uv0_affine.scale.y,
+                            native.uv0_affine.offset.x,
+                            native.uv0_affine.offset.y));
+      native.pbs_datablock->setUserValue(1U, Ogre::Vector4::ZERO);
+      native.pbs_datablock->setUserValue(2U, Ogre::Vector4::ZERO);
       native.pbs_datablock->setBrdf(Ogre::PbsBrdf::Default);
       const bool specular_workflow =
           descriptor.pbr_workflow == MaterialPbrWorkflow::SPECULAR;
@@ -3476,17 +3575,26 @@ public:
             const Ogre::HlmsSamplerblock sampler =
                 ToOgreSampler(*sampler_descriptor);
             const auto slot_index = static_cast<Ogre::uint8>(slot);
+            const std::uint32_t slot_bit =
+                1U << static_cast<std::uint32_t>(slot_index);
+            if ((native.native_texture_slot_mask & slot_bit) != 0U) {
+              throw std::logic_error(
+                  "validated RT4/V1 material aliases one native PBS texture slot");
+            }
             native.pbs_datablock->setTexture(slot_index, texture, &sampler);
-            native.pbs_datablock->setTextureUvSource(slot, 0U);
+            native.pbs_datablock->setTextureUvSource(
+                slot, binding.texture_coordinate_set);
             const Ogre::HlmsSamplerblock *actual_sampler =
                 native.pbs_datablock->getSamplerblock(slot_index);
             if (native.pbs_datablock->getTexture(slot_index) != texture ||
-                native.pbs_datablock->getTextureUvSource(slot) != 0U ||
+                native.pbs_datablock->getTextureUvSource(slot) !=
+                    binding.texture_coordinate_set ||
                 actual_sampler == nullptr) {
               throw std::runtime_error(
                   "Ogre-Next RT4/V1 live PBS texture binding differs from the reviewed mapping");
             }
             VerifySamplerMapping(*actual_sampler, sampler);
+            native.native_texture_slot_mask |= slot_bit;
           };
       if (raster_feature_tier ==
           OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
@@ -3502,6 +3610,18 @@ public:
                      &NativeTexture::sampled);
         bind_texture(descriptor.specular_texture, Ogre::PBSM_SPECULAR,
                      &NativeTexture::linear);
+      }
+      std::uint32_t native_texture_slot_count = 0U;
+      for (std::uint32_t slot = 0U;
+           slot < static_cast<std::uint32_t>(Ogre::NUM_PBSM_TEXTURE_TYPES);
+           ++slot) {
+        native_texture_slot_count +=
+            (native.native_texture_slot_mask & (1U << slot)) != 0U ? 1U : 0U;
+      }
+      if (native_texture_slot_count !=
+          native.uv0_affine.native_texture_slot_count) {
+        throw std::runtime_error(
+            "Ogre-Next RT4/V1 did not bind every authored UV0 affine texture slot");
       }
       VerifyPbsMapping(*native.pbs_datablock, descriptor);
       return native;
@@ -6354,6 +6474,12 @@ FrontendCapabilityReport OgreNextN1Frontend::QueryCapabilities() const {
 OgreNextN1TextureAllocationAudit
 OgreNextN1Frontend::QueryTextureAllocationAudit() const noexcept {
   return impl_->TextureAllocationAudit();
+}
+
+OgreNextN1PbsUv0AffineState
+OgreNextN1Frontend::QueryPbsUv0AffineState(
+    RenderAssetReference material) const noexcept {
+  return impl_->PbsUv0AffineState(material);
 }
 
 OgreNextReflectionProbeAudit

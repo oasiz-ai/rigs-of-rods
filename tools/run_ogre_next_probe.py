@@ -45,6 +45,18 @@ SUN_VISIBILITY_V2_MEDIA_PATH = (
 SUN_VISIBILITY_V2_MEDIA_RELATIVE = (
     "Hlms/RoR/SunVisibilityV2/SunVisibilityV2.metal"
 )
+UV_AFFINE_PBS_MEDIA_PATH = (
+    PROBE_SOURCE / "media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
+)
+UV_AFFINE_PBS_MEDIA_RELATIVE = (
+    "Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
+)
+UV_AFFINE_PBS_SHADER_LOCK_PATH = (
+    PROBE_SOURCE / "ogre-next-uv0-affine-pbs-v1.lock.json"
+)
+UV_AFFINE_PBS_SHADER_LOCK_PACKAGE_RELATIVE = Path(
+    "provenance/ogre-next-uv0-affine-pbs-v1.lock.json"
+)
 LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
 )
@@ -1907,12 +1919,13 @@ def validate_rt4_isolation_evidence(
         ("metallic_b", "packed_blue_metallic"),
         ("emissive", "emissive_rgb"),
         ("normal_rg", "canonical_positive_z_normal_rg"),
+        ("uv0_affine", "shared_uv0_scale_offset"),
         ("sampler_uv", "sampler_address_over_uv0"),
     )
     variants = isolation.get("variants")
     common_checks = {
         "schema": isolation.get("schema")
-        == "ror.ogre_next_rt4_texture_isolation.v1",
+        == "ror.ogre_next_rt4_texture_isolation.v2",
         "evidence_file": isolation.get("evidence_file")
         == evidence_path.name,
         "extent": isolation.get("width") == 192
@@ -1954,6 +1967,58 @@ def validate_rt4_isolation_evidence(
             or entry.get("asset_sequence") != index + 1
         ):
             raise ProbeError("RT4/V1 isolation variant identity drifted")
+        uv0_affine = entry.get("uv0_affine")
+        transformed = expected[0] == "uv0_affine"
+        expected_scale = [2, 4] if transformed else [1, 1]
+        expected_offset = [0.125, -0.25] if transformed else [0, 0]
+        if (
+            not isinstance(uv0_affine, dict)
+            or set(uv0_affine)
+            != {
+                "version",
+                "scale",
+                "offset",
+                "portable_binding_count",
+                "native_slot_count",
+                "native_slot_readbacks",
+                "native_user_value_readbacks",
+                "transformed",
+                "uv0_only",
+                "positive_scale",
+                "rotation_zero",
+                "shared_across_bound_slots",
+                "shader_piece_selected",
+                "exact_native_state",
+            }
+            or not _json_exact(uv0_affine.get("version"), 1)
+            or not _json_exact(uv0_affine.get("scale"), expected_scale)
+            or not _json_exact(uv0_affine.get("offset"), expected_offset)
+            or not _json_exact(
+                uv0_affine.get("portable_binding_count"), 4
+            )
+            or not _json_exact(uv0_affine.get("native_slot_count"), 5)
+            or not _json_exact(
+                uv0_affine.get("native_slot_readbacks"), 5
+            )
+            or not _json_exact(
+                uv0_affine.get("native_user_value_readbacks"), 3
+            )
+            or uv0_affine.get("transformed") is not transformed
+            or any(
+                uv0_affine.get(field) is not True
+                for field in (
+                    "uv0_only",
+                    "positive_scale",
+                    "rotation_zero",
+                    "shared_across_bound_slots",
+                    "shader_piece_selected",
+                    "exact_native_state",
+                )
+            )
+        ):
+            raise ProbeError(
+                f"RT4/V1 {expected[0]} native UV0 affine receipt drifted"
+            )
         for label, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
             attachment = entry.get(label)
             expected_bytes = 192 * 128 * bytes_per_pixel
@@ -4326,6 +4391,11 @@ def validate_n1_package(
     package_root = build_dir / N1_PACKAGE_NAME
     shader_notice = lock["shader_media"]["third_party_notice"]
     reflection_notice = lock["reflection_shader_media"]["third_party_notice"]
+    if (
+        UV_AFFINE_PBS_SHADER_LOCK_PATH.is_symlink()
+        or not UV_AFFINE_PBS_SHADER_LOCK_PATH.is_file()
+    ):
+        raise ProbeError("UV0 affine PBS shader lock is missing or symbolic")
     expected_hashes = {
         Path("licenses/Rigs-of-Rods-GPL-3.0.txt"): sha256_file(
             REPOSITORY_ROOT / "COPYING"
@@ -4344,6 +4414,9 @@ def validate_n1_package(
         Path(reflection_notice["package_path"]): reflection_notice[
             "source_sha256"
         ],
+        UV_AFFINE_PBS_SHADER_LOCK_PACKAGE_RELATIVE: sha256_file(
+            UV_AFFINE_PBS_SHADER_LOCK_PATH
+        ),
     }
     failures: list[str] = []
     for relative_path, expected_hash in expected_hashes.items():
@@ -4374,6 +4447,7 @@ def validate_n1_package(
     reviewed_media = (
         (DISPLAY_DOMAIN_MEDIA_RELATIVE, DISPLAY_DOMAIN_MEDIA_PATH),
         (SUN_VISIBILITY_V2_MEDIA_RELATIVE, SUN_VISIBILITY_V2_MEDIA_PATH),
+        (UV_AFFINE_PBS_MEDIA_RELATIVE, UV_AFFINE_PBS_MEDIA_PATH),
     )
     reviewed_hlms_paths: dict[str, Path] = {}
     for relative_text, source_path in reviewed_media:

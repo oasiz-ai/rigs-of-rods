@@ -486,6 +486,7 @@ RT4_EXPECTED_VARIANTS = (
     ("metallic_b", "packed_blue_metallic"),
     ("emissive", "emissive_rgb"),
     ("normal_rg", "canonical_positive_z_normal_rg"),
+    ("uv0_affine", "shared_uv0_scale_offset"),
     ("sampler_uv", "sampler_address_over_uv0"),
 )
 RT4_EXPECTED_RETIREMENT = {
@@ -3314,7 +3315,7 @@ def _verify_rt4_semantics(
     variants = isolation.get("variants")
     controls = {
         "schema": isolation.get("schema")
-        == "ror.ogre_next_rt4_texture_isolation.v1",
+        == "ror.ogre_next_rt4_texture_isolation.v2",
         "file": isolation.get("evidence_file") == isolation_path.name,
         "extent": _json_exact(isolation.get("width"), width)
         and _json_exact(isolation.get("height"), height),
@@ -3347,7 +3348,14 @@ def _verify_rt4_semantics(
             raise ArtifactSetError("RT4 isolation variant is not an object")
         _require_exact_keys(
             entry,
-            {"name", "changed_input", "asset_sequence", "hdr", "sdr"},
+            {
+                "name",
+                "changed_input",
+                "asset_sequence",
+                "uv0_affine",
+                "hdr",
+                "sdr",
+            },
             f"RT4 {expected[0]} isolation variant",
         )
         if (
@@ -3356,6 +3364,64 @@ def _verify_rt4_semantics(
             or not _json_exact(entry.get("asset_sequence"), index + 1)
         ):
             raise ArtifactSetError("RT4 isolation variant identity mismatch")
+        uv0_affine = entry.get("uv0_affine")
+        transformed = expected[0] == "uv0_affine"
+        expected_scale = [2, 4] if transformed else [1, 1]
+        expected_offset = [0.125, -0.25] if transformed else [0, 0]
+        if not isinstance(uv0_affine, dict):
+            raise ArtifactSetError(
+                f"RT4 {expected[0]} native UV0 affine receipt is missing"
+            )
+        _require_exact_keys(
+            uv0_affine,
+            {
+                "version",
+                "scale",
+                "offset",
+                "portable_binding_count",
+                "native_slot_count",
+                "native_slot_readbacks",
+                "native_user_value_readbacks",
+                "transformed",
+                "uv0_only",
+                "positive_scale",
+                "rotation_zero",
+                "shared_across_bound_slots",
+                "shader_piece_selected",
+                "exact_native_state",
+            },
+            f"RT4 {expected[0]} native UV0 affine receipt",
+        )
+        if (
+            not _json_exact(uv0_affine.get("version"), 1)
+            or not _json_exact(uv0_affine.get("scale"), expected_scale)
+            or not _json_exact(uv0_affine.get("offset"), expected_offset)
+            or not _json_exact(
+                uv0_affine.get("portable_binding_count"), 4
+            )
+            or not _json_exact(uv0_affine.get("native_slot_count"), 5)
+            or not _json_exact(
+                uv0_affine.get("native_slot_readbacks"), 5
+            )
+            or not _json_exact(
+                uv0_affine.get("native_user_value_readbacks"), 3
+            )
+            or uv0_affine.get("transformed") is not transformed
+            or any(
+                uv0_affine.get(field) is not True
+                for field in (
+                    "uv0_only",
+                    "positive_scale",
+                    "rotation_zero",
+                    "shared_across_bound_slots",
+                    "shader_piece_selected",
+                    "exact_native_state",
+                )
+            )
+        ):
+            raise ArtifactSetError(
+                f"RT4 {expected[0]} native UV0 affine receipt changed"
+            )
         for attachment, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
             reported = entry.get(attachment)
             expected_bytes = width * height * bytes_per_pixel

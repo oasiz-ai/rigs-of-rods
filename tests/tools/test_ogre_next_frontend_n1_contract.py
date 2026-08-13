@@ -22,6 +22,23 @@ RUNNER_SPEC = importlib.util.spec_from_file_location(
 assert RUNNER_SPEC and RUNNER_SPEC.loader
 RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
 RUNNER_SPEC.loader.exec_module(RUNNER)
+UV_AFFINE_SHADER_VERIFIER_PATH = (
+    PROBE_ROOT / "verify_uv0_affine_pbs_shader.py"
+)
+UV_AFFINE_SHADER_VERIFIER_SPEC = importlib.util.spec_from_file_location(
+    "verify_uv0_affine_pbs_shader_for_n1_tests",
+    UV_AFFINE_SHADER_VERIFIER_PATH,
+)
+assert (
+    UV_AFFINE_SHADER_VERIFIER_SPEC
+    and UV_AFFINE_SHADER_VERIFIER_SPEC.loader
+)
+UV_AFFINE_SHADER_VERIFIER = importlib.util.module_from_spec(
+    UV_AFFINE_SHADER_VERIFIER_SPEC
+)
+UV_AFFINE_SHADER_VERIFIER_SPEC.loader.exec_module(
+    UV_AFFINE_SHADER_VERIFIER
+)
 
 
 def reflection_fixture(
@@ -138,6 +155,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.tamper_cmake = (
             PROBE_ROOT / "cmake" / "VerifyN1MediaTamper.cmake"
         ).read_text(encoding="utf-8")
+
         cls.header = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.h"
         ).read_text(encoding="utf-8")
@@ -167,6 +185,20 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             / "RoR"
             / "DisplayDomain"
             / "DisplayDomain_piece_ps.any"
+        ).read_text(encoding="utf-8")
+        cls.uv_affine_header = (
+            RENDER_ROOT / "ogrenext" / "OgreNextUvAffinePbs.h"
+        ).read_text(encoding="utf-8")
+        cls.uv_affine_source = (
+            RENDER_ROOT / "ogrenext" / "OgreNextUvAffinePbs.cpp"
+        ).read_text(encoding="utf-8")
+        cls.uv_affine_piece = (
+            PROBE_ROOT
+            / "media"
+            / "Hlms"
+            / "RoR"
+            / "UvAffinePbs"
+            / "UvAffinePbs_piece_ps.any"
         ).read_text(encoding="utf-8")
         cls.media_integrity = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1MediaIntegrity.cpp"
@@ -198,6 +230,36 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.smoke = (
             PROBE_ROOT / "src" / "frontend_n1_smoke.cpp"
         ).read_text(encoding="utf-8")
+
+    def test_uv0_affine_pbs_shader_lock_rejects_mutation(self) -> None:
+        shader_relative = Path(
+            "media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
+        )
+        source_shader = PROBE_ROOT / shader_relative
+        source_lock = (
+            PROBE_ROOT / "ogre-next-uv0-affine-pbs-v1.lock.json"
+        )
+        with tempfile.TemporaryDirectory(prefix="ror-uv-affine-lock-") as temp:
+            root = Path(temp)
+            shader = root / shader_relative
+            shader.parent.mkdir(parents=True)
+            shader.write_bytes(source_shader.read_bytes())
+            lock = root / source_lock.name
+            lock.write_bytes(source_lock.read_bytes())
+            self.assertEqual(
+                UV_AFFINE_SHADER_VERIFIER.verify_shader(root, lock),
+                "1d02274fd5c8aa4ef855691a57c8f99fa6dc58606458fc78046a4a26a6f27a4c",
+            )
+            shader.write_bytes(shader.read_bytes() + b"\n")
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                UV_AFFINE_SHADER_VERIFIER.verify_shader(root, lock)
+
+        self.assertIn(
+            "ogre-next-uv0-affine-pbs-v1.lock.json", self.entry_cmake
+        )
+        self.assertIn(
+            "verify_uv0_affine_pbs_shader.py", self.entry_cmake
+        )
 
     def test_dependency_policy_is_shared_pinned_and_isolated(self) -> None:
         self.assertIn("cmake/PinnedOgreNext.cmake", self.entry_cmake)
@@ -958,6 +1020,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "std::memcmp(downloaded_row, source_row, row_bytes)",
         ):
             self.assertIn(token, self.frontend)
+
         for token in (
             "@property( ror_display_domain_unlit )",
             "@piece( custom_ps_preLights )",
@@ -992,6 +1055,61 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "replacement->second.usage != entry.second.usage",
         ):
             self.assertIn(token, self.frontend)
+
+    def test_rt4_uv0_affine_is_exact_native_pbs_state(self) -> None:
+        combined = self.uv_affine_header + self.uv_affine_source
+        for token in (
+            "Ogre::HlmsPbs(data_folder, library_folders)",
+            "kOgreNextUvAffinePbsDatablockPrefix",
+            "kOgreNextUvAffinePbsProperty",
+            "calculateHashForPreCreate",
+            "calculateHashForPreCaster",
+            "SelectsUv0AffineShader",
+        ):
+            self.assertIn(token, combined)
+        for token in (
+            "@property( ror_uv0_affine_pbs )",
+            "@piece( custom_ps_uv_modifier_macros )",
+            "material.userValue[0].xy",
+            "material.userValue[0].zw",
+            "#define UV_DIFFUSE",
+            "#define UV_NORMAL",
+            "#define UV_SPECULAR",
+            "#define UV_ROUGHNESS",
+            "#define UV_EMISSIVE",
+        ):
+            self.assertIn(token, self.uv_affine_piece)
+        for token in (
+            "BuildOgreNextN1PbsUv0AffineTransform",
+            "strictly positive scale components",
+            "supports UV0 only",
+            "shared UV0 affine transform",
+            "overflow native binary32 multiplication",
+            "overflow native binary32 addition",
+        ):
+            self.assertIn(token, self.policy + self.policy_header)
+        for token in (
+            "setUserValue(\n          0U",
+            "getUserValue(0U)",
+            "getTextureUvSource(pbs_slot) == 0U",
+            "QueryPbsUv0AffineState",
+            "native_texture_slot_readbacks",
+            "native_user_value_readbacks",
+            "exact_native_state",
+        ):
+            self.assertIn(token, self.frontend + self.header)
+        for token in (
+            "TextureVariant::UV0_AFFINE",
+            "shared_uv0_scale_offset",
+            "Float2{2.0F, 4.0F}",
+            "Float2{0.125F, -0.25F}",
+            "native_texture_slot_readbacks == 5U",
+            "native_user_value_readbacks == 3U",
+        ):
+            self.assertIn(token, self.smoke)
+        self.assertIn(
+            "ror.ogre_next_rt4_texture_isolation.v2", self.smoke
+        )
 
     def test_normal_map_audit_remediation_is_native_and_fail_closed(self) -> None:
         for token in (
@@ -1218,6 +1336,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             ("metallic_b", "packed_blue_metallic"),
             ("emissive", "emissive_rgb"),
             ("normal_rg", "canonical_positive_z_normal_rg"),
+            ("uv0_affine", "shared_uv0_scale_offset"),
             ("sampler_uv", "sampler_address_over_uv0"),
         )
 
@@ -1232,7 +1351,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertNotIn("MIRRORED_REPEAT", sampler_fixture)
         report: dict = {
             "texture_isolation": {
-                "schema": "ror.ogre_next_rt4_texture_isolation.v1",
+                "schema": "ror.ogre_next_rt4_texture_isolation.v2",
                 "evidence_file": RUNNER.RT4_PBR_EVIDENCE_NAME,
                 "width": 192,
                 "height": 128,
@@ -1249,10 +1368,27 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         evidence = bytearray()
         baseline_blocks: dict[str, bytes] = {}
         for index, (name, changed_input) in enumerate(names):
+            transformed = name == "uv0_affine"
             entry = {
                 "name": name,
                 "changed_input": changed_input,
                 "asset_sequence": index + 1,
+                "uv0_affine": {
+                    "version": 1,
+                    "scale": [2, 4] if transformed else [1, 1],
+                    "offset": [0.125, -0.25] if transformed else [0, 0],
+                    "portable_binding_count": 4,
+                    "native_slot_count": 5,
+                    "native_slot_readbacks": 5,
+                    "native_user_value_readbacks": 3,
+                    "transformed": transformed,
+                    "uv0_only": True,
+                    "positive_scale": True,
+                    "rotation_zero": True,
+                    "shared_across_bound_slots": True,
+                    "shader_piece_selected": True,
+                    "exact_native_state": True,
+                },
             }
             for label, bytes_per_pixel in (("hdr", 8), ("sdr", 4)):
                 block = bytearray(192 * 128 * bytes_per_pixel)
@@ -1322,6 +1458,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             path = Path(temp) / RUNNER.RT4_PBR_EVIDENCE_NAME
             path.write_bytes(evidence)
             RUNNER.validate_rt4_isolation_evidence(report, path)
+            uv_receipt = report["texture_isolation"]["variants"][6][
+                "uv0_affine"
+            ]
+            uv_receipt["native_slot_readbacks"] = 4
+            with self.assertRaisesRegex(
+                RUNNER.ProbeError, "native UV0 affine receipt"
+            ):
+                RUNNER.validate_rt4_isolation_evidence(report, path)
+            uv_receipt["native_slot_readbacks"] = 5
             tampered = bytearray(evidence)
             tampered[-1] ^= 1
             path.write_bytes(tampered)
@@ -1639,6 +1784,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="ror-n1-package-") as temp:
             package = Path(temp) / RUNNER.N1_PACKAGE_NAME / "licenses"
             package.mkdir(parents=True)
+            uv_lock_hash = "a" * 64
             paths = {
                 "Rigs-of-Rods-GPL-3.0.txt": ror_hash,
                 "Ogre-Next-MIT.txt": lock["license"]["sha256"],
@@ -1660,6 +1806,13 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             }
             for name in paths:
                 (package / name).write_text(name, encoding="utf-8")
+            staged_uv_lock = (
+                Path(temp)
+                / RUNNER.N1_PACKAGE_NAME
+                / RUNNER.UV_AFFINE_PBS_SHADER_LOCK_PACKAGE_RELATIVE
+            )
+            staged_uv_lock.parent.mkdir(parents=True)
+            staged_uv_lock.write_text(staged_uv_lock.name, encoding="utf-8")
 
             def fake_sha256(path: Path) -> str:
                 if path == REPOSITORY_ROOT / "COPYING":
@@ -1668,6 +1821,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                     return "7" * 64
                 if path == RUNNER.SUN_VISIBILITY_V2_MEDIA_PATH:
                     return "8" * 64
+                if path == RUNNER.UV_AFFINE_PBS_MEDIA_PATH:
+                    return "9" * 64
+                if path == RUNNER.UV_AFFINE_PBS_SHADER_LOCK_PATH:
+                    return uv_lock_hash
+                if path == staged_uv_lock:
+                    return uv_lock_hash
                 return paths[path.name]
 
             manifest = {
@@ -1687,6 +1846,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                         "RoR/SunVisibilityV2/SunVisibilityV2.metal",
                         RUNNER.SUN_VISIBILITY_V2_MEDIA_PATH.stat().st_size,
                         "8" * 64,
+                    ),
+                    (
+                        "RoR/UvAffinePbs/UvAffinePbs_piece_ps.any",
+                        RUNNER.UV_AFFINE_PBS_MEDIA_PATH.stat().st_size,
+                        "9" * 64,
                     ),
                 ]
             )
@@ -1726,6 +1890,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 media_manifest.side_effect = [manifest, package_manifest]
                 with mock.patch.object(
                     RUNNER, "SUN_VISIBILITY_V2_MEDIA_PATH", indirect_sun
+                ), self.assertRaisesRegex(
+                    RUNNER.ProbeError, "missing or symbolic"
+                ):
+                    RUNNER.validate_n1_package(Path(temp), lock)
+                indirect_uv = Path(temp) / "indirect-uv-affine.any"
+                indirect_uv.symlink_to(RUNNER.UV_AFFINE_PBS_MEDIA_PATH)
+                media_manifest.side_effect = [manifest, package_manifest]
+                with mock.patch.object(
+                    RUNNER, "UV_AFFINE_PBS_MEDIA_PATH", indirect_uv
                 ), self.assertRaisesRegex(
                     RUNNER.ProbeError, "missing or symbolic"
                 ):

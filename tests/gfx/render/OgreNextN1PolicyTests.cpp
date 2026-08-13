@@ -758,6 +758,107 @@ void TestModernPbrAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
           "valid RT4/V1 texture, sampler, tangent, and UV0 catalog was rejected");
 
+  const auto set_shared_affine = [](MaterialDescriptor &material,
+                                    Float2 scale, Float2 offset) {
+    TextureBinding *bindings[] = {
+        &material.base_color_texture,
+        &material.metallic_roughness_texture,
+        &material.normal_texture,
+        &material.emissive_texture,
+        &material.specular_texture,
+    };
+    for (TextureBinding *binding : bindings) {
+      if (binding->texture.valid()) {
+        binding->scale = scale;
+        binding->offset = offset;
+      }
+    }
+  };
+  RenderAssetDelta affine_delta =
+      MakeModernCatalogDelta(kRegistryId + 200U);
+  MaterialDescriptor &affine_material =
+      std::get<MaterialDescriptor>(affine_delta.mutations[1U].payload);
+  set_shared_affine(affine_material, {2.0F, 4.0F}, {0.125F, -0.25F});
+  OgreNextN1PbsUv0AffineTransform affine;
+  Require(BuildOgreNextN1PbsUv0AffineTransform(affine_material, affine).ok() &&
+              affine.scale == Float2{2.0F, 4.0F} &&
+              affine.offset == Float2{0.125F, -0.25F} &&
+              affine.portable_texture_binding_count == 4U &&
+              affine.native_texture_slot_count == 5U && affine.transformed,
+          "exact shared UV0 affine profile did not lower deterministically");
+  RenderAssetRegistry affine_registry(kRegistryId + 200U);
+  Require(affine_registry.Apply(affine_delta).ok() &&
+              ValidateOgreNextN1AssetCatalog(affine_registry, false, kModern)
+                  .ok(),
+          "finite positive shared UV0 scale/offset was rejected");
+
+  RenderAssetDelta mismatched_affine =
+      MakeModernCatalogDelta(kRegistryId + 201U);
+  std::get<MaterialDescriptor>(mismatched_affine.mutations[1U].payload)
+      .base_color_texture.scale = {2.0F, 4.0F};
+  RenderAssetRegistry mismatched_affine_registry(kRegistryId + 201U);
+  Require(mismatched_affine_registry.Apply(mismatched_affine).ok(),
+          "cross-slot affine mismatch fixture is not contract valid");
+  const ValidationResult mismatched_affine_result =
+      ValidateOgreNextN1AssetCatalog(mismatched_affine_registry, false,
+                                     kModern);
+  Require(mismatched_affine_result.code ==
+              ValidationCode::UNSUPPORTED_FEATURE &&
+              mismatched_affine_result.field ==
+                  "assets.material.texture_transform",
+          "different transforms across bound PBS slots escaped admission");
+
+  RenderAssetDelta negative_affine =
+      MakeModernCatalogDelta(kRegistryId + 202U);
+  MaterialDescriptor &negative_affine_material =
+      std::get<MaterialDescriptor>(negative_affine.mutations[1U].payload);
+  set_shared_affine(negative_affine_material, {-1.0F, 4.0F}, Float2{});
+  RenderAssetRegistry negative_affine_registry(kRegistryId + 202U);
+  Require(negative_affine_registry.Apply(negative_affine).ok(),
+          "negative affine fixture is not renderer-contract valid");
+  const ValidationResult negative_affine_result =
+      ValidateOgreNextN1AssetCatalog(negative_affine_registry, false,
+                                     kModern);
+  Require(negative_affine_result.code ==
+              ValidationCode::UNSUPPORTED_FEATURE &&
+              negative_affine_result.field ==
+                  "assets.material.texture_transform",
+          "negative UV scale escaped the positive native affine profile");
+
+  RenderAssetDelta uv1_affine =
+      MakeModernCatalogDelta(kRegistryId + 203U);
+  MaterialDescriptor &uv1_affine_material =
+      std::get<MaterialDescriptor>(uv1_affine.mutations[1U].payload);
+  TextureBinding *uv1_bindings[] = {
+      &uv1_affine_material.base_color_texture,
+      &uv1_affine_material.metallic_roughness_texture,
+      &uv1_affine_material.normal_texture,
+      &uv1_affine_material.emissive_texture,
+  };
+  for (TextureBinding *binding : uv1_bindings) {
+    binding->texture_coordinate_set = 1U;
+  }
+  RenderAssetRegistry uv1_affine_registry(kRegistryId + 203U);
+  Require(uv1_affine_registry.Apply(uv1_affine).ok(),
+          "UV1 affine fixture is not renderer-contract valid");
+  const ValidationResult uv1_affine_result =
+      ValidateOgreNextN1AssetCatalog(uv1_affine_registry, false, kModern);
+  Require(uv1_affine_result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              uv1_affine_result.field ==
+                  "assets.material.texture_transform",
+          "UV1 escaped the exact native UV0 affine profile");
+
+  RenderAssetDelta nonfinite_affine =
+      MakeModernCatalogDelta(kRegistryId + 204U);
+  std::get<MaterialDescriptor>(nonfinite_affine.mutations[1U].payload)
+      .base_color_texture.offset.x =
+      (std::numeric_limits<float>::quiet_NaN)();
+  RenderAssetRegistry nonfinite_affine_registry(kRegistryId + 204U);
+  const ValidationResult nonfinite_affine_result =
+      nonfinite_affine_registry.Apply(nonfinite_affine);
+  Require(nonfinite_affine_result.code == ValidationCode::NON_FINITE_VALUE,
+          "non-finite UV affine state entered the synchronized registry");
+
   RenderAssetRegistry specular_registry(kRegistryId + 100U);
   Require(specular_registry
               .Apply(MakeSpecularCatalogDelta(kRegistryId + 100U))

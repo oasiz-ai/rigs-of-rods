@@ -482,20 +482,11 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
           "RT4/V1 requires normal_scale exactly one because pinned PBS applies a lerp weight instead of canonical glTF x/y scaling",
           index);
     }
-    const TextureBinding *supported_bindings[] = {
-        &material.base_color_texture,
-        &material.metallic_roughness_texture,
-        &material.normal_texture,
-        &material.emissive_texture,
-        &material.specular_texture,
-    };
-    for (const TextureBinding *binding : supported_bindings) {
-      if (binding->texture.valid() && !IsIdentityTextureTransform(*binding)) {
-        return Unsupported(
-            "assets.material.texture_transform",
-            "RT4/V1 supports authored UV0 with an identity texture transform only; pinned PBS has no exact cross-slot general texture-transform API",
-            index);
-      }
+    OgreNextN1PbsUv0AffineTransform uv0_affine;
+    const ValidationResult uv0_affine_validation =
+        BuildOgreNextN1PbsUv0AffineTransform(material, uv0_affine, index);
+    if (!uv0_affine_validation) {
+      return uv0_affine_validation;
     }
     if (material.occlusion_texture.texture.valid()) {
       return Unsupported(
@@ -508,6 +499,111 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
 }
 
 } // namespace
+
+ValidationResult BuildOgreNextN1PbsUv0AffineTransform(
+    const MaterialDescriptor &material,
+    OgreNextN1PbsUv0AffineTransform &transform,
+    std::size_t material_index) {
+  if (material.model != MaterialModel::PBR_METALLIC_ROUGHNESS) {
+    return Unsupported(
+        "assets.material.model",
+        "the native UV0 affine shader profile applies to RT4/V1 PBS materials only",
+        material_index);
+  }
+
+  struct BindingProfile final {
+    const TextureBinding *binding;
+    std::uint32_t native_texture_slots;
+  };
+  const BindingProfile profiles[] = {
+      {&material.base_color_texture, 1U},
+      // Ogre lowers one packed metallic-roughness binding into two native
+      // texture slots. Both sample the same authored coordinates.
+      {&material.metallic_roughness_texture, 2U},
+      {&material.normal_texture, 1U},
+      {&material.emissive_texture, 1U},
+      {&material.specular_texture, 1U},
+  };
+
+  OgreNextN1PbsUv0AffineTransform candidate;
+  bool found_bound_transform = false;
+  for (const BindingProfile &profile : profiles) {
+    const TextureBinding &binding = *profile.binding;
+    const bool texture_absent =
+        IsAbsentRenderAssetReference(binding.texture);
+    const bool sampler_absent =
+        IsAbsentRenderAssetReference(binding.sampler);
+    if (texture_absent && sampler_absent) {
+      if (!IsIdentityTextureTransform(binding)) {
+        return Unsupported(
+            "assets.material.texture_transform",
+            "RT4/V1 requires absent PBS texture bindings to retain their canonical identity transform",
+            material_index);
+      }
+      continue;
+    }
+    if (texture_absent != sampler_absent || !binding.texture.valid() ||
+        !binding.sampler.valid()) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_ASSET_REFERENCE,
+          "assets.material.texture_binding",
+          "native UV0 affine admission requires a complete texture and sampler pair",
+          material_index);
+    }
+    if (!IsFinite(binding.scale) || !IsFinite(binding.offset) ||
+        !IsFinite(binding.rotation_radians)) {
+      return ValidationResult::Failure(
+          ValidationCode::NON_FINITE_VALUE,
+          "assets.material.texture_transform",
+          "native UV0 affine scale, offset, and rotation must be finite",
+          material_index);
+    }
+    if (binding.texture_coordinate_set != 0U) {
+      return Unsupported(
+          "assets.material.texture_transform",
+          "RT4/V1 native affine sampling supports UV0 only",
+          material_index);
+    }
+    if (binding.scale.x <= 0.0F || binding.scale.y <= 0.0F) {
+      return Unsupported(
+          "assets.material.texture_transform",
+          "RT4/V1 native affine sampling requires strictly positive scale components",
+          material_index);
+    }
+    if (binding.rotation_radians != 0.0F) {
+      return Unsupported(
+          "assets.material.texture_transform",
+          "RT4/V1 native affine sampling keeps rotation fail-closed",
+          material_index);
+    }
+    if (!found_bound_transform) {
+      candidate.scale = binding.scale;
+      candidate.offset = binding.offset;
+      found_bound_transform = true;
+    } else if (binding.scale != candidate.scale ||
+               binding.offset != candidate.offset) {
+      return Unsupported(
+          "assets.material.texture_transform",
+          "RT4/V1 requires one exact shared UV0 affine transform across every bound PBS texture slot",
+          material_index);
+    }
+    ++candidate.portable_texture_binding_count;
+    candidate.native_texture_slot_count += profile.native_texture_slots;
+  }
+
+  if (IsAbsentRenderAssetReference(material.occlusion_texture.texture) &&
+      IsAbsentRenderAssetReference(material.occlusion_texture.sampler) &&
+      !IsIdentityTextureTransform(material.occlusion_texture)) {
+    return Unsupported(
+        "assets.material.texture_transform",
+        "RT4/V1 requires the unsupported absent occlusion binding to retain its canonical identity transform",
+        material_index);
+  }
+  candidate.transformed = candidate.scale != Float2{1.0F, 1.0F} ||
+                          candidate.offset != Float2{};
+  transform = candidate;
+  return ValidationResult::Success();
+}
 
 ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
     const SceneEnvironmentDescriptor &environment,
@@ -1453,6 +1549,50 @@ ValidationResult ValidateOgreNextN1Scene(
           "mesh_instances.render_from_object",
           "RT4/V1 rejects non-uniform scale because pinned PBS does not preserve an authored tangent frame under that transform",
           index);
+    }
+    if (modern_pbr) {
+      const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+      const MaterialDescriptor *material =
+          registry.ResolveMaterial(instance.material);
+      if (mesh == nullptr || material == nullptr) {
+        return ValidationResult::Failure(
+            ValidationCode::MISSING_REFERENCE,
+            "mesh_instances.assets",
+            "RT4/V1 UV0 affine validation lost a synchronized mesh or material",
+            index);
+      }
+      if (material->model == MaterialModel::PBR_METALLIC_ROUGHNESS) {
+        OgreNextN1PbsUv0AffineTransform uv0_affine;
+        const ValidationResult uv0_affine_validation =
+            BuildOgreNextN1PbsUv0AffineTransform(*material, uv0_affine);
+        if (!uv0_affine_validation) {
+          return uv0_affine_validation;
+        }
+        if (uv0_affine.transformed) {
+          for (const Float2 &uv : mesh->texture_coordinates_0) {
+            // Preserve the renderer-neutral operation order exactly:
+            // offset + (scale * uv). Reject both an overflowing product and
+            // an overflowing sum instead of feeding non-finite coordinates
+            // to the backend sampler.
+            const float scaled_x = uv0_affine.scale.x * uv.x;
+            const float scaled_y = uv0_affine.scale.y * uv.y;
+            if (!IsFinite(scaled_x) || !IsFinite(scaled_y)) {
+              return Unsupported(
+                  "mesh_instances.texture_coordinates_0",
+                  "finite UV0 and affine scale overflow native binary32 multiplication",
+                  index);
+            }
+            const float transformed_x = scaled_x + uv0_affine.offset.x;
+            const float transformed_y = scaled_y + uv0_affine.offset.y;
+            if (!IsFinite(transformed_x) || !IsFinite(transformed_y)) {
+              return Unsupported(
+                  "mesh_instances.texture_coordinates_0",
+                  "finite scaled UV0 and affine offset overflow native binary32 addition",
+                  index);
+            }
+          }
+        }
+      }
     }
     if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
                                            instance.render_from_object)) {

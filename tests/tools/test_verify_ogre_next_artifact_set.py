@@ -724,6 +724,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         for index, (name, changed_input) in enumerate(
             VERIFY.RT4_EXPECTED_VARIANTS
         ):
+            transformed = name == "uv0_affine"
             if index == 0:
                 hdr = baseline_hdr
                 sdr = baseline_sdr
@@ -770,6 +771,24 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     "name": name,
                     "changed_input": changed_input,
                     "asset_sequence": index + 1,
+                    "uv0_affine": {
+                        "version": 1,
+                        "scale": [2, 4] if transformed else [1, 1],
+                        "offset": (
+                            [0.125, -0.25] if transformed else [0, 0]
+                        ),
+                        "portable_binding_count": 4,
+                        "native_slot_count": 5,
+                        "native_slot_readbacks": 5,
+                        "native_user_value_readbacks": 3,
+                        "transformed": transformed,
+                        "uv0_only": True,
+                        "positive_scale": True,
+                        "rotation_zero": True,
+                        "shared_across_bound_slots": True,
+                        "shader_piece_selected": True,
+                        "exact_native_state": True,
+                    },
                     **attachments,
                 }
             )
@@ -1113,6 +1132,9 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             license_path.write_bytes(payload)
         media_files = {
             "Hlms/Pbs/Any/Main_piece.any": b"hlms",
+            (
+                "Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
+            ): b"uv-affine-pbs",
             "2.0/scripts/Compositors/HDR.compositor": b"compositor",
             "2.0/scripts/materials/Common/Metal/Quad_vs.metal": b"common",
             "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl": b"hdr",
@@ -1540,7 +1562,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 },
             },
             "texture_isolation": {
-                "schema": "ror.ogre_next_rt4_texture_isolation.v1",
+                "schema": "ror.ogre_next_rt4_texture_isolation.v2",
                 "evidence_file": VERIFY.RT4_ISOLATION_ARTIFACT,
                 "width": width,
                 "height": height,
@@ -2503,6 +2525,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
     def test_rt4_package_media_is_byte_exact_and_required(self) -> None:
         relatives = (
             "Hlms/Pbs/Any/Main_piece.any",
+            "Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any",
             "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl",
         )
         for relative in relatives:
@@ -2540,6 +2563,22 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             self.refresh_rt4_attestation(root, ("report",))
             with self.assertRaisesRegex(
                 VERIFY.ArtifactSetError, "RT4 isolation controls failed"
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_gate_rejects_tampered_native_uv0_affine_receipt(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-ogre-rt4-uv0-") as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["texture_isolation"]["variants"][6]["uv0_affine"][
+                "native_user_value_readbacks"
+            ] = 2
+            report_path.write_text(json.dumps(report) + "\n", encoding="utf-8")
+            self.refresh_rt4_attestation(root, ("report",))
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError, "native UV0 affine receipt"
             ):
                 VERIFY.verify_artifact_set(root)
 

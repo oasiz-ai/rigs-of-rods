@@ -72,6 +72,29 @@ struct OgreNextN1NativeMeshBounds final {
   float radius = 0.0F;
 };
 
+/// Exact texture-coordinate profile lowered into the frontend-owned PBS
+/// shader piece. Pinned Ogre exposes three generic material float4 values but
+/// no per-base-slot texture-transform API, so RT4/V1 admits one shared affine
+/// across every bound PBS texture in a material. This preserves the authored
+/// A0 road/wet/lane mappings without silently approximating independent slot
+/// transforms or rotation.
+struct OgreNextN1PbsUv0AffineTransform final {
+  Float2 scale{1.0F, 1.0F};
+  Float2 offset;
+  std::uint32_t portable_texture_binding_count = 0U;
+  std::uint32_t native_texture_slot_count = 0U;
+  bool transformed = false;
+};
+
+/// Builds the exact shared UV0 scale/offset profile for one RT4/V1 PBS
+/// material. The candidate is published only on success. UV1, non-positive or
+/// non-finite scale, non-finite offset, rotation, noncanonical absent state,
+/// and differing transforms among bound slots all fail closed.
+[[nodiscard]] ValidationResult BuildOgreNextN1PbsUv0AffineTransform(
+    const MaterialDescriptor &material,
+    OgreNextN1PbsUv0AffineTransform &transform,
+    std::size_t material_index = ValidationResult::kNoElement);
+
 /// Returns false when finite portable bounds would manufacture a non-finite
 /// Ogre Aabb or bounding-sphere value during native float arithmetic.
 [[nodiscard]] bool TryBuildOgreNextN1NativeMeshBounds(

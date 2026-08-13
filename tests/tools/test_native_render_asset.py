@@ -249,6 +249,81 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             }
             self.assertEqual(generated, checked)
 
+    def test_checked_normal_mips_are_vector_filtered_and_rg_canonical(self) -> None:
+        manifest = json.loads(
+            (REPOSITORY_ROOT / MANIFEST_RELATIVE).read_text(encoding="ascii")
+        )
+
+        def read_tga(relative: str) -> tuple[int, int, tuple[tuple[int, int, int, int], ...]]:
+            payload = (REPOSITORY_ROOT / relative).read_bytes()
+            width, height = struct.unpack_from("<HH", payload, 12)
+            self.assertEqual(payload[2], 2)
+            self.assertEqual(payload[16:18], bytes((32, 0x28)))
+            bgra = payload[18:]
+            self.assertEqual(len(bgra), width * height * 4)
+            pixels = tuple(
+                (bgra[index + 2], bgra[index + 1], bgra[index], bgra[index + 3])
+                for index in range(0, len(bgra), 4)
+            )
+            return width, height, pixels
+
+        def decode_rg(pixel: tuple[int, int, int, int]) -> tuple[float, float, float]:
+            x = 2.0 * pixel[0] / 255.0 - 1.0
+            y = 2.0 * pixel[1] / 255.0 - 1.0
+            return x, y, math.sqrt(max(0.0, 1.0 - x * x - y * y))
+
+        def encode_average(
+            samples: tuple[tuple[int, int, int, int], ...]
+        ) -> tuple[int, int, int, int]:
+            vector = tuple(
+                sum(decode_rg(sample)[axis] for sample in samples) / len(samples)
+                for axis in range(3)
+            )
+            length = math.sqrt(sum(component * component for component in vector))
+            normalized = tuple(component / length for component in vector)
+            red = min(255, max(0, int((normalized[0] + 1.0) * 127.5 + 0.5)))
+            green = min(255, max(0, int((normalized[1] + 1.0) * 127.5 + 0.5)))
+            quantized_x = 2.0 * red / 255.0 - 1.0
+            quantized_y = 2.0 * green / 255.0 - 1.0
+            quantized_z = math.sqrt(
+                max(0.0, 1.0 - quantized_x * quantized_x - quantized_y * quantized_y)
+            )
+            blue = min(255, max(128, int((quantized_z + 1.0) * 127.5 + 0.5)))
+            return red, green, blue, 255
+
+        for texture in manifest["textures"]:
+            if texture["role"] != "normal":
+                continue
+            previous_width = 0
+            previous_height = 0
+            previous: tuple[tuple[int, int, int, int], ...] = ()
+            for level, mip in enumerate(texture["mips"]):
+                width, height, pixels = read_tga(mip["path"])
+                for pixel in pixels:
+                    x, y, reconstructed_z = decode_rg(pixel)
+                    del x, y
+                    decoded_blue = 2.0 * pixel[2] / 255.0 - 1.0
+                    self.assertLessEqual(
+                        abs(decoded_blue - reconstructed_z), 1.0 / 255.0
+                    )
+                    self.assertEqual(pixel[3], 255)
+                if level:
+                    for y in range(height):
+                        for x in range(width):
+                            samples = tuple(
+                                previous[
+                                    min(previous_height - 1, y * 2 + dy)
+                                    * previous_width
+                                    + min(previous_width - 1, x * 2 + dx)
+                                ]
+                                for dy in range(2)
+                                for dx in range(2)
+                            )
+                            self.assertEqual(
+                                pixels[y * width + x], encode_average(samples)
+                            )
+                previous_width, previous_height, previous = width, height, pixels
+
     def test_normal_and_optimized_compilers_are_byte_identical(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

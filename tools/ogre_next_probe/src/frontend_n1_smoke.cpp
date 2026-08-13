@@ -80,6 +80,7 @@ struct VariantEvidence final {
   std::string name;
   std::string changed_input;
   std::uint64_t asset_sequence = 0U;
+  OgreNextN1PbsUv0AffineState uv0_affine;
   Metrics hdr;
   Metrics sdr;
   std::size_t hdr_changed_pixels = 0U;
@@ -206,6 +207,7 @@ enum class TextureVariant : std::uint8_t {
   METALLIC_B,
   EMISSIVE,
   NORMAL_RG,
+  UV0_AFFINE,
   SAMPLER_UV,
 };
 
@@ -224,7 +226,7 @@ struct VariantSpec final {
   std::uint64_t expected_native_destroys;
 };
 
-constexpr std::array<VariantSpec, 7U> kVariantSpecs{{
+constexpr std::array<VariantSpec, 8U> kVariantSpecs{{
     {TextureVariant::BASELINE, "baseline", "none", 1U, 1U, 1U, 1U, 1U,
      1U, 1U, 5U, 0U},
     {TextureVariant::BASE_COLOR, "base_color", "base_color_rgb", 2U, 2U,
@@ -237,8 +239,10 @@ constexpr std::array<VariantSpec, 7U> kVariantSpecs{{
      4U, 2U, 1U, 1U, 14U, 9U},
     {TextureVariant::NORMAL_RG, "normal_rg", "canonical_positive_z_normal_rg",
      6U, 6U, 3U, 4U, 3U, 2U, 1U, 16U, 11U},
+    {TextureVariant::UV0_AFFINE, "uv0_affine",
+     "shared_uv0_scale_offset", 7U, 7U, 3U, 4U, 3U, 3U, 1U, 17U, 12U},
     {TextureVariant::SAMPLER_UV, "sampler_uv", "sampler_address_over_uv0",
-     7U, 7U, 3U, 4U, 3U, 3U, 2U, 17U, 12U},
+     8U, 8U, 3U, 4U, 3U, 3U, 2U, 17U, 12U},
 }};
 
 [[noreturn]] void Fail(const std::string &message) {
@@ -393,6 +397,18 @@ MaterialDescriptor MakeMaterial(bool modern_pbr = false,
     material.emissive_texture.sampler =
         AssetRef(RenderAssetKind::SAMPLER, 6U,
                  variant->sampler_revision);
+    if (variant->variant == TextureVariant::UV0_AFFINE) {
+      TextureBinding *bindings[] = {
+          &material.base_color_texture,
+          &material.metallic_roughness_texture,
+          &material.normal_texture,
+          &material.emissive_texture,
+      };
+      for (TextureBinding *binding : bindings) {
+        binding->scale = {2.0F, 4.0F};
+        binding->offset = {0.125F, -0.25F};
+      }
+    }
   }
   return material;
 }
@@ -915,6 +931,23 @@ void RequireControlledCatalog(const RenderAssetDelta &baseline,
   RequireEquivalentPayload(RenderAssetPayload{baseline_material},
                            RenderAssetPayload{normalized_material},
                            "material factors or constants");
+  if (spec.variant == TextureVariant::UV0_AFFINE) {
+    const MaterialDescriptor &actual_material =
+        std::get<MaterialDescriptor>(MutationFor(variant, 2U).payload);
+    const TextureBinding *bindings[] = {
+        &actual_material.base_color_texture,
+        &actual_material.metallic_roughness_texture,
+        &actual_material.normal_texture,
+        &actual_material.emissive_texture,
+    };
+    for (const TextureBinding *binding : bindings) {
+      Require(binding->texture_coordinate_set == 0U &&
+                  binding->scale == Float2{2.0F, 4.0F} &&
+                  binding->offset == Float2{0.125F, -0.25F} &&
+                  binding->rotation_radians == 0.0F,
+              "RT4/V1 UV0 affine variant changed or lost its exact transform");
+    }
+  }
 
   const std::uint64_t changed_texture =
       spec.variant == TextureVariant::BASE_COLOR
@@ -2514,7 +2547,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
     report << "    }\n"
            << "  },\n"
            << "  \"texture_isolation\": {\n"
-           << "    \"schema\": \"ror.ogre_next_rt4_texture_isolation.v1\",\n"
+           << "    \"schema\": \"ror.ogre_next_rt4_texture_isolation.v2\",\n"
            << "    \"evidence_file\": \""
            << std::filesystem::u8path(evidence_path)
                   .filename()
@@ -2537,6 +2570,37 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
              << "\",\n"
              << "        \"asset_sequence\": " << variant.asset_sequence
              << ",\n"
+             << "        \"uv0_affine\": {\"version\": "
+             << variant.uv0_affine.version
+             << ", \"scale\": [" << variant.uv0_affine.scale.x << ", "
+             << variant.uv0_affine.scale.y << "], \"offset\": ["
+             << variant.uv0_affine.offset.x << ", "
+             << variant.uv0_affine.offset.y
+             << "], \"portable_binding_count\": "
+             << variant.uv0_affine.portable_texture_binding_count
+             << ", \"native_slot_count\": "
+             << variant.uv0_affine.native_texture_slot_count
+             << ", \"native_slot_readbacks\": "
+             << variant.uv0_affine.native_texture_slot_readbacks
+             << ", \"native_user_value_readbacks\": "
+             << variant.uv0_affine.native_user_value_readbacks
+             << ", \"transformed\": "
+             << (variant.uv0_affine.transformed ? "true" : "false")
+             << ", \"uv0_only\": "
+             << (variant.uv0_affine.uv0_only ? "true" : "false")
+             << ", \"positive_scale\": "
+             << (variant.uv0_affine.positive_scale ? "true" : "false")
+             << ", \"rotation_zero\": "
+             << (variant.uv0_affine.rotation_zero ? "true" : "false")
+             << ", \"shared_across_bound_slots\": "
+             << (variant.uv0_affine.shared_across_bound_slots ? "true"
+                                                               : "false")
+             << ", \"shader_piece_selected\": "
+             << (variant.uv0_affine.shader_piece_selected ? "true"
+                                                            : "false")
+             << ", \"exact_native_state\": "
+             << (variant.uv0_affine.exact_native_state ? "true" : "false")
+             << "},\n"
              << "        \"hdr\": {\"offset\": " << offset
              << ", \"bytes\": " << variant.hdr.attachment_bytes.size()
              << ", \"exact_fnv1a64\": \""
@@ -4923,6 +4987,15 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
     baseline.name = kVariantSpecs.front().name;
     baseline.changed_input = kVariantSpecs.front().changed_input;
     baseline.asset_sequence = kVariantSpecs.front().sequence;
+    baseline.uv0_affine = frontend.QueryPbsUv0AffineState(
+        AssetRef(RenderAssetKind::MATERIAL, 2U,
+                 kVariantSpecs.front().material_revision));
+    Require(baseline.uv0_affine.exact_native_state &&
+                !baseline.uv0_affine.transformed &&
+                baseline.uv0_affine.scale == Float2{1.0F, 1.0F} &&
+                baseline.uv0_affine.offset == Float2{} &&
+                baseline.uv0_affine.native_texture_slot_readbacks == 5U,
+            "RT4/V1 baseline native UV0 identity receipt failed");
     baseline.hdr = result.hdr;
     baseline.sdr = result.sdr;
     result.variants.push_back(std::move(baseline));
@@ -4977,6 +5050,32 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
                   audit.exact_usage,
               std::string("RT4/V1 replacement allocation drifted for ") +
                   spec.name);
+      const OgreNextN1PbsUv0AffineState uv0_affine =
+          frontend.QueryPbsUv0AffineState(
+              AssetRef(RenderAssetKind::MATERIAL, 2U,
+                       spec.material_revision));
+      const bool transformed =
+          spec.variant == TextureVariant::UV0_AFFINE;
+      Require(uv0_affine.version == 1U && uv0_affine.live &&
+                  uv0_affine.pbs &&
+                  uv0_affine.scale ==
+                      (transformed ? Float2{2.0F, 4.0F}
+                                   : Float2{1.0F, 1.0F}) &&
+                  uv0_affine.offset ==
+                      (transformed ? Float2{0.125F, -0.25F}
+                                   : Float2{}) &&
+                  uv0_affine.portable_texture_binding_count == 4U &&
+                  uv0_affine.native_texture_slot_count == 5U &&
+                  uv0_affine.native_texture_slot_readbacks == 5U &&
+                  uv0_affine.native_user_value_readbacks == 3U &&
+                  uv0_affine.transformed == transformed &&
+                  uv0_affine.uv0_only && uv0_affine.positive_scale &&
+                  uv0_affine.rotation_zero &&
+                  uv0_affine.shared_across_bound_slots &&
+                  uv0_affine.shader_piece_selected &&
+                  uv0_affine.exact_native_state,
+              std::string("RT4/V1 exact native UV0 affine receipt failed for ") +
+                  spec.name);
 
       const auto variant_scene = MakeScene(
           100U + variant_index, false, true, spec.sequence,
@@ -5002,6 +5101,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
       evidence.name = spec.name;
       evidence.changed_input = spec.changed_input;
       evidence.asset_sequence = spec.sequence;
+      evidence.uv0_affine = uv0_affine;
       evidence.hdr = InspectHdr(variant_hdr_output);
       evidence.sdr = InspectSdr(variant_sdr_output);
       evidence.hdr_changed_pixels = CountChangedPixels(

@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Rigs of Rods RT4/V1 exact shared-per-material UV0 affine transform.
+// userValue[0] is (scale.x, scale.y, offset.x, offset.y).
+@property( ror_uv0_affine_pbs )
+@piece( custom_ps_uv_modifier_macros )
+	#undef UV_DIFFUSE
+	#undef UV_NORMAL
+	#undef UV_SPECULAR
+	#undef UV_ROUGHNESS
+	#undef UV_EMISSIVE
+	#define ROR_UV0_AFFINE(x) ((x) * material.userValue[0].xy + material.userValue[0].zw)
+	#define UV_DIFFUSE(x) ROR_UV0_AFFINE(x)
+	#define UV_NORMAL(x) ROR_UV0_AFFINE(x)
+	#define UV_SPECULAR(x) ROR_UV0_AFFINE(x)
+	#define UV_ROUGHNESS(x) ROR_UV0_AFFINE(x)
+	#define UV_EMISSIVE(x) ROR_UV0_AFFINE(x)
+@end
+@end

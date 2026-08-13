@@ -500,7 +500,7 @@
     "coordinate_system": "right-handed-y-up-meters",
     "generator": {
       "path": "tools/blender/native_render/generate_a0_road_tile.py",
-      "sha256": "ffc9aaf559968336c473155d983606ca2ce3f0bee6d5b9b6c64b5e8b9eefc65f"
+      "sha256": "1be62686714ad82b1992030dbedc63ff5b9eee2f1cf4d37db49dc2677ef123c9"
     },
     "glb": {
       "path": "content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.glb",
@@ -752,43 +752,43 @@
         {
           "height": 64,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip0.tga",
-          "sha256": "b2b5d7410bdf3afcdd951ccabe1f90e93042bb4c0f15125bb01b90e01806d669",
+          "sha256": "3b99abbe27b613332bcecd502b3437c8a5551d56828ced7fa0711b07afe76c09",
           "width": 64
         },
         {
           "height": 32,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip1.tga",
-          "sha256": "1277fd3551ae7ee59647c44af9be61d752e9de3b6459dd59f1b47579af7ad8e6",
+          "sha256": "3f8a682c7f04f3a6931b0f9676bcdf06e4f0b3a9a83558361f333af128628d3a",
           "width": 32
         },
         {
           "height": 16,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip2.tga",
-          "sha256": "288f36403d62e28bb10ae0c63a01cdfaf429d45e24618d38662f4d386d29090e",
+          "sha256": "ba69411a010489055d446e4070344193200b44d87af25189319dd6cc250dd8c2",
           "width": 16
         },
         {
           "height": 8,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip3.tga",
-          "sha256": "f2a5a327b003fe0971c0e7ebe2b08e34f1f0139bc9345a247b2635dc4cb4a22e",
+          "sha256": "08c4f9e3305af021f6e8c7a367808a314ed1830bd759da7294c1dbc4519f0a88",
           "width": 8
         },
         {
           "height": 4,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip4.tga",
-          "sha256": "95d1ede2467fb394c5264604f376ef3b8bc6ef162f4eafbff7e78710c4ad5a8f",
+          "sha256": "fbe8b12ce119db00179790c9b529b67668387031272ca27e5d724bb627b558f5",
           "width": 4
         },
         {
           "height": 2,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip5.tga",
-          "sha256": "13a23deecd0468b61d7a33c49e24c1a3259cb3790ab006683e11e7e3b545494b",
+          "sha256": "a1897a116444810a5f3a951ec056744643b1792710d4b4e4af1e202ef087712b",
           "width": 2
         },
         {
           "height": 1,
           "path": "content-source/native_render/a0_road_tile_12m/textures/road_normal_mip6.tga",
-          "sha256": "6da578fe6916458063db5ec810afa18be961573f839245c5de150c1a01505896",
+          "sha256": "9edc7f7181e26cfadd9deb8005fdf027526a92bf74edf34771ef0f65e00d63cd",
           "width": 1
         }
       ],
@@ -852,31 +852,31 @@
         {
           "height": 16,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip1.tga",
-          "sha256": "1f98f61678114edde4a6052ac6f7fb96238f659436a929faed739cac6a8a890a",
+          "sha256": "47c0742710637dc92d9af5bcf55ea61f658636d40ac3ff8428a557f07c358b3f",
           "width": 16
         },
         {
           "height": 8,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip2.tga",
-          "sha256": "c7abb35bb20be663f1f2e4775cc8cd69db8ddbcd433d486d6e73b57452642f07",
+          "sha256": "d7c6d92bd06111a63d739326afd93eb4ff9bcd59d8c17d38f355e6964f88b679",
           "width": 8
         },
         {
           "height": 4,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip3.tga",
-          "sha256": "02f8494a1d70a36d6adf4fe37dbcb41e066c34d1f3545e774542f9348c834556",
+          "sha256": "5f601f138fee8760605fa5f1a002c3cca5da1b03d14888f1ed18b99345d248ba",
           "width": 4
         },
         {
           "height": 2,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip4.tga",
-          "sha256": "fc54d7de38acf4137f77c72ef5443efea718745a069b17017c42c349de3caf52",
+          "sha256": "b64b03d901355b23bf32a2bc0351ac0732de9f81ab6fb7f12968bcffe2ebc00d",
           "width": 2
         },
         {
           "height": 1,
           "path": "content-source/native_render/a0_road_tile_12m/textures/wet_normal_mip5.tga",
-          "sha256": "f6530b91f0099747ebbc850961ee0cfb74e56b3c5dcc5579d700c93916cee15e",
+          "sha256": "29040dc4e4e7386a7198c5011d5e7ed9321780066b67a8878f126d4263673d17",
           "width": 1
         }
       ],

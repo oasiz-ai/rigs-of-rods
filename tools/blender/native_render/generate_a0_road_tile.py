@@ -634,8 +634,55 @@ def _mip_chain(
     pixel: Callable[[int, int], Pixel],
     *,
     srgb: bool,
+    positive_z_normal: bool = False,
 ) -> list[tuple[int, int, tuple[Pixel, ...]]]:
-    pixels = tuple(pixel(x, y) for y in range(height) for x in range(width))
+    def canonicalize_normal_rg(red: int, green: int) -> Pixel:
+        """Encode the +Z evidence implied by the exact final RG8 bytes."""
+        decoded_x = 2.0 * red / 255.0 - 1.0
+        decoded_y = 2.0 * green / 255.0 - 1.0
+        decoded_z = math.sqrt(
+            max(0.0, 1.0 - decoded_x * decoded_x - decoded_y * decoded_y)
+        )
+        encoded_z = min(255, max(128, int((decoded_z + 1.0) * 127.5 + 0.5)))
+        return (red, green, encoded_z, 255)
+
+    def canonicalize_base_normal(value: Pixel) -> Pixel:
+        if not positive_z_normal:
+            return value
+        return canonicalize_normal_rg(value[0], value[1])
+
+    def downsample_normal(samples: tuple[Pixel, ...]) -> Pixel:
+        average_x = 0.0
+        average_y = 0.0
+        average_z = 0.0
+        for sample in samples:
+            decoded_x = 2.0 * sample[0] / 255.0 - 1.0
+            decoded_y = 2.0 * sample[1] / 255.0 - 1.0
+            decoded_z = math.sqrt(
+                max(0.0, 1.0 - decoded_x * decoded_x - decoded_y * decoded_y)
+            )
+            average_x += decoded_x
+            average_y += decoded_y
+            average_z += decoded_z
+        inverse_count = 1.0 / len(samples)
+        average = (
+            average_x * inverse_count,
+            average_y * inverse_count,
+            average_z * inverse_count,
+        )
+        normalized = _normalize3(average)
+        # Quantize the averaged unit vector's XY first, then derive source B
+        # from those final RG8 values because that is exactly what the native
+        # upload and pinned PBS consume/reconstruct.
+        encoded_x = min(255, max(0, int((normalized[0] + 1.0) * 127.5 + 0.5)))
+        encoded_y = min(255, max(0, int((normalized[1] + 1.0) * 127.5 + 0.5)))
+        return canonicalize_normal_rg(encoded_x, encoded_y)
+
+    pixels = tuple(
+        canonicalize_base_normal(pixel(x, y))
+        for y in range(height)
+        for x in range(width)
+    )
     result = [(width, height, pixels)]
     while width > 1 or height > 1:
         next_width = max(1, width // 2)
@@ -648,6 +695,9 @@ def _mip_chain(
                     for dy in range(2)
                     for dx in range(2)
                 )
+                if positive_z_normal:
+                    reduced.append(downsample_normal(samples))
+                    continue
                 channels: list[int] = []
                 for channel in range(4):
                     values = tuple(sample[channel] for sample in samples)
@@ -738,7 +788,13 @@ def build_sources(repo_root: Path) -> None:
     for identifier, role, color_space, stem, width, height, pixel in texture_definitions:
         mip_records: list[tuple[str, int, int]] = []
         for level, (mip_width, mip_height, pixels) in enumerate(
-            _mip_chain(width, height, pixel, srgb=color_space == "srgb")
+            _mip_chain(
+                width,
+                height,
+                pixel,
+                srgb=color_space == "srgb",
+                positive_z_normal=role == "normal",
+            )
         ):
             name = f"{stem}_mip{level}.tga"
             texture_payloads[name] = write_tga_rgba(mip_width, mip_height, pixels)

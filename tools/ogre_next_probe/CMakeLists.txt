@@ -142,7 +142,12 @@ file(GLOB_RECURSE _ror_relevant_source_files
 list(APPEND _ror_relevant_source_files
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
+    "source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.h"
     "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+    "tools/ogre_next_probe/media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
+    "tools/ogre_next_probe/ogre-next-uv0-affine-pbs-v1.lock.json"
+    "tools/ogre_next_probe/verify_uv0_affine_pbs_shader.py"
     "tools/ogre_next_probe/audit_embedded_namespace.py"
     "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h"
     "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch"
@@ -482,6 +487,25 @@ set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE
     "RoR/DisplayDomain/DisplayDomain_piece_ps.any")
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE
     "${CMAKE_CURRENT_SOURCE_DIR}/media/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE
+    "RoR/UvAffinePbs/UvAffinePbs_piece_ps.any")
+set(ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE
+    "${CMAKE_CURRENT_SOURCE_DIR}/media/Hlms/${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_UV_AFFINE_PBS_SHADER_LOCK
+    "${CMAKE_CURRENT_SOURCE_DIR}/ogre-next-uv0-affine-pbs-v1.lock.json")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_uv0_affine_pbs_shader.py"
+            --root "${CMAKE_CURRENT_SOURCE_DIR}"
+            --lock "${ROR_OGRE_NEXT_UV_AFFINE_PBS_SHADER_LOCK}"
+    RESULT_VARIABLE _ror_uv0_affine_pbs_shader_result
+    OUTPUT_VARIABLE _ror_uv0_affine_pbs_shader_output
+    ERROR_VARIABLE _ror_uv0_affine_pbs_shader_error)
+if (NOT _ror_uv0_affine_pbs_shader_result EQUAL 0)
+    message(FATAL_ERROR
+        "UV0 affine PBS shader verification failed: "
+        "${_ror_uv0_affine_pbs_shader_error}")
+endif ()
 set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE
     "RoR/SunVisibilityV2/SunVisibilityV2.metal")
 set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE
@@ -512,6 +536,11 @@ if (NOT EXISTS "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}" OR
     message(FATAL_ERROR
         "RoR legacy display-domain HLMS piece is missing or indirect")
 endif ()
+if (NOT EXISTS "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}" OR
+        IS_SYMLINK "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}")
+    message(FATAL_ERROR
+        "RoR UV0 affine PBS HLMS piece is missing or indirect")
+endif ()
 if (NOT EXISTS "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}" OR
         IS_SYMLINK "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_SOURCE}")
     message(FATAL_ERROR
@@ -529,6 +558,7 @@ file(GLOB_RECURSE _ror_n1_hlms_files
     "${_ror_n1_hlms_root}/*")
 list(APPEND _ror_n1_hlms_files
     "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+    "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}"
     "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}")
 list(REMOVE_DUPLICATES _ror_n1_hlms_files)
 list(SORT _ror_n1_hlms_files)
@@ -542,6 +572,10 @@ foreach (_ror_n1_hlms_relative IN LISTS _ror_n1_hlms_files)
             ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE)
         set(_ror_n1_hlms_file
             "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}")
+    elseif (_ror_n1_hlms_relative STREQUAL
+            ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE)
+        set(_ror_n1_hlms_file
+            "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}")
     elseif (_ror_n1_hlms_relative STREQUAL
             ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE)
         set(_ror_n1_hlms_file
@@ -1136,6 +1170,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/ogrenext/OgreNextHdrTemporalContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextTaaContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextUvAffinePbs.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"
@@ -1436,6 +1471,8 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
             --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.cpp"
+            --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextReflectionProbeRuntime.cpp"
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextMetalInterop.mm"
@@ -1573,6 +1610,8 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/OgreNextTaaContract.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
         "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.h"
+        "${_ror_render_root}/ogrenext/OgreNextUvAffinePbs.cpp"
+        "${_ror_render_root}/ogrenext/OgreNextUvAffinePbs.h"
         "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1MediaIntegrity.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN1ParticleRuntime.cpp"
@@ -3156,7 +3195,12 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_n2_relevant_source_paths
             source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
             source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
+            source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.cpp
+            source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.h
             tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
+            tools/ogre_next_probe/media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any
+            tools/ogre_next_probe/ogre-next-uv0-affine-pbs-v1.lock.json
+            tools/ogre_next_probe/verify_uv0_affine_pbs_shader.py
             tools/ogre_next_probe/audit_embedded_namespace.py
             tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h
             tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch
@@ -3640,6 +3684,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_OGRE_NEXT_PACKAGE_FREETYPE_OVERVIEW_SOURCE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/${ROR_OGRE_NEXT_SHADER_MEDIA_NOTICE_PATH}"
         "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
+        "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}"
+        "${ROR_OGRE_NEXT_UV_AFFINE_PBS_SHADER_LOCK}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_uv0_affine_pbs_shader.py"
         "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}"
         "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
         "${CMAKE_CURRENT_SOURCE_DIR}/verify_sun_visibility_v2_shader.py"
@@ -3730,6 +3777,20 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         COMMAND "${CMAKE_COMMAND}" -E compare_files
                 "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_SOURCE}"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/RoR/UvAffinePbs"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_UV_AFFINE_PBS_SHADER_LOCK}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ogre-next-uv0-affine-pbs-v1.lock.json"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_UV_AFFINE_PBS_SHADER_LOCK}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ogre-next-uv0-affine-pbs-v1.lock.json"
         COMMAND "${CMAKE_COMMAND}" -E make_directory
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/Hlms/RoR/SunVisibilityV2"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
