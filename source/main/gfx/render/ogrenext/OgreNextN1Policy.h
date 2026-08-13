@@ -166,7 +166,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
         OgreNextDirectionalShadowMode::DISABLED,
     bool hdr_compositor_enabled = false,
     bool native_directional_shadow_enabled = false,
-    bool native_presentation_enabled = false);
+    bool native_presentation_enabled = false,
+    bool native_sun_visibility_v2_enabled = false);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);

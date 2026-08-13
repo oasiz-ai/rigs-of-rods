@@ -122,6 +122,49 @@ struct RendererAnalyticSkyAudit final {
   bool available = false;
 };
 
+/// Renderer-neutral, versioned production receipt for the native OgreNext RT4
+/// PBS lighting, HDR, shadow, and presentation path.
+struct RendererNativeLightingAudit final {
+  std::uint32_t version = 0U;
+  std::uint64_t completed_frames = 0U;
+  std::uint64_t last_frame_id = 0U;
+  std::uint64_t last_snapshot_id = 0U;
+  std::uint64_t native_state_verifications = 0U;
+  std::uint64_t production_content_readbacks = 0U;
+  std::uint64_t production_framebuffer_readbacks = 0U;
+  std::uint64_t ogre14_lighting_passes = 0U;
+  std::uint32_t material_descriptor_version = 0U;
+  std::uint32_t directional_lights = 0U;
+  std::uint32_t pbs_items = 0U;
+  std::uint32_t normal_mapped_items = 0U;
+  std::uint32_t emissive_items = 0U;
+  std::uint32_t shadow_casters = 0U;
+  std::uint32_t shadow_receivers = 0U;
+  bool native_scene_lighting_pass = false;
+  bool linear_rgba16_hdr_target = false;
+  bool separate_base_hdr_target = false;
+  bool separate_unoccluded_sun_full_hdr_target = false;
+  bool separate_sun_direct_hdr_target = false;
+  bool gpu_sun_direct_derivation = false;
+  bool transactional_directional_sun_toggle = false;
+  bool raster_lit_hdr_target = false;
+  bool single_step_hdr_history = false;
+  std::uint32_t raster_scene_evaluations = 0U;
+  bool calibrated_directional_lighting = false;
+  bool ambient_environment_lighting = false;
+  bool analytic_sky_contribution = false;
+  bool emissive_material_response = false;
+  bool pssm_shadow_response = false;
+  bool hdr_auto_exposure = false;
+  bool gpu_hdr_history_sequenced = false;
+  bool hdr_bloom = false;
+  bool filmic_tone_map = false;
+  bool srgb_presentation = false;
+  bool production_gpu_only = false;
+  bool no_ogre14_lighting = false;
+  bool available = false;
+};
+
 /// Owns the sole visible SDL/Metal presentation window and an uninitialized
 /// OgreNext N1 frontend. The public boundary is renderer-neutral; the Pimpl
 /// implementation is the only translation unit that includes OgreNext or SDL.
@@ -167,6 +210,8 @@ public:
   [[nodiscard]] RendererContinuousParticleAudit
   ContinuousParticleAudit() const noexcept;
   [[nodiscard]] RendererAnalyticSkyAudit AnalyticSkyAudit() const noexcept;
+  [[nodiscard]] RendererNativeLightingAudit
+  NativeLightingAudit() const noexcept;
 
   [[nodiscard]] Render::ValidationResult PollEvents(
       RendererInProcessEventPollPoint point,

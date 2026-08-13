@@ -575,6 +575,7 @@ RenderOperationResult RunShadow(const std::string &media_root,
       media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
   configuration.directional_shadow_mode =
       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.retain_native_lighting_content_evidence = true;
   OgreNextN1Frontend frontend(std::move(configuration));
   const RenderOperationResult initialization = InitializeAndSync(frontend);
   if (!initialization) {
@@ -787,6 +788,7 @@ bool ProveTransactionalRetry(const std::string &media_root,
       media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
   configuration.directional_shadow_mode =
       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.retain_native_lighting_content_evidence = true;
   configuration.pssm_failure_stage = stage;
   OgreNextN1Frontend frontend(std::move(configuration));
   RequireSuccess(InitializeAndSync(frontend),
@@ -821,6 +823,7 @@ bool ProveInitializationRetry(const std::string &media_root,
       media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
   configuration.directional_shadow_mode =
       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.retain_native_lighting_content_evidence = true;
   configuration.pssm_failure_stage = stage;
   OgreNextN1Frontend frontend(std::move(configuration));
   const RenderOperationResult injected = frontend.Initialize(Initialization());
@@ -847,6 +850,7 @@ bool ProveCleanupLookupRetry(const std::string &media_root,
       media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
   configuration.directional_shadow_mode =
       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.retain_native_lighting_content_evidence = true;
   configuration.pssm_failure_stage = stage;
   OgreNextN1Frontend frontend(std::move(configuration));
   RequireSuccess(InitializeAndSync(frontend),

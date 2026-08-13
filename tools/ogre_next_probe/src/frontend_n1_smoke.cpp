@@ -171,6 +171,12 @@ struct SmokeResult final {
   struct HdrCompositorEvidence final {
     OgreNextHdrCompositorAudit initialized;
     OgreNextHdrCompositorAudit committed;
+    OgreNextNativeLightingPassAudit lighting;
+    OgreNextHdrLightingSplitContentEvidence split_content;
+    std::array<std::uint64_t, 4U> split_content_fnv1a64{};
+    std::size_t split_rgb_channels_verified = 0U;
+    std::size_t positive_sun_direct_pixels = 0U;
+    bool canonical_split_alpha = false;
     Metrics first;
     Metrics final;
     Metrics ui_overlay_control;
@@ -185,6 +191,11 @@ struct SmokeResult final {
     bool aborted_submission_uncommitted = false;
     bool aborted_output_unchanged = false;
     bool post_render_failure_fault_latched = false;
+    bool suspend_restore_preserved_graph = false;
+    bool invalid_resize_rollback_verified = false;
+    bool resize_rebuild_verified = false;
+    bool resized_frame_verified = false;
+    bool clean_shutdown = false;
   } hdr_compositor;
 };
 
@@ -1014,7 +1025,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                                                bool include_mesh = true,
                                                bool include_reflection_probe =
                                                    true,
-                                               bool suppress_sun_disk = false) {
+                                               bool suppress_sun_disk = false,
+                                               bool enable_shadows = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -1034,7 +1046,8 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
             "RT4/V1 directional tint could not be normalized");
     captured_sun.intensity = 1024.0F;
     captured_sun.direction = light_direction;
-    captured_sun.shadow_flags = 0U;
+    captured_sun.shadow_flags =
+        enable_shadows ? LIGHT_SHADOW_STATIC_GEOMETRY : 0U;
     const ValidationResult sky =
         BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
             descriptor.environment.ambient_radiance, captured_sun,
@@ -1406,6 +1419,15 @@ std::uint64_t HashBytes(const std::vector<std::uint8_t> &bytes) {
   return hash;
 }
 
+std::uint64_t HashHalfWords(const std::vector<std::uint16_t> &words) {
+  std::uint64_t hash = UINT64_C(14695981039346656037);
+  for (const std::uint16_t value : words) {
+    Hash(hash, static_cast<std::uint8_t>(value & 0xffU));
+    Hash(hash, static_cast<std::uint8_t>(value >> 8U));
+  }
+  return hash;
+}
+
 ReflectionSectionMetrics InspectReflectionSection(
     const std::vector<std::uint8_t> &bytes, std::size_t begin,
     std::size_t end, const char *section) {
@@ -1737,6 +1759,20 @@ void WriteHdrCompositorEvidence(
     output.write(
         reinterpret_cast<const char *>(metrics->attachment_bytes.data()),
         static_cast<std::streamsize>(metrics->attachment_bytes.size()));
+  }
+  const std::array<const std::vector<std::uint16_t> *, 4U> split_targets{{
+      &evidence.split_content.base_hdr_rgba16,
+      &evidence.split_content.sun_full_hdr_rgba16,
+      &evidence.split_content.sun_direct_hdr_rgba16,
+      &evidence.split_content.raster_lit_hdr_rgba16}};
+  for (const std::vector<std::uint16_t> *target : split_targets) {
+    Require(target != nullptr &&
+                target->size() ==
+                    static_cast<std::size_t>(kWidth) * kHeight * 4U,
+            "HDR split evidence attachment is incomplete");
+    output.write(reinterpret_cast<const char *>(target->data()),
+                 static_cast<std::streamsize>(target->size() *
+                                              sizeof(std::uint16_t)));
   }
   if (!output) {
     Fail("could not write complete HDR compositor evidence: " + path);
@@ -2586,7 +2622,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
         result.hdr_compositor;
     report << std::setprecision(std::numeric_limits<double>::max_digits10)
            << "  \"hdr_compositor\": {\n"
-           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v4\",\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor.v5\",\n"
            << "    \"workspace\": \"RoRHdrWorkspaceUiFreeV2\",\n"
            << "    \"persistent_workspace\": true,\n"
            << "    \"scene_format\": \"RGBA16_FLOAT\",\n"
@@ -2621,6 +2657,56 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << compositor.committed.warmup_frames << ",\n"
            << "    \"committed_frames\": "
            << compositor.committed.committed_frames << ",\n"
+           << "    \"split_lighting\": {\"base_hdr_rgba16\": "
+           << (compositor.lighting.separate_base_hdr_target ? "true"
+                                                            : "false")
+           << ", \"sun_full_unoccluded_rgba16\": "
+           << (compositor.lighting.separate_unoccluded_sun_full_hdr_target
+                   ? "true"
+                   : "false")
+           << ", \"sun_direct_rgba16\": "
+           << (compositor.lighting.separate_sun_direct_hdr_target ? "true"
+                                                                  : "false")
+           << ", \"gpu_max_full_minus_base\": "
+           << (compositor.lighting.gpu_sun_direct_derivation ? "true"
+                                                             : "false")
+           << ", \"transactional_sun_toggle\": "
+           << (compositor.lighting.transactional_directional_sun_toggle
+                   ? "true"
+                   : "false")
+           << ", \"raster_lit_rgba16\": "
+           << (compositor.lighting.raster_lit_hdr_target ? "true"
+                                                         : "false")
+           << ", \"scene_evaluations\": "
+           << compositor.lighting.raster_scene_evaluations
+           << ", \"single_history_step\": "
+           << (compositor.lighting.single_step_hdr_history ? "true"
+                                                           : "false")
+           << "},\n"
+           << "    \"split_content\": {\"rgb_channels_verified\": "
+           << compositor.split_rgb_channels_verified
+           << ", \"positive_sun_direct_pixels\": "
+           << compositor.positive_sun_direct_pixels
+           << ", \"canonical_base_full_raster_alpha_one_direct_alpha_zero\": "
+           << (compositor.canonical_split_alpha ? "true" : "false")
+           << ", \"base_fnv1a64\": \""
+           << HexHash(compositor.split_content_fnv1a64[0U])
+           << "\", \"sun_full_fnv1a64\": \""
+           << HexHash(compositor.split_content_fnv1a64[1U])
+           << "\", \"sun_direct_fnv1a64\": \""
+           << HexHash(compositor.split_content_fnv1a64[2U])
+           << "\", \"raster_lit_fnv1a64\": \""
+           << HexHash(compositor.split_content_fnv1a64[3U]) << "\"},\n"
+           << "    \"native_lighting_state_verifications\": "
+           << compositor.lighting.native_state_verifications << ",\n"
+           << "    \"lighting_test_content_readbacks\": "
+           << compositor.lighting.test_artifact_content_readbacks << ",\n"
+           << "    \"lighting_production_content_readbacks\": "
+           << compositor.lighting.production_content_readbacks << ",\n"
+           << "    \"lighting_production_framebuffer_readbacks\": "
+           << compositor.lighting.production_framebuffer_readbacks << ",\n"
+           << "    \"ogre14_lighting_passes\": "
+           << compositor.lighting.ogre14_lighting_passes << ",\n"
            << "    \"initial_inverse_luminance_r16_bits\": "
            << compositor.initialized.previous_inverse_luminance_r16_bits
            << ",\n"
@@ -2699,14 +2785,29 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << (compositor.post_render_failure_fault_latched ? "true"
                                                             : "false")
            << ",\n"
+           << "    \"suspend_restore_preserved_graph\": "
+           << (compositor.suspend_restore_preserved_graph ? "true"
+                                                           : "false")
+           << ",\n"
+           << "    \"invalid_resize_rollback_verified\": "
+           << (compositor.invalid_resize_rollback_verified ? "true"
+                                                            : "false")
+           << ",\n"
+           << "    \"resize_rebuild_verified\": "
+           << (compositor.resize_rebuild_verified ? "true" : "false")
+           << ",\n"
+           << "    \"resized_frame_verified\": "
+           << (compositor.resized_frame_verified ? "true" : "false")
+           << ",\n"
            << "    \"first_attachment_fnv1a64\": \""
            << HexHash(compositor.first.attachment_fnv1a64) << "\",\n"
            << "    \"final_attachment_fnv1a64\": \""
            << HexHash(compositor.final.attachment_fnv1a64) << "\",\n"
-           << "    \"clean_shutdown\": true\n"
+           << "    \"clean_shutdown\": "
+           << (compositor.clean_shutdown ? "true" : "false") << "\n"
            << "  },\n"
            << "  \"hdr_compositor_visual\": {\n"
-           << "    \"schema\": \"ror.ogre_next_hdr_compositor_visual.v1\",\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_compositor_visual.v2\",\n"
            << "    \"evidence_file\": \""
            << std::filesystem::u8path(compositor_evidence_path)
                   .filename()
@@ -2742,6 +2843,22 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
              << (index + 1U == compositor_attachments.size() ? "\n"
                                                              : ",\n");
       compositor_offset += metrics.attachment_bytes.size();
+    }
+    report << "    ],\n"
+           << "    \"linear_split_attachments\": [\n";
+    const std::array<const char *, 4U> split_names{{
+        "base_hdr", "sun_full_unoccluded_hdr", "sun_direct_hdr",
+        "raster_lit_hdr"}};
+    const std::size_t split_bytes =
+        static_cast<std::size_t>(kWidth) * kHeight * 8U;
+    for (std::size_t index = 0U; index < split_names.size(); ++index) {
+      report << "      {\"name\": \"" << split_names[index]
+             << "\", \"offset\": " << compositor_offset
+             << ", \"bytes\": " << split_bytes
+             << ", \"format\": \"RGBA16_FLOAT\", \"exact_fnv1a64\": \""
+             << HexHash(compositor.split_content_fnv1a64[index]) << "\"}"
+             << (index + 1U == split_names.size() ? "\n" : ",\n");
+      compositor_offset += split_bytes;
     }
     report << "    ],\n"
            << "    \"evidence_bytes\": " << compositor_offset << "\n"
@@ -3840,6 +3957,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   configuration.raster_feature_tier =
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
   configuration.enable_hdr_compositor = true;
+  configuration.retain_native_lighting_content_evidence = true;
   OgreNextN1Frontend frontend(std::move(configuration));
   InitializeAndSync(frontend,
                     MakeCatalog(true, &kVariantSpecs.front()));
@@ -3869,7 +3987,9 @@ RunHdrCompositorProof(const std::string &media_root) {
           "HDR compositor initialization audit is incomplete");
 
   RenderFrameRequest first = MakeFrame(
-      1U, MakeScene(100U, false, true), PixelFormat::RGBA8_SRGB);
+      1U, MakeScene(100U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+                   {0.0F, -0.8F, -0.6F}, 0.0F, true, true, false, false),
+      PixelFormat::RGBA8_SRGB);
   RenderFrameOutput first_output;
   RequireSuccess(frontend.Render(first, first_output),
                  "HDR compositor first Render");
@@ -3877,7 +3997,7 @@ RunHdrCompositorProof(const std::string &media_root) {
 
   RenderFrameRequest second = MakeFrame(
       2U, MakeScene(101U, false, true, 1U, 1U, Matrix4x4{}, 1U,
-                   {0.0F, -0.8F, -0.6F}, 0.5F),
+                   {0.0F, -0.8F, -0.6F}, 0.5F, true, true, false, false),
       PixelFormat::RGBA8_SRGB);
   second.views.front().exposure = 1.25F;
   RenderFrameOutput second_output;
@@ -3888,6 +4008,101 @@ RunHdrCompositorProof(const std::string &media_root) {
   evidence.exposure_changed_pixels = CountChangedPixels(
       evidence.first.attachment_bytes, evidence.final.attachment_bytes, 4U);
   evidence.committed = frontend.QueryHdrCompositorAudit();
+  evidence.split_content =
+      frontend.CaptureHdrLightingSplitContentEvidence();
+  evidence.lighting = frontend.QueryNativeLightingPassAudit();
+  const std::size_t expected_split_channels =
+      static_cast<std::size_t>(kWidth) * kHeight * 4U;
+  Require(evidence.split_content.version ==
+                  kOgreNextHdrLightingSplitContentEvidenceVersion &&
+              evidence.split_content.frame_id == 2U &&
+              evidence.split_content.width == kWidth &&
+              evidence.split_content.height == kHeight &&
+              evidence.split_content.base_hdr_rgba16.size() ==
+                  expected_split_channels &&
+              evidence.split_content.sun_full_hdr_rgba16.size() ==
+                  expected_split_channels &&
+              evidence.split_content.sun_direct_hdr_rgba16.size() ==
+                  expected_split_channels &&
+              evidence.split_content.raster_lit_hdr_rgba16.size() ==
+                  expected_split_channels,
+          "HDR split content evidence layout changed");
+  evidence.split_content_fnv1a64 = {
+      HashHalfWords(evidence.split_content.base_hdr_rgba16),
+      HashHalfWords(evidence.split_content.sun_full_hdr_rgba16),
+      HashHalfWords(evidence.split_content.sun_direct_hdr_rgba16),
+      HashHalfWords(evidence.split_content.raster_lit_hdr_rgba16)};
+  std::size_t canonical_alpha_pixels = 0U;
+  std::array<std::uint64_t, 4U> alpha_histogram{};
+  std::array<std::uint16_t, 4U> first_alpha{};
+  first_alpha = {evidence.split_content.base_hdr_rgba16[3U],
+                 evidence.split_content.sun_full_hdr_rgba16[3U],
+                 evidence.split_content.sun_direct_hdr_rgba16[3U],
+                 evidence.split_content.raster_lit_hdr_rgba16[3U]};
+  for (std::size_t offset = 0U; offset < expected_split_channels;
+       offset += 4U) {
+    bool positive_direct_pixel = false;
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+      const float base = HalfToFloat(
+          evidence.split_content.base_hdr_rgba16[offset + channel]);
+      const float sun_full = HalfToFloat(
+          evidence.split_content.sun_full_hdr_rgba16[offset + channel]);
+      const float expected = std::max(sun_full - base, 0.0F);
+      HdrR16Float expected_half;
+      Require(QuantizeHdrR16Float(expected, expected_half).ok(),
+              "HDR split CPU oracle exceeded finite binary16");
+      Require(evidence.split_content.sun_direct_hdr_rgba16[offset + channel] ==
+                  expected_half.bits,
+              "GPU SunDirect texel differs from max(SunFull-Base,0)");
+      ++evidence.split_rgb_channels_verified;
+      positive_direct_pixel = positive_direct_pixel || expected_half.bits != 0U;
+    }
+    evidence.positive_sun_direct_pixels += positive_direct_pixel ? 1U : 0U;
+    canonical_alpha_pixels +=
+        evidence.split_content.base_hdr_rgba16[offset + 3U] == 0x3c00U &&
+                evidence.split_content.sun_full_hdr_rgba16[offset + 3U] ==
+                    0x3c00U &&
+                evidence.split_content.sun_direct_hdr_rgba16[offset + 3U] ==
+                    0U &&
+                evidence.split_content.raster_lit_hdr_rgba16[offset + 3U] ==
+                    0x3c00U
+            ? 1U
+            : 0U;
+    alpha_histogram[0U] +=
+        evidence.split_content.base_hdr_rgba16[offset + 3U] == 0x3c00U;
+    alpha_histogram[1U] +=
+        evidence.split_content.sun_full_hdr_rgba16[offset + 3U] == 0x3c00U;
+    alpha_histogram[2U] +=
+        evidence.split_content.sun_direct_hdr_rgba16[offset + 3U] == 0U;
+    alpha_histogram[3U] +=
+        evidence.split_content.raster_lit_hdr_rgba16[offset + 3U] == 0x3c00U;
+  }
+  evidence.canonical_split_alpha =
+      canonical_alpha_pixels ==
+      static_cast<std::size_t>(kWidth) * kHeight;
+  if (evidence.split_rgb_channels_verified !=
+          static_cast<std::size_t>(kWidth) * kHeight * 3U ||
+      evidence.positive_sun_direct_pixels < 128U ||
+      !evidence.canonical_split_alpha ||
+      evidence.split_content_fnv1a64[0U] ==
+          evidence.split_content_fnv1a64[1U] ||
+      evidence.split_content_fnv1a64[2U] == 0U) {
+    std::ostringstream detail;
+    detail << "HDR split content did not prove a directional-only GPU radiance term"
+           << " (rgb=" << evidence.split_rgb_channels_verified
+           << ", positive=" << evidence.positive_sun_direct_pixels
+           << ", alpha=" << evidence.canonical_split_alpha
+           << ", base=" << HexHash(evidence.split_content_fnv1a64[0U])
+           << ", full=" << HexHash(evidence.split_content_fnv1a64[1U])
+           << ", direct=" << HexHash(evidence.split_content_fnv1a64[2U])
+           << ", alpha_count=" << alpha_histogram[0U] << '/'
+           << alpha_histogram[1U] << '/' << alpha_histogram[2U] << '/'
+           << alpha_histogram[3U] << ", first_alpha=" << first_alpha[0U]
+           << '/' << first_alpha[1U] << '/' << first_alpha[2U] << '/'
+           << first_alpha[3U]
+           << ')';
+    throw std::runtime_error(detail.str());
+  }
   Require(evidence.exposure_changed_pixels >= 512U &&
               evidence.committed.version == 2U &&
               evidence.committed.native_workspace_live &&
@@ -3911,14 +4126,194 @@ RunHdrCompositorProof(const std::string &media_root) {
                   evidence.committed.history_absolute_error &&
               evidence.committed.history_storage_ulp > 0.0,
           "HDR compositor did not prove persistent deterministic adaptation");
+  Require(evidence.lighting.version ==
+                  kOgreNextNativeLightingPassAuditVersion &&
+              evidence.lighting.completed_frames == 2U &&
+              evidence.lighting.last_frame_id == 2U &&
+              evidence.lighting.last_snapshot_id == 101U &&
+              evidence.lighting.native_scene_lighting_pass &&
+              evidence.lighting.linear_rgba16_hdr_target &&
+              evidence.lighting.separate_base_hdr_target &&
+              evidence.lighting.separate_unoccluded_sun_full_hdr_target &&
+              evidence.lighting.separate_sun_direct_hdr_target &&
+              evidence.lighting.gpu_sun_direct_derivation &&
+              evidence.lighting.transactional_directional_sun_toggle &&
+              evidence.lighting.raster_lit_hdr_target &&
+              evidence.lighting.single_step_hdr_history &&
+              evidence.lighting.raster_scene_evaluations == 3U &&
+              evidence.lighting.test_artifact_content_readbacks >= 4U &&
+              evidence.lighting.calibrated_directional_lighting &&
+              evidence.lighting.ambient_environment_lighting &&
+              !evidence.lighting.pssm_shadow_response &&
+              evidence.lighting.shadow_mode ==
+                  OgreNextDirectionalShadowMode::DISABLED &&
+              evidence.lighting.hdr_auto_exposure &&
+              evidence.lighting.hdr_bloom &&
+              evidence.lighting.filmic_tone_map &&
+              evidence.lighting.srgb_presentation &&
+              evidence.lighting.ogre14_lighting_passes == 0U &&
+              evidence.lighting.no_ogre14_lighting,
+          "HDR compositor did not publish the exact split-lighting receipt");
+
+  const auto same_hdr_state = [](const OgreNextHdrCompositorAudit &lhs,
+                                 const OgreNextHdrCompositorAudit &rhs) {
+    return lhs.version == rhs.version && lhs.enabled == rhs.enabled &&
+           lhs.native_workspace_live == rhs.native_workspace_live &&
+           lhs.width == rhs.width && lhs.height == rhs.height &&
+           lhs.warmup_frames == rhs.warmup_frames &&
+           lhs.committed_frames == rhs.committed_frames &&
+           lhs.previous_inverse_luminance_r16_bits ==
+               rhs.previous_inverse_luminance_r16_bits &&
+           lhs.reference_inverse_luminance_r16_bits ==
+               rhs.reference_inverse_luminance_r16_bits &&
+           lhs.history_validation_mode == rhs.history_validation_mode;
+  };
+  FrontendSurfaceUpdate suspended_surface;
+  suspended_surface.surface_revision = 2U;
+  suspended_surface.pixel_width = 0U;
+  suspended_surface.pixel_height = 0U;
+  suspended_surface.suspended = true;
+  RequireSuccess(frontend.UpdateSurface(
+                     suspended_surface, true,
+                     kInfiniteRenderTimeoutNanoseconds),
+                 "HDR compositor suspend UpdateSurface");
+  const OgreNextHdrCompositorAudit suspended_audit =
+      frontend.QueryHdrCompositorAudit();
+
+  FrontendSurfaceUpdate restored_surface;
+  restored_surface.surface_revision = 3U;
+  restored_surface.pixel_width = kWidth;
+  restored_surface.pixel_height = kHeight;
+  restored_surface.suspended = false;
+  RequireSuccess(frontend.UpdateSurface(
+                     restored_surface, true,
+                     kInfiniteRenderTimeoutNanoseconds),
+                 "HDR compositor restore UpdateSurface");
+  const OgreNextHdrCompositorAudit restored_audit =
+      frontend.QueryHdrCompositorAudit();
+  evidence.suspend_restore_preserved_graph =
+      same_hdr_state(evidence.committed, suspended_audit) &&
+      same_hdr_state(evidence.committed, restored_audit);
+  Require(evidence.suspend_restore_preserved_graph,
+          "HDR suspend/restore changed the live graph or temporal state");
+
+  const FrontendCapabilityReport resize_capabilities =
+      frontend.QueryCapabilities();
+  Require(resize_capabilities.maximum_texture_dimension_2d < 65535U,
+          "HDR resize rollback fixture cannot exceed the native limit safely");
+  FrontendSurfaceUpdate invalid_resize = restored_surface;
+  invalid_resize.surface_revision = 4U;
+  invalid_resize.pixel_width =
+      resize_capabilities.maximum_texture_dimension_2d + 1U;
+  const RenderOperationResult rejected_resize = frontend.UpdateSurface(
+      invalid_resize, true, kInfiniteRenderTimeoutNanoseconds);
+  evidence.invalid_resize_rollback_verified =
+      !rejected_resize &&
+      rejected_resize.code == RenderOperationCode::UNSUPPORTED &&
+      same_hdr_state(restored_audit, frontend.QueryHdrCompositorAudit());
+  Require(evidence.invalid_resize_rollback_verified,
+          "HDR invalid resize did not fail before graph mutation");
+
+  constexpr std::uint32_t kResizedWidth = 160U;
+  constexpr std::uint32_t kResizedHeight = 112U;
+  FrontendSurfaceUpdate resized_surface = restored_surface;
+  resized_surface.surface_revision = 5U;
+  resized_surface.pixel_width = kResizedWidth;
+  resized_surface.pixel_height = kResizedHeight;
+  RequireSuccess(frontend.UpdateSurface(
+                     resized_surface, true,
+                     kInfiniteRenderTimeoutNanoseconds),
+                 "HDR compositor resize UpdateSurface");
+  const OgreNextHdrCompositorAudit resized_audit =
+      frontend.QueryHdrCompositorAudit();
+  evidence.resize_rebuild_verified =
+      resized_audit.version == 2U && resized_audit.enabled &&
+      resized_audit.native_workspace_live &&
+      resized_audit.ui_free_workspace_verified &&
+      resized_audit.width == kResizedWidth &&
+      resized_audit.height == kResizedHeight &&
+      resized_audit.warmup_frames == 2U &&
+      resized_audit.committed_frames == 2U &&
+      resized_audit.previous_inverse_luminance_r16_bits ==
+          evidence.committed.previous_inverse_luminance_r16_bits;
+  if (!evidence.resize_rebuild_verified) {
+    std::ostringstream detail;
+    detail << "HDR resize did not rebuild an exact clean persistent graph"
+           << " (version=" << resized_audit.version
+           << ", enabled=" << resized_audit.enabled
+           << ", live=" << resized_audit.native_workspace_live
+           << ", ui_free=" << resized_audit.ui_free_workspace_verified
+           << ", extent=" << resized_audit.width << 'x'
+           << resized_audit.height
+           << ", warmup=" << resized_audit.warmup_frames
+           << ", frames=" << resized_audit.committed_frames
+           << ", history="
+           << resized_audit.previous_inverse_luminance_r16_bits
+           << ", expected_history="
+           << evidence.initialized.previous_inverse_luminance_r16_bits
+           << ')';
+    Fail(detail.str());
+  }
+
+  RenderFrameRequest resized_frame = MakeFrame(
+      3U, MakeScene(102U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+                    {0.0F, -0.8F, -0.6F}, 0.5F, true, true),
+      PixelFormat::RGBA8_SRGB);
+  resized_frame.views.front().width = kResizedWidth;
+  resized_frame.views.front().height = kResizedHeight;
+  RenderFrameOutput resized_output;
+  RequireSuccess(frontend.Render(resized_frame, resized_output),
+                 "HDR compositor resized Render");
+  const OgreNextHdrCompositorAudit resized_committed =
+      frontend.QueryHdrCompositorAudit();
+  const OgreNextNativeLightingPassAudit resized_lighting =
+      frontend.QueryNativeLightingPassAudit();
+  const bool exact_resized_attachment =
+      resized_output.status == RenderFrameStatus::RENDERED &&
+      resized_output.attachments.size() == 1U &&
+      resized_output.attachments.front().format == PixelFormat::RGBA8_SRGB &&
+      resized_output.attachments.front().width == kResizedWidth &&
+      resized_output.attachments.front().height == kResizedHeight &&
+      resized_output.attachments.front().row_pitch_bytes ==
+          static_cast<std::uint64_t>(kResizedWidth) * 4U &&
+      resized_output.attachments.front().bytes.size() ==
+          static_cast<std::size_t>(kResizedWidth) * kResizedHeight * 4U;
+  evidence.resized_frame_verified =
+      exact_resized_attachment && resized_committed.committed_frames == 3U &&
+      resized_lighting.completed_frames == 3U &&
+      resized_lighting.last_frame_id == 3U &&
+      resized_lighting.separate_base_hdr_target &&
+      resized_lighting.separate_sun_direct_hdr_target &&
+      resized_lighting.gpu_sun_direct_derivation &&
+      resized_lighting.production_content_readbacks == 0U &&
+      resized_lighting.production_framebuffer_readbacks == 0U;
+  if (!evidence.resized_frame_verified) {
+    std::ostringstream detail;
+    detail << "HDR resized frame did not execute the exact split-lighting graph"
+           << " (attachment=" << exact_resized_attachment
+           << ", hdr_frames=" << resized_committed.committed_frames
+           << ", lighting_frames=" << resized_lighting.completed_frames
+           << ", frame_id=" << resized_lighting.last_frame_id
+           << ", base=" << resized_lighting.separate_base_hdr_target
+           << ", direct=" << resized_lighting.separate_sun_direct_hdr_target
+           << ", derivation=" << resized_lighting.gpu_sun_direct_derivation
+           << ", production_content_reads="
+           << resized_lighting.production_content_readbacks
+           << ", production_framebuffer_reads="
+           << resized_lighting.production_framebuffer_readbacks << ')';
+    Fail(detail.str());
+  }
+
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "HDR compositor Shutdown");
   const OgreNextHdrCompositorAudit shutdown =
       frontend.QueryHdrCompositorAudit();
-  Require(shutdown.enabled && !shutdown.native_workspace_live &&
+  evidence.clean_shutdown =
+      shutdown.enabled && !shutdown.native_workspace_live &&
               shutdown.width == 0U && shutdown.height == 0U &&
               shutdown.warmup_frames == 0U &&
-              shutdown.committed_frames == 0U,
+              shutdown.committed_frames == 0U;
+  Require(evidence.clean_shutdown,
           "HDR compositor shutdown did not retire its persistent graph");
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -3927,6 +4322,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   transaction_configuration.raster_feature_tier =
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
   transaction_configuration.enable_hdr_compositor = true;
+  transaction_configuration.retain_native_lighting_content_evidence = true;
   transaction_configuration.hdr_failure_stage =
       OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE;
   OgreNextN1Frontend transaction(std::move(transaction_configuration));
@@ -4174,6 +4570,7 @@ RunHdrCompositorProof(const std::string &media_root) {
     failure_configuration.raster_feature_tier =
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
     failure_configuration.enable_hdr_compositor = true;
+    failure_configuration.retain_native_lighting_content_evidence = true;
     failure_configuration.hdr_failure_stage = failure_stages[index].first;
     OgreNextN1Frontend rollback(std::move(failure_configuration));
     const RenderOperationResult injected = rollback.Initialize(Initialization());
@@ -4219,6 +4616,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   overlay_configuration.raster_feature_tier =
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
   overlay_configuration.enable_hdr_compositor = true;
+  overlay_configuration.retain_native_lighting_content_evidence = true;
   overlay_configuration.hdr_ui_overlay_control = true;
   OgreNextN1Frontend overlay_control(std::move(overlay_configuration));
   InitializeAndSync(overlay_control, MakeCatalog(true, &kVariantSpecs.front()));

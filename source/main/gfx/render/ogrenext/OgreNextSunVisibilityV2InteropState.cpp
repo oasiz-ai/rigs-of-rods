@@ -181,6 +181,7 @@ NativeSunVisibilityV2Result OgreNextSunVisibilityV2InteropState::Acquire(
   lease_live_ = true;
   external_frame_begun_ = false;
   external_frame_ended_ = false;
+  presentation_attempted_ = false;
   presentation_continued_ = false;
   aborted_ = false;
   output = candidate;
@@ -222,7 +223,7 @@ OgreNextSunVisibilityV2InteropState::ContinuePresentation(
   const NativeSunVisibilityV2Result lease = ValidateLease(images);
   if (lease.code != NativeSunVisibilityV2Code::OK ||
       !external_frame_begun_ || !external_frame_ended_ ||
-      presentation_continued_ || aborted_ ||
+      presentation_attempted_ || aborted_ ||
       synchronization.frame_id != images.frame_id ||
       synchronization.snapshot_id != images.snapshot_id) {
     return Result(NativeSunVisibilityV2Code::RESOURCE_STALE,
@@ -230,6 +231,10 @@ OgreNextSunVisibilityV2InteropState::ContinuePresentation(
                   images.frame_id, images.snapshot_id,
                   "lit-hdr-continuation-out-of-order");
   }
+  // Consume the one-shot continuation before entering frontend code. A valid
+  // failure can be reported after that callback has already submitted work,
+  // so retrying the same lease would risk a duplicate presentation.
+  presentation_attempted_ = true;
   NativeSunVisibilityV2Result result =
       published_.binding.presentation_continuation->ContinueFromLitHdr(
           images.frame_id, images.snapshot_id, images.view_id,
@@ -261,7 +266,7 @@ OgreNextSunVisibilityV2InteropState::AbortBeforeSubmission(
       failure.snapshot_id != images.snapshot_id ||
       synchronization.frame_id != images.frame_id ||
       synchronization.snapshot_id != images.snapshot_id ||
-      external_frame_ended_ || presentation_continued_) {
+      external_frame_ended_ || presentation_attempted_) {
     return Result(NativeSunVisibilityV2Code::BACKEND_FAILURE,
                   NativeSunVisibilityV2Stage::IMAGE_EXPORT, images.frame_id,
                   images.snapshot_id, "image-set-rollback-invalid");
@@ -273,13 +278,14 @@ OgreNextSunVisibilityV2InteropState::AbortBeforeSubmission(
 void OgreNextSunVisibilityV2InteropState::Release(
     std::uint64_t export_id) noexcept {
   if (!lease_live_ || lease_.export_id != export_id ||
-      (!presentation_continued_ && !aborted_ && external_frame_begun_)) {
+      (!presentation_attempted_ && !aborted_ && external_frame_begun_)) {
     return;
   }
   lease_ = {};
   lease_live_ = false;
   external_frame_begun_ = false;
   external_frame_ended_ = false;
+  presentation_attempted_ = false;
   presentation_continued_ = false;
   aborted_ = false;
 }
@@ -296,6 +302,7 @@ void OgreNextSunVisibilityV2InteropState::Reset() noexcept {
   lease_live_ = false;
   external_frame_begun_ = false;
   external_frame_ended_ = false;
+  presentation_attempted_ = false;
   presentation_continued_ = false;
   aborted_ = false;
 }

@@ -1479,16 +1479,24 @@ ValidationResult ValidateOgreNextN1Frame(
     OgreNextDirectionalShadowMode shadow_mode,
     bool hdr_compositor_enabled,
     bool native_directional_shadow_enabled,
-    bool native_presentation_enabled) {
+    bool native_presentation_enabled,
+    bool native_sun_visibility_v2_enabled) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
     return validation;
   }
-  if (request.present && !native_presentation_enabled) {
+  if (native_sun_visibility_v2_enabled && request.present) {
+    return Unsupported(
+        "present",
+        "sun-visibility V2 prepares GPU images without presenting before the external continuation");
+  }
+  if (!native_sun_visibility_v2_enabled && request.present &&
+      !native_presentation_enabled) {
     return Unsupported("present", "N1 produces offscreen readbacks only");
   }
-  if (!request.present && native_presentation_enabled) {
+  if (!native_sun_visibility_v2_enabled && !request.present &&
+      native_presentation_enabled) {
     return Unsupported(
         "present",
         "the optional native-presentation milestone requires its one presented frame");
@@ -1498,13 +1506,18 @@ ValidationResult ValidateOgreNextN1Frame(
     return Unsupported("requested_outputs",
                        "N1 renders exactly one colour view");
   }
+  const PixelFormat required_hdr_format =
+      native_sun_visibility_v2_enabled ? PixelFormat::RGBA16_FLOAT
+                                       : PixelFormat::RGBA8_SRGB;
   if (hdr_compositor_enabled &&
       (raster_feature_tier !=
            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
-       request.color_format != PixelFormat::RGBA8_SRGB)) {
+       request.color_format != required_hdr_format)) {
     return Unsupported(
         "request.color_format",
-        "the RT4 HDR compositor produces exactly one display-referred RGBA8_SRGB view");
+        native_sun_visibility_v2_enabled
+            ? "sun-visibility V2 prepares exactly one linear RGBA16_FLOAT view before deferred presentation"
+            : "the RT4 HDR compositor produces exactly one display-referred RGBA8_SRGB view");
   }
   const CameraViewRequest &view = request.views.front();
   const bool modern_pbr =

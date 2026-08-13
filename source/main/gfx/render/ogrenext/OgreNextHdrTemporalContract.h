@@ -123,6 +123,12 @@ public:
       float average_log_luminance,
       const HdrR16Float &native_stored_inverse_luminance);
 
+  /// Stages only the frame/time sequencing metadata when exposure history is
+  /// intentionally retained on the GPU. This path performs no content
+  /// readback and publishes no native-history validation claim.
+  [[nodiscard]] ValidationResult
+  PrepareGpuOnlyCommit(const OgreNextHdrTemporalFramePlan &plan);
+
   /// True only while the staged candidate still descends from the currently
   /// committed state. This check is allocation-free and cannot fail.
   [[nodiscard]] bool CanCommitPrepared() const noexcept;

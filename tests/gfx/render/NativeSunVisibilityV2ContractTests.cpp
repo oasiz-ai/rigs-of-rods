@@ -209,12 +209,17 @@ public:
     observed_view_id = view_id;
     observed_lit_hdr_texture = ogre_lit_hdr_texture;
     RoR::Render::NativeSunVisibilityV2Result result;
+    result.code = result_code;
     result.stage = RoR::Render::NativeSunVisibilityV2Stage::PRESENT_CONTINUATION;
     result.frame_id = frame_id;
     result.snapshot_id = snapshot_id;
+    result.detail = result_detail;
     return result;
   }
 
+  RoR::Render::NativeSunVisibilityV2Code result_code =
+      RoR::Render::NativeSunVisibilityV2Code::OK;
+  std::string result_detail = "ok";
   std::uint32_t call_count = 0U;
   std::uint64_t observed_view_id = 0U;
   std::uintptr_t observed_lit_hdr_texture = 0U;
@@ -375,6 +380,31 @@ int main() {
 
   Require(image_state.Acquire(image_request, leased_images).code ==
               NativeSunVisibilityV2Code::OK,
+          "V2 failed-continuation lease setup failed");
+  image_state.ObserveExternalFrameBegun(synchronization);
+  image_state.ObserveExternalFrameEnded(synchronization);
+  continuation.result_code = NativeSunVisibilityV2Code::BACKEND_FAILURE;
+  continuation.result_detail = "injected-continuation-failure";
+  const NativeSunVisibilityV2Result failed_continuation =
+      image_state.ContinuePresentation(leased_images, synchronization);
+  Require(failed_continuation.code == continuation.result_code &&
+              failed_continuation.stage ==
+                  NativeSunVisibilityV2Stage::PRESENT_CONTINUATION &&
+              failed_continuation.detail == continuation.result_detail &&
+              continuation.call_count == 2U,
+          "V2 failed continuation did not preserve its exact result");
+  Require(image_state.ContinuePresentation(leased_images, synchronization)
+                  .code == NativeSunVisibilityV2Code::RESOURCE_STALE &&
+              continuation.call_count == 2U,
+          "V2 failed continuation was invoked more than once");
+  image_state.Release(leased_images.export_id);
+  Require(!image_state.HasOutstandingLease(),
+          "failed V2 continuation lease was not released");
+  continuation.result_code = NativeSunVisibilityV2Code::OK;
+  continuation.result_detail = "ok";
+
+  Require(image_state.Acquire(image_request, leased_images).code ==
+              NativeSunVisibilityV2Code::OK,
           "V2 rollback lease setup failed");
   NativeSunVisibilityV2Result image_failure;
   image_failure.code = NativeSunVisibilityV2Code::RESOURCE_STALE;
@@ -454,6 +484,12 @@ int main() {
   Require(frame.acceptance_samples[0U].lit_hdr_rgba16.channels !=
               frame.acceptance_samples[0U].base_hdr_rgba16.channels,
           "visible sun direct did not affect LitHdr");
+  Require(IsCanonicalNativeSunVisibilityV2R16(
+              kNativeDirectionalShadowOccludedR16) &&
+              IsCanonicalNativeSunVisibilityV2R16(
+                  kNativeDirectionalShadowVisibleR16) &&
+              !IsCanonicalNativeSunVisibilityV2R16(0x8000U),
+          "negative-zero visibility escaped the bit-exact R16 contract");
 
   frame.production_gpu_content_readbacks = 1U;
   Require(!ValidateNativeSunVisibilityV2FrameContract(frame),

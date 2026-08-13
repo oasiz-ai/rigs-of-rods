@@ -14,6 +14,7 @@
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
 #include "OgreNextReflectionProbeRuntime.h"
+#include "OgreNextSunVisibilityV2Interop.h"
 #include "ror_ogre_next_n1_config.h"
 
 #include "Compositor/OgreCompositorManager2.h"
@@ -22,10 +23,12 @@
 #include "Compositor/OgreCompositorShadowNode.h"
 #include "Compositor/OgreCompositorShadowNodeDef.h"
 #include "Compositor/OgreCompositorWorkspace.h"
+#include "Compositor/OgreCompositorWorkspaceListener.h"
 #include "Compositor/OgreCompositorWorkspaceDef.h"
 #include "Compositor/OgreCompositorChannel.h"
 #include "Compositor/OgreTextureDefinition.h"
 #include "Compositor/Pass/OgreCompositorPassDef.h"
+#include "Compositor/Pass/OgreCompositorPass.h"
 #include "Compositor/Pass/PassClear/OgreCompositorPassClearDef.h"
 #include "Compositor/Pass/PassQuad/OgreCompositorPassQuadDef.h"
 #include "Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h"
@@ -33,6 +36,7 @@
 #include "OgreArchiveManager.h"
 #include "OgreCamera.h"
 #include "OgreColourValue.h"
+#include "OgreDepthBuffer.h"
 #include "OgreException.h"
 #include "OgreHlmsSamplerblock.h"
 #include "OgreHlmsManager.h"
@@ -70,6 +74,7 @@
 #include "OgreTextureBox.h"
 #include "OgreTextureGpu.h"
 #include "OgreTextureGpuManager.h"
+#include "OgreVisibilityFlags.h"
 #include "OgreWindow.h"
 #include "Vao/OgreVaoManager.h"
 #include "Vao/OgreAsyncTicket.h"
@@ -431,6 +436,12 @@ bool UsesMetalDirectionalHardShadow(
     OgreNextNativeFeatureTier native_feature_tier) noexcept {
   return native_feature_tier == OgreNextNativeFeatureTier::
                                     METAL_RAY_TRACING_N4_DIRECTIONAL_HARD_SHADOW;
+}
+
+bool UsesMetalSunVisibilityV2(
+    OgreNextNativeFeatureTier native_feature_tier) noexcept {
+  return native_feature_tier ==
+         OgreNextNativeFeatureTier::METAL_RAY_TRACING_V2_SUN_VISIBILITY;
 }
 
 enum class UploadedTextureChannel : std::uint8_t {
@@ -1151,31 +1162,63 @@ void CreateAndVerifyPssmShadowNode(
 void BindAndVerifyPssmWorkspace(
     Ogre::CompositorManager2 &compositors,
     const std::string &main_node_name,
-    const std::string &shadow_node_name) {
+    const std::string &shadow_node_name,
+    std::uint32_t scene_pass_identifier = 0U) {
   Ogre::CompositorNodeDef *node =
       compositors.getNodeDefinitionNonConst(
           Ogre::IdString(main_node_name));
-  if (node == nullptr || node->getNumTargetPasses() != 1U) {
+  if (node == nullptr) {
     throw std::runtime_error(
         "Ogre-Next main workspace topology changed before PSSM binding");
   }
-  const Ogre::CompositorPassDefVec &passes =
-      node->getTargetPass(0U)->getCompositorPasses();
-  auto *scene_pass =
-      passes.size() == 1U
-          ? dynamic_cast<Ogre::CompositorPassSceneDef *>(passes.front())
-          : nullptr;
-  if (scene_pass == nullptr) {
+  Ogre::CompositorPassSceneDef *scene_pass = nullptr;
+  std::size_t matching_scene_passes = 0U;
+  for (std::size_t target_index = 0U;
+       target_index < node->getNumTargetPasses(); ++target_index) {
+    const Ogre::CompositorPassDefVec &passes =
+        node->getTargetPass(target_index)->getCompositorPasses();
+    for (Ogre::CompositorPassDef *pass : passes) {
+      auto *candidate = dynamic_cast<Ogre::CompositorPassSceneDef *>(pass);
+      if (candidate != nullptr &&
+          (scene_pass_identifier == 0U ||
+           candidate->mIdentifier == scene_pass_identifier)) {
+        scene_pass = candidate;
+        ++matching_scene_passes;
+      }
+    }
+  }
+  if (scene_pass == nullptr || matching_scene_passes != 1U ||
+      (scene_pass_identifier == 0U && node->getNumTargetPasses() != 1U)) {
     throw std::runtime_error(
         "Ogre-Next main workspace has no single UI-free scene pass");
   }
   scene_pass->mIncludeOverlays = false;
   scene_pass->mShadowNode = Ogre::IdString(shadow_node_name);
   scene_pass->mShadowNodeRecalculation = Ogre::SHADOW_NODE_FIRST_ONLY;
+  std::size_t bound_shadow_scene_passes = 0U;
+  for (std::size_t target_index = 0U;
+       target_index < node->getNumTargetPasses(); ++target_index) {
+    for (Ogre::CompositorPassDef *pass :
+         node->getTargetPass(target_index)->getCompositorPasses()) {
+      const auto *candidate =
+          dynamic_cast<const Ogre::CompositorPassSceneDef *>(pass);
+      if (candidate != nullptr &&
+          candidate->mShadowNode == Ogre::IdString(shadow_node_name)) {
+        ++bound_shadow_scene_passes;
+      }
+      if (scene_pass_identifier != 0U && candidate != nullptr &&
+          candidate->mIdentifier != scene_pass_identifier &&
+          candidate->mShadowNode != Ogre::IdString()) {
+        throw std::runtime_error(
+            "Ogre-Next bound PSSM outside the selected raster-lit scene pass");
+      }
+    }
+  }
   if (scene_pass->mIncludeOverlays ||
       scene_pass->mShadowNode != Ogre::IdString(shadow_node_name) ||
       scene_pass->mShadowNodeRecalculation !=
-          Ogre::SHADOW_NODE_FIRST_ONLY) {
+          Ogre::SHADOW_NODE_FIRST_ONLY ||
+      bound_shadow_scene_passes != 1U) {
     throw std::runtime_error(
         "Ogre-Next substituted the programmatic PSSM workspace binding");
   }
@@ -1204,8 +1247,20 @@ NativePssmReadback ReadAndVerifyNativePssmState(
       native_splits->size() != kOgreNextPssmCascadeCount + 1U ||
       native_blends->size() != kOgreNextPssmCascadeCount - 1U ||
       !TryBuildOgreNextPssmSplitPolicy(expected)) {
-    throw std::runtime_error(
-        "Ogre-Next PSSM runtime did not expose the reviewed cascade split state");
+    std::ostringstream detail;
+    detail << "Ogre-Next PSSM runtime did not expose the reviewed cascade split state"
+           << " (node=" << (shadow_node != nullptr)
+           << ", splits="
+           << (native_splits != nullptr ? native_splits->size() : 0U)
+           << ", blends="
+           << (native_blends != nullptr ? native_blends->size() : 0U)
+           << ", fade=" << (native_fade != nullptr)
+           << ", active_lights="
+           << (shadow_node != nullptr
+                   ? shadow_node->getNumActiveShadowCastingLights()
+                   : 0U)
+           << ')';
+    throw std::runtime_error(detail.str());
   }
   NativePssmReadback observed;
   for (std::size_t index = 0U; index < native_splits->size(); ++index) {
@@ -1296,7 +1351,9 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
                   ,
                   OgreNextN1PssmFailureStage failure_stage,
-                  bool &failure_pending
+                  bool &failure_pending,
+                  bool retain_content_evidence,
+                  std::uint64_t &content_readbacks
 #endif
 ) {
   constexpr char kProbeTextureName[] = "RoRPssmD32AtlasCapabilityProbe";
@@ -1337,13 +1394,13 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
     }
     result.allocation_verified = true;
 
-    // A metadata-only check is insufficient on Metal and D3D11 because their
-    // pinned TextureGpuManager::checkSupport implementations are deliberately
-    // broad. Force a real backend allocation and staging-ticket download of
-    // the complete exact atlas. Pixel values are intentionally ignored: this
-    // preflight verifies device use/readback, while the shadow smoke verifies
-    // rendered depth semantics through the receiver colour evidence.
-    {
+    // Isolated artifacts may retain a staging-ticket download to prove actual
+    // D32 content access. Production proves the exact resident allocation and
+    // then exercises that format in the live shadow graph without any content
+    // download.
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    if (retain_content_evidence) {
+      ++content_readbacks;
       Ogre::Image2 readback;
       readback.convertFromTexture(texture, 0U, 0U);
       const Ogre::TextureBox pixels = readback.getData(0U);
@@ -1355,8 +1412,9 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
         throw std::runtime_error(
             "Ogre-Next PSSM D32 atlas staging readback metadata changed");
       }
+      result.readback_verified = true;
     }
-    result.readback_verified = true;
+#endif
   } catch (...) {
     operation_failure = std::current_exception();
   }
@@ -1419,7 +1477,13 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
     // explicitly queried device limits as unsupported.
     std::rethrow_exception(operation_failure);
   }
-  result.supported = result.allocation_verified && result.readback_verified &&
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  const bool exact_evidence =
+      !retain_content_evidence || result.readback_verified;
+#else
+  constexpr bool exact_evidence = true;
+#endif
+  result.supported = result.allocation_verified && exact_evidence &&
                      result.cleanup_verified;
   return result;
 }
@@ -1434,6 +1498,427 @@ constexpr const char kOgreNextHdrRenderingNode[] = "HdrRenderingNode";
 constexpr const char kOgreNextHdrPostprocessingNode[] =
     "HdrPostprocessingNode";
 constexpr const char kOgreNextHdrUiNode[] = "HdrRenderUi";
+constexpr const char kOgreNextHdrShadowNode[] = "RoRHdrPssmShadowNodeV1";
+constexpr const char kOgreNextHdrBaseTexture[] = "RoRBaseHdr";
+constexpr const char kOgreNextHdrSunFullTexture[] = "RoRSunFullHdr";
+constexpr const char kOgreNextHdrRasterLitTexture[] = "rt0";
+constexpr const char kOgreNextHdrSunDirectSignedTexture[] =
+    "RoRSunDirectSignedHdr";
+constexpr const char kOgreNextHdrSunDirectTexture[] = "RoRSunDirectHdr";
+constexpr const char kOgreNextHdrVisibilityTexture[] = "RoRVisibility";
+constexpr const char kOgreNextHdrLitTexture[] = "RoRLitHdr";
+constexpr const char kOgreNextHdrHistoryTexture[] = "oldLumRt";
+constexpr const char kOgreNextHdrSunVisibilityV2ContinuationWorkspace[] =
+    "RoRHdrSunVisibilityV2Continuation";
+constexpr const char kOgreNextHdrSubtractMaterial[] =
+    "RoR/HDR/SunDirectSubtract";
+constexpr const char kOgreNextHdrClampMaterial[] = "RoR/HDR/SunDirectClamp";
+constexpr std::uint8_t kOgreNextHdrSplitExecutionMask = 0x01U;
+constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
+constexpr std::uint32_t kOgreNextHdrBaseScenePassIdentifier = 0x524f5201U;
+constexpr std::uint32_t kOgreNextHdrSunFullScenePassIdentifier = 0x524f5202U;
+constexpr std::uint32_t kOgreNextHdrRasterLitScenePassIdentifier = 0x524f5203U;
+// RT4 reserves bits 28-29 from authored geometry. The node keeps bit 29 out of
+// Base as an explicit topology invariant, but the pinned PBS global
+// directional-light path does not honor per-pass light masks. The listener
+// below therefore performs the actual exact power-zero/restore transaction.
+// Native sun lights remain on the authored visibility mask so Ogre's shadow
+// selector sees both an authored layer and its internal caster bit.
+constexpr std::uint32_t kOgreNextHdrDirectionalSunLightVisibility = 1U << 29U;
+
+Ogre::MaterialPtr CreateAndVerifyHdrBlendMaterial(
+    const char *name, Ogre::SceneBlendOperation operation) {
+  Ogre::MaterialManager &materials = Ogre::MaterialManager::getSingleton();
+  if (materials.getByName(name, kOgreNextHdrResourceGroup)) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split material identity is not empty");
+  }
+  Ogre::MaterialPtr copy = std::static_pointer_cast<Ogre::Material>(
+      materials.load("Ogre/Copy/4xFP32",
+                     Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME));
+  if (!copy || copy->getNumTechniques() != 1U ||
+      copy->getTechnique(0U) == nullptr ||
+      copy->getTechnique(0U)->getNumPasses() != 1U) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split copy material topology changed");
+  }
+  Ogre::MaterialPtr material =
+      copy->clone(name, true, kOgreNextHdrResourceGroup);
+  Ogre::Pass *pass = material->getTechnique(0U)->getPass(0U);
+  if (pass == nullptr || pass->getBlendblock() == nullptr) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split copy pass has no blend state");
+  }
+  Ogre::HlmsBlendblock blend = *pass->getBlendblock();
+  blend.mSourceBlendFactor = Ogre::SBF_ONE;
+  blend.mDestBlendFactor = Ogre::SBF_ONE;
+  blend.mSourceBlendFactorAlpha = Ogre::SBF_ONE;
+  blend.mDestBlendFactorAlpha = Ogre::SBF_ONE;
+  blend.mBlendOperation = operation;
+  blend.mBlendOperationAlpha = operation;
+  // The split radiance contract owns RGB only. Keeping alpha writes disabled
+  // preserves the target clear: signed/direct remain canonical zero while
+  // Base/SunFull/RasterLit scene targets remain canonical one.
+  blend.mBlendChannelMask = Ogre::HlmsBlendblock::BlendChannelRed |
+                            Ogre::HlmsBlendblock::BlendChannelGreen |
+                            Ogre::HlmsBlendblock::BlendChannelBlue;
+  blend.calculateSeparateBlendMode();
+  pass->setBlendblock(blend);
+  material->load();
+
+  const Ogre::HlmsBlendblock *observed = pass->getBlendblock();
+  if (observed == nullptr ||
+      observed->mSourceBlendFactor != Ogre::SBF_ONE ||
+      observed->mDestBlendFactor != Ogre::SBF_ONE ||
+      observed->mSourceBlendFactorAlpha != Ogre::SBF_ONE ||
+      observed->mDestBlendFactorAlpha != Ogre::SBF_ONE ||
+      observed->mBlendOperation != operation ||
+      observed->mBlendOperationAlpha != operation ||
+      observed->mBlendChannelMask !=
+          (Ogre::HlmsBlendblock::BlendChannelRed |
+           Ogre::HlmsBlendblock::BlendChannelGreen |
+           Ogre::HlmsBlendblock::BlendChannelBlue) ||
+      pass->getFragmentProgramName() !=
+          copy->getTechnique(0U)->getPass(0U)->getFragmentProgramName()) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split material failed exact native blend readback");
+  }
+  return material;
+}
+
+void CreateAndVerifyHdrLightingSplitNode(
+    Ogre::CompositorManager2 &compositors,
+    bool &owns_node_definition, bool enable_sun_visibility_v2) {
+  const Ogre::IdString node_name(kOgreNextHdrRenderingNode);
+  if (owns_node_definition || !compositors.hasNodeDefinition(node_name)) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR rendering node was not parsed");
+  }
+  // Preserve the stable node identity consumed by Ogre's stock HDR post stack,
+  // while replacing its single scene evaluation with the exact linear split.
+  compositors.removeNodeDefinition(node_name);
+  Ogre::CompositorNodeDef *node =
+      compositors.addNodeDefinition(kOgreNextHdrRenderingNode);
+  owns_node_definition = true;
+
+  (void)CreateAndVerifyHdrBlendMaterial(kOgreNextHdrSubtractMaterial,
+                                        Ogre::SBO_SUBTRACT);
+  (void)CreateAndVerifyHdrBlendMaterial(kOgreNextHdrClampMaterial,
+                                        Ogre::SBO_MAX);
+
+  node->setNumLocalTextureDefinitions(enable_sun_visibility_v2 ? 8U : 6U);
+  const auto add_rgba16 = [&](const char *name, bool needs_depth,
+                              bool external_uav = false) {
+    Ogre::TextureDefinitionBase::TextureDefinition *texture =
+        node->addTextureDefinition(name);
+    texture->textureType = Ogre::TextureTypes::Type2D;
+    texture->width = 0U;
+    texture->height = 0U;
+    texture->depthOrSlices = 1U;
+    texture->numMipmaps = 1U;
+    texture->format = Ogre::PFG_RGBA16_FLOAT;
+    texture->fsaa = "1";
+    texture->textureFlags = Ogre::TextureFlags::RenderToTexture |
+                            (external_uav
+                                 ? Ogre::TextureFlags::Uav
+                                 : Ogre::TextureFlags::DiscardableContent);
+    texture->depthBufferId =
+        needs_depth ? 1U : Ogre::DepthBuffer::POOL_NO_DEPTH;
+    Ogre::RenderTargetViewDef *view = node->addRenderTextureView(name);
+    Ogre::RenderTargetViewEntry attachment;
+    attachment.textureName = name;
+    view->colourAttachments.push_back(attachment);
+    view->depthBufferId = texture->depthBufferId;
+  };
+  add_rgba16(kOgreNextHdrBaseTexture, true, enable_sun_visibility_v2);
+  add_rgba16(kOgreNextHdrSunFullTexture, true);
+  add_rgba16(kOgreNextHdrRasterLitTexture, true);
+  add_rgba16(kOgreNextHdrSunDirectSignedTexture, false);
+  add_rgba16(kOgreNextHdrSunDirectTexture, false,
+             enable_sun_visibility_v2);
+  Ogre::TextureDefinitionBase::TextureDefinition *history =
+      node->addTextureDefinition(kOgreNextHdrHistoryTexture);
+  history->textureType = Ogre::TextureTypes::Type2D;
+  history->width = 1U;
+  history->height = 1U;
+  history->depthOrSlices = 1U;
+  history->numMipmaps = 1U;
+  history->format = Ogre::PFG_R16_FLOAT;
+  history->fsaa = "1";
+  history->textureFlags = Ogre::TextureFlags::RenderToTexture;
+  history->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  Ogre::RenderTargetViewDef *history_view =
+      node->addRenderTextureView(kOgreNextHdrHistoryTexture);
+  Ogre::RenderTargetViewEntry history_attachment;
+  history_attachment.textureName = kOgreNextHdrHistoryTexture;
+  history_view->colourAttachments.push_back(history_attachment);
+  history_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  if (enable_sun_visibility_v2) {
+    Ogre::TextureDefinitionBase::TextureDefinition *visibility =
+        node->addTextureDefinition(kOgreNextHdrVisibilityTexture);
+    visibility->textureType = Ogre::TextureTypes::Type2D;
+    visibility->width = 0U;
+    visibility->height = 0U;
+    visibility->depthOrSlices = 1U;
+    visibility->numMipmaps = 1U;
+    visibility->format = Ogre::PFG_R16_FLOAT;
+    visibility->fsaa = "1";
+    visibility->textureFlags = Ogre::TextureFlags::RenderToTexture |
+                               Ogre::TextureFlags::Uav;
+    visibility->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+    add_rgba16(kOgreNextHdrLitTexture, false, true);
+  }
+
+  const Ogre::ColourValue clear_hdr(6.667F, 13.333F, 20.0F, 1.0F);
+  const auto add_scene = [&](const char *target_name,
+                             std::uint32_t identifier,
+                             std::uint32_t light_visibility,
+                             bool update_lod) {
+    Ogre::CompositorTargetDef *target = node->addTargetPass(target_name);
+    target->setNumPasses(1U);
+    auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
+        target->addPass(Ogre::PASS_SCENE));
+    scene->mIdentifier = identifier;
+    scene->mExecutionMask = kOgreNextHdrSplitExecutionMask;
+    scene->mFirstRQ = 0U;
+    scene->mLastRQ = kOgreNextPccReservedRenderQueue;
+    scene->mIncludeOverlays = false;
+    scene->mEnableForwardPlus = true;
+    scene->mUpdateLodLists = update_lod;
+    scene->setVisibilityMask(kOgreNextRt4AuthoredVisibilityMask);
+    scene->setLightVisibilityMask(light_visibility);
+    scene->setAllLoadActions(Ogre::LoadAction::Clear);
+    scene->setAllClearColours(clear_hdr);
+    scene->mClearDepth = 1.0F;
+    scene->mStoreActionColour[0] = Ogre::StoreAction::Store;
+    scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+    scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+  };
+
+  node->setNumTargetPass(6U);
+  const std::uint32_t all_lights =
+      Ogre::VisibilityFlags::RESERVED_VISIBILITY_FLAGS;
+  add_scene(kOgreNextHdrBaseTexture, kOgreNextHdrBaseScenePassIdentifier,
+            all_lights & ~kOgreNextHdrDirectionalSunLightVisibility, true);
+  add_scene(kOgreNextHdrSunFullTexture,
+            kOgreNextHdrSunFullScenePassIdentifier, all_lights, false);
+  add_scene(kOgreNextHdrRasterLitTexture,
+            kOgreNextHdrRasterLitScenePassIdentifier, all_lights, false);
+
+  Ogre::CompositorTargetDef *signed_target =
+      node->addTargetPass(kOgreNextHdrSunDirectSignedTexture);
+  signed_target->setNumPasses(2U);
+  auto *copy_base = static_cast<Ogre::CompositorPassQuadDef *>(
+      signed_target->addPass(Ogre::PASS_QUAD));
+  copy_base->mMaterialIsHlms = false;
+  copy_base->mExecutionMask = kOgreNextHdrSplitExecutionMask;
+  copy_base->mMaterialName = "Ogre/Copy/4xFP32";
+  copy_base->mUseQuad = false;
+  copy_base->addQuadTextureSource(0U, kOgreNextHdrBaseTexture);
+  copy_base->setAllLoadActions(Ogre::LoadAction::Clear);
+  copy_base->setAllClearColours(Ogre::ColourValue::Black);
+  copy_base->mStoreActionColour[0] = Ogre::StoreAction::Store;
+  auto *subtract_sun_full = static_cast<Ogre::CompositorPassQuadDef *>(
+      signed_target->addPass(Ogre::PASS_QUAD));
+  subtract_sun_full->mMaterialIsHlms = false;
+  subtract_sun_full->mExecutionMask = kOgreNextHdrSplitExecutionMask;
+  subtract_sun_full->mMaterialName = kOgreNextHdrSubtractMaterial;
+  subtract_sun_full->mUseQuad = false;
+  subtract_sun_full->addQuadTextureSource(0U, kOgreNextHdrSunFullTexture);
+  subtract_sun_full->mLoadActionColour[0] = Ogre::LoadAction::Load;
+  subtract_sun_full->mStoreActionColour[0] = Ogre::StoreAction::Store;
+
+  Ogre::CompositorTargetDef *direct_target =
+      node->addTargetPass(kOgreNextHdrSunDirectTexture);
+  direct_target->setNumPasses(2U);
+  auto *clear_direct = static_cast<Ogre::CompositorPassClearDef *>(
+      direct_target->addPass(Ogre::PASS_CLEAR));
+  clear_direct->setBuffersToClear(Ogre::RenderPassDescriptor::Colour0);
+  clear_direct->mExecutionMask = kOgreNextHdrSplitExecutionMask;
+  clear_direct->setAllClearColours(
+      Ogre::ColourValue(0.0F, 0.0F, 0.0F, 0.0F));
+  auto *clamp_direct = static_cast<Ogre::CompositorPassQuadDef *>(
+      direct_target->addPass(Ogre::PASS_QUAD));
+  clamp_direct->mMaterialIsHlms = false;
+  clamp_direct->mExecutionMask = kOgreNextHdrSplitExecutionMask;
+  clamp_direct->mMaterialName = kOgreNextHdrClampMaterial;
+  clamp_direct->mUseQuad = false;
+  clamp_direct->addQuadTextureSource(0U,
+                                     kOgreNextHdrSunDirectSignedTexture);
+  clamp_direct->mLoadActionColour[0] = Ogre::LoadAction::Load;
+  clamp_direct->mStoreActionColour[0] = Ogre::StoreAction::Store;
+
+  Ogre::CompositorTargetDef *history_target =
+      node->addTargetPass(kOgreNextHdrHistoryTexture);
+  history_target->setNumPasses(1U);
+  auto *clear_history = static_cast<Ogre::CompositorPassClearDef *>(
+      history_target->addPass(Ogre::PASS_CLEAR));
+  clear_history->mNumInitialPasses = 1U;
+  clear_history->mExecutionMask = kOgreNextHdrSplitExecutionMask;
+  clear_history->setBuffersToClear(Ogre::RenderPassDescriptor::Colour0);
+  clear_history->setAllClearColours(
+      Ogre::ColourValue(0.01F, 0.01F, 0.01F, 1.0F));
+
+  node->setNumOutputChannels(enable_sun_visibility_v2 ? 6U : 4U);
+  node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);
+  node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);
+  node->mapOutputChannel(2U, kOgreNextHdrBaseTexture);
+  node->mapOutputChannel(3U, kOgreNextHdrSunDirectTexture);
+  if (enable_sun_visibility_v2) {
+    node->mapOutputChannel(4U, kOgreNextHdrVisibilityTexture);
+    node->mapOutputChannel(5U, kOgreNextHdrLitTexture);
+  }
+
+  const auto &textures = node->getLocalTextureDefinitions();
+  const std::size_t expected_texture_count =
+      enable_sun_visibility_v2 ? 8U : 6U;
+  const std::uint32_t expected_output_count =
+      enable_sun_visibility_v2 ? 6U : 4U;
+  if (textures.size() != expected_texture_count ||
+      node->getNumTargetPasses() != 6U ||
+      node->getNumOutputChannels() != expected_output_count ||
+      node->calculateNumPasses() != 8U) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split node topology failed exact definition readback");
+  }
+  for (std::size_t index = 0U; index < 5U; ++index) {
+    if (textures[index].format != Ogre::PFG_RGBA16_FLOAT ||
+        textures[index].width != 0U || textures[index].height != 0U ||
+        textures[index].depthOrSlices != 1U ||
+        textures[index].numMipmaps != 1U) {
+      throw std::runtime_error(
+          "Ogre-Next HDR split linear target metadata changed");
+    }
+  }
+  if (textures[5U].getName() != Ogre::IdString(kOgreNextHdrHistoryTexture) ||
+      textures[5U].format != Ogre::PFG_R16_FLOAT ||
+      textures[5U].width != 1U || textures[5U].height != 1U ||
+      textures[5U].textureFlags != Ogre::TextureFlags::RenderToTexture) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split history target metadata changed");
+  }
+  if (enable_sun_visibility_v2) {
+    const std::uint32_t required = Ogre::TextureFlags::RenderToTexture |
+                                   Ogre::TextureFlags::Uav;
+    if (textures[0U].textureFlags != required ||
+        textures[4U].textureFlags != required ||
+        textures[6U].getName() !=
+            Ogre::IdString(kOgreNextHdrVisibilityTexture) ||
+        textures[6U].format != Ogre::PFG_R16_FLOAT ||
+        textures[6U].textureFlags != required ||
+        textures[7U].getName() != Ogre::IdString(kOgreNextHdrLitTexture) ||
+        textures[7U].format != Ogre::PFG_RGBA16_FLOAT ||
+        textures[7U].textureFlags != required) {
+      throw std::runtime_error(
+          "Ogre-Next sun-visibility V2 target usage or format changed");
+    }
+  }
+
+  const auto exact_scene = [&](std::size_t target_index,
+                               const char *target_name,
+                               std::uint32_t identifier,
+                               std::uint32_t light_mask,
+                               bool update_lod) {
+    Ogre::CompositorTargetDef *target = node->getTargetPass(target_index);
+    const Ogre::CompositorPassDefVec &passes =
+        target->getCompositorPasses();
+    const auto *scene =
+        passes.size() == 1U
+            ? dynamic_cast<const Ogre::CompositorPassSceneDef *>(
+                  passes.front())
+            : nullptr;
+    return target->getRenderTargetName() == Ogre::IdString(target_name) &&
+           scene != nullptr && scene->mIdentifier == identifier &&
+           scene->mExecutionMask == kOgreNextHdrSplitExecutionMask &&
+           scene->mVisibilityMask == kOgreNextRt4AuthoredVisibilityMask &&
+           scene->mLightVisibilityMask == light_mask &&
+           scene->mShadowNode == Ogre::IdString() &&
+           scene->mIncludeOverlays == false &&
+           scene->mUpdateLodLists == update_lod &&
+           scene->mLoadActionColour[0] == Ogre::LoadAction::Clear &&
+           scene->mStoreActionColour[0] == Ogre::StoreAction::Store;
+  };
+  if (!exact_scene(0U, kOgreNextHdrBaseTexture,
+                   kOgreNextHdrBaseScenePassIdentifier,
+                   all_lights &
+                       ~kOgreNextHdrDirectionalSunLightVisibility,
+                   true) ||
+      !exact_scene(1U, kOgreNextHdrSunFullTexture,
+                   kOgreNextHdrSunFullScenePassIdentifier, all_lights,
+                   false) ||
+      !exact_scene(2U, kOgreNextHdrRasterLitTexture,
+                   kOgreNextHdrRasterLitScenePassIdentifier, all_lights,
+                   false)) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split scene masks or immutable state changed");
+  }
+  const auto exact_quad = [&](std::size_t target_index,
+                              std::size_t pass_index,
+                              const char *target_name,
+                              const char *material_name,
+                              const char *source_name) {
+    Ogre::CompositorTargetDef *target = node->getTargetPass(target_index);
+    const Ogre::CompositorPassDefVec &passes =
+        target->getCompositorPasses();
+    const auto *quad =
+        pass_index < passes.size()
+            ? dynamic_cast<const Ogre::CompositorPassQuadDef *>(
+                  passes[pass_index])
+            : nullptr;
+    return target->getRenderTargetName() == Ogre::IdString(target_name) &&
+           quad != nullptr && !quad->mMaterialIsHlms &&
+           quad->mExecutionMask == kOgreNextHdrSplitExecutionMask &&
+           quad->mMaterialName == material_name &&
+           quad->getTextureSources().size() == 1U &&
+           quad->getTextureSources().front().texUnitIdx == 0U &&
+           quad->getTextureSources().front().textureName ==
+               Ogre::IdString(source_name);
+  };
+  if (!exact_quad(3U, 0U, kOgreNextHdrSunDirectSignedTexture,
+                  "Ogre/Copy/4xFP32", kOgreNextHdrBaseTexture) ||
+      !exact_quad(3U, 1U, kOgreNextHdrSunDirectSignedTexture,
+                  kOgreNextHdrSubtractMaterial,
+                  kOgreNextHdrSunFullTexture) ||
+      !exact_quad(4U, 1U, kOgreNextHdrSunDirectTexture,
+                  kOgreNextHdrClampMaterial,
+                  kOgreNextHdrSunDirectSignedTexture)) {
+    throw std::runtime_error(
+        "Ogre-Next HDR split GPU subtraction or clamp topology changed");
+  }
+}
+
+void ConfigureAndVerifyHdrPostExecutionMask(
+    Ogre::CompositorManager2 &compositors) {
+  Ogre::CompositorNodeDef *post = compositors.getNodeDefinitionNonConst(
+      Ogre::IdString(kOgreNextHdrPostprocessingNode));
+  if (post == nullptr || post->getNumTargetPasses() != 15U ||
+      post->calculateNumPasses() != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR post node topology changed before V2 split");
+  }
+  std::size_t configured = 0U;
+  for (std::size_t target_index = 0U;
+       target_index < post->getNumTargetPasses(); ++target_index) {
+    Ogre::CompositorTargetDef *target = post->getTargetPass(target_index);
+    if (target == nullptr || target->getCompositorPasses().size() != 1U ||
+        target->getCompositorPasses().front() == nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR post target is no longer one exact GPU pass");
+    }
+    target->getCompositorPasses().front()->mExecutionMask =
+        kOgreNextHdrPostExecutionMask;
+    if (target->getCompositorPasses().front()->mExecutionMask !=
+        kOgreNextHdrPostExecutionMask) {
+      throw std::runtime_error(
+          "Ogre-Next HDR post execution mask failed native readback");
+    }
+    ++configured;
+  }
+  if (configured != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next HDR post execution-mask closure is incomplete");
+  }
+}
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 constexpr const char kOgreNextHdrUiOverlayName[] = "RoRHdrUiOverlayControl";
 constexpr const char kOgreNextHdrUiPanelName[] = "RoRHdrUiOverlayPanel";
@@ -1450,12 +1935,14 @@ RenderOperationResult HdrBackendFailure(const std::string &detail) {
 bool TryReadFiniteR16Texture(Ogre::TextureGpu *texture,
                              std::uint32_t expected_width,
                              std::uint32_t expected_height,
-                             std::vector<HdrR16Float> &output) {
+                             std::vector<HdrR16Float> &output,
+                             std::uint64_t &content_readbacks) {
   if (texture == nullptr || texture->getPixelFormat() != Ogre::PFG_R16_FLOAT ||
       texture->getWidth() != expected_width ||
       texture->getHeight() != expected_height || texture->getDepth() != 1U) {
     return false;
   }
+  ++content_readbacks;
   Ogre::Image2 image;
   image.convertFromTexture(texture, 0U, 0U);
   const Ogre::TextureBox pixels = image.getData(0U);
@@ -1482,10 +1969,11 @@ bool TryReadFiniteR16Texture(Ogre::TextureGpu *texture,
 bool TryReadPositiveR16Texture(Ogre::TextureGpu *texture,
                                std::uint32_t expected_width,
                                std::uint32_t expected_height,
-                               std::vector<HdrR16Float> &output) {
+                               std::vector<HdrR16Float> &output,
+                               std::uint64_t &content_readbacks) {
   std::vector<HdrR16Float> candidate;
   if (!TryReadFiniteR16Texture(texture, expected_width, expected_height,
-                              candidate)) {
+                              candidate, content_readbacks)) {
     return false;
   }
   for (const HdrR16Float &value : candidate) {
@@ -1522,6 +2010,135 @@ bool TryComputeHdrAverageLogLuminance(
   return true;
 }
 
+/// The pinned PBS implementation gathers directional lights from its global
+/// list and does not apply CompositorPassSceneDef::mLightVisibilityMask to
+/// that list. This listener is therefore the smallest exact compositor seam:
+/// it transactionally zeroes only directional power for the Base pass and
+/// restores the exact authored values before every sun-bearing pass. It never
+/// mutates materials, geometry, camera, ambient/environment, or temporal state.
+class HdrDirectionalSplitListener final
+    : public Ogre::CompositorWorkspaceListener {
+public:
+  void BeginFrame(
+      const std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> &lights) {
+    if (active_) {
+      throw std::logic_error(
+          "HDR directional split listener already owns a frame");
+    }
+    bindings_.clear();
+    bindings_.reserve(lights.size());
+    for (const auto &entry : lights) {
+      if (entry.first == nullptr ||
+          entry.first->getType() != Ogre::Light::LT_DIRECTIONAL) {
+        throw std::logic_error(
+            "HDR directional split received a non-directional native light");
+      }
+      bindings_.push_back({entry.first, entry.first->getPowerScale()});
+    }
+    base_pre_count_ = 0U;
+    base_post_count_ = 0U;
+    sun_full_pre_count_ = 0U;
+    raster_lit_pre_count_ = 0U;
+    failure_ = false;
+    active_ = true;
+  }
+
+  [[nodiscard]] bool EndFrame() noexcept {
+    const bool restored = RestoreExact();
+    const bool valid = active_ && !failure_ && restored &&
+                       base_pre_count_ == 1U && base_post_count_ == 1U &&
+                       sun_full_pre_count_ == 1U &&
+                       raster_lit_pre_count_ == 1U;
+    active_ = false;
+    bindings_.clear();
+    return valid;
+  }
+
+  [[nodiscard]] bool AbortFrame() noexcept {
+    const bool restored = RestoreExact();
+    active_ = false;
+    bindings_.clear();
+    return restored;
+  }
+
+  [[nodiscard]] bool active() const noexcept { return active_; }
+
+  void passPreExecute(Ogre::CompositorPass *pass) override {
+    if (!active_ || pass == nullptr || pass->getDefinition() == nullptr) {
+      return;
+    }
+    const std::uint32_t identifier = pass->getDefinition()->mIdentifier;
+    if (identifier == kOgreNextHdrBaseScenePassIdentifier) {
+      ++base_pre_count_;
+      if (!RestoreExact()) {
+        failure_ = true;
+      }
+      for (const Binding &binding : bindings_) {
+        binding.light->setPowerScale(0.0F);
+        if (binding.light->getPowerScale() != 0.0F) {
+          failure_ = true;
+        }
+      }
+    } else if (identifier == kOgreNextHdrSunFullScenePassIdentifier) {
+      ++sun_full_pre_count_;
+      if (!RestoreExact()) {
+        failure_ = true;
+      }
+    } else if (identifier == kOgreNextHdrRasterLitScenePassIdentifier) {
+      ++raster_lit_pre_count_;
+      if (!RestoreExact()) {
+        failure_ = true;
+      }
+    }
+  }
+
+  void passPosExecute(Ogre::CompositorPass *pass) override {
+    if (!active_ || pass == nullptr || pass->getDefinition() == nullptr ||
+        pass->getDefinition()->mIdentifier !=
+            kOgreNextHdrBaseScenePassIdentifier) {
+      return;
+    }
+    ++base_post_count_;
+    if (!RestoreExact()) {
+      failure_ = true;
+    }
+  }
+
+  void workspacePosUpdate(Ogre::CompositorWorkspace *) override {
+    if (active_ && !RestoreExact()) {
+      failure_ = true;
+    }
+  }
+
+private:
+  struct Binding final {
+    Ogre::Light *light = nullptr;
+    float power_scale = 0.0F;
+  };
+
+  [[nodiscard]] bool RestoreExact() noexcept {
+    bool restored = true;
+    for (const Binding &binding : bindings_) {
+      if (binding.light == nullptr) {
+        restored = false;
+        continue;
+      }
+      binding.light->setPowerScale(binding.power_scale);
+      restored = binding.light->getPowerScale() == binding.power_scale &&
+                 restored;
+    }
+    return restored;
+  }
+
+  std::vector<Binding> bindings_;
+  std::uint32_t base_pre_count_ = 0U;
+  std::uint32_t base_post_count_ = 0U;
+  std::uint32_t sun_full_pre_count_ = 0U;
+  std::uint32_t raster_lit_pre_count_ = 0U;
+  bool failure_ = false;
+  bool active_ = false;
+};
+
 } // namespace
 
 namespace {
@@ -1539,7 +2156,8 @@ constexpr const char *kBootstrapPresentationWorkspaceName =
     "RoRN1BootstrapPresentationWorkspace";
 } // namespace
 
-class OgreNextN1Frontend::Impl final {
+class OgreNextN1Frontend::Impl final
+    : public OgreNextSunVisibilityV2PresentationContinuation {
 public:
   explicit Impl(OgreNextN1Configuration configuration)
       : raster_feature_tier(configuration.raster_feature_tier),
@@ -1552,6 +2170,20 @@ public:
         retain_analytic_sky_geometry_content_evidence(
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
             configuration.retain_analytic_sky_geometry_content_evidence
+#else
+            false
+#endif
+            ),
+        retain_native_lighting_content_evidence(
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+            configuration.retain_native_lighting_content_evidence
+#else
+            false
+#endif
+            ),
+        retain_sun_visibility_v2_content_evidence(
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+            configuration.retain_sun_visibility_v2_content_evidence
 #else
             false
 #endif
@@ -1568,6 +2200,22 @@ public:
         hdr_ui_overlay_control(configuration.hdr_ui_overlay_control)
 #endif
   {}
+
+  [[nodiscard]] bool SunVisibilityV2Enabled() const noexcept {
+    return UsesMetalSunVisibilityV2(native_feature_tier);
+  }
+
+  [[nodiscard]] NativeSunVisibilityV2Result V2PresentationResult(
+      NativeSunVisibilityV2Code code, std::uint64_t frame_id,
+      std::uint64_t snapshot_id, const char *detail) const {
+    NativeSunVisibilityV2Result result;
+    result.code = code;
+    result.stage = NativeSunVisibilityV2Stage::PRESENT_CONTINUATION;
+    result.frame_id = frame_id;
+    result.snapshot_id = snapshot_id;
+    result.detail = code == NativeSunVisibilityV2Code::OK ? "ok" : detail;
+    return result;
+  }
 
   struct NativeMesh {
     RenderAssetReference asset;
@@ -2284,6 +2932,7 @@ public:
         buffer->getBytesPerElement() != expected_bytes_per_element) {
       return false;
     }
+    ++LightingContentReadbackCounter();
     Ogre::AsyncTicketPtr ticket =
         buffer->readRequest(0U, expected_elements);
     if (!ticket) {
@@ -3016,6 +3665,206 @@ public:
     return audit;
   }
 
+  [[nodiscard]] OgreNextNativeLightingPassAudit
+  NativeLightingPassAudit() const noexcept {
+    return lighting_audit;
+  }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  [[nodiscard]] OgreNextHdrLightingSplitContentEvidence
+  CaptureHdrLightingSplitContentEvidence() {
+    if (!initialized || faulted || !hdr_enabled || hdr_workspace == nullptr ||
+        !retain_native_lighting_content_evidence ||
+        ProductionPresentationEnabled() || lighting_audit.completed_frames == 0U) {
+      throw std::logic_error(
+          "HDR split content evidence is unavailable outside an opted-in isolated artifact after a committed frame");
+    }
+    Ogre::CompositorNode *rendering =
+        hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+    if (rendering == nullptr) {
+      throw std::runtime_error(
+          "HDR split rendering node disappeared before artifact capture");
+    }
+    OgreNextHdrLightingSplitContentEvidence evidence;
+    evidence.frame_id = lighting_audit.last_frame_id;
+    evidence.width = hdr_width;
+    evidence.height = hdr_height;
+    const auto download = [&](const char *name,
+                              std::vector<std::uint16_t> &output) {
+      Ogre::TextureGpu *texture = rendering->getDefinedTexture(name);
+      if (texture == nullptr ||
+          texture->getPixelFormat() != Ogre::PFG_RGBA16_FLOAT ||
+          texture->getWidth() != hdr_width ||
+          texture->getHeight() != hdr_height || texture->getDepth() != 1U ||
+          texture->getNumMipmaps() != 1U) {
+        throw std::runtime_error(
+            "HDR split artifact target metadata changed before download");
+      }
+      ++lighting_audit.test_artifact_content_readbacks;
+      Ogre::Image2 image;
+      image.convertFromTexture(texture, 0U, 0U);
+      const Ogre::TextureBox pixels = image.getData(0U);
+      if (pixels.data == nullptr || pixels.width != hdr_width ||
+          pixels.height != hdr_height || pixels.depth != 1U ||
+          pixels.numSlices != 1U ||
+          pixels.bytesPerPixel != 4U * sizeof(std::uint16_t) ||
+          pixels.bytesPerRow <
+              static_cast<std::size_t>(hdr_width) *
+                  4U * sizeof(std::uint16_t)) {
+        throw std::runtime_error(
+            "HDR split artifact staging layout changed");
+      }
+      output.resize(static_cast<std::size_t>(hdr_width) * hdr_height * 4U);
+      for (std::uint32_t row = 0U; row < hdr_height; ++row) {
+        for (std::uint32_t column = 0U; column < hdr_width; ++column) {
+          const std::size_t offset =
+              (static_cast<std::size_t>(row) * hdr_width + column) * 4U;
+          std::memcpy(output.data() + offset,
+                      pixels.at(column, row, 0U),
+                      4U * sizeof(std::uint16_t));
+          for (std::size_t channel = 0U; channel < 4U; ++channel) {
+            HdrR16Float canonical;
+            const ValidationResult finite = DecodeFiniteHdrR16Float(
+                output[offset + channel], canonical);
+            if (!finite || canonical.bits != output[offset + channel]) {
+              throw std::runtime_error(
+                  "HDR split artifact contains a non-finite RGBA16 channel");
+            }
+          }
+        }
+      }
+    };
+    download(kOgreNextHdrBaseTexture, evidence.base_hdr_rgba16);
+    download(kOgreNextHdrSunFullTexture, evidence.sun_full_hdr_rgba16);
+    download(kOgreNextHdrSunDirectTexture, evidence.sun_direct_hdr_rgba16);
+    download(kOgreNextHdrRasterLitTexture, evidence.raster_lit_hdr_rgba16);
+    return evidence;
+  }
+
+  [[nodiscard]] OgreNextSunVisibilityV2ContentEvidence
+  CaptureSunVisibilityV2ContentEvidence() {
+    if (!initialized || faulted || !SunVisibilityV2Enabled() ||
+        !retain_sun_visibility_v2_content_evidence ||
+        sun_visibility_v2_frame_awaiting_continuation ||
+        sun_visibility_v2_hdr_commit_pending || hdr_workspace == nullptr ||
+        hdr_base_hdr_target == nullptr ||
+        hdr_sun_direct_hdr_target == nullptr ||
+        hdr_visibility_target == nullptr || hdr_lit_target == nullptr ||
+        lighting_audit.completed_frames == 0U ||
+        lighting_audit.last_frame_id !=
+            hdr_temporal_state.committed_frame_id()) {
+      throw std::logic_error(
+          "sun-visibility V2 content evidence is unavailable before an opted-in isolated continuation completes");
+    }
+    OgreNextSunVisibilityV2ContentEvidence evidence;
+    evidence.frame_id = lighting_audit.last_frame_id;
+    evidence.width = hdr_width;
+    evidence.height = hdr_height;
+
+    const auto exact_texture = [&](Ogre::TextureGpu *texture,
+                                   Ogre::PixelFormatGpu format) {
+      return texture != nullptr && texture->isUav() &&
+             texture->getPixelFormat() == format &&
+             texture->getWidth() == hdr_width &&
+             texture->getHeight() == hdr_height && texture->getDepth() == 1U &&
+             texture->getNumMipmaps() == 1U &&
+             texture->getNumSlices() == 1U &&
+             texture->getSampleDescription().getColourSamples() == 1U;
+    };
+    if (!exact_texture(hdr_base_hdr_target, Ogre::PFG_RGBA16_FLOAT) ||
+        !exact_texture(hdr_sun_direct_hdr_target,
+                       Ogre::PFG_RGBA16_FLOAT) ||
+        !exact_texture(hdr_visibility_target, Ogre::PFG_R16_FLOAT) ||
+        !exact_texture(hdr_lit_target, Ogre::PFG_RGBA16_FLOAT)) {
+      throw std::runtime_error(
+          "sun-visibility V2 image-set metadata changed before artifact capture");
+    }
+
+    const auto download_rgba16 = [&](Ogre::TextureGpu *texture,
+                                     float required_alpha,
+                                     const char *role,
+                                     std::vector<std::uint16_t> &output) {
+      ++lighting_audit.test_artifact_content_readbacks;
+      Ogre::Image2 image;
+      image.convertFromTexture(texture, 0U, 0U);
+      const Ogre::TextureBox box = image.getData(0U);
+      if (box.data == nullptr || box.width != hdr_width ||
+          box.height != hdr_height || box.depth != 1U ||
+          box.numSlices != 1U ||
+          box.bytesPerPixel != 4U * sizeof(std::uint16_t) ||
+          box.bytesPerRow < static_cast<std::size_t>(hdr_width) * 4U *
+                                sizeof(std::uint16_t)) {
+        throw std::runtime_error(std::string("sun-visibility V2 ") + role +
+                                 " staging layout changed");
+      }
+      output.resize(static_cast<std::size_t>(hdr_width) * hdr_height * 4U);
+      for (std::uint32_t row = 0U; row < hdr_height; ++row) {
+        for (std::uint32_t column = 0U; column < hdr_width; ++column) {
+          const std::size_t offset =
+              (static_cast<std::size_t>(row) * hdr_width + column) * 4U;
+          std::memcpy(output.data() + offset, box.at(column, row, 0U),
+                      4U * sizeof(std::uint16_t));
+          for (std::size_t channel = 0U; channel < 4U; ++channel) {
+            HdrR16Float canonical;
+            const ValidationResult finite =
+                DecodeFiniteHdrR16Float(output[offset + channel], canonical);
+            if (!finite || canonical.bits != output[offset + channel] ||
+                (channel < 3U && canonical.decoded < 0.0F) ||
+                (channel == 3U && canonical.decoded != required_alpha)) {
+              throw std::runtime_error(std::string("sun-visibility V2 ") +
+                                       role +
+                                       " contains invalid RGBA16 radiance");
+            }
+          }
+        }
+      }
+    };
+    download_rgba16(hdr_base_hdr_target, 1.0F, "BaseHdr",
+                    evidence.base_hdr_rgba16);
+    download_rgba16(hdr_sun_direct_hdr_target, 0.0F, "SunDirectHdr",
+                    evidence.sun_direct_hdr_rgba16);
+
+    ++lighting_audit.test_artifact_content_readbacks;
+    Ogre::Image2 visibility_image;
+    visibility_image.convertFromTexture(hdr_visibility_target, 0U, 0U);
+    const Ogre::TextureBox visibility = visibility_image.getData(0U);
+    if (visibility.data == nullptr || visibility.width != hdr_width ||
+        visibility.height != hdr_height || visibility.depth != 1U ||
+        visibility.numSlices != 1U ||
+        visibility.bytesPerPixel != sizeof(std::uint16_t) ||
+        visibility.bytesPerRow <
+            static_cast<std::size_t>(hdr_width) * sizeof(std::uint16_t)) {
+      throw std::runtime_error(
+          "sun-visibility V2 visibility staging layout changed");
+    }
+    evidence.visibility_r16.resize(
+        static_cast<std::size_t>(hdr_width) * hdr_height);
+    for (std::uint32_t row = 0U; row < hdr_height; ++row) {
+      for (std::uint32_t column = 0U; column < hdr_width; ++column) {
+        const std::size_t offset =
+            static_cast<std::size_t>(row) * hdr_width + column;
+        std::memcpy(evidence.visibility_r16.data() + offset,
+                    visibility.at(column, row, 0U), sizeof(std::uint16_t));
+        if (!IsCanonicalNativeSunVisibilityV2R16(
+                evidence.visibility_r16[offset])) {
+          throw std::runtime_error(
+              "sun-visibility V2 artifact contains noncanonical visibility");
+        }
+      }
+    }
+
+    download_rgba16(hdr_lit_target, 1.0F, "LitHdr",
+                    evidence.lit_hdr_rgba16);
+    return evidence;
+  }
+#endif
+
+  [[nodiscard]] std::uint64_t &LightingContentReadbackCounter() noexcept {
+    return ProductionPresentationEnabled()
+               ? lighting_audit.production_content_readbacks
+               : lighting_audit.test_artifact_content_readbacks;
+  }
+
   [[nodiscard]] const char *HdrWorkspaceName() const noexcept {
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     if (hdr_ui_overlay_control) {
@@ -3146,7 +3995,10 @@ public:
     Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
     const char *workspace_name = HdrWorkspaceName();
     if (compositors == nullptr ||
-        compositors->hasWorkspaceDefinition(Ogre::IdString(workspace_name))) {
+        compositors->hasWorkspaceDefinition(Ogre::IdString(workspace_name)) ||
+        (SunVisibilityV2Enabled() &&
+         compositors->hasWorkspaceDefinition(Ogre::IdString(
+             kOgreNextHdrSunVisibilityV2ContinuationWorkspace)))) {
       return HdrBackendFailure(
           "UI-free workspace definition lifecycle is not empty");
     }
@@ -3184,22 +4036,69 @@ public:
       return HdrBackendFailure(
           "programmatic HDR workspace node closure is not exact");
     }
+    if (SunVisibilityV2Enabled()) {
+      Ogre::CompositorWorkspaceDef *continuation =
+          compositors->addWorkspaceDefinition(
+              kOgreNextHdrSunVisibilityV2ContinuationWorkspace);
+      hdr_v2_continuation_workspace_definition_created = true;
+      continuation->connectExternal(
+          0U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U);
+      continuation->connectExternal(
+          1U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 1U);
+      continuation->connectExternal(
+          2U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 2U);
+      const auto &continuation_aliases = continuation->getNodeAliasMap();
+      if (continuation_aliases.size() != 1U ||
+          continuation_aliases.find(
+              Ogre::IdString(kOgreNextHdrPostprocessingNode)) ==
+              continuation_aliases.end()) {
+        return HdrBackendFailure(
+            "sun-visibility V2 continuation node closure is not exact");
+      }
+    }
     hdr_ui_free_workspace_verified = !has_upstream_ui;
     return RenderOperationResult::Success();
   }
 
-  [[nodiscard]] bool DestroyHdrCompositor() noexcept {
+  [[nodiscard]] bool
+  DestroyHdrCompositor(bool destroy_definitions_and_resources = true) noexcept {
     bool clean = true;
+    if (production_source_target == hdr_output_target &&
+        production_source_target != nullptr) {
+      // The HDR output is borrowed by the copy-only presentation workspace.
+      // Its graph must be retired before the owning HDR texture.
+      clean = DestroyProductionPresentationGraph() && clean;
+    }
+    if (root && hdr_v2_continuation_workspace != nullptr) {
+      try {
+        root->getCompositorManager2()->removeWorkspace(
+            hdr_v2_continuation_workspace);
+      } catch (...) {
+        clean = false;
+      }
+    } else if (hdr_v2_continuation_workspace != nullptr) {
+      clean = false;
+    }
+    hdr_v2_continuation_workspace = nullptr;
     if (root && hdr_workspace != nullptr) {
       try {
+        clean = hdr_directional_split_listener.AbortFrame() && clean;
+        hdr_workspace->removeListener(&hdr_directional_split_listener);
         root->getCompositorManager2()->removeWorkspace(hdr_workspace);
       } catch (...) {
         clean = false;
       }
     }
     hdr_workspace = nullptr;
+    hdr_base_hdr_target = nullptr;
+    hdr_sun_direct_hdr_target = nullptr;
+    hdr_visibility_target = nullptr;
+    hdr_lit_target = nullptr;
+    hdr_history_target = nullptr;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    clean = DestroyHdrUiOverlayControl() && clean;
+    if (destroy_definitions_and_resources) {
+      clean = DestroyHdrUiOverlayControl() && clean;
+    }
 #endif
     if (renderer != nullptr && hdr_output_target != nullptr) {
       try {
@@ -3211,18 +4110,93 @@ public:
       clean = false;
     }
     hdr_output_target = nullptr;
-    if (root && hdr_workspace_definition_created) {
+    if (destroy_definitions_and_resources && root &&
+        hdr_v2_continuation_workspace_definition_created) {
+      try {
+        root->getCompositorManager2()->removeWorkspaceDefinition(
+            Ogre::IdString(
+                kOgreNextHdrSunVisibilityV2ContinuationWorkspace));
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_v2_continuation_workspace_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_v2_continuation_workspace_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root &&
+        hdr_workspace_definition_created) {
       try {
         root->getCompositorManager2()->removeWorkspaceDefinition(
             Ogre::IdString(HdrWorkspaceName()));
       } catch (...) {
         clean = false;
       }
-    } else if (hdr_workspace_definition_created) {
+    } else if (destroy_definitions_and_resources &&
+               hdr_workspace_definition_created) {
       clean = false;
     }
-    hdr_workspace_definition_created = false;
-    if (hdr_resource_group_created) {
+    if (destroy_definitions_and_resources) {
+      hdr_workspace_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root &&
+        hdr_split_node_definition_created) {
+      try {
+        Ogre::CompositorManager2 *compositors =
+            root->getCompositorManager2();
+        const Ogre::IdString split_name(kOgreNextHdrRenderingNode);
+        if (!compositors->hasNodeDefinition(split_name)) {
+          clean = false;
+        } else {
+          compositors->removeNodeDefinition(split_name);
+        }
+        if (compositors->hasNodeDefinition(split_name)) {
+          clean = false;
+        }
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_split_node_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_split_node_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root) {
+      try {
+        Ogre::CompositorManager2 *compositors =
+            root->getCompositorManager2();
+        const Ogre::IdString shadow_name(kOgreNextHdrShadowNode);
+        const bool shadow_exists =
+            compositors->hasShadowNodeDefinition(shadow_name);
+        if (hdr_shadow_node_definition_created && !shadow_exists) {
+          clean = false;
+        }
+        if (shadow_exists) {
+          if (!hdr_shadow_node_definition_created) {
+            hdr_shadow_node_definition_created = true;
+            ++shadow_audit.shadow_node_creates;
+          }
+          compositors->removeShadowNodeDefinition(shadow_name);
+          ++shadow_audit.shadow_node_destroys;
+        }
+        if (compositors->hasShadowNodeDefinition(shadow_name)) {
+          clean = false;
+        }
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_shadow_node_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_shadow_node_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && hdr_resource_group_created) {
       try {
         Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup(
             kOgreNextHdrResourceGroup);
@@ -3230,8 +4204,23 @@ public:
         clean = false;
       }
     }
-    hdr_resource_group_created = false;
-    hdr_temporal_state.Reset();
+    if (destroy_definitions_and_resources) {
+      hdr_resource_group_created = false;
+      hdr_resources_initialized = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_temporal_state.Reset();
+      sun_visibility_v2_frame_awaiting_continuation = false;
+      sun_visibility_v2_hdr_commit_pending = false;
+      sun_visibility_v2_pending_frame_id = 0U;
+      sun_visibility_v2_pending_snapshot_id = 0U;
+      sun_visibility_v2_pending_view_id = 0U;
+      sun_visibility_v2_pending_surface_revision = 0U;
+      sun_visibility_v2_pending_width = 0U;
+      sun_visibility_v2_pending_height = 0U;
+      sun_visibility_v2_pending_lighting = {};
+      sun_visibility_v2_pending_hdr_plan = {};
+    }
     hdr_width = 0U;
     hdr_height = 0U;
     hdr_warmup_frames = 0U;
@@ -3239,7 +4228,20 @@ public:
     hdr_native_history_validated = false;
     hdr_exact_current_to_old_copy_verified = false;
     hdr_ui_free_workspace_verified = false;
-    hdr_history_comparison = OgreNextHdrHistoryComparison{};
+    hdr_linear_scene_target_verified = false;
+    hdr_base_hdr_target_verified = false;
+    hdr_sun_full_hdr_target_verified = false;
+    hdr_sun_direct_hdr_target_verified = false;
+    hdr_visibility_target_verified = false;
+    hdr_lit_target_verified = false;
+    hdr_gpu_sun_direct_split_verified = false;
+    hdr_auto_exposure_graph_verified = false;
+    hdr_bloom_graph_verified = false;
+    hdr_tone_map_graph_verified = false;
+    hdr_srgb_output_verified = false;
+    if (destroy_definitions_and_resources) {
+      hdr_history_comparison = OgreNextHdrHistoryComparison{};
+    }
     return clean;
   }
 
@@ -3325,7 +4327,8 @@ public:
     }
     std::vector<HdrR16Float> values;
     if (!TryReadPositiveR16Texture(rendering->getDefinedTexture("oldLumRt"),
-                                   1U, 1U, values) ||
+                                   1U, 1U, values,
+                                   LightingContentReadbackCounter()) ||
         values.size() != 1U) {
       return false;
     }
@@ -3381,13 +4384,18 @@ public:
     }
     initial_image.uploadTo(history_texture, 0U, 0U);
 
-    HdrR16Float candidate;
-    if (!ReadHdrHistory(candidate) || candidate.bits != initial_history.bits ||
-        candidate.decoded != initial_history.decoded) {
-      return HdrBackendFailure(
-          "exact initial R16 history upload did not round-trip");
+    if (retain_native_lighting_content_evidence) {
+      HdrR16Float candidate;
+      if (!ReadHdrHistory(candidate) ||
+          candidate.bits != initial_history.bits ||
+          candidate.decoded != initial_history.decoded) {
+        return HdrBackendFailure(
+            "exact initial R16 history upload did not round-trip");
+      }
+      observed_history = candidate;
+    } else {
+      observed_history = initial_history;
     }
-    observed_history = candidate;
     return RenderOperationResult::Success();
   }
 
@@ -3400,11 +4408,17 @@ public:
     }
     Ogre::ResourceGroupManager &resources =
         Ogre::ResourceGroupManager::getSingleton();
-    resources.createResourceGroup(kOgreNextHdrResourceGroup, true);
-    hdr_resource_group_created = true;
+    const bool first_resource_initialization = !hdr_resources_initialized;
+    if (first_resource_initialization) {
+      resources.createResourceGroup(kOgreNextHdrResourceGroup, true);
+      hdr_resource_group_created = true;
+    }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    RenderOperationResult injected = MaybeInjectHdrFailure(
-        OgreNextN1HdrFailureStage::AFTER_RESOURCE_GROUP_CREATE);
+    RenderOperationResult injected = first_resource_initialization
+                                         ? MaybeInjectHdrFailure(
+                                               OgreNextN1HdrFailureStage::
+                                                   AFTER_RESOURCE_GROUP_CREATE)
+                                         : RenderOperationResult::Success();
     if (!injected) {
       return injected;
     }
@@ -3427,39 +4441,134 @@ public:
         "2.0/scripts/materials/HDR/GLSL",
         "2.0/scripts/materials/HDR/HLSL",
         "2.0/scripts/materials/HDR/Metal"}};
-    for (const char *relative : relative_locations) {
-      resources.addResourceLocation(
-          (media_root / relative).generic_u8string(), "FileSystem",
-          kOgreNextHdrResourceGroup, true, true);
+    if (first_resource_initialization) {
+      for (const char *relative : relative_locations) {
+        resources.addResourceLocation(
+            (media_root / relative).generic_u8string(), "FileSystem",
+            kOgreNextHdrResourceGroup, true, true);
+      }
     }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    injected = MaybeInjectHdrFailure(
-        OgreNextN1HdrFailureStage::AFTER_RESOURCE_LOCATIONS);
+    injected = first_resource_initialization
+                   ? MaybeInjectHdrFailure(
+                         OgreNextN1HdrFailureStage::AFTER_RESOURCE_LOCATIONS)
+                   : RenderOperationResult::Success();
     if (!injected) {
       return injected;
     }
 #endif
-    resources.initialiseResourceGroup(kOgreNextHdrResourceGroup, true);
+    if (first_resource_initialization) {
+      resources.initialiseResourceGroup(kOgreNextHdrResourceGroup, true);
+      hdr_resources_initialized = true;
+    }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    injected = MaybeInjectHdrFailure(
-        OgreNextN1HdrFailureStage::AFTER_RESOURCE_GROUP_INITIALIZE);
+    injected = first_resource_initialization
+                   ? MaybeInjectHdrFailure(
+                         OgreNextN1HdrFailureStage::
+                             AFTER_RESOURCE_GROUP_INITIALIZE)
+                   : RenderOperationResult::Success();
     if (!injected) {
       return injected;
     }
 #endif
 
+    if (first_resource_initialization) {
+      CreateAndVerifyHdrLightingSplitNode(
+          *root->getCompositorManager2(), hdr_split_node_definition_created,
+          SunVisibilityV2Enabled());
+      if (SunVisibilityV2Enabled()) {
+        ConfigureAndVerifyHdrPostExecutionMask(
+            *root->getCompositorManager2());
+      }
+    } else {
+      Ogre::CompositorManager2 *compositors =
+          root->getCompositorManager2();
+      if (!hdr_resource_group_created ||
+          !hdr_split_node_definition_created ||
+          !hdr_workspace_definition_created ||
+          !compositors->hasNodeDefinition(
+              Ogre::IdString(kOgreNextHdrRenderingNode)) ||
+          !compositors->hasWorkspaceDefinition(
+              Ogre::IdString(HdrWorkspaceName())) ||
+          (SunVisibilityV2Enabled() &&
+           (!hdr_v2_continuation_workspace_definition_created ||
+            !compositors->hasWorkspaceDefinition(Ogre::IdString(
+                kOgreNextHdrSunVisibilityV2ContinuationWorkspace))))) {
+        return HdrBackendFailure(
+            "retained HDR definitions disappeared before resize rebuild");
+      }
+      Ogre::CompositorWorkspaceDef *retained_workspace =
+          compositors->getWorkspaceDefinition(
+              Ogre::IdString(HdrWorkspaceName()));
+      const auto &aliases = retained_workspace->getNodeAliasMap();
+      const bool has_rendering =
+          aliases.find(Ogre::IdString(kOgreNextHdrRenderingNode)) !=
+          aliases.end();
+      const bool has_postprocessing =
+          aliases.find(Ogre::IdString(kOgreNextHdrPostprocessingNode)) !=
+          aliases.end();
+      const bool has_ui =
+          aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    const RenderOperationResult overlay_control =
-        CreateHdrUiOverlayControl();
-    if (!overlay_control) {
-      return overlay_control;
+      const bool expected_ui = hdr_ui_overlay_control;
+#else
+      constexpr bool expected_ui = false;
+#endif
+      if (!has_rendering || !has_postprocessing || has_ui != expected_ui) {
+        return HdrBackendFailure(
+            "retained HDR workspace topology changed before resize rebuild");
+      }
+      if (SunVisibilityV2Enabled()) {
+        Ogre::CompositorWorkspaceDef *continuation =
+            compositors->getWorkspaceDefinition(Ogre::IdString(
+                kOgreNextHdrSunVisibilityV2ContinuationWorkspace));
+        const auto &continuation_aliases = continuation->getNodeAliasMap();
+        if (continuation_aliases.size() != 1U ||
+            continuation_aliases.find(
+                Ogre::IdString(kOgreNextHdrPostprocessingNode)) ==
+                continuation_aliases.end()) {
+          return HdrBackendFailure(
+              "retained sun-visibility V2 continuation topology changed before resize rebuild");
+        }
+      }
+      hdr_ui_free_workspace_verified = !has_ui;
+    }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    if (first_resource_initialization) {
+      const RenderOperationResult overlay_control =
+          CreateHdrUiOverlayControl();
+      if (!overlay_control) {
+        return overlay_control;
+      }
     }
 #endif
 
-    const RenderOperationResult workspace_definition =
-        CreateHdrWorkspaceDefinition();
-    if (!workspace_definition) {
-      return workspace_definition;
+    if (first_resource_initialization) {
+      const RenderOperationResult workspace_definition =
+          CreateHdrWorkspaceDefinition();
+      if (!workspace_definition) {
+        return workspace_definition;
+      }
+    }
+    if (first_resource_initialization &&
+        directional_shadow_mode ==
+        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {
+      const Ogre::RenderSystemCapabilities *capabilities =
+          renderer->getCapabilities();
+      if (capabilities == nullptr) {
+        return HdrBackendFailure(
+            "device capabilities disappeared before HDR/PSSM binding");
+      }
+      CreateAndVerifyPssmShadowNode(
+          *root->getCompositorManager2(), *capabilities,
+          kOgreNextHdrShadowNode, kOgreNextRt4AuthoredVisibilityMask);
+      hdr_shadow_node_definition_created = true;
+      ++shadow_audit.shadow_node_creates;
+      BindAndVerifyPssmWorkspace(*root->getCompositorManager2(),
+                                 kOgreNextHdrRenderingNode,
+                                 kOgreNextHdrShadowNode,
+                                 kOgreNextHdrRasterLitScenePassIdentifier);
     }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     injected = MaybeInjectHdrFailure(
@@ -3490,7 +4599,12 @@ public:
     }
 #endif
     hdr_workspace = root->getCompositorManager2()->addWorkspace(
-        scene_manager, hdr_output_target, camera, HdrWorkspaceName(), true);
+        scene_manager, hdr_output_target, camera, HdrWorkspaceName(), true,
+        -1, nullptr, nullptr, Ogre::Vector4::ZERO, 0x00U,
+        SunVisibilityV2Enabled()
+            ? kOgreNextHdrSplitExecutionMask
+            : static_cast<std::uint8_t>(0xffU));
+    hdr_workspace->addListener(&hdr_directional_split_listener);
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     injected = MaybeInjectHdrFailure(
         OgreNextN1HdrFailureStage::AFTER_WORKSPACE_CREATE);
@@ -3501,12 +4615,173 @@ public:
     hdr_width = width;
     hdr_height = height;
 
-    HdrR16Float initial_history;
-    const ValidationResult initial_quantization = QuantizeHdrR16Float(
-        hdr_configuration.initial_inverse_luminance, initial_history);
-    if (!initial_quantization) {
+    Ogre::CompositorNode *rendering =
+        hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+    Ogre::CompositorNode *postprocessing =
+        hdr_workspace->findNode(kOgreNextHdrPostprocessingNode);
+    Ogre::TextureGpu *linear_scene =
+        rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrRasterLitTexture)
+            : nullptr;
+    Ogre::TextureGpu *base_hdr =
+        rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrBaseTexture)
+            : nullptr;
+    Ogre::TextureGpu *sun_full_hdr =
+        rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrSunFullTexture)
+            : nullptr;
+    Ogre::TextureGpu *sun_direct_hdr =
+        rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrSunDirectTexture)
+            : nullptr;
+    Ogre::TextureGpu *visibility =
+        SunVisibilityV2Enabled() && rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrVisibilityTexture)
+            : nullptr;
+    Ogre::TextureGpu *lit_hdr =
+        SunVisibilityV2Enabled() && rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrLitTexture)
+            : nullptr;
+    Ogre::TextureGpu *old_luminance = rendering != nullptr
+                                           ? rendering->getDefinedTexture(
+                                                 "oldLumRt")
+                                           : nullptr;
+    Ogre::TextureGpu *iterative_luminance =
+        postprocessing != nullptr
+            ? postprocessing->getDefinedTexture("rtIter2")
+            : nullptr;
+    Ogre::TextureGpu *current_luminance =
+        postprocessing != nullptr
+            ? postprocessing->getDefinedTexture("lumRt0")
+            : nullptr;
+    Ogre::TextureGpu *bloom_horizontal =
+        postprocessing != nullptr
+            ? postprocessing->getDefinedTexture("rtBlur0")
+            : nullptr;
+    Ogre::TextureGpu *bloom_vertical =
+        postprocessing != nullptr
+            ? postprocessing->getDefinedTexture("rtBlur1")
+            : nullptr;
+    const Ogre::MaterialPtr tone_map =
+        Ogre::MaterialManager::getSingleton().getByName(
+            "HDR/FinalToneMapping", kOgreNextHdrResourceGroup);
+    hdr_linear_scene_target_verified =
+        linear_scene != nullptr &&
+        linear_scene->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
+        linear_scene->getWidth() == width && linear_scene->getHeight() == height;
+    const auto exact_linear_target = [width, height](Ogre::TextureGpu *texture) {
+      return texture != nullptr &&
+             texture->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
+             texture->getWidth() == width && texture->getHeight() == height &&
+             texture->getDepth() == 1U && texture->getNumMipmaps() == 1U;
+    };
+    hdr_base_hdr_target_verified = exact_linear_target(base_hdr);
+    hdr_sun_full_hdr_target_verified = exact_linear_target(sun_full_hdr);
+    hdr_sun_direct_hdr_target_verified = exact_linear_target(sun_direct_hdr);
+    hdr_visibility_target_verified =
+        !SunVisibilityV2Enabled() ||
+        (visibility != nullptr && visibility->isUav() &&
+         visibility->getPixelFormat() == Ogre::PFG_R16_FLOAT &&
+         visibility->getWidth() == width &&
+         visibility->getHeight() == height &&
+         visibility->getDepth() == 1U &&
+         visibility->getNumMipmaps() == 1U);
+    hdr_lit_target_verified =
+        !SunVisibilityV2Enabled() ||
+        (exact_linear_target(lit_hdr) && lit_hdr->isUav());
+    if (SunVisibilityV2Enabled()) {
+      hdr_base_hdr_target_verified =
+          hdr_base_hdr_target_verified && base_hdr->isUav();
+      hdr_sun_direct_hdr_target_verified =
+          hdr_sun_direct_hdr_target_verified && sun_direct_hdr->isUav();
+    }
+    hdr_gpu_sun_direct_split_verified =
+        hdr_base_hdr_target_verified && hdr_sun_full_hdr_target_verified &&
+        hdr_sun_direct_hdr_target_verified;
+    hdr_auto_exposure_graph_verified =
+        old_luminance != nullptr && iterative_luminance != nullptr &&
+        current_luminance != nullptr &&
+        old_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT &&
+        iterative_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT &&
+        current_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT;
+    hdr_bloom_graph_verified =
+        bloom_horizontal != nullptr && bloom_vertical != nullptr;
+    hdr_tone_map_graph_verified =
+        tone_map && tone_map->getNumTechniques() == 1U &&
+        tone_map->getTechnique(0U) != nullptr &&
+        tone_map->getTechnique(0U)->getNumPasses() == 1U &&
+        tone_map->getTechnique(0U)->getPass(0U)->getFragmentProgramName() ==
+            "HDR/FinalToneMapping_ps";
+    hdr_srgb_output_verified =
+        hdr_output_target->getPixelFormat() == Ogre::PFG_RGBA8_UNORM_SRGB;
+    if (SunVisibilityV2Enabled() && hdr_visibility_target_verified &&
+        hdr_lit_target_verified && hdr_base_hdr_target_verified &&
+        hdr_sun_direct_hdr_target_verified && old_luminance != nullptr) {
+      Ogre::CompositorChannelVec continuation_channels;
+      continuation_channels.reserve(3U);
+      continuation_channels.push_back(lit_hdr);
+      continuation_channels.push_back(old_luminance);
+      continuation_channels.push_back(hdr_output_target);
+      hdr_v2_continuation_workspace =
+          root->getCompositorManager2()->addWorkspace(
+              scene_manager, continuation_channels, camera,
+              kOgreNextHdrSunVisibilityV2ContinuationWorkspace, false, -1,
+              nullptr, nullptr, Ogre::Vector4::ZERO, 0x00U,
+              kOgreNextHdrPostExecutionMask);
+      const Ogre::CompositorChannelVec &observed =
+          hdr_v2_continuation_workspace->getExternalRenderTargets();
+      if (observed.size() != 3U || observed[0U] != lit_hdr ||
+          observed[1U] != old_luminance ||
+          observed[2U] != hdr_output_target ||
+          hdr_v2_continuation_workspace->getEnabled() ||
+          hdr_v2_continuation_workspace->getExecutionMask() !=
+              kOgreNextHdrPostExecutionMask ||
+          hdr_workspace->getExecutionMask() !=
+              kOgreNextHdrSplitExecutionMask) {
+        return HdrBackendFailure(
+            "sun-visibility V2 continuation lost its exact LitHdr/history/output channel order");
+      }
+    }
+    if (!hdr_linear_scene_target_verified || !hdr_base_hdr_target_verified ||
+        !hdr_sun_full_hdr_target_verified ||
+        !hdr_sun_direct_hdr_target_verified ||
+        !hdr_gpu_sun_direct_split_verified ||
+        !hdr_visibility_target_verified || !hdr_lit_target_verified ||
+        (SunVisibilityV2Enabled() &&
+         hdr_v2_continuation_workspace == nullptr) ||
+        !hdr_auto_exposure_graph_verified || !hdr_bloom_graph_verified ||
+        !hdr_tone_map_graph_verified || !hdr_srgb_output_verified ||
+        (hdr_shadow_node_definition_created &&
+         hdr_workspace->findShadowNode(Ogre::IdString(kOgreNextHdrShadowNode)) ==
+             nullptr)) {
       return HdrBackendFailure(
-          "validated initial exposure history became unrepresentable");
+          "native HDR lighting graph differs from the reviewed linear-scene, exposure, bloom, filmic-tone-map, sRGB, or PSSM topology");
+    }
+    hdr_base_hdr_target = base_hdr;
+    hdr_sun_direct_hdr_target = sun_direct_hdr;
+    hdr_visibility_target = visibility;
+    hdr_lit_target = lit_hdr;
+    hdr_history_target = old_luminance;
+
+    HdrR16Float history_seed;
+    if (first_resource_initialization) {
+      const ValidationResult initial_quantization = QuantizeHdrR16Float(
+          hdr_configuration.initial_inverse_luminance, history_seed);
+      if (!initial_quantization) {
+        return HdrBackendFailure(
+            "validated initial exposure history became unrepresentable");
+      }
+    } else {
+      history_seed = hdr_temporal_state.previous_inverse_luminance();
+      HdrR16Float canonical_seed;
+      if (!DecodeFiniteHdrR16Float(history_seed.bits, canonical_seed) ||
+          canonical_seed.bits != history_seed.bits ||
+          canonical_seed.decoded != history_seed.decoded ||
+          !(history_seed.decoded > 0.0F)) {
+        return HdrBackendFailure(
+            "committed exposure history became invalid before resize rebuild");
+      }
     }
     const float inverse_width =
         1.0F / (hdr_configuration.bloom_full_colour_threshold -
@@ -3517,6 +4792,17 @@ public:
         hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F);
     if (!parameters) {
       return parameters;
+    }
+    if (SunVisibilityV2Enabled()) {
+      hdr_workspace->setExecutionMask(
+          kOgreNextHdrSplitExecutionMask |
+          kOgreNextHdrPostExecutionMask);
+      if (hdr_workspace->getExecutionMask() !=
+          (kOgreNextHdrSplitExecutionMask |
+           kOgreNextHdrPostExecutionMask)) {
+        return HdrBackendFailure(
+            "sun-visibility V2 warmup could not enable the complete HDR graph");
+      }
     }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     injected = MaybeInjectHdrFailure(
@@ -3547,17 +4833,38 @@ public:
     }
     HdrR16Float observed_history;
     const RenderOperationResult exact_history =
-        InitializeExactHdrHistory(initial_history, observed_history);
+        InitializeExactHdrHistory(history_seed, observed_history);
     if (!exact_history) {
       return exact_history;
     }
-    hdr_history_comparison = OgreNextHdrHistoryComparison{};
-    hdr_history_comparison.mode = OgreNextHdrHistoryValidationMode::
-        NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP;
-    hdr_history_comparison.native_inverse_luminance_r16 = observed_history;
-    hdr_history_comparison.reference_inverse_luminance_r16 = initial_history;
-    hdr_history_comparison.accepted = true;
-    hdr_native_history_validated = true;
+    if (SunVisibilityV2Enabled()) {
+      hdr_workspace->setExecutionMask(kOgreNextHdrSplitExecutionMask);
+      if (hdr_workspace->getExecutionMask() !=
+              kOgreNextHdrSplitExecutionMask ||
+          hdr_v2_continuation_workspace == nullptr ||
+          hdr_v2_continuation_workspace->getEnabled()) {
+        return HdrBackendFailure(
+            "sun-visibility V2 did not restore split-only preparation after warmup");
+      }
+    }
+    if (first_resource_initialization) {
+      hdr_history_comparison = OgreNextHdrHistoryComparison{};
+    } else {
+      hdr_history_comparison =
+          hdr_temporal_state.last_history_comparison();
+    }
+    if (retain_native_lighting_content_evidence) {
+      if (first_resource_initialization) {
+        hdr_history_comparison.mode = OgreNextHdrHistoryValidationMode::
+            NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP;
+        hdr_history_comparison.native_inverse_luminance_r16 =
+            observed_history;
+        hdr_history_comparison.reference_inverse_luminance_r16 =
+            history_seed;
+        hdr_history_comparison.accepted = true;
+      }
+      hdr_native_history_validated = true;
+    }
     return RenderOperationResult::Success();
   }
 
@@ -3577,11 +4884,14 @@ public:
     std::vector<HdrR16Float> current;
     std::vector<HdrR16Float> copied;
     if (!TryReadFiniteR16Texture(postprocessing->getDefinedTexture("rtIter2"),
-                                 4U, 4U, iterative) ||
+                                 4U, 4U, iterative,
+                                 LightingContentReadbackCounter()) ||
         !TryReadPositiveR16Texture(
-            postprocessing->getDefinedTexture("lumRt0"), 1U, 1U, current) ||
+            postprocessing->getDefinedTexture("lumRt0"), 1U, 1U, current,
+            LightingContentReadbackCounter()) ||
         !TryReadPositiveR16Texture(
-            rendering->getDefinedTexture("oldLumRt"), 1U, 1U, copied) ||
+            rendering->getDefinedTexture("oldLumRt"), 1U, 1U, copied,
+            LightingContentReadbackCounter()) ||
         current.size() != 1U || copied.size() != 1U ||
         current.front().bits != copied.front().bits ||
         current.front().decoded != copied.front().decoded) {
@@ -4117,15 +5427,21 @@ public:
       return false;
     }
     if (production_source_target != nullptr) {
-      try {
-        Ogre::TextureGpuManager *texture_manager =
-            renderer->getTextureGpuManager();
-        texture_manager->destroyTexture(production_source_target);
-        texture_manager->waitForStreamingCompletion();
+      if (hdr_enabled && production_source_target == hdr_output_target) {
+        // Borrowed from the owning HDR compositor; only this graph's alias is
+        // retired here.
         production_source_target = nullptr;
-        ++presentation_audit.source_target_destroys;
-      } catch (...) {
-        return false;
+      } else {
+        try {
+          Ogre::TextureGpuManager *texture_manager =
+              renderer->getTextureGpuManager();
+          texture_manager->destroyTexture(production_source_target);
+          texture_manager->waitForStreamingCompletion();
+          production_source_target = nullptr;
+          ++presentation_audit.source_target_destroys;
+        } catch (...) {
+          return false;
+        }
       }
     }
     production_width = 0U;
@@ -4182,27 +5498,46 @@ public:
 
   [[nodiscard]] RenderOperationResult EnsureProductionPresentationGraph(
       const RenderFrameRequest &request, const CameraViewRequest &view,
-      std::uint32_t authored_view_visibility, bool pssm_enabled) {
-    if (!ProductionPresentationEnabled() || !request.present ||
+      std::uint32_t authored_view_visibility, bool pssm_enabled,
+      bool deferred_v2 = false) {
+    if (!ProductionPresentationEnabled() ||
+        (request.present == deferred_v2) ||
         presentation_window == nullptr ||
         !presentation_resource_group_created || surface.suspended) {
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
           "production presentation graph requested outside its active native-window contract");
     }
+    const bool copy_only_hdr = hdr_enabled;
+    if (copy_only_hdr &&
+        (hdr_workspace == nullptr || hdr_output_target == nullptr ||
+         !hdr_linear_scene_target_verified ||
+         !hdr_srgb_output_verified ||
+         (pssm_enabled &&
+          (!hdr_shadow_node_definition_created ||
+           authored_view_visibility !=
+               kOgreNextRt4AuthoredVisibilityMask)))) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "HDR presentation requires its verified persistent graph and the full reviewed RT4 authored visibility mask for PSSM");
+    }
     if (production_workspace != nullptr) {
       Ogre::TextureGpu *window_texture = presentation_window->getTexture();
       const bool exact = production_source_target != nullptr &&
-                         production_workspace->getEnabled() &&
+                         production_workspace->getEnabled() == !deferred_v2 &&
                          bootstrap_workspace == nullptr &&
                          production_width == view.width &&
                          production_height == view.height &&
                          production_color_format == request.color_format &&
-                         production_shadow_node_definition_created ==
-                             pssm_enabled &&
-                         (!pssm_enabled ||
-                          production_shadow_visibility_mask ==
-                              authored_view_visibility) &&
+                         (copy_only_hdr
+                              ? (!production_shadow_node_definition_created &&
+                                 (!pssm_enabled ||
+                                  hdr_shadow_node_definition_created))
+                              : (production_shadow_node_definition_created ==
+                                     pssm_enabled &&
+                                 (!pssm_enabled ||
+                                  production_shadow_visibility_mask ==
+                                      authored_view_visibility))) &&
                          production_window_texture == window_texture &&
                          window_texture != nullptr &&
                          window_texture->getWidth() == view.width &&
@@ -4239,19 +5574,23 @@ public:
     try {
       Ogre::TextureGpuManager *texture_manager =
           renderer->getTextureGpuManager();
-      production_source_target = texture_manager->createTexture(
-          kProductionPresentationTargetName,
-          Ogre::GpuPageOutStrategy::Discard,
-          Ogre::TextureFlags::RenderToTexture,
-          Ogre::TextureTypes::Type2D);
-      ++presentation_audit.source_target_creates;
-      production_source_target->setResolution(view.width, view.height);
-      production_source_target->setPixelFormat(
-          request.color_format == PixelFormat::RGBA16_FLOAT
-              ? Ogre::PFG_RGBA16_FLOAT
-              : Ogre::PFG_RGBA8_UNORM_SRGB);
-      production_source_target->scheduleTransitionTo(
-          Ogre::GpuResidency::Resident);
+      if (copy_only_hdr) {
+        production_source_target = hdr_output_target;
+      } else {
+        production_source_target = texture_manager->createTexture(
+            kProductionPresentationTargetName,
+            Ogre::GpuPageOutStrategy::Discard,
+            Ogre::TextureFlags::RenderToTexture,
+            Ogre::TextureTypes::Type2D);
+        ++presentation_audit.source_target_creates;
+        production_source_target->setResolution(view.width, view.height);
+        production_source_target->setPixelFormat(
+            request.color_format == PixelFormat::RGBA16_FLOAT
+                ? Ogre::PFG_RGBA16_FLOAT
+                : Ogre::PFG_RGBA8_UNORM_SRGB);
+        production_source_target->scheduleTransitionTo(
+            Ogre::GpuResidency::Resident);
+      }
       production_width = view.width;
       production_height = view.height;
       production_color_format = request.color_format;
@@ -4276,22 +5615,25 @@ public:
       node->addTextureSourceName(
           "PresentationRT", 1U,
           Ogre::TextureDefinitionBase::TEXTURE_INPUT);
-      node->setNumTargetPass(2U);
-      Ogre::CompositorTargetDef *main_target = node->addTargetPass("MainRT");
-      main_target->setNumPasses(1U);
-      auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
-          main_target->addPass(Ogre::PASS_SCENE));
-      scene->mFirstRQ = 0U;
-      scene->mLastRQ = kOgreNextPccReservedRenderQueue;
-      scene->mIncludeOverlays = false;
-      scene->mEnableForwardPlus = true;
-      scene->setVisibilityMask(authored_view_visibility);
-      scene->setAllClearColours(
-          Ogre::ColourValue(0.0F, 0.0F, 0.0F, 1.0F));
-      scene->setAllLoadActions(Ogre::LoadAction::Clear);
-      scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
-      scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
-      if (pssm_enabled) {
+      node->setNumTargetPass(copy_only_hdr ? 1U : 2U);
+      if (!copy_only_hdr) {
+        Ogre::CompositorTargetDef *main_target =
+            node->addTargetPass("MainRT");
+        main_target->setNumPasses(1U);
+        auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
+            main_target->addPass(Ogre::PASS_SCENE));
+        scene->mFirstRQ = 0U;
+        scene->mLastRQ = kOgreNextPccReservedRenderQueue;
+        scene->mIncludeOverlays = false;
+        scene->mEnableForwardPlus = true;
+        scene->setVisibilityMask(authored_view_visibility);
+        scene->setAllClearColours(
+            Ogre::ColourValue(0.0F, 0.0F, 0.0F, 1.0F));
+        scene->setAllLoadActions(Ogre::LoadAction::Clear);
+        scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+        scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+      }
+      if (pssm_enabled && !copy_only_hdr) {
         const Ogre::RenderSystemCapabilities *capabilities =
             renderer->getCapabilities();
         if (capabilities == nullptr) {
@@ -4400,8 +5742,17 @@ public:
                                "Ogre-Next production show transition rollback");
           }
         }
-        const ValidationResult exact_presentation =
-            ValidateRenderFramePresentation(request, acknowledged_surface);
+        const ValidationResult exact_presentation = deferred_v2
+            ? ((acknowledged_surface.pixel_width == view.width &&
+                acknowledged_surface.pixel_height == view.height &&
+                !acknowledged_surface.suspended)
+                   ? ValidationResult::Success()
+                   : ValidationResult::Failure(
+                         ValidationCode::REVISION_MISMATCH,
+                         "presentation_surface_revision",
+                         "deferred V2 preparation view does not match the acknowledged native surface"))
+            : ValidateRenderFramePresentation(request,
+                                              acknowledged_surface);
         const RenderOperationResult shown_extent =
             RefreshPresentationWindowExtent(
                 acknowledged_surface.pixel_width,
@@ -4456,10 +5807,16 @@ public:
         throw std::runtime_error(
             "production presentation graph failed final channel/extent validation");
       }
-      if (pssm_enabled &&
-          production_workspace->findShadowNode(
-              Ogre::IdString(kProductionPresentationShadowNodeName)) ==
-              nullptr) {
+      const bool exact_shadow_runtime =
+          !pssm_enabled ||
+          (copy_only_hdr
+               ? (hdr_workspace != nullptr &&
+                  hdr_workspace->findShadowNode(
+                      Ogre::IdString(kOgreNextHdrShadowNode)) != nullptr)
+               : production_workspace->findShadowNode(
+                     Ogre::IdString(kProductionPresentationShadowNodeName)) !=
+                     nullptr);
+      if (!exact_shadow_runtime) {
         throw std::runtime_error(
             "production presentation graph did not instantiate persistent PSSM");
       }
@@ -4487,6 +5844,13 @@ public:
               "Ogre-Next bootstrap-to-scene presentation replacement");
         }
       }
+      if (deferred_v2) {
+        production_workspace->setEnabled(false);
+        if (production_workspace->getEnabled()) {
+          throw std::runtime_error(
+              "sun-visibility V2 preparation could not defer the window copy");
+        }
+      }
       return RenderOperationResult::Success();
     } catch (const std::bad_alloc &) {
       const bool clean = rollback_to_bootstrap();
@@ -4510,6 +5874,216 @@ public:
                    : NativeTeardownFailure(
                          "Ogre-Next production graph rollback");
     }
+  }
+
+  NativeSunVisibilityV2Result ContinueFromLitHdr(
+      std::uint64_t frame_id, std::uint64_t snapshot_id,
+      std::uint64_t view_id,
+      std::uintptr_t ogre_lit_hdr_texture) override {
+    const auto failure = [&](NativeSunVisibilityV2Code code,
+                             const char *detail) {
+      return V2PresentationResult(code, frame_id, snapshot_id, detail);
+    };
+    if (!initialized || !SunVisibilityV2Enabled()) {
+      return failure(NativeSunVisibilityV2Code::UNSUPPORTED,
+                     "v2-continuation-disabled");
+    }
+    if (!OnOwnerThread()) {
+      return failure(NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                     "v2-continuation-wrong-thread");
+    }
+    if (faulted) {
+      return failure(NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                     "v2-continuation-frontend-faulted");
+    }
+    if (!sun_visibility_v2_frame_awaiting_continuation ||
+        !sun_visibility_v2_hdr_commit_pending) {
+      return failure(NativeSunVisibilityV2Code::RESOURCE_STALE,
+                     "v2-continuation-not-pending");
+    }
+    if (frame_id != sun_visibility_v2_pending_frame_id ||
+        snapshot_id != sun_visibility_v2_pending_snapshot_id ||
+        view_id != sun_visibility_v2_pending_view_id) {
+      return failure(NativeSunVisibilityV2Code::RESOURCE_STALE,
+                     "v2-continuation-lineage-stale");
+    }
+    auto *const lit_hdr =
+        reinterpret_cast<Ogre::TextureGpu *>(ogre_lit_hdr_texture);
+    const bool exact_graph =
+        root != nullptr && hdr_workspace != nullptr &&
+        hdr_v2_continuation_workspace != nullptr &&
+        production_workspace != nullptr && production_source_target != nullptr &&
+        production_source_target == hdr_output_target &&
+        production_window_texture != nullptr && hdr_lit_target != nullptr &&
+        lit_hdr == hdr_lit_target && hdr_lit_target_verified &&
+        hdr_lit_target->isUav() &&
+        hdr_lit_target->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
+        hdr_lit_target->getWidth() == sun_visibility_v2_pending_width &&
+        hdr_lit_target->getHeight() == sun_visibility_v2_pending_height &&
+        !surface.suspended &&
+        surface.surface_revision ==
+            sun_visibility_v2_pending_surface_revision &&
+        surface.pixel_width == sun_visibility_v2_pending_width &&
+        surface.pixel_height == sun_visibility_v2_pending_height &&
+        production_window_texture->getWidth() ==
+            sun_visibility_v2_pending_width &&
+        production_window_texture->getHeight() ==
+            sun_visibility_v2_pending_height &&
+        hdr_workspace->getEnabled() &&
+        hdr_workspace->getExecutionMask() ==
+            kOgreNextHdrSplitExecutionMask &&
+        !hdr_v2_continuation_workspace->getEnabled() &&
+        hdr_v2_continuation_workspace->getExecutionMask() ==
+            kOgreNextHdrPostExecutionMask &&
+        !production_workspace->getEnabled();
+    if (!exact_graph) {
+      faulted = true;
+      return failure(NativeSunVisibilityV2Code::RESOURCE_STALE,
+                     "v2-continuation-graph-stale");
+    }
+
+    const ValidationResult prepared = hdr_temporal_state.PrepareGpuOnlyCommit(
+        sun_visibility_v2_pending_hdr_plan);
+    if (!prepared || !hdr_temporal_state.CanCommitPrepared()) {
+      hdr_temporal_state.AbortPrepared();
+      faulted = true;
+      return failure(NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                     "v2-continuation-history-prepare-failed");
+    }
+
+    const auto restore_workspaces = [&]() noexcept {
+      bool clean = true;
+      try {
+        if (production_workspace != nullptr &&
+            production_workspace->getEnabled()) {
+          production_workspace->setEnabled(false);
+        }
+        clean = production_workspace != nullptr &&
+                !production_workspace->getEnabled() && clean;
+      } catch (...) {
+        clean = false;
+      }
+      try {
+        if (hdr_v2_continuation_workspace != nullptr &&
+            hdr_v2_continuation_workspace->getEnabled()) {
+          hdr_v2_continuation_workspace->setEnabled(false);
+        }
+        clean = hdr_v2_continuation_workspace != nullptr &&
+                !hdr_v2_continuation_workspace->getEnabled() && clean;
+      } catch (...) {
+        clean = false;
+      }
+      try {
+        if (hdr_workspace != nullptr && !hdr_workspace->getEnabled()) {
+          hdr_workspace->setEnabled(true);
+        }
+        clean = hdr_workspace != nullptr && hdr_workspace->getEnabled() &&
+                hdr_workspace->getExecutionMask() ==
+                    kOgreNextHdrSplitExecutionMask &&
+                clean;
+      } catch (...) {
+        clean = false;
+      }
+      return clean;
+    };
+
+    bool rendered = false;
+    try {
+      hdr_workspace->setEnabled(false);
+      hdr_v2_continuation_workspace->setEnabled(true);
+      production_workspace->setEnabled(true);
+      if (hdr_workspace->getEnabled() ||
+          !hdr_v2_continuation_workspace->getEnabled() ||
+          !production_workspace->getEnabled()) {
+        throw std::runtime_error(
+            "deferred V2 presentation workspaces did not become exclusive");
+      }
+      rendered = root->renderOneFrame();
+    } catch (...) {
+      rendered = false;
+    }
+    const bool restored = restore_workspaces();
+    if (!rendered || !restored ||
+        !hdr_temporal_state.CanCommitPrepared()) {
+      hdr_temporal_state.AbortPrepared();
+      faulted = true;
+      return failure(NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                     rendered ? "v2-continuation-restore-failed"
+                              : "v2-continuation-render-failed");
+    }
+
+    hdr_temporal_state.CommitPrepared();
+    hdr_exact_current_to_old_copy_verified = false;
+    hdr_history_comparison = hdr_temporal_state.last_history_comparison();
+    hdr_native_history_validated = false;
+    OgreNextNativeLightingPassAudit lighting =
+        sun_visibility_v2_pending_lighting;
+    lighting.gpu_hdr_history_sequenced =
+        hdr_temporal_state.committed_frame_id() == frame_id;
+    lighting.single_step_hdr_history =
+        hdr_temporal_state.committed_frame_id() == frame_id;
+    if (!lighting.gpu_hdr_history_sequenced ||
+        !lighting.single_step_hdr_history ||
+        !lighting.native_scene_lighting_pass ||
+        !lighting.linear_rgba16_hdr_target ||
+        !lighting.separate_base_hdr_target ||
+        !lighting.separate_unoccluded_sun_full_hdr_target ||
+        !lighting.separate_sun_direct_hdr_target ||
+        !lighting.gpu_sun_direct_derivation ||
+        !lighting.transactional_directional_sun_toggle ||
+        lighting.raster_scene_evaluations != 3U ||
+        !lighting.hdr_auto_exposure || !lighting.hdr_bloom ||
+        !lighting.filmic_tone_map || !lighting.srgb_presentation ||
+        !lighting.production_gpu_only || !lighting.no_ogre14_lighting ||
+        lighting.production_content_readbacks != 0U ||
+        lighting.production_framebuffer_readbacks != 0U ||
+        lighting.ogre14_lighting_passes != 0U) {
+      faulted = true;
+      return failure(NativeSunVisibilityV2Code::BACKEND_FAILURE,
+                     "v2-continuation-audit-invalid");
+    }
+    ++lighting.completed_frames;
+    lighting_audit = lighting;
+
+    if (presentation_audit.presented_frames == 0U) {
+      presentation_audit.first_presented_frame_id = frame_id;
+    } else {
+      presentation_audit.monotonic_presented_frame_ids =
+          presentation_audit.monotonic_presented_frame_ids &&
+          frame_id > presentation_audit.last_presented_frame_id;
+    }
+    presentation_audit.last_presented_frame_id = frame_id;
+    presentation_audit.exact_two_external_channels = true;
+    presentation_audit.ui_free_source = true;
+    presentation_audit.gpu_quad_copy = true;
+    presentation_audit.cpu_window_copy = false;
+    presentation_audit.workspace_ready_before_show = true;
+    presentation_audit.bounded_swap_completed = true;
+    ++presentation_audit.source_scene_passes;
+    ++presentation_audit.presentation_quad_passes;
+    ++presentation_audit.render_one_frame_calls;
+    ++presentation_audit.window_final_target_updates;
+    ++presentation_audit.window_swap_completions;
+    ++presentation_audit.presented_frames;
+    ++presentation_audit.gpu_only_output_frames;
+    presentation_audit.last_view_id = view_id;
+    presentation_audit.last_surface_revision =
+        sun_visibility_v2_pending_surface_revision;
+    presentation_audit.last_width = sun_visibility_v2_pending_width;
+    presentation_audit.last_height = sun_visibility_v2_pending_height;
+
+    sun_visibility_v2_frame_awaiting_continuation = false;
+    sun_visibility_v2_hdr_commit_pending = false;
+    sun_visibility_v2_pending_frame_id = 0U;
+    sun_visibility_v2_pending_snapshot_id = 0U;
+    sun_visibility_v2_pending_view_id = 0U;
+    sun_visibility_v2_pending_surface_revision = 0U;
+    sun_visibility_v2_pending_width = 0U;
+    sun_visibility_v2_pending_height = 0U;
+    sun_visibility_v2_pending_lighting = {};
+    sun_visibility_v2_pending_hdr_plan = {};
+    return V2PresentationResult(NativeSunVisibilityV2Code::OK, frame_id,
+                                snapshot_id, "ok");
   }
 
   [[nodiscard]] bool DestroyPresentationResources() noexcept {
@@ -4636,6 +6210,7 @@ public:
   OgreNextDirectionalShadowMode directional_shadow_mode =
       OgreNextDirectionalShadowMode::DISABLED;
   OgreNextPssmShadowRuntimeAudit shadow_audit;
+  OgreNextNativeLightingPassAudit lighting_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
@@ -4653,9 +6228,16 @@ public:
   std::string resolved_shader_media_root;
   OgreNextHdrTemporalConfiguration hdr_configuration;
   OgreNextHdrTemporalState hdr_temporal_state;
+  HdrDirectionalSplitListener hdr_directional_split_listener;
   OgreNextHdrHistoryComparison hdr_history_comparison;
   Ogre::TextureGpu *hdr_output_target = nullptr;
   Ogre::CompositorWorkspace *hdr_workspace = nullptr;
+  Ogre::CompositorWorkspace *hdr_v2_continuation_workspace = nullptr;
+  Ogre::TextureGpu *hdr_base_hdr_target = nullptr;
+  Ogre::TextureGpu *hdr_sun_direct_hdr_target = nullptr;
+  Ogre::TextureGpu *hdr_visibility_target = nullptr;
+  Ogre::TextureGpu *hdr_lit_target = nullptr;
+  Ogre::TextureGpu *hdr_history_target = nullptr;
   std::uint32_t hdr_width = 0U;
   std::uint32_t hdr_height = 0U;
   std::uint64_t hdr_warmup_frames = 0U;
@@ -4666,6 +6248,8 @@ public:
   /// Test-artifact-only synchronous VB/IB evidence. Production construction
   /// hard-wires this false because its public configuration has no such field.
   bool retain_analytic_sky_geometry_content_evidence = false;
+  bool retain_native_lighting_content_evidence = false;
+  bool retain_sun_visibility_v2_content_evidence = false;
   bool presentation_resource_group_created = false;
   bool bootstrap_node_definition_created = false;
   bool bootstrap_workspace_definition_created = false;
@@ -4674,11 +6258,36 @@ public:
   bool production_workspace_definition_created = false;
   bool production_window_shown = false;
   bool hdr_resource_group_created = false;
+  bool hdr_resources_initialized = false;
   bool hdr_workspace_definition_created = false;
+  bool hdr_v2_continuation_workspace_definition_created = false;
+  bool hdr_split_node_definition_created = false;
+  bool hdr_shadow_node_definition_created = false;
+  bool hdr_linear_scene_target_verified = false;
+  bool hdr_base_hdr_target_verified = false;
+  bool hdr_sun_full_hdr_target_verified = false;
+  bool hdr_sun_direct_hdr_target_verified = false;
+  bool hdr_visibility_target_verified = false;
+  bool hdr_lit_target_verified = false;
+  bool hdr_gpu_sun_direct_split_verified = false;
+  bool hdr_auto_exposure_graph_verified = false;
+  bool hdr_bloom_graph_verified = false;
+  bool hdr_tone_map_graph_verified = false;
+  bool hdr_srgb_output_verified = false;
   bool hdr_manual_delta_bound = false;
   bool hdr_native_history_validated = false;
   bool hdr_exact_current_to_old_copy_verified = false;
   bool hdr_ui_free_workspace_verified = false;
+  bool sun_visibility_v2_frame_awaiting_continuation = false;
+  bool sun_visibility_v2_hdr_commit_pending = false;
+  std::uint64_t sun_visibility_v2_pending_frame_id = 0U;
+  std::uint64_t sun_visibility_v2_pending_snapshot_id = 0U;
+  std::uint64_t sun_visibility_v2_pending_view_id = 0U;
+  std::uint64_t sun_visibility_v2_pending_surface_revision = 0U;
+  std::uint32_t sun_visibility_v2_pending_width = 0U;
+  std::uint32_t sun_visibility_v2_pending_height = 0U;
+  OgreNextNativeLightingPassAudit sun_visibility_v2_pending_lighting;
+  OgreNextHdrTemporalFramePlan sun_visibility_v2_pending_hdr_plan;
   std::uint64_t texture_allocation_creates = 0U;
   std::uint64_t texture_allocation_destroys = 0U;
   std::uint64_t texture_retired_name_lookups = 0U;
@@ -4792,6 +6401,16 @@ OgreNextN1Frontend::QueryReflectionProbeNativeOwnershipEvidence() const
              ? impl_->reflection_probe_runtime->QueryNativeOwnershipEvidence()
              : OgreNextReflectionProbeNativeOwnershipEvidence{};
 }
+
+OgreNextHdrLightingSplitContentEvidence
+OgreNextN1Frontend::CaptureHdrLightingSplitContentEvidence() {
+  return impl_->CaptureHdrLightingSplitContentEvidence();
+}
+
+OgreNextSunVisibilityV2ContentEvidence
+OgreNextN1Frontend::CaptureSunVisibilityV2ContentEvidence() {
+  return impl_->CaptureSunVisibilityV2ContentEvidence();
+}
 #endif
 
 OgreNextPssmShadowRuntimeAudit
@@ -4802,6 +6421,11 @@ OgreNextN1Frontend::QueryDirectionalShadowAudit() const noexcept {
 OgreNextHdrCompositorAudit
 OgreNextN1Frontend::QueryHdrCompositorAudit() const noexcept {
   return impl_->HdrCompositorAudit();
+}
+
+OgreNextNativeLightingPassAudit
+OgreNextN1Frontend::QueryNativeLightingPassAudit() const noexcept {
+  return impl_->NativeLightingPassAudit();
 }
 
 OgreNextN1PresentationAudit
@@ -4832,20 +6456,15 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (!shadow_configuration) {
     return OgreNextN1OperationFromValidation(shadow_configuration);
   }
-  if (UsesMetalDirectionalHardShadow(impl_->native_feature_tier) &&
+  if ((UsesMetalDirectionalHardShadow(impl_->native_feature_tier) ||
+       UsesMetalSunVisibilityV2(impl_->native_feature_tier)) &&
       impl_->directional_shadow_mode !=
           OgreNextDirectionalShadowMode::DISABLED) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "native N4 and PSSM directional shadows are mutually exclusive; "
-        "select the validated fallback before frontend initialization");
-  }
-  if (impl_->hdr_enabled &&
-      impl_->directional_shadow_mode !=
-          OgreNextDirectionalShadowMode::DISABLED) {
-    return RenderOperationResult::Failure(
-        RenderOperationCode::UNSUPPORTED,
-        "the persistent HDR compositor does not yet bind the reviewed PSSM shadow node");
+        UsesMetalSunVisibilityV2(impl_->native_feature_tier)
+            ? "sun-visibility V2 requires unoccluded SunDirectHdr and rejects PSSM before frontend initialization"
+            : "native N4 and PSSM directional shadows are mutually exclusive; select the validated fallback before frontend initialization");
   }
   if (!TryResolveNativeVertexLayout(
           impl_->raster_feature_tier, impl_->native_feature_tier,
@@ -4857,11 +6476,12 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
   if (impl_->hdr_enabled &&
       (impl_->raster_feature_tier !=
            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
-       impl_->native_feature_tier !=
-           OgreNextNativeFeatureTier::RASTER_N1)) {
+       (impl_->native_feature_tier !=
+            OgreNextNativeFeatureTier::RASTER_N1 &&
+        !UsesMetalSunVisibilityV2(impl_->native_feature_tier)))) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "the persistent HDR compositor requires RT4/V1 raster without native N2/N3/N4 image interop");
+        "the persistent HDR compositor requires RT4/V1 raster or the exact four-image sun-visibility V2 interop tier");
   }
   const RenderOperationResult presentation_configuration =
       ValidatePresentationConfiguration(impl_->presentation_configuration,
@@ -4870,12 +6490,42 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
     return presentation_configuration;
   }
   if (impl_->presentation_configuration.enabled &&
-      (impl_->hdr_enabled ||
-       impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1)) {
+      ((impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1 &&
+        !UsesMetalSunVisibilityV2(impl_->native_feature_tier)) ||
+       (impl_->hdr_enabled &&
+        (impl_->presentation_configuration.mode !=
+             OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP ||
+         !impl_->presentation_configuration.gpu_only_output)))) {
     return RenderOperationResult::Failure(
         RenderOperationCode::UNSUPPORTED,
-        "native presentation requires the exact raster path without persistent HDR or native image interop");
+        "HDR native presentation requires the raster or sun-visibility V2 production run loop with GPU-only output");
   }
+  if (UsesMetalSunVisibilityV2(impl_->native_feature_tier) &&
+      (!impl_->hdr_enabled || !impl_->presentation_configuration.enabled ||
+       impl_->presentation_configuration.mode !=
+           OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP ||
+       !impl_->presentation_configuration.gpu_only_output)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "sun-visibility V2 requires persistent HDR and deferred GPU-only native presentation");
+  }
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  if (impl_->presentation_configuration.enabled &&
+      impl_->presentation_configuration.mode ==
+          OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP &&
+      (impl_->retain_analytic_sky_geometry_content_evidence ||
+       impl_->retain_native_lighting_content_evidence)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "production native presentation forbids all optional content readback evidence");
+  }
+  if (impl_->retain_sun_visibility_v2_content_evidence &&
+      !UsesMetalSunVisibilityV2(impl_->native_feature_tier)) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "sun-visibility V2 content evidence is available only to its isolated Metal V2 acceptance executable");
+  }
+#endif
 #if !defined(ROR_OGRE_NEXT_N1_METAL)
   if (impl_->native_feature_tier != OgreNextNativeFeatureTier::RASTER_N1) {
     return RenderOperationResult::Failure(
@@ -4927,6 +6577,7 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         RenderOperationCode::BACKEND_FAILURE,
         "another Ogre-Next N1 frontend owns Ogre's process-global Root");
   }
+  impl_->lighting_audit = {};
   impl_->owns_root_claim = true;
   const auto fail_after_cleanup = [&](RenderOperationResult failure) {
     if (!impl_->CleanupBackend()) {
@@ -5090,7 +6741,9 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           *texture_manager
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
           ,
-          impl_->pssm_failure_stage, impl_->pssm_failure_pending
+          impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+          impl_->retain_native_lighting_content_evidence,
+          impl_->LightingContentReadbackCounter()
 #endif
       );
       impl_->shadow_audit.d32_probe_attempted = d32_probe.attempted;
@@ -5119,6 +6772,13 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
           impl_->native_interop);
       if (!interop_result) {
         return fail_after_cleanup(interop_result);
+      }
+      if (UsesMetalSunVisibilityV2(impl_->native_feature_tier) &&
+          dynamic_cast<OgreNextSunVisibilityV2NativeInterop *>(
+              impl_->native_interop.get()) == nullptr) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "Metal interop bridge did not expose the required sun-visibility V2 transaction"));
       }
     }
 #endif
@@ -5306,20 +6966,18 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
         RenderOperationCode::UNSUPPORTED,
         "surface extent exceeds the initialized Ogre-Next device limit");
   }
-  if (impl_->hdr_enabled &&
-      (update.pixel_width != impl_->hdr_width ||
-       update.pixel_height != impl_->hdr_height)) {
+  const bool surface_shape_changed =
+      update.suspended != impl_->surface.suspended ||
+      update.pixel_width != impl_->surface.pixel_width ||
+      update.pixel_height != impl_->surface.pixel_height ||
+      update.content_scale != impl_->surface.content_scale;
+  if (impl_->sun_visibility_v2_frame_awaiting_continuation) {
     return RenderOperationResult::Failure(
-        RenderOperationCode::UNSUPPORTED,
-        "the first persistent HDR compositor keeps a fixed initialized extent");
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "sun-visibility V2 retains its exact HDR image set and surface revision until the post-external continuation");
   }
   if (presentation_enabled) {
     try {
-      const bool surface_shape_changed =
-          update.suspended != impl_->surface.suspended ||
-          update.pixel_width != impl_->surface.pixel_width ||
-          update.pixel_height != impl_->surface.pixel_height ||
-          update.content_scale != impl_->surface.content_scale;
       const bool retire_production_graph =
           production_presentation && surface_shape_changed;
       if (retire_production_graph &&
@@ -5378,6 +7036,30 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
           RenderOperationCode::BACKEND_FAILURE, error.what());
     }
   }
+  const bool rebuild_hdr =
+      impl_->hdr_enabled && !update.suspended &&
+      (update.pixel_width != impl_->hdr_width ||
+       update.pixel_height != impl_->hdr_height);
+  if (rebuild_hdr) {
+    // Keep the parsed HDR resources and immutable node/workspace definitions
+    // live across a drawable-size change. Ogre's script managers are
+    // process-global and do not support reparsing the same named definitions
+    // into one Root. Only runtime textures/workspace are rebuilt.
+    if (!impl_->DestroyHdrCompositor(false)) {
+      impl_->faulted = true;
+      return NativeTeardownFailure(
+          "Ogre-Next HDR surface-transition teardown");
+    }
+    const RenderOperationResult rebuilt = impl_->CreateHdrCompositor(
+        update.pixel_width, update.pixel_height);
+    if (!rebuilt) {
+      const bool clean = impl_->DestroyHdrCompositor();
+      impl_->faulted = true;
+      return clean ? rebuilt
+                   : NativeTeardownFailure(
+                         "Ogre-Next HDR surface-transition rollback");
+    }
+  }
   if (production_presentation) {
     if (update.suspended) {
       ++impl_->presentation_audit.suspended_surface_updates;
@@ -5399,6 +7081,11 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
   }
   if (impl_->faulted) {
     return FaultedFrontend();
+  }
+  if (impl_->sun_visibility_v2_frame_awaiting_continuation) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "sun-visibility V2 cannot mutate its asset catalog before the post-external continuation");
   }
   struct PendingMeshAllocation final {
     Impl *owner = nullptr;
@@ -5776,6 +7463,11 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
   if (impl_->faulted) {
     return FaultedFrontend();
   }
+  if (impl_->sun_visibility_v2_frame_awaiting_continuation) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "sun-visibility V2 cannot reset scene generation before the post-external continuation");
+  }
   if (impl_->scene_generation ==
           (std::numeric_limits<std::uint64_t>::max)() ||
       next_generation != impl_->scene_generation + 1U) {
@@ -5817,15 +7509,19 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
       return uploaded;
     }
     impl_->hdr_history_comparison = OgreNextHdrHistoryComparison{};
-    impl_->hdr_history_comparison.mode =
-        OgreNextHdrHistoryValidationMode::
-            NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP;
-    impl_->hdr_history_comparison.native_inverse_luminance_r16 =
-        observed_history;
-    impl_->hdr_history_comparison.reference_inverse_luminance_r16 =
-        initial_history;
-    impl_->hdr_history_comparison.accepted = true;
-    impl_->hdr_native_history_validated = true;
+    if (impl_->retain_native_lighting_content_evidence) {
+      impl_->hdr_history_comparison.mode =
+          OgreNextHdrHistoryValidationMode::
+              NATIVE_AUTHORITATIVE_CONDITIONING_PLUS_ONE_R16_ULP;
+      impl_->hdr_history_comparison.native_inverse_luminance_r16 =
+          observed_history;
+      impl_->hdr_history_comparison.reference_inverse_luminance_r16 =
+          initial_history;
+      impl_->hdr_history_comparison.accepted = true;
+      impl_->hdr_native_history_validated = true;
+    } else {
+      impl_->hdr_native_history_validated = false;
+    }
     impl_->hdr_exact_current_to_old_copy_verified = false;
   }
   impl_->scene_generation = next_generation;
@@ -5872,18 +7568,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
         RenderOperationCode::RESOURCE_STALE,
         "Ogre-Next N1 requires an asset snapshot before rendering");
   }
+  const bool deferred_sun_visibility_v2 =
+      UsesMetalSunVisibilityV2(impl_->native_feature_tier);
   const ValidationResult validation = ValidateOgreNextN1Frame(
       request, impl_->Capabilities(), *impl_->registry,
       impl_->raster_feature_tier, impl_->directional_shadow_mode,
       impl_->hdr_enabled,
       UsesMetalDirectionalHardShadow(impl_->native_feature_tier),
-      impl_->presentation_configuration.enabled);
+      impl_->presentation_configuration.enabled,
+      deferred_sun_visibility_v2);
   if (!validation) {
     return OgreNextN1OperationFromValidation(validation);
   }
   const bool production_presentation =
       impl_->ProductionPresentationEnabled();
-  if (request.present) {
+  if (request.present || deferred_sun_visibility_v2) {
     if (!production_presentation &&
         impl_->presentation_audit.presented_frames != 0U) {
       return RenderOperationResult::Failure(
@@ -5925,15 +7624,23 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (!planned) {
       return OgreNextN1OperationFromValidation(planned);
     }
-    HdrR16Float native_previous;
-    if (!impl_->ReadHdrHistory(native_previous) ||
-        native_previous.bits !=
-            hdr_plan.previous_inverse_luminance_r16.bits ||
-        native_previous.decoded !=
-            hdr_plan.previous_inverse_luminance_r16.decoded) {
-      impl_->faulted = true;
-      return HdrBackendFailure(
-          "persistent R16 history diverged before frame submission");
+    if (impl_->retain_native_lighting_content_evidence) {
+      if (impl_->LightingContentReadbackCounter() >
+          (std::numeric_limits<std::uint64_t>::max)() - 4U) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "native HDR content-readback audit counter space is exhausted");
+      }
+      HdrR16Float native_previous;
+      if (!impl_->ReadHdrHistory(native_previous) ||
+          native_previous.bits !=
+              hdr_plan.previous_inverse_luminance_r16.bits ||
+          native_previous.decoded !=
+              hdr_plan.previous_inverse_luminance_r16.decoded) {
+        impl_->faulted = true;
+        return HdrBackendFailure(
+            "persistent R16 history diverged before frame submission");
+      }
     }
     const RenderOperationResult configured = impl_->ConfigureHdrParameters(
         hdr_plan.ogre_exposure, hdr_plan.minimum_auto_exposure,
@@ -5949,6 +7656,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
   const bool gpu_only_output =
       production_presentation &&
       impl_->presentation_configuration.gpu_only_output;
+  if (deferred_sun_visibility_v2 && !gpu_only_output) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "sun-visibility V2 forbids CPU output and requires the deferred GPU-only lease");
+  }
   if (!gpu_only_output &&
       !TryComputeReadbackLayout(validated_view.width, validated_view.height,
                                 request.color_format, readback_row_pitch,
@@ -5957,12 +7669,82 @@ RenderOperationResult OgreNextN1Frontend::Render(
         RenderOperationCode::UNSUPPORTED,
         "N1 readback extent cannot be represented by the host allocation model");
   }
+  const std::uint64_t lighting_verification_budget =
+      1U + static_cast<std::uint64_t>(
+               request.scene_snapshot->lights().size()) +
+      static_cast<std::uint64_t>(
+          request.scene_snapshot->mesh_instances().size());
+  if (impl_->lighting_audit.completed_frames ==
+          (std::numeric_limits<std::uint64_t>::max)() ||
+      impl_->lighting_audit.native_state_verifications >
+          (std::numeric_limits<std::uint64_t>::max)() -
+              lighting_verification_budget ||
+      (!gpu_only_output && production_presentation &&
+       impl_->lighting_audit.production_framebuffer_readbacks ==
+           (std::numeric_limits<std::uint64_t>::max)()) ||
+      (!gpu_only_output && !production_presentation &&
+       impl_->lighting_audit.test_artifact_framebuffer_readbacks ==
+           (std::numeric_limits<std::uint64_t>::max)())) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "native lighting audit counter space is exhausted");
+  }
+  OgreNextNativeLightingPassAudit lighting_candidate =
+      impl_->lighting_audit;
+  lighting_candidate.last_frame_id = request.frame_id;
+  lighting_candidate.last_snapshot_id =
+      request.scene_snapshot->snapshot_id();
+  lighting_candidate.last_material_descriptor_version =
+      kMaterialDescriptorVersion;
+  lighting_candidate.last_directional_lights = 0U;
+  lighting_candidate.last_pbs_items = 0U;
+  lighting_candidate.last_normal_mapped_items = 0U;
+  lighting_candidate.last_emissive_items = 0U;
+  lighting_candidate.last_shadow_casters = 0U;
+  lighting_candidate.last_shadow_receivers = 0U;
+  lighting_candidate.shadow_mode = impl_->directional_shadow_mode;
+  lighting_candidate.native_scene_lighting_pass = false;
+  lighting_candidate.linear_rgba16_hdr_target =
+      impl_->hdr_enabled && impl_->hdr_linear_scene_target_verified;
+  lighting_candidate.separate_base_hdr_target =
+      impl_->hdr_enabled && impl_->hdr_base_hdr_target_verified;
+  lighting_candidate.separate_unoccluded_sun_full_hdr_target =
+      impl_->hdr_enabled && impl_->hdr_sun_full_hdr_target_verified;
+  lighting_candidate.separate_sun_direct_hdr_target =
+      impl_->hdr_enabled && impl_->hdr_sun_direct_hdr_target_verified;
+  lighting_candidate.gpu_sun_direct_derivation =
+      impl_->hdr_enabled && impl_->hdr_gpu_sun_direct_split_verified;
+  lighting_candidate.transactional_directional_sun_toggle = false;
+  lighting_candidate.raster_lit_hdr_target =
+      impl_->hdr_enabled && impl_->hdr_linear_scene_target_verified;
+  lighting_candidate.single_step_hdr_history = false;
+  lighting_candidate.raster_scene_evaluations = impl_->hdr_enabled ? 3U : 1U;
+  lighting_candidate.calibrated_directional_lighting = false;
+  lighting_candidate.ambient_environment_lighting = false;
+  lighting_candidate.analytic_sky_contribution = false;
+  lighting_candidate.emissive_material_response = false;
+  lighting_candidate.pssm_shadow_response = false;
+  lighting_candidate.hdr_auto_exposure =
+      impl_->hdr_enabled && impl_->hdr_auto_exposure_graph_verified;
+  lighting_candidate.hdr_bloom =
+      impl_->hdr_enabled && impl_->hdr_bloom_graph_verified;
+  lighting_candidate.filmic_tone_map =
+      impl_->hdr_enabled && impl_->hdr_tone_map_graph_verified;
+  lighting_candidate.srgb_presentation =
+      impl_->hdr_enabled && impl_->hdr_srgb_output_verified;
+  lighting_candidate.production_gpu_only = gpu_only_output;
+  lighting_candidate.no_ogre14_lighting = true;
   const RenderOperationResult identity_validation =
       impl_->submission_state.Validate(request);
   if (!identity_validation) {
     return identity_validation;
   }
   if (impl_->native_interop) {
+    if (impl_->sun_visibility_v2_frame_awaiting_continuation) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::OUTSTANDING_LEASES,
+          "sun-visibility V2 cannot replace a frame before its post-external continuation");
+    }
     const RenderOperationResult can_publish =
         impl_->native_interop->CanPublishFrame();
     if (!can_publish) {
@@ -6063,6 +7845,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
   std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
   std::vector<OgreNextN3FrameImageBinding> interop_images;
+  auto *sun_visibility_v2_interop =
+      deferred_sun_visibility_v2
+          ? dynamic_cast<OgreNextSunVisibilityV2NativeInterop *>(
+                impl_->native_interop.get())
+          : nullptr;
+  bool sun_visibility_v2_commit_prepared = false;
+  if (deferred_sun_visibility_v2 && sun_visibility_v2_interop == nullptr) {
+    impl_->faulted = true;
+    return RenderOperationResult::Failure(
+        RenderOperationCode::BACKEND_FAILURE,
+        "sun-visibility V2 interop disappeared before frame preparation");
+  }
   const auto destroy_submitted_frame_meshes = [&]() noexcept {
     bool clean = true;
     for (Impl::NativeMesh &native : submitted_frame_meshes) {
@@ -6073,6 +7867,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
   };
   const auto cleanup_scene = [&](bool destroy_frame_geometry) noexcept {
     bool clean = true;
+    if (impl_->hdr_directional_split_listener.active()) {
+      clean = impl_->hdr_directional_split_listener.AbortFrame() && clean;
+    }
     Ogre::CompositorManager2 *compositors =
         impl_->root->getCompositorManager2();
     if (!persistent_hdr && !production_presentation &&
@@ -6499,6 +8296,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
     return true;
   };
   const auto abort_interop_commit = [&]() noexcept {
+    if (sun_visibility_v2_commit_prepared && sun_visibility_v2_interop) {
+      sun_visibility_v2_interop
+          ->AbortPreparedSunVisibilityV2ImageSet();
+      sun_visibility_v2_commit_prepared = false;
+    }
     if (interop_commit_prepared && impl_->native_interop) {
       impl_->native_interop->AbortPreparedFrame();
       interop_commit_prepared = false;
@@ -6602,7 +8404,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
           !has_headroom(audit.native_scene_node_absence_checks, 1U) ||
           !has_headroom(audit.native_datablock_absence_checks, 2U) ||
           (impl_->retain_analytic_sky_geometry_content_evidence &&
-           !has_headroom(audit.native_gpu_content_readbacks, 4U)) ||
+           (!has_headroom(audit.native_gpu_content_readbacks, 4U) ||
+            !has_headroom(impl_->LightingContentReadbackCounter(), 4U))) ||
           !has_headroom(audit.native_state_verifications, 1U)) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::UNSUPPORTED,
@@ -6633,16 +8436,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
           kOgreNextPssmFarMeters);
     }
-    impl_->scene_manager->setAmbientLight(
-        Ogre::ColourValue(snapshot.environment().ambient_radiance.x,
-                          snapshot.environment().ambient_radiance.y,
-                          snapshot.environment().ambient_radiance.z) *
+    const Ogre::ColourValue expected_ambient(
+        snapshot.environment().ambient_radiance.x *
             snapshot.environment().environment_intensity,
-        Ogre::ColourValue(snapshot.environment().ambient_radiance.x,
-                          snapshot.environment().ambient_radiance.y,
-                          snapshot.environment().ambient_radiance.z) *
+        snapshot.environment().ambient_radiance.y *
             snapshot.environment().environment_intensity,
-        Ogre::Vector3::UNIT_Y);
+        snapshot.environment().ambient_radiance.z *
+            snapshot.environment().environment_intensity);
+    impl_->scene_manager->setAmbientLight(expected_ambient, expected_ambient,
+                                          Ogre::Vector3::UNIT_Y);
+    if (!NearlyEqual(
+            impl_->scene_manager->getAmbientLightUpperHemisphere(),
+            expected_ambient) ||
+        !NearlyEqual(
+            impl_->scene_manager->getAmbientLightLowerHemisphere(),
+            expected_ambient) ||
+        !NearlyEqual(
+            impl_->scene_manager->getAmbientLightHemisphereDir(),
+            Ogre::Vector3::UNIT_Y)) {
+      throw std::logic_error(
+          "validated RT4 ambient environment failed native readback");
+    }
+    ++lighting_candidate.native_state_verifications;
+    lighting_candidate.ambient_environment_lighting =
+        expected_ambient.r > 0.0F || expected_ambient.g > 0.0F ||
+        expected_ambient.b > 0.0F;
     const std::uint32_t authored_view_visibility =
         view.visibility_mask & native_authored_visibility_mask;
     if (shadow_plan.enabled &&
@@ -6653,6 +8471,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     impl_->scene_manager->setVisibilityMask(authored_view_visibility);
 
     lights.reserve(snapshot.lights().size());
+    bool positive_calibrated_directional_light = false;
     for (const LightDescriptor &descriptor : snapshot.lights()) {
       Ogre::Light *light = impl_->scene_manager->createLight();
       lights.emplace_back(light, nullptr);
@@ -6660,6 +8479,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
       lights.back().second = node;
       light->setType(Ogre::Light::LT_DIRECTIONAL);
+      if (persistent_hdr) {
+        light->setVisibilityFlags(kOgreNextRt4AuthoredVisibilityMask);
+      }
       light->setDiffuseColour(descriptor.color_linear.x,
                               descriptor.color_linear.y,
                               descriptor.color_linear.z);
@@ -6689,6 +8511,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
           !NearlyEqual(light->getSpecularColour(), expected_color) ||
           !NearlyEqual(light->getPowerScale(), expected_power) ||
           !NearlyEqual(light->getDirection(), expected_direction) ||
+          (persistent_hdr &&
+           light->getVisibilityFlags() !=
+               kOgreNextRt4AuthoredVisibilityMask) ||
           light->getCastShadows() != shadow_plan.enabled ||
           (shadow_plan.enabled &&
            (!NearlyEqual(light->getShadowFarDistance(),
@@ -6697,7 +8522,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
         throw std::logic_error(
             "validated RT4/V1 directional/PSSM light failed native readback");
       }
+      ++lighting_candidate.last_directional_lights;
+      ++lighting_candidate.native_state_verifications;
+      positive_calibrated_directional_light =
+          positive_calibrated_directional_light || expected_power > 0.0F;
     }
+    lighting_candidate.calibrated_directional_lighting =
+        positive_calibrated_directional_light;
 
     items.reserve(snapshot.mesh_instances().size());
     reflection_items.reserve(snapshot.mesh_instances().size());
@@ -6715,8 +8546,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       const auto material = impl_->materials.find(instance.material.id);
       const MeshResourceDescriptor *base_mesh =
           impl_->registry->ResolveMesh(instance.mesh);
+      const MaterialDescriptor *portable_material =
+          impl_->registry->ResolveMaterial(instance.material);
       if (mesh == impl_->meshes.end() || material == impl_->materials.end() ||
-          base_mesh == nullptr) {
+          base_mesh == nullptr || portable_material == nullptr) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::RESOURCE_STALE,
             "N1 native asset allocation is missing for a validated scene"));
@@ -6869,6 +8702,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
         throw std::runtime_error(
             "Ogre-Next PSSM receiver or material bias failed native readback");
       }
+      if (pbs_material) {
+        VerifyPbsMapping(*instance_pbs_datablock, *portable_material);
+      }
       item->setDatablock(instance_datablock);
       item->setVisibilityFlags(authored_instance_visibility);
       const bool casts_shadow =
@@ -6877,9 +8713,30 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                           *base_mesh);
       item->setCastShadows(casts_shadow);
       if (item->getCastShadows() != casts_shadow ||
-          item->getVisibilityFlags() != authored_instance_visibility) {
+          item->getVisibilityFlags() != authored_instance_visibility ||
+          item->getNumSubItems() != 1U ||
+          item->getSubItem(0U)->getDatablock() != instance_datablock) {
         throw std::runtime_error(
-            "Ogre-Next PSSM caster or visibility mask failed native readback");
+            "Ogre-Next PBS datablock, caster, or visibility state failed native readback");
+      }
+      if (pbs_material) {
+        ++lighting_candidate.last_pbs_items;
+        if (portable_material->normal_texture.texture.valid()) {
+          ++lighting_candidate.last_normal_mapped_items;
+        }
+        const Float3 &emissive = portable_material->emissive_factor;
+        if (portable_material->emissive_strength > 0.0F &&
+            (emissive.x > 0.0F || emissive.y > 0.0F ||
+             emissive.z > 0.0F)) {
+          ++lighting_candidate.last_emissive_items;
+        }
+        if (shadow_plan.enabled && casts_shadow) {
+          ++lighting_candidate.last_shadow_casters;
+        }
+        if (shadow_plan.enabled && receives_shadow) {
+          ++lighting_candidate.last_shadow_receivers;
+        }
+        ++lighting_candidate.native_state_verifications;
       }
       Ogre::SceneNode *node = impl_->scene_manager
                                   ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
@@ -7594,16 +9451,23 @@ RenderOperationResult OgreNextN1Frontend::Render(
       const RenderOperationResult production_graph =
           impl_->EnsureProductionPresentationGraph(
               request, view, authored_view_visibility,
-              shadow_plan.enabled);
+              shadow_plan.enabled, deferred_sun_visibility_v2);
       if (!production_graph) {
         return fail_after_cleanup(production_graph);
       }
       target = impl_->production_source_target;
-      workspace = impl_->production_workspace;
+      workspace = persistent_hdr ? impl_->hdr_workspace
+                                 : impl_->production_workspace;
       if (shadow_plan.enabled) {
-        shadow_node_text = kProductionPresentationShadowNodeName;
+        shadow_node_text = persistent_hdr
+                               ? kOgreNextHdrShadowNode
+                               : kProductionPresentationShadowNodeName;
       }
-    } else if (!persistent_hdr) {
+    } else if (persistent_hdr) {
+      if (shadow_plan.enabled) {
+        shadow_node_text = kOgreNextHdrShadowNode;
+      }
+    } else {
       target_text = "RoRN1Target_" + std::to_string(request.frame_id);
     std::uint32_t target_flags = Ogre::TextureFlags::RenderToTexture;
     if (UsesMetalImageInterop(impl_->native_feature_tier)) {
@@ -7836,6 +9700,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     const std::size_t render_iterations =
         request.present || persistent_hdr ? 1U : 3U;
+    if (persistent_hdr) {
+      impl_->hdr_directional_split_listener.BeginFrame(lights);
+    }
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
       if (persistent_hdr) {
         hdr_native_frame_executed = true;
@@ -7846,10 +9713,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
             "Ogre-Next ended the N1 frame loop before readback"));
       }
     }
+    if (persistent_hdr &&
+        !impl_->hdr_directional_split_listener.EndFrame()) {
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "Ogre-Next HDR directional split did not execute and restore exactly once"));
+    }
+    lighting_candidate.transactional_directional_sun_toggle = persistent_hdr;
     NativePssmReadback observed_shadow_state;
     if (shadow_plan.enabled) {
       observed_shadow_state =
           ReadAndVerifyNativePssmState(*workspace, shadow_node_text);
+      lighting_candidate.pssm_shadow_response =
+          lighting_candidate.calibrated_directional_lighting &&
+          lighting_candidate.last_shadow_casters > 0U &&
+          lighting_candidate.last_shadow_receivers > 0U;
     }
 
     FrameAttachment attachment;
@@ -7869,6 +9747,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       attachment.gpu_resource = production_output_resource;
     } else {
       Ogre::Image2 image;
+      std::uint64_t &framebuffer_readbacks =
+          production_presentation
+              ? impl_->lighting_audit.production_framebuffer_readbacks
+              : impl_->lighting_audit.test_artifact_framebuffer_readbacks;
+      ++framebuffer_readbacks;
       image.convertFromTexture(target, 0U, 0U);
       const Ogre::TextureBox pixels = image.getData(0U);
       attachment.row_pitch_bytes = readback_row_pitch;
@@ -7901,6 +9784,41 @@ RenderOperationResult OgreNextN1Frontend::Render(
       target_text.clear();
     }
 
+    OgreNextSunVisibilityV2FrameImageBinding sun_visibility_v2_binding;
+    if (deferred_sun_visibility_v2) {
+      if (!persistent_hdr || impl_->hdr_base_hdr_target == nullptr ||
+          impl_->hdr_sun_direct_hdr_target == nullptr ||
+          impl_->hdr_visibility_target == nullptr ||
+          impl_->hdr_lit_target == nullptr ||
+          !impl_->hdr_base_hdr_target_verified ||
+          !impl_->hdr_sun_direct_hdr_target_verified ||
+          !impl_->hdr_visibility_target_verified ||
+          !impl_->hdr_lit_target_verified ||
+          impl_->hdr_v2_continuation_workspace == nullptr ||
+          impl_->hdr_v2_continuation_workspace->getEnabled()) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "sun-visibility V2 four-image graph changed before publication"));
+      }
+      sun_visibility_v2_binding.frame_id = request.frame_id;
+      sun_visibility_v2_binding.snapshot_id = snapshot.snapshot_id();
+      sun_visibility_v2_binding.view_id = view.view_id;
+      sun_visibility_v2_binding.scene_snapshot = request.scene_snapshot;
+      sun_visibility_v2_binding.view = view;
+      sun_visibility_v2_binding.width = view.width;
+      sun_visibility_v2_binding.height = view.height;
+      sun_visibility_v2_binding.ogre_base_hdr_texture =
+          reinterpret_cast<std::uintptr_t>(impl_->hdr_base_hdr_target);
+      sun_visibility_v2_binding.ogre_sun_direct_hdr_texture =
+          reinterpret_cast<std::uintptr_t>(
+              impl_->hdr_sun_direct_hdr_target);
+      sun_visibility_v2_binding.ogre_visibility_texture =
+          reinterpret_cast<std::uintptr_t>(impl_->hdr_visibility_target);
+      sun_visibility_v2_binding.ogre_lit_hdr_texture =
+          reinterpret_cast<std::uintptr_t>(impl_->hdr_lit_target);
+      sun_visibility_v2_binding.presentation_continuation = impl_.get();
+    }
+
     RenderFrameOutput candidate;
     candidate.frame_id = request.frame_id;
     candidate.snapshot_id = snapshot.snapshot_id();
@@ -7922,17 +9840,24 @@ RenderOperationResult OgreNextN1Frontend::Render(
               ": " + output_validation.detail));
     }
     if (persistent_hdr) {
-      const RenderOperationResult hdr_preparation =
-          impl_->VerifyAndPrepareHdrFrame(hdr_plan);
-      if (!hdr_preparation) {
-        return fail_after_cleanup(hdr_preparation);
+      if (!deferred_sun_visibility_v2) {
+        const RenderOperationResult hdr_preparation =
+            impl_->retain_native_lighting_content_evidence
+                ? impl_->VerifyAndPrepareHdrFrame(hdr_plan)
+                : OgreNextN1OperationFromValidation(
+                      impl_->hdr_temporal_state.PrepareGpuOnlyCommit(hdr_plan));
+        if (!hdr_preparation) {
+          return fail_after_cleanup(hdr_preparation);
+        }
+        hdr_commit_prepared = true;
       }
-      hdr_commit_prepared = true;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-      const RenderOperationResult injected = impl_->MaybeInjectHdrFailure(
-          OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE);
-      if (!injected) {
-        return fail_after_cleanup(injected);
+      if (!deferred_sun_visibility_v2) {
+        const RenderOperationResult injected = impl_->MaybeInjectHdrFailure(
+            OgreNextN1HdrFailureStage::AFTER_FRAME_COMMIT_PREPARE);
+        if (!injected) {
+          return fail_after_cleanup(injected);
+        }
       }
 #endif
     }
@@ -7951,6 +9876,27 @@ RenderOperationResult OgreNextN1Frontend::Render(
         return fail_after_cleanup(publication_preparation);
       }
       interop_commit_prepared = true;
+      if (deferred_sun_visibility_v2) {
+        const NativeSunVisibilityV2Result image_preparation =
+            sun_visibility_v2_interop
+                ->PreparePublishSunVisibilityV2ImageSet(
+                    sun_visibility_v2_binding);
+        if (image_preparation.code != NativeSunVisibilityV2Code::OK ||
+            image_preparation.stage !=
+                NativeSunVisibilityV2Stage::IMAGE_EXPORT ||
+            image_preparation.frame_id != request.frame_id ||
+            image_preparation.snapshot_id != snapshot.snapshot_id() ||
+            !ValidateNativeSunVisibilityV2Result(image_preparation)) {
+          return fail_after_cleanup(RenderOperationResult::Failure(
+              image_preparation.code ==
+                      NativeSunVisibilityV2Code::INVALID_ARGUMENT
+                  ? RenderOperationCode::INVALID_ARGUMENT
+                  : RenderOperationCode::BACKEND_FAILURE,
+              "sun-visibility V2 image-set preparation failed: " +
+                  image_preparation.detail));
+        }
+        sun_visibility_v2_commit_prepared = true;
+      }
     }
     // Keep only the N3/N4 target and its frame geometry alive across ordinary
     // scene cleanup. Every fallible publication stage is now prepared, so a
@@ -8011,7 +9957,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->faulted = true;
       return fail_after_cleanup(FrameCleanupFailure());
     }
-    if (persistent_hdr &&
+    if (persistent_hdr && !deferred_sun_visibility_v2 &&
         (!hdr_commit_prepared ||
          !impl_->hdr_temporal_state.CanCommitPrepared())) {
       impl_->faulted = true;
@@ -8039,6 +9985,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
           RenderOperationCode::BACKEND_FAILURE,
           "N1 prepared native interop frame changed before publication"));
     }
+    if (deferred_sun_visibility_v2 &&
+        (!sun_visibility_v2_commit_prepared ||
+         !sun_visibility_v2_interop
+              ->CanCommitPreparedSunVisibilityV2ImageSet(
+                  request.frame_id, snapshot.snapshot_id()))) {
+      impl_->faulted = true;
+      return fail_after_cleanup(RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "N1 prepared sun-visibility V2 image set changed before atomic publication"));
+    }
     if (impl_->reflection_probe_runtime) {
       const RenderOperationResult reflection_finalization =
           impl_->reflection_probe_runtime->FinalizeFrame(request.frame_id);
@@ -8050,14 +10006,20 @@ RenderOperationResult OgreNextN1Frontend::Render(
     if (impl_->native_interop) {
       impl_->native_interop->CommitPreparedFrame();
       interop_commit_prepared = false;
+      if (deferred_sun_visibility_v2) {
+        sun_visibility_v2_interop
+            ->CommitPreparedSunVisibilityV2ImageSet();
+        sun_visibility_v2_commit_prepared = false;
+      }
       impl_->retained_output_target = retained_target;
       retained_target = nullptr;
       impl_->frame_meshes.swap(submitted_frame_meshes);
     }
-    if (persistent_hdr) {
+    if (persistent_hdr && !deferred_sun_visibility_v2) {
       impl_->hdr_temporal_state.CommitPrepared();
       hdr_commit_prepared = false;
-      impl_->hdr_exact_current_to_old_copy_verified = true;
+      impl_->hdr_exact_current_to_old_copy_verified =
+          impl_->retain_native_lighting_content_evidence;
       impl_->hdr_history_comparison =
           impl_->hdr_temporal_state.last_history_comparison();
       impl_->hdr_native_history_validated =
@@ -8125,6 +10087,60 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->analytic_sky_audit.casts_shadows = false;
       impl_->analytic_sky_audit.portable_scene_identity_absent = true;
     }
+    lighting_candidate.analytic_sky_contribution =
+        analytic_sky_frame_completed;
+    lighting_candidate.emissive_material_response =
+        lighting_candidate.last_emissive_items > 0U;
+    lighting_candidate.native_scene_lighting_pass =
+        lighting_candidate.last_pbs_items > 0U &&
+        (lighting_candidate.calibrated_directional_lighting ||
+         lighting_candidate.ambient_environment_lighting ||
+         lighting_candidate.analytic_sky_contribution ||
+         lighting_candidate.emissive_material_response);
+    lighting_candidate.production_content_readbacks =
+        impl_->lighting_audit.production_content_readbacks;
+    lighting_candidate.production_framebuffer_readbacks =
+        impl_->lighting_audit.production_framebuffer_readbacks;
+    lighting_candidate.test_artifact_content_readbacks =
+        impl_->lighting_audit.test_artifact_content_readbacks;
+    lighting_candidate.test_artifact_framebuffer_readbacks =
+        impl_->lighting_audit.test_artifact_framebuffer_readbacks;
+    lighting_candidate.gpu_hdr_history_sequenced =
+        persistent_hdr && !impl_->retain_native_lighting_content_evidence &&
+        impl_->hdr_temporal_state.committed_frame_id() == request.frame_id;
+    lighting_candidate.single_step_hdr_history =
+        persistent_hdr &&
+        impl_->hdr_temporal_state.committed_frame_id() == request.frame_id;
+    if (production_presentation &&
+        (lighting_candidate.production_content_readbacks != 0U ||
+         lighting_candidate.production_framebuffer_readbacks != 0U ||
+         !lighting_candidate.production_gpu_only)) {
+      impl_->faulted = true;
+      return FrameCleanupFailure();
+    }
+    if (deferred_sun_visibility_v2) {
+      if (impl_->sun_visibility_v2_frame_awaiting_continuation ||
+          impl_->sun_visibility_v2_hdr_commit_pending) {
+        impl_->faulted = true;
+        return FrameCleanupFailure();
+      }
+      lighting_candidate.gpu_hdr_history_sequenced = false;
+      lighting_candidate.single_step_hdr_history = false;
+      impl_->sun_visibility_v2_pending_lighting = lighting_candidate;
+      impl_->sun_visibility_v2_pending_hdr_plan = hdr_plan;
+      impl_->sun_visibility_v2_pending_frame_id = request.frame_id;
+      impl_->sun_visibility_v2_pending_snapshot_id = snapshot.snapshot_id();
+      impl_->sun_visibility_v2_pending_view_id = view.view_id;
+      impl_->sun_visibility_v2_pending_surface_revision =
+          impl_->surface.surface_revision;
+      impl_->sun_visibility_v2_pending_width = view.width;
+      impl_->sun_visibility_v2_pending_height = view.height;
+      impl_->sun_visibility_v2_hdr_commit_pending = true;
+      impl_->sun_visibility_v2_frame_awaiting_continuation = true;
+    } else {
+      ++lighting_candidate.completed_frames;
+      impl_->lighting_audit = lighting_candidate;
+    }
     if (request.present) {
       if (impl_->presentation_audit.presented_frames == 0U) {
         impl_->presentation_audit.first_presented_frame_id = request.frame_id;
@@ -8186,6 +10202,11 @@ OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
   }
   if (impl_->faulted) {
     return FaultedFrontend();
+  }
+  if (impl_->sun_visibility_v2_frame_awaiting_continuation) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "sun-visibility V2 cannot retire another frame before the post-external continuation");
   }
   if (!impl_->registry) {
     return RenderOperationResult::Failure(
@@ -8287,6 +10308,8 @@ OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
 bool OgreNextN1Frontend::IsFrameComplete(
     std::uint64_t frame_id) const noexcept {
   return impl_->OnOwnerThread() && !impl_->faulted &&
+         !(impl_->sun_visibility_v2_frame_awaiting_continuation &&
+           impl_->sun_visibility_v2_pending_frame_id == frame_id) &&
          impl_->submission_state.IsFrameComplete(frame_id);
 }
 
@@ -8300,6 +10323,12 @@ RenderOperationResult OgreNextN1Frontend::WaitForFrame(
   }
   if (impl_->faulted) {
     return FaultedFrontend();
+  }
+  if (impl_->sun_visibility_v2_frame_awaiting_continuation &&
+      impl_->sun_visibility_v2_pending_frame_id == frame_id) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "sun-visibility V2 frame is not complete before its post-external continuation");
   }
   if (!impl_->submission_state.IsFrameComplete(frame_id)) {
     return RenderOperationResult::Failure(RenderOperationCode::INVALID_ARGUMENT,

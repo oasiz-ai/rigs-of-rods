@@ -25,6 +25,14 @@ constexpr std::uint32_t kNativeSunVisibilityV2ContractVersion = 2U;
 constexpr std::uint32_t kNativeSunVisibilityV2MaximumAdmittedInstances = 64U;
 constexpr std::uint32_t kNativeSunVisibilityV2MaximumSelectedInstances = 256U;
 
+/// Visibility is a bit-exact R16_FLOAT wire value. In particular, negative
+/// zero (0x8000) is not interchangeable with the canonical occluded value.
+[[nodiscard]] constexpr bool IsCanonicalNativeSunVisibilityV2R16(
+    std::uint16_t bits) noexcept {
+  return bits == kNativeDirectionalShadowOccludedR16 ||
+         bits == kNativeDirectionalShadowVisibleR16;
+}
+
 enum class NativeSunVisibilityV2Stage : std::uint8_t {
   NONE = 0,
   CAPABILITY_GATE,

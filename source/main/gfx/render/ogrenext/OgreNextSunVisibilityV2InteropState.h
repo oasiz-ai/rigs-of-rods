@@ -70,6 +70,7 @@ private:
   bool lease_live_ = false;
   bool external_frame_begun_ = false;
   bool external_frame_ended_ = false;
+  bool presentation_attempted_ = false;
   bool presentation_continued_ = false;
   bool aborted_ = false;
 };

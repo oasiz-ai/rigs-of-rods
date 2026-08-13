@@ -429,6 +429,40 @@ ValidationResult OgreNextHdrTemporalState::PrepareCommit(
   return ValidationResult::Success();
 }
 
+ValidationResult OgreNextHdrTemporalState::PrepareGpuOnlyCommit(
+    const OgreNextHdrTemporalFramePlan &plan) {
+  if (!initialized_) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "state",
+        "Ogre-Next HDR temporal state is not initialized");
+  }
+  if (commit_prepared_) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "state",
+        "an Ogre-Next HDR temporal commit is already prepared");
+  }
+  const ValidationResult plan_validation = ValidatePlanBasics(
+      plan, configuration_, committed_frame_id_,
+      committed_simulation_time_seconds_, previous_inverse_luminance_);
+  if (!plan_validation) {
+    return plan_validation;
+  }
+
+  // The compositor owns oldLumRt across frames. Keep the CPU seed only as a
+  // sequencing token; it is neither compared with nor presented as the live
+  // GPU history value on this zero-readback path.
+  pending_previous_inverse_luminance_ = previous_inverse_luminance_;
+  pending_history_comparison_ = OgreNextHdrHistoryComparison{};
+  pending_frame_id_ = plan.frame_id;
+  pending_simulation_time_seconds_ = plan.simulation_time_seconds;
+  pending_base_previous_inverse_luminance_ = previous_inverse_luminance_;
+  pending_base_committed_frame_id_ = committed_frame_id_;
+  pending_base_committed_simulation_time_seconds_ =
+      committed_simulation_time_seconds_;
+  commit_prepared_ = true;
+  return ValidationResult::Success();
+}
+
 bool OgreNextHdrTemporalState::CanCommitPrepared() const noexcept {
   return commit_prepared_ && initialized_ &&
          pending_base_committed_frame_id_ == committed_frame_id_ &&

@@ -541,9 +541,13 @@ RendererOgreNextProductionSessionResult RunRendererOgreNextProductionSession(
         configuration.shader_media_root;
     frontend_configuration.raster_feature_tier =
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    // Persistent HDR and the pinned Ogre PSSM node do not yet have a safe
+    // shared compositor contract. Do not advertise or execute that invalid
+    // combination in the production session; V2 directional visibility is a
+    // separate native tier and standalone PSSM keeps its own proof.
     frontend_configuration.directional_shadow_mode =
-        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
-    frontend_configuration.enable_hdr_compositor = false;
+        OgreNextDirectionalShadowMode::DISABLED;
+    frontend_configuration.enable_hdr_compositor = true;
     frontend_configuration.presentation.enabled = true;
     frontend_configuration.presentation.mode =
         OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;
@@ -621,6 +625,8 @@ RendererOgreNextProductionSessionResult RunRendererOgreNextProductionSession(
     result.live = RunRendererOgreNextLiveSession(endpoint, live_runtime);
     const OgreNextN1PresentationAudit audit =
         frontend.QueryPresentationAudit();
+    const OgreNextNativeLightingPassAudit lighting_audit =
+        frontend.QueryNativeLightingPassAudit();
     result.presented_frames = audit.presented_frames;
     result.gpu_only_output_frames = audit.gpu_only_output_frames;
     result.source_readbacks = audit.source_readbacks;
@@ -637,6 +643,29 @@ RendererOgreNextProductionSessionResult RunRendererOgreNextProductionSession(
         (audit.presented_frames != 0U &&
          (!audit.ui_free_source || !audit.gpu_quad_copy ||
           !audit.monotonic_presented_frame_ids))) {
+      status =
+          RendererOgreNextProductionSessionStatus::FAILED_FRONTEND_AUDIT;
+    }
+    if (lighting_audit.completed_frames != audit.presented_frames ||
+        lighting_audit.production_content_readbacks != 0U ||
+        lighting_audit.production_framebuffer_readbacks != 0U ||
+        lighting_audit.ogre14_lighting_passes != 0U ||
+        (lighting_audit.completed_frames != 0U &&
+         (!lighting_audit.linear_rgba16_hdr_target ||
+          !lighting_audit.separate_base_hdr_target ||
+          !lighting_audit.separate_unoccluded_sun_full_hdr_target ||
+          !lighting_audit.separate_sun_direct_hdr_target ||
+          !lighting_audit.gpu_sun_direct_derivation ||
+          !lighting_audit.transactional_directional_sun_toggle ||
+          !lighting_audit.raster_lit_hdr_target ||
+          !lighting_audit.single_step_hdr_history ||
+          lighting_audit.raster_scene_evaluations != 3U ||
+          !lighting_audit.hdr_auto_exposure ||
+          !lighting_audit.gpu_hdr_history_sequenced ||
+          !lighting_audit.hdr_bloom || !lighting_audit.filmic_tone_map ||
+          !lighting_audit.srgb_presentation ||
+          !lighting_audit.production_gpu_only ||
+          !lighting_audit.no_ogre14_lighting))) {
       status =
           RendererOgreNextProductionSessionStatus::FAILED_FRONTEND_AUDIT;
     }

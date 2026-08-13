@@ -314,6 +314,63 @@ public:
     return output;
   }
 
+  [[nodiscard]] RendererNativeLightingAudit
+  NativeLightingAudit() const noexcept {
+    RendererNativeLightingAudit output;
+    if (frontend == nullptr) {
+      return output;
+    }
+    const OgreNextNativeLightingPassAudit audit =
+        frontend->QueryNativeLightingPassAudit();
+    output.version = audit.version;
+    output.completed_frames = audit.completed_frames;
+    output.last_frame_id = audit.last_frame_id;
+    output.last_snapshot_id = audit.last_snapshot_id;
+    output.native_state_verifications = audit.native_state_verifications;
+    output.production_content_readbacks =
+        audit.production_content_readbacks;
+    output.production_framebuffer_readbacks =
+        audit.production_framebuffer_readbacks;
+    output.ogre14_lighting_passes = audit.ogre14_lighting_passes;
+    output.material_descriptor_version =
+        audit.last_material_descriptor_version;
+    output.directional_lights = audit.last_directional_lights;
+    output.pbs_items = audit.last_pbs_items;
+    output.normal_mapped_items = audit.last_normal_mapped_items;
+    output.emissive_items = audit.last_emissive_items;
+    output.shadow_casters = audit.last_shadow_casters;
+    output.shadow_receivers = audit.last_shadow_receivers;
+    output.native_scene_lighting_pass = audit.native_scene_lighting_pass;
+    output.linear_rgba16_hdr_target = audit.linear_rgba16_hdr_target;
+    output.separate_base_hdr_target = audit.separate_base_hdr_target;
+    output.separate_unoccluded_sun_full_hdr_target =
+        audit.separate_unoccluded_sun_full_hdr_target;
+    output.separate_sun_direct_hdr_target =
+        audit.separate_sun_direct_hdr_target;
+    output.gpu_sun_direct_derivation = audit.gpu_sun_direct_derivation;
+    output.transactional_directional_sun_toggle =
+        audit.transactional_directional_sun_toggle;
+    output.raster_lit_hdr_target = audit.raster_lit_hdr_target;
+    output.single_step_hdr_history = audit.single_step_hdr_history;
+    output.raster_scene_evaluations = audit.raster_scene_evaluations;
+    output.calibrated_directional_lighting =
+        audit.calibrated_directional_lighting;
+    output.ambient_environment_lighting =
+        audit.ambient_environment_lighting;
+    output.analytic_sky_contribution = audit.analytic_sky_contribution;
+    output.emissive_material_response = audit.emissive_material_response;
+    output.pssm_shadow_response = audit.pssm_shadow_response;
+    output.hdr_auto_exposure = audit.hdr_auto_exposure;
+    output.gpu_hdr_history_sequenced = audit.gpu_hdr_history_sequenced;
+    output.hdr_bloom = audit.hdr_bloom;
+    output.filmic_tone_map = audit.filmic_tone_map;
+    output.srgb_presentation = audit.srgb_presentation;
+    output.production_gpu_only = audit.production_gpu_only;
+    output.no_ogre14_lighting = audit.no_ogre14_lighting;
+    output.available = true;
+    return output;
+  }
+
   static constexpr std::size_t kMaximumAxes = 32U;
   static constexpr std::size_t kMaximumHats = 4U;
 
@@ -401,9 +458,14 @@ public:
     frontend_configuration.shader_media_root = candidate.shader_media_root;
     frontend_configuration.raster_feature_tier =
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    // The pinned Ogre compositor cannot yet combine its PSSM shadow node with
+    // the persistent three-evaluation HDR split without losing the reviewed
+    // cascade runtime state. Keep the production HDR path explicit and safe;
+    // standalone PSSM remains covered by its dedicated native smoke, while
+    // the four-image V2 tier supplies directional visibility separately.
     frontend_configuration.directional_shadow_mode =
-        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
-    frontend_configuration.enable_hdr_compositor = false;
+        OgreNextDirectionalShadowMode::DISABLED;
+    frontend_configuration.enable_hdr_compositor = true;
     frontend_configuration.presentation.enabled = true;
     frontend_configuration.presentation.mode =
         OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;
@@ -1608,6 +1670,11 @@ RendererOgreNextInProcessPresenter::ContinuousParticleAudit() const noexcept {
 RendererAnalyticSkyAudit
 RendererOgreNextInProcessPresenter::AnalyticSkyAudit() const noexcept {
   return impl_->AnalyticSkyAudit();
+}
+
+RendererNativeLightingAudit
+RendererOgreNextInProcessPresenter::NativeLightingAudit() const noexcept {
+  return impl_->NativeLightingAudit();
 }
 
 ValidationResult RendererOgreNextInProcessPresenter::PollEvents(

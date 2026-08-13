@@ -611,6 +611,7 @@ int main(int argc, char *argv[])
     std::string renderer_combined_scene_failure_signature;
     std::string renderer_combined_particle_audit_signature;
     std::string renderer_combined_analytic_sky_audit_signature;
+    std::string renderer_combined_native_lighting_audit_signature;
 #else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
@@ -3578,6 +3579,87 @@ int main(int argc, char *argv[])
                                     sky_audit.native_state_verifications));
                                 renderer_combined_analytic_sky_audit_signature =
                                     sky_audit_change_key;
+                            }
+                            const RendererNativeLightingAudit lighting_audit =
+                                renderer_combined_presenter
+                                    .NativeLightingAudit();
+                            const std::string lighting_audit_signature =
+                                fmt::format(
+                                    "schema_version={} available={} "
+                                    "frame={} snapshot={} descriptor_v={} "
+                                    "directional={} pbs={} normal={} "
+                                    "emissive={} casters={} receivers={} "
+                                    "native_scene_lighting={} rgba16_hdr={} "
+                                    "base_hdr={} sun_full_unoccluded={} "
+                                    "sun_direct_hdr={} gpu_sun_derivation={} "
+                                    "transactional_sun_toggle={} "
+                                    "raster_lit_hdr={} scene_evaluations={} "
+                                    "single_history_step={} "
+                                    "calibrated_directional={} ambient={} "
+                                    "analytic_sky={} emissive_response={} "
+                                    "pssm={} auto_exposure={} "
+                                    "gpu_history={} bloom={} filmic={} "
+                                    "srgb={} gpu_only={} "
+                                    "production_content_readbacks={} "
+                                    "production_framebuffer_readbacks={} "
+                                    "ogre14_lighting_passes={} "
+                                    "no_ogre14_lighting={} "
+                                    "native_state_verifications={}",
+                                    lighting_audit.version,
+                                    lighting_audit.available,
+                                    lighting_audit.last_frame_id,
+                                    lighting_audit.last_snapshot_id,
+                                    lighting_audit.material_descriptor_version,
+                                    lighting_audit.directional_lights,
+                                    lighting_audit.pbs_items,
+                                    lighting_audit.normal_mapped_items,
+                                    lighting_audit.emissive_items,
+                                    lighting_audit.shadow_casters,
+                                    lighting_audit.shadow_receivers,
+                                    lighting_audit.native_scene_lighting_pass,
+                                    lighting_audit.linear_rgba16_hdr_target,
+                                    lighting_audit.separate_base_hdr_target,
+                                    lighting_audit
+                                        .separate_unoccluded_sun_full_hdr_target,
+                                    lighting_audit
+                                        .separate_sun_direct_hdr_target,
+                                    lighting_audit.gpu_sun_direct_derivation,
+                                    lighting_audit
+                                        .transactional_directional_sun_toggle,
+                                    lighting_audit.raster_lit_hdr_target,
+                                    lighting_audit.raster_scene_evaluations,
+                                    lighting_audit.single_step_hdr_history,
+                                    lighting_audit
+                                        .calibrated_directional_lighting,
+                                    lighting_audit
+                                        .ambient_environment_lighting,
+                                    lighting_audit.analytic_sky_contribution,
+                                    lighting_audit.emissive_material_response,
+                                    lighting_audit.pssm_shadow_response,
+                                    lighting_audit.hdr_auto_exposure,
+                                    lighting_audit.gpu_hdr_history_sequenced,
+                                    lighting_audit.hdr_bloom,
+                                    lighting_audit.filmic_tone_map,
+                                    lighting_audit.srgb_presentation,
+                                    lighting_audit.production_gpu_only,
+                                    lighting_audit
+                                        .production_content_readbacks,
+                                    lighting_audit
+                                        .production_framebuffer_readbacks,
+                                    lighting_audit.ogre14_lighting_passes,
+                                    lighting_audit.no_ogre14_lighting,
+                                    lighting_audit
+                                        .native_state_verifications);
+                            if (lighting_audit_signature !=
+                                renderer_combined_native_lighting_audit_signature)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|NativeLighting] "
+                                    "{} completed_frames={}",
+                                    lighting_audit_signature,
+                                    lighting_audit.completed_frames));
+                                renderer_combined_native_lighting_audit_signature =
+                                    lighting_audit_signature;
                             }
                         }
                     }

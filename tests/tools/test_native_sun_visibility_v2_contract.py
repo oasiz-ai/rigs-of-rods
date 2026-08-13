@@ -34,6 +34,12 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
         cls.metal_backend = (
             OGRE_NEXT / "OgreNextMetalRayTracingBackend.mm"
         ).read_text()
+        cls.frontend_header = (
+            OGRE_NEXT / "OgreNextN1Frontend.h"
+        ).read_text()
+        cls.frontend = (
+            OGRE_NEXT / "OgreNextN1Frontend.cpp"
+        ).read_text()
         cls.lock = json.loads(
             (PROBE / "metal-sun-visibility-v2.lock.json").read_text()
         )
@@ -191,6 +197,36 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
             "there is intentionally no byte vector",
         ):
             self.assertIn(token, self.interop)
+
+    def test_test_only_evidence_retains_the_exact_four_image_equation(self) -> None:
+        for token in (
+            "kOgreNextSunVisibilityV2ContentEvidenceVersion = 2U",
+            "std::vector<std::uint16_t> base_hdr_rgba16",
+            "std::vector<std::uint16_t> sun_direct_hdr_rgba16",
+            "std::vector<std::uint16_t> visibility_r16",
+            "std::vector<std::uint16_t> lit_hdr_rgba16",
+        ):
+            self.assertIn(token, self.frontend_header)
+        capture_start = self.frontend.index(
+            "  CaptureSunVisibilityV2ContentEvidence() {"
+        )
+        capture_end = self.frontend.index(
+            "  [[nodiscard]] std::uint64_t &LightingContentReadbackCounter()",
+            capture_start,
+        )
+        capture = self.frontend[capture_start:capture_end]
+        for token in (
+            "download_rgba16(hdr_base_hdr_target, 1.0F, \"BaseHdr\"",
+            "download_rgba16(hdr_sun_direct_hdr_target, 0.0F, \"SunDirectHdr\"",
+            "visibility_image.convertFromTexture(hdr_visibility_target",
+            "download_rgba16(hdr_lit_target, 1.0F, \"LitHdr\"",
+        ):
+            self.assertIn(token, capture)
+        self.assertEqual(
+            capture.count("++lighting_audit.test_artifact_content_readbacks;"),
+            2,
+        )
+        self.assertNotIn("production_content_readbacks", capture)
 
 
 if __name__ == "__main__":

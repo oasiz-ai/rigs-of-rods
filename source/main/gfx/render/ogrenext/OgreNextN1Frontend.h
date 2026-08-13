@@ -34,6 +34,7 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
+constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 1U;
 
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
@@ -179,6 +180,43 @@ struct OgreNextN1DisplayDomainUploadAudit final {
   bool exact_source_rgba_to_native_texture = false;
 };
 
+constexpr std::uint32_t kOgreNextHdrLightingSplitContentEvidenceVersion = 1U;
+
+/// Test-artifact-only synchronous downloads of the four exact pre-tone-map
+/// linear targets needed to validate the GPU SunDirect derivation. Production
+/// cannot name this type or call the capture method.
+struct OgreNextHdrLightingSplitContentEvidence final {
+  std::uint32_t version =
+      kOgreNextHdrLightingSplitContentEvidenceVersion;
+  std::uint64_t frame_id = 0U;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::vector<std::uint16_t> base_hdr_rgba16;
+  std::vector<std::uint16_t> sun_full_hdr_rgba16;
+  std::vector<std::uint16_t> sun_direct_hdr_rgba16;
+  std::vector<std::uint16_t> raster_lit_hdr_rgba16;
+};
+
+constexpr std::uint32_t
+    kOgreNextSunVisibilityV2ContentEvidenceVersion = 2U;
+
+/// Test-artifact-only download of the exact four-image V2 transaction after
+/// its external completion and LitHdr continuation.
+/// This type and its capture method do not exist in production builds. The
+/// runtime path itself remains GPU-only and never reads any texture back while
+/// preparing, publishing, tracing, or presenting a frame.
+struct OgreNextSunVisibilityV2ContentEvidence final {
+  std::uint32_t version =
+      kOgreNextSunVisibilityV2ContentEvidenceVersion;
+  std::uint64_t frame_id = 0U;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::vector<std::uint16_t> base_hdr_rgba16;
+  std::vector<std::uint16_t> sun_direct_hdr_rgba16;
+  std::vector<std::uint16_t> visibility_r16;
+  std::vector<std::uint16_t> lit_hdr_rgba16;
+};
+
 /// PSSM-only transactional fault seam for the standalone native smoke.
 enum class OgreNextN1PssmFailureStage : std::uint8_t {
   NONE = 0,
@@ -259,6 +297,15 @@ struct OgreNextN1Configuration final {
   /// frame for the isolated native artifact only. Production does not compile
   /// a caller-visible switch and therefore remains zero-readback.
   bool retain_analytic_sky_geometry_content_evidence = false;
+  /// Enables synchronous D32 capability and HDR luminance/history downloads
+  /// for isolated native artifacts. Production does not compile a
+  /// caller-visible switch and proves the same graph through metadata and GPU
+  /// sequencing without content readbacks.
+  bool retain_native_lighting_content_evidence = false;
+  /// Enables an explicit post-continuation Visibility/LitHdr download in the
+  /// isolated Metal V2 acceptance executable. It does not enable any
+  /// production frame readback and is rejected for every other feature tier.
+  bool retain_sun_visibility_v2_content_evidence = false;
   /// Connects Ogre's real `HdrRenderUi` node and creates a full-screen magenta
   /// Overlay panel for the isolated negative-control proof. Production callers
   /// must leave this false.
@@ -309,6 +356,61 @@ struct OgreNextHdrCompositorAudit final {
   double history_binary32_rounding_bound = 0.0;
   double history_storage_ulp = 0.0;
   std::uint32_t history_r16_ulp_distance = 0U;
+};
+
+/// Transactionally published evidence for the native RT4 lighting and HDR
+/// presentation path. Descriptor counts are copied only after Ogre's live
+/// Light, SceneManager, PBS datablock, Compositor2, and shadow-node state has
+/// been read back and the corresponding public frame has committed.
+///
+/// `production_*_readbacks` deliberately excludes the isolated native-smoke
+/// artifact download path. A production GPU-only presentation must keep both
+/// counters at zero for its complete frontend lifetime.
+struct OgreNextNativeLightingPassAudit final {
+  std::uint32_t version = kOgreNextNativeLightingPassAuditVersion;
+  std::uint64_t completed_frames = 0U;
+  std::uint64_t last_frame_id = 0U;
+  std::uint64_t last_snapshot_id = 0U;
+  std::uint64_t native_state_verifications = 0U;
+  std::uint64_t production_content_readbacks = 0U;
+  std::uint64_t production_framebuffer_readbacks = 0U;
+  std::uint64_t test_artifact_content_readbacks = 0U;
+  std::uint64_t test_artifact_framebuffer_readbacks = 0U;
+  std::uint64_t ogre14_lighting_passes = 0U;
+  std::uint32_t last_material_descriptor_version = 0U;
+  std::uint32_t last_directional_lights = 0U;
+  std::uint32_t last_pbs_items = 0U;
+  std::uint32_t last_normal_mapped_items = 0U;
+  std::uint32_t last_emissive_items = 0U;
+  std::uint32_t last_shadow_casters = 0U;
+  std::uint32_t last_shadow_receivers = 0U;
+  OgreNextDirectionalShadowMode shadow_mode =
+      OgreNextDirectionalShadowMode::DISABLED;
+  bool native_scene_lighting_pass = false;
+  bool linear_rgba16_hdr_target = false;
+  /// Three scene evaluations share one immutable scene/camera/material state:
+  /// Base excludes only the tagged directional sun; SunFull includes that sun
+  /// without PSSM; RasterLit includes it with PSSM.
+  bool separate_base_hdr_target = false;
+  bool separate_unoccluded_sun_full_hdr_target = false;
+  bool separate_sun_direct_hdr_target = false;
+  bool gpu_sun_direct_derivation = false;
+  bool transactional_directional_sun_toggle = false;
+  bool raster_lit_hdr_target = false;
+  bool single_step_hdr_history = false;
+  std::uint32_t raster_scene_evaluations = 0U;
+  bool calibrated_directional_lighting = false;
+  bool ambient_environment_lighting = false;
+  bool analytic_sky_contribution = false;
+  bool emissive_material_response = false;
+  bool pssm_shadow_response = false;
+  bool hdr_auto_exposure = false;
+  bool gpu_hdr_history_sequenced = false;
+  bool hdr_bloom = false;
+  bool filmic_tone_map = false;
+  bool srgb_presentation = false;
+  bool production_gpu_only = false;
+  bool no_ogre14_lighting = true;
 };
 
 /// Native evidence for the renderer-neutral analytic sky. One completed frame
@@ -477,11 +579,17 @@ public:
   QueryReflectionProbeCaptureEvidence() const;
   [[nodiscard]] OgreNextReflectionProbeNativeOwnershipEvidence
   QueryReflectionProbeNativeOwnershipEvidence() const noexcept;
+  [[nodiscard]] OgreNextHdrLightingSplitContentEvidence
+  CaptureHdrLightingSplitContentEvidence();
+  [[nodiscard]] OgreNextSunVisibilityV2ContentEvidence
+  CaptureSunVisibilityV2ContentEvidence();
 #endif
   [[nodiscard]] OgreNextPssmShadowRuntimeAudit
   QueryDirectionalShadowAudit() const noexcept;
   [[nodiscard]] OgreNextHdrCompositorAudit
   QueryHdrCompositorAudit() const noexcept;
+  [[nodiscard]] OgreNextNativeLightingPassAudit
+  QueryNativeLightingPassAudit() const noexcept;
   [[nodiscard]] OgreNextN1PresentationAudit
   QueryPresentationAudit() const noexcept;
   [[nodiscard]] OgreNextAnalyticSkyRuntimeAudit
