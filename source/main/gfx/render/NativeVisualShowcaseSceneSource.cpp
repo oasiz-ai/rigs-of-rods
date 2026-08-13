@@ -8,6 +8,8 @@
 
 #include "NativeVisualShowcaseSceneSource.h"
 
+#include <array>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <new>
@@ -22,6 +24,12 @@ constexpr char kGateMeshDebugName[] = "rorng_a0_road_shadow_gate_mesh";
 constexpr std::uint64_t kMaximumShowcaseSimulationTick =
     60ULL * 60ULL * 24ULL * 366ULL * 100ULL;
 
+#include "NativeVisualShowcaseTurntableTable.inc"
+
+static_assert(kNativeVisualShowcaseTurntableMatrixBits.size() ==
+                  kNativeVisualShowcaseTurntableTicksPerRevolution,
+              "native showcase turntable table lost a checked tick");
+
 ValidationResult Failure(ValidationCode code, const char *field,
                          const char *detail) {
   return ValidationResult::Failure(code, field, detail);
@@ -34,6 +42,28 @@ bool IsKnownGatePose(NativeVisualShowcaseGatePose pose) noexcept {
     return true;
   }
   return false;
+}
+
+bool IsKnownMotionMode(NativeVisualShowcaseMotionMode mode) noexcept {
+  switch (mode) {
+  case NativeVisualShowcaseMotionMode::STATIC:
+  case NativeVisualShowcaseMotionMode::TURN_TABLE:
+    return true;
+  }
+  return false;
+}
+
+float FloatFromBits(std::uint32_t bits) noexcept {
+  float value = 0.0F;
+  static_assert(sizeof(value) == sizeof(bits),
+                "native showcase requires binary32 float storage");
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+void AddFnvByte(std::uint64_t &digest, std::uint8_t byte) noexcept {
+  digest ^= byte;
+  digest *= UINT64_C(1099511628211);
 }
 
 Matrix4x4 MakeShowcaseProjection() noexcept {
@@ -209,6 +239,45 @@ ValidationResult ReadPackageOnce(const std::string &package_path,
 
 } // namespace
 
+Matrix4x4 NativeVisualShowcaseTurntableTransform(
+    std::uint64_t simulation_tick) noexcept {
+  const std::size_t row = static_cast<std::size_t>(
+      simulation_tick % kNativeVisualShowcaseTurntableTicksPerRevolution);
+  Matrix4x4 transform;
+  for (std::size_t index = 0U; index < transform.elements.size(); ++index) {
+    transform.elements[index] =
+        FloatFromBits(kNativeVisualShowcaseTurntableMatrixBits[row][index]);
+  }
+  return transform;
+}
+
+std::uint64_t NativeVisualShowcaseTurntableTableDigest() noexcept {
+  std::uint64_t digest = UINT64_C(14695981039346656037);
+  for (const auto &row : kNativeVisualShowcaseTurntableMatrixBits) {
+    for (const std::uint32_t word : row) {
+      AddFnvByte(digest, static_cast<std::uint8_t>(word & 0xFFU));
+      AddFnvByte(digest, static_cast<std::uint8_t>((word >> 8U) & 0xFFU));
+      AddFnvByte(digest, static_cast<std::uint8_t>((word >> 16U) & 0xFFU));
+      AddFnvByte(digest, static_cast<std::uint8_t>((word >> 24U) & 0xFFU));
+    }
+  }
+  return digest;
+}
+
+std::uint64_t NativeVisualShowcaseTransformRevision(
+    const Matrix4x4 &transform) noexcept {
+  std::uint64_t digest = UINT64_C(14695981039346656037);
+  for (const float element : transform.elements) {
+    std::uint32_t word = 0U;
+    std::memcpy(&word, &element, sizeof(word));
+    AddFnvByte(digest, static_cast<std::uint8_t>(word & 0xFFU));
+    AddFnvByte(digest, static_cast<std::uint8_t>((word >> 8U) & 0xFFU));
+    AddFnvByte(digest, static_cast<std::uint8_t>((word >> 16U) & 0xFFU));
+    AddFnvByte(digest, static_cast<std::uint8_t>((word >> 24U) & 0xFFU));
+  }
+  return digest == 0U ? UINT64_C(14695981039346656037) : digest;
+}
+
 NativeVisualShowcaseSceneSource::NativeVisualShowcaseSceneSource(
     std::shared_ptr<const NativeRenderAssetPackage> package,
     std::string package_path, std::size_t gate_instance_index,
@@ -242,6 +311,14 @@ LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept {
                                   "native_showcase.package_checkpoint",
                                   "decoded package does not match the reviewed "
                                   "project-original checkpoint");
+      return result;
+    }
+    if (NativeVisualShowcaseTurntableTableDigest() !=
+        kNativeVisualShowcaseTurntableTableFnv1a64) {
+      result.validation = Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "native_showcase.turntable_table",
+          "checked turntable matrix table digest changed");
       return result;
     }
 
@@ -285,7 +362,36 @@ ValidationResult NativeVisualShowcaseSceneSource::SetGatePose(
                    "native_showcase.capture_transaction",
                    "gate pose cannot change while a capture is pending");
   }
+  if (requested_motion_mode_ ==
+          NativeVisualShowcaseMotionMode::TURN_TABLE &&
+      pose != NativeVisualShowcaseGatePose::HOME) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "native_showcase.gate_pose",
+                   "turntable motion is mutually exclusive with moved evidence");
+  }
   requested_gate_pose_ = pose;
+  return ValidationResult::Success();
+}
+
+ValidationResult NativeVisualShowcaseSceneSource::SetMotionMode(
+    NativeVisualShowcaseMotionMode mode) {
+  if (!IsKnownMotionMode(mode)) {
+    return Failure(ValidationCode::INVALID_ENUM,
+                   "native_showcase.motion_mode",
+                   "unknown native showcase motion mode");
+  }
+  if (capture_pending_) {
+    return Failure(ValidationCode::SEQUENCE_MISMATCH,
+                   "native_showcase.capture_transaction",
+                   "motion mode cannot change while a capture is pending");
+  }
+  if (mode == NativeVisualShowcaseMotionMode::TURN_TABLE &&
+      requested_gate_pose_ != NativeVisualShowcaseGatePose::HOME) {
+    return Failure(ValidationCode::UNSUPPORTED_FEATURE,
+                   "native_showcase.motion_mode",
+                   "turntable motion requires the home evidence pose");
+  }
+  requested_motion_mode_ = mode;
   return ValidationResult::Success();
 }
 
@@ -316,10 +422,24 @@ ValidationResult NativeVisualShowcaseSceneSource::CaptureJoinedGraphicsFrame(
     candidate.static_meshes[gate_instance_index_]
         .render_from_object.elements[12U] +=
         kNativeVisualShowcaseMovedGateOffsetMeters;
+  } else if (requested_motion_mode_ ==
+             NativeVisualShowcaseMotionMode::TURN_TABLE) {
+    candidate.static_meshes[gate_instance_index_].render_from_object =
+        NativeVisualShowcaseTurntableTransform(next_simulation_tick_);
   }
 
   frame = std::move(candidate);
   pending_gate_pose_ = requested_gate_pose_;
+  pending_motion_mode_ = requested_motion_mode_;
+  pending_simulation_tick_ = next_simulation_tick_;
+  pending_turntable_angle_degrees_ =
+      requested_motion_mode_ == NativeVisualShowcaseMotionMode::TURN_TABLE
+          ? static_cast<std::uint32_t>(
+                next_simulation_tick_ %
+                kNativeVisualShowcaseTurntableTicksPerRevolution)
+          : 0U;
+  pending_gate_transform_revision_ = NativeVisualShowcaseTransformRevision(
+      frame.static_meshes[gate_instance_index_].render_from_object);
   capture_pending_ = true;
   ++capture_count_;
   return ValidationResult::Success();
@@ -330,6 +450,11 @@ void NativeVisualShowcaseSceneSource::CommitJoinedGraphicsFrame() noexcept {
     return;
   }
   committed_gate_pose_ = pending_gate_pose_;
+  committed_motion_mode_ = pending_motion_mode_;
+  committed_simulation_tick_ = pending_simulation_tick_;
+  committed_turntable_angle_degrees_ = pending_turntable_angle_degrees_;
+  committed_gate_transform_revision_ = pending_gate_transform_revision_;
+  has_committed_capture_ = true;
   capture_pending_ = false;
   ++commit_count_;
   if (next_simulation_tick_ == kMaximumShowcaseSimulationTick) {

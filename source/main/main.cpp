@@ -628,12 +628,16 @@ int main(int argc, char *argv[])
         renderer_combined_input_target;
     std::unique_ptr<Render::IJoinedGraphicsSceneSource>
         renderer_combined_scene_source;
+    Render::NativeVisualShowcaseSceneSource*
+        renderer_combined_native_showcase_scene_source = nullptr;
     std::unique_ptr<RendererInProcessSession>
         renderer_combined_session;
     std::string renderer_combined_scene_failure_signature;
     std::string renderer_combined_particle_audit_signature;
     std::string renderer_combined_analytic_sky_audit_signature;
     std::string renderer_combined_native_lighting_audit_signature;
+    bool renderer_combined_turntable_audit_published = false;
+    std::uint64_t renderer_combined_turntable_audit_segment = 0U;
 #else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
@@ -908,19 +912,37 @@ int main(int argc, char *argv[])
                 loaded.source->package_owner()->assets.size();
             const std::size_t package_instance_count =
                 loaded.source->package_owner()->static_meshes.size();
+            const Render::ValidationResult turntable_enabled =
+                loaded.source->SetMotionMode(
+                    Render::NativeVisualShowcaseMotionMode::TURN_TABLE);
+            if (!turntable_enabled)
+            {
+                LOG(fmt::format(
+                    "[RoR|RendererCombined|NativeShowcase] Turntable "
+                    "selection failed: code={}, field='{}', detail='{}'",
+                    static_cast<unsigned int>(turntable_enabled.code),
+                    turntable_enabled.field,
+                    turntable_enabled.detail));
+                return 70;
+            }
+            renderer_combined_native_showcase_scene_source =
+                loaded.source.get();
             renderer_combined_scene_source = std::move(loaded.source);
             LOG(fmt::format(
                 "[RoR|RendererCombined|NativeShowcase] Selected exact "
                 "forward-native scene: path='{}', package='{}', "
                 "sha256='{}', assets={}, instances={}, source_version={}, "
                 "pipeline='rt4_pbr_pssm_raster_preview', hdr=false, "
-                "native_rt=false",
+                "native_rt=false, motion='turntable_opaque_gate', "
+                "fixed_hz=60, revolution_ticks={}, refraction=false, "
+                "motion_vectors=false",
                 native_showcase_package_path,
                 Render::kNativeVisualShowcasePackageId,
                 Render::kNativeVisualShowcasePackageSha256Hex,
                 package_asset_count,
                 package_instance_count,
-                Render::kNativeVisualShowcaseSceneSourceVersion));
+                Render::kNativeVisualShowcaseSceneSourceVersion,
+                Render::kNativeVisualShowcaseTurntableTicksPerRevolution));
         }
         else
         {
@@ -3564,6 +3586,52 @@ int main(int argc, char *argv[])
                         if (scene_result.status ==
                             RendererInProcessSessionStatus::FRAME_COMPLETED)
                         {
+                            if (renderer_combined_native_showcase_scene_source !=
+                                    nullptr &&
+                                renderer_combined_native_showcase_scene_source
+                                    ->has_committed_capture() &&
+                                renderer_combined_native_showcase_scene_source
+                                    ->committed_motion_mode() ==
+                                    Render::NativeVisualShowcaseMotionMode::
+                                        TURN_TABLE)
+                            {
+                                const std::uint64_t committed_tick =
+                                    renderer_combined_native_showcase_scene_source
+                                        ->committed_simulation_tick();
+                                const std::uint64_t audit_segment =
+                                    committed_tick / 90U;
+                                if (!renderer_combined_turntable_audit_published ||
+                                    audit_segment !=
+                                        renderer_combined_turntable_audit_segment)
+                                {
+                                    LOG(fmt::format(
+                                        "[RoR|RendererCombined|"
+                                        "NativeShowcase|Turntable] "
+                                        "mode='turntable_opaque_gate' "
+                                        "frame={} snapshot={} tick={} "
+                                        "angle_degrees={} "
+                                        "transform_revision={} "
+                                        "selected_object_id={} fixed_hz=60 "
+                                        "revolution_ticks={} "
+                                        "opaque_motion_only=true "
+                                        "refraction=false motion_vectors=false",
+                                        scene_result.frontend_frame_id,
+                                        scene_result.scene_snapshot_id,
+                                        committed_tick,
+                                        renderer_combined_native_showcase_scene_source
+                                            ->committed_turntable_angle_degrees(),
+                                        renderer_combined_native_showcase_scene_source
+                                            ->committed_gate_transform_revision(),
+                                        renderer_combined_native_showcase_scene_source
+                                            ->gate_source_object_id(),
+                                        Render::
+                                            kNativeVisualShowcaseTurntableTicksPerRevolution));
+                                    renderer_combined_turntable_audit_published =
+                                        true;
+                                    renderer_combined_turntable_audit_segment =
+                                        audit_segment;
+                                }
+                            }
                             const RendererContinuousParticleAudit audit =
                                 renderer_combined_presenter
                                     .ContinuousParticleAudit();

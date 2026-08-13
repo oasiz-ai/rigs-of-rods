@@ -39,6 +39,11 @@ constexpr std::uint64_t kNativeVisualShowcaseCameraViewId =
     0x524F524E47564945ULL;
 constexpr double kNativeVisualShowcaseFixedStepSeconds = 1.0 / 60.0;
 constexpr float kNativeVisualShowcaseMovedGateOffsetMeters = 1.5F;
+constexpr std::uint32_t
+    kNativeVisualShowcaseTurntableTicksPerRevolution = 360U;
+constexpr std::uint32_t kNativeVisualShowcaseTurntableDegreesPerTick = 1U;
+constexpr std::uint64_t kNativeVisualShowcaseTurntableTableFnv1a64 =
+    UINT64_C(0xDFDD0F72F7539A65);
 
 /// Two deliberately bounded poses used by raster/RT off-on-moved evidence.
 /// This changes only the authored shadow-gate instance transform; it does not
@@ -47,6 +52,28 @@ enum class NativeVisualShowcaseGatePose : std::uint8_t {
   HOME = 0U,
   MOVED = 1U,
 };
+
+/// Motion is opt-in so the reusable HOME/MOVED evidence captures retain their
+/// exact bounded transforms. TURN_TABLE rotates only the authored opaque gate
+/// around its vertical centerline; it is angular lighting/shadow evidence, not
+/// refraction or motion-vector evidence.
+enum class NativeVisualShowcaseMotionMode : std::uint8_t {
+  STATIC = 0U,
+  TURN_TABLE = 1U,
+};
+
+/// Returns one exact checked binary32 turntable matrix for a committed 60 Hz
+/// simulation tick. Tick 360 is bit-identical to tick zero.
+[[nodiscard]] Matrix4x4 NativeVisualShowcaseTurntableTransform(
+    std::uint64_t simulation_tick) noexcept;
+
+/// Canonical little-endian FNV-1a digest of all 360 checked matrix bit rows.
+[[nodiscard]] std::uint64_t
+NativeVisualShowcaseTurntableTableDigest() noexcept;
+
+/// Stable FNV-1a revision of the exact matrix bytes used by renderer evidence.
+[[nodiscard]] std::uint64_t NativeVisualShowcaseTransformRevision(
+    const Matrix4x4 &transform) noexcept;
 
 class NativeVisualShowcaseSceneSource;
 
@@ -91,6 +118,12 @@ public:
   /// committed or discarded so its immutable candidate cannot be rewritten.
   [[nodiscard]] ValidationResult SetGatePose(NativeVisualShowcaseGatePose pose);
 
+  /// Selects motion for subsequent captures. The default is STATIC; a pending
+  /// capture must first be committed or discarded. TURN_TABLE is mutually
+  /// exclusive with the reusable MOVED evidence pose.
+  [[nodiscard]] ValidationResult
+  SetMotionMode(NativeVisualShowcaseMotionMode mode);
+
   [[nodiscard]] const std::shared_ptr<const NativeRenderAssetPackage> &
   package_owner() const noexcept {
     return package_;
@@ -110,6 +143,29 @@ public:
   [[nodiscard]] NativeVisualShowcaseGatePose
   requested_gate_pose() const noexcept {
     return requested_gate_pose_;
+  }
+  [[nodiscard]] NativeVisualShowcaseMotionMode
+  requested_motion_mode() const noexcept {
+    return requested_motion_mode_;
+  }
+  [[nodiscard]] NativeVisualShowcaseMotionMode
+  committed_motion_mode() const noexcept {
+    return committed_motion_mode_;
+  }
+  [[nodiscard]] bool has_committed_capture() const noexcept {
+    return has_committed_capture_;
+  }
+  [[nodiscard]] std::uint64_t
+  committed_simulation_tick() const noexcept {
+    return committed_simulation_tick_;
+  }
+  [[nodiscard]] std::uint32_t
+  committed_turntable_angle_degrees() const noexcept {
+    return committed_turntable_angle_degrees_;
+  }
+  [[nodiscard]] std::uint64_t
+  committed_gate_transform_revision() const noexcept {
+    return committed_gate_transform_revision_;
   }
   [[nodiscard]] NativeVisualShowcaseGatePose
   committed_gate_pose() const noexcept {
@@ -150,7 +206,20 @@ private:
       NativeVisualShowcaseGatePose::HOME;
   NativeVisualShowcaseGatePose pending_gate_pose_ =
       NativeVisualShowcaseGatePose::HOME;
+  NativeVisualShowcaseMotionMode requested_motion_mode_ =
+      NativeVisualShowcaseMotionMode::STATIC;
+  NativeVisualShowcaseMotionMode committed_motion_mode_ =
+      NativeVisualShowcaseMotionMode::STATIC;
+  NativeVisualShowcaseMotionMode pending_motion_mode_ =
+      NativeVisualShowcaseMotionMode::STATIC;
+  std::uint64_t committed_simulation_tick_ = 0U;
+  std::uint64_t pending_simulation_tick_ = 0U;
+  std::uint32_t committed_turntable_angle_degrees_ = 0U;
+  std::uint32_t pending_turntable_angle_degrees_ = 0U;
+  std::uint64_t committed_gate_transform_revision_ = 0U;
+  std::uint64_t pending_gate_transform_revision_ = 0U;
   bool capture_pending_ = false;
+  bool has_committed_capture_ = false;
   bool simulation_exhausted_ = false;
 
   friend NativeVisualShowcaseSceneSourceLoadResult

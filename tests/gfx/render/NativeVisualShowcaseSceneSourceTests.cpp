@@ -11,6 +11,8 @@
 #include "GraphicsSceneSnapshotProducer.h"
 #include "OgreNextN1Policy.h"
 
+#include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -71,6 +73,35 @@ const MeshInstanceDescriptor &FindGate(const SceneSnapshot &scene,
   }
   Require(false, "produced scene is missing the authored gate");
   return scene.mesh_instances().front();
+}
+
+Matrix4x4 ExactQuarterTurn(std::uint32_t degrees) {
+  Matrix4x4 expected;
+  switch (degrees) {
+  case 0U:
+  case 360U:
+    return expected;
+  case 90U:
+    expected.elements = {{0.0F, 0.0F, -1.0F, 0.0F,
+                          0.0F, 1.0F, 0.0F, 0.0F,
+                          1.0F, 0.0F, 0.0F, 0.0F,
+                          1.5F, 0.0F, -1.5F, 1.0F}};
+    return expected;
+  case 180U:
+    expected.elements = {{-1.0F, 0.0F, 0.0F, 0.0F,
+                          0.0F, 1.0F, 0.0F, 0.0F,
+                          0.0F, 0.0F, -1.0F, 0.0F,
+                          0.0F, 0.0F, -3.0F, 1.0F}};
+    return expected;
+  case 270U:
+    expected.elements = {{0.0F, 0.0F, 1.0F, 0.0F,
+                          0.0F, 1.0F, 0.0F, 0.0F,
+                          -1.0F, 0.0F, 0.0F, 0.0F,
+                          -1.5F, 0.0F, -1.5F, 1.0F}};
+    return expected;
+  }
+  Require(false, "test requested a non-quarter turn");
+  return expected;
 }
 
 std::vector<std::uint8_t> ReadFixtureBytes() {
@@ -204,6 +235,207 @@ void TestCaptureCommitDiscardIsTransactional() {
       !source.SetGatePose(static_cast<NativeVisualShowcaseGatePose>(255U)) &&
           source.requested_gate_pose() == NativeVisualShowcaseGatePose::HOME,
       "unknown gate pose was accepted or changed state");
+}
+
+void TestTurntableTableIsExactRigidRightHandedAndHashPinned() {
+  Require(kNativeVisualShowcaseTurntableTicksPerRevolution == 360U &&
+              kNativeVisualShowcaseTurntableDegreesPerTick == 1U &&
+              kNativeVisualShowcaseFixedStepSeconds == 1.0 / 60.0,
+          "turntable fixed-step revolution contract changed");
+  Require(NativeVisualShowcaseTurntableTableDigest() ==
+              kNativeVisualShowcaseTurntableTableFnv1a64 &&
+              kNativeVisualShowcaseTurntableTableFnv1a64 ==
+                  UINT64_C(0xDFDD0F72F7539A65),
+          "turntable binary32 matrix table digest changed");
+
+  for (std::uint32_t tick = 0U;
+       tick < kNativeVisualShowcaseTurntableTicksPerRevolution; ++tick) {
+    const Matrix4x4 transform =
+        NativeVisualShowcaseTurntableTransform(tick);
+    Require(HasRigidRightHandedAffineTransform(transform, 2.0e-6F) &&
+                std::fabs(LinearDeterminant(transform) - 1.0F) <= 2.0e-6F,
+            "turntable row is not an orthonormal determinant +1 transform");
+
+    const float pivot_x =
+        -1.5F * transform.elements[8U] + transform.elements[12U];
+    const float pivot_y = transform.elements[13U];
+    const float pivot_z =
+        -1.5F * transform.elements[10U] + transform.elements[14U];
+    Require(std::fabs(pivot_x) <= 2.0e-6F && pivot_y == 0.0F &&
+                std::fabs(pivot_z + 1.5F) <= 2.0e-6F,
+            "turntable row moved off the authored vertical centerline");
+  }
+
+  for (const std::uint32_t degrees : {0U, 90U, 180U, 270U, 360U}) {
+    Require(NativeVisualShowcaseTurntableTransform(degrees) ==
+                ExactQuarterTurn(degrees),
+            "turntable quarter revolution lost its exact binary32 matrix");
+  }
+  Require(NativeVisualShowcaseTurntableTransform(360U) ==
+              NativeVisualShowcaseTurntableTransform(0U),
+          "turntable did not close bit-exactly at 360 degrees");
+}
+
+void TestTurntableModeIsExplicitAndTransactional() {
+  NativeVisualShowcaseSceneSourceLoadResult loaded = LoadFixture();
+  Require(loaded.ok(), "turntable transaction fixture failed to load");
+  NativeVisualShowcaseSceneSource &source = *loaded.source;
+  Require(source.requested_motion_mode() ==
+                  NativeVisualShowcaseMotionMode::STATIC &&
+              source.committed_motion_mode() ==
+                  NativeVisualShowcaseMotionMode::STATIC &&
+              !source.has_committed_capture(),
+          "reusable showcase source did not default to static evidence");
+
+  Require(source.SetGatePose(NativeVisualShowcaseGatePose::MOVED).ok() &&
+              !source.SetMotionMode(
+                  NativeVisualShowcaseMotionMode::TURN_TABLE) &&
+              source.requested_motion_mode() ==
+                  NativeVisualShowcaseMotionMode::STATIC,
+          "moved evidence admitted or partially selected turntable motion");
+  Require(source.SetGatePose(NativeVisualShowcaseGatePose::HOME).ok() &&
+              source.SetMotionMode(
+                  NativeVisualShowcaseMotionMode::TURN_TABLE).ok() &&
+              !source.SetGatePose(NativeVisualShowcaseGatePose::MOVED) &&
+              source.requested_gate_pose() ==
+                  NativeVisualShowcaseGatePose::HOME,
+          "turntable mode did not remain separate from moved evidence");
+  Require(!source.SetMotionMode(
+              static_cast<NativeVisualShowcaseMotionMode>(255U)) &&
+              source.requested_motion_mode() ==
+                  NativeVisualShowcaseMotionMode::TURN_TABLE,
+          "unknown motion mode changed source state");
+
+  GraphicsSceneFrameInput first;
+  Require(source.CaptureJoinedGraphicsFrame(first).ok() &&
+              first.simulation_tick == 0U,
+          "initial turntable capture failed");
+  Require(!source.SetMotionMode(NativeVisualShowcaseMotionMode::STATIC) &&
+              source.requested_motion_mode() ==
+                  NativeVisualShowcaseMotionMode::TURN_TABLE,
+          "pending capture allowed its motion mode to be rewritten");
+  const Matrix4x4 first_gate =
+      FindGate(first, source.gate_source_object_id()).render_from_object;
+  source.DiscardJoinedGraphicsFrame();
+
+  GraphicsSceneFrameInput retry;
+  Require(source.CaptureJoinedGraphicsFrame(retry).ok() &&
+              retry.simulation_tick == 0U &&
+              FindGate(retry, source.gate_source_object_id())
+                      .render_from_object == first_gate,
+          "discard/retry advanced or changed the turntable transform");
+  source.CommitJoinedGraphicsFrame();
+  Require(source.has_committed_capture() &&
+              source.committed_simulation_tick() == 0U &&
+              source.committed_turntable_angle_degrees() == 0U &&
+              source.committed_gate_transform_revision() ==
+                  NativeVisualShowcaseTransformRevision(first_gate) &&
+              source.next_simulation_tick() == 1U,
+          "turntable commit audit did not retain exact tick-zero lineage");
+}
+
+void TestTurntableChangesOnlySelectedOpaqueGateAtFixed60Hz() {
+  NativeVisualShowcaseSceneSourceLoadResult loaded = LoadFixture();
+  Require(loaded.ok(), "turntable sweep fixture failed to load");
+  NativeVisualShowcaseSceneSource &source = *loaded.source;
+  Require(source.SetMotionMode(
+              NativeVisualShowcaseMotionMode::TURN_TABLE).ok(),
+          "turntable sweep mode was rejected");
+  const std::shared_ptr<const NativeRenderAssetPackage> owner =
+      source.package_owner();
+
+  GraphicsSceneFrameInput baseline;
+  Require(source.CaptureJoinedGraphicsFrame(baseline).ok(),
+          "turntable baseline capture failed");
+  source.CommitJoinedGraphicsFrame();
+  const std::uint64_t gate_id = source.gate_source_object_id();
+
+  for (std::uint64_t tick = 1U; tick <= 360U; ++tick) {
+    GraphicsSceneFrameInput frame;
+    Require(source.CaptureJoinedGraphicsFrame(frame).ok() &&
+                frame.simulation_tick == tick &&
+                frame.simulation_time_seconds ==
+                    static_cast<double>(tick) *
+                        kNativeVisualShowcaseFixedStepSeconds &&
+                SameSharedOwner(owner, source.package_owner()) &&
+                frame.assets.size() == baseline.assets.size() &&
+                frame.static_meshes.size() == baseline.static_meshes.size(),
+            "turntable sweep changed time or package lineage");
+    for (std::size_t asset = 0U; asset < frame.assets.size(); ++asset) {
+      Require(frame.assets[asset].source_asset_id ==
+                      baseline.assets[asset].source_asset_id &&
+                  SameSharedOwner(frame.assets[asset].payload,
+                                  baseline.assets[asset].payload),
+              "turntable sweep changed an immutable asset");
+    }
+    for (std::size_t index = 0U; index < frame.static_meshes.size(); ++index) {
+      const GraphicsSceneStaticMeshInput &before = baseline.static_meshes[index];
+      const GraphicsSceneStaticMeshInput &after = frame.static_meshes[index];
+      Require(before.source_object_id == after.source_object_id &&
+                  before.mesh_source_asset_id == after.mesh_source_asset_id &&
+                  before.material_source_asset_id ==
+                      after.material_source_asset_id &&
+                  before.flags == after.flags &&
+                  (after.source_object_id == gate_id
+                       ? after.render_from_object ==
+                             NativeVisualShowcaseTurntableTransform(tick)
+                       : after.render_from_object == before.render_from_object),
+              "turntable changed a non-selected transform or instance metadata");
+    }
+    if (tick == 90U || tick == 180U || tick == 270U || tick == 360U) {
+      Require(FindGate(frame, gate_id).render_from_object ==
+                  ExactQuarterTurn(static_cast<std::uint32_t>(tick)),
+              "live source did not publish an exact quarter-turn matrix");
+    }
+    if (tick < 360U) {
+      source.CommitJoinedGraphicsFrame();
+    } else {
+      source.DiscardJoinedGraphicsFrame();
+    }
+  }
+}
+
+void TestTurntableProducerPreservesExactPreviousTransformLineage() {
+  NativeVisualShowcaseSceneSourceLoadResult loaded = LoadFixture();
+  Require(loaded.ok(), "turntable producer fixture failed to load");
+  NativeVisualShowcaseSceneSource &source = *loaded.source;
+  Require(source.SetMotionMode(
+              NativeVisualShowcaseMotionMode::TURN_TABLE).ok(),
+          "turntable producer mode was rejected");
+
+  GraphicsSceneSnapshotProducerConfiguration configuration;
+  configuration.registry_id = UINT64_C(0x524F525455524E31);
+  GraphicsSceneSnapshotProducer producer(configuration);
+  const GraphicsSceneSnapshotProduceResult first =
+      producer.ProduceJoinedFrame(source);
+  const GraphicsSceneSnapshotProduceResult second =
+      producer.ProduceJoinedFrame(source);
+  Require(first.ok() && second.ok() &&
+              first.production.asset_delta.has_value() &&
+              !second.production.asset_delta.has_value() &&
+              second.production.scene_snapshot->simulation_tick() == 1U,
+          "turntable producer changed stable package or tick lineage");
+
+  const std::uint64_t gate_id = source.gate_source_object_id();
+  const MeshInstanceDescriptor &first_gate =
+      FindGate(*first.production.scene_snapshot, gate_id);
+  const MeshInstanceDescriptor &second_gate =
+      FindGate(*second.production.scene_snapshot, gate_id);
+  Require(first_gate.render_from_object ==
+                  NativeVisualShowcaseTurntableTransform(0U) &&
+              second_gate.previous_render_from_object ==
+                  first_gate.render_from_object &&
+              second_gate.render_from_object ==
+                  NativeVisualShowcaseTurntableTransform(1U),
+          "turntable producer lost exact previous-transform lineage");
+  for (const MeshInstanceDescriptor &instance :
+       second.production.scene_snapshot->mesh_instances()) {
+    if (instance.instance_id != gate_id) {
+      Require(instance.render_from_object ==
+                  instance.previous_render_from_object,
+              "turntable producer changed a non-selected previous transform");
+    }
+  }
 }
 
 void TestMovedEvidenceChangesOnlyGateTransform() {
@@ -499,6 +731,10 @@ void TestCapturesNeverReopenPackageStorage() {
 int main() {
   TestExactCheckpointLoadsOnceAndRetainsImmutableOwners();
   TestCaptureCommitDiscardIsTransactional();
+  TestTurntableTableIsExactRigidRightHandedAndHashPinned();
+  TestTurntableModeIsExplicitAndTransactional();
+  TestTurntableChangesOnlySelectedOpaqueGateAtFixed60Hz();
+  TestTurntableProducerPreservesExactPreviousTransformLineage();
   TestMovedEvidenceChangesOnlyGateTransform();
   TestSnapshotProducerAcceptsStableAndMovedFrames();
   TestRt4UvTransformAdmissionPreservesExactA0Profiles();

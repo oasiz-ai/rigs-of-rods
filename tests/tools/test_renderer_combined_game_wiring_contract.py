@@ -137,6 +137,47 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.presenter,
         )
 
+    def test_native_showcase_enables_audited_opaque_turntable_motion(self) -> None:
+        load = self.main.index("LoadNativeVisualShowcaseSceneSource(")
+        select = self.main.index(
+            "SetMotionMode(\n"
+            "                    Render::NativeVisualShowcaseMotionMode::TURN_TABLE)",
+            load,
+        )
+        move = self.main.index(
+            "renderer_combined_scene_source = std::move(loaded.source);",
+            select,
+        )
+        post = self.main.index("PostUpdatedScene(", move)
+        audit = self.main.index(
+            '"NativeShowcase|Turntable] "', post
+        )
+        self.assertLess(load, select)
+        self.assertLess(select, move)
+        self.assertLess(move, post)
+        self.assertLess(post, audit)
+        audit_block = self.main[audit - 1800 : audit + 2800]
+        for token in (
+            'mode=\'turntable_opaque_gate\'',
+            "frontend_frame_id",
+            "scene_snapshot_id",
+            "committed_simulation_tick()",
+            "committed_turntable_angle_degrees()",
+            "committed_gate_transform_revision()",
+            "fixed_hz=60",
+            "revolution_ticks={}",
+            "opaque_motion_only=true",
+            "refraction=false",
+            "motion_vectors=false",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, audit_block)
+        self.assertIn("committed_tick / 90U", audit_block)
+        self.assertIn(
+            "kNativeVisualShowcaseTurntableTicksPerRevolution",
+            audit_block,
+        )
+
     def test_showcase_package_is_exact_and_staged_beside_executable_resources(self) -> None:
         expected = (
             "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2"
