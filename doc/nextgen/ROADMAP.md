@@ -1,9 +1,12 @@
 # Rigs of Rods Next-Generation Roadmap
 
 This roadmap turns the existing node/beam simulator into a measured, testable
-next-generation Rigs of Rods. Success means preserving compatible content while
-improving numerical safety, contact repeatability, material behaviour, rendering,
-platform support, and authoring quality.
+next-generation Rigs of Rods. Success means improving numerical safety, contact
+repeatability, material behaviour, rendering, platform support, and authoring
+quality while making renderer-native, editable-source assets the default for new
+content. Pinned legacy content remains a bounded compatibility and regression
+input; bulk conversion of the historical catalog is not a prerequisite for the
+new renderer or a shipping-quality vertical slice.
 
 It does not claim parity or superiority over another simulator. Such a claim
 would require comparable public scenarios, inputs, hardware, and measurements.
@@ -83,7 +86,7 @@ the repository level. Keep this exact revision in automated comparisons.
 | Water baseline | `simple2_w.terrn2` + DAF semi | Reflection/refraction and Hydrax/compositor ordering |
 | Articulation baseline | DAF semi + `b6b0UID-semi.trailer` and `b6b0UID-semiflat.trailer` | Inter-actor beams, contact ordering, hooks, and deterministic multi-body replay |
 | BeamNG vehicle import (local opt-in) | User-supplied [GD808 FormulaCOUPE v0.9.7][formulacoupe], resource `M764KYBVX` | Safe package inventory, 39 configurations, deterministic `FC-A7-01` resolution, structural/drivable/visual tier reports, and explicit advanced-feature diagnostics |
-| AirSim visual floor | Pinned AirSim v1.8.1 plus one shared rights-cleared glTF scene | Same-scene PBR/HDR/shadow/AA/atmosphere/temporal comparison against offline path-traced truth |
+| Forward-native showcase | A0-approved project-original or rights-cleared V2 Blender/glTF sources and explicit texture/material manifests | Direct native PBR/HDR/shadow/AA/atmosphere/alpha/particle coverage against offline path-traced truth and platform budgets |
 | Legacy OGRE content smoke (local opt-in) | User-supplied `CityWorld.zip` + `CityWorld.terrn2` | Large v1.40 mesh loading, generated LOD safety, missing-material diagnostics, and clean terrain unload |
 
 The Agora L definition has 151 authored nodes, 675 beams, and 222 cab triangles.
@@ -128,6 +131,23 @@ separates exact legacy-equivalence evidence from declared PBR modernization,
 binds every decision to archive/script hashes and raw source spans, and leaves
 malformed records review-blocked without redistributing or silently rewriting
 the package.
+
+CityWorld's compatibility path is now capped rather than treated as a migration
+backlog: `legacy_conversion_default=off`. From adoption of this policy through
+the first V2 preview, the cumulative post-baseline allowance is at most one
+reviewed legacy asset family and three new legacy material declarations across
+the entire release ledger, not per slice. The grandfathered baseline is the
+exact commit and reviewed feature inventory in the
+[forward-native asset ledger](FORWARD_NATIVE_ASSET_LEDGER.md); it consumes no
+new budget but cannot expand implicitly. Existing reviewed work is retained;
+this policy does not roll it back.
+An exception must prove a renderer/runtime contract that an A0-approved
+project-original or rights-cleared renderer-native asset cannot exercise more
+directly. New and recreated content never enters the
+legacy classifier, and native asset work is not blocked on broader CityWorld
+coverage. CityWorld may still provide authenticated placement, scale, camera,
+and behavioural reference facts when rights allow; its geometry, textures,
+scripts, and shaders are not source material for a clean-room recreation.
 
 The first rights-cleared CityWorld Next content family is now present without
 modifying that archive: Blender-generated 20 m tangent and 15-degree curved
@@ -929,12 +949,12 @@ shut down cleanly. The first ready render frame arms the four-step batch, so
 the exact completed-step invariant is `(545 - 1) * 4`, not `545 * 4`.
 
 This is a verified content-density and connectivity checkpoint, not completion
-of the full-map or AirSim-referenced visual gate. The native captures remain
+of the full-map or forward-native V2 visual gate. The native captures remain
 stylized and sparse: regional ground materials, terrain blending, decals,
 street furniture, higher-detail vegetation, building variation, traffic, and
 PBR/HDR are still open. Fixed cameras do not prove vehicle traversal across all
 seven new routes. Native Windows and Linux repetitions, route-driving gates,
-frame-time budgets, and the shared-scene V2 comparison remain required.
+frame-time budgets, and the V2 native-showcase comparison remain required.
 
 The optional transition, curve, span, and gateway visual families remain
 unplaced; the accepted routes use native procedural surfaces plus the
@@ -1374,8 +1394,11 @@ above remain open.
 V1 follows R0 and introduces a linear HDR pipeline and a documented PBR material
 schema: albedo, normal, packed occlusion/roughness/metalness, emissive, alpha
 mode, and legacy fallback. Generate or import tangents rather than pretending
-legacy cab meshes already contain them. Convert one DAF material and one terrain
-layer before bulk conversion.
+legacy cab meshes already contain them. Author one project-owned vehicle
+material set and one project-owned terrain layer directly against
+`MaterialDescriptor` v4 and the RT4 asset contract. Keep one pinned legacy DAF
+material and terrain layer only as regression fixtures; there is no bulk legacy
+conversion phase.
 
 The OGRE 14 source-texture edge now has an authenticated live subset of that
 conversion. Versioned immutable receipts retain the selected archive/member,
@@ -1460,12 +1483,18 @@ Gate V1:
   for approved dielectric, metal, roughness, and grazing-angle samples.
 - Texture color-space, exposure, tone mapping, and reflection-probe rules are
   explicit and tested; no asset relies on renderer-default gamma behaviour.
-- Approved screenshots for all validation scenes pass perceptual regression
-  thresholds, while numeric HDR buffers remain finite.
+- Approved screenshots for the required first-party scenes in the active
+  milestone manifest pass perceptual regression thresholds, while numeric HDR
+  buffers remain finite. Local opt-in import and legacy fixtures publish their
+  own capability results and are not V1 release blockers.
 - Transparent cab materials, emissive lights, shadows, water, weather, mirrors,
   and UI have dedicated regression captures.
-- The PBR DAF and terrain slice meets a recorded render budget on each reference
-  platform before additional assets are converted.
+- The renderer-native vehicle and terrain slice meets a recorded render budget
+  on each reference platform before additional native assets are admitted.
+- Base-color and emissive inputs declare sRGB transfer; normal, ORM, and
+  specular inputs declare linear data; alpha mode/cutoff, sampler, mip policy,
+  tangent basis, and texture role are explicit. No authored asset relies on a
+  renderer-default gamma, filtering, or alpha interpretation.
 
 The first reflection-fallback reference now pins Ogre-Next's box-projected
 cubemap shader and probe-buffer sources. Its portable oracle fixes strict box
@@ -1498,40 +1527,86 @@ dependence and partial data. Commit rejects stale lineage,
 cross-plan replay, and reset-era transaction ABA without treating a caller's
 integer or digest as evidence of backend execution.
 
-## V2 — AirSim-referenced visual fidelity and scene import
+## V2 — Forward-native asset standard and vertical slice
 
-AirSim is a simulator plugin whose visual quality depends on its Unreal/Unity
-host environment, not one fixed map or renderer preset. Pin AirSim v1.8.1 and
-compare both engines on one rights-cleared shared source scene against the same
-offline path-traced reference. Official AirSim environments are
-capture-only references: the v1.8.1 release notes state that the high-detail
-downloads use proprietary assets whose source projects cannot be distributed.
-Unreal `.uasset`, `.umap`, cooked packages, Marketplace content, and engine
-template assets are therefore not RoR import inputs without separate verified
-rights.
+V2 makes the new asset contract the product path. Editable Blender/glTF sources
+and an explicit texture/material manifest compile directly into immutable native
+mesh, texture, sampler, and `MaterialDescriptor` v4 records. The runtime consumes
+those records through the asset registry; OGRE material-script inference, ODEF,
+and v1 mesh output remain optional compatibility artifacts until direct static
+and terrain binding is complete. This is one renderer and terrain world with a
+new ingestion path, not a second terrain system.
 
-The RoR path is an offline, fail-closed glTF 2.0 scene compiler with bounded
-parsing, deterministic conversion, PBR materials, tangents, LODs, instancing,
-collision proxies, terrain tiles, texture transcodes, provenance, and canonical
-output hashes. The runtime consumes only compiled packages and never imported
-scripts or shaders.
+The first showcase is authored from scratch as project-original work, or is a
+rights-cleared recreation/derivative. A0 must approve distribution in either
+case. It contains one hero vehicle, one terrain/road block, one building family,
+vegetation, particles, sky/weather, water or a reflective surface, and an
+alpha/emissive detail set. Old content may supply rights-cleared requirements,
+dimensions, placement, or behavioural references, but copied legacy geometry,
+texture, material-script, or shader bytes are forbidden unless a recorded
+license explicitly permits a derivative. Independent creation alone does not
+establish ownership or redistribution permission.
+
+V2 planning parameters:
+
+- `native_asset_default=on` and `legacy_conversion_default=off`.
+- At least 80% of each release milestone's reviewed issue estimates and recorded
+  engineer-hours goes to new or independently recreated native assets;
+  compatibility work is capped at 20% under both measures and may not delay the
+  native acceptance scene. The release ledger records planned and actual hours,
+  origin class, family, declaration count, and the approving roadmap change.
+- A legacy conversion is stopped in favour of recreation when it needs more
+  than two engineer-days, more than one renderer compatibility exception, or a
+  semantic guess that cannot be authenticated from the source package.
+- A legacy asset never defines the native schema, default sampler/gamma policy,
+  lighting model, performance budget, or visual-quality ceiling.
+- Accepted compatibility work is grandfathered and tested; it is removed only
+  when incorrect, unsafe, unlicensed, or superseded by a proven replacement.
+- Exceeding either compatibility cap requires an explicit roadmap revision with
+  a named owner, expiry, measured renderer-contract justification, and an equal
+  reduction elsewhere; an ordinary implementation PR cannot waive the cap.
 
 Gate V2:
 
-- On the shared camera/weather/material suite, no diagnostic stratum is more
-  than 2% worse than the pinned AirSim result relative to offline truth.
-- Aggregate perceptual error beats AirSim by at least 5% with a bootstrap 95%
-  confidence interval, while HDR, edge, shadow, reflection, transparency,
-  vegetation, LOD, and temporal-stability absolute gates all pass.
-- The macOS arm64 high preset sustains 60 FPS at 1920x1080 on the declared
-  reference Apple Silicon machine, with p95 frame time at or below 18.3 ms and
-  bounded resources through a ten-minute camera loop.
-- Missing geometry/materials, blank/stale/corrupt/non-finite frames, UI
-  contamination, invalid rights, unsupported glTF features, or conversion
-  nondeterminism fail closed.
-
-The complete fixture, capture, metric, provenance, and platform contract is in
-[the AirSim visual-fidelity specification](AIRSIM_VISUAL_FIDELITY.md).
+- A versioned acceptance manifest pins eight UI-free 1920x1080 cameras, one
+  ten-second deterministic motion path, light/weather state, exposure, Blender
+  and Cycles revisions, fixed seed, 2,048 samples, and denoising disabled. The
+  references render from the same A0-approved project-original or rights-cleared
+  source scene, not a legacy package or another simulator. The manifest is
+  reviewed and committed before the first candidate capture; changing it
+  invalidates every prior V2 reference and result.
+- Against those references, each required camera reaches SDR SSIM at least
+  `0.94` using float sRGB `[0,1]`, an 11x11 Gaussian window with sigma `1.5`,
+  unit data range, and the mean of RGB channel scores. LPIPS is at most `0.08`
+  using official v0.1 AlexNet weights, no resize/crop, and the same sRGB pixels
+  mapped to `[-1,1]`. Manifest-hashed HDR patch masks have median relative
+  linear-luminance error at most `5%` and p95 at most `12%`; manifest-hashed
+  alpha-edge masks reach F1 at least `0.95`. Temporal variance uses 600 aligned
+  fixed-step frames after 120 discarded warm-up frames and stays below
+  `1/1024` in normalized linear light. Metric source revisions, weights, masks,
+  alignment, and color transforms are all manifest inputs.
+- The compiler produces deterministic native asset IDs and byte-identical
+  package manifests from the pinned editable sources on macOS, Linux, and
+  Windows; malformed or unsupported inputs fail closed.
+- The showcase uses direct native bindings for every visible mesh and material,
+  with no legacy script inference, GPU texture readback, missing-resource
+  fallback, or untracked runtime conversion.
+- Source-controlled tests cover sRGB/linear roles, normal/ORM/specular/emissive
+  maps, opaque/mask/blend layers, mip/sampler policy, LODs, collision, particles,
+  sky, and exact asset retirement/reload.
+- On the recorded Apple M5 high preset at 1920x1080, the deterministic camera
+  loop sustains p95 frame time at or below `18.3 ms`, p99 at or below `25 ms`,
+  native mesh-plus-texture residency at or below `1.5 GiB`, and p99 scene draw
+  submissions at or below `2,500`. After a 60-second warm-up, residency is
+  sampled once per second for ten minutes; least-squares slope must be at most
+  `1 MiB/min` and final-minus-minimum residency at most `32 MiB`. The acceptance
+  manifest pins Windows and Linux reference hardware and numeric limits before
+  any candidate capture; results cannot choose or relax them afterward.
+  Resize, suspend/restore, device-loss, and streaming-soak gates also pass before
+  the showcase is called a next-generation preview.
+- Legacy smoke tests remain separate and nonblocking: they must load through
+  declared fallbacks or fail with a capability report, but visual parity with
+  the native showcase is not a V2 gate.
 
 ## G0 — GPU visual flex deformation
 
@@ -1867,6 +1942,14 @@ machine-readable record containing source URL or repository, pinned revision or
 checksum, author, SPDX license identifier, modification status, and editable
 source location.
 
+Each record also declares one origin class: `project_original`,
+`clean_room_recreation`, `rights_cleared_derivative`, or
+`legacy_compat_conversion`. A clean-room record pins the functional/reference
+inputs and creation process and attests that no geometry, texture,
+material-script, or shader bytes were copied. The label is evidence routing, not
+a substitute for rights review; recognizable derivative work still requires an
+appropriate license or permission.
+
 Third-party import archives and their generated caches are local inputs, not
 redistributable project content. A public download or zero price is not itself a
 license to bundle an archive or a conversion. Record the source URL, archive
@@ -1891,10 +1974,11 @@ Gate A0:
   enters a distributable or tracked path without explicit compatible rights.
 - Community packs remain separate downloads unless they independently pass the
   same audit.
-- The first vertical slice remasters only the pinned DAF semi and
-  `simple2_a`: PBR source textures, authored LODs, collision proxy, thumbnail,
-  metadata, and performance captures are required.
-- The remastered slice loads with zero missing-resource or material errors and
+- The first shipping vertical slice uses project-owned or explicitly
+  author-cleared renderer-native sources created for V2. Pinned DAF,
+  `simple2_a`, and CityWorld inputs remain local comparison/compatibility
+  fixtures unless their asset-level rights record authorizes redistribution.
+- The native slice loads with zero missing-resource or material errors and
   stays inside its recorded texture-memory, triangle, draw-call, and frame-time
   budgets.
 
@@ -1914,8 +1998,11 @@ Gate A0:
    data path.
 8. Land J4's PBR path after V1 and its GPU-flex path after G0. Land J5 one native
    feature at a time; never make controller execution a dependency.
-9. Ship the A0 DAF/asphalt vertical slice and pass imported-content provenance
-   gates before expanding the asset library or publishing compatibility demos.
+9. Ship the A0/V2 A0-approved project-original or rights-cleared renderer-native
+   vertical slice and pass its provenance, image, and performance gates before
+   expanding the native asset library. Run the pinned DAF/asphalt and CityWorld
+   cases as separate compatibility smoke tests; they do not block new-asset
+   production on visual parity or catalog-wide conversion.
 10. The project-owned CityWorld tangent and 15-degree curved spans are compiled
     through the fail-closed glTF boundary; tangent in-game lane/collision
     continuity and a connector-solved three-curve traversal are proven on
@@ -1926,10 +2013,12 @@ Gate A0:
     abutment/transition/deck/pier kit and pass the full-corridor three-platform
     drive gate before starting the longer corridor.
 
-A next-generation preview is ready only when the pinned four-scene suite passes
-on Windows, Linux, and macOS; one-worker and eight-worker physics hashes match;
-sanitizers are clean; post-FX/PBR/GPU-flex budgets pass; legacy content still
-loads through fallbacks; and every shipped asset passes the content audit.
+A next-generation preview is ready only when the forward-native showcase and
+the applicable pinned validation scenes pass on Windows, Linux, and macOS;
+one-worker and eight-worker physics hashes match; sanitizers are clean;
+post-FX/PBR/GPU-flex budgets pass; pinned legacy smoke content either loads
+through declared fallbacks or produces its capability report; and every shipped
+asset passes the content audit.
 Interoperability does not broaden that claim: public builds publish a
 per-package/configuration J0–J5 capability matrix and never imply general
 drop-in compatibility.
