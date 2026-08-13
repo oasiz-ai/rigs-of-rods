@@ -10,6 +10,7 @@
 #include "OgreNextN1NativeInterop.h"
 #include "OgreNextN1Policy.h"
 #include "OgreNextReflectionProbeRuntime.h"
+#include "Ogre14GraphicsSceneSource.h"
 #include "ror_ogre_next_n1_config.h"
 
 #include <algorithm>
@@ -51,6 +52,8 @@ struct Arguments {
   std::string evidence_path;
   std::string reflection_evidence_path;
   std::string compositor_evidence_path;
+  std::string analytic_sky_evidence_path;
+  std::string analytic_sky_image_path;
   bool modern_pbr = false;
 };
 
@@ -142,6 +145,28 @@ struct SmokeResult final {
     bool usage_transition_rollback_exact = false;
     bool usage_transition_commit_exact = false;
   } display_domain_unlit;
+  struct AnalyticSkyEvidence final {
+    OgreNextAnalyticSkyRuntimeAudit first_committed;
+    OgreNextAnalyticSkyRuntimeAudit final_committed;
+    Metrics camera_facing_sunless_hdr;
+    Metrics camera_facing_sun_hdr;
+    Metrics camera_facing_sun_sdr;
+    std::uint32_t visual_width = 0U;
+    std::uint32_t visual_height = 0U;
+    std::size_t hemisphere_covered_pixels = 0U;
+    std::size_t hemisphere_gradient_rows = 0U;
+    std::size_t sun_changed_pixels = 0U;
+    std::size_t sun_changed_pixels_alpha_exact_one = 0U;
+    std::size_t sun_hdr_opaque_alpha_pixels = 0U;
+    std::uint32_t rollback_stages_verified = 0U;
+    bool rollback_publication_unchanged = false;
+    bool rollback_lifetimes_balanced = false;
+    bool clean_retry = false;
+    bool broad_hemisphere_coverage = false;
+    bool visible_sun_effect = false;
+    bool visible_sun_alpha_exact_one = false;
+    bool production_default_gpu_content_readbacks_zero = false;
+  } analytic_sky;
   bool non_uniform_scale_rejected_before_submission = false;
   struct HdrCompositorEvidence final {
     OgreNextHdrCompositorAudit initialized;
@@ -238,10 +263,14 @@ Arguments ParseArguments(int argc, char **argv) {
       arguments.reflection_evidence_path = argv[++index];
     } else if (option == "--compositor-evidence" && index + 1 < argc) {
       arguments.compositor_evidence_path = argv[++index];
+    } else if (option == "--analytic-sky-evidence" && index + 1 < argc) {
+      arguments.analytic_sky_evidence_path = argv[++index];
+    } else if (option == "--analytic-sky-output" && index + 1 < argc) {
+      arguments.analytic_sky_image_path = argv[++index];
     } else if (option == "--modern-pbr") {
       arguments.modern_pbr = true;
     } else {
-      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin --reflection-evidence REFLECTION.bin --compositor-evidence HDR.bin] [--output FRAME.ppm] [--report REPORT.json]");
+      Fail("usage: ror_ogre_next_frontend_n1_smoke --media-root ABSOLUTE_PATH [--modern-pbr --evidence ISOLATION.bin --reflection-evidence REFLECTION.bin --compositor-evidence HDR.bin --analytic-sky-evidence SKY.bin --analytic-sky-output SKY.ppm] [--output FRAME.ppm] [--report REPORT.json]");
     }
   }
   if (arguments.media_root.empty()) {
@@ -255,6 +284,13 @@ Arguments ParseArguments(int argc, char **argv) {
   }
   if (arguments.modern_pbr && arguments.compositor_evidence_path.empty()) {
     Fail("--compositor-evidence is required for exact RT4/V1 HDR output");
+  }
+  if (arguments.modern_pbr &&
+      arguments.analytic_sky_evidence_path.empty()) {
+    Fail("--analytic-sky-evidence is required for exact RT4/V1 sky output");
+  }
+  if (arguments.modern_pbr && arguments.analytic_sky_image_path.empty()) {
+    Fail("--analytic-sky-output is required for the committed RT4/V1 sky visual");
   }
   return arguments;
 }
@@ -972,9 +1008,13 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
                                                    Matrix4x4{},
                                                std::uint64_t mesh_revision = 1U,
                                                Float3 light_direction =
-                                                   {0.0F, 0.0F, -1.0F},
+                                                   {0.0F, -0.8F, -0.6F},
                                                float exposure_compensation_ev =
-                                                   0.0F) {
+                                                   0.0F,
+                                               bool include_mesh = true,
+                                               bool include_reflection_probe =
+                                                   true,
+                                               bool suppress_sun_disk = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = kRegistryId;
@@ -986,42 +1026,62 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
       exposure_compensation_ev;
   if (modern_pbr) {
     descriptor.environment.ambient_radiance = {0.01F, 0.012F, 0.015F};
-    LightDescriptor light;
-    light.light_id = 1U;
-    light.type = LightType::DIRECTIONAL;
+    GraphicsSceneLightInput captured_sun;
+    captured_sun.source_light_id = 1U;
+    captured_sun.type = LightType::DIRECTIONAL;
     Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
-                                            light.color_linear),
+                                            captured_sun.color_linear),
             "RT4/V1 directional tint could not be normalized");
-    light.intensity = 1024.0F;
-    light.direction = light_direction;
-    light.shadow_flags = 0U;
+    captured_sun.intensity = 1024.0F;
+    captured_sun.direction = light_direction;
+    captured_sun.shadow_flags = 0U;
+    const ValidationResult sky =
+        BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+            descriptor.environment.ambient_radiance, captured_sun,
+            descriptor.environment);
+    Require(sky.ok(), "RT4/V1 policy-v1 analytic sky could not be staged: " +
+                          sky.field + ": " + sky.detail);
+    if (suppress_sun_disk) {
+      descriptor.environment.analytic_sky.sun_disk_radiance = {};
+    }
+    LightDescriptor light;
+    light.light_id = captured_sun.source_light_id;
+    light.type = captured_sun.type;
+    light.color_linear = captured_sun.color_linear;
+    light.intensity = captured_sun.intensity;
+    light.direction = captured_sun.direction;
+    light.shadow_flags = captured_sun.shadow_flags;
     descriptor.lights.push_back(light);
 
-    ReflectionProbeRuntimeDescriptor probe;
-    probe.probe_id = 1U;
-    probe.content_revision = 1U;
-    probe.capture_position_local = {0.0F, 0.0F, 1.0F};
-    probe.influence_half_size = {3.0F, 3.0F, 3.0F};
-    probe.influence_inner_fraction = {0.75F, 0.75F, 0.75F};
-    probe.correction_shape_half_size = {4.0F, 4.0F, 4.0F};
-    probe.resolution = 32U;
-    probe.capture_near_meters = 0.05F;
-    probe.capture_far_meters = 10.0F;
-    descriptor.reflection_probes.push_back(probe);
+    if (include_reflection_probe) {
+      ReflectionProbeRuntimeDescriptor probe;
+      probe.probe_id = 1U;
+      probe.content_revision = 1U;
+      probe.capture_position_local = {0.0F, 0.0F, 1.0F};
+      probe.influence_half_size = {3.0F, 3.0F, 3.0F};
+      probe.influence_inner_fraction = {0.75F, 0.75F, 0.75F};
+      probe.correction_shape_half_size = {4.0F, 4.0F, 4.0F};
+      probe.resolution = 32U;
+      probe.capture_near_meters = 0.05F;
+      probe.capture_far_meters = 10.0F;
+      descriptor.reflection_probes.push_back(probe);
+    }
   }
 
-  MeshInstanceDescriptor instance;
-  instance.instance_id = 1U;
-  instance.mesh = AssetRef(RenderAssetKind::MESH, 1U, mesh_revision);
-  instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U,
-                               material_revision);
-  instance.render_from_object = render_from_object;
-  if (shifted) {
-    instance.render_from_object.elements[12U] = 0.15F;
+  if (include_mesh) {
+    MeshInstanceDescriptor instance;
+    instance.instance_id = 1U;
+    instance.mesh = AssetRef(RenderAssetKind::MESH, 1U, mesh_revision);
+    instance.material = AssetRef(RenderAssetKind::MATERIAL, 2U,
+                                 material_revision);
+    instance.render_from_object = render_from_object;
+    if (shifted) {
+      instance.render_from_object.elements[12U] = 0.15F;
+    }
+    instance.previous_render_from_object = instance.render_from_object;
+    instance.local_bounds = MakeMesh(modern_pbr).local_bounds;
+    descriptor.mesh_instances.push_back(instance);
   }
-  instance.previous_render_from_object = instance.render_from_object;
-  instance.local_bounds = MakeMesh(modern_pbr).local_bounds;
-  descriptor.mesh_instances.push_back(instance);
 
   SceneSnapshotCreateResult result = CreateSceneSnapshot(std::move(descriptor));
   if (!result) {
@@ -1194,6 +1254,22 @@ void RequireControlledSceneAndView(const SceneSnapshot &baseline_scene,
                   actual.environment_intensity &&
               expected.environment_texture == actual.environment_texture &&
               expected.environment_sampler == actual.environment_sampler &&
+              expected.exposure_compensation_ev ==
+                  actual.exposure_compensation_ev &&
+              expected.analytic_sky.enabled ==
+                  actual.analytic_sky.enabled &&
+              expected.analytic_sky.sun_light_id ==
+                  actual.analytic_sky.sun_light_id &&
+              expected.analytic_sky.zenith_radiance ==
+                  actual.analytic_sky.zenith_radiance &&
+              expected.analytic_sky.horizon_radiance ==
+                  actual.analytic_sky.horizon_radiance &&
+              expected.analytic_sky.ground_radiance ==
+                  actual.analytic_sky.ground_radiance &&
+              expected.analytic_sky.sun_disk_radiance ==
+                  actual.analytic_sky.sun_disk_radiance &&
+              expected.analytic_sky.sun_angular_radius_radians ==
+                  actual.analytic_sky.sun_angular_radius_radians &&
               baseline_scene.lights().size() == 1U &&
               variant_scene.lights().size() == 1U,
           "RT4/V1 controlled environment or lights changed");
@@ -1569,15 +1645,21 @@ void WriteText(const std::string &path, const std::string &text) {
   }
 }
 
-void WritePpm(const std::string &path, const Metrics &metrics) {
+void WritePpm(const std::string &path, const Metrics &metrics,
+              std::uint32_t width = kWidth,
+              std::uint32_t height = kHeight) {
   if (path.empty()) {
     return;
   }
+  Require(width > 0U && height > 0U &&
+              metrics.rgb.size() ==
+                  static_cast<std::size_t>(width) * height * 3U,
+          "frame output RGB extent is incomplete");
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
   if (!output) {
     Fail("could not open frame output: " + path);
   }
-  output << "P6\n" << kWidth << ' ' << kHeight << "\n255\n";
+  output << "P6\n" << width << ' ' << height << "\n255\n";
   output.write(reinterpret_cast<const char *>(metrics.rgb.data()),
                static_cast<std::streamsize>(metrics.rgb.size()));
   if (!output) {
@@ -1661,6 +1743,34 @@ void WriteHdrCompositorEvidence(
   }
 }
 
+void WriteAnalyticSkyEvidence(
+    const std::string &path,
+    const SmokeResult::AnalyticSkyEvidence &sky) {
+  Require(!path.empty(), "RT4/V1 analytic-sky evidence path is empty");
+  const std::size_t attachment_bytes =
+      static_cast<std::size_t>(sky.visual_width) * sky.visual_height * 8U;
+  Require(sky.camera_facing_sunless_hdr.attachment_bytes.size() ==
+              attachment_bytes &&
+              sky.camera_facing_sun_hdr.attachment_bytes.size() ==
+                  attachment_bytes,
+          "RT4/V1 analytic-sky evidence is incomplete");
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output) {
+    Fail("could not open RT4/V1 analytic-sky evidence: " + path);
+  }
+  output.write(
+      reinterpret_cast<const char *>(
+          sky.camera_facing_sunless_hdr.attachment_bytes.data()),
+      static_cast<std::streamsize>(attachment_bytes));
+  output.write(
+      reinterpret_cast<const char *>(
+          sky.camera_facing_sun_hdr.attachment_bytes.data()),
+      static_cast<std::streamsize>(attachment_bytes));
+  if (!output) {
+    Fail("could not write complete RT4/V1 analytic-sky evidence: " + path);
+  }
+}
+
 std::string HexHash(std::uint64_t hash) {
   std::ostringstream value;
   value << std::hex << std::setfill('0') << std::setw(16) << hash;
@@ -1682,7 +1792,9 @@ const char *HdrHistoryValidationModeName(
 std::string MakeReport(const SmokeResult &result, bool modern_pbr,
                        const std::string &evidence_path,
                        const std::string &reflection_evidence_path,
-                       const std::string &compositor_evidence_path) {
+                       const std::string &compositor_evidence_path,
+                       const std::string &analytic_sky_evidence_path,
+                       const std::string &analytic_sky_image_path) {
   const Metrics &hdr = result.hdr;
   const Metrics &sdr = result.sdr;
   ReflectionSectionMetrics raw_reflection;
@@ -1712,7 +1824,7 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
   report << std::setprecision(std::numeric_limits<double>::max_digits10);
   report << "{\n"
          << "  \"schema\": \""
-         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3"
+         << (modern_pbr ? "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v4"
                         : "ror.ogre_next_frontend_n1_smoke.v1")
          << "\",\n"
          << "  \"status\": \"pass\",\n"
@@ -1802,6 +1914,10 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
     report << "    \"analytic_lights_calibrated\": true,\n"
            << "    \"directional_lux_to_native_power_scale\": 0.0009765625,\n"
            << "    \"maximum_directional_lights\": 1,\n"
+           << "    \"analytic_sky_capture_policy_version\": 1,\n"
+           << "    \"analytic_sky_native_render_policy_version\": 1,\n"
+           << "    \"analytic_sky_path\": \"camera_centered_gradient_ground_additive_sun\",\n"
+           << "    \"analytic_sky_exact_skyx_pixel_capture\": false,\n"
            << "    \"constant_environment_only\": false,\n";
   } else {
     report << "    \"analytic_lights_calibrated\": false,\n"
@@ -1846,6 +1962,231 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "\n"
          << "  },\n";
   if (modern_pbr) {
+    const OgreNextAnalyticSkyRuntimeAudit &sky =
+        result.analytic_sky.final_committed;
+    const AnalyticSkyDescriptor &descriptor = sky.last_descriptor;
+    constexpr std::uint32_t kBackgroundVertexCount =
+        2U * (kOgreNextAnalyticSkyHemisphereRings *
+                  (kOgreNextAnalyticSkyLongitudeSegments + 1U) +
+              1U);
+    constexpr std::uint32_t kBackgroundIndexCount =
+        2U * ((kOgreNextAnalyticSkyHemisphereRings - 1U) *
+                  kOgreNextAnalyticSkyLongitudeSegments * 6U +
+              kOgreNextAnalyticSkyLongitudeSegments * 3U);
+    Require(sky.last_background_vertex_count == kBackgroundVertexCount &&
+                sky.last_background_index_count == kBackgroundIndexCount &&
+                sky.last_sun_vertex_count ==
+                    kOgreNextAnalyticSkySunSegments + 2U &&
+                sky.last_sun_index_count ==
+                    kOgreNextAnalyticSkySunSegments * 3U &&
+                sky.last_native_content_bytes > 0U,
+            "RT4/V1 analytic-sky native topology audit is incomplete");
+    report << "  \"analytic_sky\": {\n"
+           << "    \"schema\": \"ror.ogre_next_analytic_sky.v2\",\n"
+           << "    \"evidence_file\": \""
+           << JsonEscape(
+                  std::filesystem::u8path(analytic_sky_evidence_path)
+                      .filename()
+                      .generic_u8string())
+           << "\",\n"
+           << "    \"visual_file\": \""
+           << JsonEscape(std::filesystem::u8path(analytic_sky_image_path)
+                             .filename()
+                             .generic_u8string())
+           << "\",\n"
+           << "    \"capture_policy_version\": "
+           << kOgre14ModernAnalyticSkyPolicyVersion << ",\n"
+           << "    \"native_render_policy_version\": "
+           << sky.native_render_policy_version << ",\n"
+           << "    \"authoritative_inputs\": \"joined_live_ambient_and_exact_converted_main_light\",\n"
+           << "    \"exact_skyx_pixel_capture\": false,\n"
+           << "    \"skyx_capture_boundary\": \"SkyX_shader_is_azimuth_dependent_and_may_apply_LDR_exposure\",\n"
+           << "    \"sun_light_id\": " << sky.last_sun_light_id << ",\n"
+           << "    \"descriptor\": {\n"
+           << "      \"zenith_radiance\": ["
+           << descriptor.zenith_radiance.x << ", "
+           << descriptor.zenith_radiance.y << ", "
+           << descriptor.zenith_radiance.z << "],\n"
+           << "      \"horizon_radiance\": ["
+           << descriptor.horizon_radiance.x << ", "
+           << descriptor.horizon_radiance.y << ", "
+           << descriptor.horizon_radiance.z << "],\n"
+           << "      \"ground_radiance\": ["
+           << descriptor.ground_radiance.x << ", "
+           << descriptor.ground_radiance.y << ", "
+           << descriptor.ground_radiance.z << "],\n"
+           << "      \"sun_disk_radiance\": ["
+           << descriptor.sun_disk_radiance.x << ", "
+           << descriptor.sun_disk_radiance.y << ", "
+           << descriptor.sun_disk_radiance.z << "],\n"
+           << "      \"sun_angular_radius_radians\": "
+           << descriptor.sun_angular_radius_radians << "\n"
+           << "    },\n"
+           << "    \"native_geometry\": {\n"
+           << "      \"resource_model\": \"frontend_owned_v2_mesh_item\",\n"
+           << "      \"background_vertex_count\": "
+           << sky.last_background_vertex_count << ",\n"
+           << "      \"background_index_count\": "
+           << sky.last_background_index_count << ",\n"
+           << "      \"sun_vertex_count\": "
+           << sky.last_sun_vertex_count << ",\n"
+           << "      \"sun_index_count\": "
+           << sky.last_sun_index_count << ",\n"
+           << "      \"native_content_bytes\": "
+           << sky.last_native_content_bytes << ",\n"
+           << "      \"cpu_geometry_fnv1a64\": "
+           << sky.last_cpu_geometry_fnv1a64 << ",\n"
+           << "      \"native_geometry_metadata_verified\": "
+           << (sky.native_geometry_metadata_verified ? "true" : "false")
+           << ",\n"
+           << "      \"production_default_gpu_content_readbacks_zero\": "
+           << (result.analytic_sky
+                       .production_default_gpu_content_readbacks_zero
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "      \"exact_gpu_buffer_content_readback\": "
+           << (sky.exact_native_geometry_readback ? "true" : "false")
+           << ",\n"
+           << "      \"camera_centered\": "
+           << (sky.camera_centered ? "true" : "false") << ",\n"
+           << "      \"rendered_first\": "
+           << (sky.rendered_first ? "true" : "false") << ",\n"
+           << "      \"depth_check_disabled\": "
+           << (sky.depth_check_disabled ? "true" : "false") << ",\n"
+           << "      \"depth_write_disabled\": "
+           << (sky.depth_write_disabled ? "true" : "false") << ",\n"
+           << "      \"additive_sun_disk\": "
+           << (sky.additive_sun_disk ? "true" : "false") << ",\n"
+           << "      \"separate_sun_alpha_replace\": "
+           << (sky.separate_sun_alpha_replace ? "true" : "false")
+           << ",\n"
+           << "      \"casts_shadows\": "
+           << (sky.casts_shadows ? "true" : "false") << ",\n"
+           << "      \"portable_scene_identity_absent\": "
+           << (sky.portable_scene_identity_absent ? "true" : "false")
+           << "\n"
+           << "    },\n"
+           << "    \"runtime_audit\": {\n"
+           << "      \"version\": " << sky.version << ",\n"
+           << "      \"completed_frames\": " << sky.completed_frames
+           << ",\n"
+           << "      \"native_mesh_creates\": "
+           << sky.native_mesh_creates << ",\n"
+           << "      \"native_mesh_destroys\": "
+           << sky.native_mesh_destroys << ",\n"
+           << "      \"native_vertex_buffer_creates\": "
+           << sky.native_vertex_buffer_creates << ",\n"
+           << "      \"native_vertex_buffer_destroys\": "
+           << sky.native_vertex_buffer_destroys << ",\n"
+           << "      \"native_index_buffer_creates\": "
+           << sky.native_index_buffer_creates << ",\n"
+           << "      \"native_index_buffer_destroys\": "
+           << sky.native_index_buffer_destroys << ",\n"
+           << "      \"native_vao_creates\": "
+           << sky.native_vao_creates << ",\n"
+           << "      \"native_vao_destroys\": "
+           << sky.native_vao_destroys << ",\n"
+           << "      \"native_item_creates\": "
+           << sky.native_item_creates << ",\n"
+           << "      \"native_item_destroys\": "
+           << sky.native_item_destroys << ",\n"
+           << "      \"native_scene_node_creates\": "
+           << sky.native_scene_node_creates << ",\n"
+           << "      \"native_scene_node_destroys\": "
+           << sky.native_scene_node_destroys << ",\n"
+           << "      \"native_datablock_creates\": "
+           << sky.native_datablock_creates << ",\n"
+           << "      \"native_datablock_destroys\": "
+           << sky.native_datablock_destroys << ",\n"
+           << "      \"native_mesh_absence_checks\": "
+           << sky.native_mesh_absence_checks << ",\n"
+           << "      \"native_item_absence_checks\": "
+           << sky.native_item_absence_checks << ",\n"
+           << "      \"native_scene_node_absence_checks\": "
+           << sky.native_scene_node_absence_checks << ",\n"
+           << "      \"native_datablock_absence_checks\": "
+           << sky.native_datablock_absence_checks << ",\n"
+           << "      \"native_gpu_content_readbacks\": "
+           << sky.native_gpu_content_readbacks << ",\n"
+           << "      \"native_state_verifications\": "
+           << sky.native_state_verifications << "\n"
+           << "    },\n"
+           << "    \"visual_proof\": {\n"
+           << "      \"sky_only\": true,\n"
+           << "      \"camera_facing_sun\": true,\n"
+           << "      \"width\": " << result.analytic_sky.visual_width
+           << ",\n"
+           << "      \"height\": " << result.analytic_sky.visual_height
+           << ",\n"
+           << "      \"hdr_pixel_format\": \"RGBA16_FLOAT\",\n"
+           << "      \"evidence_bytes\": "
+           << static_cast<std::size_t>(result.analytic_sky.visual_width) *
+                  result.analytic_sky.visual_height * 16U
+           << ",\n"
+           << "      \"sunless_hdr_offset\": 0,\n"
+           << "      \"sunless_hdr_bytes\": "
+           << static_cast<std::size_t>(result.analytic_sky.visual_width) *
+                  result.analytic_sky.visual_height * 8U
+           << ",\n"
+           << "      \"sun_hdr_offset\": "
+           << static_cast<std::size_t>(result.analytic_sky.visual_width) *
+                  result.analytic_sky.visual_height * 8U
+           << ",\n"
+           << "      \"sun_hdr_bytes\": "
+           << static_cast<std::size_t>(result.analytic_sky.visual_width) *
+                  result.analytic_sky.visual_height * 8U
+           << ",\n"
+           << "      \"sunless_hdr_fnv1a64\": \""
+           << HexHash(result.analytic_sky.camera_facing_sunless_hdr
+                          .attachment_fnv1a64)
+           << "\",\n"
+           << "      \"sun_hdr_fnv1a64\": \""
+           << HexHash(result.analytic_sky.camera_facing_sun_hdr
+                          .attachment_fnv1a64)
+           << "\",\n"
+           << "      \"visual_rgb_fnv1a64\": \""
+           << HexHash(result.analytic_sky.camera_facing_sun_sdr.fnv1a64)
+           << "\",\n"
+           << "      \"hemisphere_covered_pixels\": "
+           << result.analytic_sky.hemisphere_covered_pixels << ",\n"
+           << "      \"hemisphere_gradient_rows\": "
+           << result.analytic_sky.hemisphere_gradient_rows << ",\n"
+           << "      \"broad_hemisphere_coverage\": "
+           << (result.analytic_sky.broad_hemisphere_coverage ? "true"
+                                                              : "false")
+           << ",\n"
+           << "      \"sun_changed_pixels\": "
+           << result.analytic_sky.sun_changed_pixels << ",\n"
+           << "      \"sun_changed_pixels_alpha_exact_one\": "
+           << result.analytic_sky.sun_changed_pixels_alpha_exact_one
+           << ",\n"
+           << "      \"sun_hdr_opaque_alpha_pixels\": "
+           << result.analytic_sky.sun_hdr_opaque_alpha_pixels << ",\n"
+           << "      \"visible_sun_effect\": "
+           << (result.analytic_sky.visible_sun_effect ? "true" : "false")
+           << ",\n"
+           << "      \"visible_sun_alpha_exact_one\": "
+           << (result.analytic_sky.visible_sun_alpha_exact_one ? "true"
+                                                               : "false")
+           << "\n"
+           << "    },\n"
+           << "    \"transactional_rollback\": {\n"
+           << "      \"injected_stage_count\": "
+           << result.analytic_sky.rollback_stages_verified << ",\n"
+           << "      \"publication_unchanged_on_failure\": "
+           << (result.analytic_sky.rollback_publication_unchanged ? "true"
+                                                                  : "false")
+           << ",\n"
+           << "      \"native_lifetimes_balanced_on_failure\": "
+           << (result.analytic_sky.rollback_lifetimes_balanced ? "true"
+                                                               : "false")
+           << ",\n"
+           << "      \"clean_retry\": "
+           << (result.analytic_sky.clean_retry ? "true" : "false")
+           << "\n"
+           << "    }\n"
+           << "  },\n";
     constexpr std::size_t kRawReflectionBytes = 32U * 32U * 6U * 8U;
     constexpr std::size_t kFilteredReflectionBytes =
         (32U * 32U + 16U * 16U) * 6U * 8U;
@@ -3053,6 +3394,444 @@ RunTextureUploadRollbackProof(const std::string &media_root) {
   return evidence;
 }
 
+void RunAnalyticSkyRollbackProof(
+    const std::string &media_root,
+    SmokeResult::AnalyticSkyEvidence &evidence) {
+  using FailureStage = OgreNextN1AnalyticSkyFailureStage;
+  const std::array<std::pair<FailureStage, const char *>, 20U> stages{{
+      {FailureStage::AFTER_BACKGROUND_DATABLOCK,
+       "after_background_datablock"},
+      {FailureStage::AFTER_SUN_DATABLOCK, "after_sun_datablock"},
+      {FailureStage::AFTER_BACKGROUND_MESH, "after_background_mesh"},
+      {FailureStage::AFTER_BACKGROUND_CPU_VERTEX_ALLOCATION,
+       "after_background_cpu_vertex_allocation"},
+      {FailureStage::AFTER_BACKGROUND_VERTEX_BUFFER,
+       "after_background_vertex_buffer"},
+      {FailureStage::AFTER_BACKGROUND_CPU_INDEX_ALLOCATION,
+       "after_background_cpu_index_allocation"},
+      {FailureStage::AFTER_BACKGROUND_INDEX_BUFFER,
+       "after_background_index_buffer"},
+      {FailureStage::AFTER_BACKGROUND_VAO, "after_background_vao"},
+      {FailureStage::AFTER_BACKGROUND_SUBMESH_ATTACH,
+       "after_background_submesh_attach"},
+      {FailureStage::AFTER_SUN_MESH, "after_sun_mesh"},
+      {FailureStage::AFTER_SUN_CPU_VERTEX_ALLOCATION,
+       "after_sun_cpu_vertex_allocation"},
+      {FailureStage::AFTER_SUN_VERTEX_BUFFER,
+       "after_sun_vertex_buffer"},
+      {FailureStage::AFTER_SUN_CPU_INDEX_ALLOCATION,
+       "after_sun_cpu_index_allocation"},
+      {FailureStage::AFTER_SUN_INDEX_BUFFER, "after_sun_index_buffer"},
+      {FailureStage::AFTER_SUN_VAO, "after_sun_vao"},
+      {FailureStage::AFTER_SUN_SUBMESH_ATTACH,
+       "after_sun_submesh_attach"},
+      {FailureStage::AFTER_BACKGROUND_ITEM, "after_background_item"},
+      {FailureStage::AFTER_SUN_ITEM, "after_sun_item"},
+      {FailureStage::AFTER_SCENE_NODE, "after_scene_node"},
+      {FailureStage::AFTER_ATTACHED_STATE_VERIFICATION,
+       "after_attached_state_verification"},
+  }};
+  const auto lifetime_balanced = [](const OgreNextAnalyticSkyRuntimeAudit &audit) {
+    return audit.native_mesh_creates == audit.native_mesh_destroys &&
+           audit.native_vertex_buffer_creates ==
+               audit.native_vertex_buffer_destroys &&
+           audit.native_index_buffer_creates ==
+               audit.native_index_buffer_destroys &&
+           audit.native_vao_creates == audit.native_vao_destroys &&
+           audit.native_item_creates == audit.native_item_destroys &&
+           audit.native_scene_node_creates ==
+               audit.native_scene_node_destroys &&
+           audit.native_datablock_creates ==
+               audit.native_datablock_destroys &&
+           audit.native_mesh_absence_checks ==
+               audit.native_mesh_destroys &&
+           audit.native_item_absence_checks ==
+               audit.native_item_destroys &&
+           audit.native_scene_node_absence_checks ==
+               audit.native_scene_node_destroys &&
+           audit.native_datablock_absence_checks ==
+               audit.native_datablock_destroys;
+  };
+  evidence.rollback_publication_unchanged = true;
+  evidence.rollback_lifetimes_balanced = true;
+  evidence.clean_retry = true;
+  for (std::size_t index = 0U; index < stages.size(); ++index) {
+    OgreNextN1Configuration configuration;
+    configuration.shader_media_root = media_root;
+    configuration.raster_feature_tier =
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+    configuration.analytic_sky_failure_stage = stages[index].first;
+    configuration.retain_analytic_sky_geometry_content_evidence = true;
+    OgreNextN1Frontend frontend(std::move(configuration));
+    InitializeAndSync(frontend, MakeCatalog(true, &kVariantSpecs.front()));
+
+    RenderFrameOutput untouched;
+    untouched.frame_id = 777U;
+    const RenderOperationResult injected = frontend.Render(
+        MakeFrame(1U, MakeScene(950U + index, false, true),
+                  PixelFormat::RGBA8_SRGB),
+        untouched);
+    const OgreNextAnalyticSkyRuntimeAudit after_failure =
+        frontend.QueryAnalyticSkyAudit();
+    const bool publication_unchanged =
+        after_failure.version == 2U &&
+        after_failure.native_render_policy_version == 1U &&
+        after_failure.completed_frames == 0U &&
+        after_failure.last_sun_light_id == 0U &&
+        after_failure.last_cpu_geometry_fnv1a64 == 0U &&
+        !after_failure.last_descriptor.enabled &&
+        !after_failure.camera_centered && !after_failure.rendered_first &&
+        !after_failure.depth_check_disabled &&
+        !after_failure.depth_write_disabled &&
+        !after_failure.additive_sun_disk &&
+        !after_failure.separate_sun_alpha_replace &&
+        !after_failure.native_geometry_metadata_verified &&
+        !after_failure.exact_native_geometry_readback &&
+        !after_failure.casts_shadows &&
+        !after_failure.portable_scene_identity_absent;
+    const bool failure_balanced = lifetime_balanced(after_failure);
+    Require(injected.code == RenderOperationCode::BACKEND_FAILURE &&
+                untouched.frame_id == 777U &&
+                !frontend.IsFrameComplete(1U) && publication_unchanged &&
+                failure_balanced,
+            std::string("analytic-sky rollback published partial state at ") +
+                stages[index].second);
+    evidence.rollback_publication_unchanged =
+        evidence.rollback_publication_unchanged && publication_unchanged;
+    evidence.rollback_lifetimes_balanced =
+        evidence.rollback_lifetimes_balanced && failure_balanced;
+
+    RenderFrameOutput recovered;
+    RequireSuccess(frontend.Render(
+                       MakeFrame(1U,
+                                 MakeScene(950U + index, false, true),
+                                 PixelFormat::RGBA8_SRGB),
+                       recovered),
+                   std::string("analytic-sky clean retry at ") +
+                       stages[index].second);
+    static_cast<void>(InspectSdr(recovered));
+    const OgreNextAnalyticSkyRuntimeAudit after_retry =
+        frontend.QueryAnalyticSkyAudit();
+    const bool retry_exact =
+        after_retry.completed_frames == 1U &&
+        lifetime_balanced(after_retry) &&
+        after_retry.native_mesh_creates >= 2U &&
+        after_retry.native_item_creates >= 2U &&
+        after_retry.native_scene_node_creates >= 1U &&
+        after_retry.native_datablock_creates >= 2U &&
+        after_retry.native_gpu_content_readbacks >= 4U &&
+        after_retry.native_state_verifications >= 1U &&
+        after_retry.last_sun_light_id == 1U &&
+        after_retry.last_cpu_geometry_fnv1a64 != 0U &&
+        after_retry.last_descriptor.enabled &&
+        after_retry.last_descriptor.sun_light_id == 1U &&
+        after_retry.camera_centered && after_retry.rendered_first &&
+        after_retry.depth_check_disabled &&
+        after_retry.depth_write_disabled &&
+        after_retry.additive_sun_disk &&
+        after_retry.separate_sun_alpha_replace &&
+        after_retry.native_geometry_metadata_verified &&
+        after_retry.exact_native_geometry_readback &&
+        !after_retry.casts_shadows &&
+        after_retry.portable_scene_identity_absent;
+    Require(retry_exact,
+            std::string("analytic-sky retry audit drifted at ") +
+                stages[index].second);
+    evidence.clean_retry = evidence.clean_retry && retry_exact;
+    RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                   std::string("analytic-sky rollback Shutdown at ") +
+                       stages[index].second);
+    ++evidence.rollback_stages_verified;
+  }
+}
+
+void RunAnalyticSkyProductionDefaultReadbackProof(
+    const std::string &media_root,
+    SmokeResult::AnalyticSkyEvidence &evidence) {
+  OgreNextN1Configuration configuration;
+  configuration.shader_media_root = media_root;
+  configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend, MakeCatalog(true, &kVariantSpecs.front()));
+
+  RenderFrameOutput output;
+  RequireSuccess(frontend.Render(
+                     MakeFrame(1U, MakeScene(989U, false, true),
+                               PixelFormat::RGBA8_SRGB),
+                     output),
+                 "analytic-sky production-default readback Render");
+  static_cast<void>(InspectSdr(output));
+  const OgreNextAnalyticSkyRuntimeAudit audit =
+      frontend.QueryAnalyticSkyAudit();
+  evidence.production_default_gpu_content_readbacks_zero =
+      audit.completed_frames == 1U &&
+      audit.native_gpu_content_readbacks == 0U &&
+      audit.native_state_verifications == 1U &&
+      audit.last_cpu_geometry_fnv1a64 != 0U &&
+      audit.native_geometry_metadata_verified &&
+      !audit.exact_native_geometry_readback &&
+      audit.native_mesh_creates == audit.native_mesh_destroys &&
+      audit.native_vertex_buffer_creates ==
+          audit.native_vertex_buffer_destroys &&
+      audit.native_index_buffer_creates ==
+          audit.native_index_buffer_destroys &&
+      audit.native_vao_creates == audit.native_vao_destroys &&
+      audit.native_item_creates == audit.native_item_destroys &&
+      audit.native_scene_node_creates == audit.native_scene_node_destroys &&
+      audit.native_datablock_creates == audit.native_datablock_destroys;
+  Require(evidence.production_default_gpu_content_readbacks_zero,
+          "analytic-sky production-default path performed a GPU content readback or missed native metadata/state verification");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "analytic-sky production-default readback Shutdown");
+}
+
+void RunAnalyticSkyVisualProof(
+    const std::string &media_root,
+    SmokeResult::AnalyticSkyEvidence &evidence) {
+  OgreNextN1Configuration configuration;
+  configuration.shader_media_root = media_root;
+  configuration.raster_feature_tier =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  configuration.retain_analytic_sky_geometry_content_evidence = true;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  InitializeAndSync(frontend, MakeCatalog(true, &kVariantSpecs.front()));
+
+  constexpr std::uint32_t kSkyWidth = 768U;
+  constexpr std::uint32_t kSkyHeight = 512U;
+  evidence.visual_width = kSkyWidth;
+  evidence.visual_height = kSkyHeight;
+  const auto sky_frame = [](std::uint64_t frame_id,
+                            const std::shared_ptr<const SceneSnapshot> &scene,
+                            PixelFormat format) {
+    RenderFrameRequest request = MakeFrame(frame_id, scene, format);
+    request.views.front().width = kSkyWidth;
+    request.views.front().height = kSkyHeight;
+    return request;
+  };
+  const auto inspect_hdr = [](const RenderFrameOutput &output) {
+    Require(output.status == RenderFrameStatus::RENDERED &&
+                !output.presented && output.attachments.size() == 1U,
+            "analytic-sky HDR output was not one CPU attachment");
+    const FrameAttachment &attachment = output.attachments.front();
+    Require(attachment.output == FrameOutputMask::COLOR &&
+                attachment.format == PixelFormat::RGBA16_FLOAT &&
+                attachment.width == kSkyWidth &&
+                attachment.height == kSkyHeight &&
+                !attachment.gpu_resource.valid() &&
+                attachment.row_pitch_bytes ==
+                    static_cast<std::uint64_t>(kSkyWidth) * 8U &&
+                attachment.bytes.size() ==
+                    static_cast<std::size_t>(kSkyWidth) * kSkyHeight * 8U,
+            "analytic-sky HDR attachment extent or layout drifted");
+    Metrics metrics;
+    metrics.attachment_bytes = attachment.bytes;
+    metrics.attachment_fnv1a64 = HashBytes(metrics.attachment_bytes);
+    std::map<std::uint32_t, std::size_t> runs;
+    for (std::size_t pixel = 0U;
+         pixel < static_cast<std::size_t>(kSkyWidth) * kSkyHeight; ++pixel) {
+      float channels[4U]{};
+      for (std::size_t channel = 0U; channel < 4U; ++channel) {
+        std::uint16_t bits = 0U;
+        std::memcpy(&bits,
+                    attachment.bytes.data() + pixel * 8U + channel * 2U,
+                    sizeof(bits));
+        channels[channel] = HalfToFloat(bits);
+        Require(std::isfinite(channels[channel]),
+                "analytic-sky HDR attachment contains a non-finite value");
+      }
+      Require(channels[3U] >= 0.99F && channels[3U] <= 1.01F,
+              "analytic-sky HDR attachment alpha is not opaque");
+      Accumulate(metrics, runs, channels[0U], channels[1U], channels[2U]);
+    }
+    FinishMetrics(metrics, runs);
+    return metrics;
+  };
+  const auto inspect_sdr = [](const RenderFrameOutput &output) {
+    Require(output.status == RenderFrameStatus::RENDERED &&
+                !output.presented && output.attachments.size() == 1U,
+            "analytic-sky SDR output was not one CPU attachment");
+    const FrameAttachment &attachment = output.attachments.front();
+    Require(attachment.output == FrameOutputMask::COLOR &&
+                attachment.format == PixelFormat::RGBA8_SRGB &&
+                attachment.width == kSkyWidth &&
+                attachment.height == kSkyHeight &&
+                !attachment.gpu_resource.valid() &&
+                attachment.row_pitch_bytes ==
+                    static_cast<std::uint64_t>(kSkyWidth) * 4U &&
+                attachment.bytes.size() ==
+                    static_cast<std::size_t>(kSkyWidth) * kSkyHeight * 4U,
+            "analytic-sky SDR attachment extent or layout drifted");
+    Metrics metrics;
+    metrics.attachment_bytes = attachment.bytes;
+    metrics.attachment_fnv1a64 = HashBytes(metrics.attachment_bytes);
+    metrics.rgb.reserve(
+        static_cast<std::size_t>(kSkyWidth) * kSkyHeight * 3U);
+    std::map<std::uint32_t, std::size_t> runs;
+    for (std::size_t pixel = 0U;
+         pixel < static_cast<std::size_t>(kSkyWidth) * kSkyHeight; ++pixel) {
+      const std::uint8_t *rgba = attachment.bytes.data() + pixel * 4U;
+      Require(rgba[3U] >= 250U,
+              "analytic-sky SDR attachment alpha is not opaque");
+      metrics.rgb.push_back(rgba[0U]);
+      metrics.rgb.push_back(rgba[1U]);
+      metrics.rgb.push_back(rgba[2U]);
+      Accumulate(metrics, runs, static_cast<float>(rgba[0U]) / 255.0F,
+                 static_cast<float>(rgba[1U]) / 255.0F,
+                 static_cast<float>(rgba[2U]) / 255.0F);
+    }
+    FinishMetrics(metrics, runs);
+    return metrics;
+  };
+
+  const Float3 camera_facing_sun_direction{0.0F, 0.0F, 1.0F};
+  const auto sunless_scene = MakeScene(
+      990U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+      camera_facing_sun_direction, 0.0F, false, false, true);
+  const auto sun_scene = MakeScene(
+      991U, false, true, 1U, 1U, Matrix4x4{}, 1U,
+      camera_facing_sun_direction, 0.0F, false, false, false);
+
+  RenderFrameOutput sunless_hdr_output;
+  RequireSuccess(frontend.Render(
+                     sky_frame(1U, sunless_scene,
+                               PixelFormat::RGBA16_FLOAT),
+                     sunless_hdr_output),
+                 "analytic-sky camera-facing sunless HDR Render");
+  evidence.camera_facing_sunless_hdr = inspect_hdr(sunless_hdr_output);
+
+  RenderFrameOutput sun_hdr_output;
+  RequireSuccess(frontend.Render(
+                     sky_frame(2U, sun_scene, PixelFormat::RGBA16_FLOAT),
+                     sun_hdr_output),
+                 "analytic-sky camera-facing sun HDR Render");
+  evidence.camera_facing_sun_hdr = inspect_hdr(sun_hdr_output);
+
+  RenderFrameOutput sun_sdr_output;
+  RequireSuccess(frontend.Render(
+                     sky_frame(3U, sun_scene, PixelFormat::RGBA8_SRGB),
+                     sun_sdr_output),
+                 "analytic-sky camera-facing sun SDR Render");
+  evidence.camera_facing_sun_sdr = inspect_sdr(sun_sdr_output);
+
+  const std::vector<std::uint8_t> &sunless =
+      evidence.camera_facing_sunless_hdr.attachment_bytes;
+  const std::vector<std::uint8_t> &sun =
+      evidence.camera_facing_sun_hdr.attachment_bytes;
+  const std::size_t pixel_count =
+      static_cast<std::size_t>(kSkyWidth) * kSkyHeight;
+  Require(sunless.size() == pixel_count * 8U && sun.size() == sunless.size(),
+          "analytic-sky HDR evidence byte count is incomplete");
+
+  std::vector<double> row_luminance(kSkyHeight, 0.0);
+  for (std::size_t pixel = 0U; pixel < pixel_count; ++pixel) {
+    float sunless_rgb[3U]{};
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+      std::uint16_t bits = 0U;
+      std::memcpy(&bits,
+                  sunless.data() + pixel * 8U + channel * 2U,
+                  sizeof(bits));
+      sunless_rgb[channel] = HalfToFloat(bits);
+    }
+    const float maximum =
+        std::max({sunless_rgb[0U], sunless_rgb[1U], sunless_rgb[2U]});
+    if (std::isfinite(maximum) && maximum > 0.0001F) {
+      ++evidence.hemisphere_covered_pixels;
+    }
+    row_luminance[pixel / kSkyWidth] +=
+        0.2126 * static_cast<double>(sunless_rgb[0U]) +
+        0.7152 * static_cast<double>(sunless_rgb[1U]) +
+        0.0722 * static_cast<double>(sunless_rgb[2U]);
+
+    bool rgb_changed = false;
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+      rgb_changed =
+          rgb_changed ||
+          std::memcmp(sunless.data() + pixel * 8U + channel * 2U,
+                      sun.data() + pixel * 8U + channel * 2U,
+                      sizeof(std::uint16_t)) != 0;
+    }
+    std::uint16_t sun_alpha = 0U;
+    std::memcpy(&sun_alpha, sun.data() + pixel * 8U + 6U,
+                sizeof(sun_alpha));
+    if (sun_alpha == UINT16_C(0x3c00)) {
+      ++evidence.sun_hdr_opaque_alpha_pixels;
+    }
+    if (rgb_changed) {
+      ++evidence.sun_changed_pixels;
+      if (sun_alpha == UINT16_C(0x3c00)) {
+        ++evidence.sun_changed_pixels_alpha_exact_one;
+      }
+    }
+  }
+  for (double &row : row_luminance) {
+    row /= static_cast<double>(kSkyWidth);
+  }
+  for (std::size_t row = 1U; row < row_luminance.size(); ++row) {
+    if (std::abs(row_luminance[row] - row_luminance[row - 1U]) >
+        1.0e-6) {
+      ++evidence.hemisphere_gradient_rows;
+    }
+  }
+
+  evidence.broad_hemisphere_coverage =
+      evidence.hemisphere_covered_pixels >= pixel_count * 95U / 100U &&
+      evidence.hemisphere_gradient_rows >= kSkyHeight / 4U &&
+      evidence.camera_facing_sunless_hdr.distinct_rgb >= 4U;
+  evidence.visible_sun_effect =
+      evidence.sun_changed_pixels > 0U &&
+      evidence.camera_facing_sun_hdr.maximum_luminance >
+          evidence.camera_facing_sunless_hdr.maximum_luminance;
+  evidence.visible_sun_alpha_exact_one =
+      evidence.sun_changed_pixels_alpha_exact_one ==
+          evidence.sun_changed_pixels &&
+      evidence.sun_hdr_opaque_alpha_pixels == pixel_count;
+  if (!evidence.broad_hemisphere_coverage) {
+    std::ostringstream detail;
+    detail << "analytic-sky sky-only readback did not cover the broad viewport with a vertical gradient"
+           << " (covered=" << evidence.hemisphere_covered_pixels
+           << ", gradient_rows=" << evidence.hemisphere_gradient_rows
+           << ", distinct="
+           << evidence.camera_facing_sunless_hdr.distinct_rgb << ')';
+    Fail(detail.str());
+  }
+  Require(evidence.visible_sun_effect,
+          "analytic-sky camera-facing sun changed no HDR pixels");
+  Require(evidence.visible_sun_alpha_exact_one,
+          "analytic-sky visible sun pixels did not retain exact half-float alpha one");
+
+  const OgreNextAnalyticSkyRuntimeAudit audit =
+      frontend.QueryAnalyticSkyAudit();
+  Require(audit.completed_frames == 3U &&
+              audit.native_mesh_creates == 6U &&
+              audit.native_mesh_destroys == 6U &&
+              audit.native_vertex_buffer_creates == 6U &&
+              audit.native_vertex_buffer_destroys == 6U &&
+              audit.native_index_buffer_creates == 6U &&
+              audit.native_index_buffer_destroys == 6U &&
+              audit.native_vao_creates == 6U &&
+              audit.native_vao_destroys == 6U &&
+              audit.native_item_creates == 6U &&
+              audit.native_item_destroys == 6U &&
+              audit.native_scene_node_creates == 3U &&
+              audit.native_scene_node_destroys == 3U &&
+              audit.native_datablock_creates == 6U &&
+              audit.native_datablock_destroys == 6U &&
+              audit.native_mesh_absence_checks == 6U &&
+              audit.native_item_absence_checks == 6U &&
+              audit.native_scene_node_absence_checks == 3U &&
+              audit.native_datablock_absence_checks == 6U &&
+              audit.native_gpu_content_readbacks == 12U &&
+              audit.native_state_verifications == 3U &&
+              audit.last_cpu_geometry_fnv1a64 != 0U &&
+              audit.separate_sun_alpha_replace &&
+              audit.native_geometry_metadata_verified &&
+              audit.exact_native_geometry_readback,
+          "analytic-sky sky-only proof did not balance exact native v2 resources");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "analytic-sky visual-proof Shutdown");
+}
+
 SmokeResult::HdrCompositorEvidence
 RunHdrCompositorProof(const std::string &media_root) {
   SmokeResult::HdrCompositorEvidence evidence;
@@ -3098,7 +3877,7 @@ RunHdrCompositorProof(const std::string &media_root) {
 
   RenderFrameRequest second = MakeFrame(
       2U, MakeScene(101U, false, true, 1U, 1U, Matrix4x4{}, 1U,
-                   {0.0F, 0.0F, -1.0F}, 0.5F),
+                   {0.0F, -0.8F, -0.6F}, 0.5F),
       PixelFormat::RGBA8_SRGB);
   second.views.front().exposure = 1.25F;
   RenderFrameOutput second_output;
@@ -3538,6 +4317,8 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   OgreNextN1Configuration frontend_configuration{media_root,
                                                   raster_feature_tier};
   frontend_configuration.retain_reflection_capture_evidence = modern_pbr;
+  frontend_configuration.retain_analytic_sky_geometry_content_evidence =
+      modern_pbr;
   OgreNextN1Frontend frontend(std::move(frontend_configuration));
 
   const FrontendCapabilityReport capabilities = frontend.QueryCapabilities();
@@ -3562,6 +4343,10 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   SmokeResult result;
   result.dynamic_mesh = RunDynamicMeshProof(media_root, modern_pbr);
   if (modern_pbr) {
+    RunAnalyticSkyProductionDefaultReadbackProof(media_root,
+                                                 result.analytic_sky);
+    RunAnalyticSkyVisualProof(media_root, result.analytic_sky);
+    RunAnalyticSkyRollbackProof(media_root, result.analytic_sky);
     result.display_domain_unlit = RunDisplayDomainUnlitProof(media_root);
     result.tangent_handedness = RunTangentHandednessProof(media_root);
     result.texture_upload_rollback =
@@ -3636,6 +4421,43 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
   RequireSuccess(frontend.WaitForFrame(1U, 0U), "WaitForFrame(HDR)");
   result.hdr = InspectHdr(hdr_output);
   if (modern_pbr) {
+    result.analytic_sky.first_committed =
+        frontend.QueryAnalyticSkyAudit();
+    const OgreNextAnalyticSkyRuntimeAudit &sky =
+        result.analytic_sky.first_committed;
+    Require(sky.version == 2U && sky.native_render_policy_version == 1U &&
+                sky.completed_frames == 1U &&
+                sky.native_mesh_creates == 2U &&
+                sky.native_mesh_destroys == 2U &&
+                sky.native_vertex_buffer_creates == 2U &&
+                sky.native_vertex_buffer_destroys == 2U &&
+                sky.native_index_buffer_creates == 2U &&
+                sky.native_index_buffer_destroys == 2U &&
+                sky.native_vao_creates == 2U &&
+                sky.native_vao_destroys == 2U &&
+                sky.native_item_creates == 2U &&
+                sky.native_item_destroys == 2U &&
+                sky.native_scene_node_creates == 1U &&
+                sky.native_scene_node_destroys == 1U &&
+                sky.native_datablock_creates == 2U &&
+                sky.native_datablock_destroys == 2U &&
+                sky.native_mesh_absence_checks == 2U &&
+                sky.native_item_absence_checks == 2U &&
+                sky.native_scene_node_absence_checks == 1U &&
+                sky.native_datablock_absence_checks == 2U &&
+                sky.native_gpu_content_readbacks == 4U &&
+                sky.native_state_verifications == 1U &&
+                sky.last_cpu_geometry_fnv1a64 != 0U &&
+                sky.last_sun_light_id == 1U && sky.last_descriptor.enabled &&
+                sky.last_descriptor.sun_light_id == 1U &&
+                sky.camera_centered && sky.rendered_first &&
+                sky.depth_check_disabled && sky.depth_write_disabled &&
+                sky.additive_sun_disk &&
+                sky.separate_sun_alpha_replace &&
+                sky.native_geometry_metadata_verified &&
+                sky.exact_native_geometry_readback && !sky.casts_shadows &&
+                sky.portable_scene_identity_absent,
+            "RT4/V1 did not publish one exact native analytic-sky frame");
     result.reflection_probes = frontend.QueryReflectionProbeAudit();
     Require(result.reflection_probes.version == 2U &&
                 result.reflection_probes.initialized &&
@@ -3812,6 +4634,50 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
         final_audit.retired_name_lookups == 12U &&
         final_audit.retired_name_rejections == 12U &&
         final_audit.exact_usage;
+    result.analytic_sky.final_committed =
+        frontend.QueryAnalyticSkyAudit();
+    const OgreNextAnalyticSkyRuntimeAudit &sky =
+        result.analytic_sky.final_committed;
+    Require(sky.completed_frames >= 4U &&
+                sky.native_mesh_creates == sky.completed_frames * 2U &&
+                sky.native_mesh_destroys == sky.completed_frames * 2U &&
+                sky.native_vertex_buffer_creates ==
+                    sky.completed_frames * 2U &&
+                sky.native_vertex_buffer_destroys ==
+                    sky.completed_frames * 2U &&
+                sky.native_index_buffer_creates ==
+                    sky.completed_frames * 2U &&
+                sky.native_index_buffer_destroys ==
+                    sky.completed_frames * 2U &&
+                sky.native_vao_creates == sky.completed_frames * 2U &&
+                sky.native_vao_destroys == sky.completed_frames * 2U &&
+                sky.native_item_creates == sky.completed_frames * 2U &&
+                sky.native_item_destroys == sky.completed_frames * 2U &&
+                sky.native_scene_node_creates == sky.completed_frames &&
+                sky.native_scene_node_destroys == sky.completed_frames &&
+                sky.native_datablock_creates == sky.completed_frames * 2U &&
+                sky.native_datablock_destroys == sky.completed_frames * 2U &&
+                sky.native_mesh_absence_checks ==
+                    sky.completed_frames * 2U &&
+                sky.native_item_absence_checks ==
+                    sky.completed_frames * 2U &&
+                sky.native_scene_node_absence_checks ==
+                    sky.completed_frames &&
+                sky.native_datablock_absence_checks ==
+                    sky.completed_frames * 2U &&
+                sky.native_gpu_content_readbacks ==
+                    sky.completed_frames * 4U &&
+                sky.native_state_verifications == sky.completed_frames &&
+                sky.last_cpu_geometry_fnv1a64 != 0U &&
+                sky.last_sun_light_id == 1U &&
+                sky.last_descriptor.enabled && sky.camera_centered &&
+                sky.rendered_first && sky.depth_check_disabled &&
+                sky.depth_write_disabled && sky.additive_sun_disk &&
+                sky.separate_sun_alpha_replace &&
+                sky.native_geometry_metadata_verified &&
+                sky.exact_native_geometry_readback && !sky.casts_shadows &&
+                sky.portable_scene_identity_absent,
+            "RT4/V1 analytic-sky lifetime counters did not remain balanced");
   }
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "first Shutdown");
@@ -3880,11 +4746,19 @@ int main(int argc, char **argv) {
       WriteReflectionEvidence(arguments.reflection_evidence_path, result);
       WriteHdrCompositorEvidence(arguments.compositor_evidence_path,
                                  result.hdr_compositor);
+      WriteAnalyticSkyEvidence(arguments.analytic_sky_evidence_path,
+                               result.analytic_sky);
+      WritePpm(arguments.analytic_sky_image_path,
+               result.analytic_sky.camera_facing_sun_sdr,
+               result.analytic_sky.visual_width,
+               result.analytic_sky.visual_height);
     }
     const std::string report = MakeReport(
         result, arguments.modern_pbr, arguments.evidence_path,
         arguments.reflection_evidence_path,
-        arguments.compositor_evidence_path);
+        arguments.compositor_evidence_path,
+        arguments.analytic_sky_evidence_path,
+        arguments.analytic_sky_image_path);
     WriteText(arguments.report_path, report);
     std::cout << report;
     return 0;

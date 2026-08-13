@@ -770,6 +770,15 @@ constexpr float kOgre14AmbientNativeUnitRadiance = 1.0F;
 constexpr float kOgre14LegacyDiffusePowerToCanonicalIntensity = 1024.0F;
 constexpr std::uint32_t kOgre14LightCompatibilityCalibrationVersion = 1U;
 
+/// SkyX's native shader is azimuth-dependent and can operate after its own
+/// LDR exposure curve, so its pixels cannot be copied exactly into the
+/// renderer-neutral azimuth-independent linear gradient contract. Policy v1
+/// deliberately derives a bounded-shape modern sky from only the joined live
+/// ambient value and the exact captured main-light direction/chromaticity/
+/// power. Changing any coefficient is therefore a reviewed policy revision.
+constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 1U;
+constexpr float kOgre14ModernAnalyticSunAngularRadiusRadians = 0.00465047F;
+
 enum class Ogre14GraphicsSceneLightKind : std::uint8_t {
   POINT = 0U,
   DIRECTIONAL = 1U,
@@ -852,11 +861,20 @@ private:
 /// Converts the complete constant-ambient state supported by OGRE 14. The
 /// legacy bridge has no compatible authored linear-float equirectangular
 /// environment asset or scene-level exposure value; those optional fields
-/// remain canonically absent and identity-valued. Visual sky geometry remains
-/// part of the separate static asset/instance inventory. Failure leaves
-/// `environment` untouched.
+/// remain canonically absent and identity-valued. This base conversion does
+/// not invent sky state; the explicitly versioned live main-light policy below
+/// may extend its staged candidate. Failure leaves `environment` untouched.
 [[nodiscard]] ValidationResult BuildOgre14GraphicsSceneEnvironment(
     const Float3 &native_ambient_linear,
+    SceneEnvironmentDescriptor &environment);
+
+/// Adds policy-v1 analytic sky state to the exact constant-ambient
+/// conversion. `sun` must be the matching converted live directional light;
+/// its stable identity is referenced directly, never recreated. Failure
+/// leaves `environment` untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+    const Float3 &native_ambient_linear,
+    const GraphicsSceneLightInput &sun,
     SceneEnvironmentDescriptor &environment);
 
 /// Builds the canonical right-handed, [0,1]-depth camera contract without

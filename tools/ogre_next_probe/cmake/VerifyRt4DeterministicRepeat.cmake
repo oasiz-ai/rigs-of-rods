@@ -1,4 +1,6 @@
-foreach (_label IN ITEMS REPORT IMAGE ISOLATION REFLECTION COMPOSITOR)
+foreach (_label IN ITEMS
+        REPORT IMAGE ISOLATION REFLECTION COMPOSITOR
+        ANALYTIC_SKY_IMAGE ANALYTIC_SKY_EVIDENCE)
     if (NOT DEFINED PRIMARY_${_label} OR
             NOT DEFINED REPEAT_${_label} OR
             PRIMARY_${_label} STREQUAL "" OR
@@ -28,4 +30,4 @@ foreach (_label IN ITEMS REPORT IMAGE ISOLATION REFLECTION COMPOSITOR)
 endforeach ()
 
 message(STATUS
-    "RT4 deterministic repeat report, compositor frame, texture isolation, reflection, and HDR evidence are byte-identical")
+    "RT4 deterministic repeat report, compositor frame, texture isolation, reflection, HDR, and analytic-sky evidence are byte-identical")

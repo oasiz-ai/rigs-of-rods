@@ -210,6 +210,32 @@ enum class OgreNextN1HdrFailureStage : std::uint8_t {
   /// prepared, but before any public frame or audit state is committed.
   AFTER_FRAME_COMMIT_PREPARE,
 };
+
+/// Analytic-sky-only transactional fault seam for the native smoke. The
+/// production target never compiles this enum or its injections.
+enum class OgreNextN1AnalyticSkyFailureStage : std::uint8_t {
+  NONE = 0,
+  AFTER_BACKGROUND_DATABLOCK,
+  AFTER_SUN_DATABLOCK,
+  AFTER_BACKGROUND_MESH,
+  AFTER_BACKGROUND_CPU_VERTEX_ALLOCATION,
+  AFTER_BACKGROUND_VERTEX_BUFFER,
+  AFTER_BACKGROUND_CPU_INDEX_ALLOCATION,
+  AFTER_BACKGROUND_INDEX_BUFFER,
+  AFTER_BACKGROUND_VAO,
+  AFTER_BACKGROUND_SUBMESH_ATTACH,
+  AFTER_SUN_MESH,
+  AFTER_SUN_CPU_VERTEX_ALLOCATION,
+  AFTER_SUN_VERTEX_BUFFER,
+  AFTER_SUN_CPU_INDEX_ALLOCATION,
+  AFTER_SUN_INDEX_BUFFER,
+  AFTER_SUN_VAO,
+  AFTER_SUN_SUBMESH_ATTACH,
+  AFTER_BACKGROUND_ITEM,
+  AFTER_SUN_ITEM,
+  AFTER_SCENE_NODE,
+  AFTER_ATTACHED_STATE_VERIFICATION,
+};
 #endif
 
 /// Runtime-owned Ogre shader media. The root is an absolute UTF-8 path containing
@@ -227,6 +253,12 @@ struct OgreNextN1Configuration final {
       OgreNextN1PssmFailureStage::NONE;
   OgreNextN1HdrFailureStage hdr_failure_stage =
       OgreNextN1HdrFailureStage::NONE;
+  OgreNextN1AnalyticSkyFailureStage analytic_sky_failure_stage =
+      OgreNextN1AnalyticSkyFailureStage::NONE;
+  /// Enables four synchronous immutable VB/IB byte reads per analytic-sky
+  /// frame for the isolated native artifact only. Production does not compile
+  /// a caller-visible switch and therefore remains zero-readback.
+  bool retain_analytic_sky_geometry_content_evidence = false;
   /// Connects Ogre's real `HdrRenderUi` node and creates a full-screen magenta
   /// Overlay panel for the isolated negative-control proof. Production callers
   /// must leave this false.
@@ -277,6 +309,59 @@ struct OgreNextHdrCompositorAudit final {
   double history_binary32_rounding_bound = 0.0;
   double history_storage_ulp = 0.0;
   std::uint32_t history_r16_ulp_distance = 0U;
+};
+
+/// Native evidence for the renderer-neutral analytic sky. One completed frame
+/// owns two frontend-private v2 Mesh/Item sections on one camera-centred node:
+/// a replace-gradient background and an RGB-additive, alpha-replacing sun.
+/// These resources are internal renderer state and carry no portable scene
+/// identity. Lifetime counters include aborted transactions so a native-smoke
+/// fault seam can prove that every acquired resource was retired before retry.
+struct OgreNextAnalyticSkyRuntimeAudit final {
+  std::uint32_t version = 2U;
+  std::uint32_t native_render_policy_version = 1U;
+  std::uint64_t completed_frames = 0U;
+  std::uint64_t native_mesh_creates = 0U;
+  std::uint64_t native_mesh_destroys = 0U;
+  std::uint64_t native_vertex_buffer_creates = 0U;
+  std::uint64_t native_vertex_buffer_destroys = 0U;
+  std::uint64_t native_index_buffer_creates = 0U;
+  std::uint64_t native_index_buffer_destroys = 0U;
+  std::uint64_t native_vao_creates = 0U;
+  std::uint64_t native_vao_destroys = 0U;
+  std::uint64_t native_item_creates = 0U;
+  std::uint64_t native_item_destroys = 0U;
+  std::uint64_t native_scene_node_creates = 0U;
+  std::uint64_t native_scene_node_destroys = 0U;
+  std::uint64_t native_datablock_creates = 0U;
+  std::uint64_t native_datablock_destroys = 0U;
+  std::uint64_t native_mesh_absence_checks = 0U;
+  std::uint64_t native_item_absence_checks = 0U;
+  std::uint64_t native_scene_node_absence_checks = 0U;
+  std::uint64_t native_datablock_absence_checks = 0U;
+  /// Exact immutable VB/IB byte reads enabled only by the isolated test seam.
+  /// Production keeps this zero and uses the CPU digest plus native metadata.
+  std::uint64_t native_gpu_content_readbacks = 0U;
+  std::uint64_t native_state_verifications = 0U;
+  std::uint64_t last_sun_light_id = 0U;
+  std::uint32_t last_background_vertex_count = 0U;
+  std::uint32_t last_background_index_count = 0U;
+  std::uint32_t last_sun_vertex_count = 0U;
+  std::uint32_t last_sun_index_count = 0U;
+  std::uint64_t last_native_content_bytes = 0U;
+  /// FNV-1a over the four exact CPU byte ranges handed to immutable buffers.
+  std::uint64_t last_cpu_geometry_fnv1a64 = 0U;
+  AnalyticSkyDescriptor last_descriptor;
+  bool camera_centered = false;
+  bool rendered_first = false;
+  bool depth_check_disabled = false;
+  bool depth_write_disabled = false;
+  bool additive_sun_disk = false;
+  bool separate_sun_alpha_replace = false;
+  bool native_geometry_metadata_verified = false;
+  bool exact_native_geometry_readback = false;
+  bool casts_shadows = false;
+  bool portable_scene_identity_absent = false;
 };
 
 struct OgreNextPssmNativeAabb final {
@@ -399,6 +484,8 @@ public:
   QueryHdrCompositorAudit() const noexcept;
   [[nodiscard]] OgreNextN1PresentationAudit
   QueryPresentationAudit() const noexcept;
+  [[nodiscard]] OgreNextAnalyticSkyRuntimeAudit
+  QueryAnalyticSkyAudit() const noexcept;
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult PresentBootstrapFrame() override;

@@ -73,6 +73,33 @@ installed legacy `RoR.app` by LaunchServices.
 - The captured frame is normalized, without mutating OGRE or user settings, to
   the active child surface, a 0.5/350 clip range, and the exact visible
   cast-shadow directional `Terrain::getMainLight()` required by PSSM.
+- That exact converted main-light identity and the joined renderer-linear
+  ambient value also stage modern analytic-sky policy version 1. The native
+  OgreNext frontend draws a camera-centred zenith/horizon/ground gradient
+  first with depth testing and writes disabled, then draws the matching sun
+  cap with additive RGB and replace-alpha blending; neither section receives
+  a portable scene identity or casts shadows. Frontend-owned v2 meshes,
+  immutable vertex/index buffers, VAOs, Items, and the shared camera-centred
+  node are staged and destroyed transactionally. Production verifies exact
+  Item/VAO topology and state from native metadata, retains an exact CPU
+  geometry FNV-1a digest, and performs zero GPU content or framebuffer
+  readbacks. The explicit isolated proof additionally opts into
+  four exact VB/IB byte reads per frame, exercises 20 interior allocation and
+  attachment seams with clean retry, and captures paired 768x512 sunless/sun
+  HDR attachments plus the visible sky PPM. Every HDR alpha sample, including
+  every sun-changed pixel, must be exact half-float one. SkyX's shader output is
+  azimuth-dependent and may already include
+  its own LDR exposure, so this is a reviewed modern policy tied to
+  authoritative live inputs, not a claim of exact SkyX pixel capture.
+- The combined executable records that boundary twice without per-frame log
+  spam: a change-only joined source descriptor under
+  `[RoR|OgreNextDemo|AnalyticSky|Source]`, and a presenter-returned native N1
+  health receipt under `[RoR|RendererCombined|AnalyticSky|Native]`. The latter
+  requires a completed frame, balanced ownership, exact per-frame resource
+  counts, a nonzero CPU geometry digest, verified native geometry metadata,
+  separate sun-alpha replacement, and `native_gpu_content_readbacks=0`. Exact
+  buffer contents belong only to
+  the isolated smoke/artifact receipt.
 
 ## Transaction and performance boundary
 

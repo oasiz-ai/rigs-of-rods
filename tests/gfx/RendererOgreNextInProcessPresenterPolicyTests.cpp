@@ -166,6 +166,22 @@ void TestVisibleRetinaMetricsKeepLogicalAndPixelDomainsPaired() {
   Require(!metrics.valid(), "hostile visible drawable extent was admitted");
 }
 
+void TestAnalyticSkyAuditDefaultsFailClosed() {
+  const RoR::RendererAnalyticSkyAudit audit;
+  Require(audit.completed_frames == 0U && audit.sun_light_id == 0U &&
+              audit.cpu_geometry_fnv1a64 == 0U &&
+              audit.native_gpu_content_readbacks == 0U &&
+              audit.native_state_verifications == 0U &&
+              !audit.native_ownership_balanced &&
+              !audit.expected_per_frame_ownership &&
+              !audit.cpu_geometry_digest_verified &&
+              !audit.native_geometry_metadata_verified &&
+              !audit.production_gpu_readbacks_zero &&
+              !audit.exact_native_geometry_readback &&
+              !audit.separate_sun_alpha_replace && !audit.available,
+          "unavailable analytic-sky audit did not fail closed");
+}
+
 } // namespace
 
 int main() {
@@ -186,6 +202,7 @@ int main() {
   TestRestoreRequiresFocusBeforeInputResumes();
   TestDirectMouseCallbacksSeeOnlyTheirCurrentTransition();
   TestVisibleRetinaMetricsKeepLogicalAndPixelDomainsPaired();
+  TestAnalyticSkyAuditDefaultsFailClosed();
   std::cout << "renderer Ogre-Next in-process input policy tests passed\n";
   return EXIT_SUCCESS;
 }

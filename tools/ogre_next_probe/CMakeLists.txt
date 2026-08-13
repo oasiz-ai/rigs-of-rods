@@ -4194,6 +4194,10 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin")
     set(ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_IMAGE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-analytic-sky.ppm")
+    set(ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_EVIDENCE
+        "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-analytic-sky.bin")
     set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-frontend-rt4-pbr-v1-repeat")
     set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE
@@ -4206,6 +4210,10 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
         "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-reflection.bin")
     set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE
         "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_IMAGE
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-analytic-sky.ppm")
+    set(ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_EVIDENCE
+        "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}/ror-ogre-next-frontend-rt4-pbr-v1-analytic-sky.bin")
     set(ROR_OGRE_NEXT_PSSM_REPORT
         "${CMAKE_BINARY_DIR}/ror-ogre-next-pssm-shadow-report.json")
     set(ROR_OGRE_NEXT_PSSM_EVIDENCE
@@ -4231,6 +4239,8 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_IMAGE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_EVIDENCE}"
         COMMAND
             "${CMAKE_COMMAND}" -E rm -rf
             "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ROOT}"
@@ -4253,6 +4263,10 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
                 "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
             --compositor-evidence
                 "${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            --analytic-sky-output
+                "${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_IMAGE}"
+            --analytic-sky-evidence
+                "${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_EVIDENCE}"
         COMMAND
             "${ROR_OGRE_NEXT_N1_PACKAGE_EXECUTABLE}"
             --media-root "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}"
@@ -4264,6 +4278,10 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
                 "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
             --compositor-evidence
                 "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+            --analytic-sky-output
+                "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_IMAGE}"
+            --analytic-sky-evidence
+                "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_EVIDENCE}"
         COMMAND
             "${CMAKE_COMMAND}"
             "-DPRIMARY_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPORT}"
@@ -4271,11 +4289,15 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "-DPRIMARY_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             "-DPRIMARY_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
             "-DPRIMARY_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "-DPRIMARY_ANALYTIC_SKY_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_IMAGE}"
+            "-DPRIMARY_ANALYTIC_SKY_EVIDENCE=${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_EVIDENCE}"
             "-DREPEAT_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
             "-DREPEAT_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
             "-DREPEAT_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
             "-DREPEAT_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
             "-DREPEAT_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+            "-DREPEAT_ANALYTIC_SKY_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_IMAGE}"
+            "-DREPEAT_ANALYTIC_SKY_EVIDENCE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_EVIDENCE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRt4DeterministicRepeat.cmake"
         DEPENDS
             ror_ogre_next_frontend_n1_package
@@ -4292,11 +4314,15 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_IMAGE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
             "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_IMAGE}"
+            "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_EVIDENCE}"
         COMMENT "Running isolated Ogre-Next N1 and RT4/V1 HDR/SDR frontend smokes"
         VERBATIM)
     add_test(NAME ror_ogre_next_frontend_n1_runtime
@@ -4316,7 +4342,11 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
                 --reflection-evidence
                     "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
                 --compositor-evidence
-                    "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}")
+                    "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+                --analytic-sky-output
+                    "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_IMAGE}"
+                --analytic-sky-evidence
+                    "${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_EVIDENCE}")
     set_tests_properties(
         ror_ogre_next_frontend_rt4_pbr_v1_runtime
         PROPERTIES WORKING_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -4327,11 +4357,15 @@ if (TARGET ror_ogre_next_frontend_n1_smoke)
             "-DPRIMARY_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_EVIDENCE}"
             "-DPRIMARY_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REFLECTION_EVIDENCE}"
             "-DPRIMARY_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_COMPOSITOR_EVIDENCE}"
+            "-DPRIMARY_ANALYTIC_SKY_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_IMAGE}"
+            "-DPRIMARY_ANALYTIC_SKY_EVIDENCE=${ROR_OGRE_NEXT_RT4_PBR_ANALYTIC_SKY_EVIDENCE}"
             "-DREPEAT_REPORT=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REPORT}"
             "-DREPEAT_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_IMAGE}"
             "-DREPEAT_ISOLATION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_EVIDENCE}"
             "-DREPEAT_REFLECTION=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_REFLECTION_EVIDENCE}"
             "-DREPEAT_COMPOSITOR=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_COMPOSITOR_EVIDENCE}"
+            "-DREPEAT_ANALYTIC_SKY_IMAGE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_IMAGE}"
+            "-DREPEAT_ANALYTIC_SKY_EVIDENCE=${ROR_OGRE_NEXT_RT4_PBR_REPEAT_ANALYTIC_SKY_EVIDENCE}"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyRt4DeterministicRepeat.cmake")
     set_tests_properties(
         ror_ogre_next_frontend_rt4_pbr_v1_repeat

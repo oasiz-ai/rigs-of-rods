@@ -72,6 +72,7 @@
 #include "OgreTextureGpuManager.h"
 #include "OgreWindow.h"
 #include "Vao/OgreVaoManager.h"
+#include "Vao/OgreAsyncTicket.h"
 #include "Vao/OgreVertexArrayObject.h"
 #include "Vao/OgreVertexBufferPacked.h"
 #include "Vao/OgreIndexBufferPacked.h"
@@ -123,6 +124,36 @@ bool TryClaimOgreNextN1Root() noexcept {
 
 void ReleaseOgreNextN1Root() noexcept {
   g_ogre_next_n1_root_claimed.store(false, std::memory_order_release);
+}
+
+std::uint64_t AnalyticSkyCpuGeometryFnv1a64(
+    const OgreNextAnalyticSkyNativeMesh &mesh) noexcept {
+  constexpr std::uint64_t kOffsetBasis = UINT64_C(14695981039346656037);
+  constexpr std::uint64_t kPrime = UINT64_C(1099511628211);
+  std::uint64_t digest = kOffsetBasis;
+  const auto absorb = [&](const void *data, std::size_t size) {
+    const auto *bytes = static_cast<const std::uint8_t *>(data);
+    for (std::size_t index = 0U; index < size; ++index) {
+      digest ^= bytes[index];
+      digest *= kPrime;
+    }
+  };
+  const auto absorb_section = [&](std::uint8_t tag, const void *data,
+                                  std::size_t size) {
+    absorb(&tag, sizeof(tag));
+    absorb(data, size);
+  };
+  absorb_section(1U, mesh.background_vertices.data(),
+                 mesh.background_vertices.size() *
+                     sizeof(OgreNextAnalyticSkyNativeVertex));
+  absorb_section(2U, mesh.background_indices.data(),
+                 mesh.background_indices.size() * sizeof(std::uint32_t));
+  absorb_section(3U, mesh.sun_vertices.data(),
+                 mesh.sun_vertices.size() *
+                     sizeof(OgreNextAnalyticSkyNativeVertex));
+  absorb_section(4U, mesh.sun_indices.data(),
+                 mesh.sun_indices.size() * sizeof(std::uint32_t));
+  return digest;
 }
 
 bool SameNativeWindow(const NativeWindowHandle &lhs,
@@ -1515,7 +1546,14 @@ public:
             std::move(configuration.shader_media_root)),
         presentation_configuration(std::move(configuration.presentation)),
         hdr_configuration(configuration.hdr_temporal_configuration),
-        hdr_enabled(configuration.enable_hdr_compositor)
+        hdr_enabled(configuration.enable_hdr_compositor),
+        retain_analytic_sky_geometry_content_evidence(
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+            configuration.retain_analytic_sky_geometry_content_evidence
+#else
+            false
+#endif
+            )
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
         , texture_upload_failure_stage(
               configuration.texture_upload_failure_stage),
@@ -1523,6 +1561,8 @@ public:
               configuration.retain_reflection_capture_evidence),
         pssm_failure_stage(configuration.pssm_failure_stage),
         hdr_failure_stage(configuration.hdr_failure_stage),
+        analytic_sky_failure_stage(
+            configuration.analytic_sky_failure_stage),
         hdr_ui_overlay_control(configuration.hdr_ui_overlay_control)
 #endif
   {}
@@ -1536,6 +1576,17 @@ public:
         OgreNextNativeVertexLayout::INVALID;
     std::uint32_t vertex_stride_bytes = 0U;
     std::string name;
+  };
+
+  struct NativeAnalyticSkySection final {
+    Ogre::MeshPtr mesh;
+    Ogre::VertexBufferPacked *vertex_buffer = nullptr;
+    Ogre::IndexBufferPacked *index_buffer = nullptr;
+    Ogre::VertexArrayObject *vao = nullptr;
+    std::string name;
+    std::size_t vertex_count = 0U;
+    std::size_t index_count = 0U;
+    bool mesh_owns_native_buffers = false;
   };
 
   struct NativeMaterial {
@@ -1920,6 +1971,364 @@ public:
       std::rethrow_exception(creation_failure);
     }
   }
+
+  NativeAnalyticSkySection CreateAnalyticSkySection(
+      const std::string &name,
+      const std::vector<OgreNextAnalyticSkyNativeVertex> &vertices,
+      const std::vector<std::uint32_t> &indices, float radius,
+      bool background) {
+    static_cast<void>(background);
+    if (name.empty() || vertices.empty() || indices.empty() ||
+        !std::isfinite(radius) || radius <= 0.0F ||
+        vertices.size() > (std::numeric_limits<Ogre::uint32>::max)() ||
+        indices.size() > (std::numeric_limits<Ogre::uint32>::max)()) {
+      throw std::logic_error(
+          "validated analytic-sky geometry became unrepresentable before native allocation");
+    }
+    static_assert(sizeof(OgreNextAnalyticSkyNativeVertex) == 28U,
+                  "analytic-sky native vertex layout drifted");
+
+    NativeAnalyticSkySection section;
+    section.name = name;
+    section.vertex_count = vertices.size();
+    section.index_count = indices.size();
+    Ogre::MeshManager &mesh_manager = Ogre::MeshManager::getSingleton();
+    if (mesh_manager.getByName(
+            name, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)) {
+      throw std::logic_error(
+          "analytic-sky native mesh name was still live before allocation");
+    }
+
+    Ogre::VaoManager *vao_manager = renderer->getVaoManager();
+    void *vertex_data = nullptr;
+    void *index_data = nullptr;
+    bool mesh_counted = false;
+    try {
+      section.mesh = mesh_manager.createManual(
+          section.name,
+          Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+      if (!section.mesh) {
+        throw std::logic_error(
+            "analytic-sky native mesh allocation returned null");
+      }
+      ++analytic_sky_audit.native_mesh_creates;
+      mesh_counted = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background ? OgreNextN1AnalyticSkyFailureStage::AFTER_BACKGROUND_MESH
+                     : OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_MESH,
+          background
+              ? "injected analytic-sky background-mesh rollback failure"
+              : "injected analytic-sky sun-mesh rollback failure");
+#endif
+
+      const std::size_t vertex_bytes =
+          vertices.size() * sizeof(OgreNextAnalyticSkyNativeVertex);
+      vertex_data =
+          OGRE_MALLOC_SIMD(vertex_bytes, Ogre::MEMCATEGORY_GEOMETRY);
+      if (vertex_data == nullptr) {
+        throw std::bad_alloc();
+      }
+      std::memcpy(vertex_data, vertices.data(), vertex_bytes);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background
+              ? OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_BACKGROUND_CPU_VERTEX_ALLOCATION
+              : OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_SUN_CPU_VERTEX_ALLOCATION,
+          background
+              ? "injected analytic-sky background CPU-vertex rollback failure"
+              : "injected analytic-sky sun CPU-vertex rollback failure");
+#endif
+      Ogre::VertexElement2Vec elements;
+      elements.push_back(
+          Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
+      elements.push_back(
+          Ogre::VertexElement2(Ogre::VET_FLOAT4, Ogre::VES_DIFFUSE));
+      section.vertex_buffer = vao_manager->createVertexBuffer(
+          elements, vertices.size(), Ogre::BT_IMMUTABLE, vertex_data, true);
+      vertex_data = nullptr;
+      if (section.vertex_buffer == nullptr) {
+        throw std::logic_error(
+            "analytic-sky native vertex-buffer allocation returned null");
+      }
+      ++analytic_sky_audit.native_vertex_buffer_creates;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background
+              ? OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_BACKGROUND_VERTEX_BUFFER
+              : OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_VERTEX_BUFFER,
+          background
+              ? "injected analytic-sky background vertex-buffer rollback failure"
+              : "injected analytic-sky sun vertex-buffer rollback failure");
+#endif
+
+      const std::size_t index_bytes =
+          indices.size() * sizeof(std::uint32_t);
+      index_data = OGRE_MALLOC_SIMD(index_bytes, Ogre::MEMCATEGORY_GEOMETRY);
+      if (index_data == nullptr) {
+        throw std::bad_alloc();
+      }
+      std::memcpy(index_data, indices.data(), index_bytes);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background
+              ? OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_BACKGROUND_CPU_INDEX_ALLOCATION
+              : OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_SUN_CPU_INDEX_ALLOCATION,
+          background
+              ? "injected analytic-sky background CPU-index rollback failure"
+              : "injected analytic-sky sun CPU-index rollback failure");
+#endif
+      section.index_buffer = vao_manager->createIndexBuffer(
+          Ogre::IndexBufferPacked::IT_32BIT, indices.size(),
+          Ogre::BT_IMMUTABLE, index_data, true);
+      index_data = nullptr;
+      if (section.index_buffer == nullptr) {
+        throw std::logic_error(
+            "analytic-sky native index-buffer allocation returned null");
+      }
+      ++analytic_sky_audit.native_index_buffer_creates;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background
+              ? OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_BACKGROUND_INDEX_BUFFER
+              : OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_INDEX_BUFFER,
+          background
+              ? "injected analytic-sky background index-buffer rollback failure"
+              : "injected analytic-sky sun index-buffer rollback failure");
+#endif
+
+      Ogre::VertexBufferPackedVec vertex_buffers;
+      vertex_buffers.push_back(section.vertex_buffer);
+      section.vao = vao_manager->createVertexArrayObject(
+          vertex_buffers, section.index_buffer, Ogre::OT_TRIANGLE_LIST);
+      if (section.vao == nullptr) {
+        throw std::logic_error(
+            "analytic-sky native VAO allocation returned null");
+      }
+      ++analytic_sky_audit.native_vao_creates;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background ? OgreNextN1AnalyticSkyFailureStage::AFTER_BACKGROUND_VAO
+                     : OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_VAO,
+          background
+              ? "injected analytic-sky background VAO rollback failure"
+              : "injected analytic-sky sun VAO rollback failure");
+#endif
+
+      Ogre::SubMesh *submesh = section.mesh->createSubMesh();
+      if (submesh == nullptr) {
+        throw std::logic_error(
+            "analytic-sky native submesh allocation returned null");
+      }
+      submesh->mVao[Ogre::VpNormal].push_back(section.vao);
+      section.mesh_owns_native_buffers = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectAnalyticSkyFailure(
+          background
+              ? OgreNextN1AnalyticSkyFailureStage::
+                    AFTER_BACKGROUND_SUBMESH_ATTACH
+              : OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_SUBMESH_ATTACH,
+          background
+              ? "injected analytic-sky background submesh-attach rollback failure"
+              : "injected analytic-sky sun submesh-attach rollback failure");
+#endif
+
+      section.mesh->_setBounds(
+          Ogre::Aabb(Ogre::Vector3::ZERO,
+                     Ogre::Vector3(radius, radius, radius)),
+          false);
+      section.mesh->_setBoundingSphereRadius(radius);
+      return section;
+    } catch (...) {
+      const std::exception_ptr creation_failure = std::current_exception();
+      bool clean = true;
+      if (vertex_data != nullptr) {
+        OGRE_FREE_SIMD(vertex_data, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (index_data != nullptr) {
+        OGRE_FREE_SIMD(index_data, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (!section.mesh && !mesh_counted) {
+        try {
+          section.mesh = mesh_manager.getByName(
+              section.name,
+              Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+          if (section.mesh) {
+            ++analytic_sky_audit.native_mesh_creates;
+            mesh_counted = true;
+          }
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (!section.mesh_owns_native_buffers) {
+        bool vao_destroyed = section.vao == nullptr;
+        if (section.vao != nullptr) {
+          try {
+            vao_manager->destroyVertexArrayObject(section.vao);
+            ++analytic_sky_audit.native_vao_destroys;
+            section.vao = nullptr;
+            vao_destroyed = true;
+          } catch (...) {
+            clean = false;
+          }
+        }
+        if (vao_destroyed && section.vertex_buffer != nullptr) {
+          try {
+            vao_manager->destroyVertexBuffer(section.vertex_buffer);
+            ++analytic_sky_audit.native_vertex_buffer_destroys;
+            section.vertex_buffer = nullptr;
+          } catch (...) {
+            clean = false;
+          }
+        }
+        if (vao_destroyed && section.index_buffer != nullptr) {
+          try {
+            vao_manager->destroyIndexBuffer(section.index_buffer);
+            ++analytic_sky_audit.native_index_buffer_destroys;
+            section.index_buffer = nullptr;
+          } catch (...) {
+            clean = false;
+          }
+        }
+      }
+      clean = DestroyAnalyticSkySection(section) && clean;
+      if (!clean) {
+        faulted = true;
+      }
+      std::rethrow_exception(creation_failure);
+    }
+  }
+
+  [[nodiscard]] bool DestroyAnalyticSkySection(
+      NativeAnalyticSkySection &section) noexcept {
+    if (!section.mesh && section.name.empty()) {
+      return true;
+    }
+    bool clean = true;
+    Ogre::MeshManager &mesh_manager = Ogre::MeshManager::getSingleton();
+    Ogre::MeshPtr registered;
+    try {
+      registered = mesh_manager.getByName(
+          section.name,
+          Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+    } catch (...) {
+      clean = false;
+    }
+    if (!section.mesh && registered) {
+      section.mesh = registered;
+    }
+    const bool owned_buffers = section.mesh_owns_native_buffers;
+    bool removed = !section.mesh;
+    if (section.mesh) {
+      try {
+        mesh_manager.remove(section.mesh);
+        section.mesh.reset();
+        removed = true;
+        ++analytic_sky_audit.native_mesh_destroys;
+        if (owned_buffers) {
+          ++analytic_sky_audit.native_vertex_buffer_destroys;
+          ++analytic_sky_audit.native_index_buffer_destroys;
+          ++analytic_sky_audit.native_vao_destroys;
+        }
+      } catch (...) {
+        clean = false;
+        removed = false;
+      }
+    }
+    try {
+      if (!removed || mesh_manager.getByName(
+                          section.name,
+                          Ogre::ResourceGroupManager::
+                              DEFAULT_RESOURCE_GROUP_NAME)) {
+        clean = false;
+      } else {
+        ++analytic_sky_audit.native_mesh_absence_checks;
+      }
+    } catch (...) {
+      clean = false;
+    }
+    section.mesh.reset();
+    section.vertex_buffer = nullptr;
+    section.index_buffer = nullptr;
+    section.vao = nullptr;
+    section.name.clear();
+    section.vertex_count = 0U;
+    section.index_count = 0U;
+    section.mesh_owns_native_buffers = false;
+    return clean;
+  }
+
+  [[nodiscard]] bool ExactAnalyticSkyBufferContents(
+      Ogre::BufferPacked *buffer, const void *expected,
+      std::size_t expected_elements,
+      std::size_t expected_bytes_per_element) {
+    if (buffer == nullptr || expected == nullptr || expected_elements == 0U ||
+        buffer->getNumElements() != expected_elements ||
+        buffer->getBytesPerElement() != expected_bytes_per_element) {
+      return false;
+    }
+    Ogre::AsyncTicketPtr ticket =
+        buffer->readRequest(0U, expected_elements);
+    if (!ticket) {
+      return false;
+    }
+    bool mapped = false;
+    try {
+      const void *actual = ticket->map();
+      mapped = true;
+      const bool exact =
+          actual != nullptr &&
+          std::memcmp(actual, expected,
+                      expected_elements * expected_bytes_per_element) == 0;
+      ticket->unmap();
+      mapped = false;
+      if (exact) {
+        ++analytic_sky_audit.native_gpu_content_readbacks;
+      }
+      return exact;
+    } catch (...) {
+      if (mapped) {
+        try {
+          ticket->unmap();
+        } catch (...) {
+          faulted = true;
+        }
+      }
+      throw;
+    }
+  }
+
+  [[nodiscard]] bool AnalyticSkyItemIsAbsent(Ogre::IdType id) const {
+    Ogre::SceneManager::MovableObjectIterator objects =
+        scene_manager->getMovableObjectIterator(
+            Ogre::ItemFactory::FACTORY_TYPE_NAME);
+    while (objects.hasMoreElements()) {
+      Ogre::MovableObject *object = objects.getNext();
+      if (object != nullptr && object->getId() == id) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+  void MaybeInjectAnalyticSkyFailure(
+      OgreNextN1AnalyticSkyFailureStage expected,
+      const char *message) {
+    if (analytic_sky_failure_pending &&
+        analytic_sky_failure_stage == expected) {
+      analytic_sky_failure_pending = false;
+      throw std::runtime_error(message);
+    }
+  }
+#endif
 
   [[nodiscard]] bool RetireNativeTextureAllocation(
       Ogre::TextureGpu *&texture, const std::string &name) noexcept {
@@ -4166,6 +4575,7 @@ public:
     particle_native_batch_destroys = 0U;
     particle_native_particles_submitted = 0U;
     particle_native_state_verifications = 0U;
+    analytic_sky_audit = {};
     scene_generation = 1U;
     maximum_texture_dimension =
         kOgreNextN1ConservativeMaximumTextureDimension;
@@ -4204,6 +4614,7 @@ public:
   std::uint64_t particle_native_batch_destroys = 0U;
   std::uint64_t particle_native_particles_submitted = 0U;
   std::uint64_t particle_native_state_verifications = 0U;
+  OgreNextAnalyticSkyRuntimeAudit analytic_sky_audit;
   OgreNextN1SubmissionState submission_state;
   OgreNextNativeFeatureTier native_feature_tier =
       OgreNextNativeFeatureTier::RASTER_N1;
@@ -4241,6 +4652,9 @@ public:
   bool faulted = false;
   bool owns_root_claim = false;
   bool hdr_enabled = false;
+  /// Test-artifact-only synchronous VB/IB evidence. Production construction
+  /// hard-wires this false because its public configuration has no such field.
+  bool retain_analytic_sky_geometry_content_evidence = false;
   bool presentation_resource_group_created = false;
   bool bootstrap_node_definition_created = false;
   bool bootstrap_workspace_definition_created = false;
@@ -4281,6 +4695,11 @@ public:
   OgreNextN1HdrFailureStage hdr_failure_stage =
       OgreNextN1HdrFailureStage::NONE;
   bool hdr_failure_pending = hdr_failure_stage != OgreNextN1HdrFailureStage::NONE;
+  OgreNextN1AnalyticSkyFailureStage analytic_sky_failure_stage =
+      OgreNextN1AnalyticSkyFailureStage::NONE;
+  bool analytic_sky_failure_pending =
+      analytic_sky_failure_stage !=
+      OgreNextN1AnalyticSkyFailureStage::NONE;
   bool hdr_ui_overlay_control = false;
   std::unique_ptr<Ogre::v1::OverlaySystem> hdr_overlay_system;
   Ogre::v1::Overlay *hdr_overlay = nullptr;
@@ -4376,6 +4795,11 @@ OgreNextN1Frontend::QueryHdrCompositorAudit() const noexcept {
 OgreNextN1PresentationAudit
 OgreNextN1Frontend::QueryPresentationAudit() const noexcept {
   return impl_->PresentationAudit();
+}
+
+OgreNextAnalyticSkyRuntimeAudit
+OgreNextN1Frontend::QueryAnalyticSkyAudit() const noexcept {
+  return impl_->analytic_sky_audit;
 }
 
 RenderOperationResult OgreNextN1Frontend::Initialize(
@@ -5588,6 +6012,29 @@ RenderOperationResult OgreNextN1Frontend::Render(
   std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<std::pair<Ogre::ManualObject *, Ogre::SceneNode *>>
       particle_batches;
+  Impl::NativeAnalyticSkySection analytic_sky_background_section;
+  Impl::NativeAnalyticSkySection analytic_sky_sun_section;
+  Ogre::Item *analytic_sky_background_item = nullptr;
+  Ogre::Item *analytic_sky_sun_item = nullptr;
+  Ogre::IdType analytic_sky_background_item_id = 0U;
+  Ogre::IdType analytic_sky_sun_item_id = 0U;
+  bool analytic_sky_background_item_id_valid = false;
+  bool analytic_sky_sun_item_id_valid = false;
+  Ogre::SceneNode *analytic_sky_node = nullptr;
+  Ogre::IdType analytic_sky_node_id = 0U;
+  bool analytic_sky_node_id_valid = false;
+  Ogre::HlmsUnlitDatablock *analytic_sky_background_datablock = nullptr;
+  Ogre::HlmsUnlitDatablock *analytic_sky_sun_datablock = nullptr;
+  bool analytic_sky_background_datablock_attempted = false;
+  bool analytic_sky_sun_datablock_attempted = false;
+  std::string analytic_sky_background_datablock_name;
+  std::string analytic_sky_sun_datablock_name;
+  bool analytic_sky_frame_completed = false;
+  AnalyticSkyDescriptor analytic_sky_committed_descriptor;
+  OgreNextAnalyticSkyNativeMesh analytic_sky_mesh;
+  OgreNextAnalyticSkyRuntimeAudit analytic_sky_lifetime_before;
+  std::uint64_t analytic_sky_cpu_geometry_fnv1a64 = 0U;
+  float analytic_sky_native_radius = 0.0F;
   Ogre::HlmsUnlitDatablock *particle_datablock = nullptr;
   std::string particle_datablock_name;
   std::uint64_t particle_native_batch_creates = 0U;
@@ -5789,6 +6236,124 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
     particle_batches.clear();
+    const auto destroy_sky_item =
+        [&](Ogre::Item *&item, Ogre::IdType id,
+            bool &id_valid) noexcept {
+          if (item == nullptr && !id_valid) {
+            return true;
+          }
+          bool local_clean = true;
+          if (item != nullptr && item->isAttached()) {
+            try {
+              if (analytic_sky_node == nullptr ||
+                  item->getParentSceneNode() != analytic_sky_node) {
+                local_clean = false;
+              } else {
+                analytic_sky_node->detachObject(item);
+              }
+            } catch (...) {
+              local_clean = false;
+            }
+          }
+          if (item != nullptr) {
+            try {
+              impl_->scene_manager->destroyItem(item);
+              ++impl_->analytic_sky_audit.native_item_destroys;
+            } catch (...) {
+              local_clean = false;
+            }
+            item = nullptr;
+          }
+          if (id_valid) {
+            try {
+              if (!impl_->AnalyticSkyItemIsAbsent(id)) {
+                local_clean = false;
+              } else {
+                ++impl_->analytic_sky_audit.native_item_absence_checks;
+              }
+            } catch (...) {
+              local_clean = false;
+            }
+          }
+          id_valid = false;
+          return local_clean;
+        };
+    clean = destroy_sky_item(analytic_sky_sun_item,
+                             analytic_sky_sun_item_id,
+                             analytic_sky_sun_item_id_valid) &&
+            clean;
+    clean = destroy_sky_item(analytic_sky_background_item,
+                             analytic_sky_background_item_id,
+                             analytic_sky_background_item_id_valid) &&
+            clean;
+    if (analytic_sky_node != nullptr) {
+      try {
+        impl_->scene_manager->destroySceneNode(analytic_sky_node);
+        ++impl_->analytic_sky_audit.native_scene_node_destroys;
+      } catch (...) {
+        clean = false;
+      }
+      analytic_sky_node = nullptr;
+    }
+    if (analytic_sky_node_id_valid) {
+      try {
+        if (impl_->scene_manager->getSceneNode(analytic_sky_node_id) !=
+            nullptr) {
+          clean = false;
+        } else {
+          ++impl_->analytic_sky_audit.native_scene_node_absence_checks;
+        }
+      } catch (...) {
+        clean = false;
+      }
+      analytic_sky_node_id_valid = false;
+    }
+    clean = impl_->DestroyAnalyticSkySection(analytic_sky_sun_section) &&
+            clean;
+    clean =
+        impl_->DestroyAnalyticSkySection(analytic_sky_background_section) &&
+        clean;
+    const auto destroy_sky_datablock =
+        [&](Ogre::HlmsUnlitDatablock *&datablock,
+            std::string &name, bool &attempted) noexcept {
+          if (!attempted || name.empty()) {
+            datablock = nullptr;
+            name.clear();
+            attempted = false;
+            return true;
+          }
+          bool local_clean = true;
+          try {
+            Ogre::HlmsDatablock *registered =
+                impl_->unlit->getDatablock(Ogre::IdString(name));
+            if (registered != nullptr) {
+              if (datablock == nullptr) {
+                ++impl_->analytic_sky_audit.native_datablock_creates;
+              }
+              impl_->unlit->destroyDatablock(registered->getName());
+              ++impl_->analytic_sky_audit.native_datablock_destroys;
+            }
+            if (impl_->unlit->getDatablock(Ogre::IdString(name)) != nullptr) {
+              local_clean = false;
+            } else {
+              ++impl_->analytic_sky_audit.native_datablock_absence_checks;
+            }
+          } catch (...) {
+            local_clean = false;
+          }
+          datablock = nullptr;
+          name.clear();
+          attempted = false;
+          return local_clean;
+        };
+    clean = destroy_sky_datablock(analytic_sky_sun_datablock,
+                                  analytic_sky_sun_datablock_name,
+                                  analytic_sky_sun_datablock_attempted) &&
+            clean;
+    clean = destroy_sky_datablock(analytic_sky_background_datablock,
+                                  analytic_sky_background_datablock_name,
+                                  analytic_sky_background_datablock_attempted) &&
+            clean;
     if (particle_datablock != nullptr) {
       try {
         impl_->unlit->destroyDatablock(
@@ -5968,6 +6533,72 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const auto cpu_start = std::chrono::steady_clock::now();
     const SceneSnapshot &snapshot = *request.scene_snapshot;
     const CameraViewRequest &view = request.views.front();
+    const AnalyticSkyDescriptor &portable_sky =
+        snapshot.environment().analytic_sky;
+    if (portable_sky.enabled) {
+      const auto sun = std::lower_bound(
+          snapshot.lights().begin(), snapshot.lights().end(),
+          portable_sky.sun_light_id,
+          [](const LightDescriptor &light, std::uint64_t identity) {
+            return light.light_id < identity;
+          });
+      if (sun == snapshot.lights().end() ||
+          sun->light_id != portable_sky.sun_light_id) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "validated analytic-sky sun identity disappeared before native staging"));
+      }
+      const double native_radius_double = std::sqrt(
+          static_cast<double>(view.near_plane) *
+          static_cast<double>(view.far_plane));
+      const float native_radius = static_cast<float>(native_radius_double);
+      analytic_sky_native_radius = native_radius;
+      const ValidationResult sky_mesh_validation =
+          BuildOgreNextAnalyticSkyNativeMesh(
+              snapshot.environment(), *sun, native_radius,
+              analytic_sky_mesh);
+      if (!sky_mesh_validation) {
+        return fail_after_cleanup(
+            OgreNextN1OperationFromValidation(sky_mesh_validation));
+      }
+      analytic_sky_cpu_geometry_fnv1a64 =
+          AnalyticSkyCpuGeometryFnv1a64(analytic_sky_mesh);
+      const auto has_headroom = [](std::uint64_t value,
+                                   std::uint64_t amount) {
+        return value <=
+               (std::numeric_limits<std::uint64_t>::max)() - amount;
+      };
+      const OgreNextAnalyticSkyRuntimeAudit &audit =
+          impl_->analytic_sky_audit;
+      if (!has_headroom(audit.completed_frames, 1U) ||
+          !has_headroom(audit.native_mesh_creates, 2U) ||
+          !has_headroom(audit.native_mesh_destroys, 2U) ||
+          !has_headroom(audit.native_vertex_buffer_creates, 2U) ||
+          !has_headroom(audit.native_vertex_buffer_destroys, 2U) ||
+          !has_headroom(audit.native_index_buffer_creates, 2U) ||
+          !has_headroom(audit.native_index_buffer_destroys, 2U) ||
+          !has_headroom(audit.native_vao_creates, 2U) ||
+          !has_headroom(audit.native_vao_destroys, 2U) ||
+          !has_headroom(audit.native_item_creates, 2U) ||
+          !has_headroom(audit.native_item_destroys, 2U) ||
+          !has_headroom(audit.native_scene_node_creates, 1U) ||
+          !has_headroom(audit.native_scene_node_destroys, 1U) ||
+          !has_headroom(audit.native_datablock_creates, 2U) ||
+          !has_headroom(audit.native_datablock_destroys, 2U) ||
+          !has_headroom(audit.native_mesh_absence_checks, 2U) ||
+          !has_headroom(audit.native_item_absence_checks, 2U) ||
+          !has_headroom(audit.native_scene_node_absence_checks, 1U) ||
+          !has_headroom(audit.native_datablock_absence_checks, 2U) ||
+          (impl_->retain_analytic_sky_geometry_content_evidence &&
+           !has_headroom(audit.native_gpu_content_readbacks, 4U)) ||
+          !has_headroom(audit.native_state_verifications, 1U)) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 analytic-sky lifetime telemetry exhausted"));
+      }
+      analytic_sky_lifetime_before = audit;
+      analytic_sky_committed_descriptor = portable_sky;
+    }
     ValidationResult particle_validation = impl_->particle_runtime.Prepare(
         request.frame_id, request.continuous_particles, *impl_->registry,
         snapshot.simulation_tick(), snapshot.absolute_world_origin_meters());
@@ -6394,6 +7025,279 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->shadow_audit.native_projection_extents_verified = true;
     } else {
       impl_->camera->setCustomProjectionMatrix(true, native_projection, false);
+    }
+
+    if (portable_sky.enabled) {
+      Ogre::HlmsMacroblock sky_macroblock;
+      sky_macroblock.mDepthCheck = false;
+      sky_macroblock.mDepthWrite = false;
+      sky_macroblock.mDepthFunc = Ogre::CMPF_ALWAYS_PASS;
+      sky_macroblock.mCullMode = Ogre::CULL_NONE;
+      Ogre::HlmsBlendblock background_blendblock;
+      background_blendblock.setBlendType(Ogre::SBT_REPLACE);
+      Ogre::HlmsBlendblock sun_blendblock;
+      sun_blendblock.setBlendType(Ogre::SBT_ADD, Ogre::SBT_REPLACE);
+
+      analytic_sky_background_datablock_name =
+          "RoRAnalyticSkyGradient_f" + std::to_string(request.frame_id);
+      analytic_sky_sun_datablock_name =
+          "RoRAnalyticSkySun_f" + std::to_string(request.frame_id);
+      if (impl_->unlit->getDatablock(
+              Ogre::IdString(analytic_sky_background_datablock_name)) !=
+              nullptr ||
+          impl_->unlit->getDatablock(
+              Ogre::IdString(analytic_sky_sun_datablock_name)) != nullptr) {
+        throw std::logic_error(
+            "N1 native analytic-sky datablock name was still live before allocation");
+      }
+      analytic_sky_background_datablock =
+          dynamic_cast<Ogre::HlmsUnlitDatablock *>(
+              (analytic_sky_background_datablock_attempted = true,
+               impl_->unlit->createDatablock(
+                  analytic_sky_background_datablock_name,
+                  analytic_sky_background_datablock_name, sky_macroblock,
+                  background_blendblock, Ogre::HlmsParamVec())));
+      if (analytic_sky_background_datablock == nullptr) {
+        throw std::logic_error(
+            "N1 native analytic-sky background datablock creation returned "
+            "a non-Unlit value");
+      }
+      ++impl_->analytic_sky_audit.native_datablock_creates;
+      analytic_sky_background_datablock->setUseColour(true);
+      analytic_sky_background_datablock->setColour(
+          Ogre::ColourValue::White);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      impl_->MaybeInjectAnalyticSkyFailure(
+          OgreNextN1AnalyticSkyFailureStage::AFTER_BACKGROUND_DATABLOCK,
+          "injected analytic-sky background-datablock rollback failure");
+#endif
+      analytic_sky_sun_datablock =
+          dynamic_cast<Ogre::HlmsUnlitDatablock *>(
+              (analytic_sky_sun_datablock_attempted = true,
+               impl_->unlit->createDatablock(
+                  analytic_sky_sun_datablock_name,
+                  analytic_sky_sun_datablock_name, sky_macroblock,
+                  sun_blendblock, Ogre::HlmsParamVec())));
+      if (analytic_sky_sun_datablock == nullptr) {
+        throw std::logic_error(
+            "N1 native analytic-sky sun datablock creation returned a "
+            "non-Unlit value");
+      }
+      ++impl_->analytic_sky_audit.native_datablock_creates;
+      analytic_sky_sun_datablock->setUseColour(true);
+      analytic_sky_sun_datablock->setColour(Ogre::ColourValue::White);
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      impl_->MaybeInjectAnalyticSkyFailure(
+          OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_DATABLOCK,
+          "injected analytic-sky sun-datablock rollback failure");
+#endif
+
+      analytic_sky_background_section = impl_->CreateAnalyticSkySection(
+          "RoRAnalyticSkyBackgroundMesh_f" +
+              std::to_string(request.frame_id),
+          analytic_sky_mesh.background_vertices,
+          analytic_sky_mesh.background_indices, analytic_sky_native_radius,
+          true);
+      analytic_sky_sun_section = impl_->CreateAnalyticSkySection(
+          "RoRAnalyticSkySunMesh_f" + std::to_string(request.frame_id),
+          analytic_sky_mesh.sun_vertices, analytic_sky_mesh.sun_indices,
+          analytic_sky_native_radius, false);
+
+      analytic_sky_background_item = impl_->scene_manager->createItem(
+          analytic_sky_background_section.mesh, Ogre::SCENE_DYNAMIC);
+      if (analytic_sky_background_item == nullptr) {
+        throw std::logic_error(
+            "N1 native analytic-sky background Item creation returned null");
+      }
+      ++impl_->analytic_sky_audit.native_item_creates;
+      analytic_sky_background_item_id =
+          analytic_sky_background_item->getId();
+      analytic_sky_background_item_id_valid = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      impl_->MaybeInjectAnalyticSkyFailure(
+          OgreNextN1AnalyticSkyFailureStage::AFTER_BACKGROUND_ITEM,
+          "injected analytic-sky background-Item rollback failure");
+#endif
+      analytic_sky_sun_item = impl_->scene_manager->createItem(
+          analytic_sky_sun_section.mesh, Ogre::SCENE_DYNAMIC);
+      if (analytic_sky_sun_item == nullptr) {
+        throw std::logic_error(
+            "N1 native analytic-sky sun Item creation returned null");
+      }
+      ++impl_->analytic_sky_audit.native_item_creates;
+      analytic_sky_sun_item_id = analytic_sky_sun_item->getId();
+      analytic_sky_sun_item_id_valid = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      impl_->MaybeInjectAnalyticSkyFailure(
+          OgreNextN1AnalyticSkyFailureStage::AFTER_SUN_ITEM,
+          "injected analytic-sky sun-Item rollback failure");
+#endif
+
+      analytic_sky_node = impl_->scene_manager->getRootSceneNode(
+          Ogre::SCENE_DYNAMIC)->createChildSceneNode(Ogre::SCENE_DYNAMIC);
+      if (analytic_sky_node == nullptr) {
+        throw std::logic_error(
+            "N1 native analytic-sky scene-node creation returned null");
+      }
+      ++impl_->analytic_sky_audit.native_scene_node_creates;
+      analytic_sky_node_id = analytic_sky_node->getId();
+      analytic_sky_node_id_valid = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      impl_->MaybeInjectAnalyticSkyFailure(
+          OgreNextN1AnalyticSkyFailureStage::AFTER_SCENE_NODE,
+          "injected analytic-sky scene-node rollback failure");
+#endif
+      const Ogre::Vector3 camera_position =
+          native_view.inverseAffine().getTrans();
+      analytic_sky_node->setPosition(camera_position);
+      analytic_sky_background_item->setDatablock(
+          analytic_sky_background_datablock);
+      analytic_sky_sun_item->setDatablock(analytic_sky_sun_datablock);
+      analytic_sky_background_item->setRenderQueueGroup(0U);
+      analytic_sky_sun_item->setRenderQueueGroup(0U);
+      analytic_sky_background_item->setVisibilityFlags(
+          authored_view_visibility);
+      analytic_sky_sun_item->setVisibilityFlags(authored_view_visibility);
+      analytic_sky_background_item->setCastShadows(false);
+      analytic_sky_sun_item->setCastShadows(false);
+      if (analytic_sky_background_item->getNumSubItems() != 1U ||
+          analytic_sky_sun_item->getNumSubItems() != 1U) {
+        throw std::logic_error(
+            "N1 native analytic-sky Item did not retain one exact section");
+      }
+      Ogre::SubItem *background_subitem =
+          analytic_sky_background_item->getSubItem(0U);
+      Ogre::SubItem *sun_subitem = analytic_sky_sun_item->getSubItem(0U);
+      background_subitem->setRenderQueueSubGroup(0U);
+      sun_subitem->setRenderQueueSubGroup(1U);
+      analytic_sky_node->attachObject(analytic_sky_background_item);
+      analytic_sky_node->attachObject(analytic_sky_sun_item);
+
+      const auto exact_sky_section =
+          [&](const Impl::NativeAnalyticSkySection &section,
+              const std::vector<OgreNextAnalyticSkyNativeVertex> &vertices,
+              const std::vector<std::uint32_t> &indices, Ogre::Item *item,
+              Ogre::SubItem *subitem, Ogre::HlmsDatablock *datablock,
+              Ogre::uint8 subgroup) {
+        if (!section.mesh || section.mesh->getNumSubMeshes() != 1U ||
+            item == nullptr || subitem == nullptr ||
+            item->getMesh() != section.mesh || item->getNumSubItems() != 1U ||
+            item->getSubItem(0U) != subitem ||
+            subitem->getSubMesh() != section.mesh->getSubMesh(0U) ||
+            subitem->getDatablock() != datablock ||
+            subitem->getRenderQueueSubGroup() != subgroup) {
+          return false;
+        }
+        const Ogre::VertexArrayObjectArray &vaos =
+            section.mesh->getSubMesh(0U)->mVao[Ogre::VpNormal];
+        if (vaos.size() != 1U || vaos.front() != section.vao ||
+            section.vao == nullptr ||
+            vaos.front()->getVertexBuffers().size() != 1U ||
+            vaos.front()->getVertexBuffers().front() !=
+                section.vertex_buffer ||
+            vaos.front()->getIndexBuffer() != section.index_buffer ||
+            vaos.front()->getOperationType() != Ogre::OT_TRIANGLE_LIST ||
+            vaos.front()->getPrimitiveStart() != 0U ||
+            vaos.front()->getPrimitiveCount() != indices.size() ||
+            section.vertex_buffer == nullptr ||
+            section.vertex_buffer->getNumElements() != vertices.size() ||
+            section.vertex_buffer->getBytesPerElement() !=
+                sizeof(OgreNextAnalyticSkyNativeVertex) ||
+            section.index_buffer == nullptr ||
+            section.index_buffer->getNumElements() != indices.size() ||
+            section.index_buffer->getBytesPerElement() !=
+                sizeof(std::uint32_t) ||
+            section.index_buffer->getIndexType() !=
+                Ogre::IndexBufferPacked::IT_32BIT) {
+          return false;
+        }
+        const Ogre::VertexElement2Vec &elements =
+            section.vertex_buffer->getVertexElements();
+        const bool exact_native_metadata =
+            elements.size() == 2U &&
+            elements[0U].mSemantic == Ogre::VES_POSITION &&
+            elements[0U].mType == Ogre::VET_FLOAT3 &&
+            elements[1U].mSemantic == Ogre::VES_DIFFUSE &&
+            elements[1U].mType == Ogre::VET_FLOAT4;
+        if (!exact_native_metadata ||
+            !impl_->retain_analytic_sky_geometry_content_evidence) {
+          return exact_native_metadata;
+        }
+        return impl_->ExactAnalyticSkyBufferContents(
+                   section.vertex_buffer, vertices.data(), vertices.size(),
+                   sizeof(OgreNextAnalyticSkyNativeVertex)) &&
+               impl_->ExactAnalyticSkyBufferContents(
+                   section.index_buffer, indices.data(), indices.size(),
+                   sizeof(std::uint32_t));
+      };
+      const Ogre::HlmsMacroblock *background_macroblock =
+          analytic_sky_background_datablock->getMacroblock();
+      const Ogre::HlmsMacroblock *sun_macroblock =
+          analytic_sky_sun_datablock->getMacroblock();
+      const Ogre::HlmsBlendblock *background_blend =
+          analytic_sky_background_datablock->getBlendblock();
+      const Ogre::HlmsBlendblock *sun_blend =
+          analytic_sky_sun_datablock->getBlendblock();
+      if (!exact_sky_section(
+              analytic_sky_background_section,
+              analytic_sky_mesh.background_vertices,
+              analytic_sky_mesh.background_indices,
+              analytic_sky_background_item, background_subitem,
+              analytic_sky_background_datablock, 0U) ||
+          !exact_sky_section(analytic_sky_sun_section,
+                             analytic_sky_mesh.sun_vertices,
+                             analytic_sky_mesh.sun_indices,
+                             analytic_sky_sun_item, sun_subitem,
+                             analytic_sky_sun_datablock, 1U) ||
+          background_macroblock == nullptr || sun_macroblock == nullptr ||
+          background_blend == nullptr || sun_blend == nullptr ||
+          background_macroblock->mDepthCheck ||
+          background_macroblock->mDepthWrite ||
+          background_macroblock->mDepthFunc != Ogre::CMPF_ALWAYS_PASS ||
+          background_macroblock->mCullMode != Ogre::CULL_NONE ||
+          *sun_macroblock != *background_macroblock ||
+          background_blend->mSeparateBlend ||
+          background_blend->mSourceBlendFactor != Ogre::SBF_ONE ||
+          background_blend->mDestBlendFactor != Ogre::SBF_ZERO ||
+          background_blend->mBlendOperation != Ogre::SBO_ADD ||
+          !sun_blend->mSeparateBlend ||
+          sun_blend->mSourceBlendFactor != Ogre::SBF_ONE ||
+          sun_blend->mDestBlendFactor != Ogre::SBF_ONE ||
+          sun_blend->mSourceBlendFactorAlpha != Ogre::SBF_ONE ||
+          sun_blend->mDestBlendFactorAlpha != Ogre::SBF_ZERO ||
+          sun_blend->mBlendOperation != Ogre::SBO_ADD ||
+          sun_blend->mBlendOperationAlpha != Ogre::SBO_ADD ||
+          !analytic_sky_background_datablock->hasColour() ||
+          !analytic_sky_sun_datablock->hasColour() ||
+          analytic_sky_background_datablock->getColour() !=
+              Ogre::ColourValue::White ||
+          analytic_sky_sun_datablock->getColour() !=
+              Ogre::ColourValue::White ||
+          analytic_sky_background_item->getRenderQueueGroup() != 0U ||
+          analytic_sky_sun_item->getRenderQueueGroup() != 0U ||
+          analytic_sky_background_item->getVisibilityFlags() !=
+              authored_view_visibility ||
+          analytic_sky_sun_item->getVisibilityFlags() !=
+              authored_view_visibility ||
+          analytic_sky_background_item->getCastShadows() ||
+          analytic_sky_sun_item->getCastShadows() ||
+          !analytic_sky_background_item->isAttached() ||
+          !analytic_sky_sun_item->isAttached() ||
+          analytic_sky_background_item->getParentSceneNode() !=
+              analytic_sky_node ||
+          analytic_sky_sun_item->getParentSceneNode() != analytic_sky_node ||
+          analytic_sky_node->getPosition() != camera_position) {
+        throw std::logic_error(
+            "N1 native analytic sky failed exact v2 Item/VAO metadata, optional test-artifact content, camera-centred, render-first, no-depth, or separate-alpha verification");
+      }
+      ++impl_->analytic_sky_audit.native_state_verifications;
+      analytic_sky_frame_completed = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      impl_->MaybeInjectAnalyticSkyFailure(
+          OgreNextN1AnalyticSkyFailureStage::
+              AFTER_ATTACHED_STATE_VERIFICATION,
+          "injected analytic-sky attached-state rollback failure");
+#endif
     }
 
     const auto &continuous_systems =
@@ -7041,6 +7945,54 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->faulted = true;
       return fail_after_cleanup(FrameCleanupFailure());
     }
+    if (analytic_sky_frame_completed) {
+      const OgreNextAnalyticSkyRuntimeAudit &after =
+          impl_->analytic_sky_audit;
+      const OgreNextAnalyticSkyRuntimeAudit &before =
+          analytic_sky_lifetime_before;
+      if (after.native_mesh_creates != before.native_mesh_creates + 2U ||
+          after.native_mesh_destroys != before.native_mesh_destroys + 2U ||
+          after.native_vertex_buffer_creates !=
+              before.native_vertex_buffer_creates + 2U ||
+          after.native_vertex_buffer_destroys !=
+              before.native_vertex_buffer_destroys + 2U ||
+          after.native_index_buffer_creates !=
+              before.native_index_buffer_creates + 2U ||
+          after.native_index_buffer_destroys !=
+              before.native_index_buffer_destroys + 2U ||
+          after.native_vao_creates != before.native_vao_creates + 2U ||
+          after.native_vao_destroys != before.native_vao_destroys + 2U ||
+          after.native_item_creates != before.native_item_creates + 2U ||
+          after.native_item_destroys != before.native_item_destroys + 2U ||
+          after.native_scene_node_creates !=
+              before.native_scene_node_creates + 1U ||
+          after.native_scene_node_destroys !=
+              before.native_scene_node_destroys + 1U ||
+          after.native_datablock_creates !=
+              before.native_datablock_creates + 2U ||
+          after.native_datablock_destroys !=
+              before.native_datablock_destroys + 2U ||
+          after.native_mesh_absence_checks !=
+              before.native_mesh_absence_checks + 2U ||
+          after.native_item_absence_checks !=
+              before.native_item_absence_checks + 2U ||
+          after.native_scene_node_absence_checks !=
+              before.native_scene_node_absence_checks + 1U ||
+          after.native_datablock_absence_checks !=
+              before.native_datablock_absence_checks + 2U ||
+          after.native_gpu_content_readbacks !=
+              before.native_gpu_content_readbacks +
+                  (impl_->retain_analytic_sky_geometry_content_evidence
+                       ? 4U
+                       : 0U) ||
+          after.native_state_verifications !=
+              before.native_state_verifications + 1U) {
+        impl_->faulted = true;
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "N1 analytic-sky frame did not close its exact v2 resource ownership, metadata, and optional test-artifact content transaction"));
+      }
+    }
     if (!impl_->native_interop && !destroy_submitted_frame_meshes()) {
       impl_->faulted = true;
       return fail_after_cleanup(FrameCleanupFailure());
@@ -7121,6 +8073,44 @@ RenderOperationResult OgreNextN1Frontend::Render(
         particle_native_particles_submitted;
     impl_->particle_native_state_verifications +=
         particle_native_state_verifications;
+    if (analytic_sky_frame_completed) {
+      ++impl_->analytic_sky_audit.completed_frames;
+      impl_->analytic_sky_audit.last_sun_light_id =
+          analytic_sky_committed_descriptor.sun_light_id;
+      impl_->analytic_sky_audit.last_background_vertex_count =
+          static_cast<std::uint32_t>(
+              analytic_sky_mesh.background_vertices.size());
+      impl_->analytic_sky_audit.last_background_index_count =
+          static_cast<std::uint32_t>(
+              analytic_sky_mesh.background_indices.size());
+      impl_->analytic_sky_audit.last_sun_vertex_count =
+          static_cast<std::uint32_t>(analytic_sky_mesh.sun_vertices.size());
+      impl_->analytic_sky_audit.last_sun_index_count =
+          static_cast<std::uint32_t>(analytic_sky_mesh.sun_indices.size());
+      impl_->analytic_sky_audit.last_native_content_bytes =
+          analytic_sky_mesh.background_vertices.size() *
+              sizeof(OgreNextAnalyticSkyNativeVertex) +
+          analytic_sky_mesh.background_indices.size() *
+              sizeof(std::uint32_t) +
+          analytic_sky_mesh.sun_vertices.size() *
+              sizeof(OgreNextAnalyticSkyNativeVertex) +
+          analytic_sky_mesh.sun_indices.size() * sizeof(std::uint32_t);
+      impl_->analytic_sky_audit.last_cpu_geometry_fnv1a64 =
+          analytic_sky_cpu_geometry_fnv1a64;
+      impl_->analytic_sky_audit.last_descriptor =
+          analytic_sky_committed_descriptor;
+      impl_->analytic_sky_audit.camera_centered = true;
+      impl_->analytic_sky_audit.rendered_first = true;
+      impl_->analytic_sky_audit.depth_check_disabled = true;
+      impl_->analytic_sky_audit.depth_write_disabled = true;
+      impl_->analytic_sky_audit.additive_sun_disk = true;
+      impl_->analytic_sky_audit.separate_sun_alpha_replace = true;
+      impl_->analytic_sky_audit.native_geometry_metadata_verified = true;
+      impl_->analytic_sky_audit.exact_native_geometry_readback =
+          impl_->retain_analytic_sky_geometry_content_evidence;
+      impl_->analytic_sky_audit.casts_shadows = false;
+      impl_->analytic_sky_audit.portable_scene_identity_absent = true;
+    }
     if (request.present) {
       if (impl_->presentation_audit.presented_frames == 0U) {
         impl_->presentation_audit.first_presented_frame_id = request.frame_id;

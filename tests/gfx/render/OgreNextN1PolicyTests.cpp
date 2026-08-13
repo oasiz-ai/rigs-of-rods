@@ -858,7 +858,8 @@ void TestModernPbrAssetPolicy() {
           "alpha test with nonunit factor escaped exact pinned-PBS policy");
 
   const auto make_lit_scene = [&](std::vector<LightDescriptor> lights,
-                                  Matrix4x4 transform = Matrix4x4{}) {
+                                  Matrix4x4 transform = Matrix4x4{},
+                                  bool analytic_sky = false) {
     SceneSnapshotDescriptor descriptor;
     descriptor.snapshot_id = 1U;
     descriptor.asset_registry_id = kRegistryId;
@@ -872,6 +873,21 @@ void TestModernPbrAssetPolicy() {
     instance.previous_render_from_object = transform;
     descriptor.mesh_instances.push_back(instance);
     descriptor.lights = std::move(lights);
+    if (analytic_sky) {
+      descriptor.environment.analytic_sky.enabled = true;
+      descriptor.environment.analytic_sky.sun_light_id =
+          descriptor.lights.front().light_id;
+      descriptor.environment.analytic_sky.zenith_radiance =
+          {0.08F, 0.12F, 0.2F};
+      descriptor.environment.analytic_sky.horizon_radiance =
+          {0.3F, 0.24F, 0.18F};
+      descriptor.environment.analytic_sky.ground_radiance =
+          {0.01F, 0.009F, 0.008F};
+      descriptor.environment.analytic_sky.sun_disk_radiance =
+          {24.0F, 20.0F, 16.0F};
+      descriptor.environment.analytic_sky.sun_angular_radius_radians =
+          0.00465047F;
+    }
     SceneSnapshotCreateResult scene =
         CreateSceneSnapshot(std::move(descriptor));
     Require(scene.ok(), "RT4/V1 light policy fixture is invalid");
@@ -886,6 +902,14 @@ void TestModernPbrAssetPolicy() {
                                   false, kModern)
               .ok(),
           "one calibrated RT4/V1 directional light was rejected");
+  const auto analytic_sky_scene =
+      make_lit_scene({directional}, Matrix4x4{}, true);
+  Require(ValidateOgreNextN1Scene(*analytic_sky_scene, registry, false,
+                                  kModern)
+              .ok() &&
+              ValidateOgreNextN1Scene(*analytic_sky_scene, registry)
+                      .field == "environment.analytic_sky",
+          "native analytic sky was rejected by RT4/V1 or leaked into texture-free N1");
   Matrix4x4 uniform_scale;
   uniform_scale.elements[0U] = 2.0F;
   uniform_scale.elements[5U] = 2.0F;
@@ -1632,6 +1656,85 @@ void TestFrameAndScenePolicy() {
           "finite projection overflow escaped N1 native admission");
 }
 
+void TestAnalyticSkyNativeMeshIsCameraLocalAndTransactional() {
+  using namespace RoR::Render;
+  SceneEnvironmentDescriptor environment;
+  environment.environment_intensity = 2.0F;
+  environment.analytic_sky.enabled = true;
+  environment.analytic_sky.sun_light_id = 7U;
+  environment.analytic_sky.zenith_radiance = {0.1F, 0.2F, 0.3F};
+  environment.analytic_sky.horizon_radiance = {0.4F, 0.5F, 0.6F};
+  environment.analytic_sky.ground_radiance = {0.01F, 0.02F, 0.03F};
+  environment.analytic_sky.sun_disk_radiance = {8.0F, 7.0F, 6.0F};
+  environment.analytic_sky.sun_angular_radius_radians = 0.00465047F;
+  LightDescriptor sun;
+  sun.light_id = 7U;
+  sun.type = LightType::DIRECTIONAL;
+  sun.direction = {0.0F, -0.8F, -0.6F};
+
+  OgreNextAnalyticSkyNativeMesh mesh;
+  ValidationResult result = BuildOgreNextAnalyticSkyNativeMesh(
+      environment, sun, 2.0F, mesh);
+  constexpr std::size_t kRingVertices =
+      kOgreNextAnalyticSkyLongitudeSegments + 1U;
+  constexpr std::size_t kHemisphereVertices =
+      kOgreNextAnalyticSkyHemisphereRings * kRingVertices + 1U;
+  constexpr std::size_t kHemisphereIndices =
+      (kOgreNextAnalyticSkyHemisphereRings - 1U) *
+          kOgreNextAnalyticSkyLongitudeSegments * 6U +
+      kOgreNextAnalyticSkyLongitudeSegments * 3U;
+  Require(result.ok() &&
+              mesh.background_vertices.size() == kHemisphereVertices * 2U &&
+              mesh.background_indices.size() == kHemisphereIndices * 2U &&
+              mesh.sun_vertices.size() ==
+                  kOgreNextAnalyticSkySunSegments + 2U &&
+              mesh.sun_indices.size() ==
+                  kOgreNextAnalyticSkySunSegments * 3U,
+          "native analytic-sky mesh topology changed");
+  const OgreNextAnalyticSkyNativeVertex &upper_horizon =
+      mesh.background_vertices.front();
+  const OgreNextAnalyticSkyNativeVertex &upper_pole =
+      mesh.background_vertices[kHemisphereVertices - 1U];
+  const OgreNextAnalyticSkyNativeVertex &lower_horizon =
+      mesh.background_vertices[kHemisphereVertices];
+  Require(upper_horizon.position == lower_horizon.position &&
+              upper_horizon.radiance == Float4{0.8F, 1.0F, 1.2F, 1.0F} &&
+              lower_horizon.radiance ==
+                  Float4{0.02F, 0.04F, 0.06F, 1.0F} &&
+              upper_pole.position == Float3{0.0F, 2.0F, 0.0F} &&
+              upper_pole.radiance == Float4{0.2F, 0.4F, 0.6F, 1.0F},
+          "native analytic-sky horizon discontinuity or linear radiance changed");
+  Require(mesh.sun_vertices.front().position == Float3{0.0F, 1.6F, 1.2F} &&
+              mesh.sun_vertices.front().radiance ==
+                  Float4{16.0F, 14.0F, 12.0F, 1.0F},
+          "native analytic sun is not centred on the negated emitted-light direction");
+  const Float3 edge = mesh.sun_vertices[1U].position;
+  const float edge_length =
+      std::sqrt(edge.x * edge.x + edge.y * edge.y + edge.z * edge.z);
+  const float centre_dot_edge =
+      (0.8F * edge.y + 0.6F * edge.z) / edge_length;
+  Require(std::fabs(edge_length - 2.0F) <= 1.0e-5F &&
+              std::fabs(centre_dot_edge -
+                        std::cos(environment.analytic_sky
+                                     .sun_angular_radius_radians)) <=
+                  1.0e-5F,
+          "native analytic sun cap changed angular radius");
+
+  const std::size_t accepted_background_size = mesh.background_vertices.size();
+  const std::size_t accepted_sun_index_size = mesh.sun_indices.size();
+  const Float3 accepted_first_position =
+      mesh.background_vertices.front().position;
+  sun.light_id = 8U;
+  result = BuildOgreNextAnalyticSkyNativeMesh(environment, sun, 2.0F, mesh);
+  Require(!result && result.field ==
+                         "environment.analytic_sky.sun_light_id" &&
+              mesh.background_vertices.size() == accepted_background_size &&
+              mesh.sun_indices.size() == accepted_sun_index_size &&
+              mesh.background_vertices.front().position ==
+                  accepted_first_position,
+          "mismatched sky/light identity changed the published native mesh");
+}
+
 } // namespace
 
 int main() {
@@ -1644,6 +1747,7 @@ int main() {
   TestAssetPolicy();
   TestModernPbrAssetPolicy();
   TestDisplayDomainUnlitPolicy();
+  TestAnalyticSkyNativeMeshIsCameraLocalAndTransactional();
   TestFrameAndScenePolicy();
   std::cout << "Ogre-Next N1 fail-closed policy tests passed\n";
   return EXIT_SUCCESS;

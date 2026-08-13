@@ -247,6 +247,73 @@ public:
     return output;
   }
 
+  [[nodiscard]] RendererAnalyticSkyAudit
+  AnalyticSkyAudit() const noexcept {
+    RendererAnalyticSkyAudit output;
+    if (frontend == nullptr) {
+      return output;
+    }
+    const OgreNextAnalyticSkyRuntimeAudit audit =
+        frontend->QueryAnalyticSkyAudit();
+    const OgreNextN1PresentationAudit presentation_audit =
+        frontend->QueryPresentationAudit();
+    output.completed_frames = audit.completed_frames;
+    output.sun_light_id = audit.last_sun_light_id;
+    output.cpu_geometry_fnv1a64 = audit.last_cpu_geometry_fnv1a64;
+    output.native_gpu_content_readbacks =
+        audit.native_gpu_content_readbacks;
+    output.native_state_verifications = audit.native_state_verifications;
+    output.native_ownership_balanced =
+        audit.native_mesh_creates == audit.native_mesh_destroys &&
+        audit.native_vertex_buffer_creates ==
+            audit.native_vertex_buffer_destroys &&
+        audit.native_index_buffer_creates ==
+            audit.native_index_buffer_destroys &&
+        audit.native_vao_creates == audit.native_vao_destroys &&
+        audit.native_item_creates == audit.native_item_destroys &&
+        audit.native_scene_node_creates ==
+            audit.native_scene_node_destroys &&
+        audit.native_datablock_creates ==
+            audit.native_datablock_destroys &&
+        audit.native_mesh_absence_checks == audit.native_mesh_destroys &&
+        audit.native_item_absence_checks == audit.native_item_destroys &&
+        audit.native_scene_node_absence_checks ==
+            audit.native_scene_node_destroys &&
+        audit.native_datablock_absence_checks ==
+            audit.native_datablock_destroys;
+    const bool multiplication_safe =
+        audit.completed_frames <=
+        (std::numeric_limits<std::uint64_t>::max)() / 2U;
+    output.native_geometry_metadata_verified =
+        audit.native_geometry_metadata_verified;
+    output.cpu_geometry_digest_verified =
+        audit.completed_frames > 0U && audit.last_cpu_geometry_fnv1a64 != 0U;
+    output.production_gpu_readbacks_zero =
+        audit.native_gpu_content_readbacks == 0U &&
+        presentation_audit.enabled &&
+        presentation_audit.source_readbacks == 0U &&
+        presentation_audit.gpu_only_output_frames >= audit.completed_frames;
+    output.expected_per_frame_ownership =
+        multiplication_safe && audit.version == 2U &&
+        audit.completed_frames > 0U &&
+        audit.native_mesh_creates == audit.completed_frames * 2U &&
+        audit.native_vertex_buffer_creates == audit.completed_frames * 2U &&
+        audit.native_index_buffer_creates == audit.completed_frames * 2U &&
+        audit.native_vao_creates == audit.completed_frames * 2U &&
+        audit.native_item_creates == audit.completed_frames * 2U &&
+        audit.native_scene_node_creates == audit.completed_frames &&
+        audit.native_datablock_creates == audit.completed_frames * 2U &&
+        output.production_gpu_readbacks_zero &&
+        output.cpu_geometry_digest_verified &&
+        output.native_geometry_metadata_verified &&
+        audit.native_state_verifications == audit.completed_frames;
+    output.exact_native_geometry_readback =
+        audit.exact_native_geometry_readback;
+    output.separate_sun_alpha_replace = audit.separate_sun_alpha_replace;
+    output.available = true;
+    return output;
+  }
+
   static constexpr std::size_t kMaximumAxes = 32U;
   static constexpr std::size_t kMaximumHats = 4U;
 
@@ -1536,6 +1603,11 @@ RendererOgreNextInProcessPresenter::CurrentSurface() const noexcept {
 RendererContinuousParticleAudit
 RendererOgreNextInProcessPresenter::ContinuousParticleAudit() const noexcept {
   return impl_->ContinuousParticleAudit();
+}
+
+RendererAnalyticSkyAudit
+RendererOgreNextInProcessPresenter::AnalyticSkyAudit() const noexcept {
+  return impl_->AnalyticSkyAudit();
 }
 
 ValidationResult RendererOgreNextInProcessPresenter::PollEvents(

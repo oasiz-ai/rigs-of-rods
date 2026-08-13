@@ -102,6 +102,26 @@ struct RendererContinuousParticleAudit final {
   bool available = false;
 };
 
+/// Renderer-neutral production receipt for the native analytic-sky slice.
+/// Production construction cannot enable the isolated evidence seam, so
+/// `native_gpu_content_readbacks` remains zero while native Item/VAO metadata
+/// and render state are verified every completed sky frame.
+struct RendererAnalyticSkyAudit final {
+  std::uint64_t completed_frames = 0U;
+  std::uint64_t sun_light_id = 0U;
+  std::uint64_t cpu_geometry_fnv1a64 = 0U;
+  std::uint64_t native_gpu_content_readbacks = 0U;
+  std::uint64_t native_state_verifications = 0U;
+  bool native_ownership_balanced = false;
+  bool expected_per_frame_ownership = false;
+  bool cpu_geometry_digest_verified = false;
+  bool native_geometry_metadata_verified = false;
+  bool production_gpu_readbacks_zero = false;
+  bool exact_native_geometry_readback = false;
+  bool separate_sun_alpha_replace = false;
+  bool available = false;
+};
+
 /// Owns the sole visible SDL/Metal presentation window and an uninitialized
 /// OgreNext N1 frontend. The public boundary is renderer-neutral; the Pimpl
 /// implementation is the only translation unit that includes OgreNext or SDL.
@@ -146,6 +166,7 @@ public:
   [[nodiscard]] Render::FrontendSurfaceUpdate CurrentSurface() const noexcept;
   [[nodiscard]] RendererContinuousParticleAudit
   ContinuousParticleAudit() const noexcept;
+  [[nodiscard]] RendererAnalyticSkyAudit AnalyticSkyAudit() const noexcept;
 
   [[nodiscard]] Render::ValidationResult PollEvents(
       RendererInProcessEventPollPoint point,

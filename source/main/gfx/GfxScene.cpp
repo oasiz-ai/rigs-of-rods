@@ -2762,6 +2762,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     // and must pass a fresh exact authenticated observation before reuse.
     m_ogre_next_demo_material_source.Reset();
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
+    m_ogre_next_demo_analytic_sky_log_snapshot.clear();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3512,14 +3513,6 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 static_cast<float>(ambient.r),
                 static_cast<float>(ambient.g),
                 static_cast<float>(ambient.b)};
-            if (Render::BuildOgre14GraphicsSceneEnvironment(
-                    native_ambient, candidate.frame.environment).ok())
-            {
-                candidate.available_fields |=
-                    Render::Ogre14GraphicsSceneCaptureFieldBit(
-                        Render::Ogre14GraphicsSceneCaptureField::
-                            ENVIRONMENT);
-            }
 
             Terrain* const terrain = App::GetGameContext() != nullptr
                 ? App::GetGameContext()->GetTerrain().GetRef()
@@ -4334,6 +4327,55 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 return light_validation;
             }
+            // The environment and exact converted sun stage together. This
+            // prevents a sky descriptor from ever naming an uncommitted or
+            // differently normalized light identity; the pending light
+            // registry remains rollback-only until producer acceptance.
+            if (candidate.frame.lights.size() != 1U)
+            {
+                return Render::ValidationResult::Failure(
+                    Render::ValidationCode::SIZE_MISMATCH,
+                    "ogre_next_demo.environment.sun",
+                    "modern analytic sky requires the one captured terrain main light");
+            }
+            Render::ValidationResult environment_validation =
+                Render::BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+                    native_ambient, candidate.frame.lights.front(),
+                    candidate.frame.environment);
+            if (!environment_validation)
+            {
+                return environment_validation;
+            }
+            const Render::AnalyticSkyDescriptor& sky =
+                candidate.frame.environment.analytic_sky;
+            const Render::GraphicsSceneLightInput& committed_sun =
+                candidate.frame.lights.front();
+            pending->analytic_sky_log_snapshot = fmt::format(
+                "policy_v={} enabled={} exact_skyx_pixel_capture=false "
+                "radiance_authority="
+                "joined_live_ambient_and_exact_converted_main_light "
+                "sun_light_id={} sun_direction=[{:.9g},{:.9g},{:.9g}] "
+                "sun_intensity={:.9g} ambient=[{:.9g},{:.9g},{:.9g}] "
+                "zenith=[{:.9g},{:.9g},{:.9g}] "
+                "horizon=[{:.9g},{:.9g},{:.9g}] "
+                "ground=[{:.9g},{:.9g},{:.9g}] "
+                "sun_disk=[{:.9g},{:.9g},{:.9g}] "
+                "sun_angular_radius_radians={:.9g}",
+                Render::kOgre14ModernAnalyticSkyPolicyVersion,
+                sky.enabled, sky.sun_light_id,
+                committed_sun.direction.x, committed_sun.direction.y,
+                committed_sun.direction.z, committed_sun.intensity,
+                native_ambient.x, native_ambient.y, native_ambient.z,
+                sky.zenith_radiance.x, sky.zenith_radiance.y,
+                sky.zenith_radiance.z, sky.horizon_radiance.x,
+                sky.horizon_radiance.y, sky.horizon_radiance.z,
+                sky.ground_radiance.x, sky.ground_radiance.y,
+                sky.ground_radiance.z, sky.sun_disk_radiance.x,
+                sky.sun_disk_radiance.y, sky.sun_disk_radiance.z,
+                sky.sun_angular_radius_radians);
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::ENVIRONMENT);
             candidate.available_fields |=
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::LIGHTS);
@@ -4382,6 +4424,18 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->dynamic_mesh_cache);
     swap(m_ogre14_particle_capture_state,
          m_ogre14_pending_capture->particle_capture_state);
+    const bool analytic_sky_changed =
+        !m_ogre14_pending_capture->analytic_sky_log_snapshot.empty() &&
+        m_ogre14_pending_capture->analytic_sky_log_snapshot !=
+            m_ogre_next_demo_analytic_sky_log_snapshot;
+    swap(m_ogre_next_demo_analytic_sky_log_snapshot,
+         m_ogre14_pending_capture->analytic_sky_log_snapshot);
+    if (analytic_sky_changed)
+    {
+        LOG(fmt::format(
+            "[RoR|OgreNextDemo|AnalyticSky|Source] {}",
+            m_ogre_next_demo_analytic_sky_log_snapshot));
+    }
     m_ogre_next_demo_material_source.Commit();
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;

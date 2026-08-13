@@ -20,6 +20,13 @@ SPEC = importlib.util.spec_from_file_location("verify_ogre_next_artifacts", SCRI
 assert SPEC and SPEC.loader
 VERIFY = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VERIFY)
+RUNNER_PATH = REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py"
+RUNNER_SPEC = importlib.util.spec_from_file_location(
+    "run_ogre_next_probe", RUNNER_PATH
+)
+assert RUNNER_SPEC and RUNNER_SPEC.loader
+RUNNER = importlib.util.module_from_spec(RUNNER_SPEC)
+RUNNER_SPEC.loader.exec_module(RUNNER)
 
 
 class OgreNextArtifactSetTests(unittest.TestCase):
@@ -226,11 +233,15 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             VERIFY.RT4_ISOLATION_ARTIFACT,
             VERIFY.RT4_REFLECTION_ARTIFACT,
             VERIFY.RT4_COMPOSITOR_ARTIFACT,
+            VERIFY.RT4_ANALYTIC_SKY_PPM_ARTIFACT,
+            VERIFY.RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT,
             VERIFY.RT4_REPEAT_REPORT_ARTIFACT,
             VERIFY.RT4_REPEAT_PPM_ARTIFACT,
             VERIFY.RT4_REPEAT_ISOLATION_ARTIFACT,
             VERIFY.RT4_REPEAT_REFLECTION_ARTIFACT,
             VERIFY.RT4_REPEAT_COMPOSITOR_ARTIFACT,
+            VERIFY.RT4_REPEAT_ANALYTIC_SKY_PPM_ARTIFACT,
+            VERIFY.RT4_REPEAT_ANALYTIC_SKY_EVIDENCE_ARTIFACT,
             VERIFY.RT4_ATTESTATION_ARTIFACT,
         }
         for name in VERIFY.REQUIRED_ARTIFACTS[1:]:
@@ -976,6 +987,68 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         )
         ppm_path = root / VERIFY.RT4_PPM_ARTIFACT
         ppm_path.write_bytes(b"P6\n192 128\n255\n" + ppm_pixels)
+        sky_width = 768
+        sky_height = 512
+        sky_pixel_count = sky_width * sky_height
+        sky_sunless_rows = []
+        sky_rgb_rows = []
+        for row in range(sky_height):
+            fraction = row / (sky_height - 1)
+            red = 0.02 + fraction * 0.06
+            green = 0.04 + fraction * 0.05
+            blue = 0.10 - fraction * 0.04
+            sky_sunless_rows.append(
+                struct.pack("<4e", red, green, blue, 1.0) * sky_width
+            )
+            sky_rgb_rows.append(
+                bytes(
+                    (
+                        round(red * 255.0),
+                        round(green * 255.0),
+                        round(blue * 255.0),
+                    )
+                )
+                * sky_width
+            )
+        sky_sunless = b"".join(sky_sunless_rows)
+        sky_sun = bytearray(sky_sunless)
+        sky_sun_pixel = sky_pixel_count // 2 + sky_width // 2
+        sky_sun_offset = sky_sun_pixel * 8
+        sky_sun[sky_sun_offset : sky_sun_offset + 8] = struct.pack(
+            "<4e", 16.0, 14.0, 12.0, 1.0
+        )
+        sky_sun = bytes(sky_sun)
+        sky_rgb = bytearray(b"".join(sky_rgb_rows))
+        sky_rgb_offset = sky_sun_pixel * 3
+        sky_rgb[sky_rgb_offset : sky_rgb_offset + 3] = bytes((255, 255, 255))
+        sky_rgb = bytes(sky_rgb)
+        sky_evidence_path = root / VERIFY.RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT
+        sky_evidence_path.write_bytes(sky_sunless + sky_sun)
+        sky_ppm_path = root / VERIFY.RT4_ANALYTIC_SKY_PPM_ARTIFACT
+        sky_ppm_path.write_bytes(
+            f"P6\n{sky_width} {sky_height}\n255\n".encode("ascii")
+            + sky_rgb
+        )
+        sky_slices = [
+            {
+                "attachment": "camera_facing_sunless_hdr",
+                "offset": 0,
+                "bytes": len(sky_sunless),
+                "sha256": hashlib.sha256(sky_sunless).hexdigest(),
+            },
+            {
+                "attachment": "camera_facing_sun_hdr",
+                "offset": len(sky_sunless),
+                "bytes": len(sky_sun),
+                "sha256": hashlib.sha256(sky_sun).hexdigest(),
+            },
+            {
+                "attachment": "camera_facing_sun_sdr",
+                "offset": 0,
+                "bytes": len(sky_rgb),
+                "sha256": hashlib.sha256(sky_rgb).hexdigest(),
+            },
+        ]
         colours = {
             ppm_pixels[pixel_offset : pixel_offset + 3]
             for pixel_offset in range(0, len(ppm_pixels), 3)
@@ -1109,6 +1182,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "analytic_lights_calibrated": True,
                 "directional_lux_to_native_power_scale": 1.0 / 1024.0,
                 "maximum_directional_lights": 1,
+                "analytic_sky_capture_policy_version": 1,
+                "analytic_sky_native_render_policy_version": 1,
+                "analytic_sky_path": (
+                    "camera_centered_gradient_ground_additive_sun"
+                ),
+                "analytic_sky_exact_skyx_pixel_capture": False,
                 "constant_environment_only": False,
                 "native_interop": False,
                 "ray_tracing": False,
@@ -1122,6 +1201,154 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "referenced_sampler_count": 1,
                 "unreferenced_assets_not_uploaded": True,
                 "transactional_replay_after_restart": True,
+            },
+            "dynamic_meshes": {
+                "schema": "ror.ogre_next_dynamic_mesh.v1",
+                "base_deformation_revision": 1,
+                "deformed_deformation_revision": 2,
+                "full_update_owned": True,
+                "solver_memory_aliased": False,
+                "changed_pixels": 512,
+                "base_attachment_fnv1a64": "0123456789abcdef",
+                "deformed_attachment_fnv1a64": "fedcba9876543210",
+                "base_exact_replay": True,
+                "deformed_exact_replay": True,
+            },
+            "analytic_sky": {
+                "schema": "ror.ogre_next_analytic_sky.v2",
+                "evidence_file": VERIFY.RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT,
+                "visual_file": VERIFY.RT4_ANALYTIC_SKY_PPM_ARTIFACT,
+                "capture_policy_version": 1,
+                "native_render_policy_version": 1,
+                "authoritative_inputs": (
+                    "joined_live_ambient_and_exact_converted_main_light"
+                ),
+                "exact_skyx_pixel_capture": False,
+                "skyx_capture_boundary": (
+                    "SkyX_shader_is_azimuth_dependent_and_may_apply_LDR_exposure"
+                ),
+                "sun_light_id": 1,
+                "descriptor": {
+                    "zenith_radiance": [
+                        0.022859251126646996,
+                        0.047378916293382645,
+                        0.09662292897701263,
+                    ],
+                    "horizon_radiance": [
+                        0.06477569788694382,
+                        0.07451573759317398,
+                        0.08912292867898941,
+                    ],
+                    "ground_radiance": [
+                        0.001500000013038516,
+                        0.0017999999690800905,
+                        0.0022499999031424522,
+                    ],
+                    "sun_disk_radiance": [
+                        25.812335968017578,
+                        23.74734878540039,
+                        21.166114807128906,
+                    ],
+                    "sun_angular_radius_radians": 0.00465047,
+                },
+                "native_geometry": {
+                    "resource_model": "frontend_owned_v2_mesh_item",
+                    "background_vertex_count": 2082,
+                    "background_index_count": 11904,
+                    "sun_vertex_count": 34,
+                    "sun_index_count": 96,
+                    "native_content_bytes": 107248,
+                    "cpu_geometry_fnv1a64": 123456789,
+                    "native_geometry_metadata_verified": True,
+                    "production_default_gpu_content_readbacks_zero": True,
+                    "exact_gpu_buffer_content_readback": True,
+                    "camera_centered": True,
+                    "rendered_first": True,
+                    "depth_check_disabled": True,
+                    "depth_write_disabled": True,
+                    "additive_sun_disk": True,
+                    "separate_sun_alpha_replace": True,
+                    "casts_shadows": False,
+                    "portable_scene_identity_absent": True,
+                },
+                "runtime_audit": {
+                    "version": 2,
+                    "completed_frames": 16,
+                    "native_mesh_creates": 32,
+                    "native_mesh_destroys": 32,
+                    "native_vertex_buffer_creates": 32,
+                    "native_vertex_buffer_destroys": 32,
+                    "native_index_buffer_creates": 32,
+                    "native_index_buffer_destroys": 32,
+                    "native_vao_creates": 32,
+                    "native_vao_destroys": 32,
+                    "native_item_creates": 32,
+                    "native_item_destroys": 32,
+                    "native_scene_node_creates": 16,
+                    "native_scene_node_destroys": 16,
+                    "native_datablock_creates": 32,
+                    "native_datablock_destroys": 32,
+                    "native_mesh_absence_checks": 32,
+                    "native_item_absence_checks": 32,
+                    "native_scene_node_absence_checks": 16,
+                    "native_datablock_absence_checks": 32,
+                    "native_gpu_content_readbacks": 64,
+                    "native_state_verifications": 16,
+                },
+                "visual_proof": {
+                    "sky_only": True,
+                    "camera_facing_sun": True,
+                    "width": sky_width,
+                    "height": sky_height,
+                    "hdr_pixel_format": "RGBA16_FLOAT",
+                    "evidence_bytes": len(sky_sunless) + len(sky_sun),
+                    "sunless_hdr_offset": 0,
+                    "sunless_hdr_bytes": len(sky_sunless),
+                    "sun_hdr_offset": len(sky_sunless),
+                    "sun_hdr_bytes": len(sky_sun),
+                    "sunless_hdr_fnv1a64": VERIFY._fnv1a64(sky_sunless),
+                    "sun_hdr_fnv1a64": VERIFY._fnv1a64(sky_sun),
+                    "visual_rgb_fnv1a64": VERIFY._fnv1a64(sky_rgb),
+                    "hemisphere_covered_pixels": sky_pixel_count,
+                    "hemisphere_gradient_rows": sum(
+                        abs(
+                            sum(
+                                coefficient * value
+                                for coefficient, value in zip(
+                                    (0.2126, 0.7152, 0.0722),
+                                    struct.unpack_from(
+                                        "<3e", sky_sunless_rows[row], 0
+                                    ),
+                                    strict=True,
+                                )
+                            )
+                            - sum(
+                                coefficient * value
+                                for coefficient, value in zip(
+                                    (0.2126, 0.7152, 0.0722),
+                                    struct.unpack_from(
+                                        "<3e", sky_sunless_rows[row - 1], 0
+                                    ),
+                                    strict=True,
+                                )
+                            )
+                        )
+                        > 1.0e-6
+                        for row in range(1, sky_height)
+                    ),
+                    "broad_hemisphere_coverage": True,
+                    "sun_changed_pixels": 1,
+                    "sun_changed_pixels_alpha_exact_one": 1,
+                    "sun_hdr_opaque_alpha_pixels": sky_pixel_count,
+                    "visible_sun_effect": True,
+                    "visible_sun_alpha_exact_one": True,
+                },
+                "transactional_rollback": {
+                    "injected_stage_count": 20,
+                    "publication_unchanged_on_failure": True,
+                    "native_lifetimes_balanced_on_failure": True,
+                    "clean_retry": True,
+                },
             },
             "display_domain_unlit": {
                 "schema": "ror.ogre_next_rt4_display_domain_unlit.v1",
@@ -1269,6 +1496,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             VERIFY.RT4_REPEAT_ISOLATION_ARTIFACT: isolation_path,
             VERIFY.RT4_REPEAT_REFLECTION_ARTIFACT: reflection_path,
             VERIFY.RT4_REPEAT_COMPOSITOR_ARTIFACT: compositor_path,
+            VERIFY.RT4_REPEAT_ANALYTIC_SKY_PPM_ARTIFACT: sky_ppm_path,
+            VERIFY.RT4_REPEAT_ANALYTIC_SKY_EVIDENCE_ARTIFACT: sky_evidence_path,
         }
         for relative, primary in repeat_paths.items():
             repeat = root / relative
@@ -1373,6 +1602,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "isolation": file_entry(isolation_path),
                 "reflection": file_entry(reflection_path),
                 "compositor": file_entry(compositor_path),
+                "analytic_sky_evidence": file_entry(sky_evidence_path),
+                "analytic_sky_ppm": file_entry(sky_ppm_path),
                 "repeat_report": file_entry(
                     root / VERIFY.RT4_REPEAT_REPORT_ARTIFACT
                 ),
@@ -1388,11 +1619,18 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "repeat_compositor": file_entry(
                     root / VERIFY.RT4_REPEAT_COMPOSITOR_ARTIFACT
                 ),
+                "repeat_analytic_sky_evidence": file_entry(
+                    root / VERIFY.RT4_REPEAT_ANALYTIC_SKY_EVIDENCE_ARTIFACT
+                ),
+                "repeat_analytic_sky_ppm": file_entry(
+                    root / VERIFY.RT4_REPEAT_ANALYTIC_SKY_PPM_ARTIFACT
+                ),
                 "executable": file_entry(executable_path),
             },
             "isolation_slices": slices,
             "reflection_slices": reflection_slices,
             "compositor_slices": compositor_slices,
+            "analytic_sky_slices": sky_slices,
         }
         (root / VERIFY.RT4_ATTESTATION_ARTIFACT).write_text(
             json.dumps(attestation) + "\n", encoding="utf-8"
@@ -1404,6 +1642,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         file_keys: tuple[str, ...] = (),
         refresh_slices: bool = False,
         refresh_compositor_slices: bool = False,
+        refresh_analytic_sky_slices: bool = False,
     ) -> None:
         path = root / VERIFY.RT4_ATTESTATION_ARTIFACT
         attestation = json.loads(path.read_text(encoding="utf-8"))
@@ -1434,6 +1673,20 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 start = entry["offset"]
                 end = start + entry["bytes"]
                 entry["sha256"] = hashlib.sha256(payload[start:end]).hexdigest()
+        if refresh_analytic_sky_slices:
+            payload = (
+                root / VERIFY.RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT
+            ).read_bytes()
+            ppm = (root / VERIFY.RT4_ANALYTIC_SKY_PPM_ARTIFACT).read_bytes()
+            ppm_header = b"P6\n768 512\n255\n"
+            for entry in attestation["analytic_sky_slices"]:
+                if entry["attachment"] == "camera_facing_sun_sdr":
+                    block = ppm[len(ppm_header) :]
+                else:
+                    start = entry["offset"]
+                    end = start + entry["bytes"]
+                    block = payload[start:end]
+                entry["sha256"] = hashlib.sha256(block).hexdigest()
         path.write_text(json.dumps(attestation) + "\n", encoding="utf-8")
 
     def write_metal_n2(self, root: Path, status: str) -> None:
@@ -2479,6 +2732,8 @@ class OgreNextArtifactSetTests(unittest.TestCase):
         for section in (
             "adapter",
             "catalog",
+            "dynamic_meshes",
+            "analytic_sky",
             "texture_allocations",
             "texture_upload_rollback",
             "texture_retirement",
@@ -2503,6 +2758,177 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                     )
                     self.refresh_rt4_attestation(root, ("report",))
                     with self.assertRaises(VERIFY.ArtifactSetError):
+                        VERIFY.verify_artifact_set(root)
+
+    def test_rt4_analytic_sky_is_fail_closed_after_reattestation(self) -> None:
+        mutations = (
+            lambda report: report["analytic_sky"].__setitem__(
+                "capture_policy_version", True
+            ),
+            lambda report: report["analytic_sky"].__setitem__(
+                "exact_skyx_pixel_capture", True
+            ),
+            lambda report: report["analytic_sky"]["descriptor"].__setitem__(
+                "zenith_radiance", [0.0, 0.0, 0.0]
+            ),
+            lambda report: report["analytic_sky"]["native_geometry"].__setitem__(
+                "depth_write_disabled", False
+            ),
+            lambda report: report["analytic_sky"]["runtime_audit"].__setitem__(
+                "native_datablock_destroys", 31
+            ),
+            lambda report: report["analytic_sky"][
+                "transactional_rollback"
+            ].__setitem__("clean_retry", False),
+        )
+        for index, mutation in enumerate(mutations):
+            with self.subTest(mutation=index):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-analytic-sky-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    mutation(report)
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    self.refresh_rt4_attestation(root, ("report",))
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError,
+                        "RT4 analytic-sky controls failed",
+                    ):
+                        VERIFY.verify_artifact_set(root)
+
+    def test_rt4_probe_analytic_sky_validator_is_exact(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-probe-analytic-sky-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            report = json.loads(
+                (root / VERIFY.RT4_REPORT_ARTIFACT).read_text(encoding="utf-8")
+            )
+            sky_evidence = root / VERIFY.RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT
+            sky_ppm = root / VERIFY.RT4_ANALYTIC_SKY_PPM_ARTIFACT
+            RUNNER.validate_analytic_sky_report(
+                report, sky_evidence, sky_ppm
+            )
+            for mutation in (
+                lambda value: value["analytic_sky"].__setitem__(
+                    "capture_policy_version", True
+                ),
+                lambda value: value["analytic_sky"]["descriptor"].__setitem__(
+                    "sun_disk_radiance", [0.0, 0.0, 0.0]
+                ),
+                lambda value: value["analytic_sky"]["runtime_audit"].__setitem__(
+                    "native_mesh_creates", 32.0
+                ),
+            ):
+                tampered = copy.deepcopy(report)
+                mutation(tampered)
+                with self.assertRaisesRegex(
+                    RUNNER.ProbeError,
+                    "analytic-sky controls failed closed",
+                ):
+                    RUNNER.validate_analytic_sky_report(
+                        tampered, sky_evidence, sky_ppm
+                    )
+
+            tampered_report = copy.deepcopy(report)
+            payload = bytearray(sky_evidence.read_bytes())
+            attachment_bytes = 768 * 512 * 8
+            sun_pixel = (768 * 512) // 2 + 768 // 2
+            alpha_offset = attachment_bytes + sun_pixel * 8 + 6
+            payload[alpha_offset : alpha_offset + 2] = b"\x00\x40"
+            sky_evidence.write_bytes(payload)
+            tampered_report["analytic_sky"]["visual_proof"][
+                "sun_hdr_fnv1a64"
+            ] = RUNNER._fnv1a64(bytes(payload[attachment_bytes:]))
+            with self.assertRaisesRegex(
+                RUNNER.ProbeError, "analytic-sky visual proof failed closed"
+            ):
+                RUNNER.validate_analytic_sky_report(
+                    tampered_report, sky_evidence, sky_ppm
+                )
+
+    def test_rt4_analytic_sky_hdr_alpha_is_recomputed_after_reattestation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="ror-ogre-rt4-analytic-sky-alpha-"
+        ) as temp:
+            root = Path(temp)
+            self.write_baseline(root)
+            attachment_bytes = 768 * 512 * 8
+            sun_pixel = (768 * 512) // 2 + 768 // 2
+            alpha_offset = attachment_bytes + sun_pixel * 8 + 6
+            evidence_paths = (
+                root / VERIFY.RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT,
+                root / VERIFY.RT4_REPEAT_ANALYTIC_SKY_EVIDENCE_ARTIFACT,
+            )
+            payload = bytearray(evidence_paths[0].read_bytes())
+            payload[alpha_offset : alpha_offset + 2] = b"\x00\x40"
+            for evidence_path in evidence_paths:
+                evidence_path.write_bytes(payload)
+            sun_hash = VERIFY._fnv1a64(bytes(payload[attachment_bytes:]))
+            for report_relative in (
+                VERIFY.RT4_REPORT_ARTIFACT,
+                VERIFY.RT4_REPEAT_REPORT_ARTIFACT,
+            ):
+                report_path = root / report_relative
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                report["analytic_sky"]["visual_proof"][
+                    "sun_hdr_fnv1a64"
+                ] = sun_hash
+                report_path.write_text(
+                    json.dumps(report) + "\n", encoding="utf-8"
+                )
+            self.refresh_rt4_attestation(
+                root,
+                (
+                    "report",
+                    "repeat_report",
+                    "analytic_sky_evidence",
+                    "repeat_analytic_sky_evidence",
+                ),
+                refresh_analytic_sky_slices=True,
+            )
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "RT4 analytic-sky visual proof failed",
+            ):
+                VERIFY.verify_artifact_set(root)
+
+    def test_rt4_dynamic_mesh_is_fail_closed_after_reattestation(self) -> None:
+        mutations = (
+            lambda report: report["dynamic_meshes"].__setitem__(
+                "changed_pixels", True
+            ),
+            lambda report: report["dynamic_meshes"].__setitem__(
+                "deformed_attachment_fnv1a64",
+                report["dynamic_meshes"]["base_attachment_fnv1a64"],
+            ),
+        )
+        for index, mutation in enumerate(mutations):
+            with self.subTest(mutation=index):
+                with tempfile.TemporaryDirectory(
+                    prefix="ror-ogre-rt4-dynamic-mesh-"
+                ) as temp:
+                    root = Path(temp)
+                    self.write_baseline(root)
+                    report_path = root / VERIFY.RT4_REPORT_ARTIFACT
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    mutation(report)
+                    report_path.write_text(
+                        json.dumps(report) + "\n", encoding="utf-8"
+                    )
+                    self.refresh_rt4_attestation(root, ("report",))
+                    with self.assertRaisesRegex(
+                        VERIFY.ArtifactSetError,
+                        "RT4 dynamic-mesh controls failed",
+                    ):
                         VERIFY.verify_artifact_set(root)
 
     def test_rt4_retirement_and_rollback_reject_numeric_type_aliases(self) -> None:

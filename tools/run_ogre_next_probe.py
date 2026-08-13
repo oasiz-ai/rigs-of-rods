@@ -62,11 +62,17 @@ RT4_PBR_REFLECTION_EVIDENCE_NAME = (
 RT4_PBR_COMPOSITOR_EVIDENCE_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-hdr-compositor.bin"
 )
+RT4_PBR_ANALYTIC_SKY_IMAGE_NAME = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-analytic-sky.ppm"
+)
+RT4_PBR_ANALYTIC_SKY_EVIDENCE_NAME = (
+    "ror-ogre-next-frontend-rt4-pbr-v1-analytic-sky.bin"
+)
 RT4_PBR_REPEAT_DIRECTORY = "ror-ogre-next-frontend-rt4-pbr-v1-repeat"
 RT4_PBR_ATTESTATION_NAME = (
     "ror-ogre-next-frontend-rt4-pbr-v1-attestation.json"
 )
-RT4_PBR_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3"
+RT4_PBR_REPORT_SCHEMA = "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v4"
 RT4_PBR_ATTESTATION_SCHEMA = (
     "ror.ogre_next_frontend_rt4_pbr_v1.attestation.v4"
 )
@@ -2639,6 +2645,415 @@ def validate_hdr_compositor_visual_evidence(
     return slices
 
 
+def validate_analytic_sky_report(
+    report: dict[str, Any], evidence_path: Path, image_path: Path
+) -> list[dict[str, Any]]:
+    def exact_int(value: object, expected: int) -> bool:
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and value == expected
+        )
+
+    sky = report.get("analytic_sky")
+    expected_sky_keys = {
+        "schema",
+        "evidence_file",
+        "visual_file",
+        "capture_policy_version",
+        "native_render_policy_version",
+        "authoritative_inputs",
+        "exact_skyx_pixel_capture",
+        "skyx_capture_boundary",
+        "sun_light_id",
+        "descriptor",
+        "native_geometry",
+        "runtime_audit",
+        "visual_proof",
+        "transactional_rollback",
+    }
+    if not isinstance(sky, dict) or set(sky) != expected_sky_keys:
+        raise ProbeError("RT4/V1 analytic-sky report schema drifted")
+    descriptor = sky.get("descriptor")
+    geometry = sky.get("native_geometry")
+    audit = sky.get("runtime_audit")
+    visual = sky.get("visual_proof")
+    rollback = sky.get("transactional_rollback")
+    if (
+        not isinstance(descriptor, dict)
+        or set(descriptor)
+        != {
+            "zenith_radiance",
+            "horizon_radiance",
+            "ground_radiance",
+            "sun_disk_radiance",
+            "sun_angular_radius_radians",
+        }
+        or not isinstance(geometry, dict)
+        or set(geometry)
+        != {
+            "resource_model",
+            "background_vertex_count",
+            "background_index_count",
+            "sun_vertex_count",
+            "sun_index_count",
+            "native_content_bytes",
+            "cpu_geometry_fnv1a64",
+            "native_geometry_metadata_verified",
+            "production_default_gpu_content_readbacks_zero",
+            "exact_gpu_buffer_content_readback",
+            "camera_centered",
+            "rendered_first",
+            "depth_check_disabled",
+            "depth_write_disabled",
+            "additive_sun_disk",
+            "separate_sun_alpha_replace",
+            "casts_shadows",
+            "portable_scene_identity_absent",
+        }
+        or not isinstance(audit, dict)
+        or set(audit)
+        != {
+            "version",
+            "completed_frames",
+            "native_mesh_creates",
+            "native_mesh_destroys",
+            "native_vertex_buffer_creates",
+            "native_vertex_buffer_destroys",
+            "native_index_buffer_creates",
+            "native_index_buffer_destroys",
+            "native_vao_creates",
+            "native_vao_destroys",
+            "native_item_creates",
+            "native_item_destroys",
+            "native_scene_node_creates",
+            "native_scene_node_destroys",
+            "native_datablock_creates",
+            "native_datablock_destroys",
+            "native_mesh_absence_checks",
+            "native_item_absence_checks",
+            "native_scene_node_absence_checks",
+            "native_datablock_absence_checks",
+            "native_gpu_content_readbacks",
+            "native_state_verifications",
+        }
+        or not isinstance(visual, dict)
+        or set(visual)
+        != {
+            "sky_only",
+            "camera_facing_sun",
+            "width",
+            "height",
+            "hdr_pixel_format",
+            "evidence_bytes",
+            "sunless_hdr_offset",
+            "sunless_hdr_bytes",
+            "sun_hdr_offset",
+            "sun_hdr_bytes",
+            "sunless_hdr_fnv1a64",
+            "sun_hdr_fnv1a64",
+            "visual_rgb_fnv1a64",
+            "hemisphere_covered_pixels",
+            "hemisphere_gradient_rows",
+            "broad_hemisphere_coverage",
+            "sun_changed_pixels",
+            "sun_changed_pixels_alpha_exact_one",
+            "sun_hdr_opaque_alpha_pixels",
+            "visible_sun_effect",
+            "visible_sun_alpha_exact_one",
+        }
+        or not isinstance(rollback, dict)
+        or set(rollback)
+        != {
+            "injected_stage_count",
+            "publication_unchanged_on_failure",
+            "native_lifetimes_balanced_on_failure",
+            "clean_retry",
+        }
+    ):
+        raise ProbeError("RT4/V1 analytic-sky nested schema drifted")
+    radiance_ok = all(
+        isinstance(descriptor.get(field), list)
+        and len(descriptor[field]) == 3
+        and all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            and float(value) >= 0.0
+            for value in descriptor[field]
+        )
+        for field in (
+            "zenith_radiance",
+            "horizon_radiance",
+            "ground_radiance",
+            "sun_disk_radiance",
+        )
+    )
+    expected_radiance = {
+        "zenith_radiance": [
+            0.022859251126646996,
+            0.047378916293382645,
+            0.09662292897701263,
+        ],
+        "horizon_radiance": [
+            0.06477569788694382,
+            0.07451573759317398,
+            0.08912292867898941,
+        ],
+        "ground_radiance": [
+            0.001500000013038516,
+            0.0017999999690800905,
+            0.0022499999031424522,
+        ],
+        "sun_disk_radiance": [
+            25.812335968017578,
+            23.74734878540039,
+            21.166114807128906,
+        ],
+    }
+    policy_radiance_ok = radiance_ok and all(
+        all(
+            math.isclose(
+                float(actual), expected,
+                rel_tol=0.0,
+                abs_tol=1.0e-7,
+            )
+            for actual, expected in zip(descriptor[field], expected_values)
+        )
+        for field, expected_values in expected_radiance.items()
+    )
+    completed = audit.get("completed_frames")
+    checks = {
+        "schema": sky.get("schema") == "ror.ogre_next_analytic_sky.v2",
+        "files": sky.get("evidence_file") == evidence_path.name
+        and sky.get("visual_file") == image_path.name,
+        "policies": exact_int(sky.get("capture_policy_version"), 1)
+        and exact_int(sky.get("native_render_policy_version"), 1),
+        "authority": sky.get("authoritative_inputs")
+        == "joined_live_ambient_and_exact_converted_main_light",
+        "boundary": sky.get("exact_skyx_pixel_capture") is False
+        and sky.get("skyx_capture_boundary")
+        == "SkyX_shader_is_azimuth_dependent_and_may_apply_LDR_exposure",
+        "identity": exact_int(sky.get("sun_light_id"), 1),
+        "radiance": policy_radiance_ok,
+        "radius": isinstance(
+            descriptor.get("sun_angular_radius_radians"), (int, float)
+        )
+        and not isinstance(descriptor.get("sun_angular_radius_radians"), bool)
+        and math.isclose(
+            float(descriptor["sun_angular_radius_radians"]),
+            0.00465047,
+            rel_tol=0.0,
+            abs_tol=1.0e-8,
+        ),
+        "topology": exact_int(geometry.get("background_vertex_count"), 2082)
+        and exact_int(geometry.get("background_index_count"), 11904)
+        and exact_int(geometry.get("sun_vertex_count"), 34)
+        and exact_int(geometry.get("sun_index_count"), 96)
+        and geometry.get("resource_model") == "frontend_owned_v2_mesh_item"
+        and exact_int(geometry.get("native_content_bytes"), 107248)
+        and isinstance(geometry.get("cpu_geometry_fnv1a64"), int)
+        and not isinstance(geometry.get("cpu_geometry_fnv1a64"), bool)
+        and 0 < geometry["cpu_geometry_fnv1a64"] <= (1 << 64) - 1
+        and geometry.get("native_geometry_metadata_verified") is True
+        and geometry.get("production_default_gpu_content_readbacks_zero") is True
+        and geometry.get("exact_gpu_buffer_content_readback") is True,
+        "native_state": all(
+            geometry.get(field) is True
+            for field in (
+                "camera_centered",
+                "rendered_first",
+                "depth_check_disabled",
+                "depth_write_disabled",
+                "additive_sun_disk",
+                "separate_sun_alpha_replace",
+                "portable_scene_identity_absent",
+            )
+        )
+        and geometry.get("casts_shadows") is False,
+        "lifetime": isinstance(completed, int)
+        and not isinstance(completed, bool)
+        and completed >= 4
+        and exact_int(audit.get("version"), 2)
+        and all(
+            exact_int(audit.get(field), completed * 2)
+            for field in (
+                "native_mesh_creates",
+                "native_mesh_destroys",
+                "native_vertex_buffer_creates",
+                "native_vertex_buffer_destroys",
+                "native_index_buffer_creates",
+                "native_index_buffer_destroys",
+                "native_vao_creates",
+                "native_vao_destroys",
+                "native_item_creates",
+                "native_item_destroys",
+                "native_datablock_creates",
+                "native_datablock_destroys",
+                "native_mesh_absence_checks",
+                "native_item_absence_checks",
+                "native_datablock_absence_checks",
+            )
+        )
+        and all(
+            exact_int(audit.get(field), completed)
+            for field in (
+                "native_scene_node_creates",
+                "native_scene_node_destroys",
+                "native_scene_node_absence_checks",
+                "native_state_verifications",
+            )
+        )
+        and exact_int(
+            audit.get("native_gpu_content_readbacks"), completed * 4
+        ),
+        "rollback": exact_int(rollback.get("injected_stage_count"), 20)
+        and rollback.get("publication_unchanged_on_failure") is True
+        and rollback.get("native_lifetimes_balanced_on_failure") is True
+        and rollback.get("clean_retry") is True,
+    }
+    failed = sorted(name for name, passed in checks.items() if not passed)
+    if failed:
+        raise ProbeError(
+            "RT4/V1 analytic-sky controls failed closed: " + ", ".join(failed)
+        )
+
+    width = visual.get("width")
+    height = visual.get("height")
+    if not exact_int(width, 768) or not exact_int(height, 512):
+        raise ProbeError("RT4/V1 analytic-sky proof extent drifted")
+    attachment_bytes = width * height * 8
+    try:
+        evidence = evidence_path.read_bytes()
+        image = image_path.read_bytes()
+    except OSError as error:
+        raise ProbeError(
+            f"could not read analytic-sky visual evidence: {error}"
+        ) from error
+    header = f"P6\n{width} {height}\n255\n".encode("ascii")
+    if (
+        not image.startswith(header)
+        or len(image) != len(header) + width * height * 3
+        or len(evidence) != attachment_bytes * 2
+        or visual.get("sky_only") is not True
+        or visual.get("camera_facing_sun") is not True
+        or visual.get("hdr_pixel_format") != "RGBA16_FLOAT"
+        or not exact_int(visual.get("evidence_bytes"), len(evidence))
+        or not exact_int(visual.get("sunless_hdr_offset"), 0)
+        or not exact_int(visual.get("sunless_hdr_bytes"), attachment_bytes)
+        or not exact_int(visual.get("sun_hdr_offset"), attachment_bytes)
+        or not exact_int(visual.get("sun_hdr_bytes"), attachment_bytes)
+    ):
+        raise ProbeError("RT4/V1 analytic-sky visual artifact contract drifted")
+
+    sunless = evidence[:attachment_bytes]
+    sun = evidence[attachment_bytes:]
+    ppm_rgb = image[len(header) :]
+    pixel_count = width * height
+    changed = 0
+    changed_alpha_one = 0
+    opaque_alpha = 0
+    covered = 0
+    row_luminance = [0.0] * height
+    sunless_maximum_luminance = 0.0
+    sun_maximum_luminance = 0.0
+    distinct_sunless_rgb: set[bytes] = set()
+    for pixel in range(pixel_count):
+        offset = pixel * 8
+        try:
+            sunless_channels = struct.unpack_from("<4e", sunless, offset)
+            sun_channels = struct.unpack_from("<4e", sun, offset)
+        except struct.error as error:
+            raise ProbeError(
+                "RT4/V1 analytic-sky half-float evidence is malformed"
+            ) from error
+        if not all(
+            math.isfinite(float(value))
+            for value in (*sunless_channels, *sun_channels)
+        ):
+            raise ProbeError(
+                "RT4/V1 analytic-sky evidence contains non-finite pixels"
+            )
+        if sunless[offset + 6 : offset + 8] != b"\x00\x3c":
+            raise ProbeError(
+                "RT4/V1 analytic-sky sunless HDR alpha is not exact one"
+            )
+        alpha_one = sun[offset + 6 : offset + 8] == b"\x00\x3c"
+        opaque_alpha += int(alpha_one)
+        rgb_changed = sunless[offset : offset + 6] != sun[offset : offset + 6]
+        changed += int(rgb_changed)
+        changed_alpha_one += int(rgb_changed and alpha_one)
+        maximum = max(float(value) for value in sunless_channels[:3])
+        covered += int(maximum > 0.0001)
+        luminance = (
+            0.2126 * float(sunless_channels[0])
+            + 0.7152 * float(sunless_channels[1])
+            + 0.0722 * float(sunless_channels[2])
+        )
+        row_luminance[pixel // width] += luminance
+        sunless_maximum_luminance = max(
+            sunless_maximum_luminance, luminance
+        )
+        sun_maximum_luminance = max(
+            sun_maximum_luminance,
+            0.2126 * float(sun_channels[0])
+            + 0.7152 * float(sun_channels[1])
+            + 0.0722 * float(sun_channels[2]),
+        )
+        distinct_sunless_rgb.add(sunless[offset : offset + 6])
+    row_luminance = [value / width for value in row_luminance]
+    gradient_rows = sum(
+        abs(row_luminance[row] - row_luminance[row - 1]) > 1.0e-6
+        for row in range(1, height)
+    )
+    if (
+        visual.get("sunless_hdr_fnv1a64") != _fnv1a64(sunless)
+        or visual.get("sun_hdr_fnv1a64") != _fnv1a64(sun)
+        or visual.get("visual_rgb_fnv1a64") != _fnv1a64(ppm_rgb)
+        or not exact_int(visual.get("hemisphere_covered_pixels"), covered)
+        or not exact_int(visual.get("hemisphere_gradient_rows"), gradient_rows)
+        or not exact_int(visual.get("sun_changed_pixels"), changed)
+        or not exact_int(
+            visual.get("sun_changed_pixels_alpha_exact_one"),
+            changed_alpha_one,
+        )
+        or not exact_int(
+            visual.get("sun_hdr_opaque_alpha_pixels"), opaque_alpha
+        )
+        or covered < pixel_count * 95 // 100
+        or gradient_rows < height // 4
+        or len(distinct_sunless_rgb) < 4
+        or changed == 0
+        or changed_alpha_one != changed
+        or opaque_alpha != pixel_count
+        or sun_maximum_luminance <= sunless_maximum_luminance
+        or visual.get("broad_hemisphere_coverage") is not True
+        or visual.get("visible_sun_effect") is not True
+        or visual.get("visible_sun_alpha_exact_one") is not True
+    ):
+        raise ProbeError("RT4/V1 analytic-sky visual proof failed closed")
+    return [
+        {
+            "attachment": "camera_facing_sunless_hdr",
+            "offset": 0,
+            "bytes": attachment_bytes,
+            "sha256": hashlib.sha256(sunless).hexdigest(),
+        },
+        {
+            "attachment": "camera_facing_sun_hdr",
+            "offset": attachment_bytes,
+            "bytes": attachment_bytes,
+            "sha256": hashlib.sha256(sun).hexdigest(),
+        },
+        {
+            "attachment": "camera_facing_sun_sdr",
+            "offset": 0,
+            "bytes": len(ppm_rgb),
+            "sha256": hashlib.sha256(ppm_rgb).hexdigest(),
+        },
+    ]
+
+
 def validate_n1_checkpoint(
     report: dict[str, Any],
     image_path: Path,
@@ -2649,6 +3064,8 @@ def validate_n1_checkpoint(
     modern_pbr: bool = False,
     isolation_evidence_path: Path | None = None,
     compositor_evidence_path: Path | None = None,
+    analytic_sky_evidence_path: Path | None = None,
+    analytic_sky_image_path: Path | None = None,
 ) -> list[dict[str, Any]] | None:
     try:
         image = image_path.read_bytes()
@@ -2704,8 +3121,15 @@ def validate_n1_checkpoint(
         _recompute_hdr_history_oracle(hdr_compositor) if modern_pbr else None
     )
     if modern_pbr:
-        if compositor_evidence_path is None:
-            raise ProbeError("RT4/V1 HDR compositor evidence path is missing")
+        if (
+            compositor_evidence_path is None
+            or analytic_sky_evidence_path is None
+            or analytic_sky_image_path is None
+        ):
+            raise ProbeError("RT4/V1 visual evidence path is missing")
+        validate_analytic_sky_report(
+            report, analytic_sky_evidence_path, analytic_sky_image_path
+        )
         validate_hdr_compositor_visual_evidence(
             report, compositor_evidence_path, pixels
         )
@@ -2775,6 +3199,11 @@ def validate_n1_checkpoint(
             and adapter.get("directional_lux_to_native_power_scale")
             == 1.0 / 1024.0
             and adapter.get("maximum_directional_lights") == 1
+            and adapter.get("analytic_sky_capture_policy_version") == 1
+            and adapter.get("analytic_sky_native_render_policy_version") == 1
+            and adapter.get("analytic_sky_path")
+            == "camera_centered_gradient_ground_additive_sun"
+            and adapter.get("analytic_sky_exact_skyx_pixel_capture") is False
             and adapter.get("constant_environment_only") is False
         )
         if modern_pbr
@@ -3420,11 +3849,15 @@ def write_rt4_attestation(
     evidence_path: Path,
     reflection_evidence_path: Path,
     compositor_evidence_path: Path,
+    analytic_sky_evidence_path: Path,
+    analytic_sky_image_path: Path,
     repeat_report_path: Path,
     repeat_image_path: Path,
     repeat_evidence_path: Path,
     repeat_reflection_evidence_path: Path,
     repeat_compositor_evidence_path: Path,
+    repeat_analytic_sky_evidence_path: Path,
+    repeat_analytic_sky_image_path: Path,
     executable_path: Path,
     build_contract_path: Path,
     source_identity: dict[str, Any],
@@ -3433,6 +3866,7 @@ def write_rt4_attestation(
     isolation_slices: list[dict[str, Any]],
     reflection_slices: list[dict[str, Any]],
     compositor_slices: list[dict[str, Any]],
+    analytic_sky_slices: list[dict[str, Any]],
 ) -> dict[str, Any]:
     provenance = report.get("provenance")
     if not isinstance(provenance, dict):
@@ -3489,6 +3923,12 @@ def write_rt4_attestation(
             "compositor": _attest_regular_file(
                 compositor_evidence_path, build_dir
             ),
+            "analytic_sky_evidence": _attest_regular_file(
+                analytic_sky_evidence_path, build_dir
+            ),
+            "analytic_sky_ppm": _attest_regular_file(
+                analytic_sky_image_path, build_dir
+            ),
             "repeat_report": _attest_regular_file(
                 repeat_report_path, build_dir
             ),
@@ -3502,11 +3942,18 @@ def write_rt4_attestation(
             "repeat_compositor": _attest_regular_file(
                 repeat_compositor_evidence_path, build_dir
             ),
+            "repeat_analytic_sky_evidence": _attest_regular_file(
+                repeat_analytic_sky_evidence_path, build_dir
+            ),
+            "repeat_analytic_sky_ppm": _attest_regular_file(
+                repeat_analytic_sky_image_path, build_dir
+            ),
             "executable": _attest_regular_file(executable_path, build_dir),
         },
         "isolation_slices": isolation_slices,
         "reflection_slices": reflection_slices,
         "compositor_slices": compositor_slices,
+        "analytic_sky_slices": analytic_sky_slices,
     }
     attestation_path = build_dir / RT4_PBR_ATTESTATION_NAME
     _atomic_write_json(attestation_path, attestation)
@@ -3737,6 +4184,12 @@ def run_n1_checkpoint(
     rt4_compositor_evidence_path = (
         build_dir / RT4_PBR_COMPOSITOR_EVIDENCE_NAME
     )
+    rt4_analytic_sky_evidence_path = (
+        build_dir / RT4_PBR_ANALYTIC_SKY_EVIDENCE_NAME
+    )
+    rt4_analytic_sky_image_path = (
+        build_dir / RT4_PBR_ANALYTIC_SKY_IMAGE_NAME
+    )
     repeat_root = build_dir / RT4_PBR_REPEAT_DIRECTORY
     repeat_report_path = repeat_root / RT4_PBR_REPORT_NAME
     repeat_image_path = repeat_root / RT4_PBR_IMAGE_NAME
@@ -3746,6 +4199,12 @@ def run_n1_checkpoint(
     )
     repeat_compositor_evidence_path = (
         repeat_root / RT4_PBR_COMPOSITOR_EVIDENCE_NAME
+    )
+    repeat_analytic_sky_evidence_path = (
+        repeat_root / RT4_PBR_ANALYTIC_SKY_EVIDENCE_NAME
+    )
+    repeat_analytic_sky_image_path = (
+        repeat_root / RT4_PBR_ANALYTIC_SKY_IMAGE_NAME
     )
     missing = [
         path.name
@@ -3757,11 +4216,15 @@ def run_n1_checkpoint(
             rt4_evidence_path,
             rt4_reflection_evidence_path,
             rt4_compositor_evidence_path,
+            rt4_analytic_sky_evidence_path,
+            rt4_analytic_sky_image_path,
             repeat_report_path,
             repeat_image_path,
             repeat_evidence_path,
             repeat_reflection_evidence_path,
             repeat_compositor_evidence_path,
+            repeat_analytic_sky_evidence_path,
+            repeat_analytic_sky_image_path,
         )
         if not path.is_file()
     ]
@@ -3789,6 +4252,8 @@ def run_n1_checkpoint(
         modern_pbr=True,
         isolation_evidence_path=rt4_evidence_path,
         compositor_evidence_path=rt4_compositor_evidence_path,
+        analytic_sky_evidence_path=rt4_analytic_sky_evidence_path,
+        analytic_sky_image_path=rt4_analytic_sky_image_path,
     )
     if isolation_slices is None:
         raise ProbeError("RT4/V1 isolation slice attestation is missing")
@@ -3799,6 +4264,11 @@ def run_n1_checkpoint(
         rt4_report,
         rt4_compositor_evidence_path,
         rt4_image_path.read_bytes()[len(b"P6\n192 128\n255\n") :],
+    )
+    analytic_sky_slices = validate_analytic_sky_report(
+        rt4_report,
+        rt4_analytic_sky_evidence_path,
+        rt4_analytic_sky_image_path,
     )
     try:
         repeat_report = json.loads(
@@ -3816,6 +4286,8 @@ def run_n1_checkpoint(
         modern_pbr=True,
         isolation_evidence_path=repeat_evidence_path,
         compositor_evidence_path=repeat_compositor_evidence_path,
+        analytic_sky_evidence_path=repeat_analytic_sky_evidence_path,
+        analytic_sky_image_path=repeat_analytic_sky_image_path,
     )
     if repeat_slices != isolation_slices:
         raise ProbeError("RT4 deterministic repeat isolation slices differ")
@@ -3827,16 +4299,30 @@ def run_n1_checkpoint(
         repeat_compositor_evidence_path,
         repeat_image_path.read_bytes()[len(b"P6\n192 128\n255\n") :],
     )
+    repeat_analytic_sky_slices = validate_analytic_sky_report(
+        repeat_report,
+        repeat_analytic_sky_evidence_path,
+        repeat_analytic_sky_image_path,
+    )
     if repeat_reflection_slices != reflection_slices:
         raise ProbeError("RT4 deterministic repeat reflection slices differ")
     if repeat_compositor_slices != compositor_slices:
         raise ProbeError("RT4 deterministic repeat compositor slices differ")
+    if repeat_analytic_sky_slices != analytic_sky_slices:
+        raise ProbeError(
+            "RT4 deterministic repeat analytic-sky slices differ"
+        )
     for primary, repeat in (
         (rt4_report_path, repeat_report_path),
         (rt4_image_path, repeat_image_path),
         (rt4_evidence_path, repeat_evidence_path),
         (rt4_reflection_evidence_path, repeat_reflection_evidence_path),
         (rt4_compositor_evidence_path, repeat_compositor_evidence_path),
+        (
+            rt4_analytic_sky_evidence_path,
+            repeat_analytic_sky_evidence_path,
+        ),
+        (rt4_analytic_sky_image_path, repeat_analytic_sky_image_path),
     ):
         if sha256_file(primary) != sha256_file(repeat):
             raise ProbeError(
@@ -3856,11 +4342,15 @@ def run_n1_checkpoint(
         rt4_evidence_path,
         rt4_reflection_evidence_path,
         rt4_compositor_evidence_path,
+        rt4_analytic_sky_evidence_path,
+        rt4_analytic_sky_image_path,
         repeat_report_path,
         repeat_image_path,
         repeat_evidence_path,
         repeat_reflection_evidence_path,
         repeat_compositor_evidence_path,
+        repeat_analytic_sky_evidence_path,
+        repeat_analytic_sky_image_path,
         _packaged_n1_executable(build_dir, policy),
         build_dir / BUILD_CONTRACT_NAME,
         source_identity,
@@ -3869,6 +4359,7 @@ def run_n1_checkpoint(
         isolation_slices,
         reflection_slices,
         compositor_slices,
+        analytic_sky_slices,
     )
 
 

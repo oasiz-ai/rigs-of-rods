@@ -176,6 +176,10 @@ private:
     // do not flood the log; the first accepted inventory and any promotion or
     // denominator/reason change are still emitted exactly once.
     std::string                        m_ogre_next_demo_material_coverage_log_snapshot;
+    // Last committed policy-v1 sky descriptor telemetry. The candidate text
+    // is staged with the joined capture and swapped only from Commit(), so a
+    // rejected capture cannot advertise unpresented sky authority.
+    std::string                        m_ogre_next_demo_analytic_sky_log_snapshot;
     // Map-generation identities reset at the explicit full-scene generation
     // release (and idempotently again in ClearScene), after the product session
     // has sequenced the preceding authoritative empty scene or terminal close.
@@ -269,6 +273,7 @@ private:
             material_source_counters;
         Gfx::Detail::OgreNextDemoCuratedCityWorldCoverage
             curated_cityworld_material_coverage;
+        std::string analytic_sky_log_snapshot;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 

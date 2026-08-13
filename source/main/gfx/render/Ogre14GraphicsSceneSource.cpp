@@ -3112,6 +3112,126 @@ ValidationResult BuildOgre14GraphicsSceneEnvironment(
   return ValidationResult::Success();
 }
 
+ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+    const Float3 &native_ambient_linear,
+    const GraphicsSceneLightInput &sun,
+    SceneEnvironmentDescriptor &environment) {
+  SceneEnvironmentDescriptor candidate;
+  ValidationResult ambient =
+      BuildOgre14GraphicsSceneEnvironment(native_ambient_linear, candidate);
+  if (!ambient) {
+    return ambient;
+  }
+  if (sun.source_light_id == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER,
+        "environment.analytic_sky.sun_light_id",
+        "modern analytic sky requires the exact live main-light identity");
+  }
+  if (sun.type != LightType::DIRECTIONAL) {
+    return ValidationResult::Failure(
+        ValidationCode::WRONG_RESOURCE_KIND,
+        "environment.analytic_sky.sun_light_id",
+        "modern analytic sky requires a directional main light");
+  }
+  if (!IsCanonicalPhotometricColorLinear(sun.color_linear) ||
+      !IsFinite(sun.intensity) || sun.intensity < 0.0F ||
+      !IsNormalized(sun.direction)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "environment.analytic_sky.sun",
+        "modern analytic sky requires canonical finite main-light photometry and direction");
+  }
+
+  // Reconstruct the exact native diffuse*power RGB that the reciprocal
+  // Ogre-Next light calibration will consume. All policy math is evaluated in
+  // binary64 and admitted only when every final binary32 radiance is finite.
+  const double native_sun_scale =
+      static_cast<double>(sun.intensity) /
+      static_cast<double>(kOgre14LegacyDiffusePowerToCanonicalIntensity);
+  const std::array<double, 3U> ambient_rgb{{
+      static_cast<double>(native_ambient_linear.x),
+      static_cast<double>(native_ambient_linear.y),
+      static_cast<double>(native_ambient_linear.z)}};
+  const std::array<double, 3U> native_sun_rgb{{
+      static_cast<double>(sun.color_linear.x) * native_sun_scale,
+      static_cast<double>(sun.color_linear.y) * native_sun_scale,
+      static_cast<double>(sun.color_linear.z) * native_sun_scale}};
+  const double sun_height = std::clamp(
+      -static_cast<double>(sun.direction.y), -1.0, 1.0);
+  const double daylight_linear =
+      std::clamp((sun_height + 0.10) / 0.30, 0.0, 1.0);
+  const double daylight = daylight_linear * daylight_linear *
+                          (3.0 - 2.0 * daylight_linear);
+
+  constexpr std::array<double, 3U> kNightZenith{{0.08, 0.10, 0.22}};
+  constexpr std::array<double, 3U> kDayZenith{{0.35, 0.65, 1.15}};
+  constexpr std::array<double, 3U> kNightHorizon{{0.12, 0.10, 0.18}};
+  constexpr std::array<double, 3U> kDayHorizon{{1.10, 0.85, 0.65}};
+  constexpr std::array<double, 3U> kZenithSunScatter{{0.018, 0.040, 0.090}};
+  constexpr std::array<double, 3U> kHorizonSunScatter{{0.050, 0.065, 0.090}};
+  constexpr double kGroundAmbientScale = 0.15;
+  constexpr double kSunDiskScale = 24.0;
+
+  std::array<double, 3U> zenith{};
+  std::array<double, 3U> horizon{};
+  std::array<double, 3U> ground{};
+  std::array<double, 3U> disk{};
+  for (std::size_t channel = 0U; channel < 3U; ++channel) {
+    const double zenith_scale =
+        kNightZenith[channel] +
+        (kDayZenith[channel] - kNightZenith[channel]) * daylight;
+    const double horizon_scale =
+        kNightHorizon[channel] +
+        (kDayHorizon[channel] - kNightHorizon[channel]) * daylight;
+    zenith[channel] = ambient_rgb[channel] * zenith_scale +
+                       native_sun_rgb[channel] * daylight *
+                           kZenithSunScatter[channel];
+    horizon[channel] = ambient_rgb[channel] * horizon_scale +
+                        native_sun_rgb[channel] * daylight *
+                            kHorizonSunScatter[channel];
+    ground[channel] = ambient_rgb[channel] * kGroundAmbientScale;
+    disk[channel] = native_sun_rgb[channel] * daylight * kSunDiskScale;
+  }
+  const auto to_float3 = [](const std::array<double, 3U> &value,
+                            Float3 &output) noexcept {
+    const double maximum =
+        static_cast<double>((std::numeric_limits<float>::max)());
+    if (!std::isfinite(value[0U]) || !std::isfinite(value[1U]) ||
+        !std::isfinite(value[2U]) || value[0U] < 0.0 || value[1U] < 0.0 ||
+        value[2U] < 0.0 || value[0U] > maximum || value[1U] > maximum ||
+        value[2U] > maximum) {
+      return false;
+    }
+    const Float3 converted{static_cast<float>(value[0U]),
+                           static_cast<float>(value[1U]),
+                           static_cast<float>(value[2U])};
+    if (!IsFinite(converted) || !IsNonNegative(converted)) {
+      return false;
+    }
+    output = converted;
+    return true;
+  };
+
+  AnalyticSkyDescriptor sky;
+  sky.enabled = true;
+  sky.sun_light_id = sun.source_light_id;
+  if (!to_float3(zenith, sky.zenith_radiance) ||
+      !to_float3(horizon, sky.horizon_radiance) ||
+      !to_float3(ground, sky.ground_radiance) ||
+      !to_float3(disk, sky.sun_disk_radiance)) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "environment.analytic_sky.radiance",
+        "modern analytic sky policy overflowed canonical binary32 radiance");
+  }
+  sky.sun_angular_radius_radians =
+      kOgre14ModernAnalyticSunAngularRadiusRadians;
+  candidate.analytic_sky = sky;
+  environment = candidate;
+  return ValidationResult::Success();
+}
+
 ValidationResult Ogre14GraphicsSceneLightIdentityRegistry::
     RegisterDerivedIdentity(std::string_view exact_name,
                             std::uint64_t stable_id) {

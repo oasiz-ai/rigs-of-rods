@@ -177,6 +177,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.policy_header = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.h"
         ).read_text(encoding="utf-8")
+        cls.ogre14_scene_source = (
+            RENDER_ROOT / "Ogre14GraphicsSceneSource.cpp"
+        ).read_text(encoding="utf-8")
+        cls.ogre14_scene_source_header = (
+            RENDER_ROOT / "Ogre14GraphicsSceneSource.h"
+        ).read_text(encoding="utf-8")
+        cls.gfx_scene = (
+            REPOSITORY_ROOT / "source" / "main" / "gfx" / "GfxScene.cpp"
+        ).read_text(encoding="utf-8")
         cls.reflection_header = (
             RENDER_ROOT / "ogrenext" / "OgreNextReflectionProbeRuntime.h"
         ).read_text(encoding="utf-8")
@@ -194,7 +203,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("cmake/PinnedOgreNext.cmake", self.entry_cmake)
         self.assertIn("37149a802de747f6806996fa3067b0748ecc1084", self.pinned_cmake)
         self.assertIn("URL_HASH \"SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}\"", self.pinned_cmake)
-        self.assertIn("if (TARGET OgreMain)", self.pinned_cmake)
+        self.assertIn(
+            "if (TARGET OgreMain AND NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)",
+            self.pinned_cmake,
+        )
         self.assertIn("OgreNextMain", self.entry_cmake)
         self.assertNotIn("add_subdirectory(tools/ogre_next_probe", (
             REPOSITORY_ROOT / "CMakeLists.txt"
@@ -479,6 +491,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertNotIn("createBasicWorkspaceDef(", self.frontend)
 
     def test_native_mesh_path_uses_v2_vao_not_manual_object(self) -> None:
+        create_mesh = self.frontend[
+            self.frontend.index("NativeMesh CreateMesh(") :
+            self.frontend.index("void MaybeInjectTextureUploadFailure(")
+        ]
         for token in (
             "createVertexBuffer(",
             "createIndexBuffer(",
@@ -486,11 +502,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "Ogre::MeshManager::getSingleton().createManual(",
             "Ogre::SubMesh *submesh",
         ):
-            self.assertIn(token, self.frontend)
-        self.assertNotIn("Ogre::ManualObject", self.frontend)
+            self.assertIn(token, create_mesh)
+        self.assertNotIn("Ogre::ManualObject", create_mesh)
         self.assertLess(
-            self.frontend.index("destroyVertexArrayObject(vao)"),
-            self.frontend.index("destroyVertexBuffer(vertex_buffer)"),
+            create_mesh.index("destroyVertexArrayObject(vao)"),
+            create_mesh.index("destroyVertexBuffer(vertex_buffer)"),
         )
 
     def test_catalog_sync_is_zero_copy_transactional_and_raii_owned(self) -> None:
@@ -706,7 +722,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn("texture/sampler pairs actually referenced", self.policy)
         self.assertIn("--modern-pbr", self.smoke)
         self.assertIn(
-            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v3", self.smoke
+            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v4", self.smoke
         )
         self.assertIn(
             "ror_ogre_next_frontend_rt4_pbr_v1_runtime", self.entry_cmake
@@ -758,6 +774,162 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             destroy_catalog.index("DestroyMaterial"),
             destroy_catalog.index("DestroyTexture"),
         )
+
+    def test_rt4_v1_analytic_sky_is_live_native_and_transactional(self) -> None:
+        for token in (
+            "kOgre14ModernAnalyticSkyPolicyVersion = 1U",
+            "SkyX's native shader is azimuth-dependent",
+            "BuildOgre14GraphicsSceneAnalyticSkyEnvironment",
+            "joined live",
+            "kOgre14ModernAnalyticSunAngularRadiusRadians",
+        ):
+            self.assertIn(token, self.ogre14_scene_source_header)
+        for token in (
+            "native_sun_scale",
+            "sun_height",
+            "kNightZenith",
+            "kDayHorizon",
+            "kSunDiskScale",
+            "candidate.analytic_sky = sky",
+            "environment = candidate",
+        ):
+            self.assertIn(token, self.ogre14_scene_source)
+        capture = self.gfx_scene[
+            self.gfx_scene.index("CaptureOgreNextDemoMainShadowLight(") :
+            self.gfx_scene.index("candidate.frame.reflection_probes.clear()")
+        ]
+        self.assertLess(
+            capture.index("CaptureOgreNextDemoMainShadowLight("),
+            capture.index("BuildOgre14GraphicsSceneAnalyticSkyEnvironment("),
+        )
+        self.assertLess(
+            capture.index("BuildOgre14GraphicsSceneAnalyticSkyEnvironment("),
+            capture.index("Ogre14GraphicsSceneCaptureField::ENVIRONMENT"),
+        )
+        for token in (
+            "BuildOgreNextAnalyticSkyNativeMesh",
+            "kOgreNextAnalyticSkyHemisphereRings",
+            "candidate.background_vertices",
+            "candidate.sun_vertices",
+            "mesh = std::move(candidate)",
+        ):
+            self.assertIn(token, self.policy + self.policy_header)
+        for token in (
+            "OgreNextN1AnalyticSkyFailureStage",
+            "AFTER_ATTACHED_STATE_VERIFICATION",
+            "analytic_sky_failure_pending",
+            "analytic_sky_audit = {};",
+            "mDepthCheck = false",
+            "mDepthWrite = false",
+            "Ogre::SBT_ADD",
+            "Ogre::SBT_REPLACE",
+            "setRenderQueueGroup(0U)",
+            "native_view.inverseAffine().getTrans()",
+            "CreateAnalyticSkySection",
+            "DestroyAnalyticSkySection",
+            "ExactAnalyticSkyBufferContents",
+            "retain_analytic_sky_geometry_content_evidence",
+            "createVertexBuffer",
+            "createIndexBuffer",
+            "createVertexArrayObject",
+            "native_gpu_content_readbacks",
+            "last_cpu_geometry_fnv1a64",
+            "destroy_sky_datablock",
+            "QueryAnalyticSkyAudit",
+            "portable_scene_identity_absent = true",
+        ):
+            self.assertIn(token, self.header + self.frontend)
+        for token in (
+            "RunAnalyticSkyRollbackProof",
+            "RunAnalyticSkyVisualProof",
+            "RunAnalyticSkyProductionDefaultReadbackProof",
+            "ror.ogre_next_analytic_sky.v2",
+            "frontend_owned_v2_mesh_item",
+            "sun_changed_pixels_alpha_exact_one",
+            "native_lifetimes_balanced_on_failure",
+            "production_default_gpu_content_readbacks_zero",
+            "joined_live_ambient_and_exact_converted_main_light",
+            "SkyX_shader_is_azimuth_dependent_and_may_apply_LDR_exposure",
+            "analytic_sky_capture_policy_version",
+            "analytic_sky_native_render_policy_version",
+        ):
+            self.assertIn(token, self.smoke)
+        runner = RUNNER_PATH.read_text(encoding="utf-8")
+        for token in (
+            "validate_analytic_sky_report",
+            "RT4_PBR_ANALYTIC_SKY_IMAGE_NAME",
+            "RT4_PBR_ANALYTIC_SKY_EVIDENCE_NAME",
+            "sun_changed_pixels_alpha_exact_one",
+            "analytic_sky_slices",
+            "ror.ogre_next_frontend_rt4_pbr_v1_smoke.v4",
+        ):
+            self.assertIn(token, runner)
+        for token in (
+            "--analytic-sky-output",
+            "--analytic-sky-evidence",
+            "PRIMARY_ANALYTIC_SKY_IMAGE",
+            "PRIMARY_ANALYTIC_SKY_EVIDENCE",
+            "REPEAT_ANALYTIC_SKY_IMAGE",
+            "REPEAT_ANALYTIC_SKY_EVIDENCE",
+        ):
+            self.assertIn(token, self.entry_cmake)
+        verifier = (
+            REPOSITORY_ROOT / "tools" / "verify_ogre_next_artifact_set.py"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "_verify_analytic_sky_visual",
+            "RT4_ANALYTIC_SKY_PPM_ARTIFACT",
+            "RT4_ANALYTIC_SKY_EVIDENCE_ARTIFACT",
+            "exact_gpu_buffer_content_readback",
+        ):
+            self.assertIn(token, verifier)
+        for token in (
+            "[RoR|OgreNextDemo|AnalyticSky|Source]",
+            "radiance_authority=",
+            "joined_live_ambient_and_exact_converted_main_light",
+            "m_ogre_next_demo_analytic_sky_log_snapshot",
+            "pending->analytic_sky_log_snapshot",
+        ):
+            self.assertIn(
+                token,
+                self.gfx_scene
+                + (
+                    REPOSITORY_ROOT / "source/main/gfx/GfxScene.h"
+                ).read_text(encoding="utf-8"),
+            )
+        presenter = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgreNextInProcessPresenter.cpp"
+        ).read_text(encoding="utf-8")
+        presenter_header = (
+            REPOSITORY_ROOT
+            / "source/main/system/RendererOgreNextInProcessPresenter.h"
+        ).read_text(encoding="utf-8")
+        main_source = (
+            REPOSITORY_ROOT / "source/main/main.cpp"
+        ).read_text(encoding="utf-8")
+        for token in (
+            "RendererAnalyticSkyAudit",
+            "AnalyticSkyAudit() const noexcept",
+            "frontend->QueryAnalyticSkyAudit()",
+            "frontend->QueryPresentationAudit()",
+            "native_ownership_balanced",
+            "expected_per_frame_ownership",
+            "cpu_geometry_digest_verified",
+            "native_geometry_metadata_verified",
+            "production_gpu_readbacks_zero",
+        ):
+            self.assertIn(token, presenter + presenter_header)
+        for token in (
+            ".AnalyticSkyAudit()",
+            "[RoR|RendererCombined|AnalyticSky|",
+            "completed_frames={}",
+            "cpu_geometry_fnv1a64={}",
+            "native_gpu_content_readbacks={}",
+            "gpu_readback_scope=",
+            "production_disabled_test_artifact_only",
+        ):
+            self.assertIn(token, main_source)
 
     def test_display_domain_unlit_runs_after_filter_in_full32_unorm(self) -> None:
         for token in (

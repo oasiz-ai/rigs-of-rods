@@ -76,6 +76,7 @@
 #include <ctime>
 #include <chrono>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
@@ -609,6 +610,7 @@ int main(int argc, char *argv[])
         renderer_combined_session;
     std::string renderer_combined_scene_failure_signature;
     std::string renderer_combined_particle_audit_signature;
+    std::string renderer_combined_analytic_sky_audit_signature;
 #else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
@@ -3526,6 +3528,56 @@ int main(int argc, char *argv[])
                                     audit_signature));
                                 renderer_combined_particle_audit_signature =
                                     audit_signature;
+                            }
+                            const RendererAnalyticSkyAudit sky_audit =
+                                renderer_combined_presenter
+                                    .AnalyticSkyAudit();
+                            const bool state_verifications_understood =
+                                sky_audit.completed_frames > 0U &&
+                                sky_audit.native_state_verifications ==
+                                    sky_audit.completed_frames;
+                            const std::string sky_audit_change_key =
+                                fmt::format(
+                                    "available={} sun_light_id={} "
+                                    "native_ownership_balanced={} "
+                                    "expected_per_frame_ownership={} "
+                                    "cpu_geometry_digest_verified={} "
+                                    "native_geometry_metadata_verified={} "
+                                    "production_gpu_readbacks_zero={} "
+                                    "exact_native_geometry_readback={} "
+                                    "separate_sun_alpha_replace={} "
+                                    "state_verifications_understood={}",
+                                    sky_audit.available,
+                                    sky_audit.sun_light_id,
+                                    sky_audit.native_ownership_balanced,
+                                    sky_audit.expected_per_frame_ownership,
+                                    sky_audit.cpu_geometry_digest_verified,
+                                    sky_audit
+                                        .native_geometry_metadata_verified,
+                                    sky_audit.production_gpu_readbacks_zero,
+                                    sky_audit
+                                        .exact_native_geometry_readback,
+                                    sky_audit.separate_sun_alpha_replace,
+                                    state_verifications_understood);
+                            if (sky_audit_change_key !=
+                                renderer_combined_analytic_sky_audit_signature)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|AnalyticSky|"
+                                    "Native] {} completed_frames={} "
+                                    "cpu_geometry_fnv1a64={} "
+                                    "native_gpu_content_readbacks={} "
+                                    "native_state_verifications={} "
+                                    "gpu_readback_scope="
+                                    "production_disabled_test_artifact_only",
+                                    sky_audit_change_key,
+                                    sky_audit.completed_frames,
+                                    sky_audit.cpu_geometry_fnv1a64,
+                                    sky_audit
+                                        .native_gpu_content_readbacks,
+                                    sky_audit.native_state_verifications));
+                                renderer_combined_analytic_sky_audit_signature =
+                                    sky_audit_change_key;
                             }
                         }
                     }

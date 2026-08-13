@@ -509,6 +509,214 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
 
 } // namespace
 
+ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
+    const SceneEnvironmentDescriptor &environment,
+    const LightDescriptor &sun, float radius,
+    OgreNextAnalyticSkyNativeMesh &mesh) {
+  const AnalyticSkyDescriptor &sky = environment.analytic_sky;
+  if (!sky.enabled || sky.sun_light_id == 0U ||
+      sky.sun_light_id != sun.light_id || sun.type != LightType::DIRECTIONAL) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE,
+        "environment.analytic_sky.sun_light_id",
+        "native sky mesh requires its exact enabled directional-light reference");
+  }
+  if (!IsFinite(radius) || radius <= 0.0F ||
+      !IsFiniteScaled(sky.zenith_radiance,
+                      environment.environment_intensity) ||
+      !IsFiniteScaled(sky.horizon_radiance,
+                      environment.environment_intensity) ||
+      !IsFiniteScaled(sky.ground_radiance,
+                      environment.environment_intensity) ||
+      !IsFiniteScaled(sky.sun_disk_radiance,
+                      environment.environment_intensity) ||
+      !IsFinite(sky.sun_angular_radius_radians) ||
+      sky.sun_angular_radius_radians <= 0.0F ||
+      sky.sun_angular_radius_radians > 1.57079632679489661923F ||
+      !IsFinite(sun.direction)) {
+    return Unsupported(
+        "environment.analytic_sky",
+        "analytic sky radiance, radius, or directional-light geometry is not representable by native binary32 mesh state");
+  }
+
+  const auto length = [](const Float3 &value) noexcept {
+    return std::sqrt(value.x * value.x + value.y * value.y +
+                     value.z * value.z);
+  };
+  const auto normalized = [&](const Float3 &value, Float3 &output) noexcept {
+    const float magnitude = length(value);
+    if (!IsFinite(magnitude) || magnitude <= 0.0F) {
+      return false;
+    }
+    const Float3 candidate{value.x / magnitude, value.y / magnitude,
+                           value.z / magnitude};
+    if (!IsFinite(candidate)) {
+      return false;
+    }
+    output = candidate;
+    return true;
+  };
+  Float3 sun_center;
+  if (!normalized({-sun.direction.x, -sun.direction.y, -sun.direction.z},
+                  sun_center)) {
+    return Unsupported("environment.analytic_sky.sun.direction",
+                       "analytic sky sun direction cannot be normalized");
+  }
+
+  const auto scaled_radiance = [&](const Float3 &value) noexcept {
+    return Float4{value.x * environment.environment_intensity,
+                  value.y * environment.environment_intensity,
+                  value.z * environment.environment_intensity, 1.0F};
+  };
+  const Float4 zenith = scaled_radiance(sky.zenith_radiance);
+  const Float4 horizon = scaled_radiance(sky.horizon_radiance);
+  const Float4 ground = scaled_radiance(sky.ground_radiance);
+  const Float4 disk = scaled_radiance(sky.sun_disk_radiance);
+  constexpr float kHalfPi = 1.57079632679489661923F;
+  constexpr float kTwoPi = 6.28318530717958647692F;
+
+  try {
+    OgreNextAnalyticSkyNativeMesh candidate;
+    constexpr std::size_t kRingVertices =
+        static_cast<std::size_t>(kOgreNextAnalyticSkyLongitudeSegments) + 1U;
+    constexpr std::size_t kHemisphereVertices =
+        static_cast<std::size_t>(kOgreNextAnalyticSkyHemisphereRings) *
+            kRingVertices +
+        1U;
+    constexpr std::size_t kHemisphereIndices =
+        (static_cast<std::size_t>(kOgreNextAnalyticSkyHemisphereRings) - 1U) *
+            kOgreNextAnalyticSkyLongitudeSegments * 6U +
+        kOgreNextAnalyticSkyLongitudeSegments * 3U;
+    candidate.background_vertices.reserve(kHemisphereVertices * 2U);
+    candidate.background_indices.reserve(kHemisphereIndices * 2U);
+
+    const auto append_hemisphere = [&](bool upper) {
+      const std::uint32_t base = static_cast<std::uint32_t>(
+          candidate.background_vertices.size());
+      for (std::uint32_t ring = 0U;
+           ring < kOgreNextAnalyticSkyHemisphereRings; ++ring) {
+        const float vertical_fraction =
+            static_cast<float>(ring) /
+            static_cast<float>(kOgreNextAnalyticSkyHemisphereRings);
+        const float latitude = vertical_fraction * kHalfPi;
+        const float signed_y =
+            (upper ? 1.0F : -1.0F) * std::sin(latitude);
+        const float horizontal = std::cos(latitude);
+        Float4 radiance = ground;
+        if (upper) {
+          radiance = {
+              horizon.x + (zenith.x - horizon.x) * signed_y,
+              horizon.y + (zenith.y - horizon.y) * signed_y,
+              horizon.z + (zenith.z - horizon.z) * signed_y, 1.0F};
+        }
+        for (std::uint32_t segment = 0U;
+             segment <= kOgreNextAnalyticSkyLongitudeSegments; ++segment) {
+          const float longitude =
+              static_cast<float>(segment) /
+              static_cast<float>(kOgreNextAnalyticSkyLongitudeSegments) *
+              kTwoPi;
+          candidate.background_vertices.push_back({
+              {radius * horizontal * std::cos(longitude), radius * signed_y,
+               radius * horizontal * std::sin(longitude)},
+              radiance});
+        }
+      }
+      for (std::uint32_t ring = 0U;
+           ring + 1U < kOgreNextAnalyticSkyHemisphereRings; ++ring) {
+        for (std::uint32_t segment = 0U;
+             segment < kOgreNextAnalyticSkyLongitudeSegments; ++segment) {
+          const std::uint32_t first =
+              base + ring * static_cast<std::uint32_t>(kRingVertices) +
+              segment;
+          const std::uint32_t next =
+              first + static_cast<std::uint32_t>(kRingVertices);
+          candidate.background_indices.insert(
+              candidate.background_indices.end(),
+              {first, next, first + 1U, first + 1U, next, next + 1U});
+        }
+      }
+      const std::uint32_t pole = static_cast<std::uint32_t>(
+          candidate.background_vertices.size());
+      candidate.background_vertices.push_back(
+          {{0.0F, upper ? radius : -radius, 0.0F},
+           upper ? zenith : ground});
+      const std::uint32_t final_ring =
+          base + (kOgreNextAnalyticSkyHemisphereRings - 1U) *
+                     static_cast<std::uint32_t>(kRingVertices);
+      for (std::uint32_t segment = 0U;
+           segment < kOgreNextAnalyticSkyLongitudeSegments; ++segment) {
+        candidate.background_indices.insert(
+            candidate.background_indices.end(),
+            {final_ring + segment, pole, final_ring + segment + 1U});
+      }
+    };
+    append_hemisphere(true);
+    append_hemisphere(false);
+
+    candidate.sun_vertices.reserve(
+        static_cast<std::size_t>(kOgreNextAnalyticSkySunSegments) + 2U);
+    candidate.sun_indices.reserve(
+        static_cast<std::size_t>(kOgreNextAnalyticSkySunSegments) * 3U);
+    candidate.sun_vertices.push_back(
+        {{sun_center.x * radius, sun_center.y * radius,
+          sun_center.z * radius},
+         disk});
+    const Float3 reference = std::fabs(sun_center.y) < 0.9F
+                                 ? Float3{0.0F, 1.0F, 0.0F}
+                                 : Float3{1.0F, 0.0F, 0.0F};
+    Float3 right;
+    if (!normalized({reference.y * sun_center.z -
+                         reference.z * sun_center.y,
+                     reference.z * sun_center.x -
+                         reference.x * sun_center.z,
+                     reference.x * sun_center.y -
+                         reference.y * sun_center.x},
+                    right)) {
+      return Unsupported("environment.analytic_sky.sun.direction",
+                         "analytic sky could not construct a sun-disk basis");
+    }
+    const Float3 up{sun_center.y * right.z - sun_center.z * right.y,
+                    sun_center.z * right.x - sun_center.x * right.z,
+                    sun_center.x * right.y - sun_center.y * right.x};
+    const float angular_cos = std::cos(sky.sun_angular_radius_radians);
+    const float angular_sin = std::sin(sky.sun_angular_radius_radians);
+    for (std::uint32_t segment = 0U;
+         segment <= kOgreNextAnalyticSkySunSegments; ++segment) {
+      const float angle =
+          static_cast<float>(segment) /
+          static_cast<float>(kOgreNextAnalyticSkySunSegments) * kTwoPi;
+      const float basis_x = std::cos(angle);
+      const float basis_y = std::sin(angle);
+      const Float3 edge{
+          sun_center.x * angular_cos +
+              (right.x * basis_x + up.x * basis_y) * angular_sin,
+          sun_center.y * angular_cos +
+              (right.y * basis_x + up.y * basis_y) * angular_sin,
+          sun_center.z * angular_cos +
+              (right.z * basis_x + up.z * basis_y) * angular_sin};
+      candidate.sun_vertices.push_back(
+          {{edge.x * radius, edge.y * radius, edge.z * radius}, disk});
+    }
+    for (std::uint32_t segment = 0U;
+         segment < kOgreNextAnalyticSkySunSegments; ++segment) {
+      candidate.sun_indices.insert(candidate.sun_indices.end(),
+                                   {0U, segment + 1U, segment + 2U});
+    }
+    mesh = std::move(candidate);
+    return ValidationResult::Success();
+  } catch (const std::bad_alloc &) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD,
+        "environment.analytic_sky.native_mesh.allocation",
+        "native analytic sky mesh allocation failed before publication");
+  } catch (...) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "environment.analytic_sky.native_mesh.exception",
+        "native analytic sky mesh construction failed before publication");
+  }
+}
+
 bool TryBuildOgreNextN1NativeMeshBounds(
     const Bounds3 &portable,
     OgreNextN1NativeMeshBounds &native) noexcept {
@@ -1054,7 +1262,29 @@ ValidationResult ValidateOgreNextN1Scene(
   if (!IsAbsentRenderAssetReference(snapshot.environment().environment_texture) ||
       !IsAbsentRenderAssetReference(snapshot.environment().environment_sampler)) {
     return Unsupported("environment.texture",
-                       "N1 supports constant ambient radiance only");
+                       "N1 supports constant ambient plus native analytic sky, not texture environments");
+  }
+  const AnalyticSkyDescriptor &analytic_sky =
+      snapshot.environment().analytic_sky;
+  if (analytic_sky.enabled) {
+    if (raster_feature_tier !=
+        OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
+      return Unsupported(
+          "environment.analytic_sky",
+          "native analytic sky requires the calibrated RT4/V1 directional-light path");
+    }
+    if (!IsFiniteScaled(analytic_sky.zenith_radiance,
+                        snapshot.environment().environment_intensity) ||
+        !IsFiniteScaled(analytic_sky.horizon_radiance,
+                        snapshot.environment().environment_intensity) ||
+        !IsFiniteScaled(analytic_sky.ground_radiance,
+                        snapshot.environment().environment_intensity) ||
+        !IsFiniteScaled(analytic_sky.sun_disk_radiance,
+                        snapshot.environment().environment_intensity)) {
+      return Unsupported(
+          "environment.analytic_sky.radiance",
+          "finite analytic-sky inputs overflow native binary32 radiance arithmetic");
+    }
   }
   if (!hdr_compositor_enabled &&
       snapshot.environment().exposure_compensation_ev != 0.0F) {

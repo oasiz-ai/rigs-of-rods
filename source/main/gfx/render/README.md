@@ -203,9 +203,13 @@ solver, or hardware-buffer vertex state. Its constant ambient conversion is
 an explicit numeric compatibility calibration: one renderer-linear OGRE 14
 ambient unit equals one scene-radiance unit, with identity intensity and
 exposure and no invented compatible linear-float equirectangular environment
-texture. Cubemap/procedural sky presentation remains part of the pending
-static asset/instance inventory; this ambient field does not claim to replace
-it. OGRE 14 has no authored
+texture. Modern analytic-sky policy version 1 stages with the exact converted
+terrain main-light record and derives bounded linear zenith, horizon, ground,
+and sun-disk radiance from only that joined ambient value plus the light's
+stable identity, direction, normalized chromaticity, and calibrated power.
+SkyX's shader is azimuth-dependent and can apply its own LDR exposure curve,
+so this policy does not claim SkyX pixel parity or copy SkyX shader state.
+Changing any coefficient requires a policy-version review. OGRE 14 has no authored
 reflection-probe registry, so its complete authored probe set is exactly empty;
 the vehicle-local dynamic `GfxEnvmap` is not promoted to a world-space probe.
 The complete managed `Ogre::MOT_LIGHT` registry is captured at that same joined
@@ -1017,9 +1021,39 @@ it can produce a view-dependent attachment. These remain standalone gates: N2
 does not yet import a result into an Ogre texture or implement RT
 materials, lighting, denoising, compositing, or presentation, while Windows and
 Linux continue to report native RT false until their explicit backends exist.
-The richer lighting/environment snapshot is likewise transport and validation,
-not evidence that N1/N3 or a shipping frontend already maps its photometry,
-shadows, sky, exposure, reflections, or GI.
+RT4/V1 maps the one calibrated directional light, PSSM, and the enabled
+policy-v1 analytic sky into native Ogre-Next state. Two frontend-owned v2
+Mesh/Item sections share one internal camera-centred node: the no-depth
+gradient/ground hemispheres render first and a matching real-angular-radius
+sun cap renders with additive RGB and replace-alpha blending. They create no
+portable instance ID, cast no shadow, and destroy their immutable vertex and
+index buffers, VAOs, meshes, Items, node, and both per-frame Unlit datablocks
+before public frame state commits. Production binds those runtime claims with
+an exact CPU geometry FNV-1a digest plus native Item/VAO topology metadata and
+state checks while performing zero GPU content or framebuffer readbacks. The
+explicit isolated evidence seam adds
+four exact VB/IB content reads per frame. Twenty allocation, construction,
+attachment, and fully-attached fault seams prove balanced
+lifetime cleanup and clean same-frame retry. A required, deterministic
+768x512 sky-only artifact pair records sunless and camera-facing-sun
+RGBA16_FLOAT attachments plus an SDR PPM; independent gates require broad
+hemisphere coverage, a visible HDR sun effect, and exact half-float alpha one
+for the whole image and every sun-changed pixel. The
+remaining richer lighting/environment fields are still transport and
+validation, not evidence that N1/N3 maps local lights, texture environments,
+general exposure, or GI.
+
+The combined executable emits two change-only production receipts. The joined
+source commit logs `[RoR|OgreNextDemo|AnalyticSky|Source]` with policy version,
+the exact sun identity/direction/intensity, authoritative ambient and derived
+radiances, and the explicit non-SkyX-pixel-parity boundary. After the first
+completed N1 frame (and only when its health key changes), the presenter logs
+`[RoR|RendererCombined|AnalyticSky|Native]` with completed frames, balanced
+ownership/per-frame checks, the CPU geometry digest, verified native geometry
+metadata, separate sun alpha blending, and `native_gpu_content_readbacks=0`.
+The exact geometry
+content reads remain test-artifact-only. These logs prove live full-app
+activation; they do not replace the committed native visual artifacts above.
 
 `PbrReference` is the strict-CPU analytic oracle for the portable direct-light
 material slice. Version 1 binds the canonical Ogre-Next dependency lock to a

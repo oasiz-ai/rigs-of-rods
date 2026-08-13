@@ -17,6 +17,7 @@
 
 #include <map>
 #include <memory>
+#include <vector>
 
 namespace RoR::Render {
 
@@ -34,6 +35,34 @@ constexpr float kOgreNextRt4LuxToNativePowerScale = 1.0F / 1024.0F;
 /// normal decoding. A nearest-quantized authored B channel may therefore
 /// differ from Ogre's reconstructed positive Z by at most half a step.
 constexpr double kOgreNextRt4NormalDecodedQuantizationTolerance = 1.0 / 255.0;
+
+/// Native analytic-sky geometry uses two disconnected 16-ring hemispheres so
+/// the horizon-to-ground discontinuity is exact, plus a spherical 32-segment
+/// sun cap. The background is one internal camera-centred object, not a
+/// portable scene instance or identity.
+constexpr std::uint32_t kOgreNextAnalyticSkyHemisphereRings = 16U;
+constexpr std::uint32_t kOgreNextAnalyticSkyLongitudeSegments = 64U;
+constexpr std::uint32_t kOgreNextAnalyticSkySunSegments = 32U;
+
+struct OgreNextAnalyticSkyNativeVertex final {
+  Float3 position;
+  Float4 radiance{0.0F, 0.0F, 0.0F, 1.0F};
+};
+
+struct OgreNextAnalyticSkyNativeMesh final {
+  std::vector<OgreNextAnalyticSkyNativeVertex> background_vertices;
+  std::vector<std::uint32_t> background_indices;
+  std::vector<OgreNextAnalyticSkyNativeVertex> sun_vertices;
+  std::vector<std::uint32_t> sun_indices;
+};
+
+/// Builds the complete camera-local native geometry for one enabled analytic
+/// sky. Radiance is pre-multiplied by environment_intensity exactly once.
+/// Candidate vectors publish together; failure leaves `mesh` untouched.
+[[nodiscard]] ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
+    const SceneEnvironmentDescriptor &environment,
+    const LightDescriptor &sun, float radius,
+    OgreNextAnalyticSkyNativeMesh &mesh);
 
 /// Bounds after the portable descriptor has been reduced with overflow-safe
 /// float arithmetic into Ogre's center/half-size representation.

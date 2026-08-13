@@ -596,6 +596,79 @@ void TestConstantEnvironmentConversionIsExactAndTransactional() {
           "non-finite ambient input was accepted or modified output");
 }
 
+void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
+  using namespace RoR::Render;
+  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 1U);
+  GraphicsSceneLightInput sun;
+  sun.source_light_id = 0xA51U;
+  sun.type = LightType::DIRECTIONAL;
+  sun.color_linear = {1.0F, 1.0F, 1.0F};
+  sun.intensity = kOgre14LegacyDiffusePowerToCanonicalIntensity;
+  sun.direction = {0.0F, -0.8F, -0.6F};
+
+  SceneEnvironmentDescriptor environment;
+  environment.ambient_radiance = {9.0F, 8.0F, 7.0F};
+  ValidationResult result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+      {0.2F, 0.25F, 0.3F}, sun, environment);
+  Require(result.ok() && environment.analytic_sky.enabled &&
+              environment.analytic_sky.sun_light_id == sun.source_light_id &&
+              Near(environment.analytic_sky.zenith_radiance.x, 0.088F) &&
+              Near(environment.analytic_sky.zenith_radiance.y, 0.2025F) &&
+              Near(environment.analytic_sky.zenith_radiance.z, 0.435F) &&
+              Near(environment.analytic_sky.horizon_radiance.x, 0.27F) &&
+              Near(environment.analytic_sky.horizon_radiance.y, 0.2775F) &&
+              Near(environment.analytic_sky.horizon_radiance.z, 0.285F) &&
+              Near(environment.analytic_sky.ground_radiance.x, 0.03F) &&
+              Near(environment.analytic_sky.ground_radiance.y, 0.0375F) &&
+              Near(environment.analytic_sky.ground_radiance.z, 0.045F) &&
+              Near(environment.analytic_sky.sun_disk_radiance.x, 24.0F) &&
+              Near(environment.analytic_sky.sun_angular_radius_radians,
+                   kOgre14ModernAnalyticSunAngularRadiusRadians),
+          "policy-v1 daylight sky did not preserve its reviewed coefficients or live sun identity");
+
+  Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
+                                          sun.color_linear),
+          "smoke sun chromaticity fixture could not be normalized");
+  result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+      {0.01F, 0.012F, 0.015F}, sun, environment);
+  Require(result.ok() &&
+              environment.analytic_sky.zenith_radiance ==
+                  Float3{0.022859251126646996F, 0.047378916293382645F,
+                         0.09662292897701263F} &&
+              environment.analytic_sky.horizon_radiance ==
+                  Float3{0.06477569788694382F, 0.07451573759317398F,
+                         0.08912292867898941F} &&
+              environment.analytic_sky.ground_radiance ==
+                  Float3{0.001500000013038516F, 0.0017999999690800905F,
+                         0.0022499999031424522F} &&
+              environment.analytic_sky.sun_disk_radiance ==
+                  Float3{25.812335968017578F, 23.74734878540039F,
+                         21.166114807128906F},
+          "RT4 smoke sky no longer matches the exact policy-v1 report oracle");
+
+  const SceneEnvironmentDescriptor accepted = environment;
+  sun.type = LightType::POINT;
+  result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+      {0.2F, 0.25F, 0.3F}, sun, environment);
+  Require(!result && result.code == ValidationCode::WRONG_RESOURCE_KIND &&
+              environment.analytic_sky.sun_light_id ==
+                  accepted.analytic_sky.sun_light_id &&
+              environment.analytic_sky.zenith_radiance ==
+                  accepted.analytic_sky.zenith_radiance,
+          "non-directional sky authority was accepted or changed output");
+
+  sun.type = LightType::DIRECTIONAL;
+  sun.direction = {0.0F, 0.8F, -0.6F};
+  result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+      {0.2F, 0.25F, 0.3F}, sun, environment);
+  Require(result.ok() &&
+              Near(environment.analytic_sky.zenith_radiance.x, 0.016F) &&
+              Near(environment.analytic_sky.zenith_radiance.y, 0.025F) &&
+              Near(environment.analytic_sky.zenith_radiance.z, 0.066F) &&
+              environment.analytic_sky.sun_disk_radiance == Float3{},
+          "policy-v1 below-horizon sun did not produce its exact night sky");
+}
+
 void TestLightIdentityIsStableExactAndTransactional() {
   using namespace RoR::Render;
   std::uint64_t identity = 77U;
@@ -2047,6 +2120,7 @@ int main() {
   TestMalformedMetadataFailsClosed();
   TestProviderFailuresAndExceptionsDoNotEscape();
   TestConstantEnvironmentConversionIsExactAndTransactional();
+  TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional();
   TestLightIdentityIsStableExactAndTransactional();
   TestDirectionalLightCalibrationAndInactiveIdentity();
   TestPointAndSpotGeometryMapping();
