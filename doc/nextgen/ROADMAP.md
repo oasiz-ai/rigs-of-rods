@@ -1548,6 +1548,19 @@ hash-gated in the forward-native ledger. This milestone proves direct offline
 authoring and renderer-neutral decode; it does not yet prove runtime scene
 publication, AO, LOD, collision, native terrain, or the complete V2 showcase.
 
+The sibling `NATIVE-A1-001` milestone extends forward-native visual map data
+without replacing A0 or changing `.rornative` v1. It provides a project-original
+60 metre two-lane calibration course with deterministic dry/wet asphalt,
+shoulders, lane markings, curbs, barriers, and static calibration detail. Its
+renderer-neutral alignment manifest records course surfaces, seams, and named
+placements for a later physics binding. Separate raised curb surfaces bind
+decoded GLB components and close exact road-curb and curb-shoulder boundaries
+at `x=-4,4` and `x=-4.15,4.15`; their heights and full vertical faces are
+mechanically reconciled with identity-transformed batch geometry. This remains visual-only and collision-
+pending: package staging is not scene publication, native-terrain integration,
+driveability, or playability evidence. See
+[NATIVE_A1_COURSE_V1.md](NATIVE_A1_COURSE_V1.md).
+
 The first showcase is authored from scratch as project-original work, or is a
 rights-cleared recreation/derivative. A0 must approve distribution in either
 case. It contains one hero vehicle, one terrain/road block, one building family,

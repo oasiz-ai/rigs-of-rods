@@ -67,6 +67,10 @@ set_tests_properties(
 
 set(ROR_NATIVE_RENDER_ASSET_SOURCE
     "${ROR_REPOSITORY_ROOT}/content-source/native_render/a0_road_tile_12m/rorng_a0_road_tile_12m.native.json")
+set(ROR_NATIVE_A1_COURSE_SOURCE
+    "${ROR_REPOSITORY_ROOT}/content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.native.json")
+set(ROR_NATIVE_A1_COURSE_ALIGNMENT
+    "${ROR_REPOSITORY_ROOT}/content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json")
 add_test(
     NAME native_render_asset_tools
     COMMAND
@@ -97,14 +101,57 @@ add_test(
         --repo-root "${ROR_REPOSITORY_ROOT}"
         --validate-checked
 )
+add_test(
+    NAME native_a1_course_tools
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_native_a1_course.py"
+)
+add_test(
+    NAME native_a1_course_tools_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_native_a1_course.py"
+)
+add_test(
+    NAME native_a1_course_source_validation
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/validate_native_render_asset.py"
+        "${ROR_NATIVE_A1_COURSE_SOURCE}"
+        --repo-root "${ROR_REPOSITORY_ROOT}"
+)
+add_test(
+    NAME native_a1_course_alignment_validation
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/validate_native_course_alignment.py"
+        "${ROR_NATIVE_A1_COURSE_ALIGNMENT}"
+        --repo-root "${ROR_REPOSITORY_ROOT}"
+)
+add_test(
+    NAME native_a1_course_checked_compile
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tools/compile_native_render_asset.py"
+        "${ROR_NATIVE_A1_COURSE_SOURCE}"
+        --repo-root "${ROR_REPOSITORY_ROOT}"
+        --validate-checked
+)
 set_tests_properties(
     native_render_asset_tools
     native_render_asset_tools_optimized
     native_render_asset_source_validation
     native_render_asset_checked_compile
+    native_a1_course_tools
+    native_a1_course_tools_optimized
+    native_a1_course_source_validation
+    native_a1_course_alignment_validation
+    native_a1_course_checked_compile
     PROPERTIES
         LABELS "gfx;native-render-asset;provenance;python"
-        TIMEOUT 60
+        TIMEOUT 180
 )
 
 set(ROR_OGRE14_MATERIAL_SEMANTIC_CATALOG_V2_FIXTURE
@@ -1376,6 +1423,15 @@ target_compile_definitions(
         "ROR_NATIVE_RENDER_ASSET_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative\""
 )
 add_executable(
+    ror_native_a1_course_package_tests
+    "${CMAKE_CURRENT_LIST_DIR}/gfx/render/NativeA1CoursePackageTests.cpp"
+)
+target_compile_definitions(
+    ror_native_a1_course_package_tests
+    PRIVATE
+        "ROR_NATIVE_A1_COURSE_PACKAGE_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative\""
+)
+add_executable(
     ror_native_visual_showcase_scene_source_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/render/NativeVisualShowcaseSceneSourceTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextN1Policy.cpp"
@@ -1530,6 +1586,7 @@ set(ROR_RENDER_CONTRACT_TEST_TARGETS
     ror_renderer_frontend_transport_dispatcher_tests
     ror_render_resource_descriptor_tests
     ror_native_render_asset_package_tests
+    ror_native_a1_course_package_tests
     ror_native_visual_showcase_scene_source_tests
     ror_renderer_frontend_contract_tests
     ror_ogre_next_n1_policy_tests
@@ -3247,6 +3304,11 @@ add_test(
 add_test(
     NAME native_render_asset_package
     COMMAND ror_native_render_asset_package_tests
+)
+
+add_test(
+    NAME native_a1_course_package
+    COMMAND ror_native_a1_course_package_tests
 )
 
 add_test(

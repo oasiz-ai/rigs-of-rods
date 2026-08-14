@@ -1541,10 +1541,76 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
         VERBATIM)
     add_custom_target(ror_native_visual_showcase_package
         DEPENDS "${_ror_native_visual_showcase_package_staged}")
+
+    # NATIVE-A1-001 is staged beside A0 as authenticated visual map data. It
+    # does not replace the current showcase scene source and does not claim a
+    # RoR terrain or collision binding.
+    set(_ror_native_a1_course_package_source
+        "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative")
+    set(_ror_native_a1_course_package_sha256
+        "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba")
+    set(_ror_native_a1_course_alignment_source
+        "${CMAKE_SOURCE_DIR}/content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json")
+    set(_ror_native_a1_course_alignment_sha256
+        "68ac9757ef2e469a5ca14ea61133ad74763d7abbe6e78a1ce45232d47ddcdfbb")
+    foreach (_ror_native_a1_source IN ITEMS
+            "${_ror_native_a1_course_package_source}"
+            "${_ror_native_a1_course_alignment_source}")
+        if (NOT EXISTS "${_ror_native_a1_source}" OR
+                IS_DIRECTORY "${_ror_native_a1_source}" OR
+                IS_SYMLINK "${_ror_native_a1_source}")
+            message(FATAL_ERROR
+                "RoR-Combined native A1 course artifact is missing or indirect: ${_ror_native_a1_source}")
+        endif ()
+    endforeach ()
+    file(SHA256
+        "${_ror_native_a1_course_package_source}"
+        _ror_native_a1_course_package_actual_sha256)
+    file(SHA256
+        "${_ror_native_a1_course_alignment_source}"
+        _ror_native_a1_course_alignment_actual_sha256)
+    if (NOT _ror_native_a1_course_package_actual_sha256 STREQUAL
+            _ror_native_a1_course_package_sha256)
+        message(FATAL_ERROR
+            "RoR-Combined native A1 course package mismatch: expected=${_ror_native_a1_course_package_sha256}, actual=${_ror_native_a1_course_package_actual_sha256}")
+    endif ()
+    if (NOT _ror_native_a1_course_alignment_actual_sha256 STREQUAL
+            _ror_native_a1_course_alignment_sha256)
+        message(FATAL_ERROR
+            "RoR-Combined native A1 course alignment mismatch: expected=${_ror_native_a1_course_alignment_sha256}, actual=${_ror_native_a1_course_alignment_actual_sha256}")
+    endif ()
+    set(_ror_native_a1_course_staging_directory
+        "${RUNTIME_OUTPUT_DIRECTORY}/resources/nextgen/native/a1_native_course_60m")
+    set(_ror_native_a1_course_package_staged
+        "${_ror_native_a1_course_staging_directory}/rorng_a1_native_course_60m.rornative")
+    set(_ror_native_a1_course_alignment_staged
+        "${_ror_native_a1_course_staging_directory}/rorng_a1_native_course_60m.alignment.json")
+    add_custom_command(
+        OUTPUT
+            "${_ror_native_a1_course_package_staged}"
+            "${_ror_native_a1_course_alignment_staged}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${_ror_native_a1_course_staging_directory}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${_ror_native_a1_course_package_source}"
+            "${_ror_native_a1_course_package_staged}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${_ror_native_a1_course_alignment_source}"
+            "${_ror_native_a1_course_alignment_staged}"
+        DEPENDS
+            "${_ror_native_a1_course_package_source}"
+            "${_ror_native_a1_course_alignment_source}"
+        COMMENT "Staging authenticated forward-native A1 visual course data"
+        VERBATIM)
+    add_custom_target(ror_native_a1_course_package
+        DEPENDS
+            "${_ror_native_a1_course_package_staged}"
+            "${_ror_native_a1_course_alignment_staged}")
     add_dependencies(
         ${BINNAME}
         zip_folder_resources
         ror_native_visual_showcase_package
+        ror_native_a1_course_package
         fast_copy_managed_materials
         fast_copy_fonts
         fast_copy_languages)

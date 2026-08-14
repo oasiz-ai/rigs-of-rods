@@ -1,0 +1,1207 @@
+{
+  "collision": {
+    "binding_exists": false,
+    "status": "pending"
+  },
+  "coordinate_system": "right-handed-y-up-meters",
+  "course": {
+    "centerline_m": [
+      [
+        0.0,
+        0.0,
+        -30.0
+      ],
+      [
+        0.0,
+        0.0,
+        30.0
+      ]
+    ],
+    "driveable_visual_bounds_m": {
+      "maximum": [
+        4.0,
+        0.0,
+        30.0
+      ],
+      "minimum": [
+        -4.0,
+        0.0,
+        -30.0
+      ]
+    },
+    "finish_center_m": [
+      0.0,
+      0.016,
+      25.0
+    ],
+    "length_m": 60.0,
+    "nominal_road_width_m": 8.0,
+    "start_center_m": [
+      0.0,
+      0.016,
+      -25.0
+    ]
+  },
+  "format": "ror-native-course-alignment-v1",
+  "package_id": "rorng_a1_native_course_60m",
+  "placements": [
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_n06",
+      "position_m": [
+        -6.2,
+        0.32,
+        -6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_n12",
+      "position_m": [
+        -6.2,
+        0.32,
+        -12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_n18",
+      "position_m": [
+        -6.2,
+        0.32,
+        -18.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_n24",
+      "position_m": [
+        -6.2,
+        0.32,
+        -24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_p00",
+      "position_m": [
+        -6.2,
+        0.32,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_p06",
+      "position_m": [
+        -6.2,
+        0.32,
+        6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_p12",
+      "position_m": [
+        -6.2,
+        0.32,
+        12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_p18",
+      "position_m": [
+        -6.2,
+        0.32,
+        18.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_left_post_p24",
+      "position_m": [
+        -6.2,
+        0.32,
+        24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.3,
+        0.3,
+        54.0
+      ],
+      "id": "barrier_left_rail",
+      "position_m": [
+        -6.2,
+        0.73,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_n06",
+      "position_m": [
+        6.2,
+        0.32,
+        -6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_n12",
+      "position_m": [
+        6.2,
+        0.32,
+        -12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_n18",
+      "position_m": [
+        6.2,
+        0.32,
+        -18.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_n24",
+      "position_m": [
+        6.2,
+        0.32,
+        -24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_p00",
+      "position_m": [
+        6.2,
+        0.32,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_p06",
+      "position_m": [
+        6.2,
+        0.32,
+        6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_p12",
+      "position_m": [
+        6.2,
+        0.32,
+        12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_p18",
+      "position_m": [
+        6.2,
+        0.32,
+        18.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier_post",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.36,
+        0.64,
+        0.18
+      ],
+      "id": "barrier_right_post_p24",
+      "position_m": [
+        6.2,
+        0.32,
+        24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_barrier_mesh",
+      "category": "barrier",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.3,
+        0.3,
+        54.0
+      ],
+      "id": "barrier_right_rail",
+      "position_m": [
+        6.2,
+        0.73,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_left_n12",
+      "position_m": [
+        -5.35,
+        0.595,
+        -12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_left_n24",
+      "position_m": [
+        -5.35,
+        0.595,
+        -24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_left_p00",
+      "position_m": [
+        -5.35,
+        0.595,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_left_p12",
+      "position_m": [
+        -5.35,
+        0.595,
+        12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_left_p24",
+      "position_m": [
+        -5.35,
+        0.595,
+        24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_right_n12",
+      "position_m": [
+        5.35,
+        0.595,
+        -12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_right_n24",
+      "position_m": [
+        5.35,
+        0.595,
+        -24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_right_p00",
+      "position_m": [
+        5.35,
+        0.595,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_right_p12",
+      "position_m": [
+        5.35,
+        0.595,
+        12.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_calibration_marker_mesh",
+      "category": "calibration_marker",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.28,
+        1.11,
+        0.26
+      ],
+      "id": "calibration_right_p24",
+      "position_m": [
+        5.35,
+        0.595,
+        24.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_curb_mesh",
+      "category": "curb",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.15,
+        0.14,
+        60.0
+      ],
+      "id": "curb_left",
+      "position_m": [
+        -4.075,
+        0.05,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": "curb_left"
+    },
+    {
+      "batch_mesh_id": "rorng_a1_curb_mesh",
+      "category": "curb",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.15,
+        0.14,
+        60.0
+      ],
+      "id": "curb_right",
+      "position_m": [
+        4.075,
+        0.05,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": "curb_right"
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        7.44,
+        0.002,
+        0.3
+      ],
+      "id": "finish_line",
+      "position_m": [
+        0.0,
+        0.016,
+        25.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_n03",
+      "position_m": [
+        0.0,
+        0.015,
+        -1.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_n09",
+      "position_m": [
+        0.0,
+        0.015,
+        -7.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_n15",
+      "position_m": [
+        0.0,
+        0.015,
+        -13.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_n21",
+      "position_m": [
+        0.0,
+        0.015,
+        -19.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_n27",
+      "position_m": [
+        0.0,
+        0.015,
+        -25.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_p03",
+      "position_m": [
+        0.0,
+        0.015,
+        4.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_p09",
+      "position_m": [
+        0.0,
+        0.015,
+        10.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_p15",
+      "position_m": [
+        0.0,
+        0.015,
+        16.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_p21",
+      "position_m": [
+        0.0,
+        0.015,
+        22.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.18,
+        0.002,
+        3.0
+      ],
+      "id": "lane_center_dash_p27",
+      "position_m": [
+        0.0,
+        0.015,
+        28.5
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.14,
+        0.002,
+        58.0
+      ],
+      "id": "lane_left_edge",
+      "position_m": [
+        -3.65,
+        0.014,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.14,
+        0.002,
+        58.0
+      ],
+      "id": "lane_right_edge",
+      "position_m": [
+        3.65,
+        0.014,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a0_road_shadow_gate_mesh",
+      "category": "calibration_gate",
+      "collision_binding": null,
+      "dimensions_m": [
+        7.7,
+        0.28,
+        0.4
+      ],
+      "id": "shadow_gate_crossbar",
+      "position_m": [
+        0.0,
+        2.76,
+        6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a0_road_shadow_gate_mesh",
+      "category": "calibration_gate",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.3,
+        2.62,
+        0.4
+      ],
+      "id": "shadow_gate_left_post",
+      "position_m": [
+        -3.7,
+        1.31,
+        6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a0_road_shadow_gate_mesh",
+      "category": "calibration_gate",
+      "collision_binding": null,
+      "dimensions_m": [
+        0.3,
+        2.62,
+        0.4
+      ],
+      "id": "shadow_gate_right_post",
+      "position_m": [
+        3.7,
+        1.31,
+        6.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_lane_marking_mesh",
+      "category": "lane_marking",
+      "collision_binding": null,
+      "dimensions_m": [
+        7.44,
+        0.002,
+        0.3
+      ],
+      "id": "start_line",
+      "position_m": [
+        0.0,
+        0.016,
+        -25.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
+    }
+  ],
+  "seams": [
+    {
+      "boundary_kind": "curb_shoulder_vertical_face",
+      "left_surface": "shoulder_left",
+      "lower_surface_y_m": -0.02,
+      "right_surface": "curb_left",
+      "seam_x_m": -4.15,
+      "upper_surface_y_m": 0.12,
+      "vertical_face_max_y_m": 0.12,
+      "vertical_face_mesh_id": "rorng_a1_curb_mesh",
+      "vertical_face_min_y_m": -0.02,
+      "z_range_m": [
+        -30.0,
+        30.0
+      ]
+    },
+    {
+      "boundary_kind": "road_curb_vertical_face",
+      "left_surface": "curb_left",
+      "lower_surface_y_m": 0.0,
+      "right_surface": "dry_asphalt",
+      "seam_x_m": -4.0,
+      "upper_surface_y_m": 0.12,
+      "vertical_face_max_y_m": 0.12,
+      "vertical_face_mesh_id": "rorng_a1_curb_mesh",
+      "vertical_face_min_y_m": -0.02,
+      "z_range_m": [
+        -30.0,
+        30.0
+      ]
+    },
+    {
+      "boundary_kind": "road_curb_vertical_face",
+      "left_surface": "dry_asphalt",
+      "lower_surface_y_m": 0.0,
+      "right_surface": "curb_right",
+      "seam_x_m": 4.0,
+      "upper_surface_y_m": 0.12,
+      "vertical_face_max_y_m": 0.12,
+      "vertical_face_mesh_id": "rorng_a1_curb_mesh",
+      "vertical_face_min_y_m": -0.02,
+      "z_range_m": [
+        -30.0,
+        30.0
+      ]
+    },
+    {
+      "boundary_kind": "curb_shoulder_vertical_face",
+      "left_surface": "curb_right",
+      "lower_surface_y_m": -0.02,
+      "right_surface": "shoulder_right",
+      "seam_x_m": 4.15,
+      "upper_surface_y_m": 0.12,
+      "vertical_face_max_y_m": 0.12,
+      "vertical_face_mesh_id": "rorng_a1_curb_mesh",
+      "vertical_face_min_y_m": -0.02,
+      "z_range_m": [
+        -30.0,
+        30.0
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "classification": "raised_curb_top",
+      "collision_binding": null,
+      "geometry_y_range_m": [
+        -0.02,
+        0.12
+      ],
+      "id": "curb_left",
+      "mesh_component_index": 0,
+      "mesh_id": "rorng_a1_curb_mesh",
+      "physics_material": null,
+      "polygon_xz_m": [
+        [
+          -4.15,
+          -30.0
+        ],
+        [
+          -4.15,
+          30.0
+        ],
+        [
+          -4.0,
+          30.0
+        ],
+        [
+          -4.0,
+          -30.0
+        ]
+      ],
+      "slope_dy_dx_dy_dz": [
+        0.0,
+        0.0
+      ],
+      "visual_y_m": 0.12
+    },
+    {
+      "classification": "raised_curb_top",
+      "collision_binding": null,
+      "geometry_y_range_m": [
+        -0.02,
+        0.12
+      ],
+      "id": "curb_right",
+      "mesh_component_index": 1,
+      "mesh_id": "rorng_a1_curb_mesh",
+      "physics_material": null,
+      "polygon_xz_m": [
+        [
+          4.0,
+          -30.0
+        ],
+        [
+          4.0,
+          30.0
+        ],
+        [
+          4.15,
+          30.0
+        ],
+        [
+          4.15,
+          -30.0
+        ]
+      ],
+      "slope_dy_dx_dy_dz": [
+        0.0,
+        0.0
+      ],
+      "visual_y_m": 0.12
+    },
+    {
+      "classification": "dry_asphalt",
+      "collision_binding": null,
+      "geometry_y_range_m": [
+        0.0,
+        0.0
+      ],
+      "id": "dry_asphalt",
+      "mesh_component_index": 0,
+      "mesh_id": "rorng_a0_road_surface_mesh",
+      "physics_material": null,
+      "polygon_xz_m": [
+        [
+          -4.0,
+          -30.0
+        ],
+        [
+          -4.0,
+          30.0
+        ],
+        [
+          4.0,
+          30.0
+        ],
+        [
+          4.0,
+          -30.0
+        ]
+      ],
+      "slope_dy_dx_dy_dz": [
+        0.0,
+        0.0
+      ],
+      "visual_y_m": 0.0
+    },
+    {
+      "classification": "shoulder",
+      "collision_binding": null,
+      "geometry_y_range_m": [
+        -0.02,
+        -0.02
+      ],
+      "id": "shoulder_left",
+      "mesh_component_index": 0,
+      "mesh_id": "rorng_a1_shoulder_mesh",
+      "physics_material": null,
+      "polygon_xz_m": [
+        [
+          -6.5,
+          -30.0
+        ],
+        [
+          -6.5,
+          30.0
+        ],
+        [
+          -4.15,
+          30.0
+        ],
+        [
+          -4.15,
+          -30.0
+        ]
+      ],
+      "slope_dy_dx_dy_dz": [
+        0.0,
+        0.0
+      ],
+      "visual_y_m": -0.02
+    },
+    {
+      "classification": "shoulder",
+      "collision_binding": null,
+      "geometry_y_range_m": [
+        -0.02,
+        -0.02
+      ],
+      "id": "shoulder_right",
+      "mesh_component_index": 1,
+      "mesh_id": "rorng_a1_shoulder_mesh",
+      "physics_material": null,
+      "polygon_xz_m": [
+        [
+          4.15,
+          -30.0
+        ],
+        [
+          4.15,
+          30.0
+        ],
+        [
+          6.5,
+          30.0
+        ],
+        [
+          6.5,
+          -30.0
+        ]
+      ],
+      "slope_dy_dx_dy_dz": [
+        0.0,
+        0.0
+      ],
+      "visual_y_m": -0.02
+    },
+    {
+      "classification": "wet_asphalt_visual_overlay",
+      "collision_binding": null,
+      "geometry_y_range_m": [
+        0.006,
+        0.006
+      ],
+      "id": "wet_asphalt_overlay",
+      "mesh_component_index": 0,
+      "mesh_id": "rorng_a0_wet_asphalt_mesh",
+      "physics_material": null,
+      "polygon_xz_m": [
+        [
+          0.2,
+          -2.0
+        ],
+        [
+          0.2,
+          12.0
+        ],
+        [
+          3.8,
+          12.0
+        ],
+        [
+          3.8,
+          -2.0
+        ]
+      ],
+      "slope_dy_dx_dy_dz": [
+        0.0,
+        0.0
+      ],
+      "visual_y_m": 0.006
+    }
+  ],
+  "units": "meters",
+  "visual_only": true
+}

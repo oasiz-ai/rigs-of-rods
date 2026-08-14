@@ -1,0 +1,2019 @@
+{
+  "claims": {
+    "ambient_occlusion": false,
+    "collision": false,
+    "lods": false,
+    "native_terrain": false,
+    "visual_only": true
+  },
+  "format": "ror-native-render-source-v1",
+  "materials": [
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_barrier_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 1.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 1.0,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            12.0
+          ],
+          "texture": "rorng_a1_barrier_base",
+          "uv_set": 0
+        },
+        "metallic_roughness": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            12.0
+          ],
+          "texture": "rorng_a1_barrier_metallic_roughness",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            12.0
+          ],
+          "texture": "rorng_a1_barrier_normal",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        1.0,
+        0.32,
+        0.03
+      ],
+      "emissive_strength": 3.5,
+      "id": "rorng_a1_calibration_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.16,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_clamp_sampler",
+          "scale": [
+            1.0,
+            1.0
+          ],
+          "texture": "rorng_a1_calibration_base",
+          "uv_set": 0
+        },
+        "emissive": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_clamp_sampler",
+          "scale": [
+            1.0,
+            1.0
+          ],
+          "texture": "rorng_a1_calibration_emissive",
+          "uv_set": 0
+        },
+        "specular": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_clamp_sampler",
+          "scale": [
+            1.0,
+            1.0
+          ],
+          "texture": "rorng_a1_calibration_specular",
+          "uv_set": 0
+        }
+      },
+      "workflow": "specular"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_curb_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.82,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            15.0
+          ],
+          "texture": "rorng_a1_curb_base",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            15.0
+          ],
+          "texture": "rorng_a1_curb_normal",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_lane_marking_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.58,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            3.0
+          ],
+          "texture": "rorng_a1_lane_base",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            3.0
+          ],
+          "texture": "rorng_a1_lane_normal",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_road_surface_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 1.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 1.0,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            16.0
+          ],
+          "texture": "rorng_a1_road_base",
+          "uv_set": 0
+        },
+        "metallic_roughness": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            16.0
+          ],
+          "texture": "rorng_a1_road_metallic_roughness",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            2.0,
+            16.0
+          ],
+          "texture": "rorng_a1_road_normal",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_shoulder_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 1.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 1.0,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            3.0,
+            18.0
+          ],
+          "texture": "rorng_a1_shoulder_base",
+          "uv_set": 0
+        },
+        "metallic_roughness": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            3.0,
+            18.0
+          ],
+          "texture": "rorng_a1_shoulder_metallic_roughness",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            3.0,
+            18.0
+          ],
+          "texture": "rorng_a1_shoulder_normal",
+          "uv_set": 0
+        }
+      },
+      "workflow": "metallic_roughness"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "base_color_factor": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": true,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_wet_asphalt_material",
+      "index_of_refraction": 1.5,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.07,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {
+        "base_color": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            4.0
+          ],
+          "texture": "rorng_a1_wet_base",
+          "uv_set": 0
+        },
+        "normal": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            4.0
+          ],
+          "texture": "rorng_a1_wet_normal",
+          "uv_set": 0
+        },
+        "specular": {
+          "offset": [
+            0.0,
+            0.0
+          ],
+          "rotation_radians": 0.0,
+          "sampler": "rorng_a1_mipped_repeat_sampler",
+          "scale": [
+            1.0,
+            4.0
+          ],
+          "texture": "rorng_a1_wet_specular",
+          "uv_set": 0
+        }
+      },
+      "workflow": "specular"
+    }
+  ],
+  "meshes": [
+    {
+      "id": "rorng_a0_road_shadow_gate_mesh",
+      "instance_flags": [
+        "casts_shadow",
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_barrier_material",
+      "node": "rorng_a0_road_shadow_gate_mesh",
+      "object_id": "rorng_a0_road_shadow_gate_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a0_road_surface_mesh",
+      "instance_flags": [
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_road_surface_material",
+      "node": "rorng_a0_road_surface_mesh",
+      "object_id": "rorng_a0_road_surface_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a0_wet_asphalt_mesh",
+      "instance_flags": [
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_wet_asphalt_material",
+      "node": "rorng_a0_wet_asphalt_mesh",
+      "object_id": "rorng_a0_wet_asphalt_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a1_barrier_mesh",
+      "instance_flags": [
+        "casts_shadow",
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_barrier_material",
+      "node": "rorng_a1_barrier_mesh",
+      "object_id": "rorng_a1_barrier_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a1_calibration_marker_mesh",
+      "instance_flags": [
+        "casts_shadow",
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_calibration_material",
+      "node": "rorng_a1_calibration_marker_mesh",
+      "object_id": "rorng_a1_calibration_marker_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a1_curb_mesh",
+      "instance_flags": [
+        "casts_shadow",
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_curb_material",
+      "node": "rorng_a1_curb_mesh",
+      "object_id": "rorng_a1_curb_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a1_lane_marking_mesh",
+      "instance_flags": [],
+      "material": "rorng_a1_lane_marking_material",
+      "node": "rorng_a1_lane_marking_mesh",
+      "object_id": "rorng_a1_lane_marking_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "rorng_a1_shoulder_mesh",
+      "instance_flags": [
+        "receives_shadow",
+        "visible_in_reflections"
+      ],
+      "material": "rorng_a1_shoulder_material",
+      "node": "rorng_a1_shoulder_mesh",
+      "object_id": "rorng_a1_shoulder_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "outputs": {
+    "package_path": "resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative",
+    "report_path": "resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.compile.json"
+  },
+  "package": {
+    "author": "Rigs of Rods contributors",
+    "creation_attestation": "Project-original A1 geometry, textures, material declarations, and alignment data were independently authored for V2. The generator reuses only hash-pinned project-owned A0 authoring utility code; no geometry, texture, material-script, or shader bytes were copied from A0, legacy content, or another simulator.",
+    "dimensions_m": [
+      13.0,
+      2.92,
+      60.0
+    ],
+    "display_name": "A1 native 60 metre visual calibration course",
+    "id": "rorng_a1_native_course_60m",
+    "license": "GPL-3.0-or-later",
+    "modified": false,
+    "origin_class": "project_original",
+    "source_revision": "sha256-pinned-source-set-v1",
+    "source_uri": "https://github.com/RigsOfRods/rigs-of-rods"
+  },
+  "samplers": [
+    {
+      "address_u": "clamp_to_edge",
+      "address_v": "clamp_to_edge",
+      "address_w": "clamp_to_edge",
+      "anisotropy_enabled": true,
+      "border_color": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "compare_enabled": false,
+      "compare_operation": "always",
+      "id": "rorng_a1_mipped_clamp_sampler",
+      "magnification_filter": "linear",
+      "maximum_anisotropy": 4.0,
+      "maximum_lod": 4.0,
+      "minification_filter": "linear",
+      "minimum_lod": 0.0,
+      "mip_filter": "linear",
+      "mip_lod_bias": 0.0
+    },
+    {
+      "address_u": "repeat",
+      "address_v": "repeat",
+      "address_w": "repeat",
+      "anisotropy_enabled": true,
+      "border_color": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "compare_enabled": false,
+      "compare_operation": "always",
+      "id": "rorng_a1_mipped_repeat_sampler",
+      "magnification_filter": "linear",
+      "maximum_anisotropy": 4.0,
+      "maximum_lod": 10.0,
+      "minification_filter": "linear",
+      "minimum_lod": 0.0,
+      "mip_filter": "linear",
+      "mip_lod_bias": 0.0
+    }
+  ],
+  "source": {
+    "composition": {
+      "path": "content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.composition.json",
+      "sha256": "0e2a2f9d6b0a0597b2c7e28080e41a37bd8b713b964d87337eb81795efc1bb4a"
+    },
+    "coordinate_system": "right-handed-y-up-meters",
+    "generator": {
+      "path": "tools/blender/native_render/generate_a1_native_course.py",
+      "sha256": "34202d1ce1de2bbddb69bdf6f37066a256faa8e68f5306a58acca623a8bff4d4"
+    },
+    "glb": {
+      "path": "content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.glb",
+      "sha256": "a92c99618d98659bc70d28bbdd943b028bff60f1ef26f6bbddc4a98e34dd9a69"
+    },
+    "tangent_basis": "tangent-w-times-cross-normal-tangent",
+    "uv_origin": "upper-left"
+  },
+  "textures": [
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_barrier_base",
+      "mips": [
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip0.tga",
+          "sha256": "9df611e26519c9325eccf03aee1cc1688786b13fc9a401e145c7d1e3511854ca",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip1.tga",
+          "sha256": "e0af60fc42b56b85121cc163771d92749e7a015e63ad3d29968433c44362ec64",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip2.tga",
+          "sha256": "f34f445f3c51bd3bd447f372c0a491dff4f247bebc892dfe7a26782916a48948",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip3.tga",
+          "sha256": "155014dab532cf148bca43dee6c6cc1d9af914fbb52ec9a81f1213045c048fb4",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip4.tga",
+          "sha256": "4a206f162e58ce65efc3a529f009deae05a2c7abc3aeff54a3da3ed8ccbd0387",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip5.tga",
+          "sha256": "b3667d7db3405e24c8e7a2d466eb767bed30e366c6c2f5b78564119048d6a254",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip6.tga",
+          "sha256": "f9e377db815addbbe80557b1ec683d6a8766493fb6aa624fb5de7f50fde6e1d6",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip7.tga",
+          "sha256": "bb1aa3879441f31c80604ef34e2d55257c1959ca8c8c86cf1438e5d89d006a9a",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_base_mip8.tga",
+          "sha256": "6fcdc9c702906c91462b8bf4e839630ddf506b0c5660557a40e160dffea4609b",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_barrier_metallic_roughness",
+      "mips": [
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip0.tga",
+          "sha256": "c10d3f96a1b776a00c1cf8e43d9722c8b379244893b04c835394c8ccba31cf87",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip1.tga",
+          "sha256": "acefa0fdfc260eb899d1260630ad17c960eedec5b8433934014cca5c4707eb6c",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip2.tga",
+          "sha256": "2a8a92500cc58f14cb9020391874405293946bd2d7c74bf3053474dfffd22e14",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip3.tga",
+          "sha256": "86fede032c2345483f861182dcf91d416570a3d3d5e5f8cb15d4fa12ab91d737",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip4.tga",
+          "sha256": "e10c9b553dc6bc7db9f7b15652cec39accee9cd76c22aba660e63f5b9be132e9",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip5.tga",
+          "sha256": "3dd4296191afd5370287ab3d767e8e9045615bda3b5312378ad773daf639f66b",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip6.tga",
+          "sha256": "5182597b936842b78f6004b3f36f2971eaca3a5f4eb4ee2fc2ba6aded43c93cb",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip7.tga",
+          "sha256": "9452f0fb8e5e889c0b4aff45434e7923a199e0c3c5a75822333f3d5490b425a5",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_metallic_roughness_mip8.tga",
+          "sha256": "64e68176ce3587217115677a924bc90ca15745d219aebc1541bae3353ae3543e",
+          "width": 1
+        }
+      ],
+      "role": "metallic_roughness"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_barrier_normal",
+      "mips": [
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip0.tga",
+          "sha256": "f5fc322f7e3d4767309937487a85653c4757d253a3fb9c2d93b165bb5b5a88e0",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip1.tga",
+          "sha256": "f22499de4d006684855a7e427cfcf8d10a5da92c02c2adc4feb796a75bb1de21",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip2.tga",
+          "sha256": "cb5bc51aa2d5bae5f9c099f17ab4bc5045950abb8cb130f9a6f2ebdd795a6811",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip3.tga",
+          "sha256": "68144f69a6801bd5cc4521237afe7ef4e7f413487e2e4f7424ece655992278e5",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip4.tga",
+          "sha256": "48e28f3e583501b38fcf37d75a4b90df0709da9402d859eb8a6eb219eed70502",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip5.tga",
+          "sha256": "4d2007aa00af9c8001ee6565587228e807d60690ef9e2de5c38a4096ab044d59",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip6.tga",
+          "sha256": "a4edef8148fedd69d112cd1e942be8c68d212534a71ac2a1f6e4a51cb4124b71",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip7.tga",
+          "sha256": "d3a00d983d8afdd21b89ded269caa3629ca1012656c974169fec326caf0678e8",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/barrier_normal_mip8.tga",
+          "sha256": "8345778a0933f6020a38cdabb1db30633fe6cc5dbc6ec69f06341fd8d07b1de9",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_calibration_base",
+      "mips": [
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_base_mip0.tga",
+          "sha256": "38fe6077ec479f7ac922dc31a0f22445aa772a91059093ddd1ba89edb5f77220",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_base_mip1.tga",
+          "sha256": "cdb6dbea26b8535437a98eee11d3409b06de5df47bcc35fd5b61f9c7ada4a46c",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_base_mip2.tga",
+          "sha256": "b1b94a879960192fdc3bf3eac55a72dc00de3678d18ad8fb07fb17a497807d72",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_base_mip3.tga",
+          "sha256": "7569d2c497262bf2c49b33e930f016d7ed58ceb443d359bf50a06c30d0b01426",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_base_mip4.tga",
+          "sha256": "3751dc6f2f16f21b283f9fc3d0eecbe302a4bbf5bf5e1290f6b255df811562a9",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_calibration_emissive",
+      "mips": [
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_emissive_mip0.tga",
+          "sha256": "a19bdba7c2b4270de260e2be8858d7ba6469b0726288fbe7fcb449b1d163e69d",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_emissive_mip1.tga",
+          "sha256": "c9af3f3bf7e5cc4af88620837fbe63b8f68211568f2cd557e1a886ea632c8306",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_emissive_mip2.tga",
+          "sha256": "dbbbc0a72ccb1071d48cedb739262ab9d059396392cb4b5a029c3a440ab6763f",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_emissive_mip3.tga",
+          "sha256": "c78f9ab57b7571ec1b2403e1fbbdf5dcd0fb0548ab4ed837d49d897f43b55539",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_emissive_mip4.tga",
+          "sha256": "7cac06e11ca9169e1e1a63d9649c5bdff87eebe7fa4435ffa2774adaf57ca8f1",
+          "width": 1
+        }
+      ],
+      "role": "emissive"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_calibration_specular",
+      "mips": [
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_specular_mip0.tga",
+          "sha256": "d5d5456a5cba17c8e1a944845232c0f49e48834402a5dac03754117690fdd6c8",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_specular_mip1.tga",
+          "sha256": "ec6b8a40b57623362d04ac58de1f43013b786061d733d207dda150441ba758ac",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_specular_mip2.tga",
+          "sha256": "155da2d21279ac4f7a1cff64be087a2d6e362115ed427ab11226a9df34adfa1a",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_specular_mip3.tga",
+          "sha256": "fb18607ca2e972a159b3546fe78eb83db1c843a2775891638c316a1f935aaf1f",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/calibration_specular_mip4.tga",
+          "sha256": "45b2cccaa69f10d04134af3ecb32e43b2c53fb02a6dbb8f9a5b443e744b2361e",
+          "width": 1
+        }
+      ],
+      "role": "specular"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_curb_base",
+      "mips": [
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip0.tga",
+          "sha256": "f0de246c44e40f9524ebf69b04246564fd2dd9da3d0d5f8d8004f2db17179e92",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip1.tga",
+          "sha256": "a32eac3b7dbad93c245d625280bd70b1f688b4b2002034284ce7fe1aef78a8b2",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip2.tga",
+          "sha256": "e452a7c5cf2f6e1eccd92217c04e2de2330590238f3d4c652e0adeee1df41062",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip3.tga",
+          "sha256": "11098cf9e5405dd3bc858b2ae00baa18a538a9283fb79bed4e1befc3ea7e2aec",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip4.tga",
+          "sha256": "aad1dff8607de2a22a3143dc64f652c8f437810844116b044b4a1edeffa507df",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip5.tga",
+          "sha256": "a7d1536091d86ec93d4129529d53a252ca28fb189765967f6aeaeb11e442b007",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip6.tga",
+          "sha256": "1f5c13705ac71781d73b895216704f4dba95ac23ccd158b022eed471972fe32a",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip7.tga",
+          "sha256": "f20eafe8e884b5617f94b176d9b64a7bce26e0c4f71ccc485851943735fe1c8b",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_base_mip8.tga",
+          "sha256": "1c7c6f74c5fcac99766c1d1c04ea6bbcad851d8f158dc00d8acc6c5e52846e6b",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_curb_normal",
+      "mips": [
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip0.tga",
+          "sha256": "5089e3a348ed5115c38db658b7702b24e9c6f28f0de9c2a2542ca6273f2baf03",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip1.tga",
+          "sha256": "90d9b9cc2db9be4d7da2d11c4dd40f1b74ad7145a114861129022cadcac07aea",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip2.tga",
+          "sha256": "39ac09a725570d4a50a160e7ca7010a303b532d28b7ade338bfb25a44eb56b04",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip3.tga",
+          "sha256": "d1ba83985efb015815721b1e3a6989e50cb2425e4db795871c44be30ff59ff1d",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip4.tga",
+          "sha256": "81220861dbf3c0af03bcc8ad23597130f4aec174bd0e2dc5fa06cc08803e0a82",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip5.tga",
+          "sha256": "80fb0f8d15f51c4f545ca19b99f941e65b2cded1538a99b8e1389ccb58d70bbf",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip6.tga",
+          "sha256": "fe5557e2c60557d9f288636e944ccddb04000c22692e0de36e20d94ff7232e0e",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip7.tga",
+          "sha256": "e048b0c00ca0a79bf84d48420a3a220a6fc12dac14b926ce6ca52489dcf10698",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/curb_normal_mip8.tga",
+          "sha256": "9edc7f7181e26cfadd9deb8005fdf027526a92bf74edf34771ef0f65e00d63cd",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_lane_base",
+      "mips": [
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip0.tga",
+          "sha256": "acd521cbb4bac85a03f1ce2359a4ba12dc849ce3c3204e33a82a000a970357ed",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip1.tga",
+          "sha256": "7f58896b9690c3fbc72a9ac5316d1dae90d4d9fda86632ddcc63cf7d94b5be52",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip2.tga",
+          "sha256": "d26275993a77c81a803dec58f6003986060037aa5a386189a70be1d10782005d",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip3.tga",
+          "sha256": "18523e7320062abae69a8eac750273d5940b9622d52f910d6ad2cd3d08fe2e74",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip4.tga",
+          "sha256": "b75ba0fa995f20828a632616b3acbeefcfc53fbebe72f94bf5baa738560ff4d0",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip5.tga",
+          "sha256": "03201b2bf38ea6c55cf89d001d2fc466d4fa8f06fdcf1e859725eea3c39d7a9e",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip6.tga",
+          "sha256": "953fdf2f65bc25293b6f7897c240cf8afa8d0dc80d35516fb7809de069b1cd9a",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_base_mip7.tga",
+          "sha256": "421042d888da6f7e9317360bf0e2e20c40368943cf8521b07bea877eddf226b2",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_lane_normal",
+      "mips": [
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip0.tga",
+          "sha256": "30a9d79abec7f36686e046828692f332c698bda3b36c4d4f5aaa895a1f75a107",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip1.tga",
+          "sha256": "8cc889289ec73446db0222d0927525dd31c7c808f169414afadaa8335b38aea3",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip2.tga",
+          "sha256": "7bac1081053b10af308acacca036781e6641b7be5dbca57e8dde5db7c3376383",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip3.tga",
+          "sha256": "4999c1b7ced8d810bbdbfaab314922b7e6bae4a6897a51168443e982a4c8308a",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip4.tga",
+          "sha256": "5caec86990a022d4204c834aacd727f06406e94e5e92a7154cdb3260740bfa67",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip5.tga",
+          "sha256": "d0b3b01c9bb0cac8a9dfcc2a9e582139e991692768a5378e015cb32b4963ae2a",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip6.tga",
+          "sha256": "2900dc0f72d6c2627f0dd555d95819602944fb12fec886c6dfd0c2712ade53f8",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/lane_normal_mip7.tga",
+          "sha256": "81d6a78f32f0aa66f6493183f8f49fc8cf85710a2ae7e9cb662f1bb841f3afb9",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_road_base",
+      "mips": [
+        {
+          "height": 1024,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip0.tga",
+          "sha256": "7402be4a72757fd8927fdfa768e4ac8f530ba36ba8ef5141dba1314f47310e9e",
+          "width": 1024
+        },
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip1.tga",
+          "sha256": "2ab230a3af9339250109f937ff79e9c187606418b7602188a7fd87e15cb9892e",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip2.tga",
+          "sha256": "1105e129c998928988621b1d23127c71d9a93f6a23fdecc3751454d5cc3398ba",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip3.tga",
+          "sha256": "4ab09765ee90e4d0be92f019f0d425b25a9a74878e7c3422a7820774e131d785",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip4.tga",
+          "sha256": "e2e658a925ad62119204e9882588e08fbb502df5f81cda376ba26cd5794fa38f",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip5.tga",
+          "sha256": "91c02107596f52891c9deacf6f099dcd892381ca7be5eb29f158161b05964a76",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip6.tga",
+          "sha256": "71c02f0292276ee9310db770bb813d326b0f211a4e131256a4b31c71b270b144",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip7.tga",
+          "sha256": "0f9bac279d9b3d2fa4768298722ce51930dc5ef5a73bc0a5c85f06c4cbf1c138",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip8.tga",
+          "sha256": "9c77c8896a857b4f1a9b5caf167079436ed00916eaa63154e1e78b64ae15bdfb",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip9.tga",
+          "sha256": "d8d836cd12bd5b7a2474ebb80a7b6cddfdb82eb802ad72e7e2c82ae5387ce42a",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_base_mip10.tga",
+          "sha256": "8e772c6214ec733e3369835ade35853f7dbaaf3fddde924bf313adf968d6b4d3",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_road_metallic_roughness",
+      "mips": [
+        {
+          "height": 1024,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip0.tga",
+          "sha256": "c6edde9a6a039d61e1f1eb0b0c956136289134e1fb38e37420d6891ffa824573",
+          "width": 1024
+        },
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip1.tga",
+          "sha256": "de9a9c898d12d8b886fbf6bde910c591ca132ba8bf6db0009a543cb536c8e003",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip2.tga",
+          "sha256": "63b68960da3cbd88b17c14f05a2e8f5a9ee83ed674b550ccee4a451ff4eeb73d",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip3.tga",
+          "sha256": "66be5e8b330afc4b8a3ae18d6a02cab49c139d39e6c6509640d215defa33cb2d",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip4.tga",
+          "sha256": "cd1a922de41b6b0ced69ffec768be112ea25a868adb1d791acabbbc21e619e2f",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip5.tga",
+          "sha256": "b0a746fd74e025f6508fe230e69a06ab25a9811b289ec7a0a108a20d1e8eb50b",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip6.tga",
+          "sha256": "bb0ecb5233f91a63fea58554a02375dffcd0676e98d5c5615ceba21dbc4fce1f",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip7.tga",
+          "sha256": "bb9bb8db4b7f920a88dd62ade509999e46c155c17b19addbe48573602f007d42",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip8.tga",
+          "sha256": "ca44406310cd10381ad4c715f3837bd05003ce57035652e06f725e7ec75ac25f",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip9.tga",
+          "sha256": "c8edb37c0dbfb7e7b58ebbfff71e559f628d460bfd13fb7b7708d3e44790e729",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_metallic_roughness_mip10.tga",
+          "sha256": "8e39cefaf72bf6b57c471759b6ccc697b8378ec3ea0379d718505f21dc700d40",
+          "width": 1
+        }
+      ],
+      "role": "metallic_roughness"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_road_normal",
+      "mips": [
+        {
+          "height": 1024,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip0.tga",
+          "sha256": "099bb13d00bde411418d2b595b4d3ce55dff937a70bd02d46f02dd35ce522e7b",
+          "width": 1024
+        },
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip1.tga",
+          "sha256": "5a51781ee587aad4c24166ea3fadff60229382fa1b10ebcaa3a724f425dc3e6d",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip2.tga",
+          "sha256": "8a416eba092f80af748a620f3e0ab4ca6252950622593f59612e6abbdf336169",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip3.tga",
+          "sha256": "b32485d4e89be099ed3b636de539b46faa194889bcfafc3b172b21e8cd6f897f",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip4.tga",
+          "sha256": "f378b6539cdc7f78f895349da63bf1ef2b459b9b7b0b2f16591ba810ba0a0fde",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip5.tga",
+          "sha256": "b7f36ceca32a76bf12b6949bbc123e577ab25f690eac72c94a70b279549126ed",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip6.tga",
+          "sha256": "8cd6212373cc56c93a20cf6a238ce9e45dc91d5821be2299ba68afc6f058adc6",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip7.tga",
+          "sha256": "935eb2802e96df9ec7624abe8f60109dcc62c9a0eb67bee836de2989391828f3",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip8.tga",
+          "sha256": "763b59975c0bb404a020a945f5edcd32aee4925a5def2cb088d863c18a1b2f75",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip9.tga",
+          "sha256": "c53c38f6ca241cbee61263e2d9704765a10bb54c095e20c10c119ad0753a2e36",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/road_normal_mip10.tga",
+          "sha256": "f6530b91f0099747ebbc850961ee0cfb74e56b3c5dcc5579d700c93916cee15e",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_shoulder_base",
+      "mips": [
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip0.tga",
+          "sha256": "638391164bc52156a38635bc93f71d81a3918b05465761995fa6a16385124d27",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip1.tga",
+          "sha256": "1a3ea3270d0e7415feb48570e86b00c1bbf05f00010543ca7ce4b3fbe55dd407",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip2.tga",
+          "sha256": "61d44580bbbe30ce05136e7466e00d70694c91032e5ed2ba11ddfffcbc4003f3",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip3.tga",
+          "sha256": "e4d5407d635c3867fffccf60c345f52cc39c4cddf382e26a113e6c739f4333d0",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip4.tga",
+          "sha256": "49ff5761e882719b5d077df2592c033d340a83e69e2e1d54ece5c94a74e35338",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip5.tga",
+          "sha256": "721f94df997e45e7dbb39a65dd7589f12275b46bb36ac7ef2e7a6ef65ae3ae02",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip6.tga",
+          "sha256": "369f8c4231fbe9053436c3702165521cd3dde7e109ef4e27d4b9016adec002a9",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip7.tga",
+          "sha256": "6c61d9a1f4780b5b9e427560f6b89bc542621246274c749378f610d58f9610ba",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip8.tga",
+          "sha256": "de390792c6add8c76b89899554cb97818df36b6aae057e86ab6618091c3f8b05",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_base_mip9.tga",
+          "sha256": "cb2d0f8bdedf78d8e8abf22ff0e2a55a1b01a454b9e39144e72b259663cdb355",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_shoulder_metallic_roughness",
+      "mips": [
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip0.tga",
+          "sha256": "226f24aee7a9bb3638ca30996b2043ed772c56acf55480cae3ed05f56033b6c8",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip1.tga",
+          "sha256": "12fab871fee75603e6f92738534f661782005af15aad0aab88e0a5c57dbe401a",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip2.tga",
+          "sha256": "2ac53fd378d7e4ed103c81e49bdcb3bcac0f7b863b72381047f159e6ab4956bd",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip3.tga",
+          "sha256": "71a950ec89a2a934a894154b65bb3837b9609690ce683343ecf57ae5684aaab6",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip4.tga",
+          "sha256": "9bcae36190b0c9ba40ad25f006a7b0513dade3e6fca6293fcc3debe1c11dc4f8",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip5.tga",
+          "sha256": "2e0286d5763262dce685ab496ab48680cd88ae70613fc2e9bcd4323e09ef9ba4",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip6.tga",
+          "sha256": "c947c99d7fea6bc75468ae9d98d454d9e2966cd877d31cfccfc8c7bacf9289e7",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip7.tga",
+          "sha256": "5a4148c770bc142dc4e5eca70842d11e6cf0e781b833755037e6f037df676bc6",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip8.tga",
+          "sha256": "b1dd1439bb4bf0ee1b16596dd7c824eb039567f1a43cede6f6671076346e3c2c",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_metallic_roughness_mip9.tga",
+          "sha256": "b06700702e3b4a6e864599c6525a43d78d00bd2ccaef6c891124f6de66f77214",
+          "width": 1
+        }
+      ],
+      "role": "metallic_roughness"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_shoulder_normal",
+      "mips": [
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip0.tga",
+          "sha256": "fd319d35e8844ee6e313145c3acdfdec4047a89e17bd9d8a95385dae9dd414d8",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip1.tga",
+          "sha256": "cf7cfb32b5c4d1222bd9ff928c12a5b18848678fdc004734f44c855ea4b14f30",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip2.tga",
+          "sha256": "2e6000930651af3b22d718c4d258bfb815701b9e6fd92ae31a6c35edc35d36db",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip3.tga",
+          "sha256": "f24734da1231808e464abbe16514d36024b73d8123e7e1d393122b841d275e57",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip4.tga",
+          "sha256": "26032d7a7d650170af16979f1888026c55d3a91df0eecd4947f48da5200637ff",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip5.tga",
+          "sha256": "8464ec3d9612398afc91c09f9ad9ae22c162cd13ab2352487e16b58ca740d1b2",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip6.tga",
+          "sha256": "7b6117afcf62568acb80eab1d506d82e67e9fc5b51641630cbce8d4ed32b0f2b",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip7.tga",
+          "sha256": "9272be99ee3ca1797987c94a06675b52d1668a82c3558c82d1a0af1dbb1b3bba",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip8.tga",
+          "sha256": "63f5384569b2857f7be4dc90607352b24ceb7ae515d7b7d0197268dc0ae3a8d7",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/shoulder_normal_mip9.tga",
+          "sha256": "9edc7f7181e26cfadd9deb8005fdf027526a92bf74edf34771ef0f65e00d63cd",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "srgb",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_wet_base",
+      "mips": [
+        {
+          "height": 1024,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip0.tga",
+          "sha256": "2294f952f86b4ebea46a5a4d5117015dd8d0c699f0b7d98fde1d06710e5dbf80",
+          "width": 1024
+        },
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip1.tga",
+          "sha256": "668a9ae713fc1d4b01766a741e3ea11c210fba621c3d7dc70bfb1bf1491674a9",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip2.tga",
+          "sha256": "9f1e1d1bae366d2e3f5ddcbcda274eaa8b22d34258530a7c9ed105373182b375",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip3.tga",
+          "sha256": "c65433a1b7aef87d01f385468518eed72f5f2844ea1c8e50a04f882aac7ab9e1",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip4.tga",
+          "sha256": "8a260148a4e5f4a5f96eed76d8c309398783a03e0f23e80ed488d4c3f46a3c94",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip5.tga",
+          "sha256": "2e4ebaf1cf023f5cbf9707892bd6038e0a8a3a187383fcd5f0dc184812560506",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip6.tga",
+          "sha256": "1c171b47ef48eaf1887498869fa1ba2d5e4e287f6c5a019070b766eb0d64b30c",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip7.tga",
+          "sha256": "870d4a60d4b8cd28f8bdf234558bc2f28ff13ad24d9fadfa528017cb59c880e5",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip8.tga",
+          "sha256": "d12e731dfcf0612647fede107b3627dbb923cc50cbdfad688428f1c831c4de64",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip9.tga",
+          "sha256": "0ca1391584ec3be048d7b7420d875a72187ba811522c78aed4fb4e0536f9f277",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_base_mip10.tga",
+          "sha256": "b0ff4e435adfacd0dbf94d566993ed9973ce945aff54f726bcffdbe5bd5a9bed",
+          "width": 1
+        }
+      ],
+      "role": "base_color"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_wet_normal",
+      "mips": [
+        {
+          "height": 1024,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip0.tga",
+          "sha256": "72741a6be85452e00f6262aed8e319cd991fec1389de2d06f0cd9678cda8b72c",
+          "width": 1024
+        },
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip1.tga",
+          "sha256": "39f8b077685b5b3cbc35beeeff58f27ea207ab0ed835e7cad1b562a1dc0cf7ee",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip2.tga",
+          "sha256": "5e1ba27c6baef44ef57805573543aaacc86368fbd44d4087c13ad9a442775137",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip3.tga",
+          "sha256": "d0a611fa164fbaa875720fa2dd7232d6ee694e237728b32beb86610f3b9d2cfa",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip4.tga",
+          "sha256": "3a4c09affa7a18d4ec975a5b9215f27e12bb6d0f11816ca0b2f153561c2519dc",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip5.tga",
+          "sha256": "d384ef16df5133c8de56707459ec24a1703ddc770fa35de78a7440b06a80b471",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip6.tga",
+          "sha256": "5613c1093a31ae81b2e2c6228ff933fb1337e8744c4dddd412653fa74c2d6070",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip7.tga",
+          "sha256": "2f974c61172ab0e84cdef9eff50e26c36e2b1a1a17ae02502124b8d0a06845ab",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip8.tga",
+          "sha256": "5c8a5d1c89ad736a8948970f4ebc9d83c3289b5ca988ba6314730a1e38476f46",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip9.tga",
+          "sha256": "c00ce626a58068ff56c7fb7365777c93e1c20eb8327a04d61fdcb04b5a6ee611",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_normal_mip10.tga",
+          "sha256": "f6530b91f0099747ebbc850961ee0cfb74e56b3c5dcc5579d700c93916cee15e",
+          "width": 1
+        }
+      ],
+      "role": "normal"
+    },
+    {
+      "color_space": "linear",
+      "format": "rgba8_unorm",
+      "id": "rorng_a1_wet_specular",
+      "mips": [
+        {
+          "height": 1024,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip0.tga",
+          "sha256": "92a7fb6a2c1f08438ceeeddacd9e4c94fdbdbf8c08017ba2304fcb1bff864b54",
+          "width": 1024
+        },
+        {
+          "height": 512,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip1.tga",
+          "sha256": "76a08455e14831ee970737970a68d01c8e522183710a49c53393a0c8876dfc15",
+          "width": 512
+        },
+        {
+          "height": 256,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip2.tga",
+          "sha256": "321e0fef26b6133f6a77585cf3ec522a3a940ca16c25cf1d51d70a2f1c96d9f1",
+          "width": 256
+        },
+        {
+          "height": 128,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip3.tga",
+          "sha256": "9dbe1d739fa4eebb81654132f21d369f640356826be105676b588f0254c7e485",
+          "width": 128
+        },
+        {
+          "height": 64,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip4.tga",
+          "sha256": "3f83b1377a33219b7ca89ba548571c82d7607af4971eb1506e302e3c42b2b6a8",
+          "width": 64
+        },
+        {
+          "height": 32,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip5.tga",
+          "sha256": "121cbd7e9ca78074fa90dc51e6b7862ac179369c57daa69a0d5c6460bcf1b2f3",
+          "width": 32
+        },
+        {
+          "height": 16,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip6.tga",
+          "sha256": "27e676ad8eb5dba5b00e8559a92de92c6fd05e09a00f43b911c307f488c65b81",
+          "width": 16
+        },
+        {
+          "height": 8,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip7.tga",
+          "sha256": "9374c541cc78c94e0a5268c341643f40103b9440ea6b447388392662a5a1121d",
+          "width": 8
+        },
+        {
+          "height": 4,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip8.tga",
+          "sha256": "a17e416b7104a838817447a81c9503176a08c074f1fb401b289895cb84b6a7a2",
+          "width": 4
+        },
+        {
+          "height": 2,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip9.tga",
+          "sha256": "c4b42019aaf27551eab437a2ef06937806b19f4f1b3d9319915f447368725dd2",
+          "width": 2
+        },
+        {
+          "height": 1,
+          "path": "content-source/native_render/a1_native_course_60m/textures/wet_specular_mip10.tga",
+          "sha256": "8f875b08c41d53a00fd1660159d25dee1296db24706cb40d6f0f7975a971acfd",
+          "width": 1
+        }
+      ],
+      "role": "specular"
+    }
+  ]
+}
