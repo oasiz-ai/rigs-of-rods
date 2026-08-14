@@ -404,11 +404,21 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
   const bool thin_slab_transmission =
       material.transmission_mode ==
       MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+  const bool canonical_inactive_transmission_v5 =
+      material.version == kMaterialDescriptorTransmissionVersion &&
+      material.transmission_mode == MaterialTransmissionMode::NONE &&
+      material.transmission_factor == 0.0F &&
+      material.attenuation_color == Float3{1.0F, 1.0F, 1.0F} &&
+      material.attenuation_distance_m == 1.0F &&
+      material.slab_thickness_m == 0.0F;
   if (!thin_slab_transmission &&
-      material.version != kMaterialDescriptorVersion) {
+      material.version != kMaterialDescriptorVersion &&
+      !(raster_feature_tier ==
+            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+        canonical_inactive_transmission_v5)) {
     return Unsupported(
         "assets.material.version",
-        "N1 admits material v5 only for the exact RT4/V1 thin-slab transmission profile",
+        "N1 admits material v5 only in RT4/V1 with either canonical inactive transmission or the exact thin-slab profile",
         index);
   }
   if (thin_slab_transmission &&

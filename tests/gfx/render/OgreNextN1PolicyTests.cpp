@@ -203,7 +203,17 @@ RenderAssetDelta MakeThinSlabCatalogDelta(std::uint64_t registry_id) {
   material.attenuation_color = {0.82F, 0.94F, 0.98F};
   material.attenuation_distance_m = 0.75F;
   material.slab_thickness_m = 0.08F;
-  return MakeCatalogDelta(registry_id, MakeModernMesh(), material);
+  RenderAssetDelta delta =
+      MakeCatalogDelta(registry_id, MakeModernMesh(), material);
+  MaterialDescriptor inactive_material = MakeMaterial();
+  inactive_material.version = kMaterialDescriptorTransmissionVersion;
+  inactive_material.debug_name =
+      "RT4/V1 v5 material with canonical inactive transmission";
+  RenderAssetMutation inactive_mutation;
+  inactive_mutation.asset = Ref(RenderAssetKind::MATERIAL, 3U);
+  inactive_mutation.payload = std::move(inactive_material);
+  delta.mutations.push_back(std::move(inactive_mutation));
+  return delta;
 }
 
 RenderAssetDelta
@@ -995,7 +1005,7 @@ void TestModernPbrAssetPolicy() {
           "thin-slab transmission fixture is not registry valid");
   Require(ValidateOgreNextN1AssetCatalog(thin_slab_registry, false, kModern)
               .ok(),
-          "exact RT4 thin-slab transmission profile was rejected");
+          "mixed RT4 v5 catalog with thin-slab and canonical inactive transmission was rejected");
   const ValidationResult legacy_thin_slab =
       ValidateOgreNextN1AssetCatalog(thin_slab_registry);
   Require(legacy_thin_slab.code == ValidationCode::UNSUPPORTED_FEATURE,
@@ -1010,9 +1020,21 @@ void TestModernPbrAssetPolicy() {
           "canonical inactive material-v5 fixture is not registry valid");
   const ValidationResult inactive_v5_result =
       ValidateOgreNextN1AssetCatalog(inactive_v5_registry, false, kModern);
-  Require(inactive_v5_result.code == ValidationCode::UNSUPPORTED_FEATURE &&
-              inactive_v5_result.field == "assets.material.version",
-          "material v5 escaped without its exact thin-slab profile");
+  Require(inactive_v5_result.ok(),
+          "RT4 rejected material v5 with canonical inactive transmission");
+  RenderAssetDelta inactive_v5_legacy =
+      MakeCatalogDelta(kRegistryId + 207U, MakeMesh(), MakeMaterial());
+  std::get<MaterialDescriptor>(inactive_v5_legacy.mutations[1U].payload)
+      .version = kMaterialDescriptorTransmissionVersion;
+  RenderAssetRegistry inactive_v5_legacy_registry(kRegistryId + 207U);
+  Require(inactive_v5_legacy_registry.Apply(inactive_v5_legacy).ok(),
+          "canonical inactive legacy material-v5 fixture is not registry valid");
+  const ValidationResult inactive_v5_legacy_result =
+      ValidateOgreNextN1AssetCatalog(inactive_v5_legacy_registry);
+  Require(inactive_v5_legacy_result.code ==
+                  ValidationCode::UNSUPPORTED_FEATURE &&
+              inactive_v5_legacy_result.field == "assets.material.version",
+          "canonical inactive material v5 escaped the RT4-only boundary");
 
   const auto alpha_catalog = [&](std::uint64_t registry_id,
                                  MaterialBlendMode blend,
