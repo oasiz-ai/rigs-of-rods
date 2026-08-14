@@ -946,21 +946,18 @@ int main(int argc, char *argv[])
                 loaded.source->package_owner()->assets.size();
             const std::size_t package_instance_count =
                 loaded.source->package_owner()->static_meshes.size();
-            if (selects_a0)
+            const Render::ValidationResult turntable_enabled =
+                loaded.source->SetMotionMode(
+                    Render::NativeVisualShowcaseMotionMode::TURN_TABLE);
+            if (!turntable_enabled)
             {
-                const Render::ValidationResult turntable_enabled =
-                    loaded.source->SetMotionMode(
-                        Render::NativeVisualShowcaseMotionMode::TURN_TABLE);
-                if (!turntable_enabled)
-                {
-                    LOG(fmt::format(
-                        "[RoR|RendererCombined|NativeShowcase] Turntable "
-                        "selection failed: code={}, field='{}', detail='{}'",
-                        static_cast<unsigned int>(turntable_enabled.code),
-                        turntable_enabled.field,
-                        turntable_enabled.detail));
-                    return 70;
-                }
+                LOG(fmt::format(
+                    "[RoR|RendererCombined|NativeShowcase] Turntable "
+                    "selection failed: code={}, field='{}', detail='{}'",
+                    static_cast<unsigned int>(turntable_enabled.code),
+                    turntable_enabled.field,
+                    turntable_enabled.detail));
+                return 70;
             }
             renderer_combined_native_showcase_scene_source =
                 loaded.source.get();
@@ -975,7 +972,7 @@ int main(int argc, char *argv[])
                 "sha256='{}', assets={}, instances={}, source_version={}, "
                 "pipeline='{}', hdr=true, native_rt={}, profile={}, "
                 "motion='{}', "
-                "fixed_hz=60, revolution_ticks={}, refraction=false, "
+                "fixed_hz=60, revolution_ticks={}, refraction={}, "
                 "motion_vectors=false",
                 native_showcase_package_path,
                 native_package_id,
@@ -988,8 +985,11 @@ int main(int argc, char *argv[])
                     : "rt4_pbr_pssm_hdr_preview",
                 native_rt_selected,
                 selects_a0 ? "a0_lighting_coupon" : "a1_native_course",
-                selects_a0 ? "turntable_opaque_gate" : "static_course",
-                Render::kNativeVisualShowcaseTurntableTicksPerRevolution));
+                selects_a0 ? "turntable_opaque_gate"
+                           : "turntable_thin_glass_slab",
+                Render::kNativeVisualShowcaseTurntableTicksPerRevolution,
+                selects_a0 ? "false"
+                           : "thin_parallel_slab_screen_space"));
         }
         else
         {
@@ -3660,14 +3660,20 @@ int main(int argc, char *argv[])
                                     LOG(fmt::format(
                                         "[RoR|RendererCombined|"
                                         "NativeShowcase|Turntable] "
-                                        "mode='turntable_opaque_gate' "
+                                        "mode='{}' "
                                         "frame={} snapshot={} tick={} "
                                         "angle_degrees={} "
                                         "transform_revision={} "
                                         "selected_object_id={} fixed_hz=60 "
                                         "revolution_ticks={} "
-                                        "opaque_motion_only=true "
-                                        "refraction=false motion_vectors=false",
+                                        "opaque_motion_only={} "
+                                        "refraction={} motion_vectors=false",
+                                        renderer_combined_native_showcase_scene_source
+                                                    ->profile() ==
+                                                Render::NativeVisualShowcaseProfile::
+                                                    A1_NATIVE_COURSE
+                                            ? "turntable_thin_glass_slab"
+                                            : "turntable_opaque_gate",
                                         scene_result.frontend_frame_id,
                                         scene_result.scene_snapshot_id,
                                         committed_tick,
@@ -3676,9 +3682,21 @@ int main(int argc, char *argv[])
                                         renderer_combined_native_showcase_scene_source
                                             ->committed_gate_transform_revision(),
                                         renderer_combined_native_showcase_scene_source
-                                            ->gate_source_object_id(),
+                                            ->motion_source_object_id(),
                                         Render::
-                                            kNativeVisualShowcaseTurntableTicksPerRevolution));
+                                            kNativeVisualShowcaseTurntableTicksPerRevolution,
+                                        renderer_combined_native_showcase_scene_source
+                                                    ->profile() ==
+                                                Render::NativeVisualShowcaseProfile::
+                                                    A0_LIGHTING_COUPON
+                                            ? "true"
+                                            : "false",
+                                        renderer_combined_native_showcase_scene_source
+                                                    ->profile() ==
+                                                Render::NativeVisualShowcaseProfile::
+                                                    A1_NATIVE_COURSE
+                                            ? "thin_parallel_slab_screen_space"
+                                            : "false"));
                                     renderer_combined_turntable_audit_published =
                                         true;
                                     renderer_combined_turntable_audit_segment =
@@ -3792,7 +3810,7 @@ int main(int argc, char *argv[])
                                 fmt::format(
                                     "schema_version={} available={} "
                                     "frame={} snapshot={} descriptor_v={} "
-                                    "directional={} pbs={} normal={} "
+                                    "directional={} pbs={} transmission={} normal={} "
                                     "emissive={} casters={} receivers={} "
                                     "hdr_topology={} pssm_populated_finalize={} "
                                     "native_scene_lighting={} rgba16_hdr={} "
@@ -3803,7 +3821,11 @@ int main(int argc, char *argv[])
                                     "single_history_step={} "
                                     "calibrated_directional={} ambient={} "
                                     "analytic_sky={} emissive_response={} "
-                                    "pssm={} auto_exposure={} "
+                                    "pssm={} thin_slab_refraction={} "
+                                    "physical_snell={} beer_lambert={} "
+                                    "screen_space_lookup={} "
+                                    "refraction_scene_evaluations={} "
+                                    "auto_exposure={} "
                                     "gpu_history={} bloom={} filmic={} "
                                     "srgb={} gpu_only={} "
                                     "production_content_readbacks={} "
@@ -3818,6 +3840,7 @@ int main(int argc, char *argv[])
                                     lighting_audit.material_descriptor_version,
                                     lighting_audit.directional_lights,
                                     lighting_audit.pbs_items,
+                                    lighting_audit.transmission_items,
                                     lighting_audit.normal_mapped_items,
                                     lighting_audit.emissive_items,
                                     lighting_audit.shadow_casters,
@@ -3845,6 +3868,14 @@ int main(int argc, char *argv[])
                                     lighting_audit.analytic_sky_contribution,
                                     lighting_audit.emissive_material_response,
                                     lighting_audit.pssm_shadow_response,
+                                    lighting_audit
+                                        .thin_parallel_slab_refraction,
+                                    lighting_audit.physical_snell_refraction,
+                                    lighting_audit.beer_lambert_attenuation,
+                                    lighting_audit
+                                        .screen_space_radiance_lookup,
+                                    lighting_audit
+                                        .refraction_scene_evaluations,
                                     lighting_audit.hdr_auto_exposure,
                                     lighting_audit.gpu_hdr_history_sequenced,
                                     lighting_audit.hdr_bloom,

@@ -35,7 +35,7 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
-constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 2U;
+constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 3U;
 
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
@@ -398,6 +398,7 @@ struct OgreNextNativeLightingPassAudit final {
   std::uint32_t last_material_descriptor_version = 0U;
   std::uint32_t last_directional_lights = 0U;
   std::uint32_t last_pbs_items = 0U;
+  std::uint32_t last_transmission_items = 0U;
   std::uint32_t last_normal_mapped_items = 0U;
   std::uint32_t last_emissive_items = 0U;
   std::uint32_t last_shadow_casters = 0U;
@@ -425,6 +426,11 @@ struct OgreNextNativeLightingPassAudit final {
   bool analytic_sky_contribution = false;
   bool emissive_material_response = false;
   bool pssm_shadow_response = false;
+  bool thin_parallel_slab_refraction = false;
+  bool physical_snell_refraction = false;
+  bool beer_lambert_attenuation = false;
+  bool screen_space_radiance_lookup = false;
+  std::uint32_t refraction_scene_evaluations = 0U;
   bool hdr_auto_exposure = false;
   bool gpu_hdr_history_sequenced = false;
   bool hdr_bloom = false;

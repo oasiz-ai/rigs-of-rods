@@ -723,6 +723,7 @@ public:
         audit.last_material_descriptor_version;
     output.directional_lights = audit.last_directional_lights;
     output.pbs_items = audit.last_pbs_items;
+    output.transmission_items = audit.last_transmission_items;
     output.normal_mapped_items = audit.last_normal_mapped_items;
     output.emissive_items = audit.last_emissive_items;
     output.shadow_casters = audit.last_shadow_casters;
@@ -751,6 +752,14 @@ public:
     output.analytic_sky_contribution = audit.analytic_sky_contribution;
     output.emissive_material_response = audit.emissive_material_response;
     output.pssm_shadow_response = audit.pssm_shadow_response;
+    output.thin_parallel_slab_refraction =
+        audit.thin_parallel_slab_refraction;
+    output.physical_snell_refraction = audit.physical_snell_refraction;
+    output.beer_lambert_attenuation = audit.beer_lambert_attenuation;
+    output.screen_space_radiance_lookup =
+        audit.screen_space_radiance_lookup;
+    output.refraction_scene_evaluations =
+        audit.refraction_scene_evaluations;
     output.hdr_auto_exposure = audit.hdr_auto_exposure;
     output.gpu_hdr_history_sequenced = audit.gpu_hdr_history_sequenced;
     output.hdr_bloom = audit.hdr_bloom;

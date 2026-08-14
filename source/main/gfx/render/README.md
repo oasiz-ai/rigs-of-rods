@@ -138,7 +138,13 @@ contract version 2. Message kind `7` carries `RenderAssetDelta` payload version
 blending and alpha testing independent, distinguishes true source-over from
 OGRE's legacy squared-alpha preset, and adds an explicit metallic-roughness or
 linear-RGB specular workflow. Version-3 material subframes are rejected rather
-than reinterpreted. The legacy
+than reinterpreted. The direct in-process native showcase additionally admits
+`MaterialDescriptor` version 5 for the `.rornative` v2 thin-parallel-slab
+extension: uniform transmission, attenuation color and distance, and physical
+thickness. The fixed cross-process asset-delta v2 encoder rejects version 5
+rather than truncating those fields; a future transport revision must carry
+them explicitly before this material is allowed across a process boundary.
+The legacy
 asset message kind `2` remains a reserved framing value but is rejected by the
 typed asset decoder and live dispatcher; no current encoder emits it.
 Reverse-direction message kind `3` carries one input-event batch version 1 from

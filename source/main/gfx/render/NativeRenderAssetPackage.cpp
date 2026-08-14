@@ -34,6 +34,9 @@ namespace {
 constexpr std::array<std::uint8_t, 8U> kMagic{{
     'R', 'O', 'R', 'N', 'A', 'T', '1', 0U,
 }};
+constexpr std::array<std::uint8_t, 8U> kTransmissionMagic{{
+    'R', 'O', 'R', 'N', 'A', 'T', '2', 0U,
+}};
 constexpr std::uint32_t kRecordManifest = 1U;
 constexpr std::uint32_t kRecordMesh = 2U;
 constexpr std::uint32_t kRecordTexture = 3U;
@@ -780,7 +783,7 @@ bool ParseFileRecord(const JsonValue *value, const char *suffix,
 }
 
 bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
-                   ParsedManifest &parsed) {
+                   std::uint32_t package_version, ParsedManifest &parsed) {
   JsonValue root;
   CanonicalJsonReader reader(bytes, size);
   if (bytes == nullptr || size < 2U ||
@@ -790,7 +793,10 @@ bool ParseManifest(const std::uint8_t *bytes, std::size_t size,
       !ExactObject(root, {"assets", "claims", "compiler", "counts", "format",
                           "instances", "package", "source"}) ||
       !StringValue(Member(root, "format"),
-                   "ror-native-render-package-manifest-v1")) {
+                   package_version ==
+                           kNativeRenderAssetPackageTransmissionVersion
+                       ? "ror-native-render-package-manifest-v2"
+                       : "ror-native-render-package-manifest-v1")) {
     return false;
   }
 
@@ -1309,11 +1315,16 @@ const TextureBinding &BindingAt(const MaterialDescriptor &material,
 ValidationResult DecodeMaterial(
     Reader &reader, RenderAssetPayload &payload,
     std::array<GraphicsSceneAssetBinding,
-               kGraphicsSceneMaterialTextureSlotCount> &source_bindings) {
+               kGraphicsSceneMaterialTextureSlotCount> &source_bindings,
+    std::uint32_t package_version) {
   MaterialDescriptor material;
   std::uint32_t version = 0U;
   std::array<std::uint8_t, 8U> state{};
-  if (!reader.ReadU32(version) || version != kMaterialDescriptorVersion ||
+  const std::uint32_t expected_material_version =
+      package_version == kNativeRenderAssetPackageTransmissionVersion
+          ? kMaterialDescriptorTransmissionVersion
+          : kMaterialDescriptorVersion;
+  if (!reader.ReadU32(version) || version != expected_material_version ||
       !reader.ReadString(material.debug_name)) {
     return Failure(ValidationCode::SIZE_MISMATCH, "native.material",
                    "material header is truncated");
@@ -1324,7 +1335,12 @@ ValidationResult DecodeMaterial(
                      "material state is truncated");
     }
   }
-  if (state[5U] > 1U || state[6U] > 1U || state[7U] != 0U) {
+  if (state[5U] > 1U || state[6U] > 1U ||
+      (package_version == kNativeRenderAssetPackageVersion &&
+       state[7U] != 0U) ||
+      (package_version == kNativeRenderAssetPackageTransmissionVersion &&
+       state[7U] > static_cast<std::uint8_t>(
+                        MaterialTransmissionMode::THIN_PARALLEL_SLAB))) {
     return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
                    "native.material.state",
                    "material booleans/reserved byte are non-canonical");
@@ -1337,6 +1353,8 @@ ValidationResult DecodeMaterial(
   material.base_color_transfer = static_cast<BaseColorTransfer>(state[4U]);
   material.double_sided = state[5U] != 0U;
   material.depth_write = state[6U] != 0U;
+  material.transmission_mode =
+      static_cast<MaterialTransmissionMode>(state[7U]);
   if (!ReadFloat4(reader, material.base_color_factor) ||
       !ReadCanonicalFloat(reader, material.metallic_factor) ||
       !ReadCanonicalFloat(reader, material.roughness_factor) ||
@@ -1350,6 +1368,15 @@ ValidationResult DecodeMaterial(
     return Failure(ValidationCode::NON_FINITE_VALUE,
                    "native.material.factors",
                    "material factor payload is truncated or non-canonical");
+  }
+  if (package_version == kNativeRenderAssetPackageTransmissionVersion &&
+      (!ReadCanonicalFloat(reader, material.transmission_factor) ||
+       !ReadFloat3(reader, material.attenuation_color) ||
+       !ReadCanonicalFloat(reader, material.attenuation_distance_m) ||
+       !ReadCanonicalFloat(reader, material.slab_thickness_m))) {
+    return Failure(ValidationCode::NON_FINITE_VALUE,
+                   "native.material.transmission",
+                   "material transmission payload is truncated or non-canonical");
   }
   for (std::size_t slot = 0U;
        slot < kGraphicsSceneMaterialTextureSlotCount; ++slot) {
@@ -1741,9 +1768,11 @@ NativeRenderAssetPackageDecodeResult DecodeNativeRenderAssetPackage(
     std::uint32_t instance_count = 0U;
     std::uint64_t declared_bytes = 0U;
     RenderPayloadDigest expected_digest{};
-    if (!header.ReadRaw(magic.data(), magic.size()) || magic != kMagic ||
+    if (!header.ReadRaw(magic.data(), magic.size()) ||
         !header.ReadU32(version) ||
-        version != kNativeRenderAssetPackageVersion ||
+        !((version == kNativeRenderAssetPackageVersion && magic == kMagic) ||
+          (version == kNativeRenderAssetPackageTransmissionVersion &&
+           magic == kTransmissionMagic)) ||
         !header.ReadU32(header_bytes) ||
         header_bytes != kNativeRenderAssetPackageHeaderBytes ||
         !header.ReadU32(flags) || flags != 0U ||
@@ -1777,6 +1806,7 @@ NativeRenderAssetPackageDecodeResult DecodeNativeRenderAssetPackage(
     }
 
     auto candidate = std::make_shared<NativeRenderAssetPackage>();
+    candidate->version = version;
     candidate->package_sha256 = actual_package_sha256;
     candidate->body_sha256 = expected_digest;
     candidate->assets.reserve(asset_count);
@@ -1806,7 +1836,7 @@ NativeRenderAssetPackageDecodeResult DecodeNativeRenderAssetPackage(
     if (!manifest.ReadVector(manifest_bytes,
                              static_cast<std::size_t>(payload_size)) ||
         !manifest.empty() ||
-        !ParseManifest(manifest_bytes.data(), manifest_bytes.size(),
+        !ParseManifest(manifest_bytes.data(), manifest_bytes.size(), version,
                        parsed_manifest)) {
       result.validation = Failure(ValidationCode::NON_DETERMINISTIC_ORDER,
                                   "native.package.manifest",
@@ -1877,7 +1907,7 @@ NativeRenderAssetPackageDecodeResult DecodeNativeRenderAssetPackage(
         break;
       case kRecordMaterial:
         validation = DecodeMaterial(payload_reader, payload,
-                                    input.material_bindings);
+                                    input.material_bindings, version);
         break;
       case kRecordSampler:
         validation = DecodeSampler(payload_reader, payload);

@@ -6,11 +6,17 @@
     "native_terrain": false,
     "visual_only": true
   },
-  "format": "ror-native-render-source-v1",
+  "format": "ror-native-render-source-v2",
   "materials": [
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -34,6 +40,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 1.0,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -83,11 +90,19 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "metallic_roughness"
     },
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -111,6 +126,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 0.16,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -160,11 +176,19 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "specular"
     },
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -188,6 +212,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 0.82,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -223,11 +248,62 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "metallic_roughness"
     },
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        0.82,
+        0.94,
+        0.98
+      ],
+      "attenuation_distance_m": 0.75,
+      "base_color_factor": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "base_color_transfer": "srgb_decode_before_filter",
+      "blend_mode": "replace",
+      "depth_write": false,
+      "double_sided": false,
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_strength": 1.0,
+      "id": "rorng_a1_glass_material",
+      "index_of_refraction": 1.52,
+      "metallic_factor": 0.0,
+      "model": "pbr_metallic_roughness",
+      "normal_scale": 1.0,
+      "occlusion_strength": 1.0,
+      "roughness_factor": 0.025,
+      "slab_thickness_m": 0.08,
+      "specular_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "textures": {},
+      "transmission_factor": 0.96,
+      "transmission_mode": "thin_parallel_slab",
+      "workflow": "specular"
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -251,6 +327,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 0.58,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -286,11 +363,19 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "metallic_roughness"
     },
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -314,6 +399,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 1.0,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -363,11 +449,19 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "metallic_roughness"
     },
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -391,6 +485,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 1.0,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -440,11 +535,19 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "metallic_roughness"
     },
     {
       "alpha_cutoff": 0.5,
       "alpha_test_mode": "disabled",
+      "attenuation_color": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "attenuation_distance_m": 1.0,
       "base_color_factor": [
         1.0,
         1.0,
@@ -468,6 +571,7 @@
       "normal_scale": 1.0,
       "occlusion_strength": 1.0,
       "roughness_factor": 0.07,
+      "slab_thickness_m": 0.0,
       "specular_factor": [
         1.0,
         1.0,
@@ -517,6 +621,8 @@
           "uv_set": 0
         }
       },
+      "transmission_factor": 0.0,
+      "transmission_mode": "none",
       "workflow": "specular"
     }
   ],
@@ -694,6 +800,31 @@
       ]
     },
     {
+      "id": "rorng_a1_glass_slab_mesh",
+      "instance_flags": [],
+      "material": "rorng_a1_glass_material",
+      "node": "rorng_a1_glass_slab_mesh",
+      "object_id": "rorng_a1_glass_slab_object",
+      "render_from_object": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
       "id": "rorng_a1_lane_marking_mesh",
       "instance_flags": [],
       "material": "rorng_a1_lane_marking_material",
@@ -756,7 +887,7 @@
     "creation_attestation": "Project-original A1 geometry, textures, material declarations, and alignment data were independently authored for V2. The generator reuses only hash-pinned project-owned A0 authoring utility code; no geometry, texture, material-script, or shader bytes were copied from A0, legacy content, or another simulator.",
     "dimensions_m": [
       13.0,
-      2.92,
+      3.27,
       60.0
     ],
     "display_name": "A1 native 60 metre visual calibration course",
@@ -764,7 +895,7 @@
     "license": "GPL-3.0-or-later",
     "modified": false,
     "origin_class": "project_original",
-    "source_revision": "sha256-pinned-source-set-v1",
+    "source_revision": "sha256-pinned-source-set-v2-thin-slab-transmission",
     "source_uri": "https://github.com/RigsOfRods/rigs-of-rods"
   },
   "samplers": [
@@ -816,16 +947,16 @@
   "source": {
     "composition": {
       "path": "content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.composition.json",
-      "sha256": "0e2a2f9d6b0a0597b2c7e28080e41a37bd8b713b964d87337eb81795efc1bb4a"
+      "sha256": "db7cbacdf1228d9e9836b32afc1c7d587151d61b4661715bd4132373f3403980"
     },
     "coordinate_system": "right-handed-y-up-meters",
     "generator": {
       "path": "tools/blender/native_render/generate_a1_native_course.py",
-      "sha256": "34202d1ce1de2bbddb69bdf6f37066a256faa8e68f5306a58acca623a8bff4d4"
+      "sha256": "a2fc21e3924414920776747423fc1fd2cb605e6e2d46becd42b9d9db049504f1"
     },
     "glb": {
       "path": "content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.glb",
-      "sha256": "a92c99618d98659bc70d28bbdd943b028bff60f1ef26f6bbddc4a98e34dd9a69"
+      "sha256": "7b0648cde63053385d9a7ec66f56da470cfe8bf3465ef5d6c52cc0c9702b7801"
     },
     "tangent_basis": "tangent-w-times-cross-normal-tangent",
     "uv_origin": "upper-left"

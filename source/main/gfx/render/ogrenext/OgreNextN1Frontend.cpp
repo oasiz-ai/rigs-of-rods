@@ -729,6 +729,9 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       descriptor.emissive_factor.z * descriptor.emissive_strength);
   const bool specular_workflow =
       descriptor.pbr_workflow == MaterialPbrWorkflow::SPECULAR;
+  const bool thin_slab_transmission =
+      descriptor.transmission_mode ==
+      MaterialTransmissionMode::THIN_PARALLEL_SLAB;
   const Ogre::Vector3 expected_specular =
       specular_workflow
           ? Ogre::Vector3(descriptor.specular_factor.x,
@@ -737,8 +740,12 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
           : Ogre::Vector3::UNIT_SCALE;
   const Ogre::HlmsMacroblock expected_macroblock =
       BuildPbsMacroblock(descriptor);
-  const Ogre::HlmsBlendblock expected_blendblock =
-      BuildPbsBlendblock(descriptor);
+  Ogre::HlmsBlendblock expected_blendblock = BuildPbsBlendblock(descriptor);
+  if (thin_slab_transmission) {
+    expected_blendblock.mSourceBlendFactor = Ogre::SBF_ONE;
+    expected_blendblock.mDestBlendFactor = Ogre::SBF_ZERO;
+    expected_blendblock.setForceTransparentRenderOrder(true);
+  }
   // Pinned PBS compares the threshold on the left and sampled alpha on the
   // right. These are therefore the inverse discard comparisons needed to keep
   // the descriptor's fragments exactly.
@@ -750,13 +757,37 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
                 ? Ogre::CMPF_GREATER
                 : Ogre::CMPF_ALWAYS_PASS;
   const Ogre::HlmsPbsDatablock::TransparencyModes expected_transparency =
-      descriptor.blend_mode != MaterialBlendMode::REPLACE
+      thin_slab_transmission
+          ? Ogre::HlmsPbsDatablock::Refractive
+          : descriptor.blend_mode != MaterialBlendMode::REPLACE
           ? Ogre::HlmsPbsDatablock::Fade
           : Ogre::HlmsPbsDatablock::None;
   const float expected_transparency_value =
-      descriptor.blend_mode != MaterialBlendMode::REPLACE
+      thin_slab_transmission
+          ? 1.0F - descriptor.transmission_factor
+          : descriptor.blend_mode != MaterialBlendMode::REPLACE
           ? descriptor.base_color_factor.w
           : 1.0F;
+  const Ogre::Vector4 expected_transmission_attenuation =
+      thin_slab_transmission
+          ? Ogre::Vector4(descriptor.attenuation_color.x,
+                          descriptor.attenuation_color.y,
+                          descriptor.attenuation_color.z,
+                          descriptor.attenuation_distance_m)
+          : Ogre::Vector4::ZERO;
+  const Ogre::Vector4 actual_transmission_parameters =
+      datablock.getUserValue(2U);
+  const bool exact_transmission_parameters =
+      thin_slab_transmission
+          ? actual_transmission_parameters.x ==
+                    descriptor.index_of_refraction &&
+                actual_transmission_parameters.y ==
+                    descriptor.slab_thickness_m &&
+                actual_transmission_parameters.z ==
+                    descriptor.transmission_factor &&
+                std::isfinite(actual_transmission_parameters.w) &&
+                actual_transmission_parameters.w > 0.0F
+          : actual_transmission_parameters == Ogre::Vector4::ZERO;
   const float ior_ratio =
       (1.0F - descriptor.index_of_refraction) /
       (1.0F + descriptor.index_of_refraction);
@@ -782,8 +813,10 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       datablock.getBlendblock() == nullptr ||
       *datablock.getBlendblock() != expected_blendblock ||
       datablock.getBlendblock()->isAutoTransparent() !=
-          (descriptor.blend_mode != MaterialBlendMode::REPLACE) ||
-      datablock.getBlendblock()->isForcedTransparent() ||
+          (!thin_slab_transmission &&
+           descriptor.blend_mode != MaterialBlendMode::REPLACE) ||
+      datablock.getBlendblock()->isForcedTransparent() !=
+          thin_slab_transmission ||
       datablock.getAlphaTest() != expected_alpha_test ||
       datablock.getAlphaTestShadowCasterOnly() ||
       !NearlyEqual(datablock.getAlphaTestThreshold(),
@@ -791,11 +824,14 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       datablock.getTransparencyMode() != expected_transparency ||
       !NearlyEqual(datablock.getTransparency(),
                    expected_transparency_value) ||
-      !datablock.getUseAlphaFromTextures() ||
+      datablock.getUseAlphaFromTextures() != !thin_slab_transmission ||
+      !NearlyEqual(datablock.getRefractionStrength(), 0.0F) ||
       datablock.getUserValue(0U) != expected_uv0_affine ||
-      datablock.getUserValue(1U) != Ogre::Vector4::ZERO ||
-      datablock.getUserValue(2U) != Ogre::Vector4::ZERO ||
-      !OgreNextUvAffinePbs::SelectsUv0AffineShader(&datablock)) {
+      datablock.getUserValue(1U) != expected_transmission_attenuation ||
+      !exact_transmission_parameters ||
+      !OgreNextUvAffinePbs::SelectsUv0AffineShader(&datablock) ||
+      OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader(&datablock) !=
+          thin_slab_transmission) {
     throw std::runtime_error(
         "Ogre-Next RT4/V1 live PBS datablock differs from the reviewed workflow, UV0 affine, alpha, depth, cull, or blend mapping");
   }
@@ -1571,7 +1607,18 @@ constexpr const char kOgreNextHdrSunDirectSignedTexture[] =
 constexpr const char kOgreNextHdrSunDirectTexture[] = "RoRSunDirectHdr";
 constexpr const char kOgreNextHdrVisibilityTexture[] = "RoRVisibility";
 constexpr const char kOgreNextHdrLitTexture[] = "RoRLitHdr";
+constexpr const char kOgreNextHdrOpaqueDepthTexture[] = "RoROpaqueDepth";
 constexpr const char kOgreNextHdrHistoryTexture[] = "oldLumRt";
+constexpr const char kOgreNextThinSlabNode[] =
+    "RoRThinSlabRefractionNodeV1";
+constexpr const char kOgreNextThinSlabInputTexture[] =
+    "RoRThinSlabInputHdr";
+constexpr const char kOgreNextThinSlabDepthInput[] =
+    "RoRThinSlabOpaqueDepth";
+constexpr const char kOgreNextThinSlabBackgroundTexture[] =
+    "RoRThinSlabBackgroundHdr";
+constexpr const char kOgreNextThinSlabOutputTexture[] =
+    "RoRThinSlabOutputHdr";
 constexpr const char kOgreNextHdrSunVisibilityV2ContinuationWorkspace[] =
     "RoRHdrSunVisibilityV2Continuation";
 constexpr const char kOgreNextHdrSubtractMaterial[] =
@@ -1579,10 +1626,12 @@ constexpr const char kOgreNextHdrSubtractMaterial[] =
 constexpr const char kOgreNextHdrClampMaterial[] = "RoR/HDR/SunDirectClamp";
 constexpr std::uint8_t kOgreNextHdrSplitExecutionMask = 0x01U;
 constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
+constexpr std::uint8_t kOgreNextThinSlabRenderQueue = 200U;
 constexpr std::uint32_t kOgreNextHdrBaseScenePassIdentifier = 0x524f5201U;
 constexpr std::uint32_t kOgreNextHdrSunFullScenePassIdentifier = 0x524f5202U;
 constexpr std::uint32_t kOgreNextHdrRasterLitScenePassIdentifier = 0x524f5203U;
 constexpr std::uint32_t kOgreNextHdrSingleScenePassIdentifier = 0x524f5204U;
+constexpr std::uint32_t kOgreNextThinSlabScenePassIdentifier = 0x524f5205U;
 // RT4 reserves bits 28-29 from authored geometry. The node keeps bit 29 out of
 // Base as an explicit topology invariant, but the pinned PBS global
 // directional-light path does not honor per-pass light masks. The listener
@@ -1671,7 +1720,7 @@ void CreateAndVerifyHdrLightingSplitNode(
   (void)CreateAndVerifyHdrBlendMaterial(kOgreNextHdrClampMaterial,
                                         Ogre::SBO_MAX);
 
-  node->setNumLocalTextureDefinitions(enable_sun_visibility_v2 ? 8U : 6U);
+  node->setNumLocalTextureDefinitions(enable_sun_visibility_v2 ? 9U : 7U);
   const auto add_rgba16 = [&](const char *name, bool needs_depth,
                               bool external_uav = false) {
     Ogre::TextureDefinitionBase::TextureDefinition *texture =
@@ -1733,6 +1782,30 @@ void CreateAndVerifyHdrLightingSplitNode(
     visibility->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
     add_rgba16(kOgreNextHdrLitTexture, false, true);
   }
+  Ogre::TextureDefinitionBase::TextureDefinition *opaque_depth =
+      node->addTextureDefinition(kOgreNextHdrOpaqueDepthTexture);
+  opaque_depth->textureType = Ogre::TextureTypes::Type2D;
+  opaque_depth->width = 0U;
+  opaque_depth->height = 0U;
+  opaque_depth->depthOrSlices = 1U;
+  opaque_depth->numMipmaps = 1U;
+  opaque_depth->format = Ogre::PFG_D32_FLOAT;
+  opaque_depth->fsaa = "1";
+  opaque_depth->textureFlags = Ogre::TextureFlags::RenderToTexture;
+  opaque_depth->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  for (const char *target_name : {kOgreNextHdrBaseTexture,
+                                  kOgreNextHdrSunFullTexture,
+                                  kOgreNextHdrRasterLitTexture}) {
+    Ogre::RenderTargetViewDef *view =
+        node->getRenderTargetViewDefNonConstNoThrow(
+            Ogre::IdString(target_name));
+    if (view == nullptr) {
+      throw std::runtime_error(
+          "Ogre-Next HDR split lost a scene render-target view");
+    }
+    view->depthAttachment.textureName = kOgreNextHdrOpaqueDepthTexture;
+    view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  }
 
   const Ogre::ColourValue clear_hdr(6.667F, 13.333F, 20.0F, 1.0F);
   const auto add_scene = [&](const char *target_name,
@@ -1746,7 +1819,7 @@ void CreateAndVerifyHdrLightingSplitNode(
     scene->mIdentifier = identifier;
     scene->mExecutionMask = kOgreNextHdrSplitExecutionMask;
     scene->mFirstRQ = 0U;
-    scene->mLastRQ = kOgreNextPccReservedRenderQueue;
+    scene->mLastRQ = kOgreNextThinSlabRenderQueue;
     scene->mIncludeOverlays = false;
     scene->mEnableForwardPlus = true;
     scene->mUpdateLodLists = update_lod;
@@ -1756,7 +1829,7 @@ void CreateAndVerifyHdrLightingSplitNode(
     scene->setAllClearColours(clear_hdr);
     scene->mClearDepth = 1.0F;
     scene->mStoreActionColour[0] = Ogre::StoreAction::Store;
-    scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+    scene->mStoreActionDepth = Ogre::StoreAction::Store;
     scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
   };
 
@@ -1824,7 +1897,7 @@ void CreateAndVerifyHdrLightingSplitNode(
   clear_history->setAllClearColours(
       Ogre::ColourValue(0.01F, 0.01F, 0.01F, 1.0F));
 
-  node->setNumOutputChannels(enable_sun_visibility_v2 ? 6U : 4U);
+  node->setNumOutputChannels(enable_sun_visibility_v2 ? 7U : 5U);
   node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);
   node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);
   node->mapOutputChannel(2U, kOgreNextHdrBaseTexture);
@@ -1832,13 +1905,16 @@ void CreateAndVerifyHdrLightingSplitNode(
   if (enable_sun_visibility_v2) {
     node->mapOutputChannel(4U, kOgreNextHdrVisibilityTexture);
     node->mapOutputChannel(5U, kOgreNextHdrLitTexture);
+    node->mapOutputChannel(6U, kOgreNextHdrOpaqueDepthTexture);
+  } else {
+    node->mapOutputChannel(4U, kOgreNextHdrOpaqueDepthTexture);
   }
 
   const auto &textures = node->getLocalTextureDefinitions();
   const std::size_t expected_texture_count =
-      enable_sun_visibility_v2 ? 8U : 6U;
+      enable_sun_visibility_v2 ? 9U : 7U;
   const std::uint32_t expected_output_count =
-      enable_sun_visibility_v2 ? 6U : 4U;
+      enable_sun_visibility_v2 ? 7U : 5U;
   if (textures.size() != expected_texture_count ||
       node->getNumTargetPasses() != 6U ||
       node->getNumOutputChannels() != expected_output_count ||
@@ -1873,7 +1949,11 @@ void CreateAndVerifyHdrLightingSplitNode(
         textures[6U].textureFlags != required ||
         textures[7U].getName() != Ogre::IdString(kOgreNextHdrLitTexture) ||
         textures[7U].format != Ogre::PFG_RGBA16_FLOAT ||
-        textures[7U].textureFlags != required) {
+        textures[7U].textureFlags != required ||
+        textures[8U].getName() !=
+            Ogre::IdString(kOgreNextHdrOpaqueDepthTexture) ||
+        textures[8U].format != Ogre::PFG_D32_FLOAT ||
+        textures[8U].textureFlags != Ogre::TextureFlags::RenderToTexture) {
       throw std::runtime_error(
           "Ogre-Next sun-visibility V2 target usage or format changed");
     }
@@ -1949,6 +2029,127 @@ void CreateAndVerifyHdrLightingSplitNode(
                   kOgreNextHdrSunDirectSignedTexture)) {
     throw std::runtime_error(
         "Ogre-Next HDR split GPU subtraction or clamp topology changed");
+  }
+}
+
+void CreateAndVerifyThinSlabRefractionNode(
+    Ogre::CompositorManager2 &compositors) {
+  const Ogre::IdString node_name(kOgreNextThinSlabNode);
+  if (compositors.hasNodeDefinition(node_name)) {
+    throw std::runtime_error(
+        "Ogre-Next thin-slab refraction node identity is not empty");
+  }
+  Ogre::CompositorNodeDef *node =
+      compositors.addNodeDefinition(kOgreNextThinSlabNode);
+  node->addTextureSourceName(
+      kOgreNextThinSlabInputTexture, 0U,
+      Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+  node->addTextureSourceName(
+      kOgreNextThinSlabDepthInput, 1U,
+      Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+  node->setNumLocalTextureDefinitions(2U);
+  const auto add_rgba16 = [&](const char *name, bool with_depth) {
+    Ogre::TextureDefinitionBase::TextureDefinition *texture =
+        node->addTextureDefinition(name);
+    texture->textureType = Ogre::TextureTypes::Type2D;
+    texture->width = 0U;
+    texture->height = 0U;
+    texture->depthOrSlices = 1U;
+    texture->numMipmaps = 1U;
+    texture->format = Ogre::PFG_RGBA16_FLOAT;
+    texture->fsaa = "1";
+    texture->textureFlags = Ogre::TextureFlags::RenderToTexture |
+                            Ogre::TextureFlags::DiscardableContent;
+    texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+    Ogre::RenderTargetViewDef *view = node->addRenderTextureView(name);
+    Ogre::RenderTargetViewEntry colour;
+    colour.textureName = name;
+    view->colourAttachments.push_back(colour);
+    view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+    if (with_depth) {
+      view->depthAttachment.textureName = kOgreNextThinSlabDepthInput;
+      view->depthReadOnly = true;
+    }
+  };
+  add_rgba16(kOgreNextThinSlabBackgroundTexture, false);
+  add_rgba16(kOgreNextThinSlabOutputTexture, true);
+
+  node->setNumTargetPass(2U);
+  Ogre::CompositorTargetDef *background_target =
+      node->addTargetPass(kOgreNextThinSlabBackgroundTexture);
+  background_target->setNumPasses(1U);
+  auto *copy_background = static_cast<Ogre::CompositorPassQuadDef *>(
+      background_target->addPass(Ogre::PASS_QUAD));
+  copy_background->mMaterialIsHlms = false;
+  copy_background->mMaterialName = "Ogre/Copy/4xFP32";
+  copy_background->mExecutionMask = kOgreNextHdrPostExecutionMask;
+  copy_background->mUseQuad = false;
+  copy_background->addQuadTextureSource(0U,
+                                        kOgreNextThinSlabInputTexture);
+  copy_background->setAllLoadActions(Ogre::LoadAction::DontCare);
+  copy_background->mStoreActionColour[0] = Ogre::StoreAction::Store;
+
+  Ogre::CompositorTargetDef *output_target =
+      node->addTargetPass(kOgreNextThinSlabOutputTexture);
+  output_target->setNumPasses(2U);
+  auto *copy_input = static_cast<Ogre::CompositorPassQuadDef *>(
+      output_target->addPass(Ogre::PASS_QUAD));
+  copy_input->mMaterialIsHlms = false;
+  copy_input->mMaterialName = "Ogre/Copy/4xFP32";
+  copy_input->mExecutionMask = kOgreNextHdrPostExecutionMask;
+  copy_input->mUseQuad = false;
+  copy_input->addQuadTextureSource(0U, kOgreNextThinSlabInputTexture);
+  copy_input->setAllLoadActions(Ogre::LoadAction::DontCare);
+  copy_input->mStoreActionColour[0] = Ogre::StoreAction::Store;
+
+  auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
+      output_target->addPass(Ogre::PASS_SCENE));
+  scene->mIdentifier = kOgreNextThinSlabScenePassIdentifier;
+  scene->mExecutionMask = kOgreNextHdrPostExecutionMask;
+  scene->mFirstRQ = kOgreNextThinSlabRenderQueue;
+  scene->mLastRQ = kOgreNextThinSlabRenderQueue + 1U;
+  scene->mIncludeOverlays = false;
+  scene->mEnableForwardPlus = true;
+  scene->mUpdateLodLists = false;
+  scene->setVisibilityMask(kOgreNextRt4AuthoredVisibilityMask);
+  scene->setLightVisibilityMask(
+      Ogre::VisibilityFlags::RESERVED_VISIBILITY_FLAGS);
+  scene->mLoadActionColour[0] = Ogre::LoadAction::Load;
+  scene->mLoadActionDepth = Ogre::LoadAction::Load;
+  scene->mLoadActionStencil = Ogre::LoadAction::DontCare;
+  scene->mStoreActionColour[0] = Ogre::StoreAction::Store;
+  scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+  scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+  scene->setUseRefractions(Ogre::IdString(kOgreNextThinSlabDepthInput),
+                           Ogre::IdString(
+                               kOgreNextThinSlabBackgroundTexture));
+
+  node->setNumOutputChannels(1U);
+  node->mapOutputChannel(0U, kOgreNextThinSlabOutputTexture);
+  const auto &textures = node->getLocalTextureDefinitions();
+  const Ogre::CompositorPassDefVec &background_passes =
+      node->getTargetPass(0U)->getCompositorPasses();
+  const Ogre::CompositorPassDefVec &output_passes =
+      node->getTargetPass(1U)->getCompositorPasses();
+  const auto *verified_scene =
+      output_passes.size() == 2U
+          ? dynamic_cast<const Ogre::CompositorPassSceneDef *>(
+                output_passes[1U])
+          : nullptr;
+  if (textures.size() != 2U || node->getNumTargetPasses() != 2U ||
+      node->getNumOutputChannels() != 1U ||
+      node->calculateNumPasses() != 3U || background_passes.size() != 1U ||
+      verified_scene == nullptr ||
+      verified_scene->mIdentifier !=
+          kOgreNextThinSlabScenePassIdentifier ||
+      verified_scene->mFirstRQ != kOgreNextThinSlabRenderQueue ||
+      verified_scene->mLastRQ != kOgreNextThinSlabRenderQueue + 1U ||
+      verified_scene->mDepthTextureNoMsaa !=
+          Ogre::IdString(kOgreNextThinSlabDepthInput) ||
+      verified_scene->mRefractionsTexture !=
+          Ogre::IdString(kOgreNextThinSlabBackgroundTexture)) {
+    throw std::runtime_error(
+        "Ogre-Next thin-slab refraction node topology failed exact readback");
   }
 }
 
@@ -3648,7 +3849,13 @@ public:
         throw;
       }
     }
-    native.name = AssetName("RoRN1Material", asset);
+    const bool thin_slab_transmission =
+        descriptor.transmission_mode ==
+        MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+    native.name = AssetName(thin_slab_transmission
+                                ? "RoRN1TransmissionMaterial"
+                                : "RoRN1Material",
+                            asset);
     const ValidationResult uv0_affine_validation =
         BuildOgreNextN1PbsUv0AffineTransform(descriptor,
                                              native.uv0_affine);
@@ -3667,8 +3874,26 @@ public:
                             native.uv0_affine.scale.y,
                             native.uv0_affine.offset.x,
                             native.uv0_affine.offset.y));
-      native.pbs_datablock->setUserValue(1U, Ogre::Vector4::ZERO);
-      native.pbs_datablock->setUserValue(2U, Ogre::Vector4::ZERO);
+      native.pbs_datablock->setUserValue(
+          1U,
+          thin_slab_transmission
+              ? Ogre::Vector4(descriptor.attenuation_color.x,
+                              descriptor.attenuation_color.y,
+                              descriptor.attenuation_color.z,
+                              descriptor.attenuation_distance_m)
+              : Ogre::Vector4::ZERO);
+      const float projection_y_scale =
+          thin_slab_transmission && camera != nullptr
+              ? 1.0F / std::tan(camera->getFOVy().valueRadians() * 0.5F)
+              : 0.0F;
+      native.pbs_datablock->setUserValue(
+          2U,
+          thin_slab_transmission
+              ? Ogre::Vector4(descriptor.index_of_refraction,
+                              descriptor.slab_thickness_m,
+                              descriptor.transmission_factor,
+                              projection_y_scale)
+              : Ogre::Vector4::ZERO);
       native.pbs_datablock->setBrdf(Ogre::PbsBrdf::Default);
       const bool specular_workflow =
           descriptor.pbr_workflow == MaterialPbrWorkflow::SPECULAR;
@@ -3709,13 +3934,18 @@ public:
       native.pbs_datablock->setNormalMapWeight(1.0F);
       native.pbs_datablock->setTwoSidedLighting(descriptor.double_sided, false);
       native.pbs_datablock->setTransparency(
-          descriptor.blend_mode != MaterialBlendMode::REPLACE
+          thin_slab_transmission
+              ? 1.0F - descriptor.transmission_factor
+              : descriptor.blend_mode != MaterialBlendMode::REPLACE
               ? descriptor.base_color_factor.w
               : 1.0F,
-          descriptor.blend_mode != MaterialBlendMode::REPLACE
+          thin_slab_transmission
+              ? Ogre::HlmsPbsDatablock::Refractive
+              : descriptor.blend_mode != MaterialBlendMode::REPLACE
               ? Ogre::HlmsPbsDatablock::Fade
               : Ogre::HlmsPbsDatablock::None,
-          true, false);
+          !thin_slab_transmission, thin_slab_transmission);
+      native.pbs_datablock->setRefractionStrength(0.0F);
       native.pbs_datablock->setAlphaTest(
           descriptor.alpha_test_mode == MaterialAlphaTestMode::GREATER
               ? Ogre::CMPF_GREATER_EQUAL
@@ -4319,9 +4549,18 @@ public:
         compositors->addWorkspaceDefinition(workspace_name);
     hdr_workspace_definition_created = true;
     definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
-                        Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U);
+                        SunVisibilityV2Enabled()
+                            ? Ogre::IdString(kOgreNextThinSlabNode)
+                            : Ogre::IdString(kOgreNextHdrPostprocessingNode),
+                        0U);
     definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 1U,
                         Ogre::IdString(kOgreNextHdrPostprocessingNode), 1U);
+    if (SunVisibilityV2Enabled()) {
+      definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 6U,
+                          Ogre::IdString(kOgreNextThinSlabNode), 1U);
+      definition->connect(Ogre::IdString(kOgreNextThinSlabNode), 0U,
+                          Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U);
+    }
     definition->connectExternal(
         0U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 2U);
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -4336,6 +4575,8 @@ public:
         aliases.find(Ogre::IdString(kOgreNextHdrRenderingNode)) != aliases.end();
     const bool has_postprocessing =
         aliases.find(Ogre::IdString(kOgreNextHdrPostprocessingNode)) != aliases.end();
+    const bool has_refraction =
+        aliases.find(Ogre::IdString(kOgreNextThinSlabNode)) != aliases.end();
     const bool has_upstream_ui =
         aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -4344,6 +4585,7 @@ public:
     constexpr bool expected_ui = false;
 #endif
     if (!has_rendering || !has_postprocessing ||
+        has_refraction != SunVisibilityV2Enabled() ||
         has_upstream_ui != expected_ui) {
       return HdrBackendFailure(
           "programmatic HDR workspace node closure is not exact");
@@ -4354,13 +4596,20 @@ public:
               kOgreNextHdrSunVisibilityV2ContinuationWorkspace);
       hdr_v2_continuation_workspace_definition_created = true;
       continuation->connectExternal(
-          0U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U);
+          0U, Ogre::IdString(kOgreNextThinSlabNode), 0U);
+      continuation->connectExternal(
+          3U, Ogre::IdString(kOgreNextThinSlabNode), 1U);
+      continuation->connect(Ogre::IdString(kOgreNextThinSlabNode), 0U,
+                            Ogre::IdString(kOgreNextHdrPostprocessingNode),
+                            0U);
       continuation->connectExternal(
           1U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 1U);
       continuation->connectExternal(
           2U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 2U);
       const auto &continuation_aliases = continuation->getNodeAliasMap();
-      if (continuation_aliases.size() != 1U ||
+      if (continuation_aliases.size() != 2U ||
+          continuation_aliases.find(Ogre::IdString(kOgreNextThinSlabNode)) ==
+              continuation_aliases.end() ||
           continuation_aliases.find(
               Ogre::IdString(kOgreNextHdrPostprocessingNode)) ==
               continuation_aliases.end()) {
@@ -4408,6 +4657,7 @@ public:
     hdr_sun_direct_hdr_target = nullptr;
     hdr_visibility_target = nullptr;
     hdr_lit_target = nullptr;
+    hdr_opaque_depth_target = nullptr;
     hdr_history_target = nullptr;
     if (!destroy_definitions_and_resources && SingleSceneHdrPssmEnabled() &&
         root != nullptr) {
@@ -4478,6 +4728,28 @@ public:
     }
     if (destroy_definitions_and_resources) {
       hdr_workspace_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root &&
+        hdr_refraction_node_definition_created) {
+      try {
+        Ogre::CompositorManager2 *compositors =
+            root->getCompositorManager2();
+        const Ogre::IdString refraction_name(kOgreNextThinSlabNode);
+        if (!compositors->hasNodeDefinition(refraction_name)) {
+          clean = false;
+        } else {
+          compositors->removeNodeDefinition(refraction_name);
+        }
+        clean = !compositors->hasNodeDefinition(refraction_name) && clean;
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_refraction_node_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_refraction_node_definition_created = false;
     }
     if (destroy_definitions_and_resources && root &&
         hdr_split_node_definition_created) {
@@ -4831,6 +5103,7 @@ public:
     hdr_sun_direct_hdr_target = nullptr;
     hdr_visibility_target = nullptr;
     hdr_lit_target = nullptr;
+    hdr_opaque_depth_target = nullptr;
     hdr_history_target = old_luminance;
     return RenderOperationResult::Success();
   }
@@ -5131,6 +5404,11 @@ public:
         CreateAndVerifyHdrLightingSplitNode(
             *root->getCompositorManager2(), hdr_split_node_definition_created,
             SunVisibilityV2Enabled());
+        if (SunVisibilityV2Enabled()) {
+          CreateAndVerifyThinSlabRefractionNode(
+              *root->getCompositorManager2());
+          hdr_refraction_node_definition_created = true;
+        }
       }
       if (SunVisibilityV2Enabled()) {
         ConfigureAndVerifyHdrPostExecutionMask(
@@ -5147,9 +5425,12 @@ public:
           !compositors->hasWorkspaceDefinition(
               Ogre::IdString(HdrWorkspaceName())) ||
           (SunVisibilityV2Enabled() &&
-           (!hdr_v2_continuation_workspace_definition_created ||
+          (!hdr_v2_continuation_workspace_definition_created ||
             !compositors->hasWorkspaceDefinition(Ogre::IdString(
-                kOgreNextHdrSunVisibilityV2ContinuationWorkspace))))) {
+                kOgreNextHdrSunVisibilityV2ContinuationWorkspace)) ||
+            !hdr_refraction_node_definition_created ||
+            !compositors->hasNodeDefinition(
+                Ogre::IdString(kOgreNextThinSlabNode))))) {
         return HdrBackendFailure(
             "retained HDR definitions disappeared before resize rebuild");
       }
@@ -5179,7 +5460,10 @@ public:
             compositors->getWorkspaceDefinition(Ogre::IdString(
                 kOgreNextHdrSunVisibilityV2ContinuationWorkspace));
         const auto &continuation_aliases = continuation->getNodeAliasMap();
-        if (continuation_aliases.size() != 1U ||
+        if (continuation_aliases.size() != 2U ||
+            continuation_aliases.find(
+                Ogre::IdString(kOgreNextThinSlabNode)) ==
+                continuation_aliases.end() ||
             continuation_aliases.find(
                 Ogre::IdString(kOgreNextHdrPostprocessingNode)) ==
                 continuation_aliases.end()) {
@@ -5301,6 +5585,10 @@ public:
         SunVisibilityV2Enabled() && rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrLitTexture)
             : nullptr;
+    Ogre::TextureGpu *opaque_depth =
+        SunVisibilityV2Enabled() && rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture)
+            : nullptr;
     Ogre::TextureGpu *old_luminance = rendering != nullptr
                                            ? rendering->getDefinedTexture(
                                                  "oldLumRt")
@@ -5351,6 +5639,14 @@ public:
     hdr_lit_target_verified =
         !SunVisibilityV2Enabled() ||
         (exact_linear_target(lit_hdr) && lit_hdr->isUav());
+    const bool opaque_depth_verified =
+        !SunVisibilityV2Enabled() ||
+        (opaque_depth != nullptr &&
+         opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
+         opaque_depth->getWidth() == width &&
+         opaque_depth->getHeight() == height &&
+         opaque_depth->getDepth() == 1U &&
+         opaque_depth->getNumMipmaps() == 1U);
     if (SunVisibilityV2Enabled()) {
       hdr_base_hdr_target_verified =
           hdr_base_hdr_target_verified && base_hdr->isUav();
@@ -5379,12 +5675,14 @@ public:
         hdr_output_target->getPixelFormat() == Ogre::PFG_RGBA8_UNORM_SRGB;
     if (SunVisibilityV2Enabled() && hdr_visibility_target_verified &&
         hdr_lit_target_verified && hdr_base_hdr_target_verified &&
-        hdr_sun_direct_hdr_target_verified && old_luminance != nullptr) {
+        hdr_sun_direct_hdr_target_verified && opaque_depth_verified &&
+        old_luminance != nullptr) {
       Ogre::CompositorChannelVec continuation_channels;
-      continuation_channels.reserve(3U);
+      continuation_channels.reserve(4U);
       continuation_channels.push_back(lit_hdr);
       continuation_channels.push_back(old_luminance);
       continuation_channels.push_back(hdr_output_target);
+      continuation_channels.push_back(opaque_depth);
       hdr_v2_continuation_workspace =
           root->getCompositorManager2()->addWorkspace(
               scene_manager, continuation_channels, camera,
@@ -5393,9 +5691,10 @@ public:
               kOgreNextHdrPostExecutionMask);
       const Ogre::CompositorChannelVec &observed =
           hdr_v2_continuation_workspace->getExternalRenderTargets();
-      if (observed.size() != 3U || observed[0U] != lit_hdr ||
+      if (observed.size() != 4U || observed[0U] != lit_hdr ||
           observed[1U] != old_luminance ||
           observed[2U] != hdr_output_target ||
+          observed[3U] != opaque_depth ||
           hdr_v2_continuation_workspace->getEnabled() ||
           hdr_v2_continuation_workspace->getExecutionMask() !=
               kOgreNextHdrPostExecutionMask ||
@@ -5418,6 +5717,7 @@ public:
                hdr_gpu_sun_direct_split_verified);
     if (!hdr_linear_scene_target_verified || !exact_scene_topology ||
         !hdr_visibility_target_verified || !hdr_lit_target_verified ||
+        !opaque_depth_verified ||
         (SunVisibilityV2Enabled() &&
          hdr_v2_continuation_workspace == nullptr) ||
         !hdr_auto_exposure_graph_verified || !hdr_bloom_graph_verified ||
@@ -5432,6 +5732,7 @@ public:
     hdr_sun_direct_hdr_target = sun_direct_hdr;
     hdr_visibility_target = visibility;
     hdr_lit_target = lit_hdr;
+    hdr_opaque_depth_target = opaque_depth;
     hdr_history_target = old_luminance;
 
     HdrR16Float history_seed;
@@ -6623,11 +6924,17 @@ public:
         production_workspace != nullptr && production_source_target != nullptr &&
         production_source_target == hdr_output_target &&
         production_window_texture != nullptr && hdr_lit_target != nullptr &&
+        hdr_opaque_depth_target != nullptr &&
         lit_hdr == hdr_lit_target && hdr_lit_target_verified &&
         hdr_lit_target->isUav() &&
         hdr_lit_target->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
         hdr_lit_target->getWidth() == sun_visibility_v2_pending_width &&
         hdr_lit_target->getHeight() == sun_visibility_v2_pending_height &&
+        hdr_opaque_depth_target->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
+        hdr_opaque_depth_target->getWidth() ==
+            sun_visibility_v2_pending_width &&
+        hdr_opaque_depth_target->getHeight() ==
+            sun_visibility_v2_pending_height &&
         !surface.suspended &&
         surface.surface_revision ==
             sun_visibility_v2_pending_surface_revision &&
@@ -6730,6 +7037,15 @@ public:
         hdr_temporal_state.committed_frame_id() == frame_id;
     lighting.single_step_hdr_history =
         hdr_temporal_state.committed_frame_id() == frame_id;
+    const bool rendered_thin_slab =
+        lighting.last_transmission_items > 0U &&
+        hdr_refraction_node_definition_created &&
+        hdr_v2_continuation_workspace_definition_created;
+    lighting.thin_parallel_slab_refraction = rendered_thin_slab;
+    lighting.physical_snell_refraction = rendered_thin_slab;
+    lighting.beer_lambert_attenuation = rendered_thin_slab;
+    lighting.screen_space_radiance_lookup = rendered_thin_slab;
+    lighting.refraction_scene_evaluations = rendered_thin_slab ? 1U : 0U;
     if (!lighting.gpu_hdr_history_sequenced ||
         !lighting.single_step_hdr_history ||
         !lighting.native_scene_lighting_pass ||
@@ -6742,6 +7058,12 @@ public:
         lighting.raster_scene_evaluations != 3U ||
         !lighting.hdr_auto_exposure || !lighting.hdr_bloom ||
         !lighting.filmic_tone_map || !lighting.srgb_presentation ||
+        (lighting.last_transmission_items > 0U &&
+         (!lighting.thin_parallel_slab_refraction ||
+          !lighting.physical_snell_refraction ||
+          !lighting.beer_lambert_attenuation ||
+          !lighting.screen_space_radiance_lookup ||
+          lighting.refraction_scene_evaluations != 1U)) ||
         !lighting.production_gpu_only || !lighting.no_ogre14_lighting ||
         lighting.production_content_readbacks != 0U ||
         lighting.production_framebuffer_readbacks != 0U ||
@@ -6947,6 +7269,7 @@ public:
   Ogre::TextureGpu *hdr_sun_direct_hdr_target = nullptr;
   Ogre::TextureGpu *hdr_visibility_target = nullptr;
   Ogre::TextureGpu *hdr_lit_target = nullptr;
+  Ogre::TextureGpu *hdr_opaque_depth_target = nullptr;
   Ogre::TextureGpu *hdr_history_target = nullptr;
   std::uint32_t hdr_width = 0U;
   std::uint32_t hdr_height = 0U;
@@ -6972,6 +7295,7 @@ public:
   bool hdr_workspace_definition_created = false;
   bool hdr_v2_continuation_workspace_definition_created = false;
   bool hdr_split_node_definition_created = false;
+  bool hdr_refraction_node_definition_created = false;
   bool hdr_shadow_node_definition_created = false;
   bool hdr_pssm_finalization_prepared = false;
   bool hdr_pssm_finalized_with_populated_scene = false;
@@ -8437,10 +8761,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
   lighting_candidate.last_frame_id = request.frame_id;
   lighting_candidate.last_snapshot_id =
       request.scene_snapshot->snapshot_id();
-  lighting_candidate.last_material_descriptor_version =
-      kMaterialDescriptorVersion;
+  lighting_candidate.last_material_descriptor_version = 0U;
   lighting_candidate.last_directional_lights = 0U;
   lighting_candidate.last_pbs_items = 0U;
+  lighting_candidate.last_transmission_items = 0U;
   lighting_candidate.last_normal_mapped_items = 0U;
   lighting_candidate.last_emissive_items = 0U;
   lighting_candidate.last_shadow_casters = 0U;
@@ -9383,6 +9707,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
       Ogre::HlmsDatablock *instance_datablock =
           material->second.Datablock();
       Ogre::HlmsPbsDatablock *instance_pbs_datablock = pbs_datablock;
+      const bool thin_slab_transmission =
+          portable_material->transmission_mode ==
+          MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+      if (pbs_material && thin_slab_transmission) {
+        Ogre::Vector4 parameters = pbs_datablock->getUserValue(2U);
+        parameters.w = std::fabs(validated_view.clip_from_view.elements[5U]);
+        pbs_datablock->setUserValue(2U, parameters);
+      }
       if (pbs_material && shadow_plan.enabled && !receives_shadow) {
         // Cloned non-receiver datablocks must stay inside the same reviewed
         // RoR PBS shader domain as their source. The custom UV0 affine piece
@@ -9467,6 +9799,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
         VerifyPbsMapping(*instance_pbs_datablock, *portable_material);
       }
       item->setDatablock(instance_datablock);
+      const std::uint8_t original_render_queue = item->getRenderQueueGroup();
+      if (thin_slab_transmission) {
+        item->setRenderQueueGroup(kOgreNextThinSlabRenderQueue);
+      }
       item->setVisibilityFlags(authored_instance_visibility);
       const bool casts_shadow =
           pbs_material && shadow_plan.enabled &&
@@ -9474,6 +9810,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                           *base_mesh);
       item->setCastShadows(casts_shadow);
       if (item->getCastShadows() != casts_shadow ||
+          item->getRenderQueueGroup() !=
+              (thin_slab_transmission ? kOgreNextThinSlabRenderQueue
+                                      : original_render_queue) ||
+          (!thin_slab_transmission &&
+           original_render_queue >= kOgreNextThinSlabRenderQueue) ||
           item->getVisibilityFlags() != authored_instance_visibility ||
           item->getNumSubItems() != 1U ||
           item->getSubItem(0U)->getDatablock() != instance_datablock) {
@@ -9481,7 +9822,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
             "Ogre-Next PBS datablock, caster, or visibility state failed native readback");
       }
       if (pbs_material) {
+        lighting_candidate.last_material_descriptor_version = std::max(
+            lighting_candidate.last_material_descriptor_version,
+            portable_material->version);
         ++lighting_candidate.last_pbs_items;
+        if (thin_slab_transmission) {
+          ++lighting_candidate.last_transmission_items;
+        }
         if (portable_material->normal_texture.texture.valid()) {
           ++lighting_candidate.last_normal_mapped_items;
         }

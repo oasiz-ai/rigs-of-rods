@@ -1512,7 +1512,7 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     set(_ror_native_visual_showcase_package_source
         "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative")
     set(_ror_native_visual_showcase_package_sha256
-        "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2")
+        "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e")
     if (NOT EXISTS "${_ror_native_visual_showcase_package_source}" OR
             IS_DIRECTORY "${_ror_native_visual_showcase_package_source}" OR
             IS_SYMLINK "${_ror_native_visual_showcase_package_source}")
@@ -1547,11 +1547,11 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     set(_ror_native_a1_course_package_source
         "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative")
     set(_ror_native_a1_course_package_sha256
-        "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba")
+        "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d")
     set(_ror_native_a1_course_alignment_source
         "${CMAKE_SOURCE_DIR}/content-source/native_render/a1_native_course_60m/rorng_a1_native_course_60m.alignment.json")
     set(_ror_native_a1_course_alignment_sha256
-        "68ac9757ef2e469a5ca14ea61133ad74763d7abbe6e78a1ce45232d47ddcdfbb")
+        "ef6764702e6c70375b4bd8e897e83e3191bd3a52778323538f87c8a4f81a1078")
     foreach (_ror_native_a1_source IN ITEMS
             "${_ror_native_a1_course_package_source}"
             "${_ror_native_a1_course_alignment_source}")

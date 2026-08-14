@@ -7,20 +7,20 @@
       },
       {
         "path": "tools/validate_native_render_asset.py",
-        "sha256": "82b01cbd1db47a847bf7db43b6ad18e22e65748ffa70876b5d5e34be09e51133"
+        "sha256": "ba177e420ac00424c23845d6d312637b023b82e57f36b572bfe460658c58b620"
       }
     ],
     "format": "ror-native-render-compiler-v1",
     "path": "tools/compile_native_render_asset.py",
-    "sha256": "26875961831e232299565ee90c32b6a988eee6934953da45af3d17516b094ce7"
+    "sha256": "1394ffd3062ada2afe58c8d98dc7b6ca803dec5b0e1396189dad1925ec44e6d1"
   },
   "format": "ror-native-render-compile-report-v1",
   "output": {
-    "body_sha256": "994035089526214c1875fd5adacb79b03bf36e400ea900919b850b9224163e91",
+    "body_sha256": "9b1dc79a256178d1a5b171c6853245a7e602e31d184ed2179febfade28afe300",
     "bytes": 8407715,
     "path": "resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
     "record_count": 27,
-    "sha256": "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2"
+    "sha256": "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e"
   },
   "package_id": "rorng_a0_road_tile_12m",
   "source": {

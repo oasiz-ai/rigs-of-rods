@@ -201,9 +201,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         )
         self.assertNotIn("frontend_->Render(request, output)", render)
 
-    def test_only_a0_showcase_enables_audited_opaque_turntable_motion(self) -> None:
+    def test_both_showcases_enable_profile_specific_audited_turntable_motion(self) -> None:
         load = self.main.index("LoadNativeVisualShowcaseSceneSource(")
-        gate = self.main.index("if (selects_a0)", load)
         select = self.main.index(
             "Render::NativeVisualShowcaseMotionMode::TURN_TABLE", load
         )
@@ -215,14 +214,15 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         audit = self.main.index(
             '"NativeShowcase|Turntable] "', post
         )
-        self.assertLess(load, gate)
-        self.assertLess(gate, select)
+        self.assertLess(load, select)
         self.assertLess(select, move)
         self.assertLess(move, post)
         self.assertLess(post, audit)
         audit_block = self.main[audit - 1800 : audit + 2800]
         for token in (
-            'mode=\'turntable_opaque_gate\'',
+            'mode=\'{}\'',
+            '"turntable_thin_glass_slab"',
+            '"turntable_opaque_gate"',
             "frontend_frame_id",
             "scene_snapshot_id",
             "committed_simulation_tick()",
@@ -230,8 +230,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "committed_gate_transform_revision()",
             "fixed_hz=60",
             "revolution_ticks={}",
-            "opaque_motion_only=true",
-            "refraction=false",
+            "opaque_motion_only={}",
+            '"thin_parallel_slab_screen_space"',
             "motion_vectors=false",
         ):
             with self.subTest(token=token):
@@ -253,7 +253,6 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "kNativeVisualShowcaseA1ExecutableResourceRelativePath",
             profile_selection,
         )
-        self.assertIn("if (selects_a0)", profile_selection)
         self.assertEqual(
             profile_selection.count(
                 "NativeVisualShowcaseMotionMode::TURN_TABLE"
@@ -261,7 +260,11 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             1,
         )
         self.assertIn(
-            'selects_a0 ? "turntable_opaque_gate" : "static_course"',
+            'selects_a0 ? "turntable_opaque_gate"',
+            self.main[move:audit],
+        )
+        self.assertIn(
+            ': "turntable_thin_glass_slab"',
             self.main[move:audit],
         )
 
@@ -279,6 +282,15 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "output.production_framebuffer_readbacks =\n"
             "        audit.production_framebuffer_readbacks;",
             "output.ogre14_lighting_passes = audit.ogre14_lighting_passes;",
+            "output.transmission_items = audit.last_transmission_items;",
+            "output.thin_parallel_slab_refraction =\n"
+            "        audit.thin_parallel_slab_refraction;",
+            "output.physical_snell_refraction = audit.physical_snell_refraction;",
+            "output.beer_lambert_attenuation = audit.beer_lambert_attenuation;",
+            "output.screen_space_radiance_lookup =\n"
+            "        audit.screen_space_radiance_lookup;",
+            "output.refraction_scene_evaluations =\n"
+            "        audit.refraction_scene_evaluations;",
             "output.hdr_scene_topology =\n"
             "        static_cast<std::uint32_t>(audit.hdr_scene_topology);",
             "output.pssm_finalized_with_populated_scene =\n"
@@ -312,11 +324,11 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
     def test_showcase_packages_are_exact_and_staged_beside_executable_resources(self) -> None:
         packages = (
             (
-                "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2",
+                "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e",
                 "a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
             ),
             (
-                "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba",
+                "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d",
                 "a1_native_course_60m/rorng_a1_native_course_60m.rornative",
             ),
         )

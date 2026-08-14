@@ -254,13 +254,13 @@ void TestA1CourseUsesItsExactPackageAndComposition() {
   const std::shared_ptr<const NativeRenderAssetPackage> package =
       source.package_owner();
   Require(source.profile() == NativeVisualShowcaseProfile::A1_NATIVE_COURSE &&
-              !source.supports_turntable_motion() && package != nullptr &&
+              source.supports_turntable_motion() && package != nullptr &&
               package->package_sha256 ==
                   kNativeVisualShowcaseA1PackageSha256 &&
               package->package_id == kNativeVisualShowcaseA1PackageId &&
               package->origin_class == "project_original" &&
-              package->assets.size() == 36U &&
-              package->static_meshes.size() == 8U,
+              package->version == 2U && package->assets.size() == 38U &&
+              package->static_meshes.size() == 9U,
           "A1 source did not retain the exact project-original checkpoint");
 
   GraphicsSceneFrameInput frame;
@@ -291,11 +291,12 @@ void TestA1CourseUsesItsExactPackageAndComposition() {
 
   const ValidationResult turntable = source.SetMotionMode(
       NativeVisualShowcaseMotionMode::TURN_TABLE);
-  Require(!turntable &&
-              turntable.code == ValidationCode::UNSUPPORTED_FEATURE &&
+  Require(turntable &&
               source.requested_motion_mode() ==
-                  NativeVisualShowcaseMotionMode::STATIC,
-          "A1 source admitted the A0-only absolute turntable transform");
+                  NativeVisualShowcaseMotionMode::TURN_TABLE &&
+              source.motion_source_object_id() !=
+                  source.gate_source_object_id(),
+          "A1 source did not select its distinct glass turntable witness");
 
   const NativeVisualShowcaseSceneSourceLoadResult a0_as_a1 =
       LoadNativeVisualShowcaseSceneSource(
@@ -308,6 +309,52 @@ void TestA1CourseUsesItsExactPackageAndComposition() {
   Require(!a0_as_a1 && a0_as_a1.source == nullptr &&
               !a1_as_a0 && a1_as_a0.source == nullptr,
           "package/profile mismatch admitted a different native checkpoint");
+}
+
+void TestA1TurntableChangesOnlyCenteredGlassWitness() {
+  NativeVisualShowcaseSceneSourceLoadResult loaded = LoadA1Fixture();
+  Require(loaded.ok(), "A1 glass turntable fixture failed to load");
+  NativeVisualShowcaseSceneSource &source = *loaded.source;
+  Require(source.SetMotionMode(
+              NativeVisualShowcaseMotionMode::TURN_TABLE).ok(),
+          "A1 glass turntable mode was rejected");
+
+  GraphicsSceneFrameInput baseline;
+  Require(source.CaptureJoinedGraphicsFrame(baseline).ok(),
+          "A1 glass turntable baseline capture failed");
+  source.CommitJoinedGraphicsFrame();
+  const std::uint64_t glass_id = source.motion_source_object_id();
+  const std::uint64_t gate_id = source.gate_source_object_id();
+  Require(glass_id != 0U && glass_id != gate_id,
+          "A1 glass and gate identities are not distinct");
+
+  for (std::uint64_t tick = 1U; tick <= 360U; ++tick) {
+    GraphicsSceneFrameInput frame;
+    Require(source.CaptureJoinedGraphicsFrame(frame).ok() &&
+                frame.simulation_tick == tick,
+            "A1 glass turntable capture lost fixed-step lineage");
+    for (std::size_t index = 0U; index < frame.static_meshes.size(); ++index) {
+      const GraphicsSceneStaticMeshInput &before = baseline.static_meshes[index];
+      const GraphicsSceneStaticMeshInput &after = frame.static_meshes[index];
+      Require(before.source_object_id == after.source_object_id &&
+                  (after.source_object_id == glass_id
+                       ? after.render_from_object ==
+                             NativeVisualShowcaseCenteredTurntableTransform(tick)
+                       : after.render_from_object == before.render_from_object),
+              "A1 turntable changed a non-glass instance or orbited the slab");
+    }
+    const Matrix4x4 &glass = FindGate(frame, glass_id).render_from_object;
+    Require(glass.elements[12U] == 0.0F && glass.elements[13U] == 0.0F &&
+                glass.elements[14U] == 0.0F &&
+                FindGate(frame, gate_id).render_from_object ==
+                    FindGate(baseline, gate_id).render_from_object,
+            "A1 glass left its authored center or moved the opaque gate");
+    if (tick < 360U) {
+      source.CommitJoinedGraphicsFrame();
+    } else {
+      source.DiscardJoinedGraphicsFrame();
+    }
+  }
 }
 
 void TestTurntableTableIsExactRigidRightHandedAndHashPinned() {
@@ -804,6 +851,7 @@ void TestCapturesNeverReopenPackageStorage() {
 int main() {
   TestExactCheckpointLoadsOnceAndRetainsImmutableOwners();
   TestA1CourseUsesItsExactPackageAndComposition();
+  TestA1TurntableChangesOnlyCenteredGlassWitness();
   TestCaptureCommitDiscardIsTransactional();
   TestTurntableTableIsExactRigidRightHandedAndHashPinned();
   TestTurntableModeIsExplicitAndTransactional();

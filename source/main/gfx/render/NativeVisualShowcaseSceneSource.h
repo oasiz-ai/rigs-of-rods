@@ -34,15 +34,16 @@ constexpr char kNativeVisualShowcaseExecutableResourceRelativePath[] =
     "rorng_a0_road_tile_12m.rornative";
 constexpr char kNativeVisualShowcasePackageId[] = "rorng_a0_road_tile_12m";
 constexpr char kNativeVisualShowcasePackageSha256Hex[] =
-    "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2";
+    "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e";
 constexpr RenderPayloadDigest kNativeVisualShowcasePackageSha256{{
-    0x22U, 0x6DU, 0x24U, 0x50U, 0xC4U, 0xA4U, 0x61U, 0x2DU, 0x87U, 0x3DU, 0x15U,
-    0xCBU, 0xC1U, 0x24U, 0xE2U, 0xA4U, 0xBBU, 0xCCU, 0x67U, 0xFEU, 0x9BU, 0x2CU,
-    0xBDU, 0xEDU, 0x82U, 0xDCU, 0xFAU, 0x21U, 0x42U, 0x7FU, 0x62U, 0xE2U,
+    0x99U, 0xDFU, 0x00U, 0xD8U, 0x57U, 0xA8U, 0x13U, 0x9FU, 0x3DU, 0x13U, 0xC8U,
+    0x9BU, 0xE3U, 0xAFU, 0x29U, 0xD2U, 0x8EU, 0xA0U, 0x37U, 0x2FU, 0x03U, 0xFAU,
+    0xC3U, 0x27U, 0xE4U, 0x59U, 0x8BU, 0x74U, 0xDAU, 0xAFU, 0x7AU, 0x8EU,
 }};
 /// A1 is the current project-original 60 m visual course. It intentionally
-/// reuses the frozen `.rornative` v1 container while expanding authored scene
-/// coverage; collision and driveability are separate gates.
+/// uses the backward-compatible `.rornative` v2 extension for its authored
+/// thin-slab transmission witness; collision and driveability are separate
+/// gates.
 constexpr char kNativeVisualShowcaseA1PackageRelativePath[] =
     "resources/nextgen/native/a1_native_course_60m/"
     "rorng_a1_native_course_60m.rornative";
@@ -52,11 +53,11 @@ constexpr char kNativeVisualShowcaseA1ExecutableResourceRelativePath[] =
 constexpr char kNativeVisualShowcaseA1PackageId[] =
     "rorng_a1_native_course_60m";
 constexpr char kNativeVisualShowcaseA1PackageSha256Hex[] =
-    "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba";
+    "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d";
 constexpr RenderPayloadDigest kNativeVisualShowcaseA1PackageSha256{{
-    0x26U, 0x14U, 0x8BU, 0x7BU, 0x0CU, 0xEDU, 0xA0U, 0x7EU, 0xECU, 0xB1U, 0x33U,
-    0xA2U, 0xFCU, 0xD5U, 0x1BU, 0x39U, 0x78U, 0x5AU, 0xE3U, 0x8BU, 0x89U, 0x2EU,
-    0xA8U, 0x14U, 0xA8U, 0xE0U, 0xA2U, 0x45U, 0x97U, 0x94U, 0xABU, 0xBAU,
+    0x63U, 0x99U, 0x10U, 0x1CU, 0x63U, 0xCAU, 0x8DU, 0x5EU, 0xFFU, 0x25U, 0xABU,
+    0x49U, 0x9DU, 0xB2U, 0x15U, 0xC4U, 0x5DU, 0x89U, 0xA4U, 0xCEU, 0x91U, 0xCBU,
+    0xA0U, 0x81U, 0x45U, 0x69U, 0x2DU, 0x02U, 0x54U, 0x01U, 0x50U, 0x5DU,
 }};
 constexpr std::uint64_t kNativeVisualShowcaseSunLightId = 0x524F524E4753554EULL;
 constexpr std::uint64_t kNativeVisualShowcaseCameraViewId =
@@ -91,6 +92,8 @@ enum class NativeVisualShowcaseMotionMode : std::uint8_t {
 /// Returns one exact checked binary32 turntable matrix for a committed 60 Hz
 /// simulation tick. Tick 360 is bit-identical to tick zero.
 [[nodiscard]] Matrix4x4 NativeVisualShowcaseTurntableTransform(
+    std::uint64_t simulation_tick) noexcept;
+[[nodiscard]] Matrix4x4 NativeVisualShowcaseCenteredTurntableTransform(
     std::uint64_t simulation_tick) noexcept;
 
 /// Canonical little-endian FNV-1a digest of all 360 checked matrix bit rows.
@@ -166,7 +169,7 @@ public:
     return profile_;
   }
   [[nodiscard]] bool supports_turntable_motion() const noexcept {
-    return profile_ == NativeVisualShowcaseProfile::A0_LIGHTING_COUPON;
+    return true;
   }
   [[nodiscard]] const std::string &package_path() const noexcept {
     return package_path_;
@@ -176,6 +179,9 @@ public:
   }
   [[nodiscard]] std::uint64_t gate_source_object_id() const noexcept {
     return gate_source_object_id_;
+  }
+  [[nodiscard]] std::uint64_t motion_source_object_id() const noexcept {
+    return motion_source_object_id_;
   }
   [[nodiscard]] std::uint64_t next_simulation_tick() const noexcept {
     return next_simulation_tick_;
@@ -228,7 +234,7 @@ private:
   NativeVisualShowcaseSceneSource(
       std::shared_ptr<const NativeRenderAssetPackage> package,
       std::string package_path, NativeVisualShowcaseProfile profile,
-      std::size_t gate_instance_index,
+      std::size_t gate_instance_index, std::size_t motion_instance_index,
       GraphicsSceneFrameInput base_frame);
 
   std::shared_ptr<const NativeRenderAssetPackage> package_;
@@ -237,7 +243,9 @@ private:
       NativeVisualShowcaseProfile::A0_LIGHTING_COUPON;
   GraphicsSceneFrameInput base_frame_;
   std::size_t gate_instance_index_ = 0U;
+  std::size_t motion_instance_index_ = 0U;
   std::uint64_t gate_source_object_id_ = 0U;
+  std::uint64_t motion_source_object_id_ = 0U;
   std::uint64_t package_load_count_ = 1U;
   std::uint64_t next_simulation_tick_ = 0U;
   std::uint64_t capture_count_ = 0U;

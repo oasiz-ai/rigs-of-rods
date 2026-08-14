@@ -926,6 +926,24 @@
       ],
       "rotation_y_degrees": 0.0,
       "surface_id": null
+    },
+    {
+      "batch_mesh_id": "rorng_a1_glass_slab_mesh",
+      "category": "refraction_witness",
+      "collision_binding": null,
+      "dimensions_m": [
+        4.0,
+        3.0,
+        0.08
+      ],
+      "id": "thin_glass_slab",
+      "position_m": [
+        0.0,
+        1.75,
+        0.0
+      ],
+      "rotation_y_degrees": 0.0,
+      "surface_id": null
     }
   ],
   "seams": [

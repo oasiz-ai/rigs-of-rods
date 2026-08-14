@@ -30,7 +30,7 @@ namespace {
 using namespace RoR::Render;
 
 constexpr char kCheckedSha256[] =
-    "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba";
+    "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d";
 
 void Require(bool condition, const char *message) {
   if (!condition) {
@@ -121,12 +121,12 @@ void TestCheckedPackage() {
       DecodeNativeRenderAssetPackage(bytes.data(), bytes.size(), digest);
   Require(decoded.ok(), "checked package did not decode");
   const NativeRenderAssetPackage &package = *decoded.package;
-  Require(package.version == 1U &&
+  Require(package.version == 2U &&
               package.package_id == "rorng_a1_native_course_60m" &&
               package.origin_class == "project_original" &&
               package.package_sha256 == digest,
           "package identity changed");
-  Require(package.assets.size() == 36U && package.static_meshes.size() == 8U,
+  Require(package.assets.size() == 38U && package.static_meshes.size() == 9U,
           "package asset or instance count changed");
   Require(package.provenance_manifest_json.find("\"collision\":false") !=
                   std::string::npos &&
@@ -142,6 +142,7 @@ void TestCheckedPackage() {
                            "rorng_a1_barrier_mesh",
                            "rorng_a1_calibration_marker_mesh",
                            "rorng_a1_curb_mesh",
+                           "rorng_a1_glass_slab_mesh",
                            "rorng_a1_lane_marking_mesh",
                            "rorng_a1_shoulder_mesh"}) {
     Require(FindAsset(package, name) != nullptr,
@@ -162,6 +163,23 @@ void TestCheckedPackage() {
                TextureColorSpace::LINEAR);
   CheckTexture(package, "rorng_a1_shoulder_base", 512U, 10U,
                TextureColorSpace::SRGB);
+
+  const GraphicsSceneAssetInput *glass_asset =
+      FindAsset(package, "rorng_a1_glass_material");
+  Require(glass_asset != nullptr, "thin-slab glass material is absent");
+  const auto &glass = std::get<MaterialDescriptor>(*glass_asset->payload);
+  Require(glass.version == kMaterialDescriptorTransmissionVersion &&
+              glass.pbr_workflow == MaterialPbrWorkflow::SPECULAR &&
+              glass.transmission_mode ==
+                  MaterialTransmissionMode::THIN_PARALLEL_SLAB &&
+              glass.transmission_factor == 0.96F &&
+              glass.attenuation_color == Float3{0.82F, 0.94F, 0.98F} &&
+              glass.attenuation_distance_m == 0.75F &&
+              glass.slab_thickness_m == 0.08F &&
+              glass.index_of_refraction == 1.52F && !glass.depth_write &&
+              !glass.base_color_texture.texture.valid() &&
+              !glass.normal_texture.texture.valid(),
+          "thin-slab glass material contract changed");
 
   std::vector<std::uint8_t> tampered = bytes;
   tampered.back() ^= 0x01U;

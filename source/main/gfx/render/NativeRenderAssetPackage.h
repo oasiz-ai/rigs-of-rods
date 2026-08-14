@@ -24,6 +24,7 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kNativeRenderAssetPackageVersion = 1U;
+constexpr std::uint32_t kNativeRenderAssetPackageTransmissionVersion = 2U;
 constexpr std::size_t kNativeRenderAssetPackageHeaderBytes = 80U;
 constexpr std::size_t kMaximumNativeRenderAssetPackageBytes =
     256U * 1024U * 1024U;

@@ -21,6 +21,7 @@ namespace RoR::Render {
 namespace {
 
 constexpr char kGateMeshDebugName[] = "rorng_a0_road_shadow_gate_mesh";
+constexpr char kGlassMeshDebugName[] = "rorng_a1_glass_slab_mesh";
 constexpr std::uint64_t kMaximumShowcaseSimulationTick =
     60ULL * 60ULL * 24ULL * 366ULL * 100ULL;
 
@@ -78,7 +79,7 @@ const NativeVisualShowcaseCheckpoint *FindCheckpoint(
   static const NativeVisualShowcaseCheckpoint kA1{
       kNativeVisualShowcaseA1PackageId,
       &kNativeVisualShowcaseA1PackageSha256,
-      false,
+      true,
   };
   switch (profile) {
   case NativeVisualShowcaseProfile::A0_LIGHTING_COUPON:
@@ -265,6 +266,50 @@ ValidationResult FindGateInstance(const NativeRenderAssetPackage &package,
   return ValidationResult::Success();
 }
 
+ValidationResult FindGlassInstance(const NativeRenderAssetPackage &package,
+                                   std::size_t &glass_instance_index) {
+  std::uint64_t glass_mesh_source_id = 0U;
+  for (const GraphicsSceneAssetInput &asset : package.assets) {
+    const auto *mesh =
+        asset.payload != nullptr
+            ? std::get_if<MeshResourceDescriptor>(asset.payload.get())
+            : nullptr;
+    if (mesh == nullptr || mesh->debug_name != kGlassMeshDebugName) {
+      continue;
+    }
+    if (glass_mesh_source_id != 0U) {
+      return Failure(ValidationCode::DUPLICATE_IDENTIFIER,
+                     "native_showcase.glass_mesh",
+                     "package contains more than one authored glass mesh");
+    }
+    glass_mesh_source_id = asset.source_asset_id;
+  }
+  if (glass_mesh_source_id == 0U) {
+    return Failure(ValidationCode::MISSING_REFERENCE,
+                   "native_showcase.glass_mesh",
+                   "package does not contain the authored glass mesh");
+  }
+  bool found_instance = false;
+  for (std::size_t index = 0U; index < package.static_meshes.size(); ++index) {
+    if (package.static_meshes[index].mesh_source_asset_id !=
+        glass_mesh_source_id) {
+      continue;
+    }
+    if (found_instance) {
+      return Failure(ValidationCode::DUPLICATE_IDENTIFIER,
+                     "native_showcase.glass_instance",
+                     "package instantiates the authored glass more than once");
+    }
+    glass_instance_index = index;
+    found_instance = true;
+  }
+  return found_instance
+             ? ValidationResult::Success()
+             : Failure(ValidationCode::MISSING_REFERENCE,
+                       "native_showcase.glass_instance",
+                       "package does not instantiate the authored glass");
+}
+
 ValidationResult ReadPackageOnce(const std::string &package_path,
                                  std::vector<std::uint8_t> &bytes) {
   if (package_path.empty()) {
@@ -327,6 +372,16 @@ Matrix4x4 NativeVisualShowcaseTurntableTransform(
   return transform;
 }
 
+Matrix4x4 NativeVisualShowcaseCenteredTurntableTransform(
+    std::uint64_t simulation_tick) noexcept {
+  Matrix4x4 transform =
+      NativeVisualShowcaseTurntableTransform(simulation_tick);
+  transform.elements[12U] = 0.0F;
+  transform.elements[13U] = 0.0F;
+  transform.elements[14U] = 0.0F;
+  return transform;
+}
+
 std::uint64_t NativeVisualShowcaseTurntableTableDigest() noexcept {
   std::uint64_t digest = UINT64_C(14695981039346656037);
   for (const auto &row : kNativeVisualShowcaseTurntableMatrixBits) {
@@ -357,14 +412,17 @@ std::uint64_t NativeVisualShowcaseTransformRevision(
 NativeVisualShowcaseSceneSource::NativeVisualShowcaseSceneSource(
     std::shared_ptr<const NativeRenderAssetPackage> package,
     std::string package_path, NativeVisualShowcaseProfile profile,
-    std::size_t gate_instance_index,
+    std::size_t gate_instance_index, std::size_t motion_instance_index,
     GraphicsSceneFrameInput base_frame)
     : package_(std::move(package)), package_path_(std::move(package_path)),
       profile_(profile),
       base_frame_(std::move(base_frame)),
       gate_instance_index_(gate_instance_index),
+      motion_instance_index_(motion_instance_index),
       gate_source_object_id_(
-          base_frame_.static_meshes[gate_instance_index_].source_object_id) {}
+          base_frame_.static_meshes[gate_instance_index_].source_object_id),
+      motion_source_object_id_(
+          base_frame_.static_meshes[motion_instance_index_].source_object_id) {}
 
 NativeVisualShowcaseSceneSourceLoadResult
 LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept {
@@ -425,12 +483,21 @@ LoadNativeVisualShowcaseSceneSource(
     if (!result.validation) {
       return result;
     }
+    std::size_t motion_instance_index = gate_instance_index;
+    if (profile == NativeVisualShowcaseProfile::A1_NATIVE_COURSE) {
+      result.validation =
+          FindGlassInstance(*decoded.package, motion_instance_index);
+      if (!result.validation) {
+        return result;
+      }
+    }
     GraphicsSceneFrameInput base_frame =
         MakeBaseFrame(*decoded.package, profile);
     result.source = std::unique_ptr<NativeVisualShowcaseSceneSource>(
         new NativeVisualShowcaseSceneSource(std::move(decoded.package),
                                             package_path, profile,
                                             gate_instance_index,
+                                            motion_instance_index,
                                             std::move(base_frame)));
     result.validation = ValidationResult::Success();
     return result;
@@ -531,8 +598,11 @@ ValidationResult NativeVisualShowcaseSceneSource::CaptureJoinedGraphicsFrame(
         kNativeVisualShowcaseMovedGateOffsetMeters;
   } else if (requested_motion_mode_ ==
              NativeVisualShowcaseMotionMode::TURN_TABLE) {
-    candidate.static_meshes[gate_instance_index_].render_from_object =
-        NativeVisualShowcaseTurntableTransform(next_simulation_tick_);
+    candidate.static_meshes[motion_instance_index_].render_from_object =
+        profile_ == NativeVisualShowcaseProfile::A1_NATIVE_COURSE
+            ? NativeVisualShowcaseCenteredTurntableTransform(
+                  next_simulation_tick_)
+            : NativeVisualShowcaseTurntableTransform(next_simulation_tick_);
   }
 
   frame = std::move(candidate);
@@ -546,7 +616,7 @@ ValidationResult NativeVisualShowcaseSceneSource::CaptureJoinedGraphicsFrame(
                 kNativeVisualShowcaseTurntableTicksPerRevolution)
           : 0U;
   pending_gate_transform_revision_ = NativeVisualShowcaseTransformRevision(
-      frame.static_meshes[gate_instance_index_].render_from_object);
+      frame.static_meshes[motion_instance_index_].render_from_object);
   capture_pending_ = true;
   ++capture_count_;
   return ValidationResult::Success();

@@ -115,7 +115,7 @@ void TestInvalidVersionEnumsAndNames() {
               "legacy handle-based material version was accepted");
 
   descriptor = {};
-  descriptor.version = kMaterialDescriptorVersion + 1U;
+  descriptor.version = kMaterialDescriptorTransmissionVersion + 1U;
   RequireCode(descriptor, ValidationCode::UNSUPPORTED_VERSION,
               "unknown material version was accepted");
 
@@ -133,6 +133,12 @@ void TestInvalidVersionEnumsAndNames() {
   descriptor.pbr_workflow = static_cast<MaterialPbrWorkflow>(255U);
   RequireCode(descriptor, ValidationCode::INVALID_ENUM,
               "unknown PBR workflow was accepted");
+
+  descriptor = {};
+  descriptor.transmission_mode =
+      static_cast<MaterialTransmissionMode>(255U);
+  RequireCode(descriptor, ValidationCode::INVALID_ENUM,
+              "unknown transmission mode was accepted");
 
   descriptor = {};
   descriptor.blend_mode = static_cast<MaterialBlendMode>(255U);
@@ -208,6 +214,61 @@ void TestInvalidPhysicalValues() {
   descriptor.index_of_refraction = 3.1F;
   RequireCode(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
               "unsupported index of refraction was accepted");
+}
+
+void TestVersionedThinSlabTransmission() {
+  using namespace RoR::Render;
+
+  MaterialDescriptor glass;
+  glass.version = kMaterialDescriptorTransmissionVersion;
+  glass.debug_name = "project-original-thin-glass";
+  glass.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  glass.depth_write = false;
+  glass.index_of_refraction = 1.52F;
+  glass.roughness_factor = 0.03F;
+  glass.transmission_mode =
+      MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+  glass.transmission_factor = 0.96F;
+  glass.attenuation_color = {0.92F, 0.98F, 1.0F};
+  glass.attenuation_distance_m = 0.6F;
+  glass.slab_thickness_m = 0.08F;
+  Require(ValidateMaterialDescriptor(glass).ok(),
+          "valid v5 thin-slab transmission was rejected");
+
+  MaterialDescriptor hostile = glass;
+  hostile.version = kMaterialDescriptorVersion;
+  RequireCode(hostile, ValidationCode::UNSUPPORTED_FEATURE,
+              "v4 material smuggled transmission state");
+
+  hostile = glass;
+  hostile.transmission_mode = MaterialTransmissionMode::NONE;
+  RequireCode(hostile, ValidationCode::VALUE_OUT_OF_RANGE,
+              "absent transmission retained noncanonical physical state");
+
+  hostile = glass;
+  hostile.depth_write = true;
+  RequireCode(hostile, ValidationCode::UNSUPPORTED_FEATURE,
+              "thin slab with depth writes was accepted");
+
+  hostile = glass;
+  hostile.double_sided = true;
+  RequireCode(hostile, ValidationCode::UNSUPPORTED_FEATURE,
+              "double-sided thin slab was accepted");
+
+  hostile = glass;
+  hostile.pbr_workflow = MaterialPbrWorkflow::METALLIC_ROUGHNESS;
+  RequireCode(hostile, ValidationCode::UNSUPPORTED_FEATURE,
+              "metallic thin slab was accepted");
+
+  hostile = glass;
+  hostile.attenuation_distance_m = 0.0F;
+  RequireCode(hostile, ValidationCode::VALUE_OUT_OF_RANGE,
+              "zero attenuation distance was accepted");
+
+  hostile = glass;
+  hostile.slab_thickness_m = 0.0F;
+  RequireCode(hostile, ValidationCode::UNSUPPORTED_FEATURE,
+              "zero slab thickness was accepted");
 }
 
 void TestTextureBindingValidation() {
@@ -394,6 +455,7 @@ int main() {
   TestValidPbrAndUnlitMaterials();
   TestInvalidVersionEnumsAndNames();
   TestInvalidPhysicalValues();
+  TestVersionedThinSlabTransmission();
   TestTextureBindingValidation();
   TestMeshMaterialCompatibilityRequiresAuthoredAttributes();
   TestMaterialTextureCompatibility();

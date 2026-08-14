@@ -22,9 +22,22 @@ bool OgreNextUvAffinePbs::SelectsUv0AffineShader(
   const Ogre::String *name =
       datablock != nullptr ? datablock->getNameStr() : nullptr;
   return name != nullptr &&
+         (name->compare(0U,
+                        sizeof(kOgreNextUvAffinePbsDatablockPrefix) - 1U,
+                        kOgreNextUvAffinePbsDatablockPrefix) == 0 ||
+          name->compare(0U,
+                        sizeof(kOgreNextThinSlabPbsDatablockPrefix) - 1U,
+                        kOgreNextThinSlabPbsDatablockPrefix) == 0);
+}
+
+bool OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader(
+    const Ogre::HlmsDatablock *datablock) noexcept {
+  const Ogre::String *name =
+      datablock != nullptr ? datablock->getNameStr() : nullptr;
+  return name != nullptr &&
          name->compare(0U,
-                       sizeof(kOgreNextUvAffinePbsDatablockPrefix) - 1U,
-                       kOgreNextUvAffinePbsDatablockPrefix) == 0;
+                       sizeof(kOgreNextThinSlabPbsDatablockPrefix) - 1U,
+                       kOgreNextThinSlabPbsDatablockPrefix) == 0;
 }
 
 void OgreNextUvAffinePbs::calculateHashForPreCreate(
@@ -35,6 +48,12 @@ void OgreNextUvAffinePbs::calculateHashForPreCreate(
       SelectsUv0AffineShader(renderable != nullptr
                                 ? renderable->getDatablock()
                                 : nullptr)
+          ? 1
+          : 0);
+  setProperty(
+      Ogre::IdString(kOgreNextThinSlabPbsProperty),
+      SelectsThinSlabTransmissionShader(
+          renderable != nullptr ? renderable->getDatablock() : nullptr)
           ? 1
           : 0);
 }
@@ -54,6 +73,7 @@ void OgreNextUvAffinePbs::calculateHashForPreCaster(
                                 : nullptr)
           ? 1
           : 0);
+  setProperty(Ogre::IdString(kOgreNextThinSlabPbsProperty), 0);
 }
 
 } // namespace RoR::Render

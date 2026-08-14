@@ -25,9 +25,12 @@ struct SamplerResourceDescriptor;
 struct TextureResourceDescriptor;
 
 // Version 4 adds an explicit PBR workflow and authored linear-RGB specular
-// texture/factor. Version 3 payloads are rejected rather than silently
-// reinterpreted as either workflow.
+// texture/factor. Version 5 is an additive native-only profile for an authored
+// thin parallel glass slab. The cross-process V2 transport remains fixed to
+// material v4; a v5 material can enter only through a versioned native package
+// until a future wire kind is reviewed.
 constexpr std::uint32_t kMaterialDescriptorVersion = 4U;
+constexpr std::uint32_t kMaterialDescriptorTransmissionVersion = 5U;
 constexpr std::size_t kMaximumMaterialDebugNameBytes = 255U;
 
 enum class MaterialModel : std::uint8_t {
@@ -59,6 +62,15 @@ enum class MaterialAlphaTestMode : std::uint8_t {
 enum class MaterialPbrWorkflow : std::uint8_t {
   METALLIC_ROUGHNESS = 0,
   SPECULAR = 1,
+};
+
+enum class MaterialTransmissionMode : std::uint8_t {
+  NONE = 0,
+  /// A watertight, planar-front/back slab with parallel interfaces. The
+  /// renderer applies Snell entry/exit displacement and Beer-Lambert
+  /// attenuation over the authored normal thickness. This deliberately does
+  /// not describe a general closed solid or claim off-screen radiance.
+  THIN_PARALLEL_SLAB = 1,
 };
 
 /// Transfer ordering for an sRGB base-color texture.
@@ -146,6 +158,13 @@ struct MaterialDescriptor {
   float alpha_cutoff = 0.5F;
   float index_of_refraction = 1.5F;
 
+  MaterialTransmissionMode transmission_mode =
+      MaterialTransmissionMode::NONE;
+  float transmission_factor = 0.0F;
+  Float3 attenuation_color{1.0F, 1.0F, 1.0F};
+  float attenuation_distance_m = 1.0F;
+  float slab_thickness_m = 0.0F;
+
   TextureBinding base_color_texture;
   TextureBinding metallic_roughness_texture;
   TextureBinding normal_texture;
@@ -157,6 +176,8 @@ struct MaterialDescriptor {
 [[nodiscard]] bool IsKnownMaterialModel(MaterialModel model) noexcept;
 [[nodiscard]] bool
 IsKnownMaterialPbrWorkflow(MaterialPbrWorkflow workflow) noexcept;
+[[nodiscard]] bool
+IsKnownMaterialTransmissionMode(MaterialTransmissionMode mode) noexcept;
 [[nodiscard]] bool IsKnownMaterialBlendMode(MaterialBlendMode mode) noexcept;
 [[nodiscard]] bool
 IsKnownMaterialAlphaTestMode(MaterialAlphaTestMode mode) noexcept;

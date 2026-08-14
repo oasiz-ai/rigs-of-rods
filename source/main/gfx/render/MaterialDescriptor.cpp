@@ -93,6 +93,15 @@ bool IsKnownMaterialPbrWorkflow(MaterialPbrWorkflow workflow) noexcept {
   return false;
 }
 
+bool IsKnownMaterialTransmissionMode(MaterialTransmissionMode mode) noexcept {
+  switch (mode) {
+  case MaterialTransmissionMode::NONE:
+  case MaterialTransmissionMode::THIN_PARALLEL_SLAB:
+    return true;
+  }
+  return false;
+}
+
 bool IsKnownMaterialBlendMode(MaterialBlendMode mode) noexcept {
   switch (mode) {
   case MaterialBlendMode::REPLACE:
@@ -124,7 +133,8 @@ bool IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept {
 
 ValidationResult
 ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
-  if (descriptor.version != kMaterialDescriptorVersion) {
+  if (descriptor.version != kMaterialDescriptorVersion &&
+      descriptor.version != kMaterialDescriptorTransmissionVersion) {
     return ValidationResult::Failure(ValidationCode::UNSUPPORTED_VERSION,
                                      "version",
                                      "unsupported material descriptor version");
@@ -143,6 +153,11 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
                                      "pbr_workflow",
                                      "unknown PBR workflow");
+  }
+  if (!IsKnownMaterialTransmissionMode(descriptor.transmission_mode)) {
+    return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
+                                     "transmission_mode",
+                                     "unknown material transmission mode");
   }
   if (!IsKnownMaterialBlendMode(descriptor.blend_mode)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
@@ -225,6 +240,80 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
                                          : ValidationCode::NON_FINITE_VALUE,
                                      "index_of_refraction",
                                      "index of refraction must be in [1, 3]");
+  }
+
+  const ValidationResult transmission_factor = ValidateUnitValue(
+      descriptor.transmission_factor, "transmission_factor");
+  if (!transmission_factor) {
+    return transmission_factor;
+  }
+  const bool normalized_attenuation =
+      IsFinite(descriptor.attenuation_color) &&
+      descriptor.attenuation_color.x >= 0.0F &&
+      descriptor.attenuation_color.x <= 1.0F &&
+      descriptor.attenuation_color.y >= 0.0F &&
+      descriptor.attenuation_color.y <= 1.0F &&
+      descriptor.attenuation_color.z >= 0.0F &&
+      descriptor.attenuation_color.z <= 1.0F;
+  if (!normalized_attenuation) {
+    return ValidationResult::Failure(
+        IsFinite(descriptor.attenuation_color)
+            ? ValidationCode::VALUE_OUT_OF_RANGE
+            : ValidationCode::NON_FINITE_VALUE,
+        "attenuation_color",
+        "attenuation color must be finite and in [0, 1]");
+  }
+  if (!IsFinite(descriptor.attenuation_distance_m) ||
+      descriptor.attenuation_distance_m <= 0.0F) {
+    return ValidationResult::Failure(
+        IsFinite(descriptor.attenuation_distance_m)
+            ? ValidationCode::VALUE_OUT_OF_RANGE
+            : ValidationCode::NON_FINITE_VALUE,
+        "attenuation_distance_m",
+        "attenuation distance must be finite and positive");
+  }
+  if (!IsFinite(descriptor.slab_thickness_m) ||
+      descriptor.slab_thickness_m < 0.0F) {
+    return ValidationResult::Failure(
+        IsFinite(descriptor.slab_thickness_m)
+            ? ValidationCode::VALUE_OUT_OF_RANGE
+            : ValidationCode::NON_FINITE_VALUE,
+        "slab_thickness_m",
+        "slab thickness must be finite and nonnegative");
+  }
+  const bool canonical_no_transmission =
+      descriptor.transmission_mode == MaterialTransmissionMode::NONE &&
+      descriptor.transmission_factor == 0.0F &&
+      descriptor.attenuation_color == Float3{1.0F, 1.0F, 1.0F} &&
+      descriptor.attenuation_distance_m == 1.0F &&
+      descriptor.slab_thickness_m == 0.0F;
+  if (descriptor.version == kMaterialDescriptorVersion &&
+      !canonical_no_transmission) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "transmission_mode",
+        "material v4 requires canonical absent transmission state");
+  }
+  if (descriptor.transmission_mode == MaterialTransmissionMode::NONE &&
+      !canonical_no_transmission) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "transmission_mode",
+        "absent transmission requires canonical factor, attenuation, distance, and thickness");
+  }
+  if (descriptor.transmission_mode ==
+      MaterialTransmissionMode::THIN_PARALLEL_SLAB) {
+    if (descriptor.version != kMaterialDescriptorTransmissionVersion ||
+        descriptor.model != MaterialModel::PBR_METALLIC_ROUGHNESS ||
+        descriptor.pbr_workflow != MaterialPbrWorkflow::SPECULAR ||
+        descriptor.blend_mode != MaterialBlendMode::REPLACE ||
+        descriptor.alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
+        descriptor.double_sided || descriptor.depth_write ||
+        descriptor.transmission_factor <= 0.0F ||
+        descriptor.index_of_refraction <= 1.0F ||
+        descriptor.slab_thickness_m <= 0.0F) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "transmission_mode",
+          "thin-slab transmission requires material v5, single-sided specular PBR, replace blending, disabled alpha test/depth writes, positive factor/thickness, and IOR above one");
+    }
   }
 
   const std::array<std::pair<const TextureBinding *, const char *>, 6U>

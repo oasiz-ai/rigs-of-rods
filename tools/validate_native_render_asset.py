@@ -41,6 +41,7 @@ from validate_cityworld_asset import (  # noqa: E402
 
 
 SOURCE_FORMAT = "ror-native-render-source-v1"
+SOURCE_FORMAT_V2 = "ror-native-render-source-v2"
 REPORT_FORMAT = "ror-native-render-validation-v1"
 COMPOSITION_FORMAT = "ror-native-render-composition-v1"
 PACKAGE_ID_PATTERN = re.compile(r"^rorng_[a-z0-9_]+$")
@@ -103,6 +104,7 @@ SAMPLER_COMPARE_OPERATIONS = {
 }
 MATERIAL_MODELS = {"pbr_metallic_roughness": 0, "unlit": 1}
 MATERIAL_WORKFLOWS = {"metallic_roughness": 0, "specular": 1}
+MATERIAL_TRANSMISSION_MODES = {"none": 0, "thin_parallel_slab": 1}
 MATERIAL_BLEND_MODES = {
     "replace": 0,
     "straight_source_over": 1,
@@ -429,6 +431,7 @@ class NativeRenderAssetValidator:
         except ValueError:
             self.manifest_path = candidate
         self.manifest: dict[str, Any] | None = None
+        self.source_format = SOURCE_FORMAT
         self.glb: Glb | None = None
         self.glb_path: Path | None = None
         self.composition_path: Path | None = None
@@ -644,8 +647,14 @@ class NativeRenderAssetValidator:
                 "$",
                 "source declaration must use canonical sorted pretty JSON",
             )
-        if manifest.get("format") != SOURCE_FORMAT:
-            self.add("FORMAT_UNSUPPORTED", "$.format", f"expected {SOURCE_FORMAT}")
+        source_format = manifest.get("format")
+        if source_format not in (SOURCE_FORMAT, SOURCE_FORMAT_V2):
+            self.add(
+                "FORMAT_UNSUPPORTED", "$.format",
+                f"expected {SOURCE_FORMAT} or {SOURCE_FORMAT_V2}",
+            )
+        else:
+            self.source_format = source_format
 
     def validate_package_record(self) -> None:
         assert self.manifest is not None
@@ -1449,6 +1458,15 @@ class NativeRenderAssetValidator:
             "textures",
             "workflow",
         )
+        if self.source_format == SOURCE_FORMAT_V2:
+            keys = (
+                *keys,
+                "attenuation_color",
+                "attenuation_distance_m",
+                "slab_thickness_m",
+                "transmission_factor",
+                "transmission_mode",
+            )
         previous = ""
         for index, value in enumerate(values):
             pointer = f"$.materials[{index}]"
@@ -1482,6 +1500,57 @@ class NativeRenderAssetValidator:
             self._number(material.get("emissive_strength"), f"{pointer}.emissive_strength", minimum=0.0)
             self._number(material.get("alpha_cutoff"), f"{pointer}.alpha_cutoff", minimum=0.0, maximum=1.0)
             self._number(material.get("index_of_refraction"), f"{pointer}.index_of_refraction", minimum=1.0, maximum=3.0)
+            if self.source_format == SOURCE_FORMAT_V2:
+                transmission_mode = self._enum(
+                    material.get("transmission_mode"),
+                    MATERIAL_TRANSMISSION_MODES,
+                    f"{pointer}.transmission_mode",
+                )
+                transmission_factor = self._number(
+                    material.get("transmission_factor"),
+                    f"{pointer}.transmission_factor", minimum=0.0,
+                    maximum=1.0,
+                )
+                attenuation_color = self._vector(
+                    material.get("attenuation_color"), 3,
+                    f"{pointer}.attenuation_color", minimum=0.0,
+                    maximum=1.0,
+                )
+                attenuation_distance = self._number(
+                    material.get("attenuation_distance_m"),
+                    f"{pointer}.attenuation_distance_m", minimum=0.0,
+                )
+                slab_thickness = self._number(
+                    material.get("slab_thickness_m"),
+                    f"{pointer}.slab_thickness_m", minimum=0.0,
+                )
+                if transmission_mode == "none":
+                    if (transmission_factor != 0.0 or
+                            attenuation_color != (1.0, 1.0, 1.0) or
+                            attenuation_distance != 1.0 or
+                            slab_thickness != 0.0):
+                        self.add(
+                            "MATERIAL_TRANSMISSION", pointer,
+                            "absent transmission requires canonical factor/color/distance/thickness",
+                        )
+                elif transmission_mode == "thin_parallel_slab":
+                    if (model != "pbr_metallic_roughness" or
+                            workflow != "specular" or
+                            material.get("blend_mode") != "replace" or
+                            alpha_test != "disabled" or
+                            material.get("double_sided") is not False or
+                            material.get("depth_write") is not False or
+                            transmission_factor is None or
+                            transmission_factor <= 0.0 or
+                            attenuation_distance is None or
+                            attenuation_distance <= 0.0 or
+                            slab_thickness is None or slab_thickness <= 0.0 or
+                            not isinstance(material.get("index_of_refraction"), (int, float)) or
+                            material.get("index_of_refraction") <= 1.0):
+                        self.add(
+                            "MATERIAL_TRANSMISSION", pointer,
+                            "thin slab requires single-sided specular PBR, replace/disabled alpha, no depth write, IOR above one, and positive factor/distance/thickness",
+                        )
             bindings = material.get("textures")
             if not isinstance(bindings, dict):
                 self.add("FIELD_TYPE", f"{pointer}.textures", "textures must be an object")
@@ -2107,7 +2176,7 @@ class NativeRenderAssetValidator:
         return {
             "diagnostics": diagnostics,
             "format": REPORT_FORMAT,
-            "source_format": SOURCE_FORMAT,
+            "source_format": self.source_format,
             "summary": {
                 **self.stats,
                 "diagnostic_count": len(diagnostics),

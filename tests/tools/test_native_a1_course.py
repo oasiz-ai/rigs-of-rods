@@ -35,12 +35,12 @@ COMPILER = REPOSITORY_ROOT / "tools/compile_native_render_asset.py"
 LEDGER = REPOSITORY_ROOT / "doc/nextgen/FORWARD_NATIVE_ASSET_LEDGER.md"
 COURSE_DOC = REPOSITORY_ROOT / "doc/nextgen/NATIVE_A1_COURSE_V1.md"
 
-EXPECTED_MANIFEST_SHA256 = "730d8e72867006f58e18b3a510839a1ae8e81eceb517724cdb91e416dffac3f8"
-EXPECTED_GLB_SHA256 = "a92c99618d98659bc70d28bbdd943b028bff60f1ef26f6bbddc4a98e34dd9a69"
-EXPECTED_COMPOSITION_SHA256 = "0e2a2f9d6b0a0597b2c7e28080e41a37bd8b713b964d87337eb81795efc1bb4a"
-EXPECTED_ALIGNMENT_SHA256 = "68ac9757ef2e469a5ca14ea61133ad74763d7abbe6e78a1ce45232d47ddcdfbb"
-EXPECTED_PACKAGE_SHA256 = "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba"
-EXPECTED_A0_PACKAGE_SHA256 = "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2"
+EXPECTED_MANIFEST_SHA256 = "f13af91e56670bec17aa286d3b57e1a52d343f1bc307a90dafb9142f21430556"
+EXPECTED_GLB_SHA256 = "7b0648cde63053385d9a7ec66f56da470cfe8bf3465ef5d6c52cc0c9702b7801"
+EXPECTED_COMPOSITION_SHA256 = "db7cbacdf1228d9e9836b32afc1c7d587151d61b4661715bd4132373f3403980"
+EXPECTED_ALIGNMENT_SHA256 = "ef6764702e6c70375b4bd8e897e83e3191bd3a52778323538f87c8a4f81a1078"
+EXPECTED_PACKAGE_SHA256 = "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d"
+EXPECTED_A0_PACKAGE_SHA256 = "99df00d857a8139f3d13c89be3af29d28ea0372f03fac327e4598b74daaf7a8e"
 
 
 def sha256_file(path: Path) -> str:
@@ -77,16 +77,16 @@ class NativeA1CourseTests(unittest.TestCase):
             native_report["summary"],
             {
                 "diagnostic_count": 0,
-                "indices": 1728,
-                "instances": 8,
-                "materials": 7,
-                "meshes": 8,
+                "indices": 1764,
+                "instances": 9,
+                "materials": 8,
+                "meshes": 9,
                 "samplers": 2,
                 "texture_bytes": 39675196,
                 "textures": 19,
-                "triangles": 576,
+                "triangles": 588,
                 "valid": True,
-                "vertices": 1152,
+                "vertices": 1176,
             },
         )
 
@@ -101,7 +101,7 @@ class NativeA1CourseTests(unittest.TestCase):
         self.assertEqual(alignment_report["diagnostics"], [])
         self.assertEqual(
             alignment_report["summary"],
-            {"placements": 49, "seams": 4, "surfaces": 6, "valid": True},
+            {"placements": 50, "seams": 4, "surfaces": 6, "valid": True},
         )
 
         checked = self.run_tool(
@@ -130,9 +130,9 @@ class NativeA1CourseTests(unittest.TestCase):
 
     def test_course_material_texture_and_mip_profile(self) -> None:
         manifest = json.loads((REPOSITORY_ROOT / MANIFEST_RELATIVE).read_text(encoding="utf-8"))
-        self.assertEqual(manifest["format"], "ror-native-render-source-v1")
+        self.assertEqual(manifest["format"], "ror-native-render-source-v2")
         self.assertEqual(manifest["package"]["id"], "rorng_a1_native_course_60m")
-        self.assertEqual(manifest["package"]["dimensions_m"], [13.0, 2.92, 60.0])
+        self.assertEqual(manifest["package"]["dimensions_m"], [13.0, 3.27, 60.0])
         self.assertEqual(
             manifest["claims"],
             {
@@ -144,7 +144,7 @@ class NativeA1CourseTests(unittest.TestCase):
             },
         )
         materials = {entry["id"]: entry for entry in manifest["materials"]}
-        self.assertEqual(len(materials), 7)
+        self.assertEqual(len(materials), 8)
         dry = materials["rorng_a1_road_surface_material"]
         wet = materials["rorng_a1_wet_asphalt_material"]
         self.assertEqual(dry["workflow"], "metallic_roughness")
@@ -152,6 +152,16 @@ class NativeA1CourseTests(unittest.TestCase):
         self.assertEqual(wet["workflow"], "specular")
         self.assertEqual(wet["roughness_factor"], 0.07)
         self.assertEqual(set(wet["textures"]), {"base_color", "normal", "specular"})
+        glass = materials["rorng_a1_glass_material"]
+        self.assertEqual(glass["workflow"], "specular")
+        self.assertEqual(glass["transmission_mode"], "thin_parallel_slab")
+        self.assertEqual(glass["transmission_factor"], 0.96)
+        self.assertEqual(glass["attenuation_color"], [0.82, 0.94, 0.98])
+        self.assertEqual(glass["attenuation_distance_m"], 0.75)
+        self.assertEqual(glass["slab_thickness_m"], 0.08)
+        self.assertEqual(glass["index_of_refraction"], 1.52)
+        self.assertFalse(glass["depth_write"])
+        self.assertEqual(glass["textures"], {})
 
         textures = {entry["id"]: entry for entry in manifest["textures"]}
         self.assertEqual(len(textures), 19)
@@ -172,8 +182,9 @@ class NativeA1CourseTests(unittest.TestCase):
         self.assertEqual(sum(len(texture["mips"]) for texture in textures.values()), 172)
 
         meshes = {entry["id"]: entry for entry in manifest["meshes"]}
-        self.assertEqual(len(meshes), 8)
+        self.assertEqual(len(meshes), 9)
         self.assertEqual(meshes["rorng_a1_lane_marking_mesh"]["instance_flags"], [])
+        self.assertEqual(meshes["rorng_a1_glass_slab_mesh"]["instance_flags"], [])
         for receiver in ("rorng_a0_road_surface_mesh", "rorng_a1_shoulder_mesh", "rorng_a0_wet_asphalt_mesh"):
             self.assertEqual(meshes[receiver]["instance_flags"], ["receives_shadow", "visible_in_reflections"])
         self.assertEqual(
@@ -211,6 +222,13 @@ class NativeA1CourseTests(unittest.TestCase):
         self.assertEqual(placement_ids, sorted(placement_ids))
         self.assertEqual(len(placement_ids), len(set(placement_ids)))
         self.assertTrue(all(entry["collision_binding"] is None for entry in alignment["placements"]))
+        glass_placement = next(
+            entry for entry in alignment["placements"] if entry["id"] == "thin_glass_slab"
+        )
+        self.assertEqual(glass_placement["category"], "refraction_witness")
+        self.assertEqual(glass_placement["batch_mesh_id"], "rorng_a1_glass_slab_mesh")
+        self.assertEqual(glass_placement["position_m"], [0.0, 1.75, 0.0])
+        self.assertEqual(glass_placement["dimensions_m"], [4.0, 3.0, 0.08])
         curb_placements = {
             entry["id"]: entry
             for entry in alignment["placements"]
@@ -228,7 +246,7 @@ class NativeA1CourseTests(unittest.TestCase):
         )
         self.assertEqual(
             {entry["category"] for entry in alignment["placements"]},
-            {"barrier", "barrier_post", "calibration_gate", "calibration_marker", "curb", "lane_marking"},
+            {"barrier", "barrier_post", "calibration_gate", "calibration_marker", "curb", "lane_marking", "refraction_witness"},
         )
         self.assertEqual([entry["seam_x_m"] for entry in alignment["seams"]], [-4.15, -4.0, 4.0, 4.15])
         self.assertEqual(

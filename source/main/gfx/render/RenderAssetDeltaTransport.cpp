@@ -158,7 +158,11 @@ bool WriteTextureBinding(WireWriter &writer, const TextureBinding &binding) {
 }
 
 bool WriteMaterial(WireWriter &writer, const MaterialDescriptor &material) {
-  return writer.AddU32(material.version) &&
+  // RENDER_ASSET_DELTA_V2 is deliberately frozen to material v4. Native v5
+  // transmission must use a separately authenticated package and cannot be
+  // truncated into this older wire shape.
+  return material.version == kRenderAssetDeltaTransportMaterialVersion &&
+         writer.AddU32(material.version) &&
          WriteString(writer, material.debug_name) &&
          writer.AddByte(static_cast<std::uint8_t>(material.model)) &&
          writer.AddByte(static_cast<std::uint8_t>(material.pbr_workflow)) &&

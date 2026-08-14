@@ -121,6 +121,7 @@ def build_meshes(utility: ModuleType) -> dict[str, Mesh]:
         "rorng_a1_barrier_material",
         "rorng_a1_calibration_material",
         "rorng_a1_curb_material",
+        "rorng_a1_glass_material",
         "rorng_a1_lane_marking_material",
         "rorng_a1_road_surface_material",
         "rorng_a1_shoulder_material",
@@ -181,6 +182,11 @@ def build_meshes(utility: ModuleType) -> dict[str, Mesh]:
                 (4.0, 4.15, -0.02, 0.12, -30.0, 30.0),
             ),
             material_index["rorng_a1_curb_material"],
+        ),
+        "rorng_a1_glass_slab_mesh": box_batch(
+            utility,
+            ((-2.0, 2.0, 0.25, 3.25, -0.04, 0.04),),
+            material_index["rorng_a1_glass_material"],
         ),
         "rorng_a1_lane_marking_mesh": horizontal_batch(
             utility,
@@ -305,6 +311,7 @@ def build_glb(utility: ModuleType) -> bytes:
         "rorng_a1_barrier_material",
         "rorng_a1_calibration_material",
         "rorng_a1_curb_material",
+        "rorng_a1_glass_material",
         "rorng_a1_lane_marking_material",
         "rorng_a1_road_surface_material",
         "rorng_a1_shoulder_material",
@@ -446,7 +453,7 @@ def build_composition(preview: bytes) -> bytes:
             "spectrum": "d65",
         },
         "world_aabb": {
-            "maximum_m": [6.5, 2.9, 30.0],
+            "maximum_m": [6.5, 3.25, 30.0],
             "minimum_m": [-6.5, -0.02, -30.0],
         },
     }
@@ -510,6 +517,7 @@ def build_alignment() -> bytes:
     placement("shadow_gate_left_post", "rorng_a0_road_shadow_gate_mesh", "calibration_gate", (-3.7, 1.31, 6.0), (0.3, 2.62, 0.4))
     placement("shadow_gate_right_post", "rorng_a0_road_shadow_gate_mesh", "calibration_gate", (3.7, 1.31, 6.0), (0.3, 2.62, 0.4))
     placement("shadow_gate_crossbar", "rorng_a0_road_shadow_gate_mesh", "calibration_gate", (0.0, 2.76, 6.0), (7.7, 0.28, 0.4))
+    placement("thin_glass_slab", "rorng_a1_glass_slab_mesh", "refraction_witness", (0.0, 1.75, 0.0), (4.0, 3.0, 0.08))
     for z in range(-27, 28, 6):
         placement(f"lane_center_dash_{signed_token(z)}", "rorng_a1_lane_marking_mesh", "lane_marking", (0.0, 0.015, z + 1.5), (0.18, 0.002, 3.0))
     placement("lane_left_edge", "rorng_a1_lane_marking_mesh", "lane_marking", (-3.65, 0.014, 0.0), (0.14, 0.002, 58.0))
@@ -684,23 +692,31 @@ def material(
     *,
     workflow: str,
     textures: dict[str, dict[str, object]],
+    base_color: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
     metallic: float = 0.0,
     roughness: float = 1.0,
     emissive: tuple[float, float, float] = (0.0, 0.0, 0.0),
     emissive_strength: float = 1.0,
+    depth_write: bool = True,
+    index_of_refraction: float = 1.5,
+    transmission_mode: str = "none",
+    transmission_factor: float = 0.0,
+    attenuation_color: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    attenuation_distance_m: float = 1.0,
+    slab_thickness_m: float = 0.0,
 ) -> dict[str, object]:
     return {
         "alpha_cutoff": 0.5,
         "alpha_test_mode": "disabled",
-        "base_color_factor": [1.0, 1.0, 1.0, 1.0],
+        "base_color_factor": list(base_color),
         "base_color_transfer": "srgb_decode_before_filter",
         "blend_mode": "replace",
-        "depth_write": True,
+        "depth_write": depth_write,
         "double_sided": False,
         "emissive_factor": list(emissive),
         "emissive_strength": emissive_strength,
         "id": identifier,
-        "index_of_refraction": 1.5,
+        "index_of_refraction": index_of_refraction,
         "metallic_factor": metallic,
         "model": "pbr_metallic_roughness",
         "normal_scale": 1.0,
@@ -708,6 +724,11 @@ def material(
         "roughness_factor": roughness,
         "specular_factor": [1.0, 1.0, 1.0],
         "textures": textures,
+        "transmission_mode": transmission_mode,
+        "transmission_factor": transmission_factor,
+        "attenuation_color": list(attenuation_color),
+        "attenuation_distance_m": attenuation_distance_m,
+        "slab_thickness_m": slab_thickness_m,
         "workflow": workflow,
     }
 
@@ -993,6 +1014,20 @@ def build_sources(repo_root: Path) -> None:
             },
         ),
         material(
+            "rorng_a1_glass_material",
+            workflow="specular",
+            base_color=(0.0, 0.0, 0.0, 1.0),
+            roughness=0.025,
+            depth_write=False,
+            index_of_refraction=1.52,
+            transmission_mode="thin_parallel_slab",
+            transmission_factor=0.96,
+            attenuation_color=(0.82, 0.94, 0.98),
+            attenuation_distance_m=0.75,
+            slab_thickness_m=0.08,
+            textures={},
+        ),
+        material(
             "rorng_a1_lane_marking_material",
             workflow="metallic_roughness",
             roughness=0.58,
@@ -1045,13 +1080,14 @@ def build_sources(repo_root: Path) -> None:
         "rorng_a1_barrier_mesh": "rorng_a1_barrier_material",
         "rorng_a1_calibration_marker_mesh": "rorng_a1_calibration_material",
         "rorng_a1_curb_mesh": "rorng_a1_curb_material",
+        "rorng_a1_glass_slab_mesh": "rorng_a1_glass_material",
         "rorng_a1_lane_marking_mesh": "rorng_a1_lane_marking_material",
         "rorng_a0_road_shadow_gate_mesh": "rorng_a1_barrier_material",
         "rorng_a0_road_surface_mesh": "rorng_a1_road_surface_material",
         "rorng_a1_shoulder_mesh": "rorng_a1_shoulder_material",
         "rorng_a0_wet_asphalt_mesh": "rorng_a1_wet_asphalt_material",
     }
-    passive = {"rorng_a1_lane_marking_mesh"}
+    passive = {"rorng_a1_glass_slab_mesh", "rorng_a1_lane_marking_mesh"}
     receivers = {
         "rorng_a0_road_surface_mesh",
         "rorng_a1_shoulder_mesh",
@@ -1084,7 +1120,7 @@ def build_sources(repo_root: Path) -> None:
             "native_terrain": False,
             "visual_only": True,
         },
-        "format": "ror-native-render-source-v1",
+        "format": "ror-native-render-source-v2",
         "materials": materials,
         "meshes": manifest_meshes,
         "outputs": {
@@ -1094,13 +1130,13 @@ def build_sources(repo_root: Path) -> None:
         "package": {
             "author": "Rigs of Rods contributors",
             "creation_attestation": "Project-original A1 geometry, textures, material declarations, and alignment data were independently authored for V2. The generator reuses only hash-pinned project-owned A0 authoring utility code; no geometry, texture, material-script, or shader bytes were copied from A0, legacy content, or another simulator.",
-            "dimensions_m": [13.0, 2.92, 60.0],
+            "dimensions_m": [13.0, 3.27, 60.0],
             "display_name": "A1 native 60 metre visual calibration course",
             "id": PACKAGE_ID,
             "license": "GPL-3.0-or-later",
             "modified": False,
             "origin_class": "project_original",
-            "source_revision": "sha256-pinned-source-set-v1",
+            "source_revision": "sha256-pinned-source-set-v2-thin-slab-transmission",
             "source_uri": "https://github.com/RigsOfRods/rigs-of-rods",
         },
         "samplers": [

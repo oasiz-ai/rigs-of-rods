@@ -31,9 +31,11 @@ from validate_native_render_asset import (  # noqa: E402
     MATERIAL_BLEND_MODES,
     MATERIAL_MODELS,
     MATERIAL_TEXTURE_SLOTS,
+    MATERIAL_TRANSMISSION_MODES,
     MATERIAL_WORKFLOWS,
     MAX_SOURCE_BYTES,
     NativeRenderAssetValidator,
+    SOURCE_FORMAT_V2,
     INSTANCE_FLAGS,
     SAMPLER_ADDRESS_MODES,
     SAMPLER_COMPARE_OPERATIONS,
@@ -45,8 +47,11 @@ from validate_native_render_asset import (  # noqa: E402
 COMPILER_FORMAT = "ror-native-render-compiler-v1"
 REPORT_FORMAT = "ror-native-render-compile-report-v1"
 PACKAGE_MANIFEST_FORMAT = "ror-native-render-package-manifest-v1"
+PACKAGE_MANIFEST_FORMAT_V2 = "ror-native-render-package-manifest-v2"
 PACKAGE_MAGIC = b"RORNAT1\x00"
+PACKAGE_MAGIC_V2 = b"RORNAT2\x00"
 PACKAGE_VERSION = 1
+PACKAGE_VERSION_V2 = 2
 PACKAGE_HEADER_BYTES = 80
 PACKAGE_HEADER = struct.Struct("<8sIIIIIIQ32s8s")
 RECORD_HEADER = struct.Struct("<IIQQ")
@@ -322,7 +327,9 @@ class NativeRenderAssetCompiler:
 
     def _material_payload(self, entry: dict[str, Any]) -> bytes:
         payload = bytearray()
-        payload.extend(struct.pack("<I", 4))
+        assert self.manifest is not None
+        package_v2 = self.manifest["format"] == SOURCE_FORMAT_V2
+        payload.extend(struct.pack("<I", 5 if package_v2 else 4))
         payload.extend(encode_string(entry["id"]))
         payload.extend(
             struct.pack(
@@ -334,7 +341,8 @@ class NativeRenderAssetCompiler:
                 BASE_COLOR_TRANSFERS[entry["base_color_transfer"]],
                 int(entry["double_sided"]),
                 int(entry["depth_write"]),
-                0,
+                (MATERIAL_TRANSMISSION_MODES[entry["transmission_mode"]]
+                 if package_v2 else 0),
             )
         )
         factors = (
@@ -352,6 +360,19 @@ class NativeRenderAssetCompiler:
         if len(factors) != 17:
             raise CompileFailure("material factor layout changed")
         payload.extend(struct.pack("<17f", *(canonical_float(value) for value in factors)))
+        if package_v2:
+            transmission = (
+                entry["transmission_factor"],
+                *entry["attenuation_color"],
+                entry["attenuation_distance_m"],
+                entry["slab_thickness_m"],
+            )
+            payload.extend(
+                struct.pack(
+                    "<6f",
+                    *(canonical_float(value) for value in transmission),
+                )
+            )
         bindings = entry["textures"]
         for slot in MATERIAL_TEXTURE_SLOTS:
             payload.extend(self._binding_payload(bindings.get(slot)))
@@ -436,7 +457,11 @@ class NativeRenderAssetCompiler:
                 "instances": len(self.object_ids),
                 **self.validator.stats,
             },
-            "format": PACKAGE_MANIFEST_FORMAT,
+            "format": (
+                PACKAGE_MANIFEST_FORMAT_V2
+                if self.manifest["format"] == SOURCE_FORMAT_V2
+                else PACKAGE_MANIFEST_FORMAT
+            ),
             "instances": sorted(
                 (
                     {
@@ -518,9 +543,10 @@ class NativeRenderAssetCompiler:
         package_size = PACKAGE_HEADER_BYTES + len(body)
         if package_size > MAX_PACKAGE_BYTES:
             raise CompileFailure("package exceeds v1 byte limit")
+        package_v2 = self.manifest["format"] == SOURCE_FORMAT_V2
         header = PACKAGE_HEADER.pack(
-            PACKAGE_MAGIC,
-            PACKAGE_VERSION,
+            PACKAGE_MAGIC_V2 if package_v2 else PACKAGE_MAGIC,
+            PACKAGE_VERSION_V2 if package_v2 else PACKAGE_VERSION,
             PACKAGE_HEADER_BYTES,
             0,
             len(records),

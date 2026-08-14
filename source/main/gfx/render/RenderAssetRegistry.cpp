@@ -142,6 +142,18 @@ bool EqualMaterial(const MaterialDescriptor &lhs,
          EqualFloatBits(lhs.emissive_strength, rhs.emissive_strength) &&
          EqualFloatBits(lhs.alpha_cutoff, rhs.alpha_cutoff) &&
          EqualFloatBits(lhs.index_of_refraction, rhs.index_of_refraction) &&
+         lhs.transmission_mode == rhs.transmission_mode &&
+         EqualFloatBits(lhs.transmission_factor,
+                        rhs.transmission_factor) &&
+         EqualFloatBits(lhs.attenuation_color.x,
+                        rhs.attenuation_color.x) &&
+         EqualFloatBits(lhs.attenuation_color.y,
+                        rhs.attenuation_color.y) &&
+         EqualFloatBits(lhs.attenuation_color.z,
+                        rhs.attenuation_color.z) &&
+         EqualFloatBits(lhs.attenuation_distance_m,
+                        rhs.attenuation_distance_m) &&
+         EqualFloatBits(lhs.slab_thickness_m, rhs.slab_thickness_m) &&
          EqualBinding(lhs.base_color_texture, rhs.base_color_texture) &&
          EqualBinding(lhs.metallic_roughness_texture,
                       rhs.metallic_roughness_texture) &&

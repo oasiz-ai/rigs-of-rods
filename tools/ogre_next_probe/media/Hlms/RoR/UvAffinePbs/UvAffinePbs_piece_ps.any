@@ -16,3 +16,61 @@
 	#define UV_EMISSIVE(x) ROR_UV0_AFFINE(x)
 @end
 @end
+
+// userValue[1] = (Beer-Lambert transmittance RGB, attenuation distance metres)
+// userValue[2] = (IOR, slab thickness metres, transmission factor, projection Y scale)
+@property( ror_thin_slab_transmission )
+@piece( applyRefractions )
+	midf3 incident = -pixelData.viewDir;
+	midf3 slabNormal = pixelData.normal;
+	if( dot( incident, slabNormal ) > _h( 0.0 ) )
+		slabNormal = -slabNormal;
+	midf cosIncident = max( -dot( incident, slabNormal ), _h( 0.0001 ) );
+	midf eta = _h( 1.0 ) / midf_c( material.userValue[2].x );
+	midf snellK = _h( 1.0 ) - eta * eta *
+					   ( _h( 1.0 ) - cosIncident * cosIncident );
+	midf3 refracted = incident;
+	if( snellK >= _h( 0.0 ) )
+		refracted = eta * incident +
+					( eta * cosIncident - sqrt( snellK ) ) * slabNormal;
+	midf insideNormalSpeed = max( -dot( refracted, slabNormal ), _h( 0.0001 ) );
+	midf airNormalSpeed = max( -dot( incident, slabNormal ), _h( 0.0001 ) );
+	midf insideDistance = midf_c( material.userValue[2].y ) / insideNormalSpeed;
+	midf airDistance = midf_c( material.userValue[2].y ) / airNormalSpeed;
+	midf3 parallelSlabOffset = refracted * insideDistance - incident * airDistance;
+	midf inverseViewDepth = _h( 1.0 ) / max( midf_c( -inPs.pos.z ), _h( 0.0001 ) );
+	float2 refractUv = screenPosUv.xy +
+		float2( parallelSlabOffset.x / midf_c( passBuf.aspectRatio ),
+				   -parallelSlabOffset.y ) *
+		float2( material.userValue[2].w * 0.5f * inverseViewDepth,
+				   material.userValue[2].w * 0.5f * inverseViewDepth );
+	midf3 refractionCol = OGRE_SampleLevelF16(
+		refractionMap, refractionMapSampler, refractUv, 0 ).xyz;
+	midf refractionDepth = OGRE_SampleLevelF16(
+		depthTextureNoMsaa, refractionMapSampler, refractUv, 0 ).x;
+	midf3 fallbackRefractionCol =
+		OGRE_Load2DF16( refractionMap, iFragCoord.xy, 0 ).xyz;
+	float2 edge = saturate( abs( refractUv * 2.0f - 1.0f ) * 10.0f - 9.0f );
+	midf fallbackWeight = midf_c( max( edge.x, edge.y ) );
+	fallbackWeight *= fallbackWeight;
+	@property( hlms_no_reverse_depth )
+		if( refractionDepth < gl_FragCoord.z - 0.025 )
+	@else
+		if( refractionDepth > gl_FragCoord.z + 0.025 )
+	@end
+		fallbackWeight = _h( 1.0 );
+	refractionCol = lerp( refractionCol, fallbackRefractionCol, fallbackWeight );
+	midf attenuationExponent =
+		insideDistance / midf_c( material.userValue[1].w );
+	midf3 attenuationBase = max(
+		midf3_c( material.userValue[1].xyz ),
+		midf3_c( 0.0001f, 0.0001f, 0.0001f ) );
+	midf3 attenuation = midf3_c(
+		pow( attenuationBase.x, attenuationExponent ),
+		pow( attenuationBase.y, attenuationExponent ),
+		pow( attenuationBase.z, attenuationExponent ) );
+	finalColour += refractionCol * attenuation *
+				   midf_c( material.userValue[2].z );
+	finalColour.w = _h( 1.0 );
+@end
+@end

@@ -17,8 +17,12 @@ namespace RoR::Render {
 
 inline constexpr char kOgreNextUvAffinePbsDatablockPrefix[] =
     "RoRN1Material_";
+inline constexpr char kOgreNextThinSlabPbsDatablockPrefix[] =
+    "RoRN1TransmissionMaterial_";
 inline constexpr char kOgreNextUvAffinePbsProperty[] =
     "ror_uv0_affine_pbs";
+inline constexpr char kOgreNextThinSlabPbsProperty[] =
+    "ror_thin_slab_transmission";
 inline constexpr char kOgreNextUvAffinePbsMediaPath[] =
     "Hlms/RoR/UvAffinePbs";
 
@@ -31,6 +35,8 @@ public:
                       Ogre::ArchiveVec *library_folders);
 
   [[nodiscard]] static bool SelectsUv0AffineShader(
+      const Ogre::HlmsDatablock *datablock) noexcept;
+  [[nodiscard]] static bool SelectsThinSlabTransmissionShader(
       const Ogre::HlmsDatablock *datablock) noexcept;
 
 protected:

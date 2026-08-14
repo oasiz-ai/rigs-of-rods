@@ -401,6 +401,30 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         "N1 accepts conventional PBR with an explicit metallic-roughness or specular workflow, or the exact RT4/V1 display-domain Unlit profile",
         index);
   }
+  const bool thin_slab_transmission =
+      material.transmission_mode ==
+      MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+  if (!thin_slab_transmission &&
+      material.version != kMaterialDescriptorVersion) {
+    return Unsupported(
+        "assets.material.version",
+        "N1 admits material v5 only for the exact RT4/V1 thin-slab transmission profile",
+        index);
+  }
+  if (thin_slab_transmission &&
+      (raster_feature_tier !=
+           OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
+       material.version != kMaterialDescriptorTransmissionVersion ||
+       material.pbr_workflow != MaterialPbrWorkflow::SPECULAR ||
+       material.blend_mode != MaterialBlendMode::REPLACE ||
+       material.alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
+       material.depth_write || material.double_sided ||
+       !IsTextureFree(material))) {
+    return Unsupported(
+        "assets.material.transmission",
+        "RT4/V1 thin-slab transmission requires the exact v5 texture-free, one-sided, depth-read-only specular dielectric profile",
+        index);
+  }
   if (raster_feature_tier == OgreNextRasterFeatureTier::STATIC_PBR_N1 &&
       (material.blend_mode != MaterialBlendMode::REPLACE ||
        material.alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
@@ -419,7 +443,7 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
       material.blend_mode != MaterialBlendMode::REPLACE;
   const bool alpha_test =
       material.alpha_test_mode != MaterialAlphaTestMode::DISABLED;
-  if (!alpha_blend && !alpha_test &&
+  if (!thin_slab_transmission && !alpha_blend && !alpha_test &&
       material.base_color_factor.w != 1.0F) {
     return Unsupported("assets.material.base_color_factor",
                        "N1 opaque output requires an alpha factor of one",

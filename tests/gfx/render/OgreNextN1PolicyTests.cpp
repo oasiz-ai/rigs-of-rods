@@ -188,6 +188,24 @@ RenderAssetDelta MakeSpecularCatalogDelta(std::uint64_t registry_id,
   return delta;
 }
 
+RenderAssetDelta MakeThinSlabCatalogDelta(std::uint64_t registry_id) {
+  MaterialDescriptor material;
+  material.version = kMaterialDescriptorTransmissionVersion;
+  material.debug_name = "RT4/V1 physical thin parallel glass slab";
+  material.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  material.metallic_factor = 0.0F;
+  material.roughness_factor = 0.025F;
+  material.index_of_refraction = 1.52F;
+  material.depth_write = false;
+  material.transmission_mode =
+      MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+  material.transmission_factor = 0.96F;
+  material.attenuation_color = {0.82F, 0.94F, 0.98F};
+  material.attenuation_distance_m = 0.75F;
+  material.slab_thickness_m = 0.08F;
+  return MakeCatalogDelta(registry_id, MakeModernMesh(), material);
+}
+
 RenderAssetDelta
 MakeDisplayDomainUnlitCatalogDelta(std::uint64_t registry_id) {
   MaterialDescriptor material;
@@ -969,6 +987,32 @@ void TestModernPbrAssetPolicy() {
               noncanonical_metallic_ior_result.field ==
                   "assets.material.index_of_refraction",
           "metallic-roughness workflow accepted a noncanonical unused IOR");
+
+  RenderAssetRegistry thin_slab_registry(kRegistryId + 205U);
+  Require(thin_slab_registry
+              .Apply(MakeThinSlabCatalogDelta(kRegistryId + 205U))
+              .ok(),
+          "thin-slab transmission fixture is not registry valid");
+  Require(ValidateOgreNextN1AssetCatalog(thin_slab_registry, false, kModern)
+              .ok(),
+          "exact RT4 thin-slab transmission profile was rejected");
+  const ValidationResult legacy_thin_slab =
+      ValidateOgreNextN1AssetCatalog(thin_slab_registry);
+  Require(legacy_thin_slab.code == ValidationCode::UNSUPPORTED_FEATURE,
+          "thin-slab transmission escaped the RT4-only renderer boundary");
+
+  RenderAssetDelta inactive_v5 =
+      MakeCatalogDelta(kRegistryId + 206U, MakeModernMesh(), MakeMaterial());
+  std::get<MaterialDescriptor>(inactive_v5.mutations[1U].payload).version =
+      kMaterialDescriptorTransmissionVersion;
+  RenderAssetRegistry inactive_v5_registry(kRegistryId + 206U);
+  Require(inactive_v5_registry.Apply(inactive_v5).ok(),
+          "canonical inactive material-v5 fixture is not registry valid");
+  const ValidationResult inactive_v5_result =
+      ValidateOgreNextN1AssetCatalog(inactive_v5_registry, false, kModern);
+  Require(inactive_v5_result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              inactive_v5_result.field == "assets.material.version",
+          "material v5 escaped without its exact thin-slab profile");
 
   const auto alpha_catalog = [&](std::uint64_t registry_id,
                                  MaterialBlendMode blend,
