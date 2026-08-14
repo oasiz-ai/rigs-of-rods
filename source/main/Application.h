@@ -664,6 +664,11 @@ extern CVar* sim_deterministic_state_trace;
 extern CVar* sim_deterministic_state_trace_scenario_id;
 extern CVar* sim_deterministic_state_trace_step_limit;
 extern CVar* sim_deterministic_fixed_steps_per_frame;
+extern CVar* sim_deterministic_input_mode;
+extern CVar* sim_deterministic_input_path;
+extern CVar* sim_deterministic_input_scenario_id;
+extern CVar* sim_deterministic_input_target_id;
+extern CVar* sim_deterministic_input_step_limit;
 
 // Explicit, non-archived live world-model capture activation. Capture is
 // never enabled implicitly and rights/allowed-use fields have no defaults.

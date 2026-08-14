@@ -3417,27 +3417,33 @@ int main(int argc, char *argv[])
                             {
                                 if (actor->ar_state != ActorState::NETWORKED_OK)
                                 {
-                                    App::GetGameContext()->UpdateCommonInputEvents(dt, actor);
-                                    if (actor->ar_state != ActorState::LOCAL_REPLAY)
+                                    const bool deterministic_replay_owns_input =
+                                        App::GetGameContext()->GetActorManager()->
+                                            ShouldSuppressLiveInputForDeterministicReplay(actor);
+                                    if (!deterministic_replay_owns_input)
                                     {
-                                        if (actor->ar_driveable == TRUCK)
+                                        App::GetGameContext()->UpdateCommonInputEvents(dt, actor);
+                                        if (actor->ar_state != ActorState::LOCAL_REPLAY)
                                         {
-                                            App::GetGameContext()->UpdateTruckInputEvents(dt, actor);
+                                            if (actor->ar_driveable == TRUCK)
+                                            {
+                                                App::GetGameContext()->UpdateTruckInputEvents(dt, actor);
+                                            }
+                                            if (actor->ar_driveable == AIRPLANE)
+                                            {
+                                                App::GetGameContext()->UpdateAirplaneInputEvents(dt, actor);
+                                            }
+                                            if (actor->ar_driveable == BOAT)
+                                            {
+                                                App::GetGameContext()->UpdateBoatInputEvents(dt, actor);
+                                            }
                                         }
-                                        if (actor->ar_driveable == AIRPLANE)
-                                        {
-                                            App::GetGameContext()->UpdateAirplaneInputEvents(dt, actor);
-                                        }
-                                        if (actor->ar_driveable == BOAT)
-                                        {
-                                            App::GetGameContext()->UpdateBoatInputEvents(dt, actor);
-                                        }
-                                    }
 
-                                    actor->UpdatePropAnimInputEvents();
-                                    for (ActorPtr linked_actor : actor->ar_linked_actors)
-                                    {
-                                        linked_actor->UpdatePropAnimInputEvents();
+                                        actor->UpdatePropAnimInputEvents();
+                                        for (ActorPtr linked_actor : actor->ar_linked_actors)
+                                        {
+                                            linked_actor->UpdatePropAnimInputEvents();
+                                        }
                                     }
                                 }
                             }

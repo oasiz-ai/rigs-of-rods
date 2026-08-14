@@ -139,6 +139,13 @@ public:
     void           setPrime(bool p);
     void           setHydroPump(float work);
     void           setManualClutch(float val);
+    /// Apply the two ignition input latches at an authenticated fixed-step
+    /// boundary. This deliberately bypasses sounds and one-shot input events;
+    /// callers must validate the complete deterministic input transaction
+    /// before invoking it.
+    void           setDeterministicInputIgnition(
+                       bool contact,
+                       bool starter) noexcept;
     void           setTCaseRatio(float ratio);   //!< Set current transfer case gear (reduction) ratio
     void           toggleContact();              //!< Ignition
     void           offStart();                   //!< Quick start of vehicle engine.

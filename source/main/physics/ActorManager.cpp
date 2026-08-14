@@ -36,8 +36,11 @@
 #include "Collisions.h"
 #include "DashBoardManager.h"
 #include "DeterministicContactOrder.h"
+#include "DeterministicInputTraceRuntime.h"
 #include "DeterministicScenarioSchedule.h"
 #include "DeterministicStateTrace.h"
+#include "DeterministicVehicleInput.h"
+#include "DeterministicVehicleInputActorAdapter.h"
 #include "ActorStateDigestAdapter.h"
 #include "DynamicCollisions.h"
 #include "Engine.h"
@@ -66,11 +69,13 @@
 
 #include <fmt/format.h>
 #include <algorithm>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <limits>
 #include <new>
 #include <stdexcept>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -144,6 +149,35 @@ struct DeterministicStateTraceRuntime
     std::string output_path;
 };
 
+struct DeterministicActorInputRuntime:
+    DeterministicVehicleInput::SnapshotProvider,
+    DeterministicVehicleInput::SnapshotConsumer
+{
+    DeterministicInputTrace::Runtime trace;
+    std::unique_ptr<DeterministicVehicleInput::RecordingSource>
+        recording_source;
+    std::unique_ptr<DeterministicVehicleInput::ReplaySink> replay_sink;
+    ActorPtr actor;
+    DeterministicVehicleInputActorAdapter::PolicySnapshot policy;
+    std::ofstream output;
+    std::string output_path;
+    std::string replay_path;
+    std::string configured_mode;
+    std::uint64_t scenario_id = 0;
+    std::uint64_t target_id = 0;
+    std::uint64_t step_limit = 0;
+    DeterministicVehicleInputActorAdapter::PolicyError
+        adapter_error =
+            DeterministicVehicleInputActorAdapter::PolicyError::NONE;
+
+    bool CaptureAppliedControls(
+        std::uint64_t physics_step,
+        DeterministicVehicleInput::Snapshot& snapshot) override;
+    bool ApplyAppliedControls(
+        std::uint64_t physics_step,
+        const DeterministicVehicleInput::Snapshot& snapshot) override;
+};
+
 } // namespace RoR
 
 namespace {
@@ -174,6 +208,34 @@ bool ParseDecimalUint64(
     }
     parsed = result;
     return true;
+}
+
+static const std::uint64_t MAX_LIVE_INPUT_STEPS = UINT64_C(120000);
+static const std::uint64_t MAX_LIVE_INPUT_EVENTS = UINT64_C(2000000);
+static const std::uint64_t MAX_LIVE_INPUT_BYTES =
+    UINT64_C(128) * UINT64_C(1024) * UINT64_C(1024);
+
+bool IsDeterministicInputMode(
+    const std::string& mode,
+    RoR::DeterministicInputTrace::RuntimeMode& parsed)
+{
+    if (mode == "off")
+    {
+        parsed = RoR::DeterministicInputTrace::RuntimeMode::NONE;
+        return true;
+    }
+    if (mode == "record")
+    {
+        parsed = RoR::DeterministicInputTrace::RuntimeMode::RECORD;
+        return true;
+    }
+    if (mode == "replay")
+    {
+        parsed = RoR::DeterministicInputTrace::RuntimeMode::REPLAY;
+        return true;
+    }
+    parsed = RoR::DeterministicInputTrace::RuntimeMode::NONE;
+    return false;
 }
 
 const char* SnapshotErrorName(
@@ -352,6 +414,328 @@ bool OpenTraceOutputAppend(
     return output.is_open() && output.good();
 }
 
+bool BuildActorInputPolicy(
+    const RoR::ActorPtr& actor,
+    std::uint64_t target_id,
+    RoR::DeterministicVehicleInputActorAdapter::PolicySnapshot& policy)
+{
+    using Policy =
+        RoR::DeterministicVehicleInputActorAdapter::PolicySnapshot;
+    if (actor == nullptr)
+        return false;
+
+    Policy candidate;
+    candidate.target_id = target_id;
+    candidate.local_simulated =
+        actor->ar_state == RoR::ActorState::LOCAL_SIMULATED;
+    candidate.truck = actor->ar_driveable == RoR::TRUCK;
+    candidate.has_engine = actor->ar_engine != nullptr;
+    candidate.resetting = actor->isBeingReset();
+    candidate.physics_paused = actor->ar_physics_paused;
+    candidate.ai_active =
+        actor->ar_vehicle_ai != nullptr &&
+        actor->ar_vehicle_ai->isActive();
+    candidate.has_linked_actors = !actor->ar_linked_actors.empty();
+    candidate.has_transfer_case =
+        actor->getTransferCaseMode() != nullptr;
+    candidate.anti_lock_brake_enabled = actor->alb_mode;
+    candidate.traction_control_enabled = actor->tc_mode;
+    candidate.cruise_control_enabled = actor->cc_mode;
+    candidate.speed_limiter_enabled = actor->sl_enabled;
+    candidate.forward_commands_enabled = actor->ar_forward_commands;
+    candidate.import_commands_enabled = actor->ar_import_commands;
+    candidate.has_simulated_event_overrides =
+        !actor->ar_actor_event_simulated_values.empty();
+    candidate.hydro_speed_coupling_enabled =
+        actor->ar_hydro_speed_coupling_enabled;
+
+    if (candidate.has_engine)
+    {
+        candidate.gearbox_mode = static_cast<std::uint32_t>(
+            actor->ar_engine->getAutoMode());
+        candidate.forward_gear_count =
+            actor->ar_engine->getNumGears();
+        candidate.gear_range_count =
+            actor->ar_engine->getNumGearsRanges();
+        candidate.fixed_gear = actor->ar_engine->getGear();
+        candidate.fixed_gear_range =
+            actor->ar_engine->getGearRange();
+    }
+    policy = candidate;
+    return true;
+}
+
+bool CaptureActorInputState(
+    const RoR::ActorPtr& actor,
+    RoR::DeterministicVehicleInputActorAdapter::AppliedControlState& state)
+{
+    if (actor == nullptr || actor->ar_engine == nullptr)
+        return false;
+
+    RoR::DeterministicVehicleInputActorAdapter::AppliedControlState
+        candidate;
+    candidate.steering_command = actor->ar_hydro_dir_command;
+    candidate.service_brake = actor->ar_brake;
+    candidate.throttle = actor->ar_engine->getAcc();
+    candidate.clutch = actor->ar_engine->getClutch();
+    candidate.parking_brake = actor->ar_parking_brake;
+    candidate.engine_contact = actor->ar_engine->hasContact();
+    candidate.engine_starter = actor->ar_engine->isStarterActive();
+    candidate.gear = actor->ar_engine->getGear();
+    candidate.gear_range = actor->ar_engine->getGearRange();
+    candidate.hydro_speed_coupling =
+        actor->ar_hydro_speed_coupling_active;
+    candidate.trailer_parking_brake =
+        actor->ar_trailer_parking_brake;
+    for (std::size_t index = 0;
+        index < candidate.command_values.size();
+        ++index)
+    {
+        candidate.command_values[index] =
+            actor->ar_command_key[
+                static_cast<int>(index + 1U)].playerInputValue;
+    }
+    state = candidate;
+    return true;
+}
+
+void CommitActorInputPlan(
+    const RoR::ActorPtr& actor,
+    const RoR::DeterministicVehicleInputActorAdapter::ApplyPlan& plan)
+{
+    const RoR::DeterministicVehicleInputActorAdapter::AppliedControlState&
+        controls = plan.controls;
+    actor->ar_hydro_dir_command = controls.steering_command;
+    actor->ar_brake = controls.service_brake;
+    actor->ar_parking_brake = controls.parking_brake;
+    actor->ar_trailer_parking_brake =
+        controls.trailer_parking_brake;
+    actor->ar_hydro_speed_coupling_active =
+        controls.hydro_speed_coupling;
+    actor->ar_engine->setAcc(controls.throttle);
+    actor->ar_engine->setClutch(controls.clutch);
+    actor->ar_engine->setGear(controls.gear);
+    actor->ar_engine->setGearRange(controls.gear_range);
+    actor->ar_engine->setDeterministicInputIgnition(
+        controls.engine_contact,
+        controls.engine_starter);
+    for (std::size_t index = 0;
+        index < controls.command_values.size();
+        ++index)
+    {
+        actor->ar_command_key[
+            static_cast<int>(index + 1U)].playerInputValue =
+                controls.command_values[index];
+    }
+}
+
+void AppendUint32BigEndian(
+    std::vector<std::uint8_t>& output,
+    std::uint32_t value)
+{
+    output.push_back(static_cast<std::uint8_t>(value >> 24));
+    output.push_back(static_cast<std::uint8_t>(value >> 16));
+    output.push_back(static_cast<std::uint8_t>(value >> 8));
+    output.push_back(static_cast<std::uint8_t>(value));
+}
+
+void AppendUint64BigEndian(
+    std::vector<std::uint8_t>& output,
+    std::uint64_t value)
+{
+    for (int shift = 56; shift >= 0; shift -= 8)
+        output.push_back(static_cast<std::uint8_t>(value >> shift));
+}
+
+bool AppendBoundedIdentityString(
+    std::vector<std::uint8_t>& output,
+    const std::string& value)
+{
+    static const std::size_t MAX_IDENTITY_COMPONENT_BYTES = 4096;
+    if (value.size() > MAX_IDENTITY_COMPONENT_BYTES)
+        return false;
+    AppendUint32BigEndian(
+        output,
+        static_cast<std::uint32_t>(value.size()));
+    output.insert(output.end(), value.begin(), value.end());
+    return true;
+}
+
+bool BuildActorInputMetadata(
+    const RoR::ActorPtr& actor,
+    const RoR::DeterministicVehicleInputActorAdapter::PolicySnapshot& policy,
+    std::uint64_t scenario_id,
+    std::uint64_t first_physics_step,
+    RoR::DeterministicInputTrace::Metadata& metadata)
+{
+    if (actor == nullptr)
+        return false;
+    try
+    {
+        std::vector<std::uint8_t> identity;
+        const char* const manifest =
+            RoR::DeterministicVehicleInputActorAdapter::PolicyManifest();
+        const std::size_t manifest_size = std::strlen(manifest);
+        identity.reserve(manifest_size + 128U +
+            actor->ar_filename.size() + actor->ar_filehash.size() +
+            RoR::App::sim_terrain_name->getStr().size());
+        identity.insert(
+            identity.end(),
+            manifest,
+            manifest + manifest_size);
+        AppendUint64BigEndian(identity, policy.target_id);
+        AppendUint32BigEndian(identity, policy.gearbox_mode);
+        AppendUint32BigEndian(
+            identity,
+            static_cast<std::uint32_t>(policy.forward_gear_count));
+        AppendUint32BigEndian(
+            identity,
+            static_cast<std::uint32_t>(policy.gear_range_count));
+        AppendUint32BigEndian(
+            identity,
+            static_cast<std::uint32_t>(policy.fixed_gear));
+        AppendUint32BigEndian(
+            identity,
+            static_cast<std::uint32_t>(policy.fixed_gear_range));
+        identity.push_back(
+            policy.hydro_speed_coupling_enabled ? UINT8_C(1) : UINT8_C(0));
+        if (!AppendBoundedIdentityString(identity, actor->ar_filename) ||
+            !AppendBoundedIdentityString(identity, actor->ar_filehash) ||
+            !AppendBoundedIdentityString(
+                identity,
+                RoR::App::sim_terrain_name->getStr()))
+        {
+            return false;
+        }
+
+        RoR::DeterministicInputTrace::Metadata candidate;
+        candidate.semantic_flags =
+            RoR::DeterministicInputTrace::REQUIRED_SEMANTIC_FLAGS;
+        candidate.scenario_id = scenario_id;
+        candidate.stream_id = policy.target_id;
+        candidate.first_physics_step = first_physics_step;
+        candidate.physics_step_numerator = 1;
+        candidate.physics_step_denominator = 2000;
+        candidate.scenario_name = "ror-live-manual-truck-v1";
+        candidate.source_name =
+            RoR::DeterministicVehicleInput::RegistrySourceName();
+        candidate.source_digest =
+            RoR::DeterministicInputTrace::ComputeSha256(
+                identity.data(),
+                identity.size());
+        metadata = candidate;
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+RoR::DeterministicInputTrace::Limits BuildActorInputLimits(
+    std::uint64_t step_limit)
+{
+    RoR::DeterministicInputTrace::Limits limits;
+    limits.max_steps = step_limit;
+    limits.max_events = MAX_LIVE_INPUT_EVENTS;
+    limits.max_bytes = MAX_LIVE_INPUT_BYTES;
+    limits.max_events_per_step = static_cast<std::uint32_t>(
+        RoR::DeterministicVehicleInput::CONTROL_SLOT_COUNT);
+    limits.max_active_controls = static_cast<std::uint32_t>(
+        RoR::DeterministicVehicleInput::CONTROL_SLOT_COUNT);
+    return limits;
+}
+
+bool OpenUniqueDeterministicInputTrace(
+    RoR::DeterministicActorInputRuntime& runtime,
+    std::uint64_t first_physics_step)
+{
+    const std::string logs_directory = RoR::App::sys_logs_dir->getStr();
+    if (logs_directory.empty() || !RoR::FolderExists(logs_directory))
+        return false;
+
+    static const std::uint32_t MAX_FILENAME_ATTEMPTS = 10000;
+    for (std::uint32_t attempt = 0;
+        attempt < MAX_FILENAME_ATTEMPTS;
+        ++attempt)
+    {
+        const std::string filename = fmt::format(
+            "deterministic-input-s{}-t{}-step{}-{:04}.rorinput",
+            runtime.scenario_id,
+            runtime.target_id,
+            first_physics_step,
+            attempt);
+        const std::string path = RoR::PathCombine(
+            logs_directory,
+            filename);
+        const ExclusiveCreateResult result = CreateEmptyFileExclusive(path);
+        if (result == ExclusiveCreateResult::EXISTS)
+            continue;
+        if (result == ExclusiveCreateResult::FAILED)
+            return false;
+        if (!OpenTraceOutputAppend(runtime.output, path))
+            return false;
+        runtime.output.seekp(0, std::ios::end);
+        if (!runtime.output.good() ||
+            runtime.output.tellp() != std::streampos(0))
+        {
+            runtime.output.close();
+            continue;
+        }
+        runtime.output_path = path;
+        return true;
+    }
+    return false;
+}
+
+bool ReadBoundedDeterministicInputTrace(
+    const std::string& path,
+    std::string& bytes)
+{
+    if (path.empty())
+        return false;
+    std::ifstream input;
+#if defined(_WIN32)
+    std::wstring wide_path;
+    if (!Utf8ToWidePath(path, wide_path))
+        return false;
+    input.open(wide_path.c_str(), std::ios::in | std::ios::binary);
+#else
+    input.open(path.c_str(), std::ios::in | std::ios::binary);
+#endif
+    if (!input.is_open() || !input.good())
+        return false;
+    input.seekg(0, std::ios::end);
+    const std::streampos end = input.tellg();
+    const std::streamoff byte_count = end - std::streampos(0);
+    if (byte_count <= std::streamoff(0) ||
+        static_cast<std::uint64_t>(byte_count) > MAX_LIVE_INPUT_BYTES)
+    {
+        return false;
+    }
+    input.seekg(0, std::ios::beg);
+    if (!input.good())
+        return false;
+    try
+    {
+        std::string candidate(
+            static_cast<std::size_t>(byte_count),
+            '\0');
+        input.read(&candidate[0], static_cast<std::streamsize>(candidate.size()));
+        if (!input.good() || input.gcount() !=
+            static_cast<std::streamsize>(candidate.size()))
+        {
+            return false;
+        }
+        bytes.swap(candidate);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 bool OpenUniqueDeterministicTrace(
     RoR::DeterministicStateTraceRuntime& runtime,
     std::uint64_t scenario_id,
@@ -434,6 +818,80 @@ bool AppendBufferedContactKeys(
 
 } // namespace
 
+bool DeterministicActorInputRuntime::CaptureAppliedControls(
+    std::uint64_t,
+    DeterministicVehicleInput::Snapshot& snapshot)
+{
+    DeterministicVehicleInputActorAdapter::PolicySnapshot current_policy;
+    if (!BuildActorInputPolicy(actor, target_id, current_policy) ||
+        !DeterministicVehicleInputActorAdapter::SamePolicy(
+            policy,
+            current_policy))
+    {
+        adapter_error =
+            DeterministicVehicleInputActorAdapter::PolicyError::POLICY_CHANGED;
+        return false;
+    }
+    DeterministicVehicleInputActorAdapter::Status policy_status;
+    if (!DeterministicVehicleInputActorAdapter::ValidatePolicy(
+            current_policy,
+            policy_status))
+    {
+        adapter_error = policy_status.error;
+        return false;
+    }
+    DeterministicVehicleInputActorAdapter::AppliedControlState controls;
+    if (!CaptureActorInputState(actor, controls))
+    {
+        adapter_error =
+            DeterministicVehicleInputActorAdapter::PolicyError::SNAPSHOT_REJECTED;
+        return false;
+    }
+    if (!DeterministicVehicleInputActorAdapter::CaptureSnapshot(
+            current_policy,
+            controls,
+            snapshot,
+            policy_status))
+    {
+        adapter_error = policy_status.error;
+        return false;
+    }
+    adapter_error =
+        DeterministicVehicleInputActorAdapter::PolicyError::NONE;
+    return true;
+}
+
+bool DeterministicActorInputRuntime::ApplyAppliedControls(
+    std::uint64_t,
+    const DeterministicVehicleInput::Snapshot& snapshot)
+{
+    DeterministicVehicleInputActorAdapter::PolicySnapshot current_policy;
+    if (!BuildActorInputPolicy(actor, target_id, current_policy) ||
+        !DeterministicVehicleInputActorAdapter::SamePolicy(
+            policy,
+            current_policy))
+    {
+        adapter_error =
+            DeterministicVehicleInputActorAdapter::PolicyError::POLICY_CHANGED;
+        return false;
+    }
+    DeterministicVehicleInputActorAdapter::ApplyPlan plan;
+    DeterministicVehicleInputActorAdapter::Status policy_status;
+    if (!DeterministicVehicleInputActorAdapter::BuildApplyPlan(
+            current_policy,
+            snapshot,
+            plan,
+            policy_status))
+    {
+        adapter_error = policy_status.error;
+        return false;
+    }
+    CommitActorInputPlan(actor, plan);
+    adapter_error =
+        DeterministicVehicleInputActorAdapter::PolicyError::NONE;
+    return true;
+}
+
 ActorManager::ActorManager()
     : m_dt_remainder(0.0f)
     , m_forced_awake(false)
@@ -453,7 +911,8 @@ ActorManager::~ActorManager()
 bool ActorManager::ShutdownWorkerRuntime() noexcept
 {
     if (m_sim_thread_pool == nullptr && m_sim_task == nullptr &&
-        m_deterministic_state_trace == nullptr)
+        m_deterministic_state_trace == nullptr &&
+        m_deterministic_actor_input == nullptr)
     {
         return true;
     }
@@ -464,6 +923,10 @@ bool ActorManager::ShutdownWorkerRuntime() noexcept
         this->FinishDeterministicStateTrace(
             "physics worker shutdown",
             false);
+        this->FinishDeterministicActorInput(
+            "physics worker shutdown",
+            false,
+            false);
         m_sim_task.reset();
         m_sim_thread_pool.reset();
         return true;
@@ -472,6 +935,18 @@ bool ActorManager::ShutdownWorkerRuntime() noexcept
     {
         return false;
     }
+}
+
+bool ActorManager::ShouldSuppressLiveInputForDeterministicReplay(
+    const ActorPtr& actor) const
+{
+    if (actor == nullptr || App::sim_deterministic_input_mode == nullptr ||
+        App::sim_deterministic_input_mode->getStr() != "replay" ||
+        App::GetGameContext() == nullptr)
+    {
+        return false;
+    }
+    return App::GetGameContext()->GetPlayerActor() == actor;
 }
 
 void ActorManager::FinishDeterministicStateTrace(
@@ -535,6 +1010,489 @@ void ActorManager::FinishDeterministicStateTrace(
     m_deterministic_state_trace.reset();
     m_deterministic_state_trace_suppressed =
         suppress_until_disabled;
+}
+
+void ActorManager::FinishDeterministicActorInput(
+    const char* reason,
+    bool suppress_until_disabled,
+    bool stop_replay)
+{
+    if (m_deterministic_actor_input != nullptr)
+    {
+        DeterministicActorInputRuntime& runtime =
+            *m_deterministic_actor_input;
+        const DeterministicInputTrace::RuntimeMode mode =
+            runtime.trace.GetMode();
+        bool artifact_ok = true;
+        std::string bytes;
+        if (mode == DeterministicInputTrace::RuntimeMode::RECORD)
+        {
+            const DeterministicInputTrace::RuntimeLifecycle lifecycle =
+                runtime.trace.GetLifecycle();
+            if (lifecycle ==
+                    DeterministicInputTrace::RuntimeLifecycle::RUNNING ||
+                lifecycle ==
+                    DeterministicInputTrace::RuntimeLifecycle::PAUSED)
+            {
+                artifact_ok = runtime.trace.FinalizeRecording(bytes);
+            }
+            else if (lifecycle ==
+                DeterministicInputTrace::RuntimeLifecycle::FINISHED)
+            {
+                try
+                {
+                    bytes = runtime.trace.GetAuthenticatedTrace();
+                }
+                catch (...)
+                {
+                    artifact_ok = false;
+                }
+            }
+            else
+            {
+                artifact_ok = false;
+            }
+
+            if (artifact_ok && runtime.output.is_open())
+            {
+                runtime.output.write(
+                    bytes.data(),
+                    static_cast<std::streamsize>(bytes.size()));
+                runtime.output.flush();
+                artifact_ok = runtime.output.good();
+            }
+            else if (runtime.output.is_open())
+            {
+                artifact_ok = false;
+            }
+            if (runtime.output.is_open())
+            {
+                runtime.output.close();
+                artifact_ok = artifact_ok && runtime.output.good();
+            }
+
+            if (artifact_ok)
+            {
+                RoR::LogFormat(
+                    "[RoR|Determinism] Finished input recording '%s' "
+                    "with %llu authenticated fixed-step records, digest=%s "
+                    "(%s)",
+                    runtime.output_path.c_str(),
+                    static_cast<unsigned long long>(
+                        runtime.trace.GetProcessedStepCount()),
+                    runtime.trace.GetTraceDigest().ToHex().c_str(),
+                    reason != nullptr ? reason : "capture complete");
+            }
+            else
+            {
+                const DeterministicInputTrace::RuntimeStatus& status =
+                    runtime.trace.GetStatus();
+                RoR::LogFormat(
+                    "[RoR|Determinism] Input recording '%s' is invalid "
+                    "(%s, trace=%s, step=%llu; %s)",
+                    runtime.output_path.c_str(),
+                    DeterministicInputTrace::ToString(status.error),
+                    DeterministicInputTrace::ToString(
+                        status.trace_status.error),
+                    static_cast<unsigned long long>(status.physics_step),
+                    reason != nullptr ? reason : "no reason supplied");
+            }
+        }
+        else if (mode == DeterministicInputTrace::RuntimeMode::REPLAY)
+        {
+            const DeterministicInputTrace::RuntimeStatus& status =
+                runtime.trace.GetStatus();
+            RoR::LogFormat(
+                "[RoR|Determinism] Finished input replay '%s' after %llu "
+                "authenticated fixed-step records (lifecycle=%s, error=%s; "
+                "%s)",
+                runtime.replay_path.c_str(),
+                static_cast<unsigned long long>(
+                    runtime.trace.GetProcessedStepCount()),
+                DeterministicInputTrace::ToString(
+                    runtime.trace.GetLifecycle()),
+                DeterministicInputTrace::ToString(status.error),
+                reason != nullptr ? reason : "replay complete");
+        }
+    }
+
+    m_deterministic_actor_input.reset();
+    m_deterministic_actor_input_suppressed =
+        suppress_until_disabled;
+    m_deterministic_actor_input_stop_replay =
+        suppress_until_disabled && stop_replay;
+}
+
+bool ActorManager::ProcessDeterministicActorInputStep()
+{
+    const std::string configured_mode =
+        App::sim_deterministic_input_mode->getStr();
+    DeterministicInputTrace::RuntimeMode requested_mode =
+        DeterministicInputTrace::RuntimeMode::NONE;
+    if (!IsDeterministicInputMode(configured_mode, requested_mode))
+    {
+        if (!m_deterministic_actor_input_suppressed)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing input runtime: "
+                "sim_deterministic_input_mode must be exactly off, record, "
+                "or replay");
+            this->FinishDeterministicActorInput(
+                "invalid mode",
+                true,
+                false);
+        }
+        return true;
+    }
+
+    if (requested_mode == DeterministicInputTrace::RuntimeMode::NONE)
+    {
+        if (m_deterministic_actor_input != nullptr)
+        {
+            this->FinishDeterministicActorInput(
+                "mode disabled",
+                false,
+                false);
+        }
+        m_deterministic_actor_input_suppressed = false;
+        m_deterministic_actor_input_stop_replay = false;
+        return true;
+    }
+    if (m_deterministic_actor_input_suppressed)
+        return !m_deterministic_actor_input_stop_replay;
+
+    if (m_fixed_step_capture_owner != nullptr)
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Refusing input runtime while an exact-step "
+            "capture owner controls ActorManager scheduling");
+        this->FinishDeterministicActorInput(
+            "fixed-step capture ownership conflict",
+            true,
+            requested_mode == DeterministicInputTrace::RuntimeMode::REPLAY);
+        if (requested_mode == DeterministicInputTrace::RuntimeMode::REPLAY)
+            m_deterministic_actor_input_pause_requested.store(
+                true,
+                std::memory_order_release);
+        return requested_mode != DeterministicInputTrace::RuntimeMode::REPLAY;
+    }
+
+    std::uint64_t scenario_id = 0;
+    std::uint64_t target_id = 0;
+    std::uint64_t step_limit = 0;
+    const std::string configured_path =
+        App::sim_deterministic_input_path->getStr();
+    if (!ParseDecimalUint64(
+            App::sim_deterministic_input_scenario_id->getStr(),
+            scenario_id) ||
+        !ParseDecimalUint64(
+            App::sim_deterministic_input_target_id->getStr(),
+            target_id) ||
+        target_id == 0 ||
+        !ParseDecimalUint64(
+            App::sim_deterministic_input_step_limit->getStr(),
+            step_limit) ||
+        step_limit == 0 ||
+        step_limit > MAX_LIVE_INPUT_STEPS ||
+        App::app_async_physics->getBool() ||
+        (requested_mode == DeterministicInputTrace::RuntimeMode::RECORD &&
+            !configured_path.empty()) ||
+        (requested_mode == DeterministicInputTrace::RuntimeMode::REPLAY &&
+            configured_path.empty()))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Refusing input runtime: scenario ID must be "
+            "uint64, target ID must be nonzero uint64, step limit must be "
+            "in [1,%llu], app_async_physics must be false, record path "
+            "must be empty, and replay path must be nonempty",
+            static_cast<unsigned long long>(MAX_LIVE_INPUT_STEPS));
+        this->FinishDeterministicActorInput(
+            "invalid input configuration",
+            true,
+            requested_mode == DeterministicInputTrace::RuntimeMode::REPLAY);
+        if (requested_mode == DeterministicInputTrace::RuntimeMode::REPLAY)
+            m_deterministic_actor_input_pause_requested.store(
+                true,
+                std::memory_order_release);
+        return requested_mode != DeterministicInputTrace::RuntimeMode::REPLAY;
+    }
+
+    if (m_deterministic_actor_input != nullptr)
+    {
+        const DeterministicActorInputRuntime& runtime =
+            *m_deterministic_actor_input;
+        if (runtime.configured_mode != configured_mode ||
+            runtime.scenario_id != scenario_id ||
+            runtime.target_id != target_id ||
+            runtime.step_limit != step_limit ||
+            runtime.replay_path != configured_path)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Refusing to change input identity, mode, "
+                "path, or limits while active; select mode=off first");
+            const bool replay = runtime.trace.GetMode() ==
+                DeterministicInputTrace::RuntimeMode::REPLAY;
+            this->FinishDeterministicActorInput(
+                "configuration changed while active",
+                true,
+                replay);
+            if (replay)
+                m_deterministic_actor_input_pause_requested.store(
+                    true,
+                    std::memory_order_release);
+            return !replay;
+        }
+    }
+    else
+    {
+        try
+        {
+            ActorPtr actor = App::GetGameContext() != nullptr ?
+                App::GetGameContext()->GetPlayerActor() : ActorPtr();
+            DeterministicVehicleInputActorAdapter::PolicySnapshot policy;
+            DeterministicVehicleInputActorAdapter::Status policy_status;
+            if (!BuildActorInputPolicy(actor, target_id, policy) ||
+                !DeterministicVehicleInputActorAdapter::ValidatePolicy(
+                    policy,
+                    policy_status))
+            {
+                RoR::LogFormat(
+                    "[RoR|Determinism] Refusing input runtime: live Actor "
+                    "is outside the authenticated manual-truck policy (%s)",
+                    DeterministicVehicleInputActorAdapter::ToString(
+                        policy_status.error));
+                this->FinishDeterministicActorInput(
+                    "actor policy rejected",
+                    true,
+                    requested_mode ==
+                        DeterministicInputTrace::RuntimeMode::REPLAY);
+                if (requested_mode ==
+                    DeterministicInputTrace::RuntimeMode::REPLAY)
+                {
+                    m_deterministic_actor_input_pause_requested.store(
+                        true,
+                        std::memory_order_release);
+                    return false;
+                }
+                return true;
+            }
+
+            DeterministicInputTrace::Metadata metadata;
+            if (!BuildActorInputMetadata(
+                    actor,
+                    policy,
+                    scenario_id,
+                    m_completed_physics_steps,
+                    metadata))
+            {
+                throw std::runtime_error(
+                    "could not build bounded actor input identity");
+            }
+
+            std::unique_ptr<DeterministicActorInputRuntime> runtime(
+                new DeterministicActorInputRuntime());
+            runtime->actor = actor;
+            runtime->policy = policy;
+            runtime->configured_mode = configured_mode;
+            runtime->scenario_id = scenario_id;
+            runtime->target_id = target_id;
+            runtime->step_limit = step_limit;
+            runtime->replay_path = configured_path;
+            const DeterministicInputTrace::Limits limits =
+                BuildActorInputLimits(step_limit);
+
+            if (requested_mode ==
+                DeterministicInputTrace::RuntimeMode::RECORD)
+            {
+                if (!runtime->trace.BeginRecording(metadata, limits) ||
+                    !OpenUniqueDeterministicInputTrace(
+                        *runtime,
+                        m_completed_physics_steps))
+                {
+                    throw std::runtime_error(
+                        "recording initialization or unique output failed");
+                }
+                runtime->recording_source.reset(
+                    new DeterministicVehicleInput::RecordingSource(
+                        runtime->trace,
+                        target_id,
+                        *runtime));
+                RoR::LogFormat(
+                    "[RoR|Determinism] Recording authenticated input '%s' "
+                    "(scenario=%llu, target=%llu, first-step=%llu, "
+                    "limit=%llu, vehicle='%s', fixed-gear=%d)",
+                    runtime->output_path.c_str(),
+                    static_cast<unsigned long long>(scenario_id),
+                    static_cast<unsigned long long>(target_id),
+                    static_cast<unsigned long long>(
+                        m_completed_physics_steps),
+                    static_cast<unsigned long long>(step_limit),
+                    actor->ar_filename.c_str(),
+                    policy.fixed_gear);
+            }
+            else
+            {
+                std::string bytes;
+                if (!ReadBoundedDeterministicInputTrace(
+                        configured_path,
+                        bytes) ||
+                    !runtime->trace.BeginReplay(bytes, metadata, limits) ||
+                    runtime->trace.GetLifecycle() !=
+                        DeterministicInputTrace::RuntimeLifecycle::RUNNING)
+                {
+                    throw std::runtime_error(
+                        "replay read, authentication, or identity failed");
+                }
+                runtime->replay_sink.reset(
+                    new DeterministicVehicleInput::ReplaySink(
+                        runtime->trace,
+                        target_id,
+                        *runtime));
+                RoR::LogFormat(
+                    "[RoR|Determinism] Replaying authenticated input '%s' "
+                    "(scenario=%llu, target=%llu, first-step=%llu, "
+                    "step-ceiling=%llu, digest=%s)",
+                    configured_path.c_str(),
+                    static_cast<unsigned long long>(scenario_id),
+                    static_cast<unsigned long long>(target_id),
+                    static_cast<unsigned long long>(
+                        m_completed_physics_steps),
+                    static_cast<unsigned long long>(
+                        step_limit),
+                    runtime->trace.GetTraceDigest().ToHex().c_str());
+            }
+            m_deterministic_actor_input = std::move(runtime);
+        }
+        catch (const std::exception& error)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Input runtime initialization failed: "
+                "%s",
+                error.what());
+            this->FinishDeterministicActorInput(
+                "initialization failed",
+                true,
+                requested_mode ==
+                    DeterministicInputTrace::RuntimeMode::REPLAY);
+            if (requested_mode ==
+                DeterministicInputTrace::RuntimeMode::REPLAY)
+            {
+                m_deterministic_actor_input_pause_requested.store(
+                    true,
+                    std::memory_order_release);
+                return false;
+            }
+            return true;
+        }
+        catch (...)
+        {
+            RoR::LogFormat(
+                "[RoR|Determinism] Input runtime initialization failed "
+                "with an unknown exception");
+            this->FinishDeterministicActorInput(
+                "initialization exception",
+                true,
+                requested_mode ==
+                    DeterministicInputTrace::RuntimeMode::REPLAY);
+            if (requested_mode ==
+                DeterministicInputTrace::RuntimeMode::REPLAY)
+            {
+                m_deterministic_actor_input_pause_requested.store(
+                    true,
+                    std::memory_order_release);
+                return false;
+            }
+            return true;
+        }
+    }
+
+    DeterministicActorInputRuntime& runtime =
+        *m_deterministic_actor_input;
+    if (App::GetGameContext() == nullptr ||
+        App::GetGameContext()->GetPlayerActor() != runtime.actor)
+    {
+        const bool replay = runtime.trace.GetMode() ==
+            DeterministicInputTrace::RuntimeMode::REPLAY;
+        RoR::LogFormat(
+            "[RoR|Determinism] Input target ownership changed at fixed "
+            "step %llu",
+            static_cast<unsigned long long>(m_completed_physics_steps));
+        this->FinishDeterministicActorInput(
+            "player Actor changed",
+            true,
+            replay);
+        if (replay)
+            m_deterministic_actor_input_pause_requested.store(
+                true,
+                std::memory_order_release);
+        return !replay;
+    }
+
+    bool advanced = false;
+    if (runtime.trace.GetMode() ==
+        DeterministicInputTrace::RuntimeMode::RECORD)
+    {
+        advanced = runtime.trace.RecordFixedStep(
+            m_completed_physics_steps,
+            *runtime.recording_source);
+    }
+    else
+    {
+        advanced = runtime.trace.ReplayFixedStep(
+            m_completed_physics_steps,
+            *runtime.replay_sink);
+    }
+    if (!advanced)
+    {
+        const bool replay = runtime.trace.GetMode() ==
+            DeterministicInputTrace::RuntimeMode::REPLAY;
+        const DeterministicInputTrace::RuntimeStatus status =
+            runtime.trace.GetStatus();
+        RoR::LogFormat(
+            "[RoR|Determinism] Input %s failed at fixed step %llu "
+                    "(%s, trace=%s, adapter=%s, processed=%llu)",
+            replay ? "replay" : "recording",
+            static_cast<unsigned long long>(m_completed_physics_steps),
+            DeterministicInputTrace::ToString(status.error),
+            DeterministicInputTrace::ToString(
+                status.trace_status.error),
+            DeterministicVehicleInputActorAdapter::ToString(
+                runtime.adapter_error),
+            static_cast<unsigned long long>(status.processed_steps));
+        this->FinishDeterministicActorInput(
+            "fixed-step transaction failed",
+            true,
+            replay);
+        if (replay)
+            m_deterministic_actor_input_pause_requested.store(
+                true,
+                std::memory_order_release);
+        return !replay;
+    }
+
+    if (runtime.trace.GetMode() ==
+            DeterministicInputTrace::RuntimeMode::RECORD &&
+        runtime.trace.GetProcessedStepCount() == runtime.step_limit)
+    {
+        this->FinishDeterministicActorInput(
+            "configured step limit reached",
+            true,
+            false);
+    }
+    else if (runtime.trace.GetMode() ==
+            DeterministicInputTrace::RuntimeMode::REPLAY &&
+        runtime.trace.GetLifecycle() ==
+            DeterministicInputTrace::RuntimeLifecycle::FINISHED)
+    {
+        this->FinishDeterministicActorInput(
+            "authenticated stream exhausted",
+            true,
+            true);
+        m_deterministic_actor_input_pause_requested.store(
+            true,
+            std::memory_order_release);
+    }
+    return true;
 }
 
 bool ActorManager::PrepareDeterministicStateTraceStep()
@@ -1772,6 +2730,10 @@ std::pair<ActorPtr, float> ActorManager::GetNearestActor(Vector3 position)
 void ActorManager::CleanUpSimulation() // Called after simulation finishes
 {
     this->SyncWithSimThread();
+    this->FinishDeterministicActorInput(
+        "simulation cleanup",
+        false,
+        false);
     this->FinishDeterministicStateTrace(
         "simulation cleanup",
         false);
@@ -1787,6 +2749,11 @@ void ActorManager::CleanUpSimulation() // Called after simulation finishes
     m_simulation_speed = 1.f;
     m_completed_physics_steps = 0;
     m_deterministic_state_trace_suppressed = false;
+    m_deterministic_actor_input_suppressed = false;
+    m_deterministic_actor_input_stop_replay = false;
+    m_deterministic_actor_input_pause_requested.store(
+        false,
+        std::memory_order_release);
 }
 
 void ActorManager::DeleteActorInternal(ActorPtr actor)
@@ -1957,6 +2924,19 @@ const ActorPtr& ActorManager::FetchRescueVehicle()
 
 void ActorManager::UpdateActors(ActorPtr player_actor)
 {
+    // Replay faults and authenticated exhaustion originate on the private
+    // physics worker. Transfer only the pause request through an atomic; the
+    // main thread remains the sole owner of the legacy pause flag.
+    if (m_deterministic_actor_input_pause_requested.exchange(
+            false,
+            std::memory_order_acq_rel))
+    {
+        m_simulation_paused = true;
+        RoR::LogFormat(
+            "[RoR|Determinism] Physics paused after deterministic input "
+            "replay stopped");
+    }
+
     // An exact-step capture runtime is the sole scheduler while it owns this
     // manager. Input/render work may continue on the main thread, but normal
     // wall-clock physics must not race or interleave with authored batches.
@@ -2006,6 +2986,16 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
     }
     if (m_physics_steps == 0)
     {
+        if ((m_deterministic_actor_input != nullptr ||
+                m_deterministic_actor_input_suppressed) &&
+            App::sim_deterministic_input_mode->getStr() == "off")
+        {
+            this->SyncWithSimThread();
+            this->FinishDeterministicActorInput(
+                "mode disabled while no fixed step was due",
+                false,
+                false);
+        }
         if ((m_deterministic_state_trace != nullptr ||
                 m_deterministic_state_trace_suppressed) &&
             !App::sim_deterministic_state_trace->getBool())
@@ -2042,6 +3032,9 @@ bool ActorManager::AcquireFixedStepCaptureOwnership(
     this->SyncWithSimThread();
     GameContext* const context = App::GetGameContext();
     if (m_fixed_step_capture_owner != nullptr ||
+        m_deterministic_actor_input != nullptr ||
+        (App::sim_deterministic_input_mode != nullptr &&
+            App::sim_deterministic_input_mode->getStr() != "off") ||
         context == nullptr ||
         context->GetActorManager() != this ||
         context->GetPlayerActor() != player_actor)
@@ -2292,6 +3285,12 @@ void ActorManager::UpdatePhysicsSimulation(
     }
     for (int i = 0; i < m_physics_steps; i++)
     {
+        // Authenticated replay is applied before every other fixed-step-start
+        // observer and before worker force dispatch. A replay fault/exhaustion
+        // stops this batch without advancing the canonical step counter.
+        if (!this->ProcessDeterministicActorInputStep())
+            return;
+
         if (observation_batch != nullptr)
         {
             observation_batch->ObserveFixedStepStart(

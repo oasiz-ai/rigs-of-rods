@@ -30,6 +30,13 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_renderer_combined_game_wiring_contract.py"
 )
 
+add_test(
+    NAME deterministic_input_live_runtime_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_input_live_runtime_contract.py"
+)
+
 add_executable(
     ror_renderer_combined_application_mode_tests
     "${CMAKE_CURRENT_LIST_DIR}/system/RendererCombinedApplicationModeTests.cpp"
@@ -2086,6 +2093,15 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInput.cpp"
 )
 
+add_executable(
+    ror_deterministic_vehicle_input_actor_adapter_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicVehicleInputActorAdapterTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTraceRuntime.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInput.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInputActorAdapter.cpp"
+)
+
 # The production build deliberately excludes authenticated input-trace
 # translation units from global fast-math. Mirror that boundary here while
 # leaving each test driver and the actual physics kernels in the requested
@@ -2094,6 +2110,7 @@ set(ROR_DETERMINISTIC_INPUT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTraceRuntime.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInput.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInputActorAdapter.cpp"
 )
 if (MSVC)
     set_source_files_properties(
@@ -2726,6 +2743,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_input_trace_tests
     ror_deterministic_input_trace_runtime_tests
     ror_deterministic_vehicle_input_tests
+    ror_deterministic_vehicle_input_actor_adapter_tests
     ror_deterministic_state_digest_tests
     ror_deterministic_state_trace_tests
     ror_state_trace
@@ -3501,6 +3519,11 @@ add_test(
 add_test(
     NAME deterministic_vehicle_input
     COMMAND ror_deterministic_vehicle_input_tests
+)
+
+add_test(
+    NAME deterministic_vehicle_input_actor_adapter
+    COMMAND ror_deterministic_vehicle_input_actor_adapter_tests
 )
 
 add_test(

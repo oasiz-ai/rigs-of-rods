@@ -216,6 +216,7 @@ set(SOURCE_FILES
         physics/DeterministicInputTrace.{h,cpp}
         physics/DeterministicInputTraceRuntime.{h,cpp}
         physics/DeterministicVehicleInput.{h,cpp}
+        physics/DeterministicVehicleInputActorAdapter.{h,cpp}
         physics/DeterministicStateDigest.{h,cpp}
         physics/DeterministicStateTrace.{h,cpp}
         physics/DeterministicStateTraceCli.{h,cpp}
@@ -802,6 +803,7 @@ set(ROR_DETERMINISTIC_INPUT_SOURCES
         physics/DeterministicInputTrace.cpp
         physics/DeterministicInputTraceRuntime.cpp
         physics/DeterministicVehicleInput.cpp
+        physics/DeterministicVehicleInputActorAdapter.cpp
         )
 if (MSVC)
     set_source_files_properties(

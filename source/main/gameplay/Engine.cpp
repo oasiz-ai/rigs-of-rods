@@ -1003,6 +1003,14 @@ void Engine::toggleContact()
     }
 }
 
+void Engine::setDeterministicInputIgnition(
+    bool contact,
+    bool starter) noexcept
+{
+    m_contact = contact;
+    m_starter = starter;
+}
+
 void Engine::startEngine()
 {
     this->offStart();

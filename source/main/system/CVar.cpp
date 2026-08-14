@@ -85,6 +85,31 @@ void Console::cVarSetupBuiltins()
         "Deterministic fixed physics steps per rendered frame",
         CVAR_ARCHIVE | CVAR_TYPE_INT,
         "0");
+    App::sim_deterministic_input_mode = this->cVarCreate(
+        "sim_deterministic_input_mode",
+        "Authenticated fixed-step input mode: off, record, or replay",
+        0,
+        "off");
+    App::sim_deterministic_input_path = this->cVarCreate(
+        "sim_deterministic_input_path",
+        "Authenticated input trace path (replay mode only)",
+        0,
+        "");
+    App::sim_deterministic_input_scenario_id = this->cVarCreate(
+        "sim_deterministic_input_scenario_id",
+        "Authenticated input scenario ID",
+        0,
+        "0");
+    App::sim_deterministic_input_target_id = this->cVarCreate(
+        "sim_deterministic_input_target_id",
+        "Scenario-assigned nonzero input target ID",
+        0,
+        "");
+    App::sim_deterministic_input_step_limit = this->cVarCreate(
+        "sim_deterministic_input_step_limit",
+        "Authenticated input record/replay step ceiling",
+        0,
+        "12000");
     App::wm_capture_enabled = this->cVarCreate(
         "wm_capture_enabled",
         "Enable one fail-closed native world-model episode",

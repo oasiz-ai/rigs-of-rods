@@ -33,6 +33,7 @@
 #include "SimData.h"
 #include "ThreadPool.h"
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ namespace RoR {
 
 struct InterActorContactBufferPool;
 struct DeterministicStateTraceRuntime;
+struct DeterministicActorInputRuntime;
 
 /// @addtogroup Physics
 /// @{
@@ -84,6 +86,10 @@ public:
 
     void           UpdateActors(ActorPtr player_actor);
     void           SyncWithSimThread();
+    /// Replay owns all Actor/Engine controls in the authenticated production
+    /// subset. The render-frame input path must not mutate that player Actor.
+    bool           ShouldSuppressLiveInputForDeterministicReplay(
+                       const ActorPtr& actor) const;
     /// Stop and join the private physics worker before renderer/static
     /// lifetime teardown. Idempotent and reserved for final app shutdown.
     bool           ShutdownWorkerRuntime() noexcept;
@@ -196,6 +202,11 @@ private:
     void           FinishDeterministicStateTrace(
                        const char* reason,
                        bool suppress_until_disabled);
+    bool           ProcessDeterministicActorInputStep();
+    void           FinishDeterministicActorInput(
+                       const char* reason,
+                       bool suppress_until_disabled,
+                       bool stop_replay);
 
     // Networking
     std::map<int, std::set<int>> m_stream_mismatches; //!< Networking: A set of streams without a corresponding actor in the actor-array for each stream source
@@ -221,6 +232,10 @@ private:
     std::unique_ptr<InterActorContactBufferPool> m_inter_contact_buffers; //!< Reused bounded task storage; avoids allocating at 2 kHz
     std::unique_ptr<DeterministicStateTraceRuntime> m_deterministic_state_trace; //!< Allocates/captures only while the opt-in trace is active
     bool                m_deterministic_state_trace_suppressed = false; //!< Error latch cleared only by disabling capture or loading a new simulation
+    std::unique_ptr<DeterministicActorInputRuntime> m_deterministic_actor_input; //!< Authenticated single-player fixed-step input owner
+    bool                m_deterministic_actor_input_suppressed = false; //!< Cleared only by selecting mode=off or loading a new simulation
+    bool                m_deterministic_actor_input_stop_replay = false; //!< Stops the current physics batch after replay exhaustion/fault
+    std::atomic<bool>   m_deterministic_actor_input_pause_requested{false}; //!< Physics worker requests; main thread consumes before scheduling
     FreeForceVec_t      m_free_forces;                    //!< Global forces added ad-hoc by scripts
     FreeForceID_t       m_free_force_next_id     = 0;     //!< Unique ID for each FreeForce
 
