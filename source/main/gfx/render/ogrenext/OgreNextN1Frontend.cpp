@@ -3953,7 +3953,7 @@ public:
                         MaterialAlphaTestMode::GREATER_EQUAL
                     ? Ogre::CMPF_GREATER
                     : Ogre::CMPF_ALWAYS_PASS,
-          false, true);
+          false, !thin_slab_transmission);
       native.pbs_datablock->setAlphaTestThreshold(descriptor.alpha_cutoff);
       if (directional_shadow_mode ==
           OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1) {

@@ -717,6 +717,18 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
         self.assertIn("datablock.hasSeparateFresnel()", self.frontend)
 
+    def test_thin_slab_keeps_texture_alpha_disabled_after_alpha_test_setup(
+        self,
+    ) -> None:
+        self.assertIn(
+            "false, !thin_slab_transmission);",
+            self.frontend,
+        )
+        self.assertIn(
+            "datablock.getUseAlphaFromTextures() != !thin_slab_transmission",
+            self.frontend,
+        )
+
     def test_specular_sampler_participates_in_exact_device_limit_gate(self) -> None:
         policy = (RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.cpp").read_text(
             encoding="utf-8"
