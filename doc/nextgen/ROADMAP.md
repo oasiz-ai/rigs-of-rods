@@ -1603,7 +1603,8 @@ authoring and renderer-neutral decode; it does not yet prove runtime scene
 publication, AO, LOD, collision, native terrain, or the complete V2 showcase.
 
 The sibling `NATIVE-A1-001` milestone extends forward-native visual map data
-without replacing A0 or changing `.rornative` v1. It provides a project-original
+without replacing A0. Its `.rornative` v2 package preserves the v1 static-mesh
+rules while adding an explicit thin-slab transmission material. It provides a project-original
 60 metre two-lane calibration course with deterministic dry/wet asphalt,
 shoulders, lane markings, curbs, barriers, and static calibration detail. Its
 renderer-neutral alignment manifest records course surfaces, seams, and named
@@ -1612,8 +1613,14 @@ decoded GLB components and close exact road-curb and curb-shoulder boundaries
 at `x=-4,4` and `x=-4.15,4.15`; their heights and full vertical faces are
 mechanically reconciled with identity-transformed batch geometry. This remains visual-only and collision-
 pending: package staging is not scene publication, native-terrain integration,
-driveability, or playability evidence. See
-[NATIVE_A1_COURSE_V1.md](NATIVE_A1_COURSE_V1.md).
+driveability, or playability evidence. A live Apple M5 checkpoint now proves the
+exact A1 package in RoR with descriptor-v5 PBS, the rotating thin-glass witness,
+Snell/Beer-Lambert refraction with a screen-space radiance lookup, the HDR split
+and post stack, and Metal Sun Visibility V2 hard-shadow rays on Ogre's exact
+device, queue, and timeline. That evidence does not widen the collision,
+native-terrain, path-tracing, GI, soft-shadow, or ray-traced-reflection claims.
+See [NATIVE_A1_COURSE_V1.md](NATIVE_A1_COURSE_V1.md) and
+[the live M5 checkpoint](evidence/PLAYABLE_VISUAL_CHECKPOINT_M5_2026-08-14.json).
 
 The first showcase is authored from scratch as project-original work, or is a
 rights-cleared recreation/derivative. A0 must approve distribution in either

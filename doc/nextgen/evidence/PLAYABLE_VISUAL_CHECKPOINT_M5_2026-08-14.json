@@ -1,0 +1,118 @@
+{
+  "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+  "executable": "/private/tmp/ror-playable-resolution-build-v1/bin/RoR-Combined",
+  "executable_sha256": "d71954fd436eae455025922720793b90a6df8471688ac8bf268b1446831d768d",
+  "format": "ror-playable-visual-checkpoint-v1",
+  "machine": "arm64",
+  "platform": "macOS-26.4.1-25E253-arm64-Apple-M5",
+  "recorded_at_local": "2026-08-14T02:11:21-07:00",
+  "repository_commit": "b017960f6542eca55f3be7d23858034eab479be3",
+  "scenarios": [
+    {
+      "id": "playable-cityworld-alexis-pcc-hdr-pssm",
+      "launch_arguments": [
+        "-checkcache",
+        "-map",
+        "CityWorld.terrn2",
+        "-truck",
+        "AlexisSaber.truck",
+        "-enter"
+      ],
+      "live_log": "/private/tmp/ror-playable-resolution-home.vlsCHP/RigsOfRods/logs/RoR.log",
+      "live_receipt": {
+        "completed_frames": 1563,
+        "descriptor_version": 4,
+        "directional_lights": 1,
+        "hdr_rgba16": true,
+        "ogre14_lighting_passes": 0,
+        "pbs_materials": 563,
+        "production_content_readbacks": 0,
+        "production_framebuffer_readbacks": 0,
+        "pssm": true,
+        "reflection_audit_version": 3,
+        "reflection_blend_resolution": 2048,
+        "reflection_capture_failures": 0,
+        "reflection_captures": 8,
+        "reflection_faces": 6,
+        "reflection_mips": 5,
+        "reflection_probe_resolution": 256,
+        "reflections_pcc": true,
+        "single_scene_evaluation": true,
+        "tone_mapping": {
+          "auto_exposure": true,
+          "bloom": true,
+          "filmic": true,
+          "srgb": true
+        }
+      },
+      "runtime_alive_at_capture": true
+    },
+    {
+      "id": "native-a1-refraction-turntable-metal-sun-visibility-v2",
+      "launch_arguments": [
+        "--native-visual-showcase"
+      ],
+      "live_log": "/private/tmp/ror-a1-resolution-home.pa0Zqd/RigsOfRods/logs/RoR.log",
+      "live_receipt": {
+        "a1_package_sha256": "6399101c63ca8d5eff25ab499db215c45d89a4ce91cba08145692d025401505d",
+        "beer_lambert": true,
+        "completed_hdr_frames": 7430,
+        "completed_rt_frames": 7393,
+        "descriptor_version": 5,
+        "emissive_materials": 1,
+        "glass_revolution_ticks": 360,
+        "glass_selected_object_id": 13647731313469054024,
+        "glass_turntable_fixed_hz": 60,
+        "hdr_scene_evaluations": 3,
+        "metal_rt_first_frame": {
+          "admitted_instances": 7,
+          "blas_builds": 7,
+          "gpu_ns": 11103749,
+          "occluded_texels": 25541,
+          "primary_rays": 3686400,
+          "sun_rays": 202604,
+          "tlas_builds": 1,
+          "visible_texels": 3660859
+        },
+        "metal_rt_reuse_frame": {
+          "blas_cache_hits": 7,
+          "gpu_ns": 1613291,
+          "tlas_cache_hits": 1
+        },
+        "normal_mapped_materials": 7,
+        "ogre14_lighting_passes": 0,
+        "pbs_materials": 9,
+        "physical_snell": true,
+        "production_content_readbacks": 0,
+        "production_framebuffer_readbacks": 0,
+        "screen_space_radiance_lookup": true,
+        "same_ogre_device": true,
+        "same_ogre_queue": true,
+        "same_ogre_timeline": true,
+        "shader_lock": true,
+        "sun_direct_only": true,
+        "supports_hardware_ray_tracing": true,
+        "thin_slab_refraction": true,
+        "transmission_materials": 1,
+        "turntable_cardinal_angles_observed": [
+          0,
+          90,
+          180,
+          270
+        ]
+      },
+      "runtime_alive_at_capture": true
+    }
+  ],
+  "scope_boundaries": [
+    "Metal ray tracing is used for hard directional sun visibility only; this is not path tracing, GI, soft shadows, or ray-traced reflections.",
+    "The thin parallel-slab glass computes Snell refraction and Beer-Lambert attenuation, but samples scene radiance through a screen-space lookup and has no motion vectors.",
+    "Playable CityWorld uses the reviewed Ogre14-to-OgreNext capture path and a raster parallax-corrected cubemap; it does not use the A1 native map package or ray-traced reflections.",
+    "A1 remains a visual calibration course without RoR collision, physics binding, or native-terrain playability."
+  ],
+  "validation": {
+    "combined_build_steps": 903,
+    "combined_build_status": "pass",
+    "renderer_combined_game_wiring_contract": "pass"
+  }
+}
