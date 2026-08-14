@@ -253,8 +253,12 @@ def write_fixture_archive(path: Path, fixture: bytes) -> str:
 
 def runtime_layout(root: Path, target_platform: str) -> dict[str, Path]:
     if target_platform == "darwin":
-        user = root / "Library" / "Application Support" / "Rigs of Rods"
-        logs = root / "Library" / "Logs" / "Rigs of Rods"
+        # The soak launches a non-bundle development executable. RoR's
+        # authenticated ROR_D0_SCENE_HOME override therefore retains the
+        # development layout rather than the application-bundle Library
+        # layout.
+        user = root / "RigsOfRods"
+        logs = user / "logs"
     elif target_platform == "win32":
         user = root / "My Games" / "Rigs of Rods"
         logs = user / "logs"
@@ -321,7 +325,17 @@ def build_command(executable: Path) -> tuple[str, ...]:
     command = [str(executable)]
     if sys.platform == "darwin":
         command.extend(("-ApplePersistenceIgnoreState", "YES"))
-    command.extend(("-map", TERRAIN, "-runscript", SCENARIO_SCRIPT))
+    command.extend(
+        (
+            "-map",
+            TERRAIN,
+            "-truck",
+            FIXTURE_MEMBER,
+            "-enter",
+            "-runscript",
+            SCENARIO_SCRIPT,
+        )
+    )
     return tuple(command)
 
 

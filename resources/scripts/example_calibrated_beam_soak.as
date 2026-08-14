@@ -9,13 +9,11 @@ const int APP_STATE_SIMULATION = 2;
 const int SIM_STATE_RUNNING = 1;
 const int SIM_STATE_PAUSED = 2;
 
-const int64 ACTOR_ID = 1101;
 const int EXPECTED_NODES = 176;
 const int EXPECTED_CALIBRATED_BEAMS = 15;
 const uint64 EXPECTED_PHYSICS_STEPS = 120000;
 const string SCENARIO_ID = "2026081302";
 const string VEHICLE = "P1CalibratedDAF.truck";
-const vector3 POSITION(512.0f, 25.0f, 512.0f);
 
 enum ScenarioState
 {
@@ -28,6 +26,7 @@ enum ScenarioState
 
 ScenarioState gState = WAITING_FOR_TERRAIN;
 bool gActorSpawned = false;
+int64 gActorId = -1;
 CVarClass@ gAppState;
 CVarClass@ gSimState;
 
@@ -134,11 +133,12 @@ void eventCallbackEx(
 {
     if (event != SE_GENERIC_NEW_TRUCK)
         return;
-    if (arg1 != ACTOR_ID)
+    if (gActorSpawned || arg1 < 0)
     {
-        FailScenario("unexpected-actor-id-" + arg1);
+        FailScenario("unexpected-actor-event-" + arg1);
         return;
     }
+    gActorId = arg1;
     gActorSpawned = true;
 }
 
@@ -166,20 +166,6 @@ void frameStep(float dt)
             FailScenario("terrain-advanced-before-arm");
             return;
         }
-        if (!game.pushMessage(
-                MSG_SIM_SPAWN_ACTOR_REQUESTED,
-                {
-                    {"filename", VEHICLE},
-                    {"instance_id", ACTOR_ID},
-                    {"free_position", true},
-                    {"enter", false},
-                    {"position", POSITION},
-                    {"rotation", quaternion()}
-                }))
-        {
-            FailScenario("spawn-request-rejected");
-            return;
-        }
         gState = WAITING_FOR_ACTOR;
         return;
     }
@@ -193,7 +179,7 @@ void frameStep(float dt)
             FailScenario("physics-advanced-during-paused-spawn");
             return;
         }
-        BeamClass@ actor = game.getTruckByNum(ACTOR_ID);
+        BeamClass@ actor = game.getTruckByNum(gActorId);
         if (!AuditActor(actor, "arm"))
             return;
 
@@ -214,7 +200,7 @@ void frameStep(float dt)
             FailScenario("physics-step-overshoot-" + completed);
             return;
         }
-        BeamClass@ actor = game.getTruckByNum(ACTOR_ID);
+        BeamClass@ actor = game.getTruckByNum(gActorId);
         if (!AuditActor(actor, "step-" + completed))
             return;
 

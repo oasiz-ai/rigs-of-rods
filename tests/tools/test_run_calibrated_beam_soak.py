@@ -184,6 +184,10 @@ class CalibratedBeamSoakTests(unittest.TestCase):
                 self.assertIn("app_num_workers=8", config)
                 self.assertIn("app_force_cache_update=true", config)
                 self.assertNotIn(str(Path.home()), config)
+            self.assertEqual(
+                SOAK.runtime_layout(root / "darwin", "darwin")["user"],
+                root / "darwin" / "RigsOfRods",
+            )
             with self.assertRaises(SOAK.SoakFailure):
                 SOAK.runtime_layout(root, "unknown")
 
@@ -195,6 +199,17 @@ class CalibratedBeamSoakTests(unittest.TestCase):
         self.assertIn("EXPECTED_CALIBRATED_BEAMS = 15", script)
         self.assertIn('"sim_deterministic_fixed_steps_per_frame", "100"', script)
         self.assertIn("not a claim of physically calibrated DAF", script)
+        self.assertNotIn("MSG_SIM_SPAWN_ACTOR_REQUESTED", script)
+        self.assertEqual(
+            SOAK.build_command(Path("/tmp/RoR"))[-5:],
+            (
+                "-truck",
+                SOAK.FIXTURE_MEMBER,
+                "-enter",
+                "-runscript",
+                SOAK.SCENARIO_SCRIPT,
+            ),
+        )
         for method in (
             "getCalibratedBeamCount",
             "getCalibratedBeamFaultCount",
