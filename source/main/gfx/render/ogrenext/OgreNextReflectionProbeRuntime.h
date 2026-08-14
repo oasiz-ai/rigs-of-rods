@@ -56,7 +56,7 @@ struct OgreNextReflectionProbeItemBinding final {
 };
 
 struct OgreNextReflectionProbeAudit final {
-  std::uint32_t version = 2U;
+  std::uint32_t version = 3U;
   std::uint64_t committed_state_digest = 0U;
   std::uint64_t successful_capture_count = 0U;
   std::uint64_t failed_capture_count = 0U;
@@ -74,6 +74,7 @@ struct OgreNextReflectionProbeAudit final {
   float filtered_max_absolute_rgb = 0.0F;
   std::uint32_t live_probe_count = 0U;
   std::uint32_t completed_face_count = 0U;
+  std::uint16_t last_probe_resolution = 0U;
   std::uint16_t blend_resolution = 0U;
   std::uint16_t completed_mip_count = 0U;
   bool initialized = false;

@@ -3824,7 +3824,8 @@ int main(int argc, char *argv[])
                                     "reflection_capture_frame={} "
                                     "reflection_capture_tick={} "
                                     "reflection_faces={} reflection_mips={} "
-                                    "reflection_resolution={} "
+                                    "reflection_probe_resolution={} "
+                                    "reflection_blend_resolution={} "
                                     "reflection_native_evidence={} "
                                     "reflection_initialized={} "
                                     "reflection_resources={} reflection_pcc={} "
@@ -3882,6 +3883,7 @@ int main(int argc, char *argv[])
                                         .reflection_completed_face_count,
                                     lighting_audit
                                         .reflection_completed_mip_count,
+                                    lighting_audit.reflection_probe_resolution,
                                     lighting_audit.reflection_blend_resolution,
                                     lighting_audit
                                         .reflection_native_execution_evidence,

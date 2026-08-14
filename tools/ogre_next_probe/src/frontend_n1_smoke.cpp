@@ -2338,6 +2338,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << audit.failed_capture_count << ",\n"
            << "      \"live_probe_count\": " << audit.live_probe_count
            << ",\n"
+           << "      \"probe_resolution\": "
+           << audit.last_probe_resolution << ",\n"
            << "      \"blend_resolution\": " << audit.blend_resolution
            << ",\n"
            << "      \"blend_texture_ready\": "

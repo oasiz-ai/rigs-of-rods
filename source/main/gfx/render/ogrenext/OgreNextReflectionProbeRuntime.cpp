@@ -1383,6 +1383,7 @@ public:
           published->measurement.completed_face_count;
       audit.completed_mip_count =
           published->measurement.completed_mip_count;
+      audit.last_probe_resolution = published->captured_request.resolution;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       if (published->capture_evidence.valid) {
         last_capture_evidence =
@@ -1478,6 +1479,7 @@ public:
     audit.filtered_max_absolute_rgb = 0.0F;
     audit.completed_face_count = 0U;
     audit.completed_mip_count = 0U;
+    audit.last_probe_resolution = 0U;
     audit.blend_texture_ready = false;
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
     last_capture_evidence = {};

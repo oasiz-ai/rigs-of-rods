@@ -924,10 +924,11 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "resolution": VERIFY.RT4_REFLECTION_RESOLUTION,
             },
             "runtime_audit": {
-                "version": 2,
+                "version": 3,
                 "successful_capture_count": 1,
                 "failed_capture_count": 0,
                 "live_probe_count": 1,
+                "probe_resolution": VERIFY.RT4_REFLECTION_RESOLUTION,
                 "blend_resolution": 2048,
                 "blend_texture_ready": True,
                 "committed_state_digest": "1111111111111111",
@@ -2644,6 +2645,18 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                         policy_report, reflection_path, policy_contract
                     )
                     self.assertEqual(len(slices), 18)
+
+            wrong_resolution = copy.deepcopy(report)
+            wrong_resolution["reflection_probes"]["runtime_audit"][
+                "probe_resolution"
+            ] = VERIFY.RT4_REFLECTION_RESOLUTION * 2
+            with self.assertRaisesRegex(
+                VERIFY.ArtifactSetError,
+                "RT4 reflection runtime audit failed: probe_resolution",
+            ):
+                VERIFY._verify_rt4_reflection_semantics(
+                    wrong_resolution, reflection_path, contract
+                )
 
             valid_payload = reflection_path.read_bytes()
             changed = bytearray(valid_payload)

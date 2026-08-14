@@ -1850,6 +1850,7 @@ def _verify_rt4_reflection_semantics(
             "successful_capture_count",
             "failed_capture_count",
             "live_probe_count",
+            "probe_resolution",
             "blend_resolution",
             "blend_texture_ready",
             "committed_state_digest",
@@ -1864,10 +1865,13 @@ def _verify_rt4_reflection_semantics(
         "RT4 reflection runtime audit",
     )
     runtime_checks = {
-        "version": _json_exact(runtime.get("version"), 2),
+        "version": _json_exact(runtime.get("version"), 3),
         "success": _json_exact(runtime.get("successful_capture_count"), 1),
         "failure": _json_exact(runtime.get("failed_capture_count"), 0),
         "live": _json_exact(runtime.get("live_probe_count"), 1),
+        "probe_resolution": _json_exact(
+            runtime.get("probe_resolution"), RT4_REFLECTION_RESOLUTION
+        ),
         "blend_resolution": _json_exact(runtime.get("blend_resolution"), 2048),
         "blend_ready": runtime.get("blend_texture_ready") is True,
         "state_digest": _is_nonzero_u64_hex(

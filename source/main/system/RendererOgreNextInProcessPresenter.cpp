@@ -737,6 +737,7 @@ public:
     output.reflection_live_probe_count = reflection.live_probe_count;
     output.reflection_completed_face_count = reflection.completed_face_count;
     output.reflection_completed_mip_count = reflection.completed_mip_count;
+    output.reflection_probe_resolution = reflection.last_probe_resolution;
     output.reflection_blend_resolution = reflection.blend_resolution;
     output.reflection_successful_capture_count =
         reflection.successful_capture_count;

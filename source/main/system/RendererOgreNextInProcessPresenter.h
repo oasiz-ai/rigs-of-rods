@@ -180,6 +180,7 @@ struct RendererNativeLightingAudit final {
   std::uint32_t reflection_live_probe_count = 0U;
   std::uint32_t reflection_completed_face_count = 0U;
   std::uint32_t reflection_completed_mip_count = 0U;
+  std::uint32_t reflection_probe_resolution = 0U;
   std::uint32_t reflection_blend_resolution = 0U;
   std::uint64_t reflection_successful_capture_count = 0U;
   std::uint64_t reflection_failed_capture_count = 0U;

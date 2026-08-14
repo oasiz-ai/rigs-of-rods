@@ -298,6 +298,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "output.raster_scene_evaluations = audit.raster_scene_evaluations;",
             "output.reflection_successful_capture_count =\n"
             "        reflection.successful_capture_count;",
+            "output.reflection_probe_resolution = reflection.last_probe_resolution;",
+            "output.reflection_blend_resolution = reflection.blend_resolution;",
             "output.reflection_native_execution_evidence =\n"
             "        reflection.native_execution_evidence;",
             "output.reflection_pcc_enabled = reflection.pcc_enabled;",
@@ -322,6 +324,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "pssm_populated_finalize={}",
             "scene_evaluations={}",
             "reflection_captures={}",
+            "reflection_probe_resolution={}",
+            "reflection_blend_resolution={}",
             "reflection_native_evidence={}",
             "reflection_pcc={}",
             "reflection_pbs_bound={}",
