@@ -517,6 +517,24 @@ set(ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE
     "RoR/UvAffinePbs/UvAffinePbs_piece_ps.any")
 set(ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media/Hlms/${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE
+    "RoR/SunVisibilityV2/SunVisibilityV2.metal")
+set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media/Hlms/${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}")
+set(ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/metal-sun-visibility-v2.lock.json")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ROR_OGRE_NEXT_STANDALONE_ROOT}/verify_sun_visibility_v2_shader.py"
+            --root "${ROR_OGRE_NEXT_STANDALONE_ROOT}"
+            --lock "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
+    RESULT_VARIABLE _ror_sun_visibility_v2_shader_result
+    ERROR_VARIABLE _ror_sun_visibility_v2_shader_error)
+if (NOT _ror_sun_visibility_v2_shader_result EQUAL 0)
+    message(FATAL_ERROR
+        "Metal sun-visibility V2 shader verification failed: "
+        "${_ror_sun_visibility_v2_shader_error}")
+endif ()
 set(_ror_stage_tuples "")
 set(_ror_stage_sources "")
 
@@ -526,7 +544,8 @@ file(GLOB_RECURSE _ror_n1_hlms_files
     "${_ror_n1_hlms_root}/*")
 list(APPEND _ror_n1_hlms_files
     "${ROR_OGRE_NEXT_DISPLAY_DOMAIN_MEDIA_RELATIVE}"
-    "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}")
+    "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE}"
+    "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE}")
 list(REMOVE_DUPLICATES _ror_n1_hlms_files)
 list(SORT _ror_n1_hlms_files)
 if (NOT _ror_n1_hlms_files)
@@ -541,6 +560,10 @@ foreach (_ror_hlms_relative IN LISTS _ror_n1_hlms_files)
     elseif (_ror_hlms_relative STREQUAL
             ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE)
         set(_ror_hlms_source "${ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_SOURCE}")
+    elseif (_ror_hlms_relative STREQUAL
+            ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_RELATIVE)
+        set(_ror_hlms_source
+            "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}")
     else ()
         set(_ror_hlms_source "${_ror_n1_hlms_root}/${_ror_hlms_relative}")
     endif ()

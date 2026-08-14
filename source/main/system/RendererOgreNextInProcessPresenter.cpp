@@ -11,12 +11,18 @@
 #include "OgreNextN1Frontend.h"
 #include "RendererOgreNextSdlWindowRuntime.h"
 
+#if defined(__APPLE__)
+#include "OgreNextMetalRayTracingBackend.h"
+#include "OgreNextN1NativeInterop.h"
+#endif
+
 #include <SDL.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <new>
 #include <optional>
 #include <stdexcept>
@@ -173,6 +179,400 @@ bool IsKnownPollPoint(RendererInProcessEventPollPoint point) noexcept {
   return false;
 }
 
+#if defined(__APPLE__)
+
+std::uint64_t StableSunVisibilityMeshId(RenderAssetId id) noexcept {
+  constexpr std::uint64_t kOffset = UINT64_C(14695981039346656037);
+  constexpr std::uint64_t kPrime = UINT64_C(1099511628211);
+  std::uint64_t hash = kOffset;
+  const auto append = [&](std::uint64_t word) {
+    for (std::uint32_t byte = 0U; byte < 8U; ++byte) {
+      hash ^= (word >> (byte * 8U)) & UINT64_C(0xff);
+      hash *= kPrime;
+    }
+  };
+  append(id.high());
+  append(id.low());
+  return hash == 0U ? kOffset : hash;
+}
+
+ValidationResult BuildSunVisibilitySelection(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    const CameraViewRequest &view,
+    std::vector<NativeSunVisibilityV2InstanceSelection> &output) {
+  std::uint32_t directional_lights = 0U;
+  bool shadow_enabled_sun = false;
+  for (const LightDescriptor &light : snapshot.lights()) {
+    if (light.type == LightType::DIRECTIONAL) {
+      ++directional_lights;
+      shadow_enabled_sun = shadow_enabled_sun || light.shadow_flags != 0U;
+    }
+  }
+  if (directional_lights != 1U || !shadow_enabled_sun) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "sun_visibility_v2.directional_sun",
+        "production V2 requires exactly one shadow-enabled directional sun");
+  }
+  if (snapshot.mesh_instances().empty() ||
+      snapshot.mesh_instances().size() >
+          kNativeSunVisibilityV2MaximumSelectedInstances) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "sun_visibility_v2.instances",
+        "production V2 requires 1..256 explicitly classified instances");
+  }
+
+  std::vector<NativeSunVisibilityV2InstanceSelection> candidate;
+  std::map<std::uint64_t, RenderAssetId> mesh_id_owners;
+  try {
+    candidate.reserve(snapshot.mesh_instances().size());
+  } catch (...) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "sun_visibility_v2.instances",
+        "production V2 could not reserve its bounded selection");
+  }
+  for (const MeshInstanceDescriptor &instance : snapshot.mesh_instances()) {
+    const MeshResourceDescriptor *const mesh =
+        registry.ResolveMesh(instance.mesh);
+    const MaterialDescriptor *const material =
+        registry.ResolveMaterial(instance.material);
+    if (mesh == nullptr || material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "sun_visibility_v2.instance_asset",
+          "production V2 could not resolve an instance mesh or material");
+    }
+    const std::uint64_t mesh_id = StableSunVisibilityMeshId(instance.mesh.id);
+    const auto owner = mesh_id_owners.find(mesh_id);
+    if (owner != mesh_id_owners.end() && owner->second != instance.mesh.id) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER,
+          "sun_visibility_v2.mesh_id",
+          "stable mesh identity hash collision in bounded V2 selection");
+    }
+    mesh_id_owners.emplace(mesh_id, instance.mesh.id);
+
+    NativeSunVisibilityV2InstanceSelection selected;
+    selected.instance_id = instance.instance_id;
+    selected.mesh_id = mesh_id;
+    const bool visible =
+        (instance.visibility_mask & view.visibility_mask) != 0U;
+    const bool casts =
+        (instance.flags & MESH_INSTANCE_CASTS_SHADOW) != 0U;
+    const bool receives =
+        (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
+    if (!visible || material->model != MaterialModel::PBR_METALLIC_ROUGHNESS ||
+        (!casts && !receives)) {
+      selected.flags = NATIVE_SUN_VISIBILITY_V2_RT_INERT;
+    } else if (material->alpha_test_mode !=
+               MaterialAlphaTestMode::DISABLED) {
+      selected.flags = NATIVE_SUN_VISIBILITY_V2_ALPHA_LAYER;
+    } else if (material->blend_mode != MaterialBlendMode::REPLACE) {
+      selected.flags = NATIVE_SUN_VISIBILITY_V2_DECAL;
+    } else {
+      selected.flags = NATIVE_SUN_VISIBILITY_V2_OPAQUE |
+                       NATIVE_SUN_VISIBILITY_V2_RASTER_VISIBLE;
+      if (casts) {
+        selected.flags |= NATIVE_SUN_VISIBILITY_V2_CASTER;
+      }
+      if (receives) {
+        selected.flags |= NATIVE_SUN_VISIBILITY_V2_RECEIVER;
+      }
+    }
+    candidate.push_back(selected);
+  }
+  NativeSunVisibilityV2ScenePlan plan;
+  const ValidationResult validation =
+      TryBuildNativeSunVisibilityV2ScenePlan(candidate, plan);
+  if (!validation) {
+    return validation;
+  }
+  output = std::move(candidate);
+  return ValidationResult::Success();
+}
+
+RenderOperationCode ToRenderOperationCode(
+    NativeSunVisibilityV2Code code) noexcept {
+  switch (code) {
+  case NativeSunVisibilityV2Code::OK:
+    return RenderOperationCode::OK;
+  case NativeSunVisibilityV2Code::UNSUPPORTED:
+    return RenderOperationCode::UNSUPPORTED;
+  case NativeSunVisibilityV2Code::INVALID_ARGUMENT:
+    return RenderOperationCode::INVALID_ARGUMENT;
+  case NativeSunVisibilityV2Code::RESOURCE_STALE:
+    return RenderOperationCode::RESOURCE_STALE;
+  case NativeSunVisibilityV2Code::TIMEOUT:
+    return RenderOperationCode::TIMEOUT;
+  case NativeSunVisibilityV2Code::DEVICE_LOST:
+    return RenderOperationCode::DEVICE_LOST;
+  case NativeSunVisibilityV2Code::BACKEND_FAILURE:
+    return RenderOperationCode::BACKEND_FAILURE;
+  }
+  return RenderOperationCode::BACKEND_FAILURE;
+}
+
+class NativeSunVisibilityV2ProductionFrontend final
+    : public IRendererFrontend {
+public:
+  NativeSunVisibilityV2ProductionFrontend(
+      OgreNextN1Configuration configuration, std::string shader_path)
+      : frontend_(std::make_unique<OgreNextN1Frontend>(
+            std::move(configuration),
+            OgreNextNativeFeatureTier::
+                METAL_RAY_TRACING_V2_SUN_VISIBILITY)),
+        backend_(OgreNextMetalRayTracingMode::V2_SUN_VISIBILITY,
+                 std::move(shader_path)) {}
+
+  [[nodiscard]] OgreNextN1Frontend *native_frontend() noexcept {
+    return frontend_.get();
+  }
+
+  [[nodiscard]] RendererNativeSunVisibilityV2Audit Audit() const noexcept {
+    RendererNativeSunVisibilityV2Audit output;
+    if (completed_frames_ == 0U) {
+      return output;
+    }
+    const NativeSunVisibilityV2FrameContract &contract = last_contract_;
+    output.version = contract.version;
+    output.completed_frames = completed_frames_;
+    output.frame_id = contract.frame_id;
+    output.snapshot_id = contract.snapshot_id;
+    output.view_id = contract.view_id;
+    output.scene_plan_digest = contract.scene_plan_digest;
+    output.selected_instances = contract.selected_instance_count;
+    output.admitted_instances = contract.admitted_instance_count;
+    output.excluded_instances = contract.excluded_instance_count;
+    output.receivers = contract.receiver_count;
+    output.casters = contract.caster_count;
+    output.unique_meshes = contract.unique_mesh_count;
+    output.blas_builds = contract.blas_build_count;
+    output.blas_cache_hits = contract.blas_cache_hit_count;
+    output.blas_refits = contract.blas_refit_count;
+    output.tlas_builds = contract.tlas_build_count;
+    output.tlas_cache_hits = contract.tlas_cache_hit_count;
+    output.tlas_refits = contract.tlas_refit_count;
+    output.primary_rays = contract.primary_ray_count;
+    output.sun_visibility_rays =
+        contract.secondary_sun_visibility_ray_count;
+    output.visible_texels = contract.visible_visibility_texel_count;
+    output.occluded_texels = contract.occluded_visibility_texel_count;
+    output.gpu_execution_nanoseconds = contract.gpu_execution_nanoseconds;
+    output.production_cpu_content_readbacks =
+        contract.production_cpu_content_readbacks;
+    output.production_gpu_content_readbacks =
+        contract.production_gpu_content_readbacks;
+    output.supports_raytracing = contract.capabilities.supports_raytracing;
+    output.apple_family_9 = contract.capabilities.apple_family_9;
+    output.same_ogre_device = contract.capabilities.same_ogre_device;
+    output.same_ogre_queue = contract.capabilities.same_ogre_queue;
+    output.same_ogre_timeline = contract.capabilities.same_ogre_timeline;
+    output.shader_lock_verified = contract.shader_lock_verified;
+    output.sun_direct_only_visibility_modulation =
+        contract.sun_direct_only_visibility_modulation;
+    output.submission_completed = contract.submission_completed;
+    output.available = true;
+    return output;
+  }
+
+  FrontendCapabilityReport QueryCapabilities() const override {
+    return frontend_->QueryCapabilities();
+  }
+
+  RenderOperationResult
+  Initialize(const FrontendInitializationRequest &request) override {
+    if (frontend_initialized_ || backend_initialized_) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "production V2 frontend is already initialized");
+    }
+    RenderOperationResult result = frontend_->Initialize(request);
+    if (!result) {
+      return result;
+    }
+    frontend_initialized_ = true;
+    NativeRenderInterop *const interop = frontend_->GetNativeInterop();
+    if (interop == nullptr) {
+      result = RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "production V2 frontend did not expose native interop");
+    } else {
+      result = backend_.Initialize(*interop);
+    }
+    if (result) {
+      backend_initialized_ = true;
+      return result;
+    }
+    const RenderOperationResult stopped =
+        frontend_->Shutdown(UINT64_C(5) * UINT64_C(1000) *
+                            UINT64_C(1000) * UINT64_C(1000));
+    if (stopped || stopped.code == RenderOperationCode::DEVICE_LOST) {
+      frontend_initialized_ = false;
+    }
+    return result;
+  }
+
+  RenderOperationResult PresentBootstrapFrame() override {
+    return frontend_->PresentBootstrapFrame();
+  }
+
+  RenderOperationResult
+  UpdateSurface(const FrontendSurfaceUpdate &update, bool headless,
+                std::uint64_t timeout_nanoseconds) override {
+    return frontend_->UpdateSurface(update, headless, timeout_nanoseconds);
+  }
+
+  RenderOperationResult
+  SynchronizeAssets(const RenderAssetDelta &delta) override {
+    try {
+      std::unique_ptr<RenderAssetRegistry> candidate = registry_
+          ? std::make_unique<RenderAssetRegistry>(*registry_)
+          : std::make_unique<RenderAssetRegistry>(delta.registry_id);
+      const ValidationResult validation = candidate->Apply(delta);
+      if (!validation) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::INVALID_ARGUMENT, validation.detail);
+      }
+      const RenderOperationResult result = frontend_->SynchronizeAssets(delta);
+      if (result) {
+        registry_ = std::move(candidate);
+      }
+      return result;
+    } catch (const std::bad_alloc &) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::OUT_OF_MEMORY,
+          "production V2 asset registry allocation failed");
+    } catch (...) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "production V2 asset registry synchronization failed");
+    }
+  }
+
+  RenderOperationResult
+  ResetSceneGeneration(std::uint64_t next_generation) override {
+    return frontend_->ResetSceneGeneration(next_generation);
+  }
+
+  RenderOperationResult ReleaseResource(ResourceHandle resource) override {
+    return frontend_->ReleaseResource(resource);
+  }
+
+  RenderOperationResult Render(const RenderFrameRequest &request,
+                               RenderFrameOutput &output) override {
+    if (!backend_initialized_ || registry_ == nullptr ||
+        request.views.size() != 1U || !request.present ||
+        request.requested_outputs != FrameOutputMask::COLOR ||
+        request.color_format != PixelFormat::RGBA16_FLOAT ||
+        request.allow_async_compute || request.scene_snapshot == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "production V2 requires one presented synchronous RGBA16 scene");
+    }
+    std::vector<NativeSunVisibilityV2InstanceSelection> selection;
+    const ValidationResult selection_validation = BuildSunVisibilitySelection(
+        *request.scene_snapshot, *registry_, request.views.front(), selection);
+    if (!selection_validation) {
+      return RenderOperationResult::Failure(
+          selection_validation.code == ValidationCode::UNSUPPORTED_FEATURE
+              ? RenderOperationCode::UNSUPPORTED
+              : RenderOperationCode::INVALID_ARGUMENT,
+          selection_validation.detail);
+    }
+    RenderFrameRequest raster_request = request;
+    raster_request.present = false;
+    raster_request.presentation_view_id = 0U;
+    raster_request.presentation_surface_revision = 0U;
+    const RenderOperationResult rendered =
+        frontend_->Render(raster_request, output);
+    if (!rendered) {
+      return rendered;
+    }
+
+    OgreNextMetalSunVisibilityV2FrameRequest native_request;
+    native_request.ray_tracing.frame = raster_request;
+    native_request.ray_tracing.samples_per_pixel = 1U;
+    native_request.ray_tracing.maximum_bounces = 1U;
+    native_request.ray_tracing.denoise = false;
+    native_request.selection = std::move(selection);
+    NativeSunVisibilityV2FrameContract contract;
+    const NativeSunVisibilityV2Result result =
+        backend_.RenderSunVisibilityV2(native_request, contract);
+    if (result.code != NativeSunVisibilityV2Code::OK) {
+      return RenderOperationResult::Failure(ToRenderOperationCode(result.code),
+                                            result.detail);
+    }
+    const ValidationResult contract_validation =
+        ValidateNativeSunVisibilityV2FrameContract(contract);
+    if (!contract_validation) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "production Metal V2 returned an invalid frame contract");
+    }
+    last_contract_ = std::move(contract);
+    ++completed_frames_;
+    output.presented = true;
+    output.presented_view_id = request.presentation_view_id;
+    return RenderOperationResult::Success();
+  }
+
+  RenderOperationResult
+  RetireFrameState(const RenderFrameRequest &request) override {
+    return frontend_->RetireFrameState(request);
+  }
+
+  bool IsFrameComplete(std::uint64_t frame_id) const noexcept override {
+    return frontend_->IsFrameComplete(frame_id);
+  }
+
+  RenderOperationResult
+  WaitForFrame(std::uint64_t frame_id,
+               std::uint64_t timeout_nanoseconds) override {
+    return frontend_->WaitForFrame(frame_id, timeout_nanoseconds);
+  }
+
+  NativeRenderInterop *GetNativeInterop() noexcept override {
+    return frontend_->GetNativeInterop();
+  }
+
+  RenderOperationResult Shutdown(std::uint64_t timeout_nanoseconds) override {
+    if (!frontend_initialized_ && !backend_initialized_) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::NOT_INITIALIZED,
+          "production V2 frontend is not initialized");
+    }
+    if (backend_initialized_) {
+      const RenderOperationResult stopped = backend_.Shutdown(timeout_nanoseconds);
+      if (!stopped && stopped.code != RenderOperationCode::DEVICE_LOST) {
+        return stopped;
+      }
+      backend_initialized_ = false;
+    }
+    if (frontend_initialized_) {
+      const RenderOperationResult stopped =
+          frontend_->Shutdown(timeout_nanoseconds);
+      if (!stopped && stopped.code != RenderOperationCode::DEVICE_LOST) {
+        return stopped;
+      }
+      frontend_initialized_ = false;
+      registry_.reset();
+      return stopped;
+    }
+    return RenderOperationResult::Success();
+  }
+
+private:
+  std::unique_ptr<OgreNextN1Frontend> frontend_;
+  OgreNextMetalRayTracingBackend backend_;
+  std::unique_ptr<RenderAssetRegistry> registry_;
+  NativeSunVisibilityV2FrameContract last_contract_;
+  std::uint64_t completed_frames_ = 0U;
+  bool frontend_initialized_ = false;
+  bool backend_initialized_ = false;
+};
+
+#endif
+
 } // namespace
 
 class RendererOgreNextInProcessPresenter::Impl final {
@@ -204,11 +604,11 @@ public:
   [[nodiscard]] RendererContinuousParticleAudit
   ContinuousParticleAudit() const noexcept {
     RendererContinuousParticleAudit output;
-    if (frontend == nullptr) {
+    if (native_frontend == nullptr) {
       return output;
     }
     const OgreNextN1ParticleRuntimeAudit audit =
-        frontend->QueryParticleRuntimeAudit();
+        native_frontend->QueryParticleRuntimeAudit();
     output.committed_source_sequence = audit.committed_source_sequence;
     output.create_commands = audit.create_commands;
     output.update_commands = audit.update_commands;
@@ -237,13 +637,13 @@ public:
   [[nodiscard]] RendererAnalyticSkyAudit
   AnalyticSkyAudit() const noexcept {
     RendererAnalyticSkyAudit output;
-    if (frontend == nullptr) {
+    if (native_frontend == nullptr) {
       return output;
     }
     const OgreNextAnalyticSkyRuntimeAudit audit =
-        frontend->QueryAnalyticSkyAudit();
+        native_frontend->QueryAnalyticSkyAudit();
     const OgreNextN1PresentationAudit presentation_audit =
-        frontend->QueryPresentationAudit();
+        native_frontend->QueryPresentationAudit();
     output.completed_frames = audit.completed_frames;
     output.sun_light_id = audit.last_sun_light_id;
     output.cpu_geometry_fnv1a64 = audit.last_cpu_geometry_fnv1a64;
@@ -304,11 +704,11 @@ public:
   [[nodiscard]] RendererNativeLightingAudit
   NativeLightingAudit() const noexcept {
     RendererNativeLightingAudit output;
-    if (frontend == nullptr) {
+    if (native_frontend == nullptr) {
       return output;
     }
     const OgreNextNativeLightingPassAudit audit =
-        frontend->QueryNativeLightingPassAudit();
+        native_frontend->QueryNativeLightingPassAudit();
     output.version = audit.version;
     output.completed_frames = audit.completed_frames;
     output.last_frame_id = audit.last_frame_id;
@@ -360,6 +760,17 @@ public:
     output.no_ogre14_lighting = audit.no_ogre14_lighting;
     output.available = true;
     return output;
+  }
+
+  [[nodiscard]] RendererNativeSunVisibilityV2Audit
+  NativeSunVisibilityAudit() const noexcept {
+#if defined(__APPLE__)
+    return native_sun_visibility_frontend != nullptr
+               ? native_sun_visibility_frontend->Audit()
+               : RendererNativeSunVisibilityV2Audit{};
+#else
+    return RendererNativeSunVisibilityV2Audit{};
+#endif
   }
 
   static constexpr std::size_t kMaximumAxes = 32U;
@@ -450,17 +861,21 @@ public:
     frontend_configuration.shader_media_root = candidate.shader_media_root;
     frontend_configuration.raster_feature_tier =
         OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
-    // Every combined scene source uses the same reviewed single-evaluation
-    // HDR/PSSM topology. PSSM is intentionally absent during the scene-free
-    // HDR warmup and is finalized transactionally only after the first real
-    // RoR light, caster, and receiver set has populated the native scene.
-    // Configuration admission above rejects false instead of selecting the
-    // retained directional-split evidence topology as a product fallback.
-    frontend_configuration.directional_shadow_mode =
-        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+    const bool native_sun_visibility_v2 =
+        candidate.lighting_mode ==
+        RendererOgreNextInProcessLightingMode::
+            METAL_RT_SUN_VISIBILITY_V2;
+    // Raster gameplay uses the reviewed single-evaluation HDR/PSSM topology.
+    // The bounded Metal V2 showcase instead needs the three-evaluation split
+    // so BaseHdr and unoccluded SunDirectHdr remain independently available to
+    // the hardware visibility pass before the one-shot LitHdr continuation.
+    frontend_configuration.directional_shadow_mode = native_sun_visibility_v2
+        ? OgreNextDirectionalShadowMode::DISABLED
+        : OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
     frontend_configuration.enable_hdr_compositor = true;
-    frontend_configuration.hdr_scene_topology =
-        OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
+    frontend_configuration.hdr_scene_topology = native_sun_visibility_v2
+        ? OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2
+        : OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;
     frontend_configuration.presentation.enabled = true;
     frontend_configuration.presentation.mode =
         OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP;
@@ -493,8 +908,28 @@ public:
     frontend_configuration.presentation.show_after_workspace_ready =
         &ShowAfterWorkspaceReady;
 
-    frontend =
-        std::make_unique<OgreNextN1Frontend>(std::move(frontend_configuration));
+    if (native_sun_visibility_v2) {
+#if defined(__APPLE__)
+      const std::string shader_path =
+          candidate.shader_media_root +
+          "/Hlms/RoR/SunVisibilityV2/SunVisibilityV2.metal";
+      auto production =
+          std::make_unique<NativeSunVisibilityV2ProductionFrontend>(
+              std::move(frontend_configuration), shader_path);
+      native_frontend = production->native_frontend();
+      native_sun_visibility_frontend = production.get();
+      frontend = std::move(production);
+#else
+      (void)host.Shutdown();
+      return RendererOgreNextInProcessPresenterStatus::
+          FAILED_FRONTEND_CONFIGURATION;
+#endif
+    } else {
+      auto raster = std::make_unique<OgreNextN1Frontend>(
+          std::move(frontend_configuration));
+      native_frontend = raster.get();
+      frontend = std::move(raster);
+    }
     configuration = candidate;
     surface_revision = kInitialSurfaceRevision;
     metrics_generation = metrics->generation;
@@ -1556,6 +1991,10 @@ public:
       return RendererOgreNextInProcessPresenterStatus::REJECTED_LIFECYCLE;
     }
     frontend.reset();
+    native_frontend = nullptr;
+#if defined(__APPLE__)
+    native_sun_visibility_frontend = nullptr;
+#endif
     RendererOgreNextWindowHostStatus shutdown = host.Shutdown();
     if (shutdown != RendererOgreNextWindowHostStatus::COMPLETED) {
       shutdown = host.Shutdown();
@@ -1573,7 +2012,12 @@ public:
 
   RendererOgreNextSdlWindowRuntime runtime;
   RendererOgreNextWindowHost host;
-  std::unique_ptr<OgreNextN1Frontend> frontend;
+  std::unique_ptr<IRendererFrontend> frontend;
+  OgreNextN1Frontend *native_frontend = nullptr;
+#if defined(__APPLE__)
+  NativeSunVisibilityV2ProductionFrontend *native_sun_visibility_frontend =
+      nullptr;
+#endif
   RendererOgreNextInProcessPresenterConfiguration configuration;
   FrontendInitializationRequest initialization;
   FrontendSurfaceUpdate surface;
@@ -1670,6 +2114,12 @@ RendererOgreNextInProcessPresenter::AnalyticSkyAudit() const noexcept {
 RendererNativeLightingAudit
 RendererOgreNextInProcessPresenter::NativeLightingAudit() const noexcept {
   return impl_->NativeLightingAudit();
+}
+
+RendererNativeSunVisibilityV2Audit
+RendererOgreNextInProcessPresenter::NativeSunVisibilityV2Audit() const
+    noexcept {
+  return impl_->NativeSunVisibilityAudit();
 }
 
 ValidationResult RendererOgreNextInProcessPresenter::PollEvents(

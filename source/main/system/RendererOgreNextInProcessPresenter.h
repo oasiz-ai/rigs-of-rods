@@ -52,7 +52,13 @@ private:
 } // namespace Detail
 
 constexpr std::uint32_t
-    kRendererOgreNextInProcessPresenterContractVersion = 1U;
+    kRendererOgreNextInProcessPresenterContractVersion = 2U;
+
+enum class RendererOgreNextInProcessLightingMode : std::uint8_t {
+  INVALID = 0U,
+  RASTER_HDR_PSSM,
+  METAL_RT_SUN_VISIBILITY_V2,
+};
 
 struct RendererOgreNextInProcessPresenterConfiguration final {
   std::uint32_t version =
@@ -61,12 +67,12 @@ struct RendererOgreNextInProcessPresenterConfiguration final {
   std::string presentation_media_root;
   std::uint32_t logical_width = 1280U;
   std::uint32_t logical_height = 720U;
-  /// Selects the exact source-neutral production topology: one RT4 RGBA16F
-  /// scene evaluation with three-cascade PSSM, followed by the persistent
-  /// exposure, bloom, filmic, and sRGB presentation graph. Combined gameplay
-  /// and the forward-native showcase both require this explicit opt-in; false
-  /// is rejected rather than selecting an unreviewed fallback topology.
-  bool enable_single_evaluation_hdr_pssm = false;
+  /// Exact production graph. Ordinary joined gameplay currently selects the
+  /// reviewed raster HDR/PSSM topology. The bounded project-owned native
+  /// showcase may instead require the Apple-family-9 Metal V2 graph; that mode
+  /// has no silent raster fallback after native initialization begins.
+  RendererOgreNextInProcessLightingMode lighting_mode =
+      RendererOgreNextInProcessLightingMode::INVALID;
 };
 
 /// Allocation-free admission used before creating SDL, Metal, or Ogre state.
@@ -84,7 +90,11 @@ IsValidRendererOgreNextInProcessPresenterConfiguration(
          configuration.logical_height > 0U &&
          configuration.logical_width <= 32768U &&
          configuration.logical_height <= 32768U &&
-         configuration.enable_single_evaluation_hdr_pssm;
+         (configuration.lighting_mode ==
+              RendererOgreNextInProcessLightingMode::RASTER_HDR_PSSM ||
+          configuration.lighting_mode ==
+              RendererOgreNextInProcessLightingMode::
+                  METAL_RT_SUN_VISIBILITY_V2);
 }
 
 enum class RendererOgreNextInProcessPresenterStatus : std::uint8_t {
@@ -191,6 +201,46 @@ struct RendererNativeLightingAudit final {
   bool available = false;
 };
 
+/// Renderer-neutral receipt for the actual product-owned Metal V2 dispatch.
+/// It is published only after the backend completed its same-device GPU work,
+/// continued the LitHdr presentation, and the reusable V2 contract validated.
+struct RendererNativeSunVisibilityV2Audit final {
+  std::uint32_t version = 0U;
+  std::uint64_t completed_frames = 0U;
+  std::uint64_t frame_id = 0U;
+  std::uint64_t snapshot_id = 0U;
+  std::uint64_t view_id = 0U;
+  std::uint64_t scene_plan_digest = 0U;
+  std::uint32_t selected_instances = 0U;
+  std::uint32_t admitted_instances = 0U;
+  std::uint32_t excluded_instances = 0U;
+  std::uint32_t receivers = 0U;
+  std::uint32_t casters = 0U;
+  std::uint32_t unique_meshes = 0U;
+  std::uint32_t blas_builds = 0U;
+  std::uint32_t blas_cache_hits = 0U;
+  std::uint32_t blas_refits = 0U;
+  std::uint32_t tlas_builds = 0U;
+  std::uint32_t tlas_cache_hits = 0U;
+  std::uint32_t tlas_refits = 0U;
+  std::uint64_t primary_rays = 0U;
+  std::uint64_t sun_visibility_rays = 0U;
+  std::uint64_t visible_texels = 0U;
+  std::uint64_t occluded_texels = 0U;
+  std::uint64_t gpu_execution_nanoseconds = 0U;
+  std::uint32_t production_cpu_content_readbacks = 0U;
+  std::uint32_t production_gpu_content_readbacks = 0U;
+  bool supports_raytracing = false;
+  bool apple_family_9 = false;
+  bool same_ogre_device = false;
+  bool same_ogre_queue = false;
+  bool same_ogre_timeline = false;
+  bool shader_lock_verified = false;
+  bool sun_direct_only_visibility_modulation = false;
+  bool submission_completed = false;
+  bool available = false;
+};
+
 /// Owns the sole visible SDL/Metal presentation window and an uninitialized
 /// OgreNext N1 frontend. The public boundary is renderer-neutral; the Pimpl
 /// implementation is the only translation unit that includes OgreNext or SDL.
@@ -238,6 +288,8 @@ public:
   [[nodiscard]] RendererAnalyticSkyAudit AnalyticSkyAudit() const noexcept;
   [[nodiscard]] RendererNativeLightingAudit
   NativeLightingAudit() const noexcept;
+  [[nodiscard]] RendererNativeSunVisibilityV2Audit
+  NativeSunVisibilityV2Audit() const noexcept;
 
   [[nodiscard]] Render::ValidationResult PollEvents(
       RendererInProcessEventPollPoint point,

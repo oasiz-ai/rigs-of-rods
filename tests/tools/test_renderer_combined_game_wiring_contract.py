@@ -118,9 +118,9 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.main[showcase_branch:post],
         )
 
-    def test_all_combined_sources_select_one_scene_hdr_pssm(self) -> None:
+    def test_combined_sources_select_explicit_production_lighting(self) -> None:
         configure = self.main.index(
-            "presenter_config.enable_single_evaluation_hdr_pssm = true;"
+            "presenter_config.lighting_mode ="
         )
         prepare = self.main.index("PrepareWindow(presenter_config)", configure)
         selection = self.main.index(
@@ -130,24 +130,31 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertLess(configure, prepare)
         self.assertLess(prepare, selection)
         self.assertLess(selection, ordinary)
-        self.assertNotIn("renderer_combined_native_visual_showcase", self.main[configure:prepare])
+        selection_block = self.main[configure:prepare]
+        self.assertIn("renderer_combined_native_visual_showcase", selection_block)
+        self.assertIn("METAL_RT_SUN_VISIBILITY_V2", selection_block)
+        self.assertIn("RASTER_HDR_PSSM", selection_block)
         showcase_log_start = self.main.index(
             "[RoR|RendererCombined|NativeShowcase] Selected exact"
         )
         showcase_log_end = self.main.index("else", showcase_log_start)
         showcase_log = self.main[showcase_log_start:showcase_log_end]
+        self.assertIn("rt4_pbr_hdr_metal_sun_visibility_v2", showcase_log)
         self.assertIn("rt4_pbr_pssm_hdr_preview", showcase_log)
         self.assertIn("hdr=true", showcase_log)
         self.assertNotIn("hdr=false", showcase_log)
-        self.assertIn("native_rt=false", showcase_log)
+        self.assertIn("native_rt={}", showcase_log)
 
         frontend_configuration = self.presenter[
             self.presenter.index("OgreNextN1Configuration frontend_configuration;") :
             self.presenter.index("if (!CopyParameters(")
         ]
         self.assertIn(
-            "frontend_configuration.directional_shadow_mode =\n"
-            "        OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;",
+            "OgreNextDirectionalShadowMode::DISABLED",
+            frontend_configuration,
+        )
+        self.assertIn(
+            "OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1",
             frontend_configuration,
         )
         self.assertIn(
@@ -155,16 +162,44 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             frontend_configuration,
         )
         self.assertIn(
-            "frontend_configuration.hdr_scene_topology =\n"
-            "        OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1;",
+            "OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2",
             frontend_configuration,
         )
-        self.assertNotIn("OgreNextDirectionalShadowMode::DISABLED", frontend_configuration)
-        self.assertNotIn("OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2", frontend_configuration)
+        self.assertIn(
+            "OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1",
+            frontend_configuration,
+        )
         self.assertIn(
             "frontend_configuration.presentation.gpu_only_output = true;",
             frontend_configuration,
         )
+
+    def test_metal_v2_presents_only_after_external_lighting_completion(self) -> None:
+        render_start = self.presenter.index(
+            "RenderOperationResult Render(const RenderFrameRequest &request,"
+        )
+        render_end = self.presenter.index(
+            "RenderOperationResult\n  RetireFrameState", render_start
+        )
+        render = self.presenter[render_start:render_end]
+        prepare = render.index("RenderFrameRequest raster_request = request;")
+        defer = render.index("raster_request.present = false;", prepare)
+        raster = render.index("frontend_->Render(raster_request, output)", defer)
+        external = render.index("backend_.RenderSunVisibilityV2", raster)
+        contract = render.index(
+            "ValidateNativeSunVisibilityV2FrameContract", external
+        )
+        publish = render.index("output.presented = true;", contract)
+        self.assertLess(prepare, defer)
+        self.assertLess(defer, raster)
+        self.assertLess(raster, external)
+        self.assertLess(external, contract)
+        self.assertLess(contract, publish)
+        self.assertIn(
+            "output.presented_view_id = request.presentation_view_id;",
+            render[publish:],
+        )
+        self.assertNotIn("frontend_->Render(request, output)", render)
 
     def test_only_a0_showcase_enables_audited_opaque_turntable_motion(self) -> None:
         load = self.main.index("LoadNativeVisualShowcaseSceneSource(")

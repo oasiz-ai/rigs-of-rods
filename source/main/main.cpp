@@ -639,6 +639,7 @@ int main(int argc, char *argv[])
     std::string renderer_combined_particle_audit_signature;
     std::string renderer_combined_analytic_sky_audit_signature;
     std::string renderer_combined_native_lighting_audit_signature;
+    std::string renderer_combined_native_sun_visibility_audit_signature;
     bool renderer_combined_turntable_audit_published = false;
     std::uint64_t renderer_combined_turntable_audit_segment = 0U;
 #else
@@ -750,9 +751,21 @@ int main(int argc, char *argv[])
         // hidden OpenGL resource host. This makes the presenter the stable
         // process-wide video/event owner from the first native window onward.
         RendererOgreNextInProcessPresenterConfiguration presenter_config;
-        // Both the ordinary playable joined scene and the explicit native
-        // showcase use the same reviewed source-neutral HDR/PSSM topology.
-        presenter_config.enable_single_evaluation_hdr_pssm = true;
+        // Keep the general playable joined scene on the reviewed HDR/PSSM
+        // graph while the bounded project-owned native showcase requires the
+        // production-owned Apple Metal sun-visibility pass. Unsupported
+        // platforms select the explicit raster graph before frontend state is
+        // created; there is no mid-frame native fallback.
+#if defined(__APPLE__)
+        presenter_config.lighting_mode =
+            renderer_combined_native_visual_showcase
+                ? RendererOgreNextInProcessLightingMode::
+                      METAL_RT_SUN_VISIBILITY_V2
+                : RendererOgreNextInProcessLightingMode::RASTER_HDR_PSSM;
+#else
+        presenter_config.lighting_mode =
+            RendererOgreNextInProcessLightingMode::RASTER_HDR_PSSM;
+#endif
         std::string presenter_config_failure;
         if (!ResolveCombinedPresenterConfiguration(
                 presenter_config, presenter_config_failure))
@@ -952,12 +965,16 @@ int main(int argc, char *argv[])
             renderer_combined_native_showcase_scene_source =
                 loaded.source.get();
             renderer_combined_scene_source = std::move(loaded.source);
+            const bool native_rt_selected =
+                presenter_config.lighting_mode ==
+                RendererOgreNextInProcessLightingMode::
+                    METAL_RT_SUN_VISIBILITY_V2;
             LOG(fmt::format(
                 "[RoR|RendererCombined|NativeShowcase] Selected exact "
                 "forward-native scene: path='{}', package='{}', "
                 "sha256='{}', assets={}, instances={}, source_version={}, "
-                "pipeline='rt4_pbr_pssm_hdr_preview', hdr=true, "
-                "native_rt=false, profile={}, motion='{}', "
+                "pipeline='{}', hdr=true, native_rt={}, profile={}, "
+                "motion='{}', "
                 "fixed_hz=60, revolution_ticks={}, refraction=false, "
                 "motion_vectors=false",
                 native_showcase_package_path,
@@ -966,6 +983,10 @@ int main(int argc, char *argv[])
                 package_asset_count,
                 package_instance_count,
                 Render::kNativeVisualShowcaseSceneSourceVersion,
+                native_rt_selected
+                    ? "rt4_pbr_hdr_metal_sun_visibility_v2"
+                    : "rt4_pbr_pssm_hdr_preview",
+                native_rt_selected,
                 selects_a0 ? "a0_lighting_coupon" : "a1_native_course",
                 selects_a0 ? "turntable_opaque_gate" : "static_course",
                 Render::kNativeVisualShowcaseTurntableTicksPerRevolution));
@@ -1046,6 +1067,12 @@ int main(int argc, char *argv[])
             renderer_combined_presenter.InitialFrontendRequest();
         combined_session_config.producer.registry_id =
             kCombinedRendererAssetRegistryId;
+        combined_session_config.color_format =
+            presenter_config.lighting_mode ==
+                    RendererOgreNextInProcessLightingMode::
+                        METAL_RT_SUN_VISIBILITY_V2
+                ? Render::PixelFormat::RGBA16_FLOAT
+                : Render::PixelFormat::RGBA8_SRGB;
         // Keep each frontend shutdown attempt below the outer five-second
         // close budget so a typed retryable TIMEOUT can actually be retried.
         combined_session_config.shutdown_timeout_nanoseconds =
@@ -3842,6 +3869,81 @@ int main(int argc, char *argv[])
                                     lighting_audit.completed_frames));
                                 renderer_combined_native_lighting_audit_signature =
                                     lighting_audit_signature;
+                            }
+                            const RendererNativeSunVisibilityV2Audit
+                                sun_visibility_audit =
+                                    renderer_combined_presenter
+                                        .NativeSunVisibilityV2Audit();
+                            if (sun_visibility_audit.available)
+                            {
+                                const std::string sun_visibility_signature =
+                                    fmt::format(
+                                        "schema_version={} frame={} snapshot={} "
+                                        "view={} plan={} selected={} admitted={} "
+                                        "excluded={} receivers={} casters={} "
+                                        "unique_meshes={} blas_build={} "
+                                        "blas_hit={} blas_refit={} tlas_build={} "
+                                        "tlas_hit={} tlas_refit={} primary_rays={} "
+                                        "sun_rays={} visible_texels={} "
+                                        "occluded_texels={} gpu_ns={} "
+                                        "supports_rt={} apple_family9={} "
+                                        "same_ogre_device={} same_ogre_queue={} "
+                                        "same_ogre_timeline={} shader_lock={} "
+                                        "sun_direct_only={} completed={} "
+                                        "cpu_content_readbacks={} "
+                                        "gpu_content_readbacks={}",
+                                        sun_visibility_audit.version,
+                                        sun_visibility_audit.frame_id,
+                                        sun_visibility_audit.snapshot_id,
+                                        sun_visibility_audit.view_id,
+                                        sun_visibility_audit.scene_plan_digest,
+                                        sun_visibility_audit.selected_instances,
+                                        sun_visibility_audit.admitted_instances,
+                                        sun_visibility_audit.excluded_instances,
+                                        sun_visibility_audit.receivers,
+                                        sun_visibility_audit.casters,
+                                        sun_visibility_audit.unique_meshes,
+                                        sun_visibility_audit.blas_builds,
+                                        sun_visibility_audit.blas_cache_hits,
+                                        sun_visibility_audit.blas_refits,
+                                        sun_visibility_audit.tlas_builds,
+                                        sun_visibility_audit.tlas_cache_hits,
+                                        sun_visibility_audit.tlas_refits,
+                                        sun_visibility_audit.primary_rays,
+                                        sun_visibility_audit
+                                            .sun_visibility_rays,
+                                        sun_visibility_audit.visible_texels,
+                                        sun_visibility_audit.occluded_texels,
+                                        sun_visibility_audit
+                                            .gpu_execution_nanoseconds,
+                                        sun_visibility_audit
+                                            .supports_raytracing,
+                                        sun_visibility_audit.apple_family_9,
+                                        sun_visibility_audit.same_ogre_device,
+                                        sun_visibility_audit.same_ogre_queue,
+                                        sun_visibility_audit.same_ogre_timeline,
+                                        sun_visibility_audit
+                                            .shader_lock_verified,
+                                        sun_visibility_audit
+                                            .sun_direct_only_visibility_modulation,
+                                        sun_visibility_audit
+                                            .submission_completed,
+                                        sun_visibility_audit
+                                            .production_cpu_content_readbacks,
+                                        sun_visibility_audit
+                                            .production_gpu_content_readbacks);
+                                if (sun_visibility_signature !=
+                                    renderer_combined_native_sun_visibility_audit_signature)
+                                {
+                                    LOG(fmt::format(
+                                        "[RoR|RendererCombined|MetalRT|"
+                                        "SunVisibilityV2] {} "
+                                        "completed_frames={}",
+                                        sun_visibility_signature,
+                                        sun_visibility_audit.completed_frames));
+                                    renderer_combined_native_sun_visibility_audit_signature =
+                                        sun_visibility_signature;
+                                }
                             }
                         }
                     }

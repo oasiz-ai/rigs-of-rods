@@ -182,7 +182,7 @@ void TestAnalyticSkyAuditDefaultsFailClosed() {
           "unavailable analytic-sky audit did not fail closed");
 }
 
-void TestSingleEvaluationHdrPssmConfigurationFailsClosed() {
+void TestProductionLightingConfigurationFailsClosed() {
   RoR::RendererOgreNextInProcessPresenterConfiguration configuration;
   Require(
       !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
@@ -196,18 +196,35 @@ void TestSingleEvaluationHdrPssmConfigurationFailsClosed() {
           configuration),
       "complete media roots silently selected a non-HDR/PSSM fallback");
 
-  configuration.enable_single_evaluation_hdr_pssm = true;
+  configuration.lighting_mode =
+      RoR::RendererOgreNextInProcessLightingMode::RASTER_HDR_PSSM;
   Require(
       RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
           configuration),
       "exact single-evaluation HDR/PSSM configuration was rejected");
 
-  configuration.enable_single_evaluation_hdr_pssm = false;
+  configuration.lighting_mode =
+      RoR::RendererOgreNextInProcessLightingMode::INVALID;
   Require(
       !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
           configuration),
       "false single-evaluation selector was accepted");
-  configuration.enable_single_evaluation_hdr_pssm = true;
+  configuration.lighting_mode =
+      RoR::RendererOgreNextInProcessLightingMode::
+          METAL_RT_SUN_VISIBILITY_V2;
+  Require(
+      RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "exact Metal V2 production configuration was rejected");
+
+  configuration.lighting_mode =
+      static_cast<RoR::RendererOgreNextInProcessLightingMode>(255U);
+  Require(
+      !RoR::IsValidRendererOgreNextInProcessPresenterConfiguration(
+          configuration),
+      "unknown production lighting mode was accepted");
+  configuration.lighting_mode =
+      RoR::RendererOgreNextInProcessLightingMode::RASTER_HDR_PSSM;
 
   ++configuration.version;
   Require(
@@ -245,7 +262,7 @@ int main() {
   TestDirectMouseCallbacksSeeOnlyTheirCurrentTransition();
   TestVisibleRetinaMetricsKeepLogicalAndPixelDomainsPaired();
   TestAnalyticSkyAuditDefaultsFailClosed();
-  TestSingleEvaluationHdrPssmConfigurationFailsClosed();
+  TestProductionLightingConfigurationFailsClosed();
   std::cout << "renderer Ogre-Next in-process input policy tests passed\n";
   return EXIT_SUCCESS;
 }
