@@ -19,7 +19,12 @@
 
 #pragma once
 
-#include "Application.h"
+#include "ForwardDeclarations.h"
+
+#include <OgreVector.h>
+
+#include <array>
+#include <vector>
 
 namespace RoR {
 
@@ -39,14 +44,33 @@ public:
         NodeNum_t nodenum = NODENUM_INVALID;
     };
 
+    /// Test-only source record for the production broad-phase oracle. This
+    /// bypasses actor discovery, but populates the same cached point list and
+    /// exercises the same lazy KD-tree build, query, and canonical ordering as
+    /// live collision detection.
+    struct oracle_point_t
+    {
+        ActorInstanceID_t actorid = ACTORINSTANCEID_INVALID;
+        NodeNum_t nodenum = NODENUM_INVALID;
+        std::array<float, 3> point = {{0.f, 0.f, 0.f}};
+    };
+
     std::vector<PointidID_t> hit_list;
     std::vector<pointid_t> hit_pointid_list;
 
-    PointColDetector(ActorPtr actor): m_actor(actor), m_object_list_size(-1) {};
+    PointColDetector(): m_actor(nullptr), m_object_list_size(-1) {}
+    explicit PointColDetector(Actor* actor):
+        m_actor(actor), m_object_list_size(-1) {}
 
     void UpdateIntraPoint(bool contactables = false);
     void UpdateInterPoint(bool ignorestate = false);
     void query(const Ogre::Vector3& vec1, const Ogre::Vector3& vec2, const Ogre::Vector3& vec3, const float enlargeBB);
+
+    /// Replaces the cached production broad-phase points transactionally.
+    /// Empty fixtures and invalid actor/node identities are rejected without
+    /// changing the previously loaded fixture.
+    bool LoadProductionOracleFixture(
+        const std::vector<oracle_point_t>& points);
 
 private:
 
@@ -67,7 +91,7 @@ private:
         int begin;
     };
 
-    ActorPtr                 m_actor;
+    Actor*                   m_actor = nullptr; //!< Non-owning; owning Actor deletes both detectors.
     std::vector<ActorInstanceID_t>    m_collision_partners; //!< IntraPoint: always just owning actor; InterPoint: all colliding actors
     std::vector<refelem_t> m_ref_list;
     

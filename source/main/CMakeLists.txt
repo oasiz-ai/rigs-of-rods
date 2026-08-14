@@ -242,6 +242,7 @@ set(SOURCE_FILES
         physics/collision/Collisions.{h,cpp}
         physics/collision/DynamicCollisions.{h,cpp}
         physics/collision/PointColDetector.{h,cpp}
+        physics/collision/PointColDetectorActorSource.cpp
         physics/collision/Triangle.h
         physics/flex/Flexable.h
         physics/flex/FlexMeshTopology.h

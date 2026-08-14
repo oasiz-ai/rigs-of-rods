@@ -20,112 +20,89 @@
 
 #include "PointColDetector.h"
 
-#include "Actor.h"
-#include "ActorManager.h"
 #include "DeterministicContactOrder.h"
-#include "GameContext.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <limits>
 
 using namespace Ogre;
 using namespace RoR;
 
-void PointColDetector::UpdateIntraPoint(bool contactables)
+namespace {
+
+bool IsFiniteBinary32(float value)
 {
-    int contacters_size = contactables ? m_actor->ar_num_contactable_nodes : m_actor->ar_num_contacters;
-
-    if (contacters_size != m_object_list_size)
-    {
-        m_collision_partners.clear();
-        m_collision_partners.push_back(m_actor->ar_instance_id);
-        m_object_list_size = contacters_size;
-        update_structures_for_contacters(contactables);
-    }
-    else
-    {
-        refresh_node_positions();
-    }
-
-    m_kdtree[0].refid = REFELEMID_INVALID;
-    m_kdtree[0].begin = 0;
-    m_kdtree[0].end = -m_object_list_size;
+    // A direct float bit-cast may itself be folded under -ffinite-math-only.
+    // Volatile byte reads make this an object-representation check even in
+    // the game's release fast-math translation unit.
+    const volatile unsigned char* source =
+        reinterpret_cast<const volatile unsigned char*>(&value);
+    unsigned char bytes[sizeof(value)] = {};
+    for (std::size_t index = 0; index < sizeof(value); ++index)
+        bytes[index] = source[index];
+    std::uint32_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(value), "binary32 size mismatch");
+    std::memcpy(&bits, bytes, sizeof(bits));
+    return (bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000);
 }
 
-void PointColDetector::UpdateInterPoint(bool ignorestate)
+} // namespace
+
+bool PointColDetector::LoadProductionOracleFixture(
+    const std::vector<oracle_point_t>& points)
 {
-    int contacters_size = 0;
-    std::vector<ActorInstanceID_t> collision_partners;
-    for (ActorPtr& actor : App::GetGameContext()->GetActorManager()->GetActors())
+    if (points.empty() ||
+            points.size() > static_cast<std::size_t>(
+                std::numeric_limits<int>::max()))
     {
-        if (actor != m_actor && (ignorestate || actor->ar_update_physics) &&
-                m_actor->ar_bounding_box.intersects(actor->ar_bounding_box))
+        return false;
+    }
+
+    for (const oracle_point_t& point : points)
+    {
+        if (point.actorid == ACTORINSTANCEID_INVALID ||
+                point.nodenum == NODENUM_INVALID ||
+                !IsFiniteBinary32(point.point[0]) ||
+                !IsFiniteBinary32(point.point[1]) ||
+                !IsFiniteBinary32(point.point[2]))
         {
-            collision_partners.push_back(actor->ar_instance_id);
-            bool is_linked = std::find(m_actor->ar_linked_actors.begin(), m_actor->ar_linked_actors.end(), actor) != m_actor->ar_linked_actors.end();
-            contacters_size += is_linked ? actor->ar_num_contacters : actor->ar_num_contactable_nodes;
-            if (m_actor->ar_nodes[0].Velocity.squaredDistance(actor->ar_nodes[0].Velocity) > 16)
-            {
-                for (int i = 0; i < m_actor->ar_num_collcabs; i++)
-                {
-                    m_actor->ar_intra_collcabrate[i].rate = 0;
-                    m_actor->ar_inter_collcabrate[i].rate = 0;
-                }
-                for (int i = 0; i < actor->ar_num_collcabs; i++)
-                {
-                    actor->ar_intra_collcabrate[i].rate = 0;
-                    actor->ar_inter_collcabrate[i].rate = 0;
-                }
-            }
+            return false;
         }
     }
 
-    std::sort(collision_partners.begin(), collision_partners.end());
-
-    m_actor->ar_collision_relevant = (contacters_size > 0);
-
-    if (collision_partners != m_collision_partners || contacters_size != m_object_list_size)
+    std::size_t leaf_capacity = 1;
+    while (leaf_capacity < points.size())
     {
-        m_collision_partners = collision_partners;
-        m_object_list_size = contacters_size;
-        update_structures_for_contacters(false);
+        if (leaf_capacity > std::numeric_limits<std::size_t>::max() / 2)
+            return false;
+        leaf_capacity *= 2;
     }
-    else
+    if (leaf_capacity > std::numeric_limits<std::size_t>::max() / 2)
+        return false;
+
+    std::vector<refelem_t> ref_list(points.size());
+    std::vector<pointid_t> point_ids(points.size());
+    std::vector<kdnode_t> kdtree(leaf_capacity * 2);
+    for (std::size_t index = 0; index < points.size(); ++index)
     {
-        refresh_node_positions();
+        point_ids[index].actorid = points[index].actorid;
+        point_ids[index].nodenum = points[index].nodenum;
+        ref_list[index].pidrefid = static_cast<PointidID_t>(index);
+        ref_list[index].point = points[index].point;
     }
 
+    m_collision_partners.clear();
+    m_ref_list.swap(ref_list);
+    hit_pointid_list.swap(point_ids);
+    m_kdtree.swap(kdtree);
+    m_object_list_size = static_cast<int>(points.size());
     m_kdtree[0].refid = REFELEMID_INVALID;
     m_kdtree[0].begin = 0;
     m_kdtree[0].end = -m_object_list_size;
-}
-
-void PointColDetector::update_structures_for_contacters(bool ignoreinternal)
-{
-    m_ref_list.resize(m_object_list_size);
-    hit_pointid_list.resize(m_object_list_size);
-
-    // Insert all contacters into the list of points to consider when building the kdtree
-    int refi = 0;
-    for (ActorInstanceID_t actorid : m_collision_partners)
-    {
-        const ActorPtr& actor = App::GetGameContext()->GetActorManager()->GetActorById(actorid);
-
-        bool is_linked = std::find(m_actor->ar_linked_actors.begin(), m_actor->ar_linked_actors.end(), actor) != m_actor->ar_linked_actors.end();
-        bool internal_collision = !ignoreinternal && ((actorid == m_actor->ar_instance_id) || is_linked);
-        for (int i = 0; i < actor->ar_num_nodes; i++)
-        {
-            if (actor->ar_nodes[i].nd_contacter || (!internal_collision && actor->ar_nodes[i].nd_contactable))
-            {
-                hit_pointid_list[refi].actorid = actor->ar_instance_id;
-                hit_pointid_list[refi].nodenum = static_cast<NodeNum_t>(i);
-                m_ref_list[refi].pidrefid = refi;
-                m_ref_list[refi].setPoint(actor->ar_nodes[i].AbsPosition);
-                refi++;
-            }
-        }
-    }
-
-    m_kdtree.resize(std::max(1.0, std::pow(2, std::ceil(std::log2(m_object_list_size)) + 1)));
+    hit_list.clear();
+    return true;
 }
 
 void PointColDetector::query(const Vector3 &vec1, const Vector3 &vec2, const Vector3 &vec3, float enlargeBB)
@@ -350,23 +327,5 @@ void PointColDetector::partintwo(const int start, const int median, const int en
     for (int i = median+1; i < end; ++i)
     {
         maxex = std::max(maxex, m_ref_list[i].point[axis]);
-    }
-}
-
-void PointColDetector::refresh_node_positions()
-{
-    // Because the reflist contains cached node positions, we must update it on each tick.
-    // To avoid repeated lookup in actormanager, we loop actors first.
-    // ----------------------------------------------------------------------------------
-
-    for (ActorPtr& actor: App::GetGameContext()->GetActorManager()->GetActors())
-    {
-        for (refelem_t& refelem: m_ref_list)
-        {
-            if (hit_pointid_list[refelem.pidrefid].actorid == actor->ar_instance_id)
-            {
-                refelem.setPoint(actor->ar_nodes[hit_pointid_list[refelem.pidrefid].nodenum].AbsPosition);
-            }
-        }
     }
 }

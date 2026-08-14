@@ -2059,6 +2059,36 @@ add_executable(
 )
 
 add_executable(
+    ror_point_col_detector_production_oracle_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/PointColDetectorProductionOracleTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/collision/PointColDetector.cpp"
+)
+target_include_directories(
+    ror_point_col_detector_production_oracle_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics/collision"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+        "${ROR_REPOSITORY_ROOT}/source/main/utils"
+        "${ROR_REPOSITORY_ROOT}/source/main/utils/memory"
+)
+target_include_directories(
+    ror_point_col_detector_production_oracle_tests
+    SYSTEM PRIVATE ${OGRE_INCLUDE_DIRS}
+)
+if (TARGET OgreMain)
+    target_link_libraries(
+        ror_point_col_detector_production_oracle_tests
+        PRIVATE OgreMain Angelscript::angelscript
+    )
+else ()
+    target_link_libraries(
+        ror_point_col_detector_production_oracle_tests
+        PRIVATE ${OGRE_LIBRARIES} Angelscript::angelscript
+    )
+endif ()
+add_executable(
     ror_deterministic_state_digest_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicStateDigestTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
@@ -2755,6 +2785,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_calibrated_beam_savegame_tests
     ror_rigdef_calibrated_beam_material_tests
     ror_deterministic_contact_order_tests
+    ror_point_col_detector_production_oracle_tests
     ror_deterministic_counter_noise_tests
     ror_deterministic_fixed_step_cadence_tests
     ror_fixed_step_capture_bridge_tests
@@ -3513,6 +3544,11 @@ add_test(
 add_test(
     NAME deterministic_contact_order
     COMMAND ror_deterministic_contact_order_tests
+)
+
+add_test(
+    NAME point_col_detector_production_oracle
+    COMMAND ror_point_col_detector_production_oracle_tests
 )
 
 add_test(
