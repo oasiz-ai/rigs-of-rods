@@ -25,6 +25,7 @@
 #include "Application.h"
 #include "AutoPilot.h"
 #include "CmdKeyInertia.h"
+#include "CalibratedBeamRuntimeAudit.h"
 #include "DashBoardManager.h"
 #include "Differentials.h"
 #include "Engine.h"
@@ -121,6 +122,16 @@ public:
     float             getShockVelocity(int shock_number);
     int               getShockNode1(int shock_number);
     int               getShockNode2(int shock_number);
+    int               getCalibratedBeamCount() const;
+    int               getCalibratedBeamFaultCount() const;
+    int               getCalibratedBeamFractureCount() const;
+    int               getCalibratedBeamDisabledCount() const;
+    int               getCalibratedBeamActiveHistoryCount() const;
+    bool              hasFiniteCalibratedBeamState() const;
+    bool              hasValidCalibratedBeamState() const;
+    double            getCalibratedBeamMaxAbsTotalStrain() const;
+    double            getCalibratedBeamMaxAccumulatedPlasticStrain() const;
+    double            getCalibratedBeamMaxDamage() const;
     float             getAirbrakeIntensity() { return ar_airbrake_intensity; }
     int               getAircraftFlaps() { return ar_aerial_flap; }
     // not exported to scripting:
@@ -344,6 +355,7 @@ public:
     float             getSteeringAngle();
     float             getMinCameraRadius() { return m_min_camera_radius; };
     int               GetNumActiveConnectedBeams(int nodeid);     //!< Returns the number of active (non bounded) beams connected to a node
+    CalibratedBeamRuntimeAudit::Result GetCalibratedBeamRuntimeAudit() const;
     void              NotifyActorCameraChanged();                 //!< Logic: sound, display; Notify this vehicle that camera changed;
     float             getAvgPropedWheelRadius() { return m_avg_proped_wheel_radius; };
     void              UpdateBoundingBoxes();

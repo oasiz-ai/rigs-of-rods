@@ -163,6 +163,27 @@ public:
      */
     void reset(bool keep_position);
 
+    /** Number of live beams using the calibrated axial material path. */
+    int getCalibratedBeamCount() const;
+    /** Number of calibrated beams with a latched runtime fault. */
+    int getCalibratedBeamFaultCount() const;
+    /** Number of calibrated beams whose material state has fractured. */
+    int getCalibratedBeamFractureCount() const;
+    /** Number of calibrated beams disabled by any runtime path. */
+    int getCalibratedBeamDisabledCount() const;
+    /** Number of calibrated beams with nonzero committed material history. */
+    int getCalibratedBeamActiveHistoryCount() const;
+    /** True only when every enabled calibrated beam history is finite. */
+    bool hasFiniteCalibratedBeamState() const;
+    /** True only when every enabled calibrated beam history is reachable. */
+    bool hasValidCalibratedBeamState() const;
+    /** Maximum absolute committed total strain across calibrated beams. */
+    double getCalibratedBeamMaxAbsTotalStrain() const;
+    /** Maximum accumulated plastic strain across calibrated beams. */
+    double getCalibratedBeamMaxAccumulatedPlasticStrain() const;
+    /** Maximum scalar damage across calibrated beams. */
+    double getCalibratedBeamMaxDamage() const;
+
     /**
      * @return The air brake (speed brake) level for aircraft, from 0 (no braking) to 5 (maximum braking).
      */

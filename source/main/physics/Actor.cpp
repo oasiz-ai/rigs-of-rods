@@ -4576,6 +4576,75 @@ int Actor::GetNumActiveConnectedBeams(int nodeid)
     return totallivebeams;
 }
 
+CalibratedBeamRuntimeAudit::Result Actor::GetCalibratedBeamRuntimeAudit() const
+{
+    CalibratedBeamRuntimeAudit::Builder audit;
+    for (int index = 0; index < ar_num_beams; ++index)
+    {
+        const beam_t& beam = ar_beams[index];
+        CalibratedBeamRuntimeAudit::Sample sample;
+        sample.enabled = beam.calibrated_material.enabled;
+        sample.faulted = beam.calibrated_material.faulted;
+        sample.fractured = beam.calibrated_material.state.fractured;
+        sample.disabled = beam.bm_disabled;
+        sample.configuration = &beam.calibrated_material.configuration;
+        sample.state = &beam.calibrated_material.state;
+        audit.Add(sample, static_cast<std::uint32_t>(index));
+    }
+    return audit.Get();
+}
+
+int Actor::getCalibratedBeamCount() const
+{
+    return static_cast<int>(GetCalibratedBeamRuntimeAudit().calibrated_count);
+}
+
+int Actor::getCalibratedBeamFaultCount() const
+{
+    return static_cast<int>(GetCalibratedBeamRuntimeAudit().fault_count);
+}
+
+int Actor::getCalibratedBeamFractureCount() const
+{
+    return static_cast<int>(GetCalibratedBeamRuntimeAudit().fracture_count);
+}
+
+int Actor::getCalibratedBeamDisabledCount() const
+{
+    return static_cast<int>(GetCalibratedBeamRuntimeAudit().disabled_count);
+}
+
+int Actor::getCalibratedBeamActiveHistoryCount() const
+{
+    return static_cast<int>(
+        GetCalibratedBeamRuntimeAudit().active_history_count);
+}
+
+bool Actor::hasFiniteCalibratedBeamState() const
+{
+    return GetCalibratedBeamRuntimeAudit().finite;
+}
+
+bool Actor::hasValidCalibratedBeamState() const
+{
+    return GetCalibratedBeamRuntimeAudit().state_valid;
+}
+
+double Actor::getCalibratedBeamMaxAbsTotalStrain() const
+{
+    return GetCalibratedBeamRuntimeAudit().max_abs_total_strain;
+}
+
+double Actor::getCalibratedBeamMaxAccumulatedPlasticStrain() const
+{
+    return GetCalibratedBeamRuntimeAudit().max_accumulated_plastic_strain;
+}
+
+double Actor::getCalibratedBeamMaxDamage() const
+{
+    return GetCalibratedBeamRuntimeAudit().max_damage;
+}
+
 bool Actor::isTied()
 {
     for (std::vector<tie_t>::iterator it = ar_ties.begin(); it != ar_ties.end(); it++)

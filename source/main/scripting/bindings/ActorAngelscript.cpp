@@ -163,6 +163,16 @@ void RoR::RegisterActor(asIScriptEngine *engine)
     result = engine->RegisterObjectMethod("BeamClass", "float getShockVelocity(int)", AngelScript::asMETHOD(Actor,getShockVelocity), AngelScript::asCALL_THISCALL); ROR_ASSERT(result>=0);
     result = engine->RegisterObjectMethod("BeamClass", "int getShockNode1(int)", AngelScript::asMETHOD(Actor, getShockNode1), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("BeamClass", "int getShockNode2(int)", AngelScript::asMETHOD(Actor, getShockNode2), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "int getCalibratedBeamCount() const", AngelScript::asMETHOD(Actor, getCalibratedBeamCount), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "int getCalibratedBeamFaultCount() const", AngelScript::asMETHOD(Actor, getCalibratedBeamFaultCount), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "int getCalibratedBeamFractureCount() const", AngelScript::asMETHOD(Actor, getCalibratedBeamFractureCount), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "int getCalibratedBeamDisabledCount() const", AngelScript::asMETHOD(Actor, getCalibratedBeamDisabledCount), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "int getCalibratedBeamActiveHistoryCount() const", AngelScript::asMETHOD(Actor, getCalibratedBeamActiveHistoryCount), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "bool hasFiniteCalibratedBeamState() const", AngelScript::asMETHOD(Actor, hasFiniteCalibratedBeamState), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "bool hasValidCalibratedBeamState() const", AngelScript::asMETHOD(Actor, hasValidCalibratedBeamState), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "double getCalibratedBeamMaxAbsTotalStrain() const", AngelScript::asMETHOD(Actor, getCalibratedBeamMaxAbsTotalStrain), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "double getCalibratedBeamMaxAccumulatedPlasticStrain() const", AngelScript::asMETHOD(Actor, getCalibratedBeamMaxAccumulatedPlasticStrain), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "double getCalibratedBeamMaxDamage() const", AngelScript::asMETHOD(Actor, getCalibratedBeamMaxDamage), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("BeamClass", "float getAirbrakeIntensity()", asMETHOD(Actor,getAirbrakeIntensity), asCALL_THISCALL); ROR_ASSERT(result>=0);
     result = engine->RegisterObjectMethod("BeamClass", "int getAircraftFlaps()", asMETHOD(Actor,getAircraftFlaps), asCALL_THISCALL); ROR_ASSERT(result>=0);
     result = engine->RegisterObjectMethod("BeamClass", "void wakeUp()", asMETHOD(Actor, wakeUp), asCALL_THISCALL); ROR_ASSERT(result >= 0);

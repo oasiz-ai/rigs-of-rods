@@ -206,6 +206,7 @@ set(SOURCE_FILES
         physics/CalibratedBeamFractureCalibration.h
         physics/CalibratedBeamMaterial.h
         physics/CalibratedBeamMaterialAdapter.h
+        physics/CalibratedBeamRuntimeAudit.h
         physics/CalibratedBeamProductionStep.{h,cpp}
         physics/CalibratedBeamSavegame.h
         physics/CalibratedBeamSavegameJson.h

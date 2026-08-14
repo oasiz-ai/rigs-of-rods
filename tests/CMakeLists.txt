@@ -2143,6 +2143,23 @@ add_executable(
 )
 
 add_executable(
+    ror_calibrated_beam_runtime_audit_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamRuntimeAuditTests.cpp"
+)
+
+add_executable(
+    ror_calibrated_beam_runtime_audit_fast_math_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamRuntimeAuditTests.cpp"
+)
+if (MSVC)
+    target_compile_options(
+        ror_calibrated_beam_runtime_audit_fast_math_tests PRIVATE /fp:fast)
+else ()
+    target_compile_options(
+        ror_calibrated_beam_runtime_audit_fast_math_tests PRIVATE -ffast-math)
+endif ()
+
+add_executable(
     ror_calibrated_beam_step_sensitivity_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamStepSensitivityTests.cpp"
 )
@@ -2730,6 +2747,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_beamng_zip_archive_index_tests
     ror_beamng_zip_index
     ror_calibrated_beam_material_adapter_tests
+    ror_calibrated_beam_runtime_audit_tests
+    ror_calibrated_beam_runtime_audit_fast_math_tests
     ror_calibrated_beam_material_tests
     ror_calibrated_beam_mesh_refinement_tests
     ror_calibrated_beam_step_sensitivity_tests
@@ -3534,6 +3553,16 @@ add_test(
 add_test(
     NAME calibrated_beam_material_adapter
     COMMAND ror_calibrated_beam_material_adapter_tests
+)
+
+add_test(
+    NAME calibrated_beam_runtime_audit
+    COMMAND ror_calibrated_beam_runtime_audit_tests
+)
+
+add_test(
+    NAME calibrated_beam_runtime_audit_fast_math
+    COMMAND ror_calibrated_beam_runtime_audit_fast_math_tests
 )
 
 add_test(
