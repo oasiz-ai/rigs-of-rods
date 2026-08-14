@@ -125,6 +125,7 @@ void RefCountingObjectPtr<T>::RegisterRefCountingObjectPtr(AS_NAMESPACE_QUALIFIE
     r = engine->RegisterObjectMethod(handle_name, decl_buf, asMETHODPR(RefCountingObjectPtr, operator==, (const RefCountingObjectPtr &) const, bool), asCALL_THISCALL); RefCountingObjectPtr_ASSERT( r >= 0 );
     snprintf(decl_buf, DECLBUF_MAX, "bool opEquals(const %s @&in) const", obj_name);
     r = engine->RegisterObjectMethod(handle_name, decl_buf, asFUNCTION(RefCountingObjectPtr::OpEquals), asCALL_CDECL_OBJFIRST); RefCountingObjectPtr_ASSERT( r >= 0 );
+    (void)r; // Registration results are otherwise assertion-only under NDEBUG.
 }
 
 
