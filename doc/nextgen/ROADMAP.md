@@ -423,8 +423,8 @@ savegames carry optional seed/counter fields so existing version-3 saves remain
 loadable and resumed saves retain the next cadence boundary. Golden vectors,
 dependency-free one/two/eight-thread noise tests, and 50,000 fixed-seed cadence
 fixtures lock the pure-function and frame-regrouping contracts.
-Save/load continuation tests, the runtime TSan soak, the production broad-phase
-oracle, and input-replay hashing remain open D0 work, as does a general
+Save/load continuation tests, the runtime TSan soak, actor-source broad-phase
+churn, and input-replay hashing remain open D0 work, as does a general
 scenario-level seed/stream-ID contract independent of runtime actor-ID
 assignment.
 
@@ -448,8 +448,13 @@ dependency-free contract compares
 10,000 fixed-seed shuffled AABB candidate sets with a brute-force ordered
 oracle, produces bit-identical
 reductions from one, two, and eight task buffers, and locks quota, overflow, and
-fallback-order behavior. A runtime oracle against `PointColDetector` itself and
-the multi-actor TSan soak are still required to close the gate.
+fallback-order behavior. A second contract loads 10,000 bounded shuffled
+fixtures into the production `PointColDetector`, executes 20,000 queries through
+its actual lazy KD-tree and canonical hit ordering, and compares every result
+with an independent inclusive AABB oracle. It also locks duplicate actor/node
+tie-breaking, enlargement, and transactional rejection of empty, invalid-ID,
+and non-finite fixtures. Actor-source mutation coverage and the multi-actor TSan
+soak are still required to close the gate.
 
 The first runtime micro-scenario now uses `simple2.terrn2` and two airborne
 `b6b0UID-semi.truck` actors with fixed poses, explicit stable IDs/seeds, and
