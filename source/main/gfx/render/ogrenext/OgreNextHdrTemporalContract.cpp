@@ -203,7 +203,8 @@ ValidationResult OgreNextHdrTemporalState::Initialize(
 ValidationResult OgreNextHdrTemporalState::PrepareFrame(
     const RenderFrameRequest &request,
     OgreNextRasterFeatureTier raster_feature_tier,
-    OgreNextHdrTemporalFramePlan &output) const {
+    OgreNextHdrTemporalFramePlan &output,
+    bool deferred_sun_visibility_v2) const {
   if (!initialized_) {
     return ValidationResult::Failure(
         ValidationCode::SEQUENCE_MISMATCH, "state",
@@ -225,12 +226,18 @@ ValidationResult OgreNextHdrTemporalState::PrepareFrame(
   if (!request_validation) {
     return request_validation;
   }
-  if (request.color_format != PixelFormat::RGBA8_SRGB ||
+  const PixelFormat required_color_format =
+      deferred_sun_visibility_v2 ? PixelFormat::RGBA16_FLOAT
+                                 : PixelFormat::RGBA8_SRGB;
+  if (request.color_format != required_color_format ||
       request.requested_outputs != FrameOutputMask::COLOR ||
-      request.views.size() != 1U) {
+      request.views.size() != 1U ||
+      (deferred_sun_visibility_v2 && request.present)) {
     return ValidationResult::Failure(
         ValidationCode::UNSUPPORTED_FEATURE, "request.output",
-        "the first pinned HDR compositor produces exactly one tone-mapped RGBA8_SRGB colour view");
+        deferred_sun_visibility_v2
+            ? "sun-visibility V2 prepares exactly one unpresented linear RGBA16_FLOAT colour view for its external continuation"
+            : "the first pinned HDR compositor produces exactly one tone-mapped RGBA8_SRGB colour view");
   }
   if (committed_frame_id_ ==
           (std::numeric_limits<std::uint64_t>::max)() ||

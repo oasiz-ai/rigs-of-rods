@@ -153,6 +153,22 @@ class NativeSunVisibilityV2ContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.metal_backend)
 
+    def test_zero_refit_scratch_uses_the_metal_nil_contract(self) -> None:
+        self.assertNotIn(
+            "sizes.refitScratchBufferSize == 0U)", self.metal_backend
+        )
+        self.assertNotIn(
+            "tlas_sizes.refitScratchBufferSize == 0U)", self.metal_backend
+        )
+        self.assertIn(
+            "work.sizes.refitScratchBufferSize == 0U ? nil",
+            self.metal_backend,
+        )
+        self.assertIn(
+            "tlas_sizes.refitScratchBufferSize == 0U ? nil",
+            self.metal_backend,
+        )
+
     def test_persistent_tlas_and_moved_scene_lineage_are_explicit(self) -> None:
         for token in (
             "scene_plan_digest",

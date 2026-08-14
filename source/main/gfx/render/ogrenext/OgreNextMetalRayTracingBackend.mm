@@ -2016,8 +2016,7 @@ public:
       const MTLAccelerationStructureSizes sizes =
           [device_ accelerationStructureSizesWithDescriptor:descriptor];
       if (sizes.accelerationStructureSize == 0U ||
-          sizes.buildScratchBufferSize == 0U ||
-          sizes.refitScratchBufferSize == 0U) {
+          sizes.buildScratchBufferSize == 0U) {
         return fail_before_submission(V2Failure(
             NativeSunVisibilityV2Code::UNSUPPORTED,
             NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD,
@@ -2249,8 +2248,7 @@ public:
     const MTLAccelerationStructureSizes tlas_sizes =
         [device_ accelerationStructureSizesWithDescriptor:tlas_descriptor];
     if (tlas_sizes.accelerationStructureSize == 0U ||
-        tlas_sizes.buildScratchBufferSize == 0U ||
-        tlas_sizes.refitScratchBufferSize == 0U) {
+        tlas_sizes.buildScratchBufferSize == 0U) {
       return fail_before_submission(V2Failure(
           NativeSunVisibilityV2Code::UNSUPPORTED,
           NativeSunVisibilityV2Stage::ACCELERATION_STRUCTURE_BUILD, frame_id,
@@ -2357,10 +2355,13 @@ public:
                                  scratchBuffer:candidate_scratch
                            scratchBufferOffset:0U];
         } else if (work.operation == BlasWork::Operation::REFIT) {
+          id<MTLBuffer> refit_scratch =
+              work.sizes.refitScratchBufferSize == 0U ? nil
+                                                      : candidate_scratch;
           [encoder refitAccelerationStructure:work.acceleration_structure
                                     descriptor:work.descriptor
                                    destination:nil
-                                 scratchBuffer:candidate_scratch
+                                 scratchBuffer:refit_scratch
                            scratchBufferOffset:0U];
         }
       }
@@ -2370,10 +2371,13 @@ public:
                                scratchBuffer:candidate_scratch
                          scratchBufferOffset:0U];
       } else if (tlas_operation == TlasOperation::REFIT) {
+        id<MTLBuffer> refit_scratch =
+            tlas_sizes.refitScratchBufferSize == 0U ? nil
+                                                    : candidate_scratch;
         [encoder refitAccelerationStructure:candidate_tlas
                                   descriptor:tlas_descriptor
                                  destination:nil
-                               scratchBuffer:candidate_scratch
+                               scratchBuffer:refit_scratch
                          scratchBufferOffset:0U];
       }
       [encoder endEncoding];

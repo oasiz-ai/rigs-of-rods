@@ -1435,12 +1435,14 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         for token in (
             "OgreNextHdrSceneTopology hdr_scene_topology",
             "reviewed_single_scene_hdr_pssm",
+            "reviewed_native_sun_visibility_v2",
             "OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1",
             "OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1",
             "!native_directional_shadow_enabled",
             "OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1",
             '"hdr_scene_topology"',
-            "persistent HDR and directional shadows require exactly RT4/V1, PSSM_3_CASCADE_V1, native directional shadows disabled, and SINGLE_EVALUATION_PSSM_V1",
+            "persistent HDR directional shadows require the exact reviewed single-scene PSSM or directional-split native sun-visibility topology",
+            "sun-visibility V2 requires exactly RT4/V1, persistent HDR, disabled PSSM and native N4, and DIRECTIONAL_SPLIT_V2",
         ):
             self.assertIn(token, policy)
         self.assertNotIn("reviewed_hdr_directional_shadow_node", policy)

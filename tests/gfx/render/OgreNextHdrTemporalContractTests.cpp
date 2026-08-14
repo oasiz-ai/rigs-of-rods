@@ -437,6 +437,17 @@ void TestFailClosedAdmission() {
                               plan)
                .ok(),
           "raw HDR output was mislabeled as tone-mapped SDR");
+  Require(state.PrepareFrame(request,
+                             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                             plan, true)
+              .ok(),
+          "deferred sun-visibility V2 linear HDR preparation was rejected");
+  request.present = true;
+  Require(!state.PrepareFrame(request,
+                              OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                              plan, true)
+               .ok(),
+          "sun-visibility V2 temporal preparation presented before its continuation");
 
   request = Frame(1U, Scene(2U, 0.0, 24.0F));
   Require(!state.PrepareFrame(request,

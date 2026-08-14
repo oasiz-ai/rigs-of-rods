@@ -181,7 +181,8 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     bool hdr_compositor_enabled = false,
     bool native_directional_shadow_enabled = false,
     OgreNextHdrSceneTopology hdr_scene_topology =
-        OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2);
+        OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2,
+    bool native_sun_visibility_v2_enabled = false);
 [[nodiscard]] ValidationResult ValidateOgreNextN1Frame(
     const RenderFrameRequest &request,
     const FrontendCapabilityReport &capabilities,

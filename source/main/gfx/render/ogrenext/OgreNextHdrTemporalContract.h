@@ -109,7 +109,8 @@ public:
   [[nodiscard]] ValidationResult PrepareFrame(
       const RenderFrameRequest &request,
       OgreNextRasterFeatureTier raster_feature_tier,
-      OgreNextHdrTemporalFramePlan &output) const;
+      OgreNextHdrTemporalFramePlan &output,
+      bool deferred_sun_visibility_v2 = false) const;
 
   [[nodiscard]] ValidationResult CommitFrame(
       const OgreNextHdrTemporalFramePlan &plan,

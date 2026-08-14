@@ -8340,7 +8340,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
   }
   const CameraViewRequest &validated_view = request.views.front();
   OgreNextPssmShadowFramePlan shadow_plan;
-  if (!UsesMetalDirectionalHardShadow(impl_->native_feature_tier)) {
+  if (!UsesMetalDirectionalHardShadow(impl_->native_feature_tier) &&
+      !deferred_sun_visibility_v2) {
     const ValidationResult shadow_validation =
         TryBuildOgreNextPssmShadowFramePlan(
             *request.scene_snapshot, *impl_->registry, validated_view,
@@ -8361,7 +8362,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
           "the persistent HDR compositor requires its fixed initialized extent");
     }
     const ValidationResult planned = impl_->hdr_temporal_state.PrepareFrame(
-        request, impl_->raster_feature_tier, hdr_plan);
+        request, impl_->raster_feature_tier, hdr_plan,
+        deferred_sun_visibility_v2);
     if (!planned) {
       return OgreNextN1OperationFromValidation(planned);
     }

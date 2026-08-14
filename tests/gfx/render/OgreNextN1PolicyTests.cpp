@@ -615,6 +615,36 @@ void TestNativeDirectionalShadowScenePolicy() {
               .ok(),
           "native directional-shadow frame incorrectly entered the PSSM planner");
 
+  request.color_format = PixelFormat::RGBA16_FLOAT;
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, true,
+              false, true, true,
+              OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2)
+              .ok(),
+          "reviewed HDR sun-visibility V2 frame entered the PSSM planner");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, true,
+              false, true, true,
+              OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1)
+              .field == "hdr_scene_topology",
+          "sun-visibility V2 escaped its exact directional-split topology");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
+              false, true, true,
+              OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2)
+              .field == "hdr_scene_topology",
+          "sun-visibility V2 and PSSM were admitted together");
+  Require(ValidateOgreNextN1Frame(
+              request, capabilities, registry, kModern,
+              OgreNextDirectionalShadowMode::DISABLED, true,
+              true, true, true,
+              OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2)
+              .field == "hdr_scene_topology",
+          "sun-visibility V2 and native N4 were admitted together");
+
   request.views.front().near_plane = kOgreNextPssmNearMeters;
   request.views.front().far_plane = kOgreNextPssmFarMeters;
   request.views.front().clip_from_view =
