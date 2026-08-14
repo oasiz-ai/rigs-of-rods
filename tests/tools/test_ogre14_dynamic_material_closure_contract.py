@@ -213,10 +213,15 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             "ResolveOgre14MaterialFirstPass(material, resolved)",
             "pass->getColourWriteEnabled(",
             "pass->getSceneBlendingOperation() != Ogre::SBO_ADD",
-            "portable fallback supports replace or straight-alpha blending",
+            "const bool straight_source_over",
+            "const bool legacy_straight_alpha",
+            "STRAIGHT_SOURCE_OVER",
+            "LEGACY_STRAIGHT_ALPHA",
             "CaptureOgre14MaterialSectionReference(resolved, reference)",
             "pass->getAlphaRejectFunction()",
-            "portable fallback supports always-pass or greater-equal alpha",
+            "Ogre::CMPF_GREATER:",
+            "Ogre::CMPF_GREATER_EQUAL:",
+            "portable fallback supports always-pass, greater, or ",
             "output = std::move(candidate)",
             "reverse_winding = reference.reverse_winding",
         ):
@@ -242,13 +247,15 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             )
         ]
         material_capture = capture.index(
-            "CaptureOgre14MaterialFallbackInput("
+            "CaptureOgreNextDemoMaterialInput("
         )
+        material_policy = capture.index("used_demo_matte")
         section_winding = capture.index(
             "section.mesh_reverse_winding = reverse_winding"
         )
         cpu_winding = capture.index("base.reverse_winding = reverse_winding")
         publish = capture.index("sections.push_back(std::move(section))")
+        self.assertLess(material_policy, material_capture)
         self.assertLess(material_capture, section_winding)
         self.assertLess(section_winding, cpu_winding)
         self.assertLess(cpu_winding, publish)
