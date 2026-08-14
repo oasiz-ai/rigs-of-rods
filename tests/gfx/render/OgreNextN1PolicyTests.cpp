@@ -158,11 +158,13 @@ RenderAssetDelta MakeModernCatalogDelta(std::uint64_t registry_id) {
 }
 
 RenderAssetDelta MakeSpecularCatalogDelta(std::uint64_t registry_id,
-                                          float specular_anisotropy = 8.0F) {
+                                          float specular_anisotropy = 8.0F,
+                                          float index_of_refraction = 1.52F) {
   RenderAssetDelta delta = MakeModernCatalogDelta(registry_id);
   MaterialDescriptor &material =
       std::get<MaterialDescriptor>(delta.mutations[1U].payload);
   material.pbr_workflow = MaterialPbrWorkflow::SPECULAR;
+  material.index_of_refraction = index_of_refraction;
   material.metallic_factor = 0.0F;
   material.metallic_roughness_texture = {};
   material.specular_factor = {0.72F, 0.65F, 0.51F};
@@ -908,7 +910,7 @@ void TestModernPbrAssetPolicy() {
           "authored specular RT4/V1 fixture is not registry valid");
   Require(ValidateOgreNextN1AssetCatalog(specular_registry, false, kModern)
               .ok(),
-          "authored linear-specular workflow and texture were rejected");
+          "authored IOR 1.52 linear-specular workflow and texture were rejected");
   Require(ValidateOgreNextN1SamplerDeviceLimits(specular_registry, 8.0F,
                                                  kModern)
               .ok(),
@@ -919,6 +921,24 @@ void TestModernPbrAssetPolicy() {
               over_limit_specular.field ==
                   "assets.sampler.maximum_anisotropy",
           "SPECULAR-slot anisotropy above the device limit escaped admission");
+
+  RenderAssetDelta noncanonical_metallic_ior =
+      MakeModernCatalogDelta(kRegistryId + 99U);
+  std::get<MaterialDescriptor>(noncanonical_metallic_ior.mutations[1U].payload)
+      .index_of_refraction = 1.52F;
+  RenderAssetRegistry noncanonical_metallic_ior_registry(kRegistryId + 99U);
+  Require(noncanonical_metallic_ior_registry
+              .Apply(noncanonical_metallic_ior)
+              .ok(),
+          "metallic-roughness IOR 1.52 fixture is not registry valid");
+  const ValidationResult noncanonical_metallic_ior_result =
+      ValidateOgreNextN1AssetCatalog(noncanonical_metallic_ior_registry,
+                                     false, kModern);
+  Require(noncanonical_metallic_ior_result.code ==
+                  ValidationCode::UNSUPPORTED_FEATURE &&
+              noncanonical_metallic_ior_result.field ==
+                  "assets.material.index_of_refraction",
+          "metallic-roughness workflow accepted a noncanonical unused IOR");
 
   const auto alpha_catalog = [&](std::uint64_t registry_id,
                                  MaterialBlendMode blend,

@@ -696,6 +696,27 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.frontend)
 
+    def test_specular_ior_152_reaches_native_f0_and_exact_readback(self) -> None:
+        expected_f0 = ((1.0 - 1.52) / (1.0 + 1.52)) ** 2
+        self.assertAlmostEqual(expected_f0, 0.04257999496094735)
+        self.assertIn(
+            "Ogre::Vector3(descriptor.index_of_refraction), false",
+            self.frontend,
+        )
+        self.assertIn(
+            "(1.0F - descriptor.index_of_refraction) /",
+            self.frontend,
+        )
+        self.assertIn(
+            "(1.0F + descriptor.index_of_refraction)",
+            self.frontend,
+        )
+        self.assertIn(
+            "datablock.getFresnel().x, expected_fresnel",
+            self.frontend,
+        )
+        self.assertIn("datablock.hasSeparateFresnel()", self.frontend)
+
     def test_specular_sampler_participates_in_exact_device_limit_gate(self) -> None:
         policy = (RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.cpp").read_text(
             encoding="utf-8"

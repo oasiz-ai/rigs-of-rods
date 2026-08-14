@@ -453,12 +453,11 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         "RT4/V1 requires the canonical 0.5 cutoff when alpha testing is disabled so ignored state cannot silently change",
         index);
   }
-  if (std::fabs(material.index_of_refraction - 1.5F) > 1.0e-6F) {
+  if (material.pbr_workflow == MaterialPbrWorkflow::METALLIC_ROUGHNESS &&
+      std::fabs(material.index_of_refraction - 1.5F) > 1.0e-6F) {
     return Unsupported(
         "assets.material.index_of_refraction",
-        material.pbr_workflow == MaterialPbrWorkflow::SPECULAR
-            ? "RT4/V1 specular workflow freezes dielectric IOR 1.5 and lowers it to one shared RGB F0 of 0.04"
-            : "RT4/V1 metallic-roughness workflow requires canonical unused IOR 1.5",
+        "RT4/V1 metallic-roughness workflow requires canonical unused IOR 1.5",
         index);
   }
   if (material.roughness_factor < 1.0e-4F) {
