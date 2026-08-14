@@ -410,7 +410,8 @@ RoR::Render::Matrix4x4 ToRendererBoundaryMatrix(
 }
 
 bool CaptureOgre14MainCamera(
-    RoR::Render::GraphicsSceneCameraInput& output)
+    RoR::Render::GraphicsSceneCameraInput& output,
+    RoR::Render::Double3& absolute_world_position_meters)
 {
     if (RoR::App::GetCameraManager() == nullptr ||
         RoR::App::GetAppContext() == nullptr)
@@ -461,7 +462,16 @@ bool CaptureOgre14MainCamera(
     // exact here; optional display postprocessing remains outside the scene.
     input.exposure = 1.0F;
     input.visibility_mask = viewport->getVisibilityMask();
-    return RoR::Render::BuildOgre14GraphicsSceneCamera(input, output).ok();
+    const RoR::Render::ValidationResult validation =
+        RoR::Render::BuildOgre14GraphicsSceneCamera(input, output);
+    if (!validation)
+        return false;
+    const Ogre::Vector3 camera_position = camera->getDerivedPosition();
+    absolute_world_position_meters = {
+        static_cast<double>(camera_position.x),
+        static_cast<double>(camera_position.y),
+        static_cast<double>(camera_position.z)};
+    return true;
 }
 
 RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
@@ -2763,6 +2773,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre_next_demo_material_source.Reset();
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
+    m_ogre14_automatic_reflection_probe_state = {};
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3445,6 +3456,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     pending->dynamic_registry = m_ogre14_dynamic_identity_registry;
     pending->dynamic_mesh_cache = m_ogre14_dynamic_mesh_cache;
     pending->particle_capture_state = m_ogre14_particle_capture_state;
+    pending->automatic_reflection_probe_state =
+        m_ogre14_automatic_reflection_probe_state;
     pending->particle_capture_state.captured_systems = 0U;
     pending->particle_capture_state.captured_particles = 0U;
     pending->particle_capture_state.observed_systems = 0U;
@@ -4381,21 +4394,31 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     Render::Ogre14GraphicsSceneCaptureField::LIGHTS);
         }
 
-        // OGRE 14 has no authored reflection-probe registry. Its dynamic
-        // GfxEnvmap is a vehicle-local compatibility reflection and cannot be
-        // promoted to a world-space parallax-corrected probe. The complete
-        // authored probe inventory is therefore exactly empty.
-        candidate.frame.reflection_probes.clear();
-        candidate.available_fields |=
-            Render::Ogre14GraphicsSceneCaptureFieldBit(
-                Render::Ogre14GraphicsSceneCaptureField::
-                    REFLECTION_PROBES);
-
-        if (CaptureOgre14MainCamera(candidate.frame.camera))
+        Render::Double3 automatic_probe_camera_position;
+        if (CaptureOgre14MainCamera(
+                candidate.frame.camera,
+                automatic_probe_camera_position))
         {
             candidate.available_fields |=
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::CAMERA);
+            // OGRE 14 has no authored reflection-probe registry. Its dynamic
+            // GfxEnvmap remains a vehicle-local compatibility effect and is
+            // never promoted. The combined-runtime visual policy instead
+            // authors one explicitly labelled project-owned PCC probe.
+            Render::ValidationResult probe_validation =
+                Render::BuildOgre14AutomaticReflectionProbe(
+                    automatic_probe_camera_position,
+                    candidate.frame.static_meshes,
+                    m_ogre14_automatic_reflection_probe_state,
+                    pending->automatic_reflection_probe_state,
+                    candidate.frame.reflection_probes);
+            if (!probe_validation)
+                return probe_validation;
+            candidate.available_fields |=
+                Render::Ogre14GraphicsSceneCaptureFieldBit(
+                    Render::Ogre14GraphicsSceneCaptureField::
+                        REFLECTION_PROBES);
         }
     }
 
@@ -4424,6 +4447,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->dynamic_mesh_cache);
     swap(m_ogre14_particle_capture_state,
          m_ogre14_pending_capture->particle_capture_state);
+    swap(m_ogre14_automatic_reflection_probe_state,
+         m_ogre14_pending_capture->automatic_reflection_probe_state);
     const bool analytic_sky_changed =
         !m_ogre14_pending_capture->analytic_sky_log_snapshot.empty() &&
         m_ogre14_pending_capture->analytic_sky_log_snapshot !=

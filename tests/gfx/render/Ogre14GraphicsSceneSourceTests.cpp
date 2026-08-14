@@ -31,6 +31,18 @@ void Require(bool condition, const char *message) {
   }
 }
 
+double DoubleFromBits(std::uint64_t bits) {
+  double value = 0.0;
+  const volatile unsigned char *const source =
+      reinterpret_cast<const volatile unsigned char *>(&bits);
+  unsigned char *const destination =
+      reinterpret_cast<unsigned char *>(&value);
+  for (std::size_t index = 0U; index < sizeof(value); ++index) {
+    destination[index] = source[index];
+  }
+  return value;
+}
+
 bool Near(float lhs, float rhs) {
   return std::fabs(lhs - rhs) <= 1.0e-5F;
 }
@@ -2109,6 +2121,108 @@ void TestCrossDomainAssetMergeCapAndExceptionRollback() {
       "unexpected exception changed the populated merge sentinel owner");
 }
 
+RoR::Render::GraphicsSceneStaticMeshInput AutomaticProbeStatic(
+    std::uint64_t source_object_id) {
+  RoR::Render::GraphicsSceneStaticMeshInput instance;
+  instance.source_object_id = source_object_id;
+  return instance;
+}
+
+void TestAutomaticReflectionProbeIsTransactionalAndMapScoped() {
+  using namespace RoR::Render;
+  Ogre14AutomaticReflectionProbeState committed;
+  Ogre14AutomaticReflectionProbeState candidate;
+  std::vector<ReflectionProbeRuntimeDescriptor> probes;
+  ValidationResult result = BuildOgre14AutomaticReflectionProbe(
+      {10.0, 20.0, 30.0}, {}, committed, candidate, probes);
+  Require(result.ok() && !candidate.initialized && probes.empty(),
+          "empty pre-content scene unexpectedly authored a reflection probe");
+
+  const std::vector<GraphicsSceneStaticMeshInput> first_static = {
+      AutomaticProbeStatic(10U), AutomaticProbeStatic(20U)};
+  result = BuildOgre14AutomaticReflectionProbe(
+      {10.0, 20.0, 30.0}, first_static, committed, candidate, probes);
+  Require(result.ok() && candidate.initialized &&
+              candidate.content_revision == 1U &&
+              candidate.static_object_ids ==
+                  std::vector<std::uint64_t>({10U, 20U}) &&
+              probes.size() == 1U,
+          "first static inventory did not author one automatic probe");
+  const ReflectionProbeRuntimeDescriptor &first = probes.front();
+  Require(first.probe_id == kOgre14AutomaticReflectionProbeId &&
+              first.absolute_world_position_meters.x == 10.0 &&
+              first.absolute_world_position_meters.y == 20.0 &&
+              first.absolute_world_position_meters.z == 30.0 &&
+              first.content_revision == 1U && first.resolution == 256U &&
+              first.update_mode ==
+                  ReflectionProbeUpdateMode::PERIODIC_SIMULATION_TICKS &&
+              first.update_interval_simulation_ticks ==
+                  kOgre14AutomaticReflectionProbeUpdateIntervalSimulationTicks &&
+              !first.include_dynamic_geometry &&
+              ValidateReflectionProbeRuntimeDescriptor(first).ok(),
+          "automatic probe lost its exact PCC policy");
+
+  committed = candidate;
+  result = BuildOgre14AutomaticReflectionProbe(
+      {100.0, 200.0, 300.0}, first_static, committed, candidate, probes);
+  Require(result.ok() && candidate.content_revision == 1U &&
+              candidate.absolute_world_position_meters.x == 10.0 &&
+              probes.size() == 1U &&
+              probes.front().absolute_world_position_meters.x == 10.0,
+          "stable static inventory moved or invalidated the frozen probe");
+
+  committed = candidate;
+  const std::vector<GraphicsSceneStaticMeshInput> grown_static = {
+      AutomaticProbeStatic(5U), AutomaticProbeStatic(10U),
+      AutomaticProbeStatic(20U), AutomaticProbeStatic(30U)};
+  result = BuildOgre14AutomaticReflectionProbe(
+      {-1.0, -2.0, -3.0}, grown_static, committed, candidate, probes);
+  Require(result.ok() && candidate.content_revision == 2U &&
+              probes.size() == 1U &&
+              probes.front().content_revision == 2U &&
+              probes.front().absolute_world_position_meters.x == 10.0,
+          "grown static inventory did not revise the fixed probe exactly once");
+
+  const Ogre14AutomaticReflectionProbeState sentinel_state = candidate;
+  const std::vector<ReflectionProbeRuntimeDescriptor> sentinel_probes = probes;
+  result = BuildOgre14AutomaticReflectionProbe(
+      {0.0, 0.0, 0.0},
+      {AutomaticProbeStatic(10U), AutomaticProbeStatic(10U)},
+      committed, candidate, probes);
+  Require(!result && result.code == ValidationCode::INVALID_IDENTIFIER &&
+              candidate.static_object_ids ==
+                  sentinel_state.static_object_ids &&
+              probes.front().content_revision ==
+                  sentinel_probes.front().content_revision,
+          "duplicate static identity changed automatic probe outputs");
+  result = BuildOgre14AutomaticReflectionProbe(
+      {0.0, 0.0, 0.0}, {AutomaticProbeStatic(10U)}, committed,
+      candidate, probes);
+  Require(!result && result.code == ValidationCode::SEQUENCE_MISMATCH &&
+              candidate.static_object_ids ==
+                  sentinel_state.static_object_ids,
+          "shrinking static inventory bypassed map-generation reset");
+
+  Double3 nonfinite_camera{};
+  nonfinite_camera.y = DoubleFromBits(UINT64_C(0x7ff8000000000000));
+  result = BuildOgre14AutomaticReflectionProbe(
+      nonfinite_camera, grown_static, committed, candidate, probes);
+  Require(!result && result.code == ValidationCode::NON_FINITE_VALUE &&
+              candidate.static_object_ids ==
+                  sentinel_state.static_object_ids,
+          "non-finite probe camera changed automatic probe outputs");
+
+  Ogre14AutomaticReflectionProbeState exhausted = committed;
+  exhausted.content_revision =
+      (std::numeric_limits<std::uint64_t>::max)();
+  result = BuildOgre14AutomaticReflectionProbe(
+      {0.0, 0.0, 0.0}, grown_static, exhausted, candidate, probes);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              candidate.static_object_ids ==
+                  sentinel_state.static_object_ids,
+          "exhausted probe revision changed automatic probe outputs");
+}
+
 } // namespace
 
 int main() {
@@ -2147,5 +2261,6 @@ int main() {
   TestCameraConversionRejectsGuesswork();
   TestCrossDomainAssetMergeAuditsPayloadsBindingsAndOwners();
   TestCrossDomainAssetMergeCapAndExceptionRollback();
+  TestAutomaticReflectionProbeIsTransactionalAndMapScoped();
   return EXIT_SUCCESS;
 }

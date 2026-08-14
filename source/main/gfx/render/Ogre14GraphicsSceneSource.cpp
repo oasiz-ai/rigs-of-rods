@@ -837,7 +837,172 @@ bool HasMirroredLinearTransform(const Matrix4x4 &transform) noexcept {
   return LinearDeterminant(transform) < 0.0F;
 }
 
+bool IsFiniteBinary64(double value) noexcept {
+  static_assert(sizeof(double) == sizeof(std::uint64_t),
+                "automatic reflection probes require binary64 doubles");
+  static_assert(std::numeric_limits<double>::is_iec559,
+                "automatic reflection probes require IEC 60559 doubles");
+
+  // Volatile object-representation reads keep this untrusted camera boundary
+  // effective in the game's finite-math Release translation units.
+  std::uint64_t bits = 0U;
+  const volatile unsigned char *const source =
+      reinterpret_cast<const volatile unsigned char *>(&value);
+  unsigned char *const destination =
+      reinterpret_cast<unsigned char *>(&bits);
+  for (std::size_t index = 0U; index < sizeof(bits); ++index) {
+    destination[index] = source[index];
+  }
+  return (bits & UINT64_C(0x7ff0000000000000)) !=
+         UINT64_C(0x7ff0000000000000);
+}
+
+bool IsFiniteBinary64(const Double3 &value) noexcept {
+  return IsFiniteBinary64(value.x) && IsFiniteBinary64(value.y) &&
+         IsFiniteBinary64(value.z);
+}
+
 } // namespace
+
+ValidationResult BuildOgre14AutomaticReflectionProbe(
+    const Double3 &current_camera_position_meters,
+    const std::vector<GraphicsSceneStaticMeshInput> &static_meshes,
+    const Ogre14AutomaticReflectionProbeState &committed_state,
+    Ogre14AutomaticReflectionProbeState &candidate_state,
+    std::vector<ReflectionProbeRuntimeDescriptor> &probes) {
+  if (committed_state.version !=
+      kOgre14AutomaticReflectionProbePolicyVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION,
+        "automatic_reflection_probe.state.version",
+        "unsupported automatic reflection-probe policy version");
+  }
+  if (!IsFiniteBinary64(current_camera_position_meters)) {
+    return ValidationResult::Failure(
+        ValidationCode::NON_FINITE_VALUE,
+        "automatic_reflection_probe.camera_position",
+        "automatic reflection-probe camera position must be finite");
+  }
+  if (static_meshes.size() > kMaximumOgre14GraphicsSceneStaticSections) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "automatic_reflection_probe.static_meshes",
+        "automatic reflection-probe static inventory exceeds its bound");
+  }
+  if (committed_state.initialized) {
+    if (committed_state.content_revision == 0U ||
+        !IsFiniteBinary64(committed_state.absolute_world_position_meters) ||
+        committed_state.static_object_ids.empty() ||
+        !std::is_sorted(committed_state.static_object_ids.begin(),
+                        committed_state.static_object_ids.end()) ||
+        std::adjacent_find(committed_state.static_object_ids.begin(),
+                           committed_state.static_object_ids.end()) !=
+            committed_state.static_object_ids.end() ||
+        committed_state.static_object_ids.front() == 0U) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "automatic_reflection_probe.state",
+          "initialized automatic reflection-probe state is not canonical");
+    }
+  } else if (committed_state.content_revision != 0U ||
+             !committed_state.static_object_ids.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH,
+        "automatic_reflection_probe.state",
+        "uninitialized automatic reflection-probe state retains content");
+  }
+
+  try {
+    std::vector<std::uint64_t> static_object_ids;
+    static_object_ids.reserve(static_meshes.size());
+    std::uint64_t previous_id = 0U;
+    for (const GraphicsSceneStaticMeshInput &instance : static_meshes) {
+      if (instance.source_object_id == 0U ||
+          instance.source_object_id <= previous_id) {
+        return ValidationResult::Failure(
+            ValidationCode::INVALID_IDENTIFIER,
+            "automatic_reflection_probe.static_meshes.source_object_id",
+            "automatic reflection-probe static identities must be nonzero, "
+            "unique, and strictly increasing");
+      }
+      previous_id = instance.source_object_id;
+      static_object_ids.push_back(instance.source_object_id);
+    }
+
+    Ogre14AutomaticReflectionProbeState next = committed_state;
+    std::vector<ReflectionProbeRuntimeDescriptor> next_probes;
+    if (static_object_ids.empty() && !next.initialized) {
+      using std::swap;
+      swap(candidate_state, next);
+      probes.swap(next_probes);
+      return ValidationResult::Success();
+    }
+    if (static_object_ids.empty() ||
+        (next.initialized &&
+         !std::includes(static_object_ids.begin(), static_object_ids.end(),
+                        next.static_object_ids.begin(),
+                        next.static_object_ids.end()))) {
+      return ValidationResult::Failure(
+          ValidationCode::SEQUENCE_MISMATCH,
+          "automatic_reflection_probe.static_meshes",
+          "automatic reflection-probe static inventory may only grow until "
+          "the map generation resets");
+    }
+
+    if (!next.initialized) {
+      next.initialized = true;
+      next.content_revision = 1U;
+      next.absolute_world_position_meters = current_camera_position_meters;
+    } else if (static_object_ids != next.static_object_ids) {
+      if (next.content_revision ==
+          (std::numeric_limits<std::uint64_t>::max)()) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE,
+            "automatic_reflection_probe.content_revision",
+            "automatic reflection-probe content revision is exhausted");
+      }
+      ++next.content_revision;
+    }
+    next.static_object_ids = std::move(static_object_ids);
+
+    ReflectionProbeRuntimeDescriptor descriptor;
+    descriptor.probe_id = kOgre14AutomaticReflectionProbeId;
+    descriptor.content_revision = next.content_revision;
+    descriptor.absolute_world_position_meters =
+        next.absolute_world_position_meters;
+    descriptor.influence_half_size = {192.0F, 96.0F, 192.0F};
+    descriptor.influence_inner_fraction = {0.8F, 0.8F, 0.8F};
+    descriptor.correction_shape_half_size = {192.0F, 96.0F, 192.0F};
+    descriptor.resolution = 256U;
+    descriptor.capture_near_meters = 0.1F;
+    descriptor.capture_far_meters = 320.0F;
+    descriptor.update_mode =
+        ReflectionProbeUpdateMode::PERIODIC_SIMULATION_TICKS;
+    descriptor.update_interval_simulation_ticks =
+        kOgre14AutomaticReflectionProbeUpdateIntervalSimulationTicks;
+    descriptor.include_dynamic_geometry = false;
+    const ValidationResult validation =
+        ValidateReflectionProbeRuntimeDescriptor(descriptor);
+    if (!validation) {
+      return validation;
+    }
+    next_probes.push_back(std::move(descriptor));
+    using std::swap;
+    swap(candidate_state, next);
+    probes.swap(next_probes);
+    return ValidationResult::Success();
+  } catch (const std::exception &) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE,
+        "automatic_reflection_probe",
+        "automatic reflection-probe policy could not allocate bounded state");
+  } catch (...) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "automatic_reflection_probe",
+        "automatic reflection-probe policy raised a non-standard exception");
+  }
+}
 
 const char *ToString(Ogre14GraphicsSceneCaptureField field) noexcept {
   for (const RequiredField &required : kRequiredFields) {

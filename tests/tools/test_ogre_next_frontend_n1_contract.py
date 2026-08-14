@@ -909,7 +909,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.assertIn(token, self.ogre14_scene_source)
         capture = self.gfx_scene[
             self.gfx_scene.index("CaptureOgreNextDemoMainShadowLight(") :
-            self.gfx_scene.index("candidate.frame.reflection_probes.clear()")
+            self.gfx_scene.index("BuildOgre14AutomaticReflectionProbe(")
         ]
         self.assertLess(
             capture.index("CaptureOgreNextDemoMainShadowLight("),
@@ -919,6 +919,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             capture.index("BuildOgre14GraphicsSceneAnalyticSkyEnvironment("),
             capture.index("Ogre14GraphicsSceneCaptureField::ENVIRONMENT"),
         )
+        for token in (
+            "kOgre14AutomaticReflectionProbePolicyVersion = 1U",
+            "kOgre14AutomaticReflectionProbeId",
+            "BuildOgre14AutomaticReflectionProbe",
+            "PERIODIC_SIMULATION_TICKS",
+        ):
+            self.assertIn(
+                token,
+                self.ogre14_scene_source_header + self.ogre14_scene_source,
+            )
         for token in (
             "BuildOgreNextAnalyticSkyNativeMesh",
             "kOgreNextAnalyticSkyHemisphereRings",

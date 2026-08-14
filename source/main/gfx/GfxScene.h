@@ -208,6 +208,8 @@ private:
     std::map<std::string,
              Render::Ogre14GraphicsSceneDynamicMeshCacheEntry, std::less<>>
                                        m_ogre14_dynamic_mesh_cache;
+    Render::Ogre14AutomaticReflectionProbeState
+                                       m_ogre14_automatic_reflection_probe_state;
     struct Ogre14DustParticleIdentity
     {
         std::uint64_t particle_id = 0U;
@@ -267,6 +269,8 @@ private:
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
                  std::less<>> dynamic_mesh_cache;
         Ogre14ContinuousParticleCaptureState particle_capture_state;
+        Render::Ogre14AutomaticReflectionProbeState
+            automatic_reflection_probe_state;
         std::size_t new_material_projection_count = 0U;
         std::size_t active_material_projection_count = 0U;
         Gfx::Detail::OgreNextDemoMaterialSourceCounters

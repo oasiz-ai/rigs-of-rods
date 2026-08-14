@@ -3819,6 +3819,19 @@ int main(int argc, char *argv[])
                                     "directional={} pbs={} transmission={} normal={} "
                                     "emissive={} casters={} receivers={} "
                                     "hdr_topology={} pssm_populated_finalize={} "
+                                    "reflection_audit_v={} reflection_probes={} "
+                                    "reflection_captures={} reflection_failures={} "
+                                    "reflection_capture_frame={} "
+                                    "reflection_capture_tick={} "
+                                    "reflection_faces={} reflection_mips={} "
+                                    "reflection_resolution={} "
+                                    "reflection_native_evidence={} "
+                                    "reflection_initialized={} "
+                                    "reflection_resources={} reflection_pcc={} "
+                                    "reflection_pbs_bound={} "
+                                    "reflection_blend_ready={} "
+                                    "reflection_ui_free={} "
+                                    "reflection_reserved_queue_excluded={} "
                                     "native_scene_lighting={} rgba16_hdr={} "
                                     "base_hdr={} sun_full_unoccluded={} "
                                     "sun_direct_hdr={} gpu_sun_derivation={} "
@@ -3854,6 +3867,34 @@ int main(int argc, char *argv[])
                                     lighting_audit.hdr_scene_topology,
                                     lighting_audit
                                         .pssm_finalized_with_populated_scene,
+                                    lighting_audit
+                                        .reflection_probe_audit_version,
+                                    lighting_audit.reflection_live_probe_count,
+                                    lighting_audit
+                                        .reflection_successful_capture_count,
+                                    lighting_audit
+                                        .reflection_failed_capture_count,
+                                    lighting_audit
+                                        .reflection_last_capture_frame_id,
+                                    lighting_audit
+                                        .reflection_last_capture_simulation_tick,
+                                    lighting_audit
+                                        .reflection_completed_face_count,
+                                    lighting_audit
+                                        .reflection_completed_mip_count,
+                                    lighting_audit.reflection_blend_resolution,
+                                    lighting_audit
+                                        .reflection_native_execution_evidence,
+                                    lighting_audit.reflection_initialized,
+                                    lighting_audit
+                                        .reflection_exact_resources_loaded,
+                                    lighting_audit.reflection_pcc_enabled,
+                                    lighting_audit.reflection_pbs_bound,
+                                    lighting_audit
+                                        .reflection_blend_texture_ready,
+                                    lighting_audit.reflection_ui_free_capture,
+                                    lighting_audit
+                                        .reflection_reserved_render_queue_excluded,
                                     lighting_audit.native_scene_lighting_pass,
                                     lighting_audit.linear_rgba16_hdr_target,
                                     lighting_audit.separate_base_hdr_target,

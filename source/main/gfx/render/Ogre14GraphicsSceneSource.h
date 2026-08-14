@@ -121,6 +121,36 @@ struct Ogre14GraphicsSceneCapture {
   GraphicsSceneFrameInput frame;
 };
 
+/// Project-owned fallback probe for the bounded combined-runtime visual path.
+/// This is not an authored map probe and does not reuse OGRE 14's vehicle-local
+/// GfxEnvmap. Its first accepted camera position remains fixed for the map
+/// generation; exact static-object inventory changes advance content revision
+/// and the periodic mode refreshes changing analytic-sky radiance.
+constexpr std::uint32_t
+    kOgre14AutomaticReflectionProbePolicyVersion = 1U;
+constexpr std::uint64_t kOgre14AutomaticReflectionProbeId =
+    UINT64_C(0x524f525043430001);
+constexpr std::uint64_t
+    kOgre14AutomaticReflectionProbeUpdateIntervalSimulationTicks = 20000U;
+
+struct Ogre14AutomaticReflectionProbeState {
+  std::uint32_t version =
+      kOgre14AutomaticReflectionProbePolicyVersion;
+  std::uint64_t content_revision = 0U;
+  Double3 absolute_world_position_meters{};
+  std::vector<std::uint64_t> static_object_ids;
+  bool initialized = false;
+};
+
+/// Builds either the exact empty pre-content inventory or one automatic probe.
+/// Both output arguments remain unchanged on validation/allocation failure.
+[[nodiscard]] ValidationResult BuildOgre14AutomaticReflectionProbe(
+    const Double3 &current_camera_position_meters,
+    const std::vector<GraphicsSceneStaticMeshInput> &static_meshes,
+    const Ogre14AutomaticReflectionProbeState &committed_state,
+    Ogre14AutomaticReflectionProbeState &candidate_state,
+    std::vector<ReflectionProbeRuntimeDescriptor> &probes);
+
 /// Narrow production seam implemented by GfxScene. It creates one candidate
 /// from graphics-owned state and copied simulation buffers only. Partial
 /// candidates return success so the source can report every unavailable field

@@ -9,6 +9,7 @@
 #include "RendererOgreNextInProcessPresenter.h"
 
 #include "OgreNextN1Frontend.h"
+#include "OgreNextReflectionProbeRuntime.h"
 #include "RendererOgreNextSdlWindowRuntime.h"
 
 #if defined(__APPLE__)
@@ -730,6 +731,31 @@ public:
     output.shadow_receivers = audit.last_shadow_receivers;
     output.hdr_scene_topology =
         static_cast<std::uint32_t>(audit.hdr_scene_topology);
+    const OgreNextReflectionProbeAudit reflection =
+        native_frontend->QueryReflectionProbeAudit();
+    output.reflection_probe_audit_version = reflection.version;
+    output.reflection_live_probe_count = reflection.live_probe_count;
+    output.reflection_completed_face_count = reflection.completed_face_count;
+    output.reflection_completed_mip_count = reflection.completed_mip_count;
+    output.reflection_blend_resolution = reflection.blend_resolution;
+    output.reflection_successful_capture_count =
+        reflection.successful_capture_count;
+    output.reflection_failed_capture_count = reflection.failed_capture_count;
+    output.reflection_native_execution_evidence =
+        reflection.native_execution_evidence;
+    output.reflection_last_capture_frame_id =
+        reflection.last_capture_frame_id;
+    output.reflection_last_capture_simulation_tick =
+        reflection.last_capture_simulation_tick;
+    output.reflection_initialized = reflection.initialized;
+    output.reflection_exact_resources_loaded =
+        reflection.exact_resources_loaded;
+    output.reflection_pcc_enabled = reflection.pcc_enabled;
+    output.reflection_pbs_bound = reflection.pbs_bound;
+    output.reflection_blend_texture_ready = reflection.blend_texture_ready;
+    output.reflection_ui_free_capture = reflection.ui_free_capture;
+    output.reflection_reserved_render_queue_excluded =
+        reflection.reserved_render_queue_excluded;
     output.native_scene_lighting_pass = audit.native_scene_lighting_pass;
     output.pssm_finalized_with_populated_scene =
         audit.pssm_finalized_with_populated_scene;

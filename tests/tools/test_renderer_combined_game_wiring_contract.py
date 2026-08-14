@@ -296,6 +296,14 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "output.pssm_finalized_with_populated_scene =\n"
             "        audit.pssm_finalized_with_populated_scene;",
             "output.raster_scene_evaluations = audit.raster_scene_evaluations;",
+            "output.reflection_successful_capture_count =\n"
+            "        reflection.successful_capture_count;",
+            "output.reflection_native_execution_evidence =\n"
+            "        reflection.native_execution_evidence;",
+            "output.reflection_pcc_enabled = reflection.pcc_enabled;",
+            "output.reflection_pbs_bound = reflection.pbs_bound;",
+            "output.reflection_blend_texture_ready = reflection.blend_texture_ready;",
+            "output.reflection_ui_free_capture = reflection.ui_free_capture;",
             "output.production_gpu_only = audit.production_gpu_only;",
             "output.no_ogre14_lighting = audit.no_ogre14_lighting;",
         ):
@@ -313,6 +321,12 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "hdr_topology={}",
             "pssm_populated_finalize={}",
             "scene_evaluations={}",
+            "reflection_captures={}",
+            "reflection_native_evidence={}",
+            "reflection_pcc={}",
+            "reflection_pbs_bound={}",
+            "reflection_blend_ready={}",
+            "reflection_ui_free={}",
             "production_content_readbacks={}",
             "production_framebuffer_readbacks={}",
             "ogre14_lighting_passes={}",
