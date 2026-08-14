@@ -178,8 +178,8 @@ private:
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     SDL_Window*          m_sdl_window = nullptr;
     bool                 m_owns_sdl_video = false;
-    bool                 m_window_shutdown_requested = false;
 #endif
+    bool                 m_window_shutdown_requested = false;
     bool                 m_windowed_fix = false; //!< Workaround OGRE glitch when switching from fullscreen.
     bool                 m_profiler_enabled = false; //!< Last known state, to workaround OGRE v14.5.2 bug
 

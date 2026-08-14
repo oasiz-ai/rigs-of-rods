@@ -338,6 +338,37 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         cls.facts = (
             REPOSITORY_ROOT / "cmake/RendererLauncherPackageConfig.cmake"
         ).read_text(encoding="utf-8")
+        cls.pinned_ogre_next = (
+            REPOSITORY_ROOT
+            / "tools/ogre_next_probe/cmake/PinnedOgreNext.cmake"
+        ).read_text(encoding="utf-8")
+        cls.app_context_header = (
+            REPOSITORY_ROOT / "source/main/AppContext.h"
+        ).read_text(encoding="utf-8")
+
+    def test_hosted_patch_transaction_is_per_patch_and_fail_closed(self) -> None:
+        for token in (
+            "foreach (_ror_ogre_next_patch_path IN LISTS "
+            "_ror_ogre_next_patch_paths)",
+            "list(APPEND _ror_ogre_next_patch_command COMMAND)",
+            'PATCH_COMMAND ${_ror_ogre_next_patch_command}',
+            "The pinned OGRE-Next patch transaction is empty",
+            "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes",
+        ):
+            self.assertIn(token, self.pinned_ogre_next)
+        self.assertNotIn(
+            "--whitespace=nowarn\n        ${_ror_ogre_next_patch_paths}",
+            self.pinned_ogre_next,
+        )
+
+    def test_renderer_window_close_latch_is_cross_platform(self) -> None:
+        apple_guard_end = self.app_context_header.index(
+            "    bool                 m_owns_sdl_video = false;\n#endif"
+        )
+        latch = self.app_context_header.index(
+            "    bool                 m_window_shutdown_requested = false;"
+        )
+        self.assertGreater(latch, apple_guard_end)
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (

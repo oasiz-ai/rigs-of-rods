@@ -1326,16 +1326,31 @@ elseif (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}")
 endif ()
 
+# FetchContent forwards PATCH_COMMAND through ExternalProject.  Keep every
+# reviewed patch as its own command: a single `git apply` invocation carrying
+# the whole list was observed to return success under hosted CMake 4.4 while
+# leaving later shader patches unapplied.  Independent commands make every
+# patch a fail-closed step and preserve the exact post-patch hash checks below.
+set(_ror_ogre_next_patch_command "")
+foreach (_ror_ogre_next_patch_path IN LISTS _ror_ogre_next_patch_paths)
+    if (_ror_ogre_next_patch_command)
+        list(APPEND _ror_ogre_next_patch_command COMMAND)
+    endif ()
+    list(APPEND _ror_ogre_next_patch_command
+        "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --unidiff-zero
+        --whitespace=nowarn "${_ror_ogre_next_patch_path}")
+endforeach ()
+if (NOT _ror_ogre_next_patch_command)
+    message(FATAL_ERROR "The pinned OGRE-Next patch transaction is empty")
+endif ()
+
 # Hosted Windows Git defaults to core.autocrlf=true. Override it for the
 # archive patch transaction so reviewed shader bytes stay LF-identical.
 FetchContent_Declare(
     ogre_next
     URL "${_ror_ogre_next_url}"
     URL_HASH "SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}"
-    PATCH_COMMAND
-        "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --unidiff-zero
-        --whitespace=nowarn
-        ${_ror_ogre_next_patch_paths}
+    PATCH_COMMAND ${_ror_ogre_next_patch_command}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
 
