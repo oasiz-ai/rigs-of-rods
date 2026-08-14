@@ -313,8 +313,34 @@ resolution and free-force application. Turning the CVar off or unloading the
 scene finalizes the aggregate trailer. Capture failure is logged and latched
 off until the CVar is disabled, while physics continues normally.
 
-Automated runtime lifecycle coverage, input recording, pause/load
-continuation, and runtime TSan coverage remain separate runtime gates.
+The bounded production input record/replay path is configured only after the
+single local player truck exists. Set synchronous physics and the immutable run
+identity first:
+
+```text
+app_async_physics=false
+sim_deterministic_input_scenario_id=<nonzero unsigned decimal>
+sim_deterministic_input_target_id=<stable nonzero unsigned decimal>
+sim_deterministic_input_step_limit=<positive bounded step count>
+```
+
+Set `sim_deterministic_input_mode=record` with an empty
+`sim_deterministic_input_path` to reserve a new authenticated `.rorinput` under
+`sys_logs_dir`. For a fresh-process replay, use the same terrain, vehicle,
+manual-sequential gearbox configuration, fixed gear/range, hydro configuration,
+scenario, target, and limit; set `sim_deterministic_input_path` to the completed
+recording and then set `sim_deterministic_input_mode=replay`. Replay validates
+the complete stream and source digest before applying controls, owns the normal
+player-input path while active, and pauses physics after clean exhaustion or a
+fault. Pair each run with the state-trace CVars above and compare the two
+`.rortrace` files using `ror_state_trace` for an end-to-end state-equivalence
+gate.
+
+Schema 1 intentionally admits only one local simulated manual-sequential truck
+with fixed gear/range, no transfer case, no actor links or AI, and disabled ABS,
+traction control, cruise control, and speed limiter. It does not claim automatic
+gearbox/controller intent, multi-actor atomic input, or savegame continuation.
+Runtime TSan coverage and those broader policies remain separate gates.
 
 ## Terrain resource bundle dependencies
 

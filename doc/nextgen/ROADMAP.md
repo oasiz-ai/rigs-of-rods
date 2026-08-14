@@ -547,18 +547,49 @@ hostile-batch, quota, transactional-failure, continuation, registry-mismatch,
 and 4,096-step fixed-seed round-trip fixtures lock the adapter without
 importing device, actor, OGRE, or scheduler dependencies.
 
-This is not yet authorization to replay every truck. A live consumer must also
-validate gear counts and either encode or reject unsupported automatic-shift
-intent/timers, gearbox selector/mode changes, differential and transfer-case
-modes, ABS/traction-control, cruise, speed limiting, and other controller state
-before it mutates an `Actor`. Multi-actor atomic input uses a future composite
-schema rather than silently sharing this single-target stream.
+The first production single-player adapter now closes one deliberately narrow
+manual-truck path. At the start of each fixed step it captures or applies
+steering, service brake, throttle, clutch, parking brake, engine
+contact/starter, fixed gear/range, steering-speed coupling, trailer brake, and
+all 84 command values. A record writes one uniquely reserved `.rorinput` under
+the configured log directory. Replay authenticates the complete bounded stream
+and its source identity before changing the actor, suppresses the ordinary
+player-input path while it owns the target, and pauses physics after clean
+stream exhaustion or a fail-closed fault. The source digest binds the policy
+manifest, stable nonzero target ID, manual-sequential gearbox configuration,
+fixed gear/range, hydro configuration, vehicle filename and SHA-256, and terrain
+name. Record and replay require synchronous physics. Scene cleanup and mode
+changes close the runtime transaction without reusing a stale actor.
 
-Production input-map capture and replay injection, lifecycle/error CVars,
-general scenario-assigned IDs independent of runtime actor indexes, savegame
-ownership of the input runtime continuation, and the TSan soak are still open.
-The completed two-truck scene validates collision/state determinism without
-claiming that its neutral controls close the input-replay gate.
+The accepted production policy requires exactly one local simulated truck with
+an engine, manual-sequential gearbox, fixed gear/range, no reset/pause/AI or
+actor links, no transfer case, and disabled ABS, traction control, cruise
+control, and speed limiter. Command forwarding/import and simulated event
+overrides are rejected. This is not authorization to replay every truck:
+automatic-shift intent/timers, gearbox selector changes, differential and
+transfer-case modes, controller state, multi-actor atomic input, and savegame
+continuation still require later schemas rather than being silently omitted.
+
+Live acceptance on 2026-08-13 used clean commit `07a68565d` and the Release
+arm64 `RoR-Combined` binary SHA-256
+`aa849faff454000c53470a556fb4e404ca02dba84a0c66b277188830d12f1eba`.
+In playable `CityWorld.terrn2`, the compatible manual
+`BH09-Hicktruck.truck` recorded 240 authenticated input steps with stream digest
+`3c8ec97d3e02acb21dcee16467d178b69ed1126e6644207135d02f2e5425db02`
+and file SHA-256
+`f2c725c601f62926c7a8a8ef0a6ca45e71c9da0e6c7632b776d0bef5e5f725e4`.
+A fresh process replayed all 240 records, exhausted the stream cleanly, and
+paused physics. Independent record and replay state traces both had SHA-256
+`e2b745b34a1198e1050fba0b37e30f129214da4132bee975ec2986e6d75e9ceb`;
+`ror_state_trace` reported `status=match`, `difference=none`, and
+`steps_compared=240` with eight workers, scenario `2026081301`, and exact
+`1/2000 s` steps. During both runs the same combined executable presented the
+live scene through Ogre-Next with single-evaluation HDR, PSSM, auto-exposure,
+bloom, filmic output, zero production content/framebuffer readbacks, and zero
+Ogre14 lighting passes. This closes production record/apply and same-machine
+state-equivalence for the restricted manual-truck policy; savegame continuation,
+TSan runtime soak, controller intent, automatic gear changes, multi-actor input,
+and cross-platform tolerance evidence remain open.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
