@@ -144,7 +144,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.CONAN_HOME }}
-          key: ogre14-native-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.platform }}-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**') }}
+          key: ogre14-native-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.platform }}-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/cache-seeds/**', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**') }}
 
       - name: Configure isolated Conan client
         shell: bash
@@ -168,6 +168,27 @@ jobs:
             rigs-of-rods-deps \
             https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ \
             --force
+          echo \
+            '55ee77d297157738dc009715eb748190eae1661e90fd1704931973e34ebccc84  cmake/conan/cache-seeds/discord-rpc-3.4.0-a2905f22-recipe.tgz' \
+            | sha256sum --check -
+          echo \
+            '93ccfa24b8a2c23c80125d3dd3effaafd00f72d95ed8322aae090c8acb86b5b9  cmake/conan/cache-seeds/freeimage-3.18.0-8b69961f-recipe.tgz' \
+            | sha256sum --check -
+          echo \
+            'd72d0235004f0e09271fea9d29eff1131116e7a73d574b1a5c133605064b142d  cmake/conan/cache-seeds/socketw-3.11.0-6630840d-recipe.tgz' \
+            | sha256sum --check -
+          conan cache restore \
+            cmake/conan/cache-seeds/discord-rpc-3.4.0-a2905f22-recipe.tgz
+          conan cache restore \
+            cmake/conan/cache-seeds/freeimage-3.18.0-8b69961f-recipe.tgz
+          conan cache restore \
+            cmake/conan/cache-seeds/socketw-3.11.0-6630840d-recipe.tgz
+          conan cache path \
+            'discord-rpc/3.4.0@anotherfoxguy/stable#a2905f22ab84faeceebe54e488ff9195'
+          conan cache path \
+            'freeimage/3.18.0@anotherfoxguy/stable#8b69961fa00ad36b37d77dd40502fcbf'
+          conan cache path \
+            'socketw/3.11.0@anotherfoxguy/stable#6630840d3f73fb6d6e60f6f88132d40a'
           conan --version
           ninja --version
 
