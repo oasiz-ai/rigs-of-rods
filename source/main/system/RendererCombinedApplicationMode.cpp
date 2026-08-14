@@ -43,11 +43,15 @@ ResolveRendererCombinedApplicationArguments(
                 result.forwarded_arguments.clear();
                 return result;
             }
-            if (std::strcmp(
-                    argv[index],
-                    kRendererCombinedNativeVisualShowcaseOption) == 0)
+            const bool selects_current_showcase = std::strcmp(
+                argv[index],
+                kRendererCombinedNativeVisualShowcaseOption) == 0;
+            const bool selects_a0_showcase = std::strcmp(
+                argv[index],
+                kRendererCombinedNativeVisualShowcaseA0Option) == 0;
+            if (selects_current_showcase || selects_a0_showcase)
             {
-                if (result.native_visual_showcase)
+                if (result.native_visual_showcase())
                 {
                     result.status =
                         RendererCombinedApplicationArgumentsStatus::
@@ -55,7 +59,9 @@ ResolveRendererCombinedApplicationArguments(
                     result.forwarded_arguments.clear();
                     return result;
                 }
-                result.native_visual_showcase = true;
+                result.native_visual_scene = selects_current_showcase
+                    ? RendererCombinedNativeVisualScene::A1_NATIVE_COURSE
+                    : RendererCombinedNativeVisualScene::A0_LIGHTING_COUPON;
                 continue;
             }
             result.forwarded_arguments.push_back(argv[index]);

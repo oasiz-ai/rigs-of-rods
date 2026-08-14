@@ -33,7 +33,9 @@ void TestOrdinaryArgumentsArePointerExact()
         RoR::ResolveRendererCombinedApplicationArguments(3, arguments);
 
     Require(resolved.ok(), "ordinary argument vector was rejected");
-    Require(!resolved.native_visual_showcase,
+    Require(!resolved.native_visual_showcase() &&
+                resolved.native_visual_scene ==
+                    RoR::RendererCombinedNativeVisualScene::JOINED_GAME,
             "ordinary invocation selected native showcase");
     Require(resolved.argc() == 3, "ordinary argc changed");
     Require(resolved.argv()[0] == executable &&
@@ -55,8 +57,10 @@ void TestPrivateOptionIsConsumedAtAnyPosition()
         RoR::ResolveRendererCombinedApplicationArguments(4, arguments);
 
     Require(resolved.ok(), "native showcase argument vector was rejected");
-    Require(resolved.native_visual_showcase,
-            "native showcase option was not selected");
+    Require(resolved.native_visual_showcase() &&
+                resolved.native_visual_scene ==
+                    RoR::RendererCombinedNativeVisualScene::A1_NATIVE_COURSE,
+            "current native showcase option did not select A1");
     Require(resolved.argc() == 3, "private option was not consumed");
     Require(resolved.argv()[0] == executable &&
                 resolved.argv()[1] == map_option &&
@@ -67,9 +71,20 @@ void TestPrivateOptionIsConsumedAtAnyPosition()
     char* showcase_only[] = {executable, showcase, nullptr};
     resolved =
         RoR::ResolveRendererCombinedApplicationArguments(2, showcase_only);
-    Require(resolved.ok() && resolved.native_visual_showcase &&
+    Require(resolved.ok() && resolved.native_visual_showcase() &&
+                resolved.native_visual_scene ==
+                    RoR::RendererCombinedNativeVisualScene::A1_NATIVE_COURSE &&
                 resolved.argc() == 1 && resolved.argv()[0] == executable,
             "showcase-only invocation did not become an ordinary argc=1 vector");
+
+    char a0_showcase[] = "--native-visual-showcase-a0";
+    char* a0_only[] = {executable, a0_showcase, nullptr};
+    resolved = RoR::ResolveRendererCombinedApplicationArguments(2, a0_only);
+    Require(resolved.ok() && resolved.native_visual_showcase() &&
+                resolved.native_visual_scene ==
+                    RoR::RendererCombinedNativeVisualScene::A0_LIGHTING_COUPON &&
+                resolved.argc() == 1 && resolved.argv()[0] == executable,
+            "explicit A0 showcase option did not retain the regression coupon");
 }
 
 void TestNearMatchesRemainOrdinaryArguments()
@@ -81,7 +96,7 @@ void TestNearMatchesRemainOrdinaryArguments()
     RoR::RendererCombinedApplicationArguments resolved =
         RoR::ResolveRendererCombinedApplicationArguments(3, arguments);
 
-    Require(resolved.ok() && !resolved.native_visual_showcase &&
+    Require(resolved.ok() && !resolved.native_visual_showcase() &&
                 resolved.argc() == 3 && resolved.argv()[1] == prefix &&
                 resolved.argv()[2] == different_case,
             "non-exact showcase option was consumed");
@@ -100,6 +115,16 @@ void TestDuplicateAndInvalidVectorsFailClosed()
                     RoR::RendererCombinedApplicationArgumentsStatus::
                         DUPLICATE_NATIVE_VISUAL_SHOWCASE_OPTION,
             "duplicate private option did not fail closed");
+
+    char a0[] = "--native-visual-showcase-a0";
+    char* conflicting[] = {executable, first, a0, nullptr};
+    const RoR::RendererCombinedApplicationArguments conflicting_result =
+        RoR::ResolveRendererCombinedApplicationArguments(3, conflicting);
+    Require(!conflicting_result.ok() &&
+                conflicting_result.status ==
+                    RoR::RendererCombinedApplicationArgumentsStatus::
+                        DUPLICATE_NATIVE_VISUAL_SHOWCASE_OPTION,
+            "conflicting native scene selections did not fail closed");
 
     char* null_member[] = {executable, nullptr};
     Require(!RoR::ResolveRendererCombinedApplicationArguments(

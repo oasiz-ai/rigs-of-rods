@@ -1445,6 +1445,7 @@ target_compile_definitions(
     ror_native_visual_showcase_scene_source_tests
     PRIVATE
         "ROR_NATIVE_VISUAL_SHOWCASE_PACKAGE_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a0_road_tile_12m/rorng_a0_road_tile_12m.rornative\""
+        "ROR_NATIVE_VISUAL_SHOWCASE_A1_PACKAGE_FIXTURE=\"${ROR_REPOSITORY_ROOT}/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative\""
 )
 add_executable(
     ror_renderer_frontend_contract_tests

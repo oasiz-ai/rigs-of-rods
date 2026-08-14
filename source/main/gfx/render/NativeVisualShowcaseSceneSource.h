@@ -20,6 +20,12 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kNativeVisualShowcaseSceneSourceVersion = 1U;
+enum class NativeVisualShowcaseProfile : std::uint8_t {
+  A0_LIGHTING_COUPON = 0U,
+  A1_NATIVE_COURSE = 1U,
+};
+
+/// A0 remains the bounded regression coupon used by RT off/on/moved tests.
 constexpr char kNativeVisualShowcasePackageRelativePath[] =
     "resources/nextgen/native/a0_road_tile_12m/"
     "rorng_a0_road_tile_12m.rornative";
@@ -34,9 +40,29 @@ constexpr RenderPayloadDigest kNativeVisualShowcasePackageSha256{{
     0xCBU, 0xC1U, 0x24U, 0xE2U, 0xA4U, 0xBBU, 0xCCU, 0x67U, 0xFEU, 0x9BU, 0x2CU,
     0xBDU, 0xEDU, 0x82U, 0xDCU, 0xFAU, 0x21U, 0x42U, 0x7FU, 0x62U, 0xE2U,
 }};
+/// A1 is the current project-original 60 m visual course. It intentionally
+/// reuses the frozen `.rornative` v1 container while expanding authored scene
+/// coverage; collision and driveability are separate gates.
+constexpr char kNativeVisualShowcaseA1PackageRelativePath[] =
+    "resources/nextgen/native/a1_native_course_60m/"
+    "rorng_a1_native_course_60m.rornative";
+constexpr char kNativeVisualShowcaseA1ExecutableResourceRelativePath[] =
+    "nextgen/native/a1_native_course_60m/"
+    "rorng_a1_native_course_60m.rornative";
+constexpr char kNativeVisualShowcaseA1PackageId[] =
+    "rorng_a1_native_course_60m";
+constexpr char kNativeVisualShowcaseA1PackageSha256Hex[] =
+    "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba";
+constexpr RenderPayloadDigest kNativeVisualShowcaseA1PackageSha256{{
+    0x26U, 0x14U, 0x8BU, 0x7BU, 0x0CU, 0xEDU, 0xA0U, 0x7EU, 0xECU, 0xB1U, 0x33U,
+    0xA2U, 0xFCU, 0xD5U, 0x1BU, 0x39U, 0x78U, 0x5AU, 0xE3U, 0x8BU, 0x89U, 0x2EU,
+    0xA8U, 0x14U, 0xA8U, 0xE0U, 0xA2U, 0x45U, 0x97U, 0x94U, 0xABU, 0xBAU,
+}};
 constexpr std::uint64_t kNativeVisualShowcaseSunLightId = 0x524F524E4753554EULL;
 constexpr std::uint64_t kNativeVisualShowcaseCameraViewId =
     0x524F524E47564945ULL;
+constexpr std::uint64_t kNativeVisualShowcaseA1CameraViewId =
+    0x524F524E47413156ULL;
 constexpr double kNativeVisualShowcaseFixedStepSeconds = 1.0 / 60.0;
 constexpr float kNativeVisualShowcaseMovedGateOffsetMeters = 1.5F;
 constexpr std::uint32_t
@@ -93,6 +119,14 @@ struct NativeVisualShowcaseSceneSourceLoadResult {
 [[nodiscard]] NativeVisualShowcaseSceneSourceLoadResult
 LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept;
 
+/// Profile-explicit overload used by the combined runtime. It authenticates
+/// the selected package and binds its reviewed camera/clip composition; profile
+/// mismatch is a hard revision failure, never a best-effort fallback.
+[[nodiscard]] NativeVisualShowcaseSceneSourceLoadResult
+LoadNativeVisualShowcaseSceneSource(
+    const std::string &package_path,
+    NativeVisualShowcaseProfile profile) noexcept;
+
 /// Small renderer-neutral source for the project-original lighting coupon.
 /// Capture prepares a frame transaction without advancing time or pose.
 /// Exactly one Commit or Discard must follow each successful capture.
@@ -127,6 +161,12 @@ public:
   [[nodiscard]] const std::shared_ptr<const NativeRenderAssetPackage> &
   package_owner() const noexcept {
     return package_;
+  }
+  [[nodiscard]] NativeVisualShowcaseProfile profile() const noexcept {
+    return profile_;
+  }
+  [[nodiscard]] bool supports_turntable_motion() const noexcept {
+    return profile_ == NativeVisualShowcaseProfile::A0_LIGHTING_COUPON;
   }
   [[nodiscard]] const std::string &package_path() const noexcept {
     return package_path_;
@@ -187,11 +227,14 @@ public:
 private:
   NativeVisualShowcaseSceneSource(
       std::shared_ptr<const NativeRenderAssetPackage> package,
-      std::string package_path, std::size_t gate_instance_index,
+      std::string package_path, NativeVisualShowcaseProfile profile,
+      std::size_t gate_instance_index,
       GraphicsSceneFrameInput base_frame);
 
   std::shared_ptr<const NativeRenderAssetPackage> package_;
   std::string package_path_;
+  NativeVisualShowcaseProfile profile_ =
+      NativeVisualShowcaseProfile::A0_LIGHTING_COUPON;
   GraphicsSceneFrameInput base_frame_;
   std::size_t gate_instance_index_ = 0U;
   std::uint64_t gate_source_object_id_ = 0U;
@@ -224,6 +267,9 @@ private:
 
   friend NativeVisualShowcaseSceneSourceLoadResult
   LoadNativeVisualShowcaseSceneSource(const std::string &) noexcept;
+  friend NativeVisualShowcaseSceneSourceLoadResult
+  LoadNativeVisualShowcaseSceneSource(
+      const std::string &, NativeVisualShowcaseProfile) noexcept;
 };
 
 } // namespace RoR::Render

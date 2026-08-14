@@ -27,6 +27,10 @@
 #error                                                                         \
     "ROR_NATIVE_VISUAL_SHOWCASE_PACKAGE_FIXTURE must name the reviewed package"
 #endif
+#ifndef ROR_NATIVE_VISUAL_SHOWCASE_A1_PACKAGE_FIXTURE
+#error                                                                         \
+    "ROR_NATIVE_VISUAL_SHOWCASE_A1_PACKAGE_FIXTURE must name the reviewed A1 package"
+#endif
 
 namespace {
 
@@ -50,6 +54,12 @@ bool SameSharedOwner(const std::shared_ptr<const T> &lhs,
 NativeVisualShowcaseSceneSourceLoadResult LoadFixture() {
   return LoadNativeVisualShowcaseSceneSource(
       ROR_NATIVE_VISUAL_SHOWCASE_PACKAGE_FIXTURE);
+}
+
+NativeVisualShowcaseSceneSourceLoadResult LoadA1Fixture() {
+  return LoadNativeVisualShowcaseSceneSource(
+      ROR_NATIVE_VISUAL_SHOWCASE_A1_PACKAGE_FIXTURE,
+      NativeVisualShowcaseProfile::A1_NATIVE_COURSE);
 }
 
 const GraphicsSceneStaticMeshInput &
@@ -235,6 +245,69 @@ void TestCaptureCommitDiscardIsTransactional() {
       !source.SetGatePose(static_cast<NativeVisualShowcaseGatePose>(255U)) &&
           source.requested_gate_pose() == NativeVisualShowcaseGatePose::HOME,
       "unknown gate pose was accepted or changed state");
+}
+
+void TestA1CourseUsesItsExactPackageAndComposition() {
+  NativeVisualShowcaseSceneSourceLoadResult loaded = LoadA1Fixture();
+  Require(loaded.ok(), "reviewed A1 native course did not load");
+  NativeVisualShowcaseSceneSource &source = *loaded.source;
+  const std::shared_ptr<const NativeRenderAssetPackage> package =
+      source.package_owner();
+  Require(source.profile() == NativeVisualShowcaseProfile::A1_NATIVE_COURSE &&
+              !source.supports_turntable_motion() && package != nullptr &&
+              package->package_sha256 ==
+                  kNativeVisualShowcaseA1PackageSha256 &&
+              package->package_id == kNativeVisualShowcaseA1PackageId &&
+              package->origin_class == "project_original" &&
+              package->assets.size() == 36U &&
+              package->static_meshes.size() == 8U,
+          "A1 source did not retain the exact project-original checkpoint");
+
+  GraphicsSceneFrameInput frame;
+  Require(source.CaptureJoinedGraphicsFrame(frame).ok(),
+          "A1 source could not capture its initial frame");
+  Require(frame.camera.view_id == kNativeVisualShowcaseA1CameraViewId &&
+              frame.camera.width == 1920U &&
+              frame.camera.height == 1080U &&
+              frame.camera.near_plane == 0.1F &&
+              frame.camera.far_plane == 140.0F &&
+              frame.camera.view_from_render.elements[0U] ==
+                  0.808007538318634F &&
+              frame.camera.view_from_render.elements[5U] ==
+                  0.8729255199432373F &&
+              frame.camera.view_from_render.elements[10U] ==
+                  0.7053303718566895F &&
+              frame.camera.view_from_render.elements[12U] == 0.0F &&
+              frame.camera.view_from_render.elements[13U] ==
+                  -0.6983404159545898F &&
+              frame.camera.view_from_render.elements[14U] ==
+                  -68.44349670410156F &&
+              frame.camera.clip_from_view.elements[0U] ==
+                  1.0805524587631226F &&
+              frame.camera.clip_from_view.elements[5U] ==
+                  1.9209821224212646F,
+          "A1 source did not bind its checked 60 m course composition");
+  source.DiscardJoinedGraphicsFrame();
+
+  const ValidationResult turntable = source.SetMotionMode(
+      NativeVisualShowcaseMotionMode::TURN_TABLE);
+  Require(!turntable &&
+              turntable.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              source.requested_motion_mode() ==
+                  NativeVisualShowcaseMotionMode::STATIC,
+          "A1 source admitted the A0-only absolute turntable transform");
+
+  const NativeVisualShowcaseSceneSourceLoadResult a0_as_a1 =
+      LoadNativeVisualShowcaseSceneSource(
+          ROR_NATIVE_VISUAL_SHOWCASE_PACKAGE_FIXTURE,
+          NativeVisualShowcaseProfile::A1_NATIVE_COURSE);
+  const NativeVisualShowcaseSceneSourceLoadResult a1_as_a0 =
+      LoadNativeVisualShowcaseSceneSource(
+          ROR_NATIVE_VISUAL_SHOWCASE_A1_PACKAGE_FIXTURE,
+          NativeVisualShowcaseProfile::A0_LIGHTING_COUPON);
+  Require(!a0_as_a1 && a0_as_a1.source == nullptr &&
+              !a1_as_a0 && a1_as_a0.source == nullptr,
+          "package/profile mismatch admitted a different native checkpoint");
 }
 
 void TestTurntableTableIsExactRigidRightHandedAndHashPinned() {
@@ -730,6 +803,7 @@ void TestCapturesNeverReopenPackageStorage() {
 
 int main() {
   TestExactCheckpointLoadsOnceAndRetainsImmutableOwners();
+  TestA1CourseUsesItsExactPackageAndComposition();
   TestCaptureCommitDiscardIsTransactional();
   TestTurntableTableIsExactRigidRightHandedAndHashPinned();
   TestTurntableModeIsExplicitAndTransactional();

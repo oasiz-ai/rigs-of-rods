@@ -502,8 +502,11 @@ int main(int argc, char *argv[])
             ? 70
             : 64;
     }
+    const RendererCombinedNativeVisualScene
+        renderer_combined_native_visual_scene =
+            renderer_combined_arguments.native_visual_scene;
     const bool renderer_combined_native_visual_showcase =
-        renderer_combined_arguments.native_visual_showcase;
+        renderer_combined_arguments.native_visual_showcase();
     argc = renderer_combined_arguments.argc();
     argv = renderer_combined_arguments.argv();
 
@@ -891,13 +894,30 @@ int main(int argc, char *argv[])
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
         if (renderer_combined_native_visual_showcase)
         {
+            const bool selects_a0 =
+                renderer_combined_native_visual_scene ==
+                RendererCombinedNativeVisualScene::A0_LIGHTING_COUPON;
+            const Render::NativeVisualShowcaseProfile native_profile =
+                selects_a0
+                    ? Render::NativeVisualShowcaseProfile::A0_LIGHTING_COUPON
+                    : Render::NativeVisualShowcaseProfile::A1_NATIVE_COURSE;
+            const char* const native_package_relative_path = selects_a0
+                ? Render::kNativeVisualShowcaseExecutableResourceRelativePath
+                : Render::
+                    kNativeVisualShowcaseA1ExecutableResourceRelativePath;
+            const char* const native_package_id = selects_a0
+                ? Render::kNativeVisualShowcasePackageId
+                : Render::kNativeVisualShowcaseA1PackageId;
+            const char* const native_package_sha256 = selects_a0
+                ? Render::kNativeVisualShowcasePackageSha256Hex
+                : Render::kNativeVisualShowcaseA1PackageSha256Hex;
             const std::string native_showcase_package_path = PathCombine(
                 App::sys_resources_dir->getStr(),
-                Render::
-                    kNativeVisualShowcaseExecutableResourceRelativePath);
+                native_package_relative_path);
             Render::NativeVisualShowcaseSceneSourceLoadResult loaded =
                 Render::LoadNativeVisualShowcaseSceneSource(
-                    native_showcase_package_path);
+                    native_showcase_package_path,
+                    native_profile);
             if (!loaded)
             {
                 LOG(fmt::format(
@@ -913,18 +933,21 @@ int main(int argc, char *argv[])
                 loaded.source->package_owner()->assets.size();
             const std::size_t package_instance_count =
                 loaded.source->package_owner()->static_meshes.size();
-            const Render::ValidationResult turntable_enabled =
-                loaded.source->SetMotionMode(
-                    Render::NativeVisualShowcaseMotionMode::TURN_TABLE);
-            if (!turntable_enabled)
+            if (selects_a0)
             {
-                LOG(fmt::format(
-                    "[RoR|RendererCombined|NativeShowcase] Turntable "
-                    "selection failed: code={}, field='{}', detail='{}'",
-                    static_cast<unsigned int>(turntable_enabled.code),
-                    turntable_enabled.field,
-                    turntable_enabled.detail));
-                return 70;
+                const Render::ValidationResult turntable_enabled =
+                    loaded.source->SetMotionMode(
+                        Render::NativeVisualShowcaseMotionMode::TURN_TABLE);
+                if (!turntable_enabled)
+                {
+                    LOG(fmt::format(
+                        "[RoR|RendererCombined|NativeShowcase] Turntable "
+                        "selection failed: code={}, field='{}', detail='{}'",
+                        static_cast<unsigned int>(turntable_enabled.code),
+                        turntable_enabled.field,
+                        turntable_enabled.detail));
+                    return 70;
+                }
             }
             renderer_combined_native_showcase_scene_source =
                 loaded.source.get();
@@ -934,15 +957,17 @@ int main(int argc, char *argv[])
                 "forward-native scene: path='{}', package='{}', "
                 "sha256='{}', assets={}, instances={}, source_version={}, "
                 "pipeline='rt4_pbr_pssm_hdr_preview', hdr=true, "
-                "native_rt=false, motion='turntable_opaque_gate', "
+                "native_rt=false, profile={}, motion='{}', "
                 "fixed_hz=60, revolution_ticks={}, refraction=false, "
                 "motion_vectors=false",
                 native_showcase_package_path,
-                Render::kNativeVisualShowcasePackageId,
-                Render::kNativeVisualShowcasePackageSha256Hex,
+                native_package_id,
+                native_package_sha256,
                 package_asset_count,
                 package_instance_count,
                 Render::kNativeVisualShowcaseSceneSourceVersion,
+                selects_a0 ? "a0_lighting_coupon" : "a1_native_course",
+                selects_a0 ? "turntable_opaque_gate" : "static_course",
                 Render::kNativeVisualShowcaseTurntableTicksPerRevolution));
         }
         else

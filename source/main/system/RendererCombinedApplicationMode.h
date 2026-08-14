@@ -18,6 +18,17 @@ namespace RoR {
 
 constexpr char kRendererCombinedNativeVisualShowcaseOption[] =
     "--native-visual-showcase";
+constexpr char kRendererCombinedNativeVisualShowcaseA0Option[] =
+    "--native-visual-showcase-a0";
+
+/// The unqualified private showcase option always selects the newest reviewed
+/// project-owned native scene. The explicit A0 option remains available as a
+/// stable regression coupon after newer course packages are admitted.
+enum class RendererCombinedNativeVisualScene : std::uint8_t {
+    JOINED_GAME = 0U,
+    A0_LIGHTING_COUPON,
+    A1_NATIVE_COURSE,
+};
 
 enum class RendererCombinedApplicationArgumentsStatus : std::uint8_t {
     READY = 0U,
@@ -29,7 +40,8 @@ enum class RendererCombinedApplicationArgumentsStatus : std::uint8_t {
 struct RendererCombinedApplicationArguments {
     RendererCombinedApplicationArgumentsStatus status =
         RendererCombinedApplicationArgumentsStatus::INVALID_ARGUMENT_VECTOR;
-    bool native_visual_showcase = false;
+    RendererCombinedNativeVisualScene native_visual_scene =
+        RendererCombinedNativeVisualScene::JOINED_GAME;
     std::vector<char*> forwarded_arguments;
 
     [[nodiscard]] bool ok() const noexcept {
@@ -47,11 +59,18 @@ struct RendererCombinedApplicationArguments {
     [[nodiscard]] char** argv() noexcept {
         return ok() ? forwarded_arguments.data() : nullptr;
     }
+
+    [[nodiscard]] bool native_visual_showcase() const noexcept {
+        return native_visual_scene !=
+            RendererCombinedNativeVisualScene::JOINED_GAME;
+    }
 };
 
 /// Consumes the private showcase option before Console sees the ordinary RoR
 /// command line. Every other caller-owned pointer is retained in exact order.
-/// Duplicate showcase options are rejected instead of being silently folded.
+/// The unqualified option selects A1; the explicit A0 option retains the
+/// original lighting coupon. Any second private scene option is rejected
+/// instead of being silently folded or allowed to override an earlier choice.
 [[nodiscard]] RendererCombinedApplicationArguments
 ResolveRendererCombinedApplicationArguments(
     int argc,

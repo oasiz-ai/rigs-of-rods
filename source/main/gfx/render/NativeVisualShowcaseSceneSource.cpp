@@ -53,6 +53,42 @@ bool IsKnownMotionMode(NativeVisualShowcaseMotionMode mode) noexcept {
   return false;
 }
 
+bool IsKnownProfile(NativeVisualShowcaseProfile profile) noexcept {
+  switch (profile) {
+  case NativeVisualShowcaseProfile::A0_LIGHTING_COUPON:
+  case NativeVisualShowcaseProfile::A1_NATIVE_COURSE:
+    return true;
+  }
+  return false;
+}
+
+struct NativeVisualShowcaseCheckpoint {
+  const char *package_id = nullptr;
+  const RenderPayloadDigest *package_sha256 = nullptr;
+  bool supports_turntable = false;
+};
+
+const NativeVisualShowcaseCheckpoint *FindCheckpoint(
+    NativeVisualShowcaseProfile profile) noexcept {
+  static const NativeVisualShowcaseCheckpoint kA0{
+      kNativeVisualShowcasePackageId,
+      &kNativeVisualShowcasePackageSha256,
+      true,
+  };
+  static const NativeVisualShowcaseCheckpoint kA1{
+      kNativeVisualShowcaseA1PackageId,
+      &kNativeVisualShowcaseA1PackageSha256,
+      false,
+  };
+  switch (profile) {
+  case NativeVisualShowcaseProfile::A0_LIGHTING_COUPON:
+    return &kA0;
+  case NativeVisualShowcaseProfile::A1_NATIVE_COURSE:
+    return &kA1;
+  }
+  return nullptr;
+}
+
 float FloatFromBits(std::uint32_t bits) noexcept {
   float value = 0.0F;
   static_assert(sizeof(value) == sizeof(bits),
@@ -66,23 +102,34 @@ void AddFnvByte(std::uint64_t &digest, std::uint8_t byte) noexcept {
   digest *= UINT64_C(1099511628211);
 }
 
-Matrix4x4 MakeShowcaseProjection() noexcept {
+Matrix4x4 MakeShowcaseProjection(
+    NativeVisualShowcaseProfile profile) noexcept {
   constexpr float kNearPlane = 0.1F;
-  constexpr float kFarPlane = 50.0F;
+  const float far_plane =
+      profile == NativeVisualShowcaseProfile::A1_NATIVE_COURSE
+          ? 140.0F
+          : 50.0F;
   Matrix4x4 projection;
   projection.elements.fill(0.0F);
-  // Exact binary32 constants derived from the checked composition's 50-degree
-  // vertical field of view and the source's fixed 1920x1080 extent.
-  projection.elements[0U] = 1.2062851190567017F;
-  projection.elements[5U] = 2.1445069313049316F;
-  const float depth_scale = kFarPlane / (kNearPlane - kFarPlane);
+  if (profile == NativeVisualShowcaseProfile::A1_NATIVE_COURSE) {
+    // Checked A1 composition: 55-degree vertical FOV at 1920x1080.
+    projection.elements[0U] = 1.0805524587631226F;
+    projection.elements[5U] = 1.9209821224212646F;
+  } else {
+    // Checked A0 composition: 50-degree vertical FOV at 1920x1080.
+    projection.elements[0U] = 1.2062851190567017F;
+    projection.elements[5U] = 2.1445069313049316F;
+  }
+  const float depth_scale = far_plane / (kNearPlane - far_plane);
   projection.elements[10U] = depth_scale;
   projection.elements[11U] = -1.0F;
   projection.elements[14U] = kNearPlane * depth_scale;
   return projection;
 }
 
-GraphicsSceneFrameInput MakeBaseFrame(const NativeRenderAssetPackage &package) {
+GraphicsSceneFrameInput MakeBaseFrame(
+    const NativeRenderAssetPackage &package,
+    NativeVisualShowcaseProfile profile) {
   GraphicsSceneFrameInput frame;
   frame.assets = package.assets;
   frame.static_meshes = package.static_meshes;
@@ -111,33 +158,62 @@ GraphicsSceneFrameInput MakeBaseFrame(const NativeRenderAssetPackage &package) {
   sun.shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
   frame.lights.push_back(sun);
 
-  frame.camera.view_id = kNativeVisualShowcaseCameraViewId;
+  frame.camera.view_id =
+      profile == NativeVisualShowcaseProfile::A1_NATIVE_COURSE
+          ? kNativeVisualShowcaseA1CameraViewId
+          : kNativeVisualShowcaseCameraViewId;
   frame.camera.width = 1920U;
   frame.camera.height = 1080U;
-  // Exact binary32 RH look-at transform derived from the checked composition:
-  // eye (8,7,10), target (0,0,-0.2), up (0,1,0).
-  frame.camera.view_from_render.elements = {{
-      0.7868534326553345F,
-      -0.2932322919368744F,
-      0.5430253148078918F,
-      0.0F,
-      0.0F,
-      0.8799063563346863F,
-      0.47514718770980835F,
-      0.0F,
-      -0.6171399354934692F,
-      -0.37387117743492126F,
-      0.6923573017120361F,
-      0.0F,
-      -0.12342798709869385F,
-      -0.07477423548698425F,
-      -14.593806266784668F,
-      1.0F,
-  }};
-  frame.camera.clip_from_view = MakeShowcaseProjection();
+  if (profile == NativeVisualShowcaseProfile::A1_NATIVE_COURSE) {
+    // Exact binary32 RH look-at transform for A1's checked composition:
+    // eye (35,34,48), target (0,0.8,0), up (0,1,0).
+    frame.camera.view_from_render.elements = {{
+        0.808007538318634F,
+        -0.28742972016334534F,
+        0.5143033862113953F,
+        0.0F,
+        0.0F,
+        0.8729255199432373F,
+        0.4878535270690918F,
+        0.0F,
+        -0.5891721844673157F,
+        -0.394189327955246F,
+        0.7053303718566895F,
+        0.0F,
+        0.0F,
+        -0.6983404159545898F,
+        -68.44349670410156F,
+        1.0F,
+    }};
+  } else {
+    // Exact binary32 RH look-at transform for A0's checked composition:
+    // eye (8,7,10), target (0,0,-0.2), up (0,1,0).
+    frame.camera.view_from_render.elements = {{
+        0.7868534326553345F,
+        -0.2932322919368744F,
+        0.5430253148078918F,
+        0.0F,
+        0.0F,
+        0.8799063563346863F,
+        0.47514718770980835F,
+        0.0F,
+        -0.6171399354934692F,
+        -0.37387117743492126F,
+        0.6923573017120361F,
+        0.0F,
+        -0.12342798709869385F,
+        -0.07477423548698425F,
+        -14.593806266784668F,
+        1.0F,
+    }};
+  }
+  frame.camera.clip_from_view = MakeShowcaseProjection(profile);
   frame.camera.temporal_jitter_pixels = {};
   frame.camera.near_plane = 0.1F;
-  frame.camera.far_plane = 50.0F;
+  frame.camera.far_plane =
+      profile == NativeVisualShowcaseProfile::A1_NATIVE_COURSE
+          ? 140.0F
+          : 50.0F;
   frame.camera.exposure = 1.0F;
   frame.camera.visibility_mask = 0xFFFFFFFFU;
   return frame;
@@ -280,9 +356,11 @@ std::uint64_t NativeVisualShowcaseTransformRevision(
 
 NativeVisualShowcaseSceneSource::NativeVisualShowcaseSceneSource(
     std::shared_ptr<const NativeRenderAssetPackage> package,
-    std::string package_path, std::size_t gate_instance_index,
+    std::string package_path, NativeVisualShowcaseProfile profile,
+    std::size_t gate_instance_index,
     GraphicsSceneFrameInput base_frame)
     : package_(std::move(package)), package_path_(std::move(package_path)),
+      profile_(profile),
       base_frame_(std::move(base_frame)),
       gate_instance_index_(gate_instance_index),
       gate_source_object_id_(
@@ -290,8 +368,27 @@ NativeVisualShowcaseSceneSource::NativeVisualShowcaseSceneSource(
 
 NativeVisualShowcaseSceneSourceLoadResult
 LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept {
+  return LoadNativeVisualShowcaseSceneSource(
+      package_path, NativeVisualShowcaseProfile::A0_LIGHTING_COUPON);
+}
+
+NativeVisualShowcaseSceneSourceLoadResult
+LoadNativeVisualShowcaseSceneSource(
+    const std::string &package_path,
+    NativeVisualShowcaseProfile profile) noexcept {
   NativeVisualShowcaseSceneSourceLoadResult result;
   try {
+    const NativeVisualShowcaseCheckpoint *const checkpoint =
+        FindCheckpoint(profile);
+    if (!IsKnownProfile(profile) || checkpoint == nullptr ||
+        checkpoint->package_id == nullptr ||
+        checkpoint->package_sha256 == nullptr) {
+      result.validation = Failure(
+          ValidationCode::INVALID_ENUM,
+          "native_showcase.profile",
+          "unknown native showcase package profile");
+      return result;
+    }
     std::vector<std::uint8_t> bytes;
     result.validation = ReadPackageOnce(package_path, bytes);
     if (!result.validation) {
@@ -299,13 +396,13 @@ LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept {
     }
     NativeRenderAssetPackageDecodeResult decoded =
         DecodeNativeRenderAssetPackage(bytes.data(), bytes.size(),
-                                       kNativeVisualShowcasePackageSha256);
+                                       *checkpoint->package_sha256);
     if (!decoded.ok()) {
       result.validation = std::move(decoded.validation);
       return result;
     }
-    if (decoded.package->package_sha256 != kNativeVisualShowcasePackageSha256 ||
-        decoded.package->package_id != kNativeVisualShowcasePackageId ||
+    if (decoded.package->package_sha256 != *checkpoint->package_sha256 ||
+        decoded.package->package_id != checkpoint->package_id ||
         decoded.package->origin_class != "project_original") {
       result.validation = Failure(ValidationCode::REVISION_MISMATCH,
                                   "native_showcase.package_checkpoint",
@@ -313,7 +410,8 @@ LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept {
                                   "project-original checkpoint");
       return result;
     }
-    if (NativeVisualShowcaseTurntableTableDigest() !=
+    if (checkpoint->supports_turntable &&
+        NativeVisualShowcaseTurntableTableDigest() !=
         kNativeVisualShowcaseTurntableTableFnv1a64) {
       result.validation = Failure(
           ValidationCode::REVISION_MISMATCH,
@@ -327,10 +425,12 @@ LoadNativeVisualShowcaseSceneSource(const std::string &package_path) noexcept {
     if (!result.validation) {
       return result;
     }
-    GraphicsSceneFrameInput base_frame = MakeBaseFrame(*decoded.package);
+    GraphicsSceneFrameInput base_frame =
+        MakeBaseFrame(*decoded.package, profile);
     result.source = std::unique_ptr<NativeVisualShowcaseSceneSource>(
         new NativeVisualShowcaseSceneSource(std::move(decoded.package),
-                                            package_path, gate_instance_index,
+                                            package_path, profile,
+                                            gate_instance_index,
                                             std::move(base_frame)));
     result.validation = ValidationResult::Success();
     return result;
@@ -390,6 +490,13 @@ ValidationResult NativeVisualShowcaseSceneSource::SetMotionMode(
     return Failure(ValidationCode::UNSUPPORTED_FEATURE,
                    "native_showcase.motion_mode",
                    "turntable motion requires the home evidence pose");
+  }
+  if (mode == NativeVisualShowcaseMotionMode::TURN_TABLE &&
+      !supports_turntable_motion()) {
+    return Failure(
+        ValidationCode::UNSUPPORTED_FEATURE,
+        "native_showcase.motion_mode",
+        "selected native scene has no reviewed turntable transform table");
   }
   requested_motion_mode_ = mode;
   return ValidationResult::Success();

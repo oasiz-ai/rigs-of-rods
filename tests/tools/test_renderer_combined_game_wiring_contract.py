@@ -66,7 +66,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn("argv = renderer_combined_demo_arguments.data();", block)
         self.assertEqual(block.count("renderer_combined_demo_arguments ="), 1)
 
-    def test_native_showcase_option_is_private_and_precedes_normal_cli(self) -> None:
+    def test_native_showcase_options_are_private_and_precede_normal_cli(self) -> None:
         resolve = self.main.index(
             "ResolveRendererCombinedApplicationArguments(argc, argv)"
         )
@@ -82,12 +82,16 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertLess(resolve, adopt_argc)
         self.assertLess(adopt_argc, adopt_argv)
         self.assertLess(adopt_argv, normal_cli)
-        self.assertIn(
-            '"--native-visual-showcase"', self.application_mode_header
-        )
-        self.assertNotIn(
-            '"--native-visual-showcase"', self.main[normal_cli:]
-        )
+        for option in (
+            '"--native-visual-showcase"',
+            '"--native-visual-showcase-a0"',
+        ):
+            with self.subTest(option=option):
+                self.assertIn(option, self.application_mode_header)
+                self.assertNotIn(option, self.main[normal_cli:])
+        for scene in ("A0_LIGHTING_COUPON", "A1_NATIVE_COURSE"):
+            with self.subTest(scene=scene):
+                self.assertIn(scene, self.application_mode_header)
 
     def test_showcase_owns_renderer_neutral_source_and_posts_in_main_menu(self) -> None:
         self.assertIn(
@@ -162,12 +166,11 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             frontend_configuration,
         )
 
-    def test_native_showcase_enables_audited_opaque_turntable_motion(self) -> None:
+    def test_only_a0_showcase_enables_audited_opaque_turntable_motion(self) -> None:
         load = self.main.index("LoadNativeVisualShowcaseSceneSource(")
+        gate = self.main.index("if (selects_a0)", load)
         select = self.main.index(
-            "SetMotionMode(\n"
-            "                    Render::NativeVisualShowcaseMotionMode::TURN_TABLE)",
-            load,
+            "Render::NativeVisualShowcaseMotionMode::TURN_TABLE", load
         )
         move = self.main.index(
             "renderer_combined_scene_source = std::move(loaded.source);",
@@ -177,7 +180,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         audit = self.main.index(
             '"NativeShowcase|Turntable] "', post
         )
-        self.assertLess(load, select)
+        self.assertLess(load, gate)
+        self.assertLess(gate, select)
         self.assertLess(select, move)
         self.assertLess(move, post)
         self.assertLess(post, audit)
@@ -201,6 +205,29 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn(
             "kNativeVisualShowcaseTurntableTicksPerRevolution",
             audit_block,
+        )
+        profile_start = self.main.rindex(
+            "const bool selects_a0", 0, load
+        )
+        profile_selection = self.main[profile_start:move]
+        self.assertIn(
+            "NativeVisualShowcaseProfile::A1_NATIVE_COURSE",
+            profile_selection,
+        )
+        self.assertIn(
+            "kNativeVisualShowcaseA1ExecutableResourceRelativePath",
+            profile_selection,
+        )
+        self.assertIn("if (selects_a0)", profile_selection)
+        self.assertEqual(
+            profile_selection.count(
+                "NativeVisualShowcaseMotionMode::TURN_TABLE"
+            ),
+            1,
+        )
+        self.assertIn(
+            'selects_a0 ? "turntable_opaque_gate" : "static_course"',
+            self.main[move:audit],
         )
 
     def test_lighting_receipt_maps_topology_and_zero_legacy_readbacks(self) -> None:
@@ -247,30 +274,43 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertIn(field, lighting_log)
 
-    def test_showcase_package_is_exact_and_staged_beside_executable_resources(self) -> None:
-        expected = (
-            "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2"
+    def test_showcase_packages_are_exact_and_staged_beside_executable_resources(self) -> None:
+        packages = (
+            (
+                "226d2450c4a4612d873d15cbc124e2a4bbcc67fe9b2cbded82dcfa21427f62e2",
+                "a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
+            ),
+            (
+                "26148b7b0ceda07eecb133a2fcd51b39785ae38b892ea814a8e0a2459794abba",
+                "a1_native_course_60m/rorng_a1_native_course_60m.rornative",
+            ),
         )
-        self.assertIn(expected, self.main_cmake)
-        self.assertIn(expected, self.showcase_header)
-        self.assertIn(
-            "${RUNTIME_OUTPUT_DIRECTORY}/resources/nextgen/native/"
-            "a0_road_tile_12m/rorng_a0_road_tile_12m.rornative",
-            self.main_cmake,
-        )
+        for expected_sha, relative_path in packages:
+            with self.subTest(relative_path=relative_path):
+                self.assertIn(expected_sha, self.main_cmake)
+                self.assertIn(expected_sha, self.showcase_header)
+                directory, filename = relative_path.split("/", 1)
+                self.assertIn(directory, self.main_cmake)
+                self.assertIn(filename, self.main_cmake)
         self.assertIn(
             "add_custom_target(ror_native_visual_showcase_package",
             self.main_cmake,
         )
-        self.assertIn(
-            "kNativeVisualShowcaseExecutableResourceRelativePath", self.main
-        )
+        for token in (
+            "kNativeVisualShowcaseExecutableResourceRelativePath",
+            "kNativeVisualShowcaseA1ExecutableResourceRelativePath",
+            "LoadNativeVisualShowcaseSceneSource(\n"
+            "                    native_showcase_package_path,\n"
+            "                    native_profile)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.main)
         package_path = self.main.index(
-            "kNativeVisualShowcaseExecutableResourceRelativePath"
+            "const std::string native_showcase_package_path = PathCombine("
         )
         self.assertIn(
             "App::sys_resources_dir->getStr()",
-            self.main[package_path - 180 : package_path],
+            self.main[package_path : package_path + 240],
         )
 
     def test_combined_entrypoint_has_no_bridge_child_or_transport_runtime(self) -> None:

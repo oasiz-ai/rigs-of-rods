@@ -1537,14 +1537,13 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             "${_ror_native_visual_showcase_package_source}"
             "${_ror_native_visual_showcase_package_staged}"
         DEPENDS "${_ror_native_visual_showcase_package_source}"
-        COMMENT "Staging authenticated forward-native visual showcase package"
+        COMMENT "Staging authenticated forward-native A0 visual coupon"
         VERBATIM)
     add_custom_target(ror_native_visual_showcase_package
         DEPENDS "${_ror_native_visual_showcase_package_staged}")
 
-    # NATIVE-A1-001 is staged beside A0 as authenticated visual map data. It
-    # does not replace the current showcase scene source and does not claim a
-    # RoR terrain or collision binding.
+    # NATIVE-A1-001 is the current showcase scene and remains authenticated
+    # visual map data only; it does not claim a RoR terrain/collision binding.
     set(_ror_native_a1_course_package_source
         "${CMAKE_SOURCE_DIR}/resources/nextgen/native/a1_native_course_60m/rorng_a1_native_course_60m.rornative")
     set(_ror_native_a1_course_package_sha256
@@ -1607,10 +1606,12 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             "${_ror_native_a1_course_package_staged}"
             "${_ror_native_a1_course_alignment_staged}")
     add_dependencies(
+        ror_native_visual_showcase_package
+        ror_native_a1_course_package)
+    add_dependencies(
         ${BINNAME}
         zip_folder_resources
         ror_native_visual_showcase_package
-        ror_native_a1_course_package
         fast_copy_managed_materials
         fast_copy_fonts
         fast_copy_languages)
