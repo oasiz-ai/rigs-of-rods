@@ -488,3 +488,36 @@ tools/run-physics-benchmarks.sh
 Publish benchmark evidence only from a clean exact commit. The microbenchmark
 does not replace a full Actor/vehicle benchmark, starter-content soak, or the
 pending Agora impact and mesh-localization gates.
+
+## Calibrated beam starter-content runtime soak
+
+`tools/run_calibrated_beam_soak.py` exercises the material adapter through the
+real `RoR-Combined` Actor solver. It authenticates the pinned content commit and
+DAF semi source, creates a deterministic local-only ZIP containing a derived
+truck with exactly 15 opted-in ordinary beams, preloads that actor before the
+first scene snapshot, and runs 120,000 fixed `0.5 ms` physics steps. The script
+audits every rendered frame and fails on non-finite or unreachable material
+history, faults, fractures, disabled calibrated beams, step overshoot, missing
+execution history, renderer failure, or malformed trace metadata.
+
+Run the one-versus-eight-worker gate against a clean combined build:
+
+```sh
+python3 tools/run_calibrated_beam_soak.py \
+  --executable BUILD/bin/RoR-Combined \
+  --trace-tool BUILD/bin/ror_state_trace \
+  --runtime-content BUILD/bin/content \
+  --artifact-dir ARTIFACTS \
+  --runs 1 --workers 1 8
+```
+
+The runner self-compares every trace and then compares each trace to the first
+with `--allow-worker-count-difference`; all 120,000 ordered state records must
+match. The 2026-08-14 Apple M5 receipt is checked in as
+`doc/nextgen/evidence/CALIBRATED_BEAM_RUNTIME_SOAK_M5_2026-08-14.json`. Its
+worker-1 and worker-8 traces have SHA-256 values `d0117eaa890718c601835f658369151cafe22a973f2fd396bad1932315d714b7`
+and `7e20fee2e956939229140337eba98ebe5cef99d0b174165ee7459e52583ec51e`.
+Both report 15 active histories, maximum absolute strain `0.00106908`, and zero
+plastic strain or damage. The derived material values are deliberately a
+numerical integration fixture, not physically calibrated DAF data or a new
+legacy-content default.

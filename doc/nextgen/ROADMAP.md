@@ -316,9 +316,27 @@ soak, strict material-handoff and fault-transaction checks, and a stateful
 675 beams and a repeated 10,800-beam fixture, binds the source manifest and
 compiler flags, and fails on any hot-loop allocation or rejected fixture.
 This closes the earlier scalar-proof versus production-axis gap for explicit
-calibrated beams. It does not close the pending starter-content full-solver
+calibrated beams. It did not by itself close the starter-content full-solver
 soak, legacy scene-trace comparison, network localization, or Agora impact
 gate.
+
+The clean exact-commit Apple M5 runtime receipt
+`evidence/CALIBRATED_BEAM_RUNTIME_SOAK_M5_2026-08-14.json` now closes the
+bounded starter-content full-solver integration gate. The local-only runner
+authenticates the pinned DAF semi source, derives one deterministic
+`P1CalibratedDAF.truck` numerical fixture, opts exactly 15 ordinary structural
+beams into the production material adapter, and advances the real combined
+application for 120,000 fixed `0.5 ms` steps. One-worker and eight-worker runs
+both retained 15 active finite histories, zero material faults, fractures, or
+disabled beams, `0.00106908` maximum absolute strain, and zero plastic strain
+or damage. The state comparator matched all 120,000 ordered snapshots while
+allowing only the declared worker-count metadata difference. Both runs also
+presented 1,204 Ogre-Next HDR/PSSM frames with auto-exposure, bloom, filmic
+tone mapping, sRGB output, zero production content/framebuffer readbacks, and
+zero Ogre14 lighting passes. This is numerical full-solver integration
+evidence, not physical DAF material calibration, starter-content retuning, a
+legacy-versus-calibrated equivalence result, network localization proof, or the
+Agora impact gate.
 
 The clean exact-commit AppleClang/arm64 receipt is
 `evidence/BEAM_AXIAL_KINEMATICS_BENCHMARK_M5_2026-08-11.json`: the 675-beam

@@ -1,0 +1,47 @@
+{
+  "content_commit": "34fefdd126784bf87b068fc283f812525d159dd7",
+  "executable": "/private/tmp/ror-p1-calibrated-runtime-soak-clean-build-v2/bin/RoR-Combined",
+  "executable_sha256": "a5746848aa15bc0855cd67ee08a684f4402e75c5b572b300fd83fbcb9348ccf4",
+  "fixture_archive_sha256": "253dd4648716e95f3e70806ac355f64ddd74e1e610b2cdfebee1fbd63080f72e",
+  "fixture_member": "P1CalibratedDAF.truck",
+  "fixture_sha256": "67c752107d7bd23224e1818d4f3e4920fe146ce7cabfd96005f630918263eb12",
+  "format": "ror-p1-calibrated-beam-runtime-soak-v1",
+  "machine": "arm64",
+  "material_claim": "numerical-integration-fixture-not-physical-calibration",
+  "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+  "repository_commit": "c2fce6acc75a64a67a909076a03052a5f20633e0",
+  "results": [
+    {
+      "run": 1,
+      "telemetry": {
+        "active_history": 15,
+        "max_abs_strain": 0.00106908,
+        "max_damage": 0.0,
+        "max_plastic_strain": 0.0
+      },
+      "trace": "traces/worker-01-run-01.rortrace",
+      "trace_sha256": "d0117eaa890718c601835f658369151cafe22a973f2fd396bad1932315d714b7",
+      "workers": 1
+    },
+    {
+      "run": 1,
+      "telemetry": {
+        "active_history": 15,
+        "max_abs_strain": 0.00106908,
+        "max_damage": 0.0,
+        "max_plastic_strain": 0.0
+      },
+      "trace": "traces/worker-08-run-01.rortrace",
+      "trace_sha256": "7e20fee2e956939229140337eba98ebe5cef99d0b174165ee7459e52583ec51e",
+      "workers": 8
+    }
+  ],
+  "runs_per_worker": 1,
+  "scenario_id": 2026081302,
+  "source_sha256": "88343bed2edaf0cbabadb307bd2e8251f26a18840a0fbc2ca111c74ccdaf7b6c",
+  "steps": 120000,
+  "workers": [
+    1,
+    8
+  ]
+}
