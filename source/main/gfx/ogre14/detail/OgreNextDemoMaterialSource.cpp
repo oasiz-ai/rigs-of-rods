@@ -871,7 +871,7 @@ struct ExactPassObservation final {
   std::uint8_t manual_cull_mode = 0U;
   std::uint8_t polygon_mode = 0U;
   std::uint8_t vertex_colour_tracking = 0U;
-  std::uint32_t pass_iteration_count = 0U;
+  std::uint64_t pass_iteration_count = 0U;
   float depth_bias_constant = 0.0F;
   float depth_bias_slope_scale = 0.0F;
   float iteration_depth_bias = 0.0F;
@@ -923,7 +923,8 @@ ExactPassObservation ObserveExactPass(const Ogre::Pass &pass) noexcept {
       static_cast<std::uint8_t>(pass.getPolygonMode());
   observation.vertex_colour_tracking =
       static_cast<std::uint8_t>(pass.getVertexColourTracking());
-  observation.pass_iteration_count = pass.getPassIterationCount();
+  observation.pass_iteration_count =
+      static_cast<std::uint64_t>(pass.getPassIterationCount());
   observation.depth_bias_constant = pass.getDepthBiasConstant();
   observation.depth_bias_slope_scale = pass.getDepthBiasSlopeScale();
   observation.iteration_depth_bias = pass.getIterationDepthBias();

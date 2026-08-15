@@ -342,7 +342,7 @@ endforeach ()
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/linux-shader-toolchain.lock.json")
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256
-    "02d2a965f817786e295212161686c8fc1ff33f0000946b5f90ebd4c161eac35e")
+    "38bacdb36996fcce63d2512ed20a5428fbf6280ea1b6d3f0ea2da341437b0b9b")
 file(SHA256 "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
     _ror_linux_toolchain_lock_sha256)
 if (NOT _ror_linux_toolchain_lock_sha256 STREQUAL
