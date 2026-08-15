@@ -342,24 +342,39 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             REPOSITORY_ROOT
             / "tools/ogre_next_probe/cmake/PinnedOgreNext.cmake"
         ).read_text(encoding="utf-8")
+        cls.pinned_ogre_next_patch_driver = (
+            REPOSITORY_ROOT
+            / "tools/ogre_next_probe/cmake/ApplyPinnedOgreNextPatches.cmake"
+        ).read_text(encoding="utf-8")
         cls.app_context_header = (
             REPOSITORY_ROOT / "source/main/AppContext.h"
+        ).read_text(encoding="utf-8")
+        cls.source_texture_decoder_header = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/Ogre14SourceTextureDecoder.h"
+        ).read_text(encoding="utf-8")
+        cls.input_event_transport_header = (
+            REPOSITORY_ROOT / "source/main/gfx/render/InputEventTransport.h"
         ).read_text(encoding="utf-8")
 
     def test_hosted_patch_transaction_is_per_patch_and_fail_closed(self) -> None:
         for token in (
-            "foreach (_ror_ogre_next_patch_path IN LISTS "
-            "_ror_ogre_next_patch_paths)",
-            "list(APPEND _ror_ogre_next_patch_command COMMAND)",
-            'PATCH_COMMAND ${_ror_ogre_next_patch_command}',
+            "ror-ogre-next-patches-v1.txt",
+            "ApplyPinnedOgreNextPatches.cmake",
+            '"-DROR_OGRE_SOURCE_DIR=<SOURCE_DIR>"',
+            '"-DROR_EXPECTED_PATCH_COUNT=${_ror_ogre_next_patch_count}"',
             "The pinned OGRE-Next patch transaction is empty",
             "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes",
         ):
             self.assertIn(token, self.pinned_ogre_next)
-        self.assertNotIn(
-            "--whitespace=nowarn\n        ${_ror_ogre_next_patch_paths}",
-            self.pinned_ogre_next,
-        )
+        for token in (
+            "foreach (_ror_patch_path IN LISTS _ror_patch_paths)",
+            "RESULT_VARIABLE _ror_patch_result",
+            "if (NOT _ror_patch_result EQUAL 0)",
+            "ROR_IBL_PATCHED_SHA256",
+            "ROR_METAL_ANISOTROPY_PATCHED_SHA256",
+        ):
+            self.assertIn(token, self.pinned_ogre_next_patch_driver)
 
     def test_renderer_window_close_latch_is_cross_platform(self) -> None:
         apple_guard_end = self.app_context_header.index(
@@ -369,6 +384,12 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             "    bool                 m_window_shutdown_requested = false;"
         )
         self.assertGreater(latch, apple_guard_end)
+
+    def test_public_enums_avoid_windows_sdk_macro_tokens(self) -> None:
+        self.assertIn("OPAQUE_COLOR = 1U", self.source_texture_decoder_header)
+        self.assertNotIn("\n  OPAQUE =", self.source_texture_decoder_header)
+        self.assertIn("OUTPUT = 160U", self.input_event_transport_header)
+        self.assertNotIn("\n  OUT =", self.input_event_transport_header)
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (

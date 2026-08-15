@@ -1326,22 +1326,29 @@ elseif (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_OGRE_GLSLANG_PATCH_PATH}")
 endif ()
 
-# FetchContent forwards PATCH_COMMAND through ExternalProject.  Keep every
-# reviewed patch as its own command: a single `git apply` invocation carrying
-# the whole list was observed to return success under hosted CMake 4.4 while
-# leaving later shader patches unapplied.  Independent commands make every
-# patch a fail-closed step and preserve the exact post-patch hash checks below.
-set(_ror_ogre_next_patch_command "")
-foreach (_ror_ogre_next_patch_path IN LISTS _ror_ogre_next_patch_paths)
-    if (_ror_ogre_next_patch_command)
-        list(APPEND _ror_ogre_next_patch_command COMMAND)
-    endif ()
-    list(APPEND _ror_ogre_next_patch_command
-        "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --unidiff-zero
-        --whitespace=nowarn "${_ror_ogre_next_patch_path}")
-endforeach ()
-if (NOT _ror_ogre_next_patch_command)
+# FetchContent forwards PATCH_COMMAND through ExternalProject. Hosted Linux
+# and Windows CMake 4.4 accepted repeated COMMAND separators without reliably
+# applying the later shader patches. Route the complete patch list through one
+# CMake script which checks every child process and the reviewed media hashes.
+if (NOT _ror_ogre_next_patch_paths)
     message(FATAL_ERROR "The pinned OGRE-Next patch transaction is empty")
+endif ()
+set(_ror_ogre_next_patch_manifest
+    "${CMAKE_BINARY_DIR}/ror-ogre-next-patches-v1.txt")
+string(JOIN "\n" _ror_ogre_next_patch_manifest_content
+    ${_ror_ogre_next_patch_paths})
+if (_ror_ogre_next_patch_manifest_content MATCHES "\r" OR
+        _ror_ogre_next_patch_manifest_content MATCHES ";")
+    message(FATAL_ERROR "The pinned OGRE-Next patch paths are not canonical")
+endif ()
+file(WRITE "${_ror_ogre_next_patch_manifest}"
+    "${_ror_ogre_next_patch_manifest_content}")
+list(LENGTH _ror_ogre_next_patch_paths _ror_ogre_next_patch_count)
+set(_ror_ogre_next_patch_driver
+    "${CMAKE_CURRENT_LIST_DIR}/ApplyPinnedOgreNextPatches.cmake")
+if (NOT EXISTS "${_ror_ogre_next_patch_driver}" OR
+        IS_SYMLINK "${_ror_ogre_next_patch_driver}")
+    message(FATAL_ERROR "The pinned OGRE-Next patch driver is unavailable")
 endif ()
 
 # Hosted Windows Git defaults to core.autocrlf=true. Override it for the
@@ -1350,7 +1357,17 @@ FetchContent_Declare(
     ogre_next
     URL "${_ror_ogre_next_url}"
     URL_HASH "SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}"
-    PATCH_COMMAND ${_ror_ogre_next_patch_command}
+    PATCH_COMMAND
+        "${CMAKE_COMMAND}"
+        "-DROR_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
+        "-DROR_OGRE_SOURCE_DIR=<SOURCE_DIR>"
+        "-DROR_PATCH_MANIFEST=${_ror_ogre_next_patch_manifest}"
+        "-DROR_EXPECTED_PATCH_COUNT=${_ror_ogre_next_patch_count}"
+        "-DROR_IBL_SOURCE_PATH=${ROR_OGRE_NEXT_IBL_PATCH_SOURCE_PATH}"
+        "-DROR_IBL_PATCHED_SHA256=${ROR_OGRE_NEXT_IBL_PATCHED_SHA256}"
+        "-DROR_METAL_ANISOTROPY_SOURCE_PATH=${ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_PATH}"
+        "-DROR_METAL_ANISOTROPY_PATCHED_SHA256=${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256}"
+        -P "${_ror_ogre_next_patch_driver}"
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(ogre_next)
 

@@ -208,7 +208,7 @@ enum class Sdl2PhysicalScancode : std::uint16_t {
   PRIOR = 157U,
   RETURN_2 = 158U,
   SEPARATOR = 159U,
-  OUT = 160U,
+  OUTPUT = 160U,
   OPER = 161U,
   CLEAR_AGAIN = 162U,
   CR_SEL = 163U,

@@ -403,15 +403,15 @@ void CheckBc1AlphaAuthority() {
   Require(ResolveOgreNextDemoBc1AlphaMode(
               true, OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE, false, mode)
                   .ok() &&
-              mode == Ogre14SourceTextureBc1AlphaMode::OPAQUE,
+              mode == Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR,
           "explicit opaque BC1 policy was not selected");
-  mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+  mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR;
   const ValidationResult ambiguous = ResolveOgreNextDemoBc1AlphaMode(
       true, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT, false, mode);
   Require(!ambiguous && ambiguous.code == ValidationCode::MISSING_REFERENCE &&
               ambiguous.field ==
                   "ogre_next_demo.material.bc1_alpha.authority" &&
-              mode == Ogre14SourceTextureBc1AlphaMode::OPAQUE,
+              mode == Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR,
           "blend/test state inferred one-bit alpha for ambiguous legacy DXT1");
   Require(ResolveOgreNextDemoBc1AlphaMode(
               true, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT, true,
@@ -524,7 +524,7 @@ Ogre14DecodedSourceTexture DecodedSrgbMipPrefix() {
   // and generates only a missing modern tail.
   decoded.source_format = Ogre14SourceTextureFormat::BC1_UNORM;
   decoded.color_semantic = Ogre14SourceTextureColorSemantic::SRGB_COLOR;
-  decoded.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+  decoded.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR;
   decoded.source_has_alpha = false;
   decoded.mip_levels.push_back(
       MakeDecodedMip(4U, 4U, native.mip_levels.front().bytes));
