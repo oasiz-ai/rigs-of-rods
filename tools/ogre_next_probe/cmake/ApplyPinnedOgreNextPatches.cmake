@@ -60,22 +60,28 @@ foreach (_ror_patch_path IN LISTS _ror_patch_paths)
     endif ()
 endforeach ()
 
-# Apply the complete manifest in one Git transaction. This is both atomic and
-# avoids the hosted-Windows CMake process-loop behavior that reported success
-# for later invocations while leaving their target bytes unchanged.
-execute_process(
-    COMMAND
-        "${ROR_GIT_EXECUTABLE}" -c core.autocrlf=false apply
-        --unidiff-zero --whitespace=nowarn --verbose ${_ror_patch_paths}
-    WORKING_DIRECTORY "${ROR_OGRE_SOURCE_DIR}"
-    RESULT_VARIABLE _ror_patch_result
-    OUTPUT_VARIABLE _ror_patch_stdout
-    ERROR_VARIABLE _ror_patch_stderr)
-if (NOT _ror_patch_result EQUAL 0)
-    message(FATAL_ERROR
-        "Pinned OGRE-Next patch transaction failed: "
-        "${_ror_patch_stderr}${_ror_patch_stdout}")
-endif ()
+# Hosted Windows Git accepted a command whose CMake-expanded absolute patch
+# argv disappeared and returned success without changing the tree. Feed each
+# reviewed patch through stdin instead, then require every child process to
+# succeed before checking the exact aggregate source postconditions below.
+set(_ror_patch_index 0)
+foreach (_ror_patch_path IN LISTS _ror_patch_paths)
+    math(EXPR _ror_patch_index "${_ror_patch_index} + 1")
+    execute_process(
+        COMMAND
+            "${ROR_GIT_EXECUTABLE}" -c core.autocrlf=false apply
+            --unidiff-zero --whitespace=nowarn --verbose
+        INPUT_FILE "${_ror_patch_path}"
+        WORKING_DIRECTORY "${ROR_OGRE_SOURCE_DIR}"
+        RESULT_VARIABLE _ror_patch_result
+        OUTPUT_VARIABLE _ror_patch_stdout
+        ERROR_VARIABLE _ror_patch_stderr)
+    if (NOT _ror_patch_result EQUAL 0)
+        message(FATAL_ERROR
+            "Pinned OGRE-Next patch ${_ror_patch_index} failed: "
+            "${_ror_patch_stderr}${_ror_patch_stdout}")
+    endif ()
+endforeach ()
 
 foreach (_ror_postcondition IN ITEMS IBL METAL_ANISOTROPY)
     if (_ror_postcondition STREQUAL "IBL")

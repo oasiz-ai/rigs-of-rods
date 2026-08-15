@@ -384,7 +384,7 @@ enum class InputTransportRawDeviceClass : std::uint8_t {
 
 enum class InputTransportRawAxisMode : std::uint8_t {
   ABSOLUTE_POSITION = 1U,
-  RELATIVE = 2U,
+  RELATIVE_DELTA = 2U,
 };
 
 /// Numeric values match SDL 2 hat bit semantics, without importing SDL.

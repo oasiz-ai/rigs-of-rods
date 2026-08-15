@@ -357,7 +357,7 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             REPOSITORY_ROOT / "source/main/gfx/render/InputEventTransport.h"
         ).read_text(encoding="utf-8")
 
-    def test_hosted_patch_transaction_is_atomic_and_fail_closed(self) -> None:
+    def test_hosted_patch_transaction_uses_checked_patch_stdin(self) -> None:
         for token in (
             "ror-ogre-next-patches-v1.txt",
             "ApplyPinnedOgreNextPatches.cmake",
@@ -369,7 +369,7 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             self.assertIn(token, self.pinned_ogre_next)
         for token in (
             "foreach (_ror_patch_path IN LISTS _ror_patch_paths)",
-            "--unidiff-zero --whitespace=nowarn --verbose ${_ror_patch_paths}",
+            'INPUT_FILE "${_ror_patch_path}"',
             "RESULT_VARIABLE _ror_patch_result",
             "if (NOT _ror_patch_result EQUAL 0)",
             "ROR_IBL_PATCHED_SHA256",
@@ -395,6 +395,8 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             "ABSOLUTE_POSITION = 1U", self.input_event_transport_header
         )
         self.assertNotIn("\n  ABSOLUTE =", self.input_event_transport_header)
+        self.assertIn("RELATIVE_DELTA = 2U", self.input_event_transport_header)
+        self.assertNotIn("\n  RELATIVE =", self.input_event_transport_header)
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
