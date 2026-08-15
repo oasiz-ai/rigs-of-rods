@@ -1,8 +1,76 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -93 +93,4 @@ option(GLSLANG_TESTS "Enable glslang testing" ${GLSLANG_TESTS_DEFAULT})
- option(GLSLANG_ENABLE_INSTALL "Enable glslang installation" ${GLSLANG_ENABLE_INSTALL_DEFAULT})
-+# Shaderc's static closure does not export the linked SPIRV-Tools targets.
-+set(GLSLANG_ENABLE_INSTALL OFF)
-+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+@@ -356,7 +356,8 @@ if(GLSLANG_TESTS)
+     endif()
+ endif()
+ 
+-if (GLSLANG_ENABLE_INSTALL)
++# Shaderc's reviewed static closure never publishes dependency install exports.
++if (FALSE)
+     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/glslang-config.cmake.in" [=[
+         @PACKAGE_INIT@
+         include(CMakeFindDependencyMacro)
+diff --git a/SPIRV/CMakeLists.txt b/SPIRV/CMakeLists.txt
+--- a/SPIRV/CMakeLists.txt
++++ b/SPIRV/CMakeLists.txt
+@@ -125,7 +125,8 @@ if(WIN32)
+     source_group("Source" FILES ${SPVREMAP_SOURCES} ${SPVREMAP_HEADERS})
+ endif()
+ 
+-if(GLSLANG_ENABLE_INSTALL)
++# The containing shaderc static closure does not export SPIRV-Tools targets.
++if(FALSE)
+     if (ENABLE_SPVREMAPPER)
+         install(TARGETS SPVRemapper EXPORT glslang-targets)
+     endif()
+diff --git a/StandAlone/CMakeLists.txt b/StandAlone/CMakeLists.txt
+--- a/StandAlone/CMakeLists.txt
++++ b/StandAlone/CMakeLists.txt
+@@ -102,7 +102,8 @@ add_custom_command(
+     VERBATIM
+ )
+ 
+-if(GLSLANG_ENABLE_INSTALL)
++# The containing shaderc static closure never installs dependency tools.
++if(FALSE)
+     install(TARGETS glslang-standalone EXPORT glslang-targets)
+ 
+     # Create the same symlink at install time
+diff --git a/glslang/CMakeLists.txt b/glslang/CMakeLists.txt
+--- a/glslang/CMakeLists.txt
++++ b/glslang/CMakeLists.txt
+@@ -249,7 +249,8 @@ endif()
+ ################################################################################
+ # install
+ ################################################################################
+-if(GLSLANG_ENABLE_INSTALL)
++# The containing shaderc static closure does not export dependency targets.
++if(FALSE)
+     install(TARGETS glslang EXPORT glslang-targets)
+     if(NOT BUILD_SHARED_LIBS)
+         install(TARGETS MachineIndependent EXPORT glslang-targets)
+diff --git a/glslang/OSDependent/Unix/CMakeLists.txt b/glslang/OSDependent/Unix/CMakeLists.txt
+--- a/glslang/OSDependent/Unix/CMakeLists.txt
++++ b/glslang/OSDependent/Unix/CMakeLists.txt
+@@ -43,6 +43,7 @@ add_library(OSDependent STATIC ${CMAKE_CURRENT_SOURCE_DIR}/../../stub.cpp)
+ set_property(TARGET OSDependent PROPERTY FOLDER glslang)
+ set_property(TARGET OSDependent PROPERTY POSITION_INDEPENDENT_CODE ON)
+ 
+-if(GLSLANG_ENABLE_INSTALL AND NOT BUILD_SHARED_LIBS)
++# The containing shaderc static closure never installs dependency targets.
++if(FALSE)
+     install(TARGETS OSDependent EXPORT glslang-targets)
+ endif()
+diff --git a/glslang/OSDependent/Windows/CMakeLists.txt b/glslang/OSDependent/Windows/CMakeLists.txt
+--- a/glslang/OSDependent/Windows/CMakeLists.txt
++++ b/glslang/OSDependent/Windows/CMakeLists.txt
+@@ -57,6 +57,7 @@ if(WIN32)
+     source_group("Source" FILES ${SOURCES})
+ endif()
+ 
+-if(GLSLANG_ENABLE_INSTALL)
++# The containing shaderc static closure never installs dependency targets.
++if(FALSE)
+     install(TARGETS OSDependent EXPORT glslang-targets)
+ endif()

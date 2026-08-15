@@ -136,10 +136,22 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             RUNNER.sha256_file(GLSLANG_INSTALL_PATCH_PATH),
             glslang_patch["sha256"],
         )
+        glslang_patch_text = GLSLANG_INSTALL_PATCH_PATH.read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(glslang_patch_text.count("+if(FALSE)"), 5)
+        self.assertEqual(glslang_patch_text.count("+if (FALSE)"), 1)
         self.assertIn(
-            "+set(GLSLANG_ENABLE_INSTALL OFF)\n"
-            "+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL \"\" FORCE)",
-            GLSLANG_INSTALL_PATCH_PATH.read_text(encoding="utf-8"),
+            "diff --git a/CMakeLists.txt b/CMakeLists.txt",
+            glslang_patch_text,
+        )
+        self.assertIn(
+            "diff --git a/SPIRV/CMakeLists.txt b/SPIRV/CMakeLists.txt",
+            glslang_patch_text,
+        )
+        self.assertIn(
+            "diff --git a/glslang/CMakeLists.txt b/glslang/CMakeLists.txt",
+            glslang_patch_text,
         )
 
     def test_cmake_rejects_distro_cpp_abi_and_builds_one_static_closure(self) -> None:
