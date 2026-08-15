@@ -69,7 +69,8 @@ InputTransportRawAxisDescriptor
 RawAxis(std::uint16_t index, std::int32_t minimum, std::int32_t maximum,
         std::int32_t center, std::int32_t deadzone_minimum,
         std::int32_t deadzone_maximum,
-        InputTransportRawAxisMode mode = InputTransportRawAxisMode::ABSOLUTE) {
+        InputTransportRawAxisMode mode =
+            InputTransportRawAxisMode::ABSOLUTE_POSITION) {
   InputTransportRawAxisDescriptor axis;
   axis.index = index;
   axis.mode = mode;
@@ -98,7 +99,7 @@ RawWheelDescriptor(std::uint64_t generation = 3U) {
       reinterpret_cast<const std::uint8_t *>(name.data()), name.size());
   descriptor.axes.push_back(RawAxis(0U, -32768, 32767, 0, -512, 512));
   descriptor.axes.push_back(RawAxis(1U, -1000, 1000, 0, -10, 10,
-                                    InputTransportRawAxisMode::RELATIVE));
+                                    InputTransportRawAxisMode::RELATIVE_DELTA));
   descriptor.button_count = 8U;
   descriptor.hat_count = 1U;
   InputTransportRawSliderDescriptor slider;

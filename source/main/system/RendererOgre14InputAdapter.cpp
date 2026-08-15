@@ -415,7 +415,7 @@ RendererOgre14InputAdapter::ApplyKnownValidBatch(
         bool relative = false;
         if (candidate.raw_state != nullptr) {
           relative = candidate.raw_state->descriptor.axes[axis].mode ==
-                     InputTransportRawAxisMode::RELATIVE;
+                     InputTransportRawAxisMode::RELATIVE_DELTA;
         }
         if (relative) {
           const auto found = raw_relative_axes.find(
