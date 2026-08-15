@@ -342,7 +342,7 @@ endforeach ()
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/linux-shader-toolchain.lock.json")
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256
-    "38bacdb36996fcce63d2512ed20a5428fbf6280ea1b6d3f0ea2da341437b0b9b")
+    "74b530542c0c2f478a10da7690c1d3db21e8fcf6768ef8c1f69692cde324f336")
 file(SHA256 "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
     _ror_linux_toolchain_lock_sha256)
 if (NOT _ror_linux_toolchain_lock_sha256 STREQUAL
@@ -421,6 +421,12 @@ string(JSON ROR_LINUX_SHADERC_PATCH_PATH GET
     "${_ror_linux_toolchain_lock_json}" shaderc_release compatibility_patch path)
 string(JSON ROR_LINUX_SHADERC_PATCH_SHA256 GET
     "${_ror_linux_toolchain_lock_json}" shaderc_release compatibility_patch sha256)
+string(JSON ROR_LINUX_GLSLANG_INSTALL_PATCH_PATH GET
+    "${_ror_linux_toolchain_lock_json}" dependencies glslang
+    compatibility_patch path)
+string(JSON ROR_LINUX_GLSLANG_INSTALL_PATCH_SHA256 GET
+    "${_ror_linux_toolchain_lock_json}" dependencies glslang
+    compatibility_patch sha256)
 string(JSON ROR_LINUX_GLSLANG_NOTICE_PATH GET
     "${_ror_linux_toolchain_lock_json}" dependencies glslang package_notice_path)
 string(JSON ROR_LINUX_GLSLANG_NOTICE_SHA256 GET
@@ -695,6 +701,13 @@ file(SHA256
 if (NOT _ror_linux_shaderc_patch_sha256 STREQUAL
         ROR_LINUX_SHADERC_PATCH_SHA256)
     message(FATAL_ERROR "The pinned shaderc CMake patch changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_GLSLANG_INSTALL_PATCH_PATH}"
+    _ror_linux_glslang_install_patch_sha256)
+if (NOT _ror_linux_glslang_install_patch_sha256 STREQUAL
+        ROR_LINUX_GLSLANG_INSTALL_PATCH_SHA256)
+    message(FATAL_ERROR "The pinned glslang install patch changed")
 endif ()
 
 set(ROR_OGRE_NEXT_ARCHIVE "" CACHE FILEPATH
@@ -1037,6 +1050,9 @@ if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         ror_glslang_source
         URL "${_ror_glslang_url}"
         URL_HASH "SHA256=${ROR_LINUX_GLSLANG_ARCHIVE_SHA256}"
+        PATCH_COMMAND
+            "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
+            "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_GLSLANG_INSTALL_PATCH_PATH}"
         SOURCE_SUBDIR ror-pinned-source-only
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(

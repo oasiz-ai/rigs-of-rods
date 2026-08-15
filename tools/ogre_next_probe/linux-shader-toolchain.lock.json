@@ -29,6 +29,11 @@
       "archive_url": "https://github.com/KhronosGroup/glslang/archive/efd24d75bcbc55620e759f6bf42c45a32abac5f8.tar.gz",
       "archive_sha256": "9427deccbdf4bde6a269938df38c6bd75247493786a310d8d733a2c82065ef47",
       "selected_by": "shaderc v2025.3 DEPS glslang_revision",
+      "compatibility_patch": {
+        "path": "patches/0004-glslang-disable-install.patch",
+        "sha256": "cbb76e5a17947014d105de92e4015aa57fabe122aa7c8bf725d50e0696724433",
+        "reason": "Disable glslang install exports at the dependency source boundary because the reviewed static shaderc closure does not export SPIRV-Tools targets"
+      },
       "license_expression": "LicenseRef-glslang-composite",
       "license_summary": "BSD-3-Clause AND BSD-2-Clause AND MIT AND Apache-2.0 plus the complete upstream preprocessor terms",
       "license_path": "LICENSE.txt",

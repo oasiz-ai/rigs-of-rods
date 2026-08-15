@@ -22,6 +22,9 @@ PATCH_PATH = PROBE_ROOT / "patches" / "0002-vulkan-use-glslang-spv-options.patch
 SHADERC_PATCH_PATH = (
     PROBE_ROOT / "patches" / "0003-shaderc-disable-glslang-install.patch"
 )
+GLSLANG_INSTALL_PATCH_PATH = (
+    PROBE_ROOT / "patches" / "0004-glslang-disable-install.patch"
+)
 RUNNER_PATH = REPOSITORY_ROOT / "tools" / "run_ogre_next_probe.py"
 RUNNER_SPEC = importlib.util.spec_from_file_location(
     "run_ogre_next_probe_for_linux_closure_tests", RUNNER_PATH
@@ -126,6 +129,18 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             "+    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL \"\" FORCE)",
             shaderc_patch_text,
         )
+        glslang_patch = self.lock["dependencies"]["glslang"][
+            "compatibility_patch"
+        ]
+        self.assertEqual(
+            RUNNER.sha256_file(GLSLANG_INSTALL_PATCH_PATH),
+            glslang_patch["sha256"],
+        )
+        self.assertIn(
+            "+set(GLSLANG_ENABLE_INSTALL OFF)\n"
+            "+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL \"\" FORCE)",
+            GLSLANG_INSTALL_PATCH_PATH.read_text(encoding="utf-8"),
+        )
 
     def test_cmake_rejects_distro_cpp_abi_and_builds_one_static_closure(self) -> None:
         for token in (
@@ -136,6 +151,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             'URL_HASH "SHA256=${ROR_LINUX_SPIRV_TOOLS_ARCHIVE_SHA256}"',
             'URL_HASH "SHA256=${ROR_LINUX_SPIRV_HEADERS_ARCHIVE_SHA256}"',
             "ROR_LINUX_SHADERC_PATCH_PATH",
+            "ROR_LINUX_GLSLANG_INSTALL_PATCH_PATH",
             "${ror_glslang_source_SOURCE_DIR}/SPIRV/GlslangToSpv.h",
             "shaderc_combined no longer owns",
             "set(Vulkan_SHADERC_LIB_REL shaderc_combined",

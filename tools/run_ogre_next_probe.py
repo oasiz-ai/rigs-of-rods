@@ -61,7 +61,7 @@ LINUX_SHADER_TOOLCHAIN_LOCK_PATH = (
     PROBE_SOURCE / "linux-shader-toolchain.lock.json"
 )
 LINUX_SHADER_TOOLCHAIN_LOCK_SHA256 = (
-    "38bacdb36996fcce63d2512ed20a5428fbf6280ea1b6d3f0ea2da341437b0b9b"
+    "74b530542c0c2f478a10da7690c1d3db21e8fcf6768ef8c1f69692cde324f336"
 )
 REPORT_NAME = "ror-ogre-next-probe-report.json"
 BUILD_CONTRACT_NAME = "ogre-next-build-contract.json"
@@ -1254,6 +1254,22 @@ def load_linux_shader_toolchain_lock(
         or sha256_file(shaderc_patch_path) != shaderc_patch["sha256"]
     ):
         raise ProbeError("shaderc CMake compatibility patch SHA-256 mismatch")
+    glslang_patch = lock["dependencies"]["glslang"].get(
+        "compatibility_patch", {}
+    )
+    if (
+        glslang_patch.get("path")
+        != "patches/0004-glslang-disable-install.patch"
+        or glslang_patch.get("sha256")
+        != "cbb76e5a17947014d105de92e4015aa57fabe122aa7c8bf725d50e0696724433"
+    ):
+        raise ProbeError("glslang CMake compatibility patch contract changed")
+    glslang_patch_path = path.parent / glslang_patch["path"]
+    if (
+        not glslang_patch_path.is_file()
+        or sha256_file(glslang_patch_path) != glslang_patch["sha256"]
+    ):
+        raise ProbeError("glslang CMake compatibility patch SHA-256 mismatch")
 
     expected_targets = [
         "shaderc_combined",
