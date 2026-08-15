@@ -237,10 +237,32 @@ class Ogre14LiveMaterialCoordinatorContractTests(unittest.TestCase):
                 self.assertIn(
                     "Ogre14AuthenticatedTextureReceipt.cpp", match.group(0)
                 )
-                self.assertIn(
-                    "Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
-                    match.group(0),
-                )
+                if (
+                    cmake == probe_cmake
+                    and target
+                    == "ror_ogre14_graphics_scene_prepared_material_binding_tests"
+                ):
+                    self.assertIn(
+                        "$<TARGET_OBJECTS:ror_ogre14_prepared_binding_capture_obj>",
+                        match.group(0),
+                    )
+                    capture_object = re.search(
+                        r"add_library\(\s*"
+                        r"ror_ogre14_prepared_binding_capture_obj\s+OBJECT"
+                        r".*?\)",
+                        probe_cmake,
+                        re.DOTALL,
+                    )
+                    self.assertIsNotNone(capture_object)
+                    self.assertIn(
+                        "Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
+                        capture_object.group(0),
+                    )
+                else:
+                    self.assertIn(
+                        "Ogre14LegacyNativeMaterialCaptureAuthority.cpp",
+                        match.group(0),
+                    )
         self.assertIn(
             "gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.{h,cpp}", main_cmake
         )

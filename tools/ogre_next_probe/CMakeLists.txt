@@ -2160,14 +2160,33 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_live_material_coordinator_tests
         PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+    # Keep the longest shared source out of the already long executable target
+    # object directory. On the hosted Windows checkout the direct object path
+    # is exactly MAX_PATH (260 bytes), which makes cl.exe reject its generated
+    # output before parsing the source. The short object-library name preserves
+    # the public executable/CTest identity while keeping every compiler output
+    # path below the native Windows limit.
+    add_library(
+        ror_ogre14_prepared_binding_capture_obj OBJECT
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp")
+    target_include_directories(
+        ror_ogre14_prepared_binding_capture_obj
+        PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
+    target_compile_definitions(
+        ror_ogre14_prepared_binding_capture_obj
+        PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1)
+    target_link_libraries(
+        ror_ogre14_prepared_binding_capture_obj
+        PRIVATE ror_ogre_next_n1_contract)
+
     add_executable(
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         "${ROR_REPOSITORY_ROOT}/tests/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBindingTests.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyLiveMaterialCoordinator.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyNativeMaterialCaptureAuthority.cpp"
         "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14LegacyMaterialSemanticRegistry.cpp"
-        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp")
+        "${ROR_REPOSITORY_ROOT}/source/main/gfx/ogre14/Ogre14AuthenticatedTextureReceipt.cpp"
+        $<TARGET_OBJECTS:ror_ogre14_prepared_binding_capture_obj>)
     target_include_directories(
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         PRIVATE "${ROR_REPOSITORY_ROOT}/source/main")
@@ -2908,6 +2927,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         ror_ogre14_source_texture_decoder_tests
         ror_ogre14_material_semantic_catalog_v2_tests
         ror_ogre14_live_material_coordinator_tests
+        ror_ogre14_prepared_binding_capture_obj
         ror_ogre14_graphics_scene_prepared_material_binding_tests
         ror_ogre14_authenticated_texture_receipt_tests
         ror_ogre14_selected_texture_source_tests

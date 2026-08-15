@@ -139,6 +139,19 @@ class Ogre14PreparedMaterialBindingContractTests(unittest.TestCase):
             self.assertIn(
                 "Ogre14GraphicsScenePreparedMaterialBinding.cpp", cmake
             )
+        for token in (
+            "ror_ogre14_prepared_binding_capture_obj OBJECT",
+            "$<TARGET_OBJECTS:ror_ogre14_prepared_binding_capture_obj>",
+        ):
+            self.assertIn(token, probe_cmake)
+        capture_object_index = probe_cmake.index(
+            "ror_ogre14_prepared_binding_capture_obj OBJECT"
+        )
+        prepared_executable_index = probe_cmake.index(
+            "ror_ogre14_graphics_scene_prepared_material_binding_tests",
+            capture_object_index,
+        )
+        self.assertLess(capture_object_index, prepared_executable_index)
         self.assertIn(
             "gfx/ogre14/Ogre14GraphicsScenePreparedMaterialBinding.{h,cpp}",
             main_cmake,
