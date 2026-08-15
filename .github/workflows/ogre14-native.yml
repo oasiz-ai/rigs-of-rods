@@ -75,6 +75,7 @@ jobs:
             g++-11 \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
+            libvulkan-dev \
             libx11-dev \
             libxaw7-dev \
             libxrandr-dev \

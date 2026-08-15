@@ -648,6 +648,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "--smoke",
             "--forbidden-prefix \"$GITHUB_WORKSPACE\"",
             "--forbidden-prefix \"$CONAN_HOME\"",
+            "libvulkan-dev",
             "xvfb-run",
             "GALLIUM_DRIVER: llvmpipe",
             "LIBGL_ALWAYS_SOFTWARE: \"1\"",
