@@ -33,6 +33,17 @@ if (NOT IS_DIRECTORY "${ROR_OGRE_SOURCE_DIR}")
         "Pinned OGRE-Next source directory is unavailable: "
         "${ROR_OGRE_SOURCE_DIR}")
 endif ()
+if (EXISTS "${ROR_OGRE_SOURCE_DIR}/.git" OR
+        IS_SYMLINK "${ROR_OGRE_SOURCE_DIR}/.git")
+    message(FATAL_ERROR
+        "Pinned OGRE-Next archive source unexpectedly contains Git metadata")
+endif ()
+get_filename_component(_ror_ogre_source_parent
+    "${ROR_OGRE_SOURCE_DIR}" DIRECTORY)
+if (NOT IS_DIRECTORY "${_ror_ogre_source_parent}")
+    message(FATAL_ERROR
+        "Pinned OGRE-Next archive source parent is unavailable")
+endif ()
 if (NOT ROR_EXPECTED_PATCH_COUNT MATCHES "^[1-9][0-9]*$")
     message(FATAL_ERROR "Pinned OGRE-Next patch count is not canonical")
 endif ()
@@ -69,6 +80,8 @@ foreach (_ror_patch_path IN LISTS _ror_patch_paths)
     math(EXPR _ror_patch_index "${_ror_patch_index} + 1")
     execute_process(
         COMMAND
+            "${CMAKE_COMMAND}" -E env
+            "GIT_CEILING_DIRECTORIES=${_ror_ogre_source_parent}"
             "${ROR_GIT_EXECUTABLE}" -c core.autocrlf=false apply
             --unidiff-zero --whitespace=nowarn --verbose
         INPUT_FILE "${_ror_patch_path}"

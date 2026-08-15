@@ -370,6 +370,8 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         for token in (
             "foreach (_ror_patch_path IN LISTS _ror_patch_paths)",
             'INPUT_FILE "${_ror_patch_path}"',
+            '"GIT_CEILING_DIRECTORIES=${_ror_ogre_source_parent}"',
+            "unexpectedly contains Git metadata",
             "RESULT_VARIABLE _ror_patch_result",
             "if (NOT _ror_patch_result EQUAL 0)",
             "ROR_IBL_PATCHED_SHA256",
