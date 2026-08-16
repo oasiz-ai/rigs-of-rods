@@ -750,6 +750,15 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 self.assertIn(b"void main(", required)
                 self.assertIn(b"SV_", required)
 
+    def test_mygui_glsl_130_avoids_newer_interface_blocks(self) -> None:
+        vertex_shader = (MYGUI_RESOURCE_ROOT / "MyGUI_VP.glsl").read_text(
+            encoding="utf-8"
+        )
+        self.assertTrue(vertex_shader.startswith("#version 130\n"))
+        self.assertNotIn("gl_PerVertex", vertex_shader)
+        self.assertNotIn("out {", vertex_shader)
+        self.assertEqual(vertex_shader.count("gl_Position = vpos;"), 1)
+
     def test_ogre_linked_config_test_uses_dependency_cpp_standard(
         self,
     ) -> None:
