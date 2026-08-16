@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/bridge/transition_12m/rorng_city_bridge_transition_12m.blend",
-      "sha256": "ff168c9ebaad697eeecee2e85f45780b89b5a4f240af99d69d6402cdb4de8d40"
+      "sha256": "3745e87b5c24f188200c8e3f40f64f3ccc1db3a69acb570cf2d873d9be046ee1"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/rorng_city_bridge_transition_12m.glb",
@@ -166,7 +166,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.compile.json",
-      "sha256": "5e338a4f6ab648ecf15c34de7e069fb40820ed2cd3ec9711ad706430257cb6d5"
+      "sha256": "5855d5a01bc698d29296193ffbd5ce99f10257db448214a92bf5e9e4c9ce2531"
     }
   },
   "connectors": [

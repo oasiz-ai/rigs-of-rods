@@ -2884,6 +2884,17 @@ if (TARGET ror_terrain_bundle_config_syntax_tests)
     )
 endif ()
 
+if (TARGET ror_point_col_detector_production_oracle_tests)
+    # This production oracle also includes OGRE 14's public vector headers.
+    set_target_properties(
+        ror_point_col_detector_production_oracle_tests
+        PROPERTIES
+        CXX_STANDARD 14
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+    )
+endif ()
+
 set_target_properties(
     ror_beamng_material_inventory_tests
     ror_jbeam_to_rigdef_tests

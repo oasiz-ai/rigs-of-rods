@@ -753,29 +753,32 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
     def test_ogre_linked_config_test_uses_dependency_cpp_standard(
         self,
     ) -> None:
-        target = "ror_terrain_bundle_config_syntax_tests"
-        conditional_blocks = tuple(
-            fragment.split("endif ()", 1)[0]
-            for fragment in self.test_cmake_text.split(
-                f"if (TARGET {target})"
-            )[1:]
-        )
-        standard_blocks = tuple(
-            block
-            for block in conditional_blocks
-            if "CXX_STANDARD 14" in block
-        )
-        self.assertEqual(len(standard_blocks), 1)
-        standard_block = standard_blocks[0]
-        for contract in (
-            "set_target_properties(",
-            target,
-            "CXX_STANDARD 14",
-            "CXX_STANDARD_REQUIRED YES",
-            "CXX_EXTENSIONS NO",
+        for target in (
+            "ror_terrain_bundle_config_syntax_tests",
+            "ror_point_col_detector_production_oracle_tests",
         ):
-            with self.subTest(contract=contract):
-                self.assertEqual(standard_block.count(contract), 1)
+            conditional_blocks = tuple(
+                fragment.split("endif ()", 1)[0]
+                for fragment in self.test_cmake_text.split(
+                    f"if (TARGET {target})"
+                )[1:]
+            )
+            standard_blocks = tuple(
+                block
+                for block in conditional_blocks
+                if "CXX_STANDARD 14" in block
+            )
+            self.assertEqual(len(standard_blocks), 1)
+            standard_block = standard_blocks[0]
+            for contract in (
+                "set_target_properties(",
+                target,
+                "CXX_STANDARD 14",
+                "CXX_STANDARD_REQUIRED YES",
+                "CXX_EXTENSIONS NO",
+            ):
+                with self.subTest(target=target, contract=contract):
+                    self.assertEqual(standard_block.count(contract), 1)
 
     def test_real_native_render_probes_are_mandatory_and_isolated(
         self,
