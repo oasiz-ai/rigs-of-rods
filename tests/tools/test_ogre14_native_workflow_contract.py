@@ -750,14 +750,28 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 self.assertIn(b"void main(", required)
                 self.assertIn(b"SV_", required)
 
-    def test_mygui_glsl_130_avoids_newer_interface_blocks(self) -> None:
-        vertex_shader = (MYGUI_RESOURCE_ROOT / "MyGUI_VP.glsl").read_text(
-            encoding="utf-8"
-        )
-        self.assertTrue(vertex_shader.startswith("#version 130\n"))
-        self.assertNotIn("gl_PerVertex", vertex_shader)
-        self.assertNotIn("out {", vertex_shader)
-        self.assertEqual(vertex_shader.count("gl_Position = vpos;"), 1)
+    def test_mygui_glsl_150_has_a_valid_complete_vertex_interface(
+        self,
+    ) -> None:
+        for prefix in ("MyGUI_", "MyGUI_Ogre_"):
+            vertex_shader = (
+                MYGUI_RESOURCE_ROOT / f"{prefix}VP.glsl"
+            ).read_text(encoding="utf-8")
+            fragment_shader = (
+                MYGUI_RESOURCE_ROOT / f"{prefix}FP.glsl"
+            ).read_text(encoding="utf-8")
+
+            self.assertTrue(vertex_shader.startswith("#version 150\n"))
+            self.assertTrue(fragment_shader.startswith("#version 150\n"))
+            self.assertEqual(vertex_shader.count("out gl_PerVertex"), 1)
+            self.assertEqual(vertex_shader.count("vec4 gl_Position;"), 1)
+            self.assertEqual(vertex_shader.count("float gl_PointSize;"), 1)
+            self.assertEqual(
+                vertex_shader.count("float gl_ClipDistance[];"), 1
+            )
+            self.assertNotIn("out vec4 gl_Position", vertex_shader)
+            self.assertNotIn("out float gl_PointSize", vertex_shader)
+            self.assertEqual(vertex_shader.count("gl_Position = vpos;"), 1)
 
     def test_ogre_linked_config_test_uses_dependency_cpp_standard(
         self,
