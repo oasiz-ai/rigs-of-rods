@@ -904,6 +904,10 @@ endif ()
 # ABI-relevant choices are forced because the probe's output is only meaningful
 # when every platform compiles the same reviewed OGRE-Next contract.
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+# This standalone product stages its package through reviewed custom targets;
+# it never invokes CMake's install graph. Suppress dependency install rules so
+# static-only shader dependencies cannot publish an incomplete export set.
+set(CMAKE_SKIP_INSTALL_RULES ON CACHE BOOL "" FORCE)
 set(OGRE_USE_NEW_PROJECT_NAME ON CACHE BOOL "" FORCE)
 set(OGRE_STATIC ON CACHE BOOL "" FORCE)
 set(OGRE_BUILD_LIBS_AS_FRAMEWORKS OFF CACHE BOOL "" FORCE)

@@ -164,6 +164,7 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
             'URL_HASH "SHA256=${ROR_LINUX_SPIRV_HEADERS_ARCHIVE_SHA256}"',
             "ROR_LINUX_SHADERC_PATCH_PATH",
             "ROR_LINUX_GLSLANG_INSTALL_PATCH_PATH",
+            "set(CMAKE_SKIP_INSTALL_RULES ON CACHE BOOL \"\" FORCE)",
             "${ror_glslang_source_SOURCE_DIR}/SPIRV/GlslangToSpv.h",
             "shaderc_combined no longer owns",
             "set(Vulkan_SHADERC_LIB_REL shaderc_combined",

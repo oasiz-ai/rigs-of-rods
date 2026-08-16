@@ -31,13 +31,17 @@ void TestArchiveIdentityAuthorityIsPublicAndExact()
     CHECK(
         std::string(64U, '0') !=
         RoR::kCityWorldLegacyMaterialCompatibilityArchiveSha256);
-    CHECK(
+    static_assert(
         RoR::kCityWorldLegacyMaterialCompatibilityArchiveBytes ==
         158845395ULL);
-    CHECK(RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, true));
-    CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(false, true, true));
-    CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, false, true));
-    CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, false));
+    static_assert(
+        RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, true));
+    static_assert(
+        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(false, true, true));
+    static_assert(
+        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, false, true));
+    static_assert(
+        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, false));
 }
 
 void TestPrimaryArchiveMountDispatchIsExclusive()
