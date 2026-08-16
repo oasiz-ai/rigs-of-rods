@@ -168,7 +168,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
     def rewrite_manifest(path: Path, mutate: Callable[[dict[str, Any]], None]) -> None:
         value = json.loads(path.read_text(encoding="utf-8"))
         mutate(value)
-        path.write_text(canonical_pretty(value), encoding="ascii")
+        path.write_bytes(canonical_pretty(value).encode("ascii"))
 
     @staticmethod
     def codes(report: dict[str, Any]) -> set[str]:
@@ -178,7 +178,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
         glb_path = manifest_path.parents[3] / value["source"]["glb"]["path"]
         value["source"]["glb"]["sha256"] = sha256_file(glb_path)
-        manifest_path.write_text(canonical_pretty(value), encoding="ascii")
+        manifest_path.write_bytes(canonical_pretty(value).encode("ascii"))
 
     def refresh_composition_hash(self, manifest_path: Path) -> None:
         value = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -186,7 +186,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             manifest_path.parents[3] / value["source"]["composition"]["path"]
         )
         value["source"]["composition"]["sha256"] = sha256_file(composition_path)
-        manifest_path.write_text(canonical_pretty(value), encoding="ascii")
+        manifest_path.write_bytes(canonical_pretty(value).encode("ascii"))
 
     def test_checked_source_and_package_pass_normal_and_optimized_gates(self) -> None:
         for optimized in (False, True):
@@ -668,23 +668,23 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             root = Path(temporary)
             manifest = self.copy_sources(root)
             original = manifest.read_text(encoding="utf-8")
-            manifest.write_text(original.replace('{\n  "claims"', '{\n  "format": "ror-native-render-source-v1",\n  "claims"', 1), encoding="utf-8")
+            manifest.write_bytes(original.replace('{\n  "claims"', '{\n  "format": "ror-native-render-source-v1",\n  "claims"', 1).encode("utf-8"))
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("MANIFEST_INVALID", self.codes(report))
 
-            manifest.write_text(original.replace("  \"claims\"", " \"claims\"", 1), encoding="utf-8")
+            manifest.write_bytes(original.replace("  \"claims\"", " \"claims\"", 1).encode("utf-8"))
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("MANIFEST_NONCANONICAL", self.codes(report))
 
-            manifest.write_text(original, encoding="utf-8")
+            manifest.write_bytes(original.encode("utf-8"))
             self.rewrite_manifest(manifest, lambda value: value.update({"unknown": 1}))
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("FIELD_UNKNOWN", self.codes(report))
 
-            manifest.write_text(original.replace("1.45", "NaN", 1), encoding="utf-8")
+            manifest.write_bytes(original.replace("1.45", "NaN", 1).encode("utf-8"))
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("MANIFEST_INVALID", self.codes(report))
@@ -857,7 +857,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             data[17] = 0
             path.write_bytes(data)
             mip["sha256"] = sha256_file(path)
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            manifest.write_bytes(canonical_pretty(value).encode("ascii"))
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("TEXTURE_SOURCE_INVALID", self.codes(report))
@@ -966,7 +966,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                     )[0]["buffers"][0]["byteLength"]
                 write_glb(glb, document, binary, canonical=canonical)
                 value["source"]["glb"]["sha256"] = sha256_file(glb)
-                manifest.write_text(canonical_pretty(value), encoding="ascii")
+                manifest.write_bytes(canonical_pretty(value).encode("ascii"))
                 result, report = self.run_validator(root, manifest)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(code, self.codes(report))
@@ -1004,7 +1004,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             struct.pack_into("<4f", binary, offset, *mutation(authored))
             write_glb(glb_path, document, binary)
             value["source"]["glb"]["sha256"] = sha256_file(glb_path)
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            manifest.write_bytes(canonical_pretty(value).encode("ascii"))
 
         cases = (
             (
@@ -1058,7 +1058,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
             )
             write_glb(glb_path, document, binary)
             value["source"]["glb"]["sha256"] = sha256_file(glb_path)
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            manifest.write_bytes(canonical_pretty(value).encode("ascii"))
 
             for optimized in (False, True):
                 with self.subTest(optimized=optimized):
@@ -1241,7 +1241,7 @@ class NativeRenderAssetToolTests(unittest.TestCase):
                 }
                 for mip_width, mip_height in dimensions
             ]
-            manifest.write_text(canonical_pretty(value), encoding="ascii")
+            manifest.write_bytes(canonical_pretty(value).encode("ascii"))
             result, report = self.run_validator(root, manifest)
             self.assertNotEqual(result.returncode, 0)
             codes = self.codes(report)
@@ -1374,7 +1374,7 @@ for value in (-0.0, 1e300, 10**3999):
             composition_path = root / manifest["source"]["composition"]["path"]
             composition = json.loads(composition_path.read_text(encoding="utf-8"))
             mutate(composition, root)
-            composition_path.write_text(canonical_pretty(composition), encoding="ascii")
+            composition_path.write_bytes(canonical_pretty(composition).encode("ascii"))
             self.refresh_composition_hash(manifest_path)
 
         def corrupt_preview(composition: dict[str, Any], root: Path) -> None:

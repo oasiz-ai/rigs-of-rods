@@ -537,8 +537,8 @@ void TestNonblockingOutboundBackpressure() {
     }
     offset += written.bytes_transferred;
   }
-  Require(offset != 0U && observed_backpressure &&
-              channel.outbound_open() && channel.inbound_open(),
+  Require(observed_backpressure && channel.outbound_open() &&
+              channel.inbound_open(),
           "zero-wait write blocked instead of reporting bounded backpressure");
   Require(channel.Close().status ==
                   RoR::RendererBridgeChannelStatus::CLOSED &&

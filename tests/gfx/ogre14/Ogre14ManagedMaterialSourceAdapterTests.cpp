@@ -629,6 +629,7 @@ void TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads() {
                 material, declaration, sources, resolver, resolver, binding),
             "build capture-boundary managed binding");
   std::vector<Ogre14ManagedMaterialDeclarationBinding> publication{binding};
+  std::vector<Ogre::TexturePtr> retained_unrelated_sources;
 
   auto commit_unrelated_and_refresh =
       [&](const char *name, Ogre::ResourceHandle handle,
@@ -641,6 +642,7 @@ void TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads() {
                       BuildSelectedReceipt(*unrelated, 0U, bytes), registry),
                   "commit unrelated capture-boundary source");
         unrelated->load();
+        retained_unrelated_sources.push_back(unrelated);
         Require(!publication[0U].Revalidate(resolver, resolver),
                 stale_message);
         std::vector<Ogre14ManagedMaterialDeclarationBinding> refreshed;

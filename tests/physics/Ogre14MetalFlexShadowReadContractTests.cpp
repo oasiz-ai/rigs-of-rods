@@ -28,9 +28,15 @@ std::string ReadSource(const char* path)
 {
     std::ifstream input(path, std::ios::binary);
     Require(input.good(), "could not open production source");
-    return std::string(
+    std::string source{
         std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>());
+        std::istreambuf_iterator<char>()};
+    for (std::size_t position = 0U;
+         (position = source.find("\r\n", position)) != std::string::npos;)
+    {
+        source.erase(position, 1U);
+    }
+    return source;
 }
 
 std::string Slice(
