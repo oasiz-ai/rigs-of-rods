@@ -459,6 +459,11 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             "USE_SOURCE_PERMISSIONS",
         ):
             self.assertIn(token, self.source_cmake)
+        for token in (
+            "_ror_windows_executable_install_code",
+            'list(FILTER files EXCLUDE REGEX \\\"[/\\\\\\\\]RoR-OgreNext[.]exe$\\\")',
+        ):
+            self.assertIn(token, self.source_cmake)
 
     def test_macos_bundle_authenticates_media_and_signs_child_before_app(self) -> None:
         for token in (

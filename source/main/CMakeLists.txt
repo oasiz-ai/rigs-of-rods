@@ -1805,8 +1805,20 @@ if (WIN32)
         install(CODE "file(GLOB files ${RUNTIME_OUTPUT_DIRECTORY}/*.dll)
                 file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})" COMPONENT "Base_Game")
     endif ()
-    install(CODE "file(GLOB files ${RUNTIME_OUTPUT_DIRECTORY}/*.exe)
-            file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})" COMPONENT "Base_Game")
+    set(_ror_windows_executable_install_code
+        "file(GLOB files \"${RUNTIME_OUTPUT_DIRECTORY}/*.exe\")\n")
+    if (ROR_OGRE_NEXT_PRODUCTION_PACKAGE)
+        # The runtime output also contains test doubles named RoR-OgreNext.exe.
+        # The authenticated production child was installed from its verified
+        # stage above and must never be overwritten by one of those binaries.
+        string(APPEND _ror_windows_executable_install_code
+            "list(FILTER files EXCLUDE REGEX \"[/\\\\]RoR-OgreNext[.]exe$\")\n")
+    endif ()
+    string(APPEND _ror_windows_executable_install_code
+        "file(INSTALL \${files} DESTINATION \${CMAKE_INSTALL_PREFIX})")
+    install(CODE "${_ror_windows_executable_install_code}"
+        COMPONENT "Base_Game")
+    unset(_ror_windows_executable_install_code)
 elseif (APPLE)
     set(PLUGINS_FOLDER "lib")
     configure_file(plugins.cfg.in ${CMAKE_CURRENT_BINARY_DIR}/plugins-install.cfg)

@@ -281,7 +281,10 @@ MakeCompressedDds(std::uint32_t four_cc, std::uint32_t width,
     caps |= 0x00000008U | 0x00400000U;
   }
   WriteU32LittleEndian(bytes, 108U, caps);
-  bytes.insert(bytes.end(), payload.begin(), payload.end());
+  bytes.reserve(bytes.size() + payload.size());
+  for (const std::uint8_t byte : payload) {
+    bytes.push_back(byte);
+  }
   return bytes;
 }
 
@@ -318,7 +321,10 @@ MakeUncompressedDds(std::uint32_t width, std::uint32_t height,
     caps |= 0x00000008U | 0x00400000U;
   }
   WriteU32LittleEndian(bytes, 108U, caps);
-  bytes.insert(bytes.end(), payload.begin(), payload.end());
+  bytes.reserve(bytes.size() + payload.size());
+  for (const std::uint8_t byte : payload) {
+    bytes.push_back(byte);
+  }
   return bytes;
 }
 
