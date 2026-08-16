@@ -33,15 +33,20 @@ void TestArchiveIdentityAuthorityIsPublicAndExact()
         RoR::kCityWorldLegacyMaterialCompatibilityArchiveSha256);
     static_assert(
         RoR::kCityWorldLegacyMaterialCompatibilityArchiveBytes ==
-        158845395ULL);
+        158845395ULL,
+        "CityWorld compatibility archive byte count must stay exact");
     static_assert(
-        RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, true));
+        RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, true),
+        "the exact supported primary archive must be probed");
     static_assert(
-        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(false, true, true));
+        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(false, true, true),
+        "an unsupported group must not be probed");
     static_assert(
-        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, false, true));
+        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, false, true),
+        "an unsupported archive kind must not be probed");
     static_assert(
-        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, false));
+        !RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, false),
+        "an unpinned archive must not be probed");
 }
 
 void TestPrimaryArchiveMountDispatchIsExclusive()
