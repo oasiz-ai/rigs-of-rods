@@ -414,6 +414,10 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             "https://nexus.anotherfoxguy.com/repository/rigs-of-rods/",
             text,
         )
+        self.assertEqual(
+            text.count("conan remote disable rigs-of-rods-deps"),
+            1,
+        )
         self.assertIn(
             "CONAN_HOME: ${{ github.workspace }}/.ci-conan/"
             "${{ matrix.platform }}",

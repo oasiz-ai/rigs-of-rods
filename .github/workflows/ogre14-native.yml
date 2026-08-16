@@ -190,6 +190,11 @@ jobs:
             'freeimage/3.18.0@anotherfoxguy/stable#8b69961fa00ad36b37d77dd40502fcbf'
           conan cache path \
             'socketw/3.11.0@anotherfoxguy/stable#6630840d3f73fb6d6e60f6f88132d40a'
+          # The three exact custom recipes above are now local. Keep the
+          # historical binary remote registered for provenance, but do not
+          # let an unavailable anonymous endpoint block deterministic local
+          # --build=missing resolution.
+          conan remote disable rigs-of-rods-deps
           conan --version
           ninja --version
 
