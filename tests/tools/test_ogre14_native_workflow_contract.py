@@ -892,6 +892,8 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         )
         linux_led = text[linux_led_start:windows_led_start]
         self.assertIn("--physics-mode sync", linux_led)
+        self.assertIn("timeout-minutes: 15", linux_led)
+        self.assertIn("--timeout 720", linux_led)
 
         smoke = self.render_smoke_text
         self.assertIn('SCRIPT_NAME = "example_ci_bundle_smoke.as"', smoke)

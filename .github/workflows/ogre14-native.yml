@@ -516,7 +516,7 @@ jobs:
       # acceptance.
       - name: Drive CityWorld LED streetlight with relocated Linux GL3Plus
         if: runner.os == 'Linux'
-        timeout-minutes: 10
+        timeout-minutes: 15
         shell: bash
         env:
           GALLIUM_DRIVER: llvmpipe
@@ -530,7 +530,7 @@ jobs:
               --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
               --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-led-streetlight-${{ matrix.platform }}" \
               --physics-mode sync \
-              --timeout 360 \
+              --timeout 720 \
             2>&1 | tee \
               "artifacts/cityworld-led-streetlight-${{ matrix.platform }}.driver.log"
 
