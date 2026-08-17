@@ -869,16 +869,29 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("xvfb-run -a", linux_scene)
         self.assertIn("GALLIUM_DRIVER: llvmpipe", linux_scene)
         self.assertIn('LIBGL_ALWAYS_SOFTWARE: "1"', linux_scene)
+        self.assertIn("--physics-mode sync", linux_scene)
         self.assertNotIn("xvfb-run", windows_scene)
         self.assertNotIn("GALLIUM_DRIVER", windows_scene)
         self.assertNotIn("MESA_LOADER_DRIVER_OVERRIDE", text)
         self.assertNotIn("continue-on-error:", text)
+        upload = text[upload_start:]
+        self.assertIn("include-hidden-files: true", upload)
         self.assertIn("--generation-timeout 600", text)
         self.assertIn("--generation-workers 1", text)
         self.assertNotRegex(
             text.casefold(),
             r"(?:skip|ignore).*(?:renderer|render probe)",
         )
+
+        linux_led_start = text.index(
+            "Drive CityWorld LED streetlight with relocated Linux GL3Plus"
+        )
+        windows_led_start = text.index(
+            "Drive CityWorld LED streetlight with relocated Windows D3D11",
+            linux_led_start,
+        )
+        linux_led = text[linux_led_start:windows_led_start]
+        self.assertIn("--physics-mode sync", linux_led)
 
         smoke = self.render_smoke_text
         self.assertIn('SCRIPT_NAME = "example_ci_bundle_smoke.as"', smoke)

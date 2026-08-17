@@ -481,6 +481,7 @@ jobs:
               --repository "${GITHUB_WORKSPACE}" \
               --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
               --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-led-streetlight-${{ matrix.platform }}" \
+              --physics-mode sync \
               --timeout 360 \
             2>&1 | tee \
               "artifacts/cityworld-led-streetlight-${{ matrix.platform }}.driver.log"
@@ -547,6 +548,7 @@ jobs:
               --runtime-content "${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/content" \
               --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-${{ matrix.platform }}" \
               --postprocess-mode v0a \
+              --physics-mode sync \
               --timeout 300 \
             2>&1 | tee \
               "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"
@@ -741,6 +743,7 @@ jobs:
             build-ogre14-${{ matrix.platform }}/CMakeFiles/CMakeConfigureLog.yaml
             build-ogre14-${{ matrix.platform }}/Testing/Temporary/LastTest.log
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 14
 
       - name: Remove transient Conan build material
