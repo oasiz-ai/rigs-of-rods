@@ -834,7 +834,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
             '--artifact-dir "${GITHUB_WORKSPACE}/artifacts/'
             'cityworld-bridge-${{ matrix.platform }}"',
             "--postprocess-mode v0a",
-            "--timeout 300",
+            "--timeout 900",
             "do not constitute physical GPU or vendor performance",
         )
         for contract in required:
@@ -870,6 +870,8 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("GALLIUM_DRIVER: llvmpipe", linux_scene)
         self.assertIn('LIBGL_ALWAYS_SOFTWARE: "1"', linux_scene)
         self.assertIn("--physics-mode sync", linux_scene)
+        self.assertIn("timeout-minutes: 18", linux_scene)
+        self.assertIn("--timeout 900", linux_scene)
         self.assertNotIn("xvfb-run", windows_scene)
         self.assertNotIn("GALLIUM_DRIVER", windows_scene)
         self.assertNotIn("MESA_LOADER_DRIVER_OVERRIDE", text)

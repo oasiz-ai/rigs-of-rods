@@ -583,6 +583,7 @@ jobs:
 
       - name: Drive CityWorld bridge with relocated Linux GL3Plus and V0A
         if: runner.os == 'Linux'
+        timeout-minutes: 18
         shell: bash
         env:
           GALLIUM_DRIVER: llvmpipe
@@ -597,7 +598,7 @@ jobs:
               --artifact-dir "${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-${{ matrix.platform }}" \
               --postprocess-mode v0a \
               --physics-mode sync \
-              --timeout 300 \
+              --timeout 900 \
             2>&1 | tee \
               "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"
 
