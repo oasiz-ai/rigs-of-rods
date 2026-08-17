@@ -820,6 +820,25 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
                 "vendor": "apple",
             },
         )
+        egl_gl3plus_log = "\n".join(
+            (
+                "03:25:57: EGL_VERSION = 1.5",
+                "03:25:57: GL_VERSION = 4.5.0.0",
+                "03:25:57: RenderSystem Name: "
+                "OpenGL 3+ Rendering Subsystem",
+                "03:25:57: GPU Vendor: unknown",
+                "03:25:57: Device Name: llvmpipe",
+            )
+        )
+        self.assertEqual(
+            SCENE.parse_renderer_identity(egl_gl3plus_log, "linux"),
+            {
+                "api_version": "4.5.0.0",
+                "device": "llvmpipe",
+                "render_system": "OpenGL 3+ Rendering Subsystem",
+                "vendor": "unknown",
+            },
+        )
         d3d11_log = "\n".join(
             (
                 'D3D11: Requested "(default)", selected '

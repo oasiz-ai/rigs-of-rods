@@ -148,7 +148,8 @@ GL3PLUS_CONTRACT = RendererContract(
     backend="gl3plus",
     render_system="OpenGL 3+ Rendering Subsystem",
     api_version_pattern=re.compile(
-        r"GL_VERSION = (?P<value>[^\r\n]+)"
+        r"(?m)^(?:[0-9]{2}:[0-9]{2}:[0-9]{2}: )?"
+        r"GL_VERSION = (?P<value>[^\r\n]+)$"
     ),
     config_lines=(
         "Render System=OpenGL 3+ Rendering Subsystem",
