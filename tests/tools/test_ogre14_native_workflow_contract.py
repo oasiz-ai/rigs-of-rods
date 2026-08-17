@@ -904,6 +904,50 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("COMMON_ENGINE_REQUIRED_MARKERS", smoke)
         self.assertIn("require_fresh_log(", smoke)
 
+    def test_linux_wayland_source_is_exact_and_mirrored(self) -> None:
+        text = self.text
+        restore_start = text.index(
+            "Restore pinned Wayland 1.24.0 source archive"
+        )
+        download_start = text.index(
+            "Download pinned Wayland 1.24.0 source archive",
+            restore_start,
+        )
+        verify_start = text.index(
+            "Verify and seed pinned Wayland source archive",
+            download_start,
+        )
+        compiler_start = text.index(
+            "Verify native compiler identity",
+            verify_start,
+        )
+        restore = text[restore_start:download_start]
+        download = text[download_start:verify_start]
+        verify = text[verify_start:compiler_start]
+        digest = (
+            "82892487a01ad67b334eca83b54317a7c86a03a89cfadacf"
+            "ef5211f11a5d0536"
+        )
+
+        self.assertIn("uses: actions/cache@v6", restore)
+        self.assertIn("wayland-1.24.0.tar.xz", restore)
+        self.assertIn(digest, restore)
+        self.assertIn("cache-hit != 'true'", download)
+        self.assertIn(
+            "https://gitlab.freedesktop.org/wayland/wayland/"
+            "-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz",
+            download,
+        )
+        self.assertIn(
+            "https://sources.buildroot.net/wayland/"
+            "wayland-1.24.0.tar.xz",
+            download,
+        )
+        self.assertEqual(download.count("--retry-all-errors"), 2)
+        self.assertIn("$CONAN_HOME/sources/s/$digest", verify)
+        self.assertEqual(verify.count("sha256sum --check -"), 2)
+        self.assertIn(digest, verify)
+
     def test_windows_cityworld_crash_evidence_is_fail_closed(self) -> None:
         text = self.text
         setup_start = text.index(

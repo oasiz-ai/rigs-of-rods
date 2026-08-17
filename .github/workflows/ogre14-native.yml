@@ -198,6 +198,54 @@ jobs:
           conan --version
           ninja --version
 
+      - name: Restore pinned Wayland 1.24.0 source archive
+        if: matrix.platform == 'linux-x86_64'
+        id: wayland-source-cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/wayland-source/wayland-1.24.0.tar.xz
+          key: wayland-1.24.0-source-82892487a01ad67b334eca83b54317a7c86a03a89cfadacfef5211f11a5d0536
+
+      - name: Download pinned Wayland 1.24.0 source archive
+        if: >-
+          matrix.platform == 'linux-x86_64' &&
+          steps.wayland-source-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cmake -E make_directory "$RUNNER_TEMP/wayland-source"
+          archive="$RUNNER_TEMP/wayland-source/wayland-1.24.0.tar.xz"
+          if ! curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-all-errors \
+            --output "$archive" \
+            https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.24.0/downloads/wayland-1.24.0.tar.xz
+          then
+            curl \
+              --fail \
+              --location \
+              --retry 5 \
+              --retry-all-errors \
+              --output "$archive" \
+              https://sources.buildroot.net/wayland/wayland-1.24.0.tar.xz
+          fi
+
+      - name: Verify and seed pinned Wayland source archive
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/wayland-source/wayland-1.24.0.tar.xz"
+          digest=82892487a01ad67b334eca83b54317a7c86a03a89cfadacfef5211f11a5d0536
+          echo "$digest  $archive" | sha256sum --check -
+          cmake -E make_directory "$CONAN_HOME/sources/s"
+          cmake -E make_directory "$CONAN_HOME/sources/locks"
+          cmake -E copy_if_different \
+            "$archive" \
+            "$CONAN_HOME/sources/s/$digest"
+          echo "$digest  $CONAN_HOME/sources/s/$digest" \
+            | sha256sum --check -
+
       - name: Verify native compiler identity
         if: runner.os == 'Linux'
         shell: bash
