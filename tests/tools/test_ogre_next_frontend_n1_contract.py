@@ -2307,5 +2307,82 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             )
 
 
+
+class SingleEvaluationPssmDeferralContractTests(unittest.TestCase):
+    """Lock the paged-terrain deferral that the live suite cannot reach.
+
+    The Ogre-Next combined runtime refused every terrain whose geometry pages
+    in - which is all of the pinned simple2 validation scenes - because
+    single-evaluation PSSM finalization treated a first frame with no shadow
+    casters as a fatal backend failure, and that failure is terminal. Four
+    separate sites conflated "shadows were requested" with "the shadow node
+    exists". None of it was caught by the existing suite, because nothing
+    exercises an unpopulated frame followed by a populated one, and this path
+    needs a live Metal device to run. These are therefore source-closure
+    checks, in the same spirit as the other wiring contracts here.
+    """
+
+    def setUp(self) -> None:
+        self.frontend = (
+            RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.cpp"
+        ).read_text()
+
+    def test_empty_shadow_sets_defer_rather_than_fail(self) -> None:
+        anchor = "if (shadow_casters == 0U || shadow_receivers == 0U) {"
+        self.assertEqual(self.frontend.count(anchor), 1)
+        start = self.frontend.index(anchor)
+        block = self.frontend[start : self.frontend.index("\n    }", start)]
+        self.assertIn("hdr_pssm_finalization_deferrals", block)
+        self.assertIn("hdr_pssm_finalization_deferred = true", block)
+        self.assertIn("RenderOperationResult::Success()", block)
+        # The deferral must not be reachable as a backend failure.
+        self.assertNotIn("HdrBackendFailure", block)
+
+    def test_genuine_contract_violations_stay_fatal(self) -> None:
+        anchor = (
+            "if (!SingleSceneHdrPssmEnabled() || hdr_workspace == nullptr ||\n"
+            "        directional_lights != 1U ||"
+        )
+        self.assertEqual(self.frontend.count(anchor), 1)
+        start = self.frontend.index(anchor)
+        block = self.frontend[start : self.frontend.index("\n    }", start)]
+        self.assertIn("directional_lights != 1U", block)
+        self.assertIn("kOgreNextRt4AuthoredVisibilityMask", block)
+        self.assertIn("HdrBackendFailure", block)
+        # Empty caster/receiver sets must no longer be part of the fatal guard.
+        self.assertNotIn("shadow_casters == 0U", block)
+        self.assertNotIn("shadow_receivers == 0U", block)
+
+    def test_shadow_node_use_is_gated_on_readiness(self) -> None:
+        anchor = "const bool pssm_ready_this_frame ="
+        self.assertEqual(self.frontend.count(anchor), 1)
+        declaration = self.frontend[
+            self.frontend.index(anchor) : self.frontend.index(anchor) + 220
+        ]
+        self.assertIn("hdr_shadow_node_definition_created", declaration)
+        self.assertIn("shadow_plan.enabled", declaration)
+        # Presentation, shadow-node selection, cascade readback and the
+        # post-instantiation check must all use the readiness predicate.
+        self.assertGreaterEqual(
+            self.frontend.count("pssm_ready_this_frame"), 5)
+        readback = self.frontend.index("ReadAndVerifyNativePssmState(*workspace")
+        guard = self.frontend.rindex("if (pssm_ready_this_frame) {", 0, readback)
+        self.assertLess(guard, readback)
+
+    def test_publication_accepts_a_deferred_topology(self) -> None:
+        anchor = "bool CanCommitPreparedSingleSceneHdrPssm() const noexcept {"
+        block = self.frontend[
+            self.frontend.index(anchor) : self.frontend.index(anchor) + 900
+        ]
+        self.assertIn("hdr_pssm_finalization_deferred", block)
+        self.assertIn("return !hdr_pssm_finalization_prepared;", block)
+
+    def test_deferral_cannot_outlive_its_frame(self) -> None:
+        # The flag must clear on the non-deferring finalization exits and
+        # alongside every reset of the prepared flag, or a stale deferral
+        # would let a genuinely changed topology publish.
+        self.assertGreaterEqual(
+            self.frontend.count("hdr_pssm_finalization_deferred = false"), 4)
+
 if __name__ == "__main__":
     unittest.main()

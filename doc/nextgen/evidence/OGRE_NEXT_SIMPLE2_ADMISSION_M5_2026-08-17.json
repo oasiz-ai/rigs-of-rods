@@ -1,0 +1,49 @@
+{
+ "format": "ror-ogre-next-simple2-admission-v1",
+ "measured_renderer": "ogre-next-combined",
+ "notes": [
+  "simple2 previously failed its first scene submission with a terminal BACKEND_FAILURE and never rendered a frame. It now completes 600 frames with zero dispatch failures.",
+  "The simple2 measurement is display-paced at 120 Hz, so 120.005 FPS describes the ProMotion presentation cadence and not renderer headroom. It establishes admission, not a performance result.",
+  "CityWorld is the regression control: it reaches the populated path on frame one and is unaffected by the deferral. It still renders clean.",
+  "CityWorld measured 30.74 ms here against a 39.41 ms recorded baseline. That is not claimed as an improvement: run-to-run spread on this machine was already measured at roughly 3x, so a single run distinguishes nothing.",
+  "Every roadmap visual gate is declared against simple2-based validation scenes, so this unblocks measuring V0/V1/V2 milestones on Ogre-Next."
+ ],
+ "recorded_at_local": "2026-08-17T21:45:00-07:00",
+ "repository_commit": "512058e3fe52d1c20fe5d890e47995f576e62fe9",
+ "runs": {
+  "cityworld_1920x1080": {
+   "accepted_frames": 1800,
+   "height": 1080,
+   "maximum_ms": 237.4591,
+   "mean_fps": 32.535,
+   "mean_ms": 30.7362,
+   "p50_ms": 29.2656,
+   "p95_ms": 36.7656,
+   "p99_ms": 41.5781,
+   "presentation_pacing": null,
+   "renderer": "ogre-next-combined",
+   "terrain": "CityWorld.terrn2",
+   "width": 1920
+  },
+  "simple2_1280x720": {
+   "accepted_frames": 600,
+   "height": 720,
+   "maximum_ms": 9.5174,
+   "mean_fps": 120.005,
+   "mean_ms": 8.333,
+   "p50_ms": 8.2031,
+   "p95_ms": 9.4062,
+   "p99_ms": 9.4531,
+   "presentation_pacing": {
+    "interval_ms": 8.3333,
+    "median_ms": 8.2031,
+    "p95_minus_median_ms": 1.2031,
+    "suspected_hz": 120.0
+   },
+   "renderer": "ogre-next-combined",
+   "terrain": "simple2.terrn2",
+   "width": 1280
+  }
+ },
+ "summary": "The pinned simple2 validation terrain renders on the Ogre-Next path for the first time."
+}
