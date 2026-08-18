@@ -1,0 +1,86 @@
+{
+ "build": {
+  "options": [
+   "ROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
+   "ROR_OGRE14=ON",
+   "ROR_RENDERER_PUBLIC_LAUNCHER=OFF",
+   "ROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF",
+   "ROR_OGRE_NEXT_DEMO_ADMISSION=OFF"
+  ],
+  "source": "detached git worktree at the recorded commit"
+ },
+ "comparison": {
+  "combined_over_ogre14": 3.233,
+  "meets_declared_budget": false,
+  "ogre14_1080p_mean_ms": 12.1882,
+  "ogre_next_combined_1080p_mean_ms": 39.405,
+  "percentile_budget_ms": 18.3,
+  "sustained_budget_ms": 16.6667
+ },
+ "executable": "/private/tmp/ror-combined-build/bin/RoR-Combined",
+ "executable_sha256": "d6866325a4642f80081063e5861f3a2c7a4cdbcfe2874b0ed1f946cdbe452178",
+ "format": "ror-ogre-next-combined-performance-v1",
+ "graphics_preset": "high",
+ "graphics_settings": {
+  "gfx_anisotropy": "8",
+  "gfx_envmap_enabled": "1",
+  "gfx_envmap_rate": "1",
+  "gfx_particles_mode": "1",
+  "gfx_postprocess_mode": "0",
+  "gfx_shadow_quality": "3",
+  "gfx_shadow_type": "1",
+  "gfx_sight_range": "5000",
+  "gfx_skidmarks_mode": "1",
+  "gfx_sky_mode": "0",
+  "gfx_texture_filter": "3",
+  "gfx_vegetation_mode": "3",
+  "gfx_water_mode": "3"
+ },
+ "machine": "arm64",
+ "measured_renderer": "ogre-next-combined",
+ "notes": [
+  "First frame-time measurement of the Ogre-Next path. The combined runtime is the only topology whose loop interval is a real frame interval; the two-process bridge measures a producer cadence.",
+  "The combined runtime holds about 25 FPS on the CityWorld playable scene, roughly 3.3x the OGRE 14 frame time on the same scene, preset and machine, and misses the declared 60 FPS budget widely.",
+  "720p and 1080p are within 0.6 percent of each other, so this cost is resolution-independent: the path is CPU or producer bound, not raster bound. The combined runtime still retains a hidden OGRE 14 scene and resource producer by design, whose removal the roadmap lists as open work; that is the first thing to measure.",
+  "Both runs are measure-mode. A gated run would fail on both budgets.",
+  "Shutdown reported failed_dispatch (frontend=2) while unloading the terrain at the generation boundary; that is a teardown-path fault, not a render-loop one, and is separately open.",
+  "The simple2 terrain fails earlier with failed_dispatch (frontend=9) on the first scene submission and never renders."
+ ],
+ "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+ "recorded_at_local": "2026-08-17T20:11:46-07:00",
+ "repository_commit": "e13fcf12326b38d842e0e633c1cb5274854dac95",
+ "runs": [
+  {
+   "accepted_frames": 600,
+   "height": 720,
+   "maximum_ms": 307.6486,
+   "mean_fps": 25.23,
+   "mean_ms": 39.6358,
+   "minimum_ms": 35.3426,
+   "over_budget_frames": 600,
+   "p50_ms": 37.7031,
+   "p95_ms": 46.4219,
+   "p99_ms": 47.4844,
+   "presents_frames": true,
+   "renderer": "ogre-next-combined",
+   "resolution": "1280x720",
+   "width": 1280
+  },
+  {
+   "accepted_frames": 1800,
+   "height": 1080,
+   "maximum_ms": 105.069,
+   "mean_fps": 25.377,
+   "mean_ms": 39.405,
+   "minimum_ms": 34.8449,
+   "over_budget_frames": 1800,
+   "p50_ms": 37.75,
+   "p95_ms": 46.6719,
+   "p99_ms": 47.4062,
+   "presents_frames": true,
+   "renderer": "ogre-next-combined",
+   "resolution": "1920x1080",
+   "width": 1920
+  }
+ ]
+}

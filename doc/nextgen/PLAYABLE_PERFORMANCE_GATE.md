@@ -153,6 +153,67 @@ setting already at its target value is never logged as a change — and refuses
 the run when any effective value differs from the preset. A missing, repeated,
 or partial statement is refused as well.
 
+## First Ogre-Next measurement
+
+`evidence/OGRE_NEXT_COMBINED_PERFORMANCE_M5_2026-08-17.json` records the first
+frame-time measurement of the Ogre-Next path, on the same Apple M5, the same
+CityWorld/AlexisSaber scene, and the same `high` preset as the OGRE 14
+baseline.
+
+| Renderer | Resolution | mean | FPS | p95 | p99 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| OGRE 14 | 1920x1080 | 12.19 ms | 82 | 18.08-18.95 ms | 20.0-21.5 ms |
+| Ogre-Next combined | 1920x1080 | 39.41 ms | 25.4 | 46.67 ms | 47.41 ms |
+| Ogre-Next combined | 1280x720 | 39.64 ms | 25.2 | 46.42 ms | 47.48 ms |
+
+The Ogre-Next combined runtime costs about 3.2x the OGRE 14 frame time and
+misses the declared 60 FPS budget by a wide margin. Both runs are measure-mode;
+gated runs would fail on both budgets.
+
+The most useful fact is the one the two resolutions give away: 720p and 1080p
+land within 0.6 percent of each other, so this cost is resolution-independent.
+The path is CPU or producer bound, not raster bound, which means the raster
+work is not what to optimize first. The combined runtime still retains a hidden
+OGRE 14 scene and resource producer by design — the roadmap lists its removal
+as open work — and that producer is the first suspect to measure.
+
+Two separate faults surfaced in the same session and remain open: the combined
+runtime reports `failed_dispatch` (frontend=2) while unloading the terrain at
+the generation boundary during shutdown, and the `simple2` terrain fails
+earlier with `failed_dispatch` (frontend=9) on its first scene submission and
+never renders at all.
+
+## Building the combined runtime to measure it
+
+`ROR_OGRE_NEXT_COMBINED_RUNTIME` is mutually exclusive with the launcher and
+child-package options, so it needs its own build tree. Two properties of that
+tree are easy to trip over:
+
+- The pinned OGRE-Next probe refuses to reconfigure an existing build
+  directory, so the tree cannot be re-configured in place; recovery is a fresh
+  directory.
+- The embedded-namespace audit pins the source commit captured at configure
+  time and fails closed when the checkout has moved. Committing between
+  configuring and building therefore fails the build with "audited checkout
+  differs from the expected source commit". Freeze the tree across both steps,
+  or configure and build in one invocation.
+
+```sh
+cmake -S . -B /tmp/ror-combined-build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+  -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+  -DROR_OGRE14=ON -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON \
+  -DROR_RENDERER_PUBLIC_LAUNCHER=OFF \
+  -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF \
+  -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF \
+  -DROR_CREATE_CONTENT_FOLDER=ON &&
+cmake --build /tmp/ror-combined-build --config Release
+```
+
+The measurable executable is `bin/RoR-Combined`.
+
 ## Presentation pacing
 
 A distribution whose median sits on a display refresh interval with a tight
