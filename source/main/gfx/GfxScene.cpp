@@ -20,6 +20,8 @@
 */
 
 #include "GfxScene.h"
+
+#include <chrono>
 #include "gfx/ogre14/detail/OgreNextDemoPrivatePolicy.h"
 #include "gfx/render/ogrenext/OgreNextPssmShadowPolicy.h"
 #include "system/detail/OgreNextDemoFrameNormalization.h"
@@ -3435,6 +3437,38 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         sections, identity_registry, assets, dynamic_meshes);
 }
 
+namespace {
+
+/// Adds its own lifetime to a capture-section counter. The OGRE 14 scene read
+/// dominates a combined-runtime frame, and the sections differ in what could
+/// fix them, so each is measured separately rather than as one total.
+class Ogre14CaptureSectionTimer final
+{
+public:
+    explicit Ogre14CaptureSectionTimer(std::uint64_t& accumulator) noexcept
+        : m_accumulator(accumulator)
+        , m_started(std::chrono::steady_clock::now())
+    {
+    }
+
+    ~Ogre14CaptureSectionTimer() noexcept
+    {
+        m_accumulator += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - m_started).count());
+    }
+
+    Ogre14CaptureSectionTimer(const Ogre14CaptureSectionTimer&) = delete;
+    Ogre14CaptureSectionTimer& operator=(
+        const Ogre14CaptureSectionTimer&) = delete;
+
+private:
+    std::uint64_t& m_accumulator;
+    std::chrono::steady_clock::time_point m_started;
+};
+
+} // namespace
+
 Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     Render::Ogre14GraphicsSceneCapture& capture)
 {
@@ -3552,6 +3586,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     m_ogre14_terrain_page_cache;
                 std::vector<Gfx::Detail::OgreNextDemoTerrainPageMesh>
                     terrain_pages;
+                Ogre14CaptureSectionTimer terrain_timer(candidate.terrain_ns);
                 static_validation = CaptureOgre14TerrainPages(
                     geometry_manager, m_ogre14_terrain_page_cache,
                     terrain_page_cache_candidate, terrain_pages);
@@ -3601,6 +3636,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 static_camera_position, static_capture_radius_meters);
             if (!static_validation)
                 return static_validation;
+            Ogre14CaptureSectionTimer static_timer(
+                candidate.static_meshes_ns);
             static_validation =
                 CaptureOgre14StaticMeshObjects(
                     object_manager,
@@ -3625,6 +3662,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             // transaction.
 
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
+            Ogre14CaptureSectionTimer dynamic_timer(
+                candidate.dynamic_meshes_ns);
             Render::ValidationResult dynamic_validation =
                 CaptureOgre14DynamicActorInventory(
                     pending->dynamic_registry,

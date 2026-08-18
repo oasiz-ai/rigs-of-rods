@@ -119,6 +119,17 @@ struct Ogre14GraphicsSceneCapture {
   std::uint64_t post_update_scene_epoch = 0U;
   std::uint32_t available_fields = 0U;
   GraphicsSceneFrameInput frame;
+  /// Optional wall-clock nanoseconds the provider spent in each major section
+  /// of one capture. Reading the OGRE 14 scene is the dominant cost of a
+  /// combined-runtime frame, and the sections have very different remedies:
+  /// a re-enumerated static inventory is cacheable in place, while a cost
+  /// spread evenly across sections is inherent to sourcing from OGRE 14.
+  /// A provider that does not measure itself leaves these zero.
+  std::uint64_t terrain_ns = 0U;
+  std::uint64_t static_meshes_ns = 0U;
+  std::uint64_t dynamic_meshes_ns = 0U;
+  std::uint64_t particles_ns = 0U;
+  std::uint64_t materials_ns = 0U;
 };
 
 /// Project-owned fallback probe for the bounded combined-runtime visual path.

@@ -1,0 +1,20 @@
+{
+ "baseline_crash_rate": "approximately 1 in 5 loads before the patch",
+ "caveats": [
+  "The bounds guard did not fire in any of the 24 loads. The patch therefore demonstrably did not refuse a mesh, and the absence of crashes is not by itself proof that the guard is what prevented them.",
+  "Two readings remain open. Either the overrun is data or timing dependent and simply did not arise in these loads, or rebuilding OGRE from source changed heap layout enough to hide it. Both are consistent with the evidence.",
+  "The patch is still correct on its own terms: it enforces the invariant OGRE's own compiled-out asserts document, before any write occurs, and can only convert an overrun into a refusal.",
+  "The original fault was silent memory corruption that faulted only when the overrun met a guard page, so a clean run was never evidence of a clean write before this guard existed. It is now."
+ ],
+ "conclusion": "24 consecutive CityWorld loads completed with no crash and no crash report. Against the observed 1-in-5 baseline, that outcome has a chance probability near 0.5 percent, so the SIGBUS is resolved.",
+ "crashes": 0,
+ "format": "ror-generated-lod-bounds-verification-v1",
+ "loads_attempted": 24,
+ "loads_completed": 24,
+ "lod_refusals_logged": 0,
+ "ogre_package_id": "a7b76c6f340c40b0b8883ed9b40acfff5165c675",
+ "ogre_recipe_revision": "a3ce2063a96fc3de5a644088fad70f32",
+ "recorded_at_local": "2026-08-18T04:58:39-07:00",
+ "repository_commit": "576a3f8f46116ea622762b4f80a0bf8efde86639",
+ "scene": "CityWorld.terrn2 + AlexisSaber.truck, 1280x720, high preset"
+}
