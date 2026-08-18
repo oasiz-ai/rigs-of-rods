@@ -186,10 +186,20 @@ public:
       GraphicsSceneFrameInput &frame) override;
   void CommitJoinedGraphicsFrame() noexcept override;
   void DiscardJoinedGraphicsFrame() noexcept override;
+  [[nodiscard]] std::uint64_t LastJoinedReadNanoseconds() const noexcept
+      override {
+    return last_joined_read_ns_;
+  }
+  [[nodiscard]] std::uint64_t LastJoinedValidateNanoseconds() const noexcept
+      override {
+    return last_joined_validate_ns_;
+  }
 
 private:
   IOgre14GraphicsSceneCaptureProvider &provider_;
   bool capture_pending_ = false;
+  std::uint64_t last_joined_read_ns_ = 0U;
+  std::uint64_t last_joined_validate_ns_ = 0U;
 };
 
 enum class Ogre14CameraProjectionKind : std::uint8_t {

@@ -3936,9 +3936,13 @@ int main(int argc, char *argv[])
                         // conversion and dispatch/GPU completion; recording
                         // its numbers keeps the two attributable separately.
                         frame_budget_session->RecordPhase(
-                            FrameTimeBudgetPhase::SCENE_JOINED_READ,
+                            FrameTimeBudgetPhase::SCENE_SOURCE_READ,
                             static_cast<double>(
-                                scene_result.scene_joined_read_ns) / 1.0e9);
+                                scene_result.scene_source_read_ns) / 1.0e9);
+                        frame_budget_session->RecordPhase(
+                            FrameTimeBudgetPhase::SCENE_SOURCE_VALIDATE,
+                            static_cast<double>(
+                                scene_result.scene_source_validate_ns) / 1.0e9);
                         frame_budget_session->RecordPhase(
                             FrameTimeBudgetPhase::SCENE_NORMALIZE,
                             static_cast<double>(

@@ -135,8 +135,10 @@ struct FrameTimeBudgetContext {
 enum class FrameTimeBudgetPhase : std::uint8_t {
     /// The hidden OGRE 14 scene and resource producer.
     PRODUCER = 0U,
-    /// Reading the joined OGRE 14 scene into a frame input.
-    SCENE_JOINED_READ,
+    /// Traversing the OGRE 14 scene to build a frame input.
+    SCENE_SOURCE_READ,
+    /// Re-validating that captured frame input.
+    SCENE_SOURCE_VALIDATE,
     /// Normalizing and validating that frame input.
     SCENE_NORMALIZE,
     /// Producing the renderer-neutral snapshot from it.

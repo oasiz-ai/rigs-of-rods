@@ -140,6 +140,10 @@ struct RendererInProcessSessionResult final {
   /// normalizing and validating it, and producing the neutral snapshot.
   std::uint64_t scene_joined_read_ns = 0U;
   std::uint64_t scene_normalize_ns = 0U;
+  /// Sub-spans of `scene_joined_read_ns` reported by the source itself:
+  /// reading the OGRE 14 scene, and re-validating what was read.
+  std::uint64_t scene_source_read_ns = 0U;
+  std::uint64_t scene_source_validate_ns = 0U;
   std::uint64_t scene_produce_ns = 0U;
   /// Wall-clock nanoseconds this frame spent dispatching to the frontend,
   /// rendering, and waiting for completion.

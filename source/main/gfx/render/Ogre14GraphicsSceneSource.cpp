@@ -8,6 +8,8 @@
 
 #include "Ogre14GraphicsSceneSource.h"
 
+#include <chrono>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1089,13 +1091,22 @@ ValidationResult Ogre14GraphicsSceneSource::CaptureJoinedGraphicsFrame(
   }
   try {
     Ogre14GraphicsSceneCapture capture;
+    const auto read_started = std::chrono::steady_clock::now();
     ValidationResult validation =
         provider_.CaptureOgre14GraphicsScene(capture);
+    const auto read_ended = std::chrono::steady_clock::now();
+    last_joined_read_ns_ = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            read_ended - read_started).count());
+    last_joined_validate_ns_ = 0U;
     if (!validation) {
       provider_.DiscardOgre14GraphicsSceneCapture();
       return validation;
     }
     validation = ValidateOgre14GraphicsSceneCapture(capture);
+    last_joined_validate_ns_ = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - read_ended).count());
     if (!validation) {
       provider_.DiscardOgre14GraphicsSceneCapture();
       return validation;

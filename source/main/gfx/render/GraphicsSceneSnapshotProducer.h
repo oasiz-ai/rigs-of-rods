@@ -182,6 +182,19 @@ public:
   CaptureJoinedGraphicsFrame(GraphicsSceneFrameInput &frame) = 0;
   virtual void CommitJoinedGraphicsFrame() noexcept {}
   virtual void DiscardJoinedGraphicsFrame() noexcept {}
+  /// Wall-clock nanoseconds the most recent capture spent reading the source
+  /// scene, and separately re-validating what it read. Sources that do not
+  /// measure themselves report zero. Reading the joined OGRE 14 scene is the
+  /// dominant cost of a combined-runtime frame, and these two spans have
+  /// different remedies, so they are reported apart.
+  [[nodiscard]] virtual std::uint64_t LastJoinedReadNanoseconds() const
+      noexcept {
+    return 0U;
+  }
+  [[nodiscard]] virtual std::uint64_t LastJoinedValidateNanoseconds() const
+      noexcept {
+    return 0U;
+  }
 };
 
 struct GraphicsSceneSnapshotProducerConfiguration {
