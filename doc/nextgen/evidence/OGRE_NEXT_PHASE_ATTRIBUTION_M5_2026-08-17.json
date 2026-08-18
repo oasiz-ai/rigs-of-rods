@@ -1,0 +1,47 @@
+{
+ "conclusion": "The hidden OGRE 14 producer is not the bottleneck. It costs 4.52 ms of a 30.09 ms frame, 15.0 percent. The Ogre-Next renderer session costs 25.30 ms, 84.1 percent.",
+ "format": "ror-ogre-next-phase-attribution-v1",
+ "frame": {
+  "accepted_frames": 1800,
+  "maximum_ms": 84.764,
+  "mean_fps": 33.235,
+  "mean_ms": 30.0892,
+  "p95_ms": 36.5469,
+  "p99_ms": 38.5
+ },
+ "machine": "arm64",
+ "measured_renderer": "ogre-next-combined",
+ "notes": [
+  "This refutes the prior hypothesis, recorded in OGRE_NEXT_COMBINED_PERFORMANCE_M5_2026-08-17.json, that the hidden OGRE 14 producer was the first suspect for the roughly 3.2x cost. Removing the producer entirely would move the frame from 30.09 ms to about 25.57 ms, from 33 FPS to 39 FPS, and would not approach the 60 FPS budget.",
+  "The three phases sum to the frame mean exactly, so no accepted frame time is unattributed.",
+  "The renderer phase spans dispatch, render submission and wait as one block. Resolution independence already excludes fill-rate, leaving CPU-side scene conversion and validation, per-frame frontend churn, or blocking on a fence. Those require different fixes, so the phase needs subdividing before any optimisation is chosen.",
+  "The renderer's 82.24 ms maximum against the producer's 14.28 ms shows the stalls are in the renderer as well as the mean cost.",
+  "This run measured 30.09 ms against a 39.41 ms recorded baseline. That is not an improvement claim: run-to-run spread on this machine was measured at roughly 3x, so single runs distinguish nothing."
+ ],
+ "phases": {
+  "producer": {
+   "max_ms": 14.2773,
+   "mean_ms": 4.5212,
+   "share": 0.15026
+  },
+  "remainder": {
+   "mean_ms": 0.273,
+   "share": 0.009072
+  },
+  "renderer": {
+   "max_ms": 82.2432,
+   "mean_ms": 25.295,
+   "share": 0.840668
+  }
+ },
+ "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+ "recorded_at_local": "2026-08-17T23:06:05-07:00",
+ "repository_commit": "4d6f6ceb8d7b4c842dd65ca9e804303feb3c3fef",
+ "scene": {
+  "actor": "AlexisSaber.truck",
+  "graphics_preset": "high",
+  "height": 1080,
+  "terrain": "CityWorld.terrn2",
+  "width": 1920
+ }
+}
