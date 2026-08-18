@@ -89,6 +89,31 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
         self.assertEqual(self.main.count("RecordFrame("), 1)
         self.assertNotIn("std::chrono", self.source)
 
+    def test_presentation_fact_distinguishes_bridge_from_combined(
+        self,
+    ) -> None:
+        # "This process presents" is not "OGRE 14 presents". Both the
+        # two-process bridge and the combined runtime resolve OGRE 14
+        # ownership with bridge_active=true, but only the bridge hands
+        # presentation to a separate process. Using the OGRE 14 fact alone
+        # would refuse the combined runtime, which is the one build whose loop
+        # interval is a real Ogre-Next frame interval.
+        anchor = "CreateFrameTimeBudgetSession("
+        call = self.main[
+            self.main.index(anchor, self.main.index("frame_budget_refused ="))
+            : self.main.index("frame_budget_refused);")
+        ]
+        self.assertIn("#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)", call)
+        self.assertIn("renderer_combined_session != nullptr", call)
+        self.assertIn(
+            "renderer_runtime_ownership.legacy_frame_presentation_enabled",
+            call,
+        )
+        # The kernel refuses a non-presenting gated run outright.
+        self.assertIn("FAIL_NOT_PRESENTING", self.header)
+        self.assertIn("presents_frames", self.header)
+        self.assertIn("if (!context_.presents_frames)", self.source)
+
     def test_startup_and_shutdown_are_fail_closed(self) -> None:
         self.assertIn("bool frame_budget_refused = false;", self.main)
         self.assertIn(

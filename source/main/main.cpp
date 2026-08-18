@@ -1561,7 +1561,17 @@ int main(int argc, char *argv[])
         std::unique_ptr<FrameTimeBudgetSession> frame_budget_session =
             CreateFrameTimeBudgetSession(
                 App::GetAppContext()->GetRenderWindow(),
+                // "This process presents" is not the same fact as "OGRE 14
+                // presents". The combined runtime also hides OGRE 14 behind a
+                // bridge-active ownership plan, but its in-process OgreNext
+                // presenter owns the window, so its loop interval really is a
+                // frame interval. Only the two-process bridge, where a
+                // separate child presents, produces without presenting.
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                renderer_combined_session != nullptr,
+#else
                 renderer_runtime_ownership.legacy_frame_presentation_enabled,
+#endif
                 frame_budget_refused);
         if (frame_budget_refused)
         {
