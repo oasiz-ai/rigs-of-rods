@@ -4822,6 +4822,7 @@ public:
       hdr_temporal_state.Reset();
       hdr_pssm_finalization_prepared = false;
       hdr_pssm_finalized_with_populated_scene = false;
+      hdr_pssm_finalization_deferred = false;
       sun_visibility_v2_frame_awaiting_continuation = false;
       sun_visibility_v2_hdr_commit_pending = false;
       sun_visibility_v2_pending_frame_id = 0U;
@@ -5195,6 +5196,7 @@ public:
     hdr_shadow_node_definition_created = false;
     hdr_pssm_finalization_prepared = false;
     hdr_pssm_finalized_with_populated_scene = false;
+    hdr_pssm_finalization_deferred = false;
     if (clean) {
       const RenderOperationResult refreshed =
           RefreshSingleSceneHdrRuntimeTargets(false);
@@ -5249,6 +5251,7 @@ public:
     // Once finalized, keep refreshing the runtime targets every frame even if
     // the scene later empties, so an unloaded map cannot strand stale targets.
     if (hdr_pssm_finalized_with_populated_scene) {
+      hdr_pssm_finalization_deferred = false;
       return RefreshSingleSceneHdrRuntimeTargets(true);
     }
     // Not finalized yet and nothing to shadow: wait for geometry. Single
@@ -5256,8 +5259,10 @@ public:
     // permanently bind a shadow setup with no casters or receivers.
     if (shadow_casters == 0U || shadow_receivers == 0U) {
       ++hdr_pssm_finalization_deferrals;
+      hdr_pssm_finalization_deferred = true;
       return RenderOperationResult::Success();
     }
+    hdr_pssm_finalization_deferred = false;
     if (hdr_pssm_finalization_prepared) {
       return HdrBackendFailure(
           "single-evaluation PSSM finalization was prepared twice before frame publication");
@@ -5337,6 +5342,12 @@ public:
       return !hdr_pssm_finalization_prepared;
     }
     if (hdr_pssm_finalized_with_populated_scene) {
+      return !hdr_pssm_finalization_prepared;
+    }
+    // A frame that deferred finalization prepared nothing on purpose. That is
+    // the intended topology for a scene with no shadow geometry yet, not a
+    // topology that changed between preparation and publication.
+    if (hdr_pssm_finalization_deferred) {
       return !hdr_pssm_finalization_prepared;
     }
     return hdr_pssm_finalization_prepared &&
@@ -7343,6 +7354,9 @@ public:
   /// Frames that carried no shadow geometry yet and therefore
   /// deferred single-evaluation finalization instead of failing.
   std::uint64_t hdr_pssm_finalization_deferrals = 0U;
+  /// True when the most recent finalization attempt deferred. Publication
+  /// accepts a deferred frame as an intended topology, not a changed one.
+  bool hdr_pssm_finalization_deferred = false;
   bool hdr_linear_scene_target_verified = false;
   bool hdr_base_hdr_target_verified = false;
   bool hdr_sun_full_hdr_target_verified = false;
