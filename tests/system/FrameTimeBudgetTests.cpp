@@ -238,6 +238,36 @@ void TestActiveLimiterFailsClosed()
         RoR::FrameTimeBudgetVerdict::ADVISORY);
 }
 
+/// A loop that does not present its own frames is reporting a producer
+/// cadence, which must never be published as a frame rate.
+void TestNonPresentingLoopFailsClosed()
+{
+    RoR::FrameTimeBudgetContext context = DefaultContext();
+    context.presents_frames = false;
+    RoR::FrameTimeBudgetSession session(
+        RoR::FrameTimeBudgetMode::GATE, DefaultLimits(), context);
+    // The two-process bridge's producer loop spins far faster than any
+    // display: 15,000 FPS is exactly the signature this rejects.
+    for (int frame = 0; frame < 5000; ++frame)
+        CHECK(session.RecordFrame(0.000065));
+
+    const RoR::FrameTimeBudgetReport report = session.Finalize();
+    CHECK(report.mean_fps > 10000.0);
+    CHECK(report.verdict == RoR::FrameTimeBudgetVerdict::FAIL_NOT_PRESENTING);
+    CHECK(!report.passed());
+
+    // The same run is still recorded in measure mode, where the fact is
+    // reported rather than gated.
+    RoR::FrameTimeBudgetSession advisory(
+        RoR::FrameTimeBudgetMode::MEASURE, DefaultLimits(), context);
+    for (int frame = 0; frame < 5000; ++frame)
+        CHECK(advisory.RecordFrame(0.000065));
+    const RoR::FrameTimeBudgetReport observed = advisory.Finalize();
+    CHECK(observed.verdict == RoR::FrameTimeBudgetVerdict::ADVISORY);
+    CHECK(RoR::SerializeFrameTimeBudgetReport(observed).find(
+        "\"presents_frames\": false") != std::string::npos);
+}
+
 /// Invalid limits are refused rather than silently repaired.
 void TestInvalidLimitsAreRefused()
 {
@@ -520,6 +550,7 @@ int main(int argc, char** argv)
     TestRequestedFrameCeiling();
     TestSaturatingBin();
     TestSceneIdentityIsObservedAndPinned();
+    TestNonPresentingLoopFailsClosed();
     TestFinalizeIsRepeatable();
     TestModeParsing();
     TestSerializationIsCompleteAndEscaped();

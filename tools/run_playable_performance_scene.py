@@ -578,6 +578,15 @@ def validate_receipt(
         raise PerformanceSceneFailure(
             "the run was fullscreen; the budget pins a windowed video mode"
         )
+    # In the two-process bridge the game loop only produces scenes for a
+    # separate presentation child, so its interval is a producer cadence and
+    # not a frame rate. Such a run reports thousands of "frames" per second.
+    if document.get("presents_frames") is not True:
+        raise PerformanceSceneFailure(
+            "the measured loop did not present its own frames, so its "
+            "interval is a producer cadence rather than a frame rate; "
+            "measure the presenting process instead"
+        )
 
     accepted = int(document["accepted_frames"])
     rejected = int(document["rejected_frames"])
@@ -779,8 +788,17 @@ def stage_runtime(
 def build_command(
     executable: Path,
     request: BudgetRequest,
+    launcher_arguments: Sequence[str] = (),
 ) -> tuple[str, ...]:
+    """Compose the launch.
+
+    Launcher options must precede the game arguments: the public renderer
+    launcher parses its own options first and forwards everything after them
+    to the selected child byte-for-byte.
+    """
+
     command = [str(executable)]
+    command.extend(launcher_arguments)
     if request.target_platform == "darwin":
         command.extend(("-ApplePersistenceIgnoreState", "YES"))
     command.extend(("-checkcache", "-map", request.terrain))
@@ -807,6 +825,12 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--terrain", required=True)
     parser.add_argument("--actor", default="")
     parser.add_argument("--mod-archive", action="append", default=[], type=Path)
+    parser.add_argument(
+        "--launcher-argument",
+        action="append",
+        default=[],
+        help="option passed to the renderer launcher before game arguments",
+    )
     parser.add_argument(
         "--graphics-preset",
         choices=sorted(GRAPHICS_PRESETS),
@@ -870,7 +894,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         isolated_home, layout, staged = stage_runtime(
             artifact_dir, request, args.mod_archive, executable)
-        command = build_command(executable, request)
+        command = build_command(
+            executable, request, args.launcher_argument)
         completed = subprocess.run(
             list(command),
             env=build_environment(isolated_home),

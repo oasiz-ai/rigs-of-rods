@@ -74,6 +74,8 @@ A gated run fails, rather than reporting a number, when:
   being clamped into the distribution;
 - the scene changed while recording, so a map reset or actor change cannot be
   averaged into one distribution;
+- the measured loop does not present its own frames, so its interval describes
+  how fast it produced scenes for another process;
 - fewer frames were recorded than the declared minimum;
 - the mean interval missed the sustained budget, or the ranked percentile
   exceeded its ceiling;
@@ -98,13 +100,27 @@ counted and reported, and are gated only under `--require-clean-content`,
 because the pinned baseline content emits some of them and making them fatal by
 default would measure the fixture instead of the renderer.
 
-## Which renderer is measured
+## Which renderer is measured, and which process
 
 The gate measures whichever executable it is given, and the receipt records
 which one that was. `RoR-Ogre14` reports `renderer: "ogre14"` and a build
 configured with `ROR_OGRE_NEXT_COMBINED_RUNTIME` reports
 `renderer: "ogre-next-combined"`. A number recorded from one is not evidence
 about the other, and the run report must be read with that field in view.
+
+Which *process* was measured matters just as much. In the two-process bridge
+the game loop does not present: it produces scenes for a separate presentation
+child, and its inter-frame interval is a producer cadence, not a frame rate.
+Measured directly it reports absurd numbers — a real bridged CityWorld run on
+this machine recorded a 0.065 ms mean, or 15,418 FPS — which would otherwise
+sail through both budgets as a pass.
+
+The receipt therefore carries `presents_frames`, taken from the runtime's own
+`legacy_frame_presentation_enabled` ownership fact. A gated run whose loop does
+not present fails closed as `fail-not-presenting`, and the driver refuses the
+receipt as well. Measuring the Ogre-Next frame rate consequently requires the
+combined runtime, where one process simulates and presents, rather than the
+two-process bridge.
 
 ## Graphics presets
 

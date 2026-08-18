@@ -57,6 +57,7 @@ def make_receipt(request, **overrides):
         "height": request.height,
         "fullscreen": False,
         "vsync": False,
+        "presents_frames": True,
         "fps_limit": 0,
         "warmup_frames_requested": request.warmup_frames,
         "minimum_frames": request.minimum_frames,
@@ -170,6 +171,7 @@ class ReceiptValidationTests(unittest.TestCase):
             {"fps_limit": 60},
             {"vsync": True},
             {"fullscreen": True},
+            {"presents_frames": False},
         ):
             with self.subTest(overrides=overrides):
                 with self.assertRaises(runner.PerformanceSceneFailure):

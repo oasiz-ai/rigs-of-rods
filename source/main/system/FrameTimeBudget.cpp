@@ -357,6 +357,13 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
         report.verdict = FrameTimeBudgetVerdict::FAIL_INVALID_LIMITS;
         return report;
     }
+    if (!context_.presents_frames)
+    {
+        // The interval describes how fast this loop produced scenes for
+        // another process, which is not the rate anything was displayed at.
+        report.verdict = FrameTimeBudgetVerdict::FAIL_NOT_PRESENTING;
+        return report;
+    }
     if (context_.fps_limit != 0)
     {
         // A limiter turns the distribution into a description of the limiter.
@@ -442,6 +449,8 @@ const char* ToString(FrameTimeBudgetVerdict verdict) noexcept
         return "fail-invalid-limits";
     case FrameTimeBudgetVerdict::FAIL_SCENE_CHANGED:
         return "fail-scene-changed";
+    case FrameTimeBudgetVerdict::FAIL_NOT_PRESENTING:
+        return "fail-not-presenting";
     }
     return "fail-short-run";
 }
@@ -484,6 +493,9 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
         "fullscreen", report.context.fullscreen ? "true" : "false"));
     fields.push_back(JsonRaw(
         "vsync", report.context.vsync ? "true" : "false"));
+    fields.push_back(JsonRaw(
+        "presents_frames",
+        report.context.presents_frames ? "true" : "false"));
     fields.push_back(JsonRaw(
         "fps_limit",
         FormatSigned(static_cast<std::int64_t>(report.context.fps_limit))));

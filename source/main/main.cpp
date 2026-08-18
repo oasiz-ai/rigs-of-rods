@@ -540,6 +540,7 @@ bool ReadFrameBudgetUnsigned(
 /// for a passing budget.
 std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
     Ogre::RenderWindow* render_window,
+    bool presents_frames,
     bool& refused)
 {
     using namespace RoR;
@@ -640,6 +641,7 @@ std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
     context.renderer = "ogre14";
 #endif
     context.fps_limit = App::gfx_fps_limit->getInt();
+    context.presents_frames = presents_frames;
     if (render_window != nullptr)
     {
         context.width = static_cast<std::uint32_t>(render_window->getWidth());
@@ -688,7 +690,8 @@ std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
         static_cast<unsigned int>(context.width),
         static_cast<unsigned int>(context.height),
         context.fps_limit,
-        context.vsync ? 1 : 0);
+        context.vsync ? 1 : 0,
+        context.presents_frames ? 1 : 0);
 
     return std::unique_ptr<FrameTimeBudgetSession>(
         new FrameTimeBudgetSession(mode, limits, context));
@@ -1558,6 +1561,7 @@ int main(int argc, char *argv[])
         std::unique_ptr<FrameTimeBudgetSession> frame_budget_session =
             CreateFrameTimeBudgetSession(
                 App::GetAppContext()->GetRenderWindow(),
+                renderer_runtime_ownership.legacy_frame_presentation_enabled,
                 frame_budget_refused);
         if (frame_budget_refused)
         {

@@ -82,6 +82,9 @@ enum class FrameTimeBudgetVerdict : std::uint8_t {
     FAIL_INVALID_LIMITS,
     /// The measured scene changed while the run was recording.
     FAIL_SCENE_CHANGED,
+    /// The measured loop does not present frames, so its interval is a
+    /// producer cadence rather than a frame rate.
+    FAIL_NOT_PRESENTING,
 };
 
 /// Declared acceptance budget. Defaults carry the roadmap's macOS arm64 high
@@ -118,6 +121,11 @@ struct FrameTimeBudgetContext {
     /// Value of `gfx_fps_limit`. Any non-zero limiter fails a gated run.
     std::int32_t fps_limit = 0;
     bool vsync = false;
+    /// True when this loop presents its own frames. In the two-process bridge
+    /// the game loop only produces scenes for a separate presentation child,
+    /// so its inter-frame interval is not a frame rate and must never be
+    /// reported as one.
+    bool presents_frames = true;
 };
 
 struct FrameTimeBudgetReport {
