@@ -1,0 +1,57 @@
+{
+ "conclusion": "Traversing OGRE 14's scene graph costs 21.24 ms of a 31.08 ms frame, 68.3 percent. Revalidating the capture costs 0.0002 ms. There is no in-place optimisation available: the cost is inherent to sourcing the scene from OGRE 14 every frame.",
+ "format": "ror-ogre-next-scene-source-attribution-v1",
+ "frame": {
+  "accepted_frames": 1800,
+  "mean_fps": 32.179,
+  "mean_ms": 31.0759,
+  "p95_ms": 37.0781
+ },
+ "machine": "arm64",
+ "measured_renderer": "ogre-next-combined",
+ "notes": [
+  "Revalidation was the candidate for a cheap fix, since the scene is mostly static. It is free. The cost is entirely the traversal.",
+  "The OGRE 14 scene path, producing the scene and then walking it, is 25.98 ms of the 31.08 ms frame.",
+  "Everything that would survive a native scene source - dispatch, snapshot production, normalization and remainder - totals 5.10 ms.",
+  "That residual is a ceiling, not a prediction. A native scene source has a cost of its own that is not yet measured, and the same phase seam will measure it so the replacement is compared rather than assumed free.",
+  "This confirms the roadmap's stated endpoint, removal of the hidden OGRE 14 producer, as the correct and only remaining optimisation for this path."
+ ],
+ "ogre14_scene_path_ms": 25.9757,
+ "ogre14_scene_path_share": 0.8359,
+ "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+ "recorded_at_local": "2026-08-17T23:33:08-07:00",
+ "repository_commit": "9966427192f74042e07897b66cd41829736ac152",
+ "residual_without_ogre14_scene_path_ms": 5.1002,
+ "scene": {
+  "actor": "AlexisSaber.truck",
+  "height": 1080,
+  "terrain": "CityWorld.terrn2",
+  "width": 1920
+ },
+ "stages": {
+  "producer": {
+   "mean_ms": 4.7383,
+   "share": 0.152474
+  },
+  "scene_dispatch": {
+   "mean_ms": 4.1946,
+   "share": 0.13498
+  },
+  "scene_normalize": {
+   "mean_ms": 0.0004,
+   "share": 1.1e-05
+  },
+  "scene_produce": {
+   "mean_ms": 0.3629,
+   "share": 0.011678
+  },
+  "scene_source_read": {
+   "mean_ms": 21.2374,
+   "share": 0.683404
+  },
+  "scene_source_validate": {
+   "mean_ms": 0.0002,
+   "share": 6e-06
+  }
+ }
+}
