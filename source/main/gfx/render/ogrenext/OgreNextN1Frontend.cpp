@@ -10862,7 +10862,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                             impl_->camera, workspace_text,
                                             true);
     }
-    if (shadow_plan.enabled &&
+    // A frame that deferred single-evaluation finalization deliberately has no
+    // shadow node; only require one when this frame actually selected PSSM.
+    if (pssm_ready_this_frame &&
         workspace->findShadowNode(Ogre::IdString(shadow_node_text)) ==
             nullptr) {
       throw std::runtime_error(
@@ -10893,7 +10895,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
     lighting_candidate.transactional_directional_sun_toggle =
         persistent_hdr && !impl_->SingleSceneHdrPssmEnabled();
     NativePssmReadback observed_shadow_state;
-    if (shadow_plan.enabled) {
+    // Only read back cascade state from a shadow node that exists. On a frame
+    // that deferred finalization there is no node, and verifying its splits
+    // reports every field as zero.
+    if (pssm_ready_this_frame) {
       observed_shadow_state =
           ReadAndVerifyNativePssmState(*workspace, shadow_node_text);
       lighting_candidate.pssm_shadow_response =
