@@ -124,6 +124,11 @@ public:
     Ogre::Root*          GetOgreRoot() { return m_ogre_root; }
     Ogre::Viewport*      GetViewport() { return m_viewport; }
     Ogre::RenderWindow*  GetRenderWindow() { return m_render_window; }
+    /// Generate every loaded material's RTShader technique up front. The
+    /// resolver listener otherwise creates each one the first time its
+    /// material is seen, so shadowing resolves as the camera enters new areas
+    /// and reads as flashing. Returns the number of materials validated.
+    size_t               PrewarmRTShaderTechniques();
     const RenderDisplayMetrics& GetRenderDisplayMetrics() const { return m_display_metrics; }
     float                GetDisplayPixelRatio() const { return m_display_metrics.GetFontRasterScale(); }
     RoR::ForceFeedback&  GetForceFeedback() { return m_force_feedback; }
@@ -158,6 +163,10 @@ private:
 #if OGRE_VERSION_MAJOR >= 14
     bool                 SetUpRTShaderSystem();
     void                 ShutDownRTShaderSystem();
+    /// Generate every loaded material's RTShader technique up front. The
+    /// resolver listener otherwise creates them the first time a material is
+    /// seen, so shadowing pops in as new areas come into view. Returns the
+    /// number of materials validated.
 #endif
 
     // Variables

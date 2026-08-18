@@ -100,16 +100,35 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
             String basename, ext;
             StringUtil::splitBaseFilename(meshName, basename, ext);
 
+            // An authored ladder may name its most detailed level explicitly,
+            // so the placed mesh is already "<stem>_lod0.mesh". Searching for
+            // siblings of that full name looks for "<stem>_lod0_lod*.mesh" and
+            // matches nothing, which silently discards the authored reductions
+            // and leaves full detail at every range. Search the family stem
+            // instead, and skip level zero below because it is this mesh.
+            const String lod_zero_suffix = "_lod0";
+            const bool base_mesh_is_lod_zero =
+                basename.size() > lod_zero_suffix.size() &&
+                basename.compare(basename.size() - lod_zero_suffix.size(),
+                                 lod_zero_suffix.size(), lod_zero_suffix) == 0;
+            const String lod_family_stem =
+                base_mesh_is_lod_zero
+                    ? basename.substr(0, basename.size() - lod_zero_suffix.size())
+                    : basename;
+
             bool lod_available = false;
             Ogre::LodConfig config(m_mesh);
 
             // the classic LODs
-            FileInfoListPtr files = ResourceGroupManager::getSingleton().findResourceFileInfo(entityRG, basename + "_lod*.mesh");
+            FileInfoListPtr files = ResourceGroupManager::getSingleton().findResourceFileInfo(entityRG, lod_family_stem + "_lod*.mesh");
             for (FileInfoList::iterator iterFiles = files->begin(); iterFiles != files->end(); ++iterFiles)
             {
-                String format = basename + "_lod%d.mesh";
+                String format = lod_family_stem + "_lod%d.mesh";
                 int i = -1;
                 int r = sscanf(iterFiles->filename.c_str(), format.c_str(), &i);
+                // Level zero is the placed mesh itself, never a reduction.
+                if (r > 0 && i == 0)
+                    continue;
 
                 if (r <= 0 || i < 0)
                     continue;
@@ -147,11 +166,11 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
             }
 
             // the custom LODs
-            FileInfoListPtr files2 = ResourceGroupManager::getSingleton().findResourceFileInfo(entityRG, basename + "_clod_*.mesh");
+            FileInfoListPtr files2 = ResourceGroupManager::getSingleton().findResourceFileInfo(entityRG, lod_family_stem + "_clod_*.mesh");
             for (FileInfoList::iterator iterFiles = files2->begin(); iterFiles != files2->end(); ++iterFiles)
             {
                 // and custom LODs
-                String format = basename + "_clod_%d.mesh";
+                String format = lod_family_stem + "_clod_%d.mesh";
                 int i = -1;
                 int r = sscanf(iterFiles->filename.c_str(), format.c_str(), &i);
                 if (r <= 0 || i < 0)

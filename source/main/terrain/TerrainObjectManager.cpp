@@ -98,6 +98,19 @@ TerrainObjectManager::~TerrainObjectManager()
 #endif //USE_PAGED
 
     this->DestroyAllRegisteredLocalLights();
+
+    // Procedural roads own entities they destroy individually in their own
+    // destructors, and the manager holding them is a member, so it is released
+    // only after this body returns. Destroying every entity here first left
+    // each ProceduralRoad with a dangling pointer, and the next unload of a
+    // map carrying procedural roads faulted inside destroyMovableObject. Drop
+    // the roads while their entities are still alive.
+    if (m_procedural_manager)
+    {
+        m_procedural_manager->removeAllObjects();
+        m_procedural_manager = ProceduralManagerPtr();
+    }
+
     App::GetGfxScene()->GetSceneManager()->destroyAllEntities();
 
     App::GetGfxScene()->GetSceneManager()->destroySceneNode(m_terrn2_grouping_node);

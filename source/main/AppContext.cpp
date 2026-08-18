@@ -1312,6 +1312,54 @@ bool AppContext::SetUpRTShaderSystem()
     return true;
 }
 
+size_t AppContext::PrewarmRTShaderTechniques()
+{
+    // SGTechniqueResolverListener builds a material's shader technique the
+    // first time that material is requested for the shader scheme, which
+    // happens on first visibility. On a large map that means shadowing and
+    // lighting resolve as the camera enters new areas, seen as flashing.
+    // Generating them all once, after the terrain's materials are loaded,
+    // moves that cost into load time and leaves the frame stable.
+    if (m_shader_generator == nullptr)
+        return 0;
+
+    size_t validated = 0;
+    size_t refused = 0;
+    for (const auto& entry :
+         Ogre::MaterialManager::getSingleton().getResourceIterator())
+    {
+        const Ogre::MaterialPtr material =
+            Ogre::static_pointer_cast<Ogre::Material>(entry.second);
+        if (!material)
+            continue;
+        try
+        {
+            // A material the generator cannot serve is exactly the case the
+            // resolver would have refused later; count it and carry on rather
+            // than abandoning the remaining materials.
+            if (m_shader_generator->validateMaterial(
+                    Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME,
+                    material->getName(), material->getGroup()))
+            {
+                ++validated;
+            }
+            else
+            {
+                ++refused;
+            }
+        }
+        catch (const Ogre::Exception&)
+        {
+            ++refused;
+        }
+    }
+
+    LOG(fmt::format(
+        "[RoR|Startup|Rendering] RTShader prewarm: validated={}, refused={}",
+        validated, refused));
+    return validated;
+}
+
 void AppContext::ShutDownRTShaderSystem()
 {
     if (m_shader_generator == nullptr)
