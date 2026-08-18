@@ -33,7 +33,6 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
             "m_ogre14_static_retention_inventory",
             "m_ogre14_static_retention_cache_size",
             "new_frozen_material_decisions",
-            "m_ogre14_static_retention_projections",
             "live_identity_count()",
             "cached_mesh_count()",
         ):

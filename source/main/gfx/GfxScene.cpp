@@ -3559,9 +3559,11 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         else if (m_ogre14_static_retention_frozen_decisions !=
                  retention_lifetime.new_frozen_material_decisions)
             m_ogre14_static_retention_miss_stage = 6U;
-        else if (m_ogre14_static_retention_projections !=
-                 retention_lifetime.projections)
-            m_ogre14_static_retention_miss_stage = 7U;
+        // The lifetime projections counter advances every capture whether or
+        // not anything changed, so it cannot detect change; measured stage-7
+        // misses on every frame proved it. Material change is already gated
+        // by frozen decisions: decisions are immutable once made, so a new
+        // section necessarily mints one.
         else if (m_ogre14_static_retention_road_live !=
                  m_ogre14_procedural_road_inventory.live_identity_count())
             m_ogre14_static_retention_miss_stage = 8U;
