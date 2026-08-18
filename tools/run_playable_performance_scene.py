@@ -41,6 +41,11 @@ MAX_LOG_BYTES = 256 * 1024 * 1024
 #: A renderer fault always invalidates the measurement: a run that is losing
 #: draw calls or dying is not the scene we budgeted.
 FATAL_LOG_MARKERS = (
+    # A combined-runtime session whose scenes are rejected keeps its loop
+    # spinning and presents only the bootstrap clear frame. Counting those
+    # iterations as frames produced a false 73 FPS pass on a blank screen;
+    # a rejected scene stream is not a measurement.
+    "status='capture_rejected'",
     "Validation Failed: Sampler error:",
     "GL_INVALID_",
     "RenderingAPIException",

@@ -3847,6 +3847,46 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     road_sections);
                 if (!static_validation)
                     return static_validation;
+
+                // Road materials must be observed by the demo material source
+                // exactly as static-section materials are, or they reach the
+                // factor-only fallback still carrying authored texture units
+                // and the whole capture is refused. Project each one from the
+                // live material; the road mesh payload was wound from the
+                // captured cull state, so a projection that changes the cull
+                // would invert the geometry and fails closed instead.
+                for (Render::Ogre14GraphicsSceneStaticSectionCaptureInput&
+                         road_section : road_sections)
+                {
+                    const Ogre::MaterialPtr live_road_material =
+                        Ogre::MaterialManager::getSingleton().getByName(
+                            road_section.material.exact_name,
+                            road_section.material.exact_resource_group);
+                    if (!live_road_material)
+                    {
+                        return Render::ValidationResult::Failure(
+                            Render::ValidationCode::MISSING_REFERENCE,
+                            "road.material.live_lookup",
+                            "finalized road material is not loaded");
+                    }
+                    const auto road_cull_before = road_section.material.cull;
+                    bool road_reverse_winding = false;
+                    bool road_used_matte = false;
+                    static_validation = CaptureOgreNextDemoMaterialInput(
+                        live_road_material, road_section.material,
+                        road_reverse_winding, road_used_matte);
+                    if (!static_validation)
+                        return static_validation;
+                    (void)road_used_matte;
+                    if (road_section.material.cull != road_cull_before)
+                    {
+                        return Render::ValidationResult::Failure(
+                            Render::ValidationCode::REVISION_MISMATCH,
+                            "road.material.cull_drift",
+                            "projected road material changed the cull the "
+                            "road mesh was wound from");
+                    }
+                }
             }
 
             static_validation =
