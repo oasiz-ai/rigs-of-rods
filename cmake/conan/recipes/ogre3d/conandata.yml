@@ -11,6 +11,7 @@ patches:
     - patch_file: patches/14.5.2/terrain-composite-revision-metal-readback.patch
     - patch_file: patches/14.5.2/exact-material-script-preopen.patch
     - patch_file: patches/14.5.2/expose-shadow-material-declaration-names.patch
+    - patch_file: patches/14.5.2/bounds-safe-generated-lod-index-buffers.patch
 
 sources:
   14.5.2:

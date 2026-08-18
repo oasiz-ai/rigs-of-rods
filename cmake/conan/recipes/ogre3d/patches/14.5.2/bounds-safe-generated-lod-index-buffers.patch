@@ -1,0 +1,69 @@
+--- a/Components/MeshLodGenerator/src/OgreLodOutputProvider.cpp
++++ b/Components/MeshLodGenerator/src/OgreLodOutputProvider.cpp
+@@ -229,6 +229,66 @@
+             // Set up the other Lod
+             indexCount = std::max<size_t>(data->mIndexBufferInfoList[i].indexCount, 3u);
+             createSubMeshLodIndexData(i, lodIndex, indexBuffer, indexBuffer->getNumIndexes() - indexCount, indexCount);
++        }
++
++        // Each locked buffer holds exactly indexCount + prevOnlyIndexCount
++        // indices, and the three fill passes below advance a raw pointer per
++        // submesh with no bound of their own. The asserts expressing that
++        // invariant are compiled out of release builds, so a mesh whose
++        // retained counts disagree with its triangle and line lists writes
++        // past the mapped buffer instead of failing. Legacy v1.40 content does
++        // exactly that, and because the overrun usually lands in mapped memory
++        // it corrupts the heap silently and only occasionally faults.
++        //
++        // The passes write, per submesh, three indices for every triangle
++        // whose vertices changed plus three for every triangle that was not
++        // removed, and two per line on the same terms. Compare that total with
++        // the allocation before writing anything, so a mesh the generator
++        // cannot represent is refused while the buffers are still untouched.
++        {
++            std::vector<size_t> plannedIndices(submeshCount, 0);
++            bool accountingValid = true;
++            for (size_t i = 0; i < mTriangleCacheList.size() && accountingValid; i++) {
++                const size_t submesh = data->mTriangleList[i].submeshID;
++                if (submesh >= submeshCount) {
++                    accountingValid = false;
++                    break;
++                }
++                if (mTriangleCacheList[i].vertexChanged) {
++                    plannedIndices[submesh] += 3;
++                }
++                if (!data->mTriangleList[i].isRemoved) {
++                    plannedIndices[submesh] += 3;
++                }
++            }
++            for (size_t i = 0; i < mLineCacheList.size() && accountingValid; i++) {
++                const size_t submesh = data->mLineList[i].submeshID;
++                if (submesh >= submeshCount) {
++                    accountingValid = false;
++                    break;
++                }
++                if (mLineCacheList[i].vertexChanged) {
++                    plannedIndices[submesh] += 2;
++                }
++                if (!data->mLineList[i].isRemoved) {
++                    plannedIndices[submesh] += 2;
++                }
++            }
++            for (size_t i = 0; i < submeshCount && accountingValid; i++) {
++                const size_t capacity = data->mIndexBufferInfoList[i].indexCount +
++                                        data->mIndexBufferInfoList[i].prevOnlyIndexCount;
++                if (plannedIndices[i] > capacity) {
++                    accountingValid = false;
++                }
++            }
++            if (!accountingValid) {
++                for (auto& buffer : lockedBuffers) {
++                    buffer->unlock();
++                }
++                OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
++                            "Generated LOD index accounting does not fit its allocated buffers",
++                            "LodOutputProvider::bakeSecondPass");
++            }
+         }
+ 
+         // Fill buffers.
