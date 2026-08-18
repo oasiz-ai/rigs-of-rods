@@ -22,6 +22,18 @@ import re
 import sys
 import tempfile
 from typing import Any, Sequence
+
+import importlib.util as _importlib_util
+
+_TERRAIN_LAYERS_SPEC = _importlib_util.spec_from_file_location(
+    "cityworld_terrain_layers",
+    Path(__file__).resolve().parent / "cityworld_terrain_layers.py",
+)
+if _TERRAIN_LAYERS_SPEC is None or _TERRAIN_LAYERS_SPEC.loader is None:
+    raise RuntimeError("could not load the terrain layer generator")
+terrain_layers = _importlib_util.module_from_spec(_TERRAIN_LAYERS_SPEC)
+sys.modules[_TERRAIN_LAYERS_SPEC.name] = terrain_layers
+_TERRAIN_LAYERS_SPEC.loader.exec_module(terrain_layers)
 import zipfile
 
 
@@ -77,6 +89,9 @@ SOURCE_TELEPOINT = "Penguinville Spawn"
 DESTINATION_TELEPOINT = "NeoQueretaro Spawn"
 SOURCE_MEMBERS = ("CityWorld.terrn2", "CityWorld.otc", "CityWorld.tobj")
 TERRAIN_NAME = "CityWorldNextLocalOverlay.terrn2"
+ENHANCED_OTC_NAME = "CityWorldNextEnhanced.otc"
+ENHANCED_PAGE_OTC_NAME = "CityWorldNextEnhanced-page-0-0.otc"
+ENHANCED_BLEND_NAME = "cityworld_next_terrain_blend.png"
 OVERLAY_NAME = "cityworld_next_local_overlay.tobj"
 REPORT_NAME = "cityworld_next_local_overlay.report.json"
 MERGED_MATERIAL_NAME = "cityworld_next_local_overlay.material"
@@ -329,7 +344,9 @@ INFILL_ASSET_CONTRACTS = (
 )
 EXPECTED_REGIONAL_INFILL_ROUTES = 7
 EXPECTED_REGIONAL_INFILL_PLACEMENTS = 46
-EXPECTED_PACKAGE_ENTRIES = 76
+# v8 adds the enhanced multi-layer terrain: its global and page OTC
+# configurations plus the authored RGBA blend map.
+EXPECTED_PACKAGE_ENTRIES = 79
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -3777,7 +3794,10 @@ def terrain_descriptor(
         "# Redistribution and shipping of this derived package are disabled.",
         "[General]",
         "Name = CityWorld Next Enhanced (Use This)",
-        "GeometryConfig = CityWorld.otc",
+        # The enhanced multi-layer terrain. Its heightmap and textures are
+        # still read from the mounted original archive; only the layer
+        # configuration and the authored blend map are generated here.
+        "GeometryConfig = CityWorldNextEnhanced.otc",
         "Water = 0",
         "WaterLine = 0",
         "AmbientColor = "
@@ -4094,6 +4114,45 @@ def build_local_overlay(
     package_roles: dict[str, str] = {}
     add_payload(payloads, TERRAIN_NAME, descriptor)
     package_roles[TERRAIN_NAME] = "derived-terrain"
+
+    # Enhanced terrain layers. The blend coverage is computed from the same
+    # authored route and site geometry the placements above already use, so
+    # the surface and the objects standing on it cannot drift apart.
+    terrain_routes = [
+        {
+            "route_id": route.route_id,
+            "xz_points": tuple(
+                (point.x, point.z) for point in route.points),
+            "width_m": max(point.width_m for point in route.points),
+        }
+        for route in infill_plan.routes
+    ]
+    terrain_sites = [
+        {
+            "site_id": site.site_id,
+            "category": site.category,
+            "polygon_xz_m": site.polygon_xz_m,
+        }
+        for site in infill_plan.sites
+    ]
+    blend_channels = terrain_layers.rasterize_blend_channels(
+        terrain_routes, terrain_sites)
+    blend_png = terrain_layers.encode_png_rgba(
+        terrain_layers.BLEND_MAP_SIZE, *blend_channels)
+    add_payload(
+        payloads,
+        ENHANCED_OTC_NAME,
+        terrain_layers.build_global_otc(ENHANCED_PAGE_OTC_NAME).encode("utf-8"),
+    )
+    package_roles[ENHANCED_OTC_NAME] = "derived-terrain-config"
+    add_payload(
+        payloads,
+        ENHANCED_PAGE_OTC_NAME,
+        terrain_layers.build_page_otc().encode("utf-8"),
+    )
+    package_roles[ENHANCED_PAGE_OTC_NAME] = "derived-terrain-config"
+    add_payload(payloads, ENHANCED_BLEND_NAME, blend_png)
+    package_roles[ENHANCED_BLEND_NAME] = "derived-terrain-blendmap"
     add_payload(payloads, OVERLAY_NAME, placement)
     package_roles[OVERLAY_NAME] = "overlay-placement"
     for asset in runtime_assets:

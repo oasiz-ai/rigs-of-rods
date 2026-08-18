@@ -342,7 +342,7 @@ python3 tools/build_cityworld_local_overlay.py \
 ```
 
 The overlay output path must not already exist and must be outside this
-repository. The current v7 deterministic ZIP has exactly 76 members and
+repository. The current v8 deterministic ZIP has exactly 79 members and
 references the separately installed original `CityWorld.otc` and
 `CityWorld.tobj`; it does not copy either file or any original map asset. It
 embeds the canonical `cityworld_next_infill_manifest.v2.json`, adds the 46
@@ -388,7 +388,9 @@ resources before adding the route. Any source drift, skipped native support,
 or new placement origin in the conservative 128 m-wide ground corridor fails
 closed.
 
-The 76-member package inventory includes the generated descriptor, merged
+Version 8 adds the enhanced multi-layer terrain: a generated global and page OTC pair selecting four ground layers - the retained grass base, NeoQueretaro 2.0 asphalt under every authored access route, hard standing under suburb and service-station parcels, and NeoQueretaro rock at natural landmarks - driven by one generated RGBA blend map rasterized from the same authored route and site geometry the placements use. Normal and specular mapping are enabled. The heightmap and all four layer textures are still read from the mounted original archive; only the two configurations and the blend map are generated, so the reference-only contract is unchanged.
+
+The 79-member package inventory includes the generated descriptor, merged
 material script, procedural placement, canonical local-only provenance report,
 regional-infill plan, five checked infill runtime families, disabled
 NeoQueretaro relighting-candidate manifest, authenticated tree-replacement

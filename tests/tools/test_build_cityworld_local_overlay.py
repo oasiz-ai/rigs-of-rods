@@ -2063,7 +2063,19 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 + report["source"]["archive"]["expected_sha256"]
             )
             descriptor = payloads[BUILDER.TERRAIN_NAME].decode()
-            self.assertIn("GeometryConfig = CityWorld.otc", descriptor)
+            # v8 generates its own multi-layer terrain configuration, but the
+        # reference-only contract is unchanged: the generated OTC names the
+        # original heightmap and archive textures, and none of those payloads
+        # may enter the package.
+        self.assertIn(
+            "GeometryConfig = CityWorldNextEnhanced.otc", descriptor)
+        page_otc = payloads["CityWorldNextEnhanced-page-0-0.otc"].decode(
+            "utf-8")
+        self.assertIn("CityWorld.raw", page_otc)
+        for referenced_only in ("CityWorld.raw", "CityWorld_grass.dds",
+                                "NQ2-0-asphalt.png", "asiaconcrete.dds",
+                                "NQ-rock-A.jpg"):
+            self.assertNotIn(referenced_only, payloads)
             self.assertIn("CityWorld.tobj =", descriptor)
             self.assertIn(f"{BUILDER.OVERLAY_NAME} =", descriptor)
             self.assertIn(

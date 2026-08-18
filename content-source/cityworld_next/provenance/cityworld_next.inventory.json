@@ -134,7 +134,7 @@
     },
     {
       "path": "bridge/transition_12m/compiled/rorng_city_bridge_transition_12m.compile.json",
-      "sha256": "5e338a4f6ab648ecf15c34de7e069fb40820ed2cd3ec9711ad706430257cb6d5",
+      "sha256": "81048addc2cecbff63e902278c38581a634b461c9b6d003bbce2612baaa8f1aa",
       "size": 5369,
       "type": "file"
     },
@@ -188,7 +188,7 @@
     },
     {
       "path": "bridge/transition_12m/rorng_city_bridge_transition_12m.asset.json",
-      "sha256": "1d9488f09b708ac83360f289cae4fdf58d8e638929228922eb73d96726d97b45",
+      "sha256": "fa17d21368dc3378607d2b37957b29e4661af2c7e06fa6bf241d151d9963c1b2",
       "size": 10844,
       "type": "file"
     },
