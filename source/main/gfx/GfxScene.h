@@ -196,6 +196,22 @@ private:
     // object enters the demo camera envelope it never disappears, so renderer
     // object/asset tombstones can never be resurrected while driving.
     std::set<std::uint64_t>             m_ogre_next_demo_admitted_static_objects;
+
+    // Retained static scene. Static objects do not move, yet every capture
+    // walked them all through OGRE and deep-copied the registries. Once every
+    // object is admitted and no new material decision has committed, the
+    // previous static capture is byte-equivalent to what a fresh walk would
+    // produce, so it is reused and the walk skipped. Any condition failing
+    // falls back to the full walk, which refreshes the retention.
+    bool m_ogre14_static_retention_valid = false;
+    std::size_t m_ogre14_static_retention_inventory = 0U;
+    std::size_t m_ogre14_static_retention_cache_size = 0U;
+    std::uint64_t m_ogre14_static_retention_frozen_decisions = 0U;
+    std::uint64_t m_ogre14_static_retention_projections = 0U;
+    std::vector<Render::GraphicsSceneAssetInput>
+        m_ogre14_static_retention_assets;
+    std::vector<Render::GraphicsSceneStaticMeshInput>
+        m_ogre14_static_retention_meshes;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
     // cache commits at its own map-generation boundary, before unrelated
@@ -268,6 +284,10 @@ private:
         std::map<std::string,
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
                  std::less<>> dynamic_mesh_cache;
+        /// True when this capture reused the retained static scene and left
+        /// the static registry, mesh cache, and admitted set untouched, so
+        /// commit must not swap those members against empty pending copies.
+        bool static_state_retained = false;
         Ogre14ContinuousParticleCaptureState particle_capture_state;
         Render::Ogre14AutomaticReflectionProbeState
             automatic_reflection_probe_state;

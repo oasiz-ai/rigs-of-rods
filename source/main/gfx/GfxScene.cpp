@@ -2776,6 +2776,16 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
     m_ogre14_automatic_reflection_probe_state = {};
+    // The retained static scene belongs to the map generation that produced
+    // it. A different map with the same object count would otherwise pass
+    // every retention gate while carrying the previous map's meshes.
+    m_ogre14_static_retention_valid = false;
+    m_ogre14_static_retention_inventory = 0U;
+    m_ogre14_static_retention_cache_size = 0U;
+    m_ogre14_static_retention_frozen_decisions = 0U;
+    m_ogre14_static_retention_projections = 0U;
+    m_ogre14_static_retention_assets.clear();
+    m_ogre14_static_retention_meshes.clear();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3482,11 +3492,49 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     auto pending = std::make_unique<Ogre14PendingCaptureState>();
     OgreNextDemoMaterialPendingGuard material_pending_guard(
         m_ogre_next_demo_material_source);
+
+    // Static objects do not move, yet every capture walked all of them
+    // through OGRE and deep-copied the static registries into this pending
+    // transaction. Reuse the retained static capture when nothing that could
+    // change its bytes has changed: every object is already admitted (the
+    // camera cannot admit more), the walk grew no cache since retention, and
+    // no new material decision or projection has committed. Any failed
+    // condition falls back to the full walk, which is the previous behavior.
+    {
+        Terrain* const retention_terrain = App::GetGameContext() != nullptr
+            ? App::GetGameContext()->GetTerrain().GetRef()
+            : nullptr;
+        TerrainObjectManager* const retention_objects =
+            retention_terrain != nullptr
+                ? retention_terrain->getObjectManager()
+                : nullptr;
+        const Gfx::Detail::OgreNextDemoMaterialSourceCounters
+            retention_lifetime =
+                m_ogre_next_demo_material_source.LifetimeCounters();
+        pending->static_state_retained =
+            m_ogre14_static_retention_valid &&
+            retention_objects != nullptr &&
+            !m_ogre14_static_retention_meshes.empty() &&
+            retention_objects->GetStaticGraphicsObjects().size() ==
+                m_ogre_next_demo_admitted_static_objects.size() &&
+            m_ogre14_static_retention_inventory ==
+                retention_objects->GetStaticGraphicsObjects().size() &&
+            m_ogre14_static_retention_cache_size ==
+                m_ogre14_static_mesh_cache.size() &&
+            m_ogre14_static_retention_frozen_decisions ==
+                retention_lifetime.new_frozen_material_decisions &&
+            m_ogre14_static_retention_projections ==
+                retention_lifetime.projections;
+    }
+
     pending->light_registry = m_ogre14_light_identity_registry;
-    pending->static_registry = m_ogre14_static_identity_registry;
-    pending->static_mesh_cache = m_ogre14_static_mesh_cache;
-    pending->admitted_static_objects =
-        m_ogre_next_demo_admitted_static_objects;
+    if (!pending->static_state_retained)
+    {
+        pending->static_registry = m_ogre14_static_identity_registry;
+        pending->static_mesh_cache = m_ogre14_static_mesh_cache;
+        pending->admitted_static_objects =
+            m_ogre_next_demo_admitted_static_objects;
+    }
     pending->dynamic_registry = m_ogre14_dynamic_identity_registry;
     pending->dynamic_mesh_cache = m_ogre14_dynamic_mesh_cache;
     pending->particle_capture_state = m_ogre14_particle_capture_state;
@@ -3630,6 +3678,20 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             }
             material_pending_guard.Arm();
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
+            if (pending->static_state_retained)
+            {
+                // The retained capture is byte-equivalent to what the walk
+                // below would produce under the conditions verified above.
+                Ogre14CaptureSectionTimer static_timer(
+                    candidate.static_meshes_ns);
+                static_assets = m_ogre14_static_retention_assets;
+                candidate.frame.static_meshes =
+                    m_ogre14_static_retention_meshes;
+            }
+            else
+            {
+            const std::size_t admitted_before_walk =
+                pending->admitted_static_objects.size();
             Render::Float3 static_camera_position;
             float static_capture_radius_meters = 0.0F;
             static_validation = CaptureOgreNextDemoStaticAdmissionView(
@@ -3652,6 +3714,34 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             if (!static_validation)
             {
                 return static_validation;
+            }
+            // Refresh the retention only from a walk that admitted nothing
+            // new. Admissions land in the committed members only when this
+            // frame commits, and a later section may still discard it; a
+            // zero-growth walk corresponds to the committed state whether or
+            // not this frame survives.
+            if (object_manager != nullptr &&
+                pending->admitted_static_objects.size() ==
+                    admitted_before_walk &&
+                pending->admitted_static_objects.size() ==
+                    object_manager->GetStaticGraphicsObjects().size())
+            {
+                const Gfx::Detail::OgreNextDemoMaterialSourceCounters
+                    retention_lifetime =
+                        m_ogre_next_demo_material_source.LifetimeCounters();
+                m_ogre14_static_retention_assets = static_assets;
+                m_ogre14_static_retention_meshes =
+                    candidate.frame.static_meshes;
+                m_ogre14_static_retention_inventory =
+                    object_manager->GetStaticGraphicsObjects().size();
+                m_ogre14_static_retention_cache_size =
+                    pending->static_mesh_cache.size();
+                m_ogre14_static_retention_frozen_decisions =
+                    retention_lifetime.new_frozen_material_decisions;
+                m_ogre14_static_retention_projections =
+                    retention_lifetime.projections;
+                m_ogre14_static_retention_valid = true;
+            }
             }
 
             // GfxCharacter is the legacy player/network avatar domain. It is
@@ -4474,12 +4564,15 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     using std::swap;
     swap(m_ogre14_light_identity_registry,
          m_ogre14_pending_capture->light_registry);
-    swap(m_ogre14_static_identity_registry,
-         m_ogre14_pending_capture->static_registry);
-    swap(m_ogre14_static_mesh_cache,
-         m_ogre14_pending_capture->static_mesh_cache);
-    swap(m_ogre_next_demo_admitted_static_objects,
-         m_ogre14_pending_capture->admitted_static_objects);
+    if (!m_ogre14_pending_capture->static_state_retained)
+    {
+        swap(m_ogre14_static_identity_registry,
+             m_ogre14_pending_capture->static_registry);
+        swap(m_ogre14_static_mesh_cache,
+             m_ogre14_pending_capture->static_mesh_cache);
+        swap(m_ogre_next_demo_admitted_static_objects,
+             m_ogre14_pending_capture->admitted_static_objects);
+    }
     swap(m_ogre14_dynamic_identity_registry,
          m_ogre14_pending_capture->dynamic_registry);
     swap(m_ogre14_dynamic_mesh_cache,
