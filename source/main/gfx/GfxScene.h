@@ -33,6 +33,7 @@
 #include "ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
 #include "ogre14/detail/OgreNextDemoMaterialSource.h"
 #include "render/Ogre14GraphicsSceneSource.h"
+#include "render/Ogre14ProceduralRoadSource.h"
 #include "SimBuffers.h"
 #include "Skidmark.h"
 
@@ -214,6 +215,9 @@ private:
         m_ogre14_static_retention_assets;
     std::vector<Render::GraphicsSceneStaticMeshInput>
         m_ogre14_static_retention_meshes;
+    std::size_t m_ogre14_static_retention_road_live = 0U;
+    std::size_t m_ogre14_static_retention_road_cached = 0U;
+    Render::Ogre14ProceduralRoadInventory m_ogre14_procedural_road_inventory;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
     // cache commits at its own map-generation boundary, before unrelated
@@ -282,6 +286,7 @@ private:
                  Render::Ogre14GraphicsSceneStaticMeshCacheEntry, std::less<>>
             static_mesh_cache;
         std::set<std::uint64_t> admitted_static_objects;
+        Render::Ogre14ProceduralRoadInventory procedural_road_inventory;
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry dynamic_registry;
         std::map<std::string,
                  Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,

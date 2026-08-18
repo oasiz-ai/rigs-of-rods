@@ -2435,13 +2435,20 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneStaticMeshCacheEntry,
              std::less<>>& mesh_cache,
+    const std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
+        adapted_road_sections,
+    bool procedural_roads_adapted,
     std::vector<RoR::Render::GraphicsSceneAssetInput>& assets,
     std::vector<RoR::Render::GraphicsSceneStaticMeshInput>& static_meshes)
 {
     RoR::Render::Ogre14GraphicsSceneUnsupportedGeometry unsupported;
     if (object_manager != nullptr)
     {
-        unsupported.procedural = object_manager->HasProceduralGeometry();
+        // Roads that arrived through the finalized procedural-road adapter
+        // are part of this capture; only unadapted procedural geometry stays
+        // an unsupported-coverage failure.
+        unsupported.procedural = !procedural_roads_adapted &&
+            object_manager->HasProceduralGeometry();
         unsupported.paged = object_manager->HasPagedStaticGeometry();
         unsupported.animated = object_manager->HasAnimatedStaticGeometry();
     }
@@ -2718,6 +2725,11 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
         }
     }
 
+    // The inventory build replaces the registry's live-key sets wholesale,
+    // so every static section - authored objects and adapted procedural
+    // roads alike - must flow through this one call.
+    sections.insert(sections.end(), adapted_road_sections.begin(),
+                    adapted_road_sections.end());
     validation = RoR::Render::BuildOgre14GraphicsSceneStaticInventory(
         sections, identity_registry, assets, static_meshes);
     if (!validation)
@@ -2786,6 +2798,10 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_static_retention_projections = 0U;
     m_ogre14_static_retention_assets.clear();
     m_ogre14_static_retention_meshes.clear();
+    m_ogre14_static_retention_road_live = 0U;
+    m_ogre14_static_retention_road_cached = 0U;
+    m_ogre14_procedural_road_inventory =
+        Render::Ogre14ProceduralRoadInventory();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3524,7 +3540,11 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             m_ogre14_static_retention_frozen_decisions ==
                 retention_lifetime.new_frozen_material_decisions &&
             m_ogre14_static_retention_projections ==
-                retention_lifetime.projections;
+                retention_lifetime.projections &&
+            m_ogre14_static_retention_road_live ==
+                m_ogre14_procedural_road_inventory.live_identity_count() &&
+            m_ogre14_static_retention_road_cached ==
+                m_ogre14_procedural_road_inventory.cached_mesh_count();
     }
 
     pending->light_registry = m_ogre14_light_identity_registry;
@@ -3717,6 +3737,58 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 return static_validation;
             Ogre14CaptureSectionTimer static_timer(
                 candidate.static_meshes_ns);
+
+            // Finalized procedural roads join the same static transaction.
+            // Every present road must carry its finalized snapshot; a road
+            // mid-rebuild is inconsistent state and fails the capture closed.
+            std::vector<Render::Ogre14ProceduralRoadCapture> road_captures;
+            bool procedural_roads_adapted = false;
+            if (object_manager != nullptr &&
+                object_manager->HasProceduralGeometry())
+            {
+                ProceduralManagerPtr procedural_manager =
+                    object_manager->getProceduralManager();
+                if (procedural_manager != nullptr)
+                {
+                    const int road_object_count =
+                        procedural_manager->getNumObjects();
+                    for (int road_index = 0; road_index < road_object_count;
+                         ++road_index)
+                    {
+                        ProceduralObjectPtr road_object =
+                            procedural_manager->getObject(road_index);
+                        if (road_object == nullptr)
+                            continue;
+                        ProceduralRoadPtr road = road_object->getRoad();
+                        if (road == nullptr)
+                            continue; // removed road: a permanent tombstone
+                        if (!road->HasFinalizedGraphicsSnapshot())
+                        {
+                            return Render::ValidationResult::Failure(
+                                Render::ValidationCode::SEQUENCE_MISMATCH,
+                                "static_meshes.procedural.unfinalized",
+                                "a live procedural road has no finalized "
+                                "graphics snapshot");
+                        }
+                        road_captures.push_back(
+                            road->CopyFinalizedGraphicsSnapshot());
+                    }
+                    procedural_roads_adapted = true;
+                }
+            }
+            pending->procedural_road_inventory =
+                m_ogre14_procedural_road_inventory;
+            std::vector<Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
+                road_sections;
+            if (procedural_roads_adapted)
+            {
+                static_validation = Render::BuildOgre14ProceduralRoadInventory(
+                    road_captures, pending->procedural_road_inventory,
+                    road_sections);
+                if (!static_validation)
+                    return static_validation;
+            }
+
             static_validation =
                 CaptureOgre14StaticMeshObjects(
                     object_manager,
@@ -3726,6 +3798,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     pending->admitted_static_objects,
                     pending->static_registry,
                     pending->static_mesh_cache,
+                    road_sections,
+                    procedural_roads_adapted,
                     static_assets,
                     candidate.frame.static_meshes);
             if (!static_validation)
@@ -3757,6 +3831,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     retention_lifetime.new_frozen_material_decisions;
                 m_ogre14_static_retention_projections =
                     retention_lifetime.projections;
+                m_ogre14_static_retention_road_live =
+                    pending->procedural_road_inventory.live_identity_count();
+                m_ogre14_static_retention_road_cached =
+                    pending->procedural_road_inventory.cached_mesh_count();
                 m_ogre14_static_retention_valid = true;
             }
             }
@@ -4589,6 +4667,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
              m_ogre14_pending_capture->static_mesh_cache);
         swap(m_ogre_next_demo_admitted_static_objects,
              m_ogre14_pending_capture->admitted_static_objects);
+        swap(m_ogre14_procedural_road_inventory,
+             m_ogre14_pending_capture->procedural_road_inventory);
     }
     swap(m_ogre14_dynamic_identity_registry,
          m_ogre14_pending_capture->dynamic_registry);
