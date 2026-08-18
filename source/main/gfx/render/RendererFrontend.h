@@ -16,6 +16,7 @@
 #include "RenderFrame.h"
 #include "RenderResourceDescriptors.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -91,6 +92,38 @@ enum class RenderOperationCode : std::uint8_t {
 enum class RenderOperationRecovery : std::uint8_t {
   NONE = 0,
   RETRY_AFTER_PRESENTATION_SURFACE_UPDATE,
+};
+
+/// A backend failure carries a message, but the dispatch and session results
+/// that relay it are all-scalar and cross `noexcept` boundaries, where an
+/// allocating string copy would terminate. Relay the message in a bounded,
+/// trivially copyable buffer instead, so a `BACKEND_FAILURE` can never reach a
+/// log as a bare numeric code again.
+inline constexpr std::size_t kRenderOperationDetailCapacity = 192U;
+
+struct RenderOperationDetail final {
+  char text[kRenderOperationDetailCapacity] = {};
+
+  [[nodiscard]] bool empty() const noexcept { return text[0] == '\0'; }
+
+  [[nodiscard]] const char *c_str() const noexcept { return text; }
+
+  /// Copy at most the capacity minus one byte and always NUL-terminate. A
+  /// longer message is truncated rather than dropped, because a truncated
+  /// diagnostic still names the failing path.
+  void Assign(const char *source) noexcept {
+    if (source == nullptr) {
+      text[0] = '\0';
+      return;
+    }
+    std::size_t index = 0U;
+    while (index + 1U < kRenderOperationDetailCapacity &&
+           source[index] != '\0') {
+      text[index] = source[index];
+      ++index;
+    }
+    text[index] = '\0';
+  }
 };
 
 struct RenderOperationResult {

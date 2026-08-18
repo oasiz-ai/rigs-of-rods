@@ -125,6 +125,9 @@ struct RendererInProcessSessionResult final {
       RendererInProcessSessionStatus::FAILED_INTERNAL;
   Render::ValidationResult validation;
   Render::RenderOperationCode frontend_code = Render::RenderOperationCode::OK;
+  /// The backend's own message for `frontend_code`, relayed in a bounded
+  /// buffer so it survives the `noexcept` result path.
+  Render::RenderOperationDetail frontend_detail;
   std::uint64_t surface_revision = 0U;
   std::uint64_t asset_sequence = 0U;
   std::uint64_t scene_snapshot_id = 0U;

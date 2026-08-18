@@ -57,6 +57,9 @@ struct RendererFrontendDirectDispatchResult final {
       RendererFrontendDirectDispatchStatus::FAILED_INTERNAL;
   ValidationCode validation_code = ValidationCode::OK;
   RenderOperationCode frontend_code = RenderOperationCode::OK;
+  /// The backend's own message for `frontend_code`. Empty when the failure
+  /// came from validation rather than the frontend.
+  RenderOperationDetail frontend_detail;
   std::uint64_t asset_sequence = 0U;
   std::uint64_t scene_snapshot_id = 0U;
   std::uint64_t frontend_frame_id = 0U;
@@ -162,7 +165,8 @@ private:
       RendererFrontendDirectDispatchStatus status,
       ValidationCode validation_code = ValidationCode::OK,
       RenderOperationCode frontend_code = RenderOperationCode::OK,
-      std::uint32_t resources_released = 0U) noexcept;
+      std::uint32_t resources_released = 0U,
+      const char *frontend_detail = nullptr) noexcept;
   [[nodiscard]] RendererFrontendDirectDispatchResult
   RetryablePresentationSurfaceStale(
       std::uint64_t scene_snapshot_id,

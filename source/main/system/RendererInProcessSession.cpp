@@ -170,6 +170,7 @@ public:
     RendererInProcessSessionResult result = Poison(
         RendererInProcessSessionStatus::FAILED_DISPATCH, validation,
         dispatch.frontend_code, event_polls);
+    result.frontend_detail = dispatch.frontend_detail;
     result.asset_sequence = dispatch.asset_sequence;
     result.scene_snapshot_id = dispatch.scene_snapshot_id;
     result.frontend_frame_id = dispatch.frontend_frame_id;

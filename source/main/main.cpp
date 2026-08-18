@@ -3930,7 +3930,8 @@ int main(int argc, char *argv[])
                             std::to_string(static_cast<unsigned int>(
                                 scene_result.frontend_code)) + "\n" +
                             scene_result.validation.field + "\n" +
-                            scene_result.validation.detail;
+                            scene_result.validation.detail + "\n" +
+                            scene_result.frontend_detail.c_str();
                         if (failure_signature !=
                             renderer_combined_scene_failure_signature)
                         {
@@ -3939,12 +3940,13 @@ int main(int argc, char *argv[])
                             LOG(fmt::format(
                                 "[RoR|RendererCombined|Scene] Snapshot not "
                                 "presented: status='{}', frontend={}, "
-                                "field='{}', detail='{}'",
+                                "field='{}', detail='{}', backend='{}'",
                                 ToString(scene_result.status),
                                 static_cast<unsigned int>(
                                     scene_result.frontend_code),
                                 scene_result.validation.field,
-                                scene_result.validation.detail));
+                                scene_result.validation.detail,
+                                scene_result.frontend_detail.c_str()));
                         }
                         if (scene_result.terminal)
                         {

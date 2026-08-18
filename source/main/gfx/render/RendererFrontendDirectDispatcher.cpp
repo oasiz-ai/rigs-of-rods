@@ -140,7 +140,8 @@ RendererFrontendDirectDispatcher::Success(
 RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Fail(
     RendererFrontendDirectDispatchStatus status,
     ValidationCode validation_code, RenderOperationCode frontend_code,
-    std::uint32_t resources_released) noexcept {
+    std::uint32_t resources_released,
+    const char *frontend_detail) noexcept {
   if (!terminal_) {
     terminal_ = true;
     terminal_cause_ = status;
@@ -150,6 +151,7 @@ RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Fail(
   result.terminal_cause = terminal_cause_;
   result.validation_code = validation_code;
   result.frontend_code = frontend_code;
+  result.frontend_detail.Assign(frontend_detail);
   result.asset_sequence = registry_.sequence();
   result.resources_released = resources_released;
   result.terminal = true;
@@ -215,7 +217,8 @@ RendererFrontendDirectDispatcher::SynchronizeAssetsImpl(
   if (!synchronized) {
     return Fail(RendererFrontendDirectDispatchStatus::
                     FAILED_FRONTEND_ASSET_SYNCHRONIZATION,
-                ValidationCode::OK, synchronized.code);
+                ValidationCode::OK, synchronized.code, 0U,
+                synchronized.detail.c_str());
   }
   registry_ = std::move(candidate);
   return Success(
@@ -392,7 +395,8 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
           RendererFrontendDirectDispatchStatus::
               FAILED_FRONTEND_FRAME_RETIREMENT,
           ValidationCode::OK,
-          retired ? RenderOperationCode::BACKEND_FAILURE : retired.code);
+          retired ? RenderOperationCode::BACKEND_FAILURE : retired.code,
+          0U, retired.detail.c_str());
     }
     RenderOperationResult waited;
     try {
@@ -405,7 +409,8 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
     }
     if (!waited) {
       return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_WAIT,
-                  ValidationCode::OK, waited.code);
+                  ValidationCode::OK, waited.code, 0U,
+                  waited.detail.c_str());
     }
     last_frontend_frame_id_ = request.frame_id;
     last_consumed_scene_snapshot_id_ = scene_snapshot_id;
@@ -522,11 +527,13 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
                                                cleanup.released);
     }
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
-                ValidationCode::OK, rendered.code, cleanup.released);
+                ValidationCode::OK, rendered.code, cleanup.released,
+                rendered.detail.c_str());
   }
   if (!waited || wait_threw) {
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_WAIT,
-                output_validation.code, waited.code, cleanup.released);
+                output_validation.code, waited.code, cleanup.released,
+                waited.detail.c_str());
   }
   if (!output_validation) {
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_OUTPUT,
@@ -589,7 +596,8 @@ RendererFrontendDirectDispatcher::ResetSceneGenerationImpl() {
   if (!reset) {
     return Fail(RendererFrontendDirectDispatchStatus::
                     FAILED_FRONTEND_SCENE_GENERATION_RESET,
-                ValidationCode::OK, reset.code);
+                ValidationCode::OK, reset.code, 0U,
+                reset.detail.c_str());
   }
   scene_generation_ = next_generation;
   last_scene_snapshot_id_ = 0U;
