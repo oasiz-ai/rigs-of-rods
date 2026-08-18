@@ -521,3 +521,56 @@ Both report 15 active histories, maximum absolute strain `0.00106908`, and zero
 plastic strain or damage. The derived material values are deliberately a
 numerical integration fixture, not physically calibrated DAF data or a new
 legacy-content default.
+
+## Playable frame-time budget
+
+The playable frame-time budget is the measurement seam behind the CityWorld
+visual milestone's and the Ogre-Next combined runtime's declared frame-rate
+budgets. `frame_time_budget` compiles the exact production kernel
+(`source/main/system/FrameTimeBudget.cpp`) into a standalone strict binary with
+`-Wall -Wextra -Werror -pedantic -fno-fast-math -ffp-contract=off`. It proves
+the nearest-rank percentile is a conservative bin upper edge, that warm-up
+frames are excluded, that a non-finite, non-positive, or beyond-ten-second
+interval is rejected rather than clamped, that an active limiter or a mid-run
+scene change fails closed, that the requested-frame ceiling arms exactly once,
+that `Finalize` is pure, and that a receipt is created exclusively and never
+overwritten.
+
+The kernel classifies intervals by IEEE-754 bit pattern rather than by calling
+`std::isfinite`, because optimized game builds enable `-ffast-math` globally and
+may fold that predicate to a constant true. The game compiles the same
+translation unit strictly for the same reason.
+
+`frame_time_budget_runtime_contract` locks the seam the C++ tests cannot see:
+the nine non-archived `gfx_frame_budget_*` CVars and their declared 60 Hz
+defaults, the single render-loop sample point on the loop's own committed delta
+time, the fail-closed startup, finalization before renderer teardown, exit code
+75 not colliding with the renderer child's 73/74, and the build graph compiling
+the production kernel into both the game and the test binary.
+
+`playable_performance_scene_tool` covers the driver's decision logic against
+synthetic receipts: request validation, exact receipt-to-request identity,
+refusal of a limiter/VSync/fullscreen run, refusal of incoherent statistics,
+the macOS packaged-versus-development directory split, explicit graphics
+presets, command-line arming, and the display-pacing detector.
+
+Run the gate against a built executable:
+
+```sh
+python3 tools/run_playable_performance_scene.py \
+  --executable BUILD/bin/RoR-Ogre14 \
+  --artifact-dir ARTIFACTS \
+  --scenario-id playable-cityworld-alexis-1080p-high \
+  --terrain CityWorld.terrn2 --actor AlexisSaber.truck \
+  --graphics-preset high --width 1920 --height 1080 \
+  --warmup-frames 120 --minimum-frames 600 --frames 1800
+```
+
+The 2026-08-17 Apple M5 result set is checked in as
+`doc/nextgen/evidence/PLAYABLE_PERFORMANCE_M5_2026-08-17.json`. It measures the
+OGRE 14 compatibility executable, not Ogre-Next, with PSSM shadows verified
+active from the runtime's own effective-settings statement. The sustained 60
+FPS budget is met on every recorded run (80-86 FPS mean), but the 18.3 ms p95
+ceiling is marginal: one of four recorded runs exceeded it. A fifth attempt
+crashed during CityWorld terrain load with `SIGBUS` inside OGRE's
+`MeshLodGenerator`. See `doc/nextgen/PLAYABLE_PERFORMANCE_GATE.md`.

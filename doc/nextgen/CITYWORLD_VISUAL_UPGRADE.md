@@ -683,6 +683,23 @@ No CityWorld visual milestone is complete until:
   at or below 18.3 ms on the declared reference machine, followed by native
   Windows and Linux validation before the feature becomes a shared default.
 
+That last criterion now has a measurement seam and an executable gate: see the
+[playable frame-time budget gate](PLAYABLE_PERFORMANCE_GATE.md). It records a
+bounded frame-interval distribution from the render loop's own delta time,
+verifies from the runtime's own statement that the requested graphics preset
+actually took effect, and fails closed on a limiter, a rejected interval, a
+mid-run scene change, or a renderer fault. The first recorded macOS arm64
+results are in
+`evidence/PLAYABLE_PERFORMANCE_M5_2026-08-17.json`.
+
+Those results are a measurement of the OGRE 14 compatibility executable
+(`RoR-Ogre14`) against the unmodified CityWorld archive without the local
+overlay. They are not an Ogre-Next result, not a full-map traversal, and not
+yet a stable acceptance threshold: repeated identical runs spread widely enough
+that the gate should block only over a repeated set whose worst run passes. The
+run-to-run spread, native Windows and Linux repetitions, and the perceptual and
+temporal camera gates above all remain open.
+
 Hardware ray tracing remains optional backend work after this raster baseline.
 The portable fidelity path is dynamic sun/ambient lighting, PSSM shadows,
 HDR/PBR materials, reflection probes, instancing, LODs, atmosphere, and
