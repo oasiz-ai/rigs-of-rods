@@ -1,0 +1,63 @@
+{
+ "conclusion": "Reading the joined OGRE 14 scene costs 20.82 ms, 68.6 percent of a 30.33 ms frame. Snapshot production, which a native scene source would still perform, costs 0.358 ms.",
+ "format": "ror-ogre-next-stage-attribution-v1",
+ "frame": {
+  "accepted_frames": 1800,
+  "maximum_ms": 88.0569,
+  "mean_fps": 32.972,
+  "mean_ms": 30.3288,
+  "p95_ms": 36.4219
+ },
+ "machine": "arm64",
+ "measured_renderer": "ogre-next-combined",
+ "notes": [
+  "The OGRE 14 scene path - producing the scene in OGRE 14 and then reading it back out - accounts for 25.33 ms of the 30.33 ms frame.",
+  "Snapshot production and normalization are together under 1.5 percent, so the renderer-neutral conversion itself is not the cost. Neither is the GPU: dispatch, render submission and completion wait total 4.10 ms.",
+  "This supersedes the producer attribution recorded in OGRE_NEXT_PHASE_ATTRIBUTION_M5_2026-08-17.json, which attributed only UpdateScene to the producer and concluded that removing it would save about 4.5 ms. The scene read belongs to the same coupling; removing the OGRE 14 scene path addresses both.",
+  "Removing that path leaves dispatch, production and remainder, about 5 ms. That is a projection from measured stage costs, not a measured result: a native scene source will have its own cost, which is not yet known.",
+  "scene_dispatch's 63.34 ms maximum against a 4.10 ms mean shows occasional presentation stalls that the mean does not describe."
+ ],
+ "ogre14_scene_path_ms": 25.3331,
+ "ogre14_scene_path_share": 0.8353,
+ "platform": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+ "recorded_at_local": "2026-08-17T23:23:42-07:00",
+ "remainder": {
+  "mean_ms": 0.5343,
+  "share": 0.017617
+ },
+ "repository_commit": "0120f5c744e0606d5c72048cf85c4f82bd2c8f20",
+ "scene": {
+  "actor": "AlexisSaber.truck",
+  "graphics_preset": "high",
+  "height": 1080,
+  "terrain": "CityWorld.terrn2",
+  "width": 1920
+ },
+ "stages": {
+  "producer": {
+   "max_ms": 15.3975,
+   "mean_ms": 4.5145,
+   "share": 0.148852
+  },
+  "scene_dispatch": {
+   "max_ms": 63.3412,
+   "mean_ms": 4.103,
+   "share": 0.135286
+  },
+  "scene_joined_read": {
+   "max_ms": 27.8075,
+   "mean_ms": 20.8186,
+   "share": 0.68643
+  },
+  "scene_normalize": {
+   "max_ms": 0.005,
+   "mean_ms": 0.0004,
+   "share": 1.2e-05
+  },
+  "scene_produce": {
+   "max_ms": 0.5574,
+   "mean_ms": 0.358,
+   "share": 0.011803
+  }
+ }
+}
