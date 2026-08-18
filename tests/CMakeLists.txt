@@ -51,6 +51,52 @@ add_test(
     COMMAND ror_renderer_combined_application_mode_tests
 )
 
+# The playable frame-time budget compiles the exact production kernel into a
+# standalone strict binary; it must never acquire a renderer dependency.
+add_executable(
+    ror_frame_time_budget_tests
+    "${CMAKE_CURRENT_LIST_DIR}/system/FrameTimeBudgetTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/system/FrameTimeBudget.cpp"
+)
+target_include_directories(
+    ror_frame_time_budget_tests
+    PRIVATE "${ROR_REPOSITORY_ROOT}/source/main/system"
+)
+add_test(
+    NAME frame_time_budget
+    COMMAND
+        ror_frame_time_budget_tests
+        "${CMAKE_CURRENT_BINARY_DIR}"
+)
+add_test(
+    NAME frame_time_budget_runtime_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_frame_time_budget_contract.py"
+)
+add_test(
+    NAME playable_performance_scene_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_playable_performance_scene.py"
+)
+add_test(
+    NAME playable_performance_scene_tool_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_playable_performance_scene.py"
+)
+set_tests_properties(
+    frame_time_budget
+    frame_time_budget_runtime_contract
+    playable_performance_scene_tool
+    playable_performance_scene_tool_optimized
+    PROPERTIES
+        LABELS "gfx;performance"
+        TIMEOUT 120
+)
+
 add_test(
     NAME renderer_visual_parity_oracle
     COMMAND
@@ -1912,6 +1958,10 @@ set(ROR_RENDER_CONTRACT_BUILD_TARGETS
     ror_flex_mesh_topology_tests
     ror_ogre14_metal_flex_shadow_read_contract_tests
     ror_gfx_actor_capture_inventory_tests
+    # The frame-time budget rejects non-finite intervals, so it must be built
+    # and linked with the same strict IEEE environment the game pins for that
+    # translation unit.
+    ror_frame_time_budget_tests
 )
 foreach (render_contract_target IN LISTS ROR_RENDER_CONTRACT_BUILD_TARGETS)
     set_target_properties(
@@ -1946,6 +1996,7 @@ endforeach ()
 if (NOT MSVC)
     set(ROR_RENDER_CONTRACT_LINK_TARGETS
         ${ROR_RENDER_CONTRACT_TEST_TARGETS}
+        ror_frame_time_budget_tests
         ror_renderer_ogre14_input_adapter_tests
         ror_renderer_ogre14_runtime_ownership_tests
         ror_renderer_ogre14_game_host_session_tests

@@ -31,6 +31,7 @@
 #include "ContentManager.h"
 #include "DiscordRpc.h"
 #include "ErrorUtils.h"
+#include "FrameTimeBudget.h"
 #include "GameContext.h"
 #include "GfxScene.h"
 #include "GUI_DirectionArrow.h"
@@ -476,6 +477,266 @@ bool PumpCombinedRendererLoadingWindow(void* opaque) noexcept
     return false;
 }
 #endif
+
+/// Read one non-archived numeric budget CVar. An unparsable or trailing-junk
+/// value is refused instead of silently becoming its default.
+bool ReadFrameBudgetDouble(
+    RoR::CVar* cvar,
+    const char* name,
+    double& value)
+{
+    const std::string text = cvar->getStr();
+    try
+    {
+        std::size_t consumed = 0U;
+        const double parsed = std::stod(text, &consumed);
+        if (consumed != text.size())
+        {
+            RoR::LogFormat(
+                "[RoR|Perf] Refusing trailing characters in %s='%s'",
+                name, text.c_str());
+            return false;
+        }
+        value = parsed;
+        return true;
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|Perf] Refusing malformed %s='%s'", name, text.c_str());
+        return false;
+    }
+}
+
+bool ReadFrameBudgetUnsigned(
+    RoR::CVar* cvar,
+    const char* name,
+    std::uint64_t& value)
+{
+    const std::string text = cvar->getStr();
+    if (text.empty() ||
+            text.find_first_not_of("0123456789") != std::string::npos)
+    {
+        RoR::LogFormat(
+            "[RoR|Perf] Refusing malformed %s='%s'", name, text.c_str());
+        return false;
+    }
+    try
+    {
+        value = std::stoull(text);
+        return true;
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|Perf] Refusing out-of-range %s='%s'", name, text.c_str());
+        return false;
+    }
+}
+
+/// Build the playable frame-time recorder from the explicit CVar contract.
+/// Any refusal returns a null session, and a refused `gate` request also
+/// reports the failure so an automated run cannot mistake a missing recorder
+/// for a passing budget.
+std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
+    Ogre::RenderWindow* render_window,
+    bool& refused)
+{
+    using namespace RoR;
+
+    refused = false;
+
+    const std::string mode_name = App::gfx_frame_budget_mode->getStr();
+    FrameTimeBudgetMode mode = FrameTimeBudgetMode::OFF;
+    if (!ParseFrameTimeBudgetMode(mode_name, mode))
+    {
+        LogFormat(
+            "[RoR|Perf] Refusing unknown gfx_frame_budget_mode='%s'",
+            mode_name.c_str());
+        refused = true;
+        return nullptr;
+    }
+    if (mode == FrameTimeBudgetMode::OFF)
+    {
+        return nullptr;
+    }
+
+    FrameTimeBudgetLimits limits;
+    std::uint64_t warmup = 0U;
+    std::uint64_t minimum = 0U;
+    std::uint64_t requested = 0U;
+    std::uint64_t percentile = 0U;
+    if (!ReadFrameBudgetUnsigned(
+                App::gfx_frame_budget_warmup_frames,
+                "gfx_frame_budget_warmup_frames", warmup) ||
+            !ReadFrameBudgetUnsigned(
+                App::gfx_frame_budget_minimum_frames,
+                "gfx_frame_budget_minimum_frames", minimum) ||
+            !ReadFrameBudgetUnsigned(
+                App::gfx_frame_budget_requested_frames,
+                "gfx_frame_budget_requested_frames", requested) ||
+            !ReadFrameBudgetUnsigned(
+                App::gfx_frame_budget_percentile,
+                "gfx_frame_budget_percentile", percentile) ||
+            !ReadFrameBudgetDouble(
+                App::gfx_frame_budget_sustained_ms,
+                "gfx_frame_budget_sustained_ms", limits.sustained_ms) ||
+            !ReadFrameBudgetDouble(
+                App::gfx_frame_budget_percentile_ms,
+                "gfx_frame_budget_percentile_ms", limits.percentile_ms))
+    {
+        refused = true;
+        return nullptr;
+    }
+
+    if (warmup > kFrameTimeBudgetMaximumFrames ||
+            minimum > kFrameTimeBudgetMaximumFrames ||
+            percentile > 100U)
+    {
+        LOG("[RoR|Perf] Refusing out-of-range frame budget frame counts");
+        refused = true;
+        return nullptr;
+    }
+
+    limits.warmup_frames = static_cast<std::uint32_t>(warmup);
+    limits.minimum_frames = static_cast<std::uint32_t>(minimum);
+    limits.requested_frames = requested;
+    limits.percentile = static_cast<std::uint32_t>(percentile);
+    if (!limits.valid())
+    {
+        LOG("[RoR|Perf] Refusing an invalid frame budget contract");
+        refused = true;
+        return nullptr;
+    }
+
+    // The receipt path is created exclusively at the end of the run. Refusing
+    // an existing path here keeps a stale receipt from being read as evidence
+    // for this run, and refusing a missing path keeps a gated run from
+    // producing no machine-readable result at all.
+    const std::string receipt_path =
+        App::gfx_frame_budget_receipt_path->getStr();
+    if (mode == FrameTimeBudgetMode::GATE && receipt_path.empty())
+    {
+        LOG("[RoR|Perf] A gated run requires gfx_frame_budget_receipt_path");
+        refused = true;
+        return nullptr;
+    }
+    if (!receipt_path.empty() && RoR::FileExists(receipt_path))
+    {
+        LogFormat(
+            "[RoR|Perf] Refusing an existing receipt path '%s'",
+            receipt_path.c_str());
+        refused = true;
+        return nullptr;
+    }
+
+    // The terrain and actor stay empty here: this loop's own message queue
+    // loads them, so they are named by the first recorded frame instead.
+    FrameTimeBudgetContext context;
+    context.scenario_id = App::gfx_frame_budget_scenario_id->getStr();
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    context.renderer = "ogre-next-combined";
+#else
+    context.renderer = "ogre14";
+#endif
+    context.fps_limit = App::gfx_fps_limit->getInt();
+    if (render_window != nullptr)
+    {
+        context.width = static_cast<std::uint32_t>(render_window->getWidth());
+        context.height = static_cast<std::uint32_t>(render_window->getHeight());
+        context.fullscreen = render_window->isFullScreen();
+        context.vsync = render_window->isVSyncEnabled();
+    }
+
+    // Writing a setting is not the same as it taking effect: the config
+    // parser maps enum-valued graphics settings from display strings and
+    // silently substitutes the first enumerator for anything it does not
+    // recognize. Emit the effective values so a recorded budget can never be
+    // read as describing settings the run did not actually use.
+    LogFormat(
+        "[RoR|Perf] Graphics:"
+        " gfx_shadow_type=%d gfx_shadow_quality=%d gfx_texture_filter=%d"
+        " gfx_anisotropy=%d gfx_vegetation_mode=%d gfx_water_mode=%d"
+        " gfx_sky_mode=%d gfx_envmap_enabled=%d gfx_envmap_rate=%d"
+        " gfx_particles_mode=%d gfx_skidmarks_mode=%d gfx_sight_range=%d"
+        " gfx_postprocess_mode=%d",
+        App::gfx_shadow_type->getInt(),
+        App::gfx_shadow_quality->getInt(),
+        App::gfx_texture_filter->getInt(),
+        App::gfx_anisotropy->getInt(),
+        App::gfx_vegetation_mode->getInt(),
+        App::gfx_water_mode->getInt(),
+        App::gfx_sky_mode->getInt(),
+        App::gfx_envmap_enabled->getBool() ? 1 : 0,
+        App::gfx_envmap_rate->getInt(),
+        App::gfx_particles_mode->getInt(),
+        App::gfx_skidmarks_mode->getInt(),
+        App::gfx_sight_range->getInt(),
+        App::gfx_postprocess_mode->getInt());
+
+    LogFormat(
+        "[RoR|Perf] Frame budget armed: mode=%s sustained_ms=%.4f "
+        "p%u_ms=%.4f warmup=%llu minimum=%llu requested=%llu "
+        "resolution=%ux%u fps_limit=%d vsync=%d",
+        ToString(mode),
+        limits.sustained_ms,
+        static_cast<unsigned int>(limits.percentile),
+        limits.percentile_ms,
+        static_cast<unsigned long long>(limits.warmup_frames),
+        static_cast<unsigned long long>(limits.minimum_frames),
+        static_cast<unsigned long long>(limits.requested_frames),
+        static_cast<unsigned int>(context.width),
+        static_cast<unsigned int>(context.height),
+        context.fps_limit,
+        context.vsync ? 1 : 0);
+
+    return std::unique_ptr<FrameTimeBudgetSession>(
+        new FrameTimeBudgetSession(mode, limits, context));
+}
+
+/// Log the summary and retain the receipt. A gated run that cannot retain its
+/// receipt is reported as a failure, never as a silent pass.
+bool FinalizeFrameTimeBudgetSession(
+    RoR::FrameTimeBudgetSession& session)
+{
+    using namespace RoR;
+
+    // Re-observe the scene so a map reset or actor change inside the recorded
+    // window is reported instead of being averaged into one distribution.
+    if (session.RecordingStarted())
+    {
+        session.ObserveSceneIdentity(
+            App::sim_terrain_name->getStr(),
+            App::cli_preset_vehicle->getStr());
+    }
+
+    const FrameTimeBudgetReport report = session.Finalize();
+    LOG(FormatFrameTimeBudgetSummary(report));
+
+    const std::string receipt_path =
+        App::gfx_frame_budget_receipt_path->getStr();
+    if (receipt_path.empty())
+    {
+        return report.mode != FrameTimeBudgetMode::GATE;
+    }
+
+    const FrameTimeBudgetWriteResult written = WriteFrameTimeBudgetReceipt(
+        receipt_path, SerializeFrameTimeBudgetReport(report));
+    if (written != FrameTimeBudgetWriteResult::WRITTEN)
+    {
+        LogFormat(
+            "[RoR|Perf] Failed to retain the frame-time receipt at '%s' (%s)",
+            receipt_path.c_str(),
+            written == FrameTimeBudgetWriteResult::EXISTS
+                ? "already exists"
+                : "write failed");
+        return false;
+    }
+    LogFormat(
+        "[RoR|Perf] Retained the frame-time receipt at '%s'",
+        receipt_path.c_str());
+    return report.mode != FrameTimeBudgetMode::GATE || report.passed();
+}
 
 } // namespace
 
@@ -1289,6 +1550,22 @@ int main(int argc, char *argv[])
         // --------------------------------------------------------------
 
         auto start_time = std::chrono::high_resolution_clock::now();
+
+        // Arm the playable frame-time budget before the first frame so the
+        // recorder observes exactly the render loop's own frame clock. A
+        // refused contract fails the process instead of running unmeasured.
+        bool frame_budget_refused = false;
+        std::unique_ptr<FrameTimeBudgetSession> frame_budget_session =
+            CreateFrameTimeBudgetSession(
+                App::GetAppContext()->GetRenderWindow(),
+                frame_budget_refused);
+        if (frame_budget_refused)
+        {
+            LOG("[RoR|Perf] Shutting down: the frame budget was refused");
+            App::GetGameContext()->PushMessage(
+                Message(MSG_APP_SHUTDOWN_REQUESTED));
+        }
+        bool frame_budget_shutdown_requested = false;
 
         while (App::app_state->getEnum<AppState>() != AppState::SHUTDOWN)
         {
@@ -3227,6 +3504,37 @@ int main(int argc, char *argv[])
             const float dt = std::chrono::duration<float>(now - start_time).count();
             start_time = now;
 
+            // Record exactly the loop's own inter-frame interval. The recorder
+            // owns no clock of its own, so the measured distribution can never
+            // disagree with the delta time the simulation was advanced by.
+            if (frame_budget_session != nullptr)
+            {
+                frame_budget_session->RecordFrame(static_cast<double>(dt));
+                // The terrain and actor are loaded by this loop's own message
+                // queue, so they are unknown when the recorder is armed. Name
+                // the scene on the first recorded frame only; the identity is
+                // observed again at finalize to catch a mid-run map reset,
+                // and neither observation costs the measured frames anything.
+                if (frame_budget_session->AcceptedFrames() == 1U)
+                {
+                    frame_budget_session->ObserveSceneIdentity(
+                        App::sim_terrain_name->getStr(),
+                        App::cli_preset_vehicle->getStr());
+                }
+                if (!frame_budget_shutdown_requested &&
+                        frame_budget_session->ShutdownRequested())
+                {
+                    frame_budget_shutdown_requested = true;
+                    LogFormat(
+                        "[RoR|Perf] Requested frame count reached (%llu); "
+                        "shutting down",
+                        static_cast<unsigned long long>(
+                            frame_budget_session->AcceptedFrames()));
+                    App::GetGameContext()->PushMessage(
+                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                }
+            }
+
 #ifdef USE_SOCKETW
             // Process incoming network traffic
             if (!world_model_capture_frame &&
@@ -4130,6 +4438,21 @@ int main(int argc, char *argv[])
             App::GetGuiManager()->UpdateMouseCursorVisibility();
 
         } // End of main rendering/input loop
+
+        // The budget is finalized before renderer teardown so the receipt
+        // describes the measured session and not the shutdown path.
+        if (frame_budget_session != nullptr)
+        {
+            if (!FinalizeFrameTimeBudgetSession(*frame_budget_session))
+            {
+                application_exit_code = kFrameTimeBudgetFailureExitCode;
+            }
+            frame_budget_session.reset();
+        }
+        else if (frame_budget_refused)
+        {
+            application_exit_code = kFrameTimeBudgetFailureExitCode;
+        }
 
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
         if (renderer_combined_session != nullptr)

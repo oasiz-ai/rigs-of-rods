@@ -110,6 +110,51 @@ void Console::cVarSetupBuiltins()
         "Authenticated input record/replay step ceiling",
         0,
         "12000");
+    App::gfx_frame_budget_mode = this->cVarCreate(
+        "gfx_frame_budget_mode",
+        "Playable frame-time budget: off, measure, or gate",
+        0,
+        "off");
+    App::gfx_frame_budget_receipt_path = this->cVarCreate(
+        "gfx_frame_budget_receipt_path",
+        "Frame-time receipt path; the file must not already exist",
+        0,
+        "");
+    App::gfx_frame_budget_scenario_id = this->cVarCreate(
+        "gfx_frame_budget_scenario_id",
+        "Scenario identity recorded in the frame-time receipt",
+        0,
+        "");
+    App::gfx_frame_budget_sustained_ms = this->cVarCreate(
+        "gfx_frame_budget_sustained_ms",
+        "Sustained mean frame-interval budget in milliseconds",
+        0,
+        "16.6667");
+    App::gfx_frame_budget_percentile = this->cVarCreate(
+        "gfx_frame_budget_percentile",
+        "Gated frame-interval percentile in whole percent",
+        0,
+        "95");
+    App::gfx_frame_budget_percentile_ms = this->cVarCreate(
+        "gfx_frame_budget_percentile_ms",
+        "Gated frame-interval percentile ceiling in milliseconds",
+        0,
+        "18.3");
+    App::gfx_frame_budget_warmup_frames = this->cVarCreate(
+        "gfx_frame_budget_warmup_frames",
+        "Frames excluded from the budget after the scene is playable",
+        0,
+        "120");
+    App::gfx_frame_budget_minimum_frames = this->cVarCreate(
+        "gfx_frame_budget_minimum_frames",
+        "Minimum recorded frames required for a frame-time verdict",
+        0,
+        "600");
+    App::gfx_frame_budget_requested_frames = this->cVarCreate(
+        "gfx_frame_budget_requested_frames",
+        "Recorded frames after which the budget run asks to shut down",
+        0,
+        "0");
     App::wm_capture_enabled = this->cVarCreate(
         "wm_capture_enabled",
         "Enable one fail-closed native world-model episode",

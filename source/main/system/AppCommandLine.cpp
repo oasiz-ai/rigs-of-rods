@@ -57,6 +57,15 @@ enum {
     OPT_WORLDMODEL_DATA_SOURCE,
     OPT_WORLDMODEL_PARTICIPANT_RELEASE,
     OPT_WORLDMODEL_ALLOWED_USE,
+    OPT_FRAME_BUDGET_MODE,
+    OPT_FRAME_BUDGET_RECEIPT,
+    OPT_FRAME_BUDGET_SCENARIO,
+    OPT_FRAME_BUDGET_SUSTAINED_MS,
+    OPT_FRAME_BUDGET_PERCENTILE,
+    OPT_FRAME_BUDGET_PERCENTILE_MS,
+    OPT_FRAME_BUDGET_WARMUP,
+    OPT_FRAME_BUDGET_MINIMUM,
+    OPT_FRAME_BUDGET_FRAMES,
     OPT_APPLE_PERSISTENCE_IGNORE_STATE
 };
 
@@ -96,6 +105,26 @@ CSimpleOpt::SOption cmdline_options[] = {
                           ("-worldmodel-participant-release"), SO_REQ_SEP },
     { OPT_WORLDMODEL_ALLOWED_USE,
                           ("-worldmodel-allowed-use"), SO_REQ_SEP },
+    // The playable frame-time budget is a non-archived lifecycle contract, so
+    // it is armed explicitly per launch and never restored from RoR.cfg.
+    { OPT_FRAME_BUDGET_MODE,
+                          ("-frame-budget"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_RECEIPT,
+                          ("-frame-budget-receipt"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_SCENARIO,
+                          ("-frame-budget-scenario"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_SUSTAINED_MS,
+                          ("-frame-budget-sustained-ms"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_PERCENTILE,
+                          ("-frame-budget-percentile"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_PERCENTILE_MS,
+                          ("-frame-budget-percentile-ms"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_WARMUP,
+                          ("-frame-budget-warmup"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_MINIMUM,
+                          ("-frame-budget-minimum"), SO_REQ_SEP },
+    { OPT_FRAME_BUDGET_FRAMES,
+                          ("-frame-budget-frames"), SO_REQ_SEP },
     // AppKit consumes this NSArgumentDomain preference before RoR parses the
     // command line. Accept it here as a no-op so unattended macOS runs can
     // disable crash-state restoration without falling back to help/exit.
@@ -236,6 +265,42 @@ void Console::processCommandLine(int argc, char *argv[])
         {
             App::wm_capture_allowed_use_id->setStr(args.OptionArg());
         }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_MODE)
+        {
+            App::gfx_frame_budget_mode->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_RECEIPT)
+        {
+            App::gfx_frame_budget_receipt_path->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_SCENARIO)
+        {
+            App::gfx_frame_budget_scenario_id->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_SUSTAINED_MS)
+        {
+            App::gfx_frame_budget_sustained_ms->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_PERCENTILE)
+        {
+            App::gfx_frame_budget_percentile->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_PERCENTILE_MS)
+        {
+            App::gfx_frame_budget_percentile_ms->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_WARMUP)
+        {
+            App::gfx_frame_budget_warmup_frames->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_MINIMUM)
+        {
+            App::gfx_frame_budget_minimum_frames->setStr(args.OptionArg());
+        }
+        else if (args.OptionId() == OPT_FRAME_BUDGET_FRAMES)
+        {
+            App::gfx_frame_budget_requested_frames->setStr(args.OptionArg());
+        }
     }
 }
 
@@ -266,6 +331,15 @@ void Console::showCommandLineUsage()
             "-worldmodel-data-source <canonical id>"                "\n"
             "-worldmodel-participant-release <canonical id>"        "\n"
             "-worldmodel-allowed-use <canonical id>"                "\n"
+            "-frame-budget <off|measure|gate>"                      "\n"
+            "-frame-budget-receipt <absolute file that must not exist>" "\n"
+            "-frame-budget-scenario <canonical id>"                 "\n"
+            "-frame-budget-sustained-ms <positive milliseconds>"    "\n"
+            "-frame-budget-percentile <1..100>"                     "\n"
+            "-frame-budget-percentile-ms <positive milliseconds>"   "\n"
+            "-frame-budget-warmup <frames excluded from the budget>" "\n"
+            "-frame-budget-minimum <frames required for a verdict>" "\n"
+            "-frame-budget-frames <frames after which the run exits>" "\n"
             "For example: RoR.exe -map simple2 -pos '518 0 518' -rot 45 -truck semi.truck -enter"));
 }
 

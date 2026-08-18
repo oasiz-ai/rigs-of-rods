@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Static closure checks for the playable frame-time budget wiring.
+
+The kernel itself is proven by the strict C++ binary. These checks lock the
+runtime seam that the C++ tests cannot see: the CVar contract, the exact
+render-loop sample point, the fail-closed startup, and the build graph.
+"""
+
+from pathlib import Path
+import re
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def strip_comments(text: str) -> str:
+    """Remove block and line comments so prose cannot satisfy a code check."""
+
+    without_blocks = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+    return re.sub(r"//[^\n]*", " ", without_blocks)
+
+BUDGET_CVARS = (
+    "gfx_frame_budget_mode",
+    "gfx_frame_budget_receipt_path",
+    "gfx_frame_budget_scenario_id",
+    "gfx_frame_budget_sustained_ms",
+    "gfx_frame_budget_percentile",
+    "gfx_frame_budget_percentile_ms",
+    "gfx_frame_budget_warmup_frames",
+    "gfx_frame_budget_minimum_frames",
+    "gfx_frame_budget_requested_frames",
+)
+
+
+class FrameTimeBudgetContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.main = (ROOT / "source/main/main.cpp").read_text()
+        self.header = (
+            ROOT / "source/main/system/FrameTimeBudget.h"
+        ).read_text()
+        self.source = (
+            ROOT / "source/main/system/FrameTimeBudget.cpp"
+        ).read_text()
+
+    def test_lifecycle_cvars_are_declared_and_never_archived(self) -> None:
+        declarations = (ROOT / "source/main/Application.h").read_text()
+        definitions = (ROOT / "source/main/Application.cpp").read_text()
+        creation = (ROOT / "source/main/system/CVar.cpp").read_text()
+        for name in BUDGET_CVARS:
+            self.assertEqual(
+                declarations.count(f"extern CVar* {name};"), 1, name)
+            self.assertEqual(definitions.count(f"CVar* {name};"), 1, name)
+            anchor = f"App::{name} = this->cVarCreate("
+            self.assertEqual(creation.count(anchor), 1, name)
+            block = creation[
+                creation.index(anchor) : creation.index(anchor) + 420
+            ]
+            # A recording contract must never be silently restored from a
+            # user's config file into a later, unrelated session.
+            self.assertNotIn("CVAR_ARCHIVE", block, name)
+
+    def test_default_budget_is_the_declared_sixty_hertz_contract(self) -> None:
+        creation = (ROOT / "source/main/system/CVar.cpp").read_text()
+        for name, default in (
+            ("gfx_frame_budget_mode", '"off"'),
+            ("gfx_frame_budget_sustained_ms", '"16.6667"'),
+            ("gfx_frame_budget_percentile", '"95"'),
+            ("gfx_frame_budget_percentile_ms", '"18.3"'),
+        ):
+            anchor = f"App::{name} = this->cVarCreate("
+            block = creation[
+                creation.index(anchor) : creation.index(anchor) + 420
+            ]
+            self.assertIn(default, block, name)
+
+    def test_recorder_samples_the_render_loops_own_delta_time(self) -> None:
+        anchor = "const float dt = std::chrono::duration<float>(now - start_time).count();"
+        self.assertEqual(self.main.count(anchor), 1)
+        block = self.main[self.main.index(anchor) : self.main.index(anchor) + 1200]
+        # The sample must be taken from the loop's committed delta time, and
+        # the recorder must not introduce a clock of its own.
+        self.assertIn(
+            "frame_budget_session->RecordFrame(static_cast<double>(dt));",
+            block,
+        )
+        self.assertNotIn("high_resolution_clock", block.split("RecordFrame")[0])
+        self.assertEqual(self.main.count("RecordFrame("), 1)
+        self.assertNotIn("std::chrono", self.source)
+
+    def test_startup_and_shutdown_are_fail_closed(self) -> None:
+        self.assertIn("bool frame_budget_refused = false;", self.main)
+        self.assertIn(
+            "application_exit_code = kFrameTimeBudgetFailureExitCode;",
+            self.main,
+        )
+        # A refused contract must stop the run rather than leave it unmeasured.
+        refusal = self.main.index(
+            '[RoR|Perf] Shutting down: the frame budget was refused')
+        self.assertIn(
+            "MSG_APP_SHUTDOWN_REQUESTED",
+            self.main[refusal : refusal + 320],
+        )
+        # A gated run without a receipt path cannot start.
+        self.assertIn(
+            "A gated run requires gfx_frame_budget_receipt_path", self.main)
+        # An existing receipt is never reused or overwritten.
+        self.assertIn("Refusing an existing receipt path", self.main)
+        self.assertIn("FrameTimeBudgetWriteResult::EXISTS", self.source)
+        self.assertIn("O_CREAT | O_EXCL", self.source)
+        self.assertIn("CREATE_NEW", self.source)
+
+    def test_exit_code_does_not_collide_with_the_renderer_child(self) -> None:
+        child = (
+            ROOT / "source/main/system/RendererOgreNextChild.h"
+        ).read_text()
+        self.assertIn("kFrameTimeBudgetFailureExitCode = 75", self.header)
+        self.assertIn("PrePeerReadyFailureExitCode = 73", child)
+        self.assertIn("PostPeerReadyFailureExitCode = 74", child)
+
+    def test_finalize_precedes_renderer_teardown(self) -> None:
+        end_of_loop = self.main.index("} // End of main rendering/input loop")
+        finalize = self.main.index(
+            "FinalizeFrameTimeBudgetSession(*frame_budget_session)")
+        self.assertLess(end_of_loop, finalize)
+        for teardown in (
+            "CloseCombinedRendererSession(*renderer_combined_session)",
+            "renderer_bridge_product_session->Shutdown()",
+        ):
+            self.assertLess(finalize, self.main.index(teardown, finalize))
+
+    def test_kernel_is_renderer_and_configuration_free(self) -> None:
+        # Prose may name OGRE; code may not depend on it. Compare the
+        # comment-free text so a doc reference cannot mask a real include.
+        for label, text in (
+            ("header", strip_comments(self.header)),
+            ("source", strip_comments(self.source)),
+        ):
+            for forbidden in ("Ogre", "App::", "CVar", "GUI", "Application.h"):
+                self.assertNotIn(forbidden, text, f"{label}: {forbidden}")
+            # The only permitted quoted include is the module's own header;
+            # everything else must be a standard or platform header.
+            quoted = set(re.findall(r'#include\s+"([^"]+)"', text))
+            self.assertLessEqual(
+                quoted, {"FrameTimeBudget.h"},
+                f"{label} includes a project header: {sorted(quoted)}",
+            )
+
+    def test_kernel_bounds_are_explicit(self) -> None:
+        self.assertIn("kFrameTimeBudgetBinWidthNs = 15625U", self.header)
+        self.assertIn("kFrameTimeBudgetBinCount = 8192U", self.header)
+        self.assertIn("kFrameTimeBudgetMaximumFrames = 2000000U", self.header)
+        # The recorder allocates its histogram once, at construction.
+        self.assertIn("bins_(kFrameTimeBudgetTotalBins, 0U)", self.source)
+        self.assertNotIn("bins_.resize", self.source)
+        self.assertNotIn("bins_.push_back", self.source)
+
+    def test_build_graph_compiles_the_exact_production_kernel(self) -> None:
+        game = (ROOT / "source/main/CMakeLists.txt").read_text()
+        self.assertIn("system/FrameTimeBudget.{h,cpp}", game)
+
+        tests = (ROOT / "tests/CMakeLists.txt").read_text()
+        self.assertIn(
+            '"${ROR_REPOSITORY_ROOT}/source/main/system/FrameTimeBudget.cpp"',
+            tests,
+        )
+        for name in (
+            "frame_time_budget",
+            "frame_time_budget_runtime_contract",
+            "playable_performance_scene_tool",
+            "playable_performance_scene_tool_optimized",
+        ):
+            self.assertIn(f"NAME {name}\n", tests, name)
+
+
+if __name__ == "__main__":
+    unittest.main()

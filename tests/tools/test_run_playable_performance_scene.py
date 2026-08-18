@@ -1,0 +1,432 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Tests for the playable performance scene runner's pure decision logic."""
+
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+_SPEC = importlib.util.spec_from_file_location(
+    "run_playable_performance_scene",
+    ROOT / "tools/run_playable_performance_scene.py",
+)
+runner = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+_SPEC.loader.exec_module(runner)
+
+
+def make_request(**overrides):
+    parameters = dict(
+        scenario_id="playable-cityworld-alexis",
+        terrain="CityWorld.terrn2",
+        actor="AlexisSaber.truck",
+        width=1920,
+        height=1080,
+        warmup_frames=120,
+        minimum_frames=600,
+        requested_frames=1800,
+        sustained_ms=16.6667,
+        percentile=95,
+        percentile_ms=18.3,
+        receipt_path=Path("/tmp/ror-perf/frame-time-receipt.json"),
+        mode="gate",
+        graphics_preset="high",
+        target_platform="darwin",
+    )
+    parameters.update(overrides)
+    return runner.BudgetRequest(**parameters)
+
+
+def make_receipt(request, **overrides):
+    document = {
+        "format": "ror-frame-time-budget-v1",
+        "mode": request.mode,
+        "verdict": "pass" if request.mode == "gate" else "advisory",
+        "passed": request.mode == "gate",
+        "scenario_id": request.scenario_id,
+        "terrain": request.terrain,
+        "actor": request.actor,
+        "renderer": "ogre14",
+        "width": request.width,
+        "height": request.height,
+        "fullscreen": False,
+        "vsync": False,
+        "fps_limit": 0,
+        "warmup_frames_requested": request.warmup_frames,
+        "minimum_frames": request.minimum_frames,
+        "requested_frames": request.requested_frames,
+        "sustained_budget_ms": request.sustained_ms,
+        "percentile": request.percentile,
+        "percentile_budget_ms": request.percentile_ms,
+        "observed_frames": request.warmup_frames + request.requested_frames,
+        "warmup_frames": request.warmup_frames,
+        "accepted_frames": request.requested_frames,
+        "rejected_frames": 0,
+        "saturated_frames": 0,
+        "over_budget_frames": 12,
+        "minimum_ms": 6.5,
+        "mean_ms": 9.9,
+        "maximum_ms": 24.0,
+        "p50_ms": 9.5,
+        "p95_ms": 13.0,
+        "p99_ms": 17.0,
+        "ranked_ms": 13.0,
+        "mean_fps": 101.01,
+        "bin_width_ns": 15625,
+        "bin_count": 8192,
+    }
+    document.update(overrides)
+    return document
+
+
+class BudgetRequestTests(unittest.TestCase):
+    def test_valid_request_round_trips(self) -> None:
+        request = make_request()
+        record = request.as_record()
+        self.assertEqual(record["width"], 1920)
+        self.assertEqual(record["percentile_budget_ms"], 18.3)
+        self.assertEqual(record["mode"], "gate")
+
+    def test_invalid_requests_are_refused(self) -> None:
+        for overrides in (
+            {"scenario_id": ""},
+            {"width": 0},
+            {"height": -1080},
+            {"minimum_frames": 0},
+            {"requested_frames": 100},  # below the minimum
+            {"percentile": 0},
+            {"percentile": 101},
+            {"sustained_ms": 0.0},
+            {"percentile_ms": -1.0},
+            {"percentile_ms": 8.0},  # ceiling below the sustained budget
+            {"mode": "off"},
+            {"receipt_path": Path("relative/receipt.json")},
+            {"target_platform": "haiku"},
+            {"graphics_preset": "ultra"},
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    make_request(**overrides)
+
+
+class ReceiptValidationTests(unittest.TestCase):
+    def test_matching_receipt_is_accepted(self) -> None:
+        request = make_request()
+        receipt = runner.validate_receipt(make_receipt(request), request)
+        self.assertEqual(receipt["accepted_frames"], 1800)
+
+    def test_failed_verdict_is_refused_with_its_numbers(self) -> None:
+        request = make_request()
+        document = make_receipt(
+            request,
+            verdict="fail-percentile",
+            passed=False,
+            p95_ms=21.0,
+            p99_ms=23.0,
+            ranked_ms=21.0,
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.validate_receipt(document, request)
+        self.assertIn("fail-percentile", str(caught.exception))
+        self.assertIn("21.0", str(caught.exception))
+
+    def test_measure_mode_requires_an_advisory_verdict(self) -> None:
+        request = make_request(mode="measure")
+        runner.validate_receipt(make_receipt(request), request)
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.validate_receipt(
+                make_receipt(request, verdict="pass"), request)
+
+    def test_identity_drift_is_refused(self) -> None:
+        request = make_request()
+        for overrides in (
+            {"format": "ror-frame-time-budget-v2"},
+            {"scenario_id": "other-scenario"},
+            {"terrain": "simple2.terrn2"},
+            {"width": 1280},
+            {"height": 720},
+            {"mode": "measure"},
+            {"percentile": 99},
+            {"percentile_budget_ms": 25.0},
+            {"sustained_budget_ms": 33.3},
+            {"requested_frames": 900},
+            {"minimum_frames": 10},
+            {"warmup_frames_requested": 0},
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.validate_receipt(
+                        make_receipt(request, **overrides), request)
+
+    def test_synthetic_cadence_is_refused(self) -> None:
+        request = make_request()
+        for overrides in (
+            {"fps_limit": 60},
+            {"vsync": True},
+            {"fullscreen": True},
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.validate_receipt(
+                        make_receipt(request, **overrides), request)
+
+    def test_incoherent_statistics_are_refused(self) -> None:
+        request = make_request()
+        for overrides in (
+            {"rejected_frames": 1},
+            {"accepted_frames": 599},
+            {"warmup_frames": 60},
+            {"observed_frames": 100},
+            {"p95_ms": 4.0},  # below p50
+            {"p99_ms": 1.0},  # below p95
+            {"maximum_ms": 5.0},  # below p99 by more than one bin
+            {"bin_width_ns": 0},
+            {"mean_ms": "fast"},
+            {"mean_ms": -1.0},
+            {"accepted_frames": True},
+        ):
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.validate_receipt(
+                        make_receipt(request, **overrides), request)
+
+    def test_upper_edge_within_one_bin_is_accepted(self) -> None:
+        # A ranked value may exceed the exact maximum by at most one bin width.
+        request = make_request()
+        document = make_receipt(
+            request, p99_ms=24.0 + (15625 / 1e6), maximum_ms=24.0)
+        runner.validate_receipt(document, request)
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.validate_receipt(
+                make_receipt(
+                    request, p99_ms=24.0 + (2 * 15625 / 1e6), maximum_ms=24.0),
+                request,
+            )
+
+
+class PresentationPacingTests(unittest.TestCase):
+    def test_sixty_hertz_pacing_is_reported(self) -> None:
+        request = make_request()
+        pacing = runner.detect_presentation_pacing(
+            make_receipt(request, p50_ms=16.33, p95_ms=17.81, p99_ms=18.41))
+        self.assertIsNotNone(pacing)
+        self.assertEqual(pacing["suspected_hz"], 60.0)
+        self.assertEqual(pacing["median_ms"], 16.33)
+
+    def test_every_listed_refresh_rate_is_recognized(self) -> None:
+        request = make_request()
+        for interval in runner.REFRESH_INTERVALS_MS:
+            with self.subTest(interval=interval):
+                pacing = runner.detect_presentation_pacing(
+                    make_receipt(
+                        request,
+                        p50_ms=interval,
+                        p95_ms=interval + 1.0,
+                        p99_ms=interval + 1.5,
+                    )
+                )
+                self.assertIsNotNone(pacing)
+                self.assertAlmostEqual(
+                    pacing["suspected_hz"], 1000.0 / interval, places=2)
+
+    def test_unpaced_and_loose_distributions_are_not_reported(self) -> None:
+        request = make_request()
+        # A median away from any refresh interval.
+        self.assertIsNone(
+            runner.detect_presentation_pacing(
+                make_receipt(request, p50_ms=4.72, p95_ms=6.0, p99_ms=7.0)))
+        # A median on 60 Hz but with a wide tail is renderer-bound variance.
+        self.assertIsNone(
+            runner.detect_presentation_pacing(
+                make_receipt(request, p50_ms=16.67, p95_ms=30.0, p99_ms=40.0)))
+
+
+class LogScanTests(unittest.TestCase):
+    HEADER = (
+        "RenderSystem Name: OpenGL 3+ Rendering Subsystem\n"
+        "Device Name: Apple M5\n"
+        "GPU Vendor: apple\n"
+    )
+
+    def test_clean_log_yields_renderer_identity(self) -> None:
+        identity = runner.scan_runtime_log(self.HEADER)
+        self.assertEqual(identity["device"], "Apple M5")
+        self.assertEqual(identity["vendor"], "apple")
+        self.assertEqual(identity["content_diagnostics"], {})
+
+    def test_missing_render_system_is_refused(self) -> None:
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.scan_runtime_log("Device Name: Apple M5\n")
+
+    def test_fatal_markers_are_always_refused(self) -> None:
+        for marker in runner.FATAL_LOG_MARKERS:
+            with self.subTest(marker=marker):
+                with self.assertRaises(runner.PerformanceSceneFailure) as bad:
+                    runner.scan_runtime_log(self.HEADER + f"{marker} thing\n")
+                self.assertIn(marker, str(bad.exception))
+
+    def test_content_markers_are_counted_and_optionally_gated(self) -> None:
+        for marker in runner.CONTENT_LOG_MARKERS:
+            with self.subTest(marker=marker):
+                text = self.HEADER + f"{marker} thing\n" * 3
+                identity = runner.scan_runtime_log(text)
+                self.assertEqual(identity["content_diagnostics"][marker], 3)
+                with self.assertRaises(runner.PerformanceSceneFailure) as bad:
+                    runner.scan_runtime_log(text, require_clean_content=True)
+                self.assertIn(marker, str(bad.exception))
+                self.assertIn("x3", str(bad.exception))
+
+    def test_clean_content_requirement_accepts_a_clean_log(self) -> None:
+        identity = runner.scan_runtime_log(
+            self.HEADER, require_clean_content=True)
+        self.assertEqual(identity["content_diagnostics"], {})
+
+
+class ConfigurationTests(unittest.TestCase):
+    def test_runtime_config_pins_the_named_preset(self) -> None:
+        request = make_request()
+        config = runner.build_ror_config(request)
+        self.assertIn("gfx_fps_limit=0", config)
+        self.assertIn("audio_master_volume=0", config)
+        # The budget is non-archived; a config file must never arm it.
+        self.assertNotIn("gfx_frame_budget", config)
+        # Enum settings are written as the display strings the parser accepts,
+        # never as their integer values, which it would silently reinterpret.
+        self.assertIn("gfx_shadow_type=Parallel-split Shadow Maps", config)
+        self.assertNotIn("gfx_shadow_type=1", config)
+        self.assertIn("gfx_texture_filter=Anisotropic (best looking)", config)
+        self.assertIn("gfx_vegetation_mode=Full (best looking, slower)", config)
+        self.assertIn("gfx_shadow_quality=3", config)
+        for name, (value, _) in runner.GRAPHICS_PRESETS["high"].items():
+            self.assertIn(f"{name}={value}", config)
+
+        low = runner.build_ror_config(make_request(graphics_preset="low"))
+        self.assertIn("gfx_shadow_type=No shadows (fastest)", low)
+        self.assertIn("gfx_vegetation_mode=None (fastest)", low)
+
+    def test_preset_identity_reaches_the_run_record(self) -> None:
+        record = make_request().as_record()
+        self.assertEqual(record["graphics_preset"], "high")
+        self.assertEqual(record["graphics_settings"]["gfx_shadow_type"], "1")
+        # Presets must name the same settings so two runs stay comparable.
+        self.assertEqual(
+            set(runner.GRAPHICS_PRESETS["high"]),
+            set(runner.GRAPHICS_PRESETS["low"]),
+        )
+
+    def test_effective_preset_is_read_back_from_the_runtime(self) -> None:
+        preset = runner.GRAPHICS_PRESETS["high"]
+        statement = "12:00:00: [RoR|Perf] Graphics: " + " ".join(
+            f"{name}={expected}" for name, (_, expected) in preset.items()
+        )
+        observed = runner.verify_graphics_preset(statement + "\n", "high")
+        self.assertEqual(observed["gfx_shadow_type"], "1")
+        self.assertEqual(observed["gfx_envmap_enabled"], "1")
+
+    def test_a_silently_reinterpreted_setting_is_refused(self) -> None:
+        # The exact regression this check exists for: the config asked for
+        # PSSM and the parser turned shadows off.
+        preset = runner.GRAPHICS_PRESETS["high"]
+        statement = "12:00:00: [RoR|Perf] Graphics: " + " ".join(
+            f"{name}={'0' if name == 'gfx_shadow_type' else expected}"
+            for name, (_, expected) in preset.items()
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.verify_graphics_preset(statement + "\n", "high")
+        self.assertIn("gfx_shadow_type", str(caught.exception))
+        self.assertIn("did not take effect", str(caught.exception))
+
+    def test_a_missing_or_repeated_statement_is_refused(self) -> None:
+        preset = runner.GRAPHICS_PRESETS["high"]
+        statement = "[RoR|Perf] Graphics: " + " ".join(
+            f"{name}={expected}" for name, (_, expected) in preset.items()
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as absent:
+            runner.verify_graphics_preset("no statement here\n", "high")
+        self.assertIn("does not state", str(absent.exception))
+
+        with self.assertRaises(runner.PerformanceSceneFailure) as repeated:
+            runner.verify_graphics_preset(
+                statement + "\n" + statement + "\n", "high")
+        self.assertIn("2 times", str(repeated.exception))
+
+        with self.assertRaises(runner.PerformanceSceneFailure) as partial:
+            runner.verify_graphics_preset(
+                "[RoR|Perf] Graphics: gfx_shadow_type=1\n", "high")
+        self.assertIn("did not state", str(partial.exception))
+
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.verify_graphics_preset(statement + "\n", "ultra")
+
+    def test_command_selects_the_pinned_scene(self) -> None:
+        command = runner.build_command(Path("/bin/RoR"), make_request())
+        self.assertIn("-map", command)
+        self.assertIn("CityWorld.terrn2", command)
+        self.assertIn("-truck", command)
+        self.assertIn("AlexisSaber.truck", command)
+        self.assertIn("-enter", command)
+        self.assertIn("-checkcache", command)
+
+        without_actor = runner.build_command(
+            Path("/bin/RoR"), make_request(actor=""))
+        self.assertNotIn("-truck", without_actor)
+        self.assertNotIn("-enter", without_actor)
+
+    def test_environment_isolates_the_profile(self) -> None:
+        environment = runner.build_environment(Path("/tmp/home"))
+        self.assertEqual(environment["ROR_D0_SCENE_HOME"], "/tmp/home")
+        self.assertEqual(environment["ALSOFT_DRIVERS"], "null")
+        self.assertNotIn("SNAP_USER_COMMON", environment)
+
+
+class ReceiptIoTests(unittest.TestCase):
+    def test_missing_and_malformed_receipts_are_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(runner.PerformanceSceneFailure):
+                runner.load_receipt(root / "absent.json")
+
+            empty = root / "empty.json"
+            empty.write_text("", encoding="utf-8")
+            with self.assertRaises(runner.PerformanceSceneFailure):
+                runner.load_receipt(empty)
+
+            broken = root / "broken.json"
+            broken.write_text("{not json", encoding="utf-8")
+            with self.assertRaises(runner.PerformanceSceneFailure):
+                runner.load_receipt(broken)
+
+            array = root / "array.json"
+            array.write_text("[]", encoding="utf-8")
+            with self.assertRaises(runner.PerformanceSceneFailure):
+                runner.load_receipt(array)
+
+            good = root / "good.json"
+            good.write_text(
+                json.dumps(make_receipt(make_request())), encoding="utf-8")
+            self.assertEqual(
+                runner.load_receipt(good)["format"],
+                "ror-frame-time-budget-v1",
+            )
+
+    def test_existing_artifact_directory_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            code = runner.main(
+                [
+                    "--executable", sys.executable,
+                    "--artifact-dir", directory,
+                    "--scenario-id", "x",
+                    "--terrain", "simple2.terrn2",
+                ]
+            )
+            self.assertEqual(code, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

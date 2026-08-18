@@ -297,6 +297,7 @@ set(SOURCE_FILES
         system/Console.{h,cpp}
         system/ConsoleCmd.{h,cpp}
         system/CVar.{h,cpp}
+        system/FrameTimeBudget.{h,cpp}
         system/RendererBridgeChannel.{h,cpp}
         system/RendererBridgeEndpoint.{h,cpp}
         system/RendererBridgeLaunchPlan.{h,cpp}
@@ -842,6 +843,27 @@ if (MSVC)
 else ()
     set_source_files_properties(
         ${WORLDMODEL_STRICT_FP_SOURCES}
+        PROPERTIES
+            COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
+endif ()
+
+# The playable frame-time budget rejects a non-finite frame interval instead of
+# admitting it into the distribution. That admission boundary is exactly what
+# `-ffast-math` is allowed to assume away, so keep this translation unit strict
+# in every configuration. The kernel additionally classifies by IEEE bit
+# pattern, so the two defences are independent.
+if (MSVC)
+    set_source_files_properties(
+        system/FrameTimeBudget.cpp
+        PROPERTIES
+            COMPILE_OPTIONS "/fp:strict"
+            SKIP_PRECOMPILE_HEADERS ON
+    )
+else ()
+    set_source_files_properties(
+        system/FrameTimeBudget.cpp
         PROPERTIES
             COMPILE_OPTIONS "-fno-fast-math;-ffp-contract=off"
             SKIP_PRECOMPILE_HEADERS ON

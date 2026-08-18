@@ -670,6 +670,20 @@ extern CVar* sim_deterministic_input_scenario_id;
 extern CVar* sim_deterministic_input_target_id;
 extern CVar* sim_deterministic_input_step_limit;
 
+// Explicit, non-archived playable frame-time budget. The recorder is never
+// enabled implicitly: `off` leaves the render loop untouched, `measure`
+// reports the distribution, and `gate` additionally fails closed against the
+// declared sustained and percentile budgets.
+extern CVar* gfx_frame_budget_mode;
+extern CVar* gfx_frame_budget_receipt_path;
+extern CVar* gfx_frame_budget_scenario_id;
+extern CVar* gfx_frame_budget_sustained_ms;
+extern CVar* gfx_frame_budget_percentile;
+extern CVar* gfx_frame_budget_percentile_ms;
+extern CVar* gfx_frame_budget_warmup_frames;
+extern CVar* gfx_frame_budget_minimum_frames;
+extern CVar* gfx_frame_budget_requested_frames;
+
 // Explicit, non-archived live world-model capture activation. Capture is
 // never enabled implicitly and rights/allowed-use fields have no defaults.
 extern CVar* wm_capture_enabled;
