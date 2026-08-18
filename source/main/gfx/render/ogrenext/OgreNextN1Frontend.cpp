@@ -10609,24 +10609,33 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->hdr_pssm_finalized_with_populated_scene;
     }
 
+    // Shadows being requested is not the same as the shadow node existing.
+    // Single-evaluation PSSM defers finalization until the scene has geometry
+    // to shadow, so a paged terrain renders its first frames before the node
+    // is created. Presenting those frames with PSSM selected would demand a
+    // graph that does not exist yet; present them unshadowed instead, and let
+    // PSSM engage on the frame finalization completes.
+    const bool pssm_ready_this_frame =
+        shadow_plan.enabled &&
+        (!persistent_hdr || impl_->hdr_shadow_node_definition_created);
     if (production_presentation) {
       const RenderOperationResult production_graph =
           impl_->EnsureProductionPresentationGraph(
               request, view, authored_view_visibility,
-              shadow_plan.enabled, deferred_sun_visibility_v2);
+              pssm_ready_this_frame, deferred_sun_visibility_v2);
       if (!production_graph) {
         return fail_after_cleanup(production_graph);
       }
       target = impl_->production_source_target;
       workspace = persistent_hdr ? impl_->hdr_workspace
                                  : impl_->production_workspace;
-      if (shadow_plan.enabled) {
+      if (pssm_ready_this_frame) {
         shadow_node_text = persistent_hdr
                                ? kOgreNextHdrShadowNode
                                : kProductionPresentationShadowNodeName;
       }
     } else if (persistent_hdr) {
-      if (shadow_plan.enabled) {
+      if (pssm_ready_this_frame) {
         shadow_node_text = kOgreNextHdrShadowNode;
       }
     } else {
