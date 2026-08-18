@@ -5217,8 +5217,23 @@ public:
         directional_lights != 1U || shadow_casters == 0U ||
         shadow_receivers == 0U ||
         authored_view_visibility != kOgreNextRt4AuthoredVisibilityMask) {
+      // Four independent preconditions used to share one message, so a
+      // failure named the contract but never the observed scene. Report the
+      // exact values: which one is unmet decides whether this is a scene the
+      // renderer cannot light or merely a frame whose content has not
+      // streamed in yet.
       return HdrBackendFailure(
-          "single-evaluation PSSM finalization requires one populated directional light and non-empty caster/receiver sets on the reviewed RT4 visibility mask");
+          "single-evaluation PSSM finalization requires one populated "
+          "directional light and non-empty caster/receiver sets on the "
+          "reviewed RT4 visibility mask; observed enabled=" +
+          std::to_string(SingleSceneHdrPssmEnabled() ? 1 : 0) +
+          " workspace=" + std::to_string(hdr_workspace != nullptr ? 1 : 0) +
+          " directional_lights=" + std::to_string(directional_lights) +
+          " shadow_casters=" + std::to_string(shadow_casters) +
+          " shadow_receivers=" + std::to_string(shadow_receivers) +
+          " authored_view_visibility=" +
+          std::to_string(authored_view_visibility) + " expected_visibility=" +
+          std::to_string(kOgreNextRt4AuthoredVisibilityMask));
     }
     if (hdr_pssm_finalized_with_populated_scene) {
       return RefreshSingleSceneHdrRuntimeTargets(true);
