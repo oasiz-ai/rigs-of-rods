@@ -23,16 +23,13 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         self.header = (ROOT / "source/main/gfx/GfxScene.h").read_text()
 
     def test_retention_gate_checks_every_invalidating_condition(self) -> None:
-        anchor = "pending->static_state_retained ="
+        anchor = "bool retention_hit ="
         start = self.scene.index(anchor)
-        gate = self.scene[start : start + 1400]
+        gate = self.scene[start : start + 1200]
         for condition in (
             "m_ogre14_static_retention_valid",
             "retention_objects != nullptr",
             "!m_ogre14_static_retention_meshes.empty()",
-            # Full admission: the camera cannot admit more.
-            "GetStaticGraphicsObjects().size() ==\n"
-            "                m_ogre_next_demo_admitted_static_objects.size()",
             "m_ogre14_static_retention_inventory",
             "m_ogre14_static_retention_cache_size",
             "new_frozen_material_decisions",
@@ -42,16 +39,30 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         ):
             self.assertIn(condition, gate, condition)
 
-    def test_refresh_requires_a_zero_growth_walk(self) -> None:
-        anchor = "admitted_before_walk"
-        self.assertGreaterEqual(self.scene.count(anchor), 2)
-        refresh = self.scene.index(
-            "m_ogre14_static_retention_valid = true;")
-        window = self.scene[refresh - 2400 : refresh]
+    def test_gate_scans_unadmitted_bounds_against_the_camera(self) -> None:
+        # Full admission is unreachable on a 12 km map, so the gate must be a
+        # bounds scan: reuse only when a walk could admit nothing new, and a
+        # classifier fault falls back to the full walk.
+        anchor = "for (const auto& unadmitted :"
+        start = self.scene.index(anchor)
+        scan = self.scene[start : start + 800]
+        self.assertIn("ClassifyOgreNextDemoStaticBounds", scan)
+        self.assertIn("if (!classified || within_capture_radius)", scan)
+        self.assertIn("retention_hit = false", scan)
+
+    def test_refresh_is_applied_only_on_commit(self) -> None:
+        # A frame a later section discards must never leave the retained
+        # scene describing state that was never published: the walk stashes
+        # the refresh on the pending transaction and commit applies it.
+        self.assertIn("pending->has_retention_refresh = true;", self.scene)
+        commit = self.scene.index(
+            "if (m_ogre14_pending_capture->has_retention_refresh)")
+        guard = self.scene.index(
+            "if (!m_ogre14_pending_capture->static_state_retained)")
+        self.assertLess(guard, commit)
         self.assertIn(
-            "pending->admitted_static_objects.size() ==\n"
-            "                    admitted_before_walk",
-            window,
+            "m_ogre14_static_retention_valid = true;",
+            self.scene[commit : commit + 1600],
         )
 
     def test_commit_skips_static_members_when_retained(self) -> None:
@@ -74,6 +85,7 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
             "m_ogre14_static_retention_valid = false;",
             "m_ogre14_static_retention_assets.clear();",
             "m_ogre14_static_retention_meshes.clear();",
+            "m_ogre14_static_retention_unadmitted.clear();",
             "m_ogre14_procedural_road_inventory =",
         ):
             self.assertIn(cleared, block, cleared)
@@ -116,6 +128,7 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
             "m_ogre14_static_retention_projections",
             "m_ogre14_static_retention_road_live",
             "m_ogre14_static_retention_road_cached",
+            "m_ogre14_static_retention_unadmitted",
             "m_ogre14_procedural_road_inventory",
         ):
             self.assertIn(member, self.header, member)

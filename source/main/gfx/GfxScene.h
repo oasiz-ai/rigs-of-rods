@@ -215,6 +215,12 @@ private:
         m_ogre14_static_retention_assets;
     std::vector<Render::GraphicsSceneStaticMeshInput>
         m_ogre14_static_retention_meshes;
+    /// Bounds of every not-yet-admitted static object, refreshed by each
+    /// committed full walk. Static objects do not move, so scanning these
+    /// against the camera decides in microseconds whether a walk could admit
+    /// anything new; when it cannot, the retained scene is byte-equivalent.
+    std::vector<std::pair<std::uint64_t, Render::Bounds3>>
+        m_ogre14_static_retention_unadmitted;
     std::size_t m_ogre14_static_retention_road_live = 0U;
     std::size_t m_ogre14_static_retention_road_cached = 0U;
     Render::Ogre14ProceduralRoadInventory m_ogre14_procedural_road_inventory;
@@ -295,6 +301,20 @@ private:
         /// the static registry, mesh cache, and admitted set untouched, so
         /// commit must not swap those members against empty pending copies.
         bool static_state_retained = false;
+        /// Retention refresh produced by a full static walk. Applied only on
+        /// commit, so a frame a later section discards can never leave the
+        /// retained scene describing state that was never published.
+        bool has_retention_refresh = false;
+        std::vector<Render::GraphicsSceneAssetInput> retention_assets;
+        std::vector<Render::GraphicsSceneStaticMeshInput> retention_meshes;
+        std::vector<std::pair<std::uint64_t, Render::Bounds3>>
+            retention_unadmitted;
+        std::size_t retention_inventory = 0U;
+        std::size_t retention_cache_size = 0U;
+        std::size_t retention_road_live = 0U;
+        std::size_t retention_road_cached = 0U;
+        std::uint64_t retention_frozen_decisions = 0U;
+        std::uint64_t retention_projections = 0U;
         Ogre14ContinuousParticleCaptureState particle_capture_state;
         Render::Ogre14AutomaticReflectionProbeState
             automatic_reflection_probe_state;

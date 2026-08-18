@@ -2438,6 +2438,8 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     const std::vector<RoR::Render::Ogre14GraphicsSceneStaticSectionCaptureInput>&
         adapted_road_sections,
     bool procedural_roads_adapted,
+    std::vector<std::pair<std::uint64_t, RoR::Render::Bounds3>>&
+        unadmitted_bounds,
     std::vector<RoR::Render::GraphicsSceneAssetInput>& assets,
     std::vector<RoR::Render::GraphicsSceneStaticMeshInput>& static_meshes)
 {
@@ -2544,7 +2546,14 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
                 if (!validation)
                     return validation;
                 if (!within_capture_radius)
+                {
+                    // Static bounds cannot move. Recording them here lets the
+                    // retention gate decide next frame, from a scan of this
+                    // list alone, whether a walk could admit anything new.
+                    unadmitted_bounds.emplace_back(
+                        record.stable_id, world_bounds);
                     continue;
+                }
                 admitted_static_objects.insert(record.stable_id);
             }
 
@@ -2798,6 +2807,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_static_retention_projections = 0U;
     m_ogre14_static_retention_assets.clear();
     m_ogre14_static_retention_meshes.clear();
+    m_ogre14_static_retention_unadmitted.clear();
     m_ogre14_static_retention_road_live = 0U;
     m_ogre14_static_retention_road_cached = 0U;
     m_ogre14_procedural_road_inventory =
@@ -3511,11 +3521,14 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
 
     // Static objects do not move, yet every capture walked all of them
     // through OGRE and deep-copied the static registries into this pending
-    // transaction. Reuse the retained static capture when nothing that could
-    // change its bytes has changed: every object is already admitted (the
-    // camera cannot admit more), the walk grew no cache since retention, and
-    // no new material decision or projection has committed. Any failed
-    // condition falls back to the full walk, which is the previous behavior.
+    // transaction. Reuse the retained static capture when a walk could not
+    // change its bytes: the inventory, cache, material decisions, and road
+    // inventory are unchanged, and a scan of the retained unadmitted bounds
+    // against the current camera admits nothing new. Full admission is not
+    // required - on a 12 km map the capture radius never reaches it, so a
+    // gate demanding it would never activate at all. Any failed condition or
+    // classifier fault falls back to the full walk, which is the previous
+    // behavior unchanged.
     {
         Terrain* const retention_terrain = App::GetGameContext() != nullptr
             ? App::GetGameContext()->GetTerrain().GetRef()
@@ -3527,12 +3540,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         const Gfx::Detail::OgreNextDemoMaterialSourceCounters
             retention_lifetime =
                 m_ogre_next_demo_material_source.LifetimeCounters();
-        pending->static_state_retained =
+        bool retention_hit =
             m_ogre14_static_retention_valid &&
             retention_objects != nullptr &&
             !m_ogre14_static_retention_meshes.empty() &&
-            retention_objects->GetStaticGraphicsObjects().size() ==
-                m_ogre_next_demo_admitted_static_objects.size() &&
             m_ogre14_static_retention_inventory ==
                 retention_objects->GetStaticGraphicsObjects().size() &&
             m_ogre14_static_retention_cache_size ==
@@ -3545,6 +3556,36 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 m_ogre14_procedural_road_inventory.live_identity_count() &&
             m_ogre14_static_retention_road_cached ==
                 m_ogre14_procedural_road_inventory.cached_mesh_count();
+        if (retention_hit)
+        {
+            Render::Float3 retention_camera{};
+            float retention_radius = 0.0F;
+            const Render::ValidationResult retention_view =
+                CaptureOgreNextDemoStaticAdmissionView(
+                    retention_camera, retention_radius);
+            if (!retention_view)
+            {
+                retention_hit = false;
+            }
+            else
+            {
+                for (const auto& unadmitted :
+                     m_ogre14_static_retention_unadmitted)
+                {
+                    bool within_capture_radius = false;
+                    const Render::ValidationResult classified =
+                        Gfx::Detail::ClassifyOgreNextDemoStaticBounds(
+                            unadmitted.second, retention_camera,
+                            retention_radius, within_capture_radius);
+                    if (!classified || within_capture_radius)
+                    {
+                        retention_hit = false;
+                        break;
+                    }
+                }
+            }
+        }
+        pending->static_state_retained = retention_hit;
     }
 
     pending->light_registry = m_ogre14_light_identity_registry;
@@ -3727,8 +3768,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             }
             else
             {
-            const std::size_t admitted_before_walk =
-                pending->admitted_static_objects.size();
+            std::vector<std::pair<std::uint64_t, Render::Bounds3>>
+                walk_unadmitted;
             Render::Float3 static_camera_position;
             float static_capture_radius_meters = 0.0F;
             static_validation = CaptureOgreNextDemoStaticAdmissionView(
@@ -3800,42 +3841,38 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     pending->static_mesh_cache,
                     road_sections,
                     procedural_roads_adapted,
+                    walk_unadmitted,
                     static_assets,
                     candidate.frame.static_meshes);
             if (!static_validation)
             {
                 return static_validation;
             }
-            // Refresh the retention only from a walk that admitted nothing
-            // new. Admissions land in the committed members only when this
-            // frame commits, and a later section may still discard it; a
-            // zero-growth walk corresponds to the committed state whether or
-            // not this frame survives.
-            if (object_manager != nullptr &&
-                pending->admitted_static_objects.size() ==
-                    admitted_before_walk &&
-                pending->admitted_static_objects.size() ==
-                    object_manager->GetStaticGraphicsObjects().size())
+            // Stash the retention refresh on the pending transaction. It is
+            // applied only when this frame commits, so a capture a later
+            // section discards can never leave the retained scene describing
+            // state that was never published.
             {
                 const Gfx::Detail::OgreNextDemoMaterialSourceCounters
                     retention_lifetime =
                         m_ogre_next_demo_material_source.LifetimeCounters();
-                m_ogre14_static_retention_assets = static_assets;
-                m_ogre14_static_retention_meshes =
-                    candidate.frame.static_meshes;
-                m_ogre14_static_retention_inventory =
-                    object_manager->GetStaticGraphicsObjects().size();
-                m_ogre14_static_retention_cache_size =
+                pending->retention_assets = static_assets;
+                pending->retention_meshes = candidate.frame.static_meshes;
+                pending->retention_unadmitted = std::move(walk_unadmitted);
+                pending->retention_inventory = object_manager != nullptr
+                    ? object_manager->GetStaticGraphicsObjects().size()
+                    : 0U;
+                pending->retention_cache_size =
                     pending->static_mesh_cache.size();
-                m_ogre14_static_retention_frozen_decisions =
-                    retention_lifetime.new_frozen_material_decisions;
-                m_ogre14_static_retention_projections =
-                    retention_lifetime.projections;
-                m_ogre14_static_retention_road_live =
+                pending->retention_road_live =
                     pending->procedural_road_inventory.live_identity_count();
-                m_ogre14_static_retention_road_cached =
+                pending->retention_road_cached =
                     pending->procedural_road_inventory.cached_mesh_count();
-                m_ogre14_static_retention_valid = true;
+                pending->retention_frozen_decisions =
+                    retention_lifetime.new_frozen_material_decisions;
+                pending->retention_projections =
+                    retention_lifetime.projections;
+                pending->has_retention_refresh = true;
             }
             }
 
@@ -4669,6 +4706,28 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
              m_ogre14_pending_capture->admitted_static_objects);
         swap(m_ogre14_procedural_road_inventory,
              m_ogre14_pending_capture->procedural_road_inventory);
+        if (m_ogre14_pending_capture->has_retention_refresh)
+        {
+            m_ogre14_static_retention_assets =
+                std::move(m_ogre14_pending_capture->retention_assets);
+            m_ogre14_static_retention_meshes =
+                std::move(m_ogre14_pending_capture->retention_meshes);
+            m_ogre14_static_retention_unadmitted =
+                std::move(m_ogre14_pending_capture->retention_unadmitted);
+            m_ogre14_static_retention_inventory =
+                m_ogre14_pending_capture->retention_inventory;
+            m_ogre14_static_retention_cache_size =
+                m_ogre14_pending_capture->retention_cache_size;
+            m_ogre14_static_retention_road_live =
+                m_ogre14_pending_capture->retention_road_live;
+            m_ogre14_static_retention_road_cached =
+                m_ogre14_pending_capture->retention_road_cached;
+            m_ogre14_static_retention_frozen_decisions =
+                m_ogre14_pending_capture->retention_frozen_decisions;
+            m_ogre14_static_retention_projections =
+                m_ogre14_pending_capture->retention_projections;
+            m_ogre14_static_retention_valid = true;
+        }
     }
     swap(m_ogre14_dynamic_identity_registry,
          m_ogre14_pending_capture->dynamic_registry);
