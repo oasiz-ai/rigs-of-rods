@@ -5213,9 +5213,17 @@ public:
       std::uint32_t directional_lights, std::uint32_t shadow_casters,
       std::uint32_t shadow_receivers,
       std::uint32_t authored_view_visibility) {
+    // A scene that has not yet streamed any shadow-casting or -receiving
+    // geometry is an ordinary early frame, not a backend failure. Terrain that
+    // pages in, as the pinned simple2 validation terrains do, submits its
+    // first frames before any caster exists, while a mesh terrain such as
+    // CityWorld is already populated on frame one. Treating the empty case as
+    // fatal made single-evaluation PSSM refuse every paged terrain outright,
+    // and because the failure is terminal the session never got a second
+    // frame. Defer instead, below, once the genuine contract violations here
+    // have been rejected.
     if (!SingleSceneHdrPssmEnabled() || hdr_workspace == nullptr ||
-        directional_lights != 1U || shadow_casters == 0U ||
-        shadow_receivers == 0U ||
+        directional_lights != 1U ||
         authored_view_visibility != kOgreNextRt4AuthoredVisibilityMask) {
       // Four independent preconditions used to share one message, so a
       // failure named the contract but never the observed scene. Report the
@@ -5238,8 +5246,17 @@ public:
           "; requires exactly one populated directional light and non-empty "
           "caster/receiver sets on the reviewed RT4 visibility mask");
     }
+    // Once finalized, keep refreshing the runtime targets every frame even if
+    // the scene later empties, so an unloaded map cannot strand stale targets.
     if (hdr_pssm_finalized_with_populated_scene) {
       return RefreshSingleSceneHdrRuntimeTargets(true);
+    }
+    // Not finalized yet and nothing to shadow: wait for geometry. Single
+    // evaluation is once-only, so finalizing against an empty scene would
+    // permanently bind a shadow setup with no casters or receivers.
+    if (shadow_casters == 0U || shadow_receivers == 0U) {
+      ++hdr_pssm_finalization_deferrals;
+      return RenderOperationResult::Success();
     }
     if (hdr_pssm_finalization_prepared) {
       return HdrBackendFailure(
@@ -7323,6 +7340,9 @@ public:
   std::uint64_t hdr_pssm_finalization_attempts = 0U;
   std::uint64_t hdr_pssm_finalization_commits = 0U;
   std::uint64_t hdr_pssm_finalization_rollbacks = 0U;
+  /// Frames that carried no shadow geometry yet and therefore
+  /// deferred single-evaluation finalization instead of failing.
+  std::uint64_t hdr_pssm_finalization_deferrals = 0U;
   bool hdr_linear_scene_target_verified = false;
   bool hdr_base_hdr_target_verified = false;
   bool hdr_sun_full_hdr_target_verified = false;
