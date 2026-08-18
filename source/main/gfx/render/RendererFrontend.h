@@ -99,7 +99,10 @@ enum class RenderOperationRecovery : std::uint8_t {
 /// allocating string copy would terminate. Relay the message in a bounded,
 /// trivially copyable buffer instead, so a `BACKEND_FAILURE` can never reach a
 /// log as a bare numeric code again.
-inline constexpr std::size_t kRenderOperationDetailCapacity = 192U;
+/// Sized from the longest reviewed backend message rather than a round guess:
+/// the HDR/PSSM finalization diagnostics alone exceed 300 characters before
+/// their observed values, and a diagnostic truncated mid-word is worth little.
+inline constexpr std::size_t kRenderOperationDetailCapacity = 512U;
 
 struct RenderOperationDetail final {
   char text[kRenderOperationDetailCapacity] = {};

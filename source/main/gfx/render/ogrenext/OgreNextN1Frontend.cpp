@@ -5222,10 +5222,11 @@ public:
       // exact values: which one is unmet decides whether this is a scene the
       // renderer cannot light or merely a frame whose content has not
       // streamed in yet.
+      // Lead with the observed values. Relay buffers truncate, and the
+      // static contract text is readable here in the source, while the
+      // observed scene is the only part that identifies the failure.
       return HdrBackendFailure(
-          "single-evaluation PSSM finalization requires one populated "
-          "directional light and non-empty caster/receiver sets on the "
-          "reviewed RT4 visibility mask; observed enabled=" +
+          "single-evaluation PSSM finalization unmet: enabled=" +
           std::to_string(SingleSceneHdrPssmEnabled() ? 1 : 0) +
           " workspace=" + std::to_string(hdr_workspace != nullptr ? 1 : 0) +
           " directional_lights=" + std::to_string(directional_lights) +
@@ -5233,7 +5234,9 @@ public:
           " shadow_receivers=" + std::to_string(shadow_receivers) +
           " authored_view_visibility=" +
           std::to_string(authored_view_visibility) + " expected_visibility=" +
-          std::to_string(kOgreNextRt4AuthoredVisibilityMask));
+          std::to_string(kOgreNextRt4AuthoredVisibilityMask) +
+          "; requires exactly one populated directional light and non-empty "
+          "caster/receiver sets on the reviewed RT4 visibility mask");
     }
     if (hdr_pssm_finalized_with_populated_scene) {
       return RefreshSingleSceneHdrRuntimeTargets(true);
