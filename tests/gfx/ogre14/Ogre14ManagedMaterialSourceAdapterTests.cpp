@@ -630,13 +630,21 @@ void TestCaptureBoundaryRefreshAfterFailedAndLaterActorLoads() {
             "build capture-boundary managed binding");
   std::vector<Ogre14ManagedMaterialDeclarationBinding> publication{binding};
 
+  // A receipt is keyed by its live resource pointer, so the registry rejects a
+  // reused address that now carries a different identity. Ogre keeps a
+  // registered resource alive until it is explicitly removed; these textures
+  // must therefore outlive their receipts, or the allocator may hand the next
+  // texture the address this one just freed.
+  std::vector<Ogre::TexturePtr> live_unrelated_textures;
+
   auto commit_unrelated_and_refresh =
       [&](const char *name, Ogre::ResourceHandle handle,
           const std::vector<std::uint8_t> &bytes,
           const std::string &stale_message,
           const std::string &refresh_message) {
-        Ogre::TexturePtr unrelated =
-            std::make_shared<TestTexture>(name, handle);
+        live_unrelated_textures.push_back(
+            std::make_shared<TestTexture>(name, handle));
+        const Ogre::TexturePtr &unrelated = live_unrelated_textures.back();
         RequireOk(CommitOgre14SelectedTextureSourceReceipt(
                       BuildSelectedReceipt(*unrelated, 0U, bytes), registry),
                   "commit unrelated capture-boundary source");
