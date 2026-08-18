@@ -69,6 +69,12 @@ add_test(
         "${CMAKE_CURRENT_BINARY_DIR}"
 )
 add_test(
+    NAME ogre14_scene_retention_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_ogre14_scene_retention_contract.py"
+)
+add_test(
     NAME frame_time_budget_runtime_contract
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -89,6 +95,7 @@ add_test(
 )
 set_tests_properties(
     frame_time_budget
+    ogre14_scene_retention_contract
     frame_time_budget_runtime_contract
     playable_performance_scene_tool
     playable_performance_scene_tool_optimized
