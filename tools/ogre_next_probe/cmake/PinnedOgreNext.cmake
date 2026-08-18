@@ -1016,6 +1016,18 @@ endif ()
 file(WRITE "${_ror_fresh_configure_guard}"
     "ror-ogre-next-fresh-configured-v1\n")
 
+# `git apply` run inside an enclosing git work tree resolves patch paths in that
+# repository's context. When this probe is configured from a build directory
+# that happens to live inside a checkout, every patch is reported as "Skipped
+# patch", `git apply` still exits 0, and the dependency is built entirely
+# unpatched. Only the reviewed-byte gates below would notice. Stop repository
+# discovery at this build tree so the patch transaction is identical whether or
+# not the build directory sits inside a checkout.
+set(ROR_OGRE_NEXT_PATCH_ENV
+    "${CMAKE_COMMAND}" -E env
+    "GIT_CEILING_DIRECTORIES=${CMAKE_BINARY_DIR}")
+
+
 if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
     # Populate the exact dependency commits selected by shaderc's reviewed
     # DEPS file. SOURCE_SUBDIR deliberately names a nonexistent directory so
@@ -1053,6 +1065,7 @@ if (ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "linux-x86_64-vulkan")
         URL "${_ror_shaderc_url}"
         URL_HASH "SHA256=${ROR_LINUX_SHADERC_ARCHIVE_SHA256}"
         PATCH_COMMAND
+            ${ROR_OGRE_NEXT_PATCH_ENV}
             "${GIT_EXECUTABLE}" apply --unidiff-zero --whitespace=nowarn
             "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_LINUX_SHADERC_PATCH_PATH}"
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
@@ -1333,6 +1346,7 @@ FetchContent_Declare(
     URL "${_ror_ogre_next_url}"
     URL_HASH "SHA256=${ROR_OGRE_NEXT_ARCHIVE_SHA256}"
     PATCH_COMMAND
+        ${ROR_OGRE_NEXT_PATCH_ENV}
         "${GIT_EXECUTABLE}" -c core.autocrlf=false apply --unidiff-zero
         --whitespace=nowarn
         ${_ror_ogre_next_patch_paths}
@@ -1519,7 +1533,9 @@ if (NOT _ror_extracted_ibl_shader_sha256 STREQUAL
     message(FATAL_ERROR
         "The pinned OGRE-Next IBL shader patch did not produce reviewed bytes: "
         "expected ${ROR_OGRE_NEXT_IBL_PATCHED_SHA256}, got "
-        "${_ror_extracted_ibl_shader_sha256}")
+        "${_ror_extracted_ibl_shader_sha256}. When the observed hash equals the "
+        "recorded source hash the patch transaction did not run at all; check "
+        "that git did not resolve the patch inside an enclosing repository.")
 endif ()
 
 file(SHA256
