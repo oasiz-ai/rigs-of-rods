@@ -28,8 +28,8 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         gate = self.scene[start : start + 1200]
         for condition in (
             "m_ogre14_static_retention_valid",
-            "retention_objects != nullptr",
-            "!m_ogre14_static_retention_meshes.empty()",
+            "retention_objects == nullptr",
+            "m_ogre14_static_retention_meshes.empty()",
             "m_ogre14_static_retention_inventory",
             "m_ogre14_static_retention_cache_size",
             "new_frozen_material_decisions",

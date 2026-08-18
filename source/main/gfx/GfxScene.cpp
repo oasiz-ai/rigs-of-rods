@@ -3540,22 +3540,35 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         const Gfx::Detail::OgreNextDemoMaterialSourceCounters
             retention_lifetime =
                 m_ogre_next_demo_material_source.LifetimeCounters();
-        bool retention_hit =
-            m_ogre14_static_retention_valid &&
-            retention_objects != nullptr &&
-            !m_ogre14_static_retention_meshes.empty() &&
-            m_ogre14_static_retention_inventory ==
-                retention_objects->GetStaticGraphicsObjects().size() &&
-            m_ogre14_static_retention_cache_size ==
-                m_ogre14_static_mesh_cache.size() &&
-            m_ogre14_static_retention_frozen_decisions ==
-                retention_lifetime.new_frozen_material_decisions &&
-            m_ogre14_static_retention_projections ==
-                retention_lifetime.projections &&
-            m_ogre14_static_retention_road_live ==
-                m_ogre14_procedural_road_inventory.live_identity_count() &&
-            m_ogre14_static_retention_road_cached ==
-                m_ogre14_procedural_road_inventory.cached_mesh_count();
+        // Record which condition rejects retention, so a gate that never
+        // fires is a numbered fact in the log instead of a guess.
+        m_ogre14_static_retention_miss_stage = 0U;
+        bool retention_hit = true;
+        if (!m_ogre14_static_retention_valid)
+            m_ogre14_static_retention_miss_stage = 1U;
+        else if (retention_objects == nullptr)
+            m_ogre14_static_retention_miss_stage = 2U;
+        else if (m_ogre14_static_retention_meshes.empty())
+            m_ogre14_static_retention_miss_stage = 3U;
+        else if (m_ogre14_static_retention_inventory !=
+                 retention_objects->GetStaticGraphicsObjects().size())
+            m_ogre14_static_retention_miss_stage = 4U;
+        else if (m_ogre14_static_retention_cache_size !=
+                 m_ogre14_static_mesh_cache.size())
+            m_ogre14_static_retention_miss_stage = 5U;
+        else if (m_ogre14_static_retention_frozen_decisions !=
+                 retention_lifetime.new_frozen_material_decisions)
+            m_ogre14_static_retention_miss_stage = 6U;
+        else if (m_ogre14_static_retention_projections !=
+                 retention_lifetime.projections)
+            m_ogre14_static_retention_miss_stage = 7U;
+        else if (m_ogre14_static_retention_road_live !=
+                 m_ogre14_procedural_road_inventory.live_identity_count())
+            m_ogre14_static_retention_miss_stage = 8U;
+        else if (m_ogre14_static_retention_road_cached !=
+                 m_ogre14_procedural_road_inventory.cached_mesh_count())
+            m_ogre14_static_retention_miss_stage = 9U;
+        retention_hit = m_ogre14_static_retention_miss_stage == 0U;
         if (retention_hit)
         {
             Render::Float3 retention_camera{};
@@ -3566,6 +3579,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             if (!retention_view)
             {
                 retention_hit = false;
+                m_ogre14_static_retention_miss_stage = 10U;
             }
             else
             {
@@ -3580,6 +3594,8 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     if (!classified || within_capture_radius)
                     {
                         retention_hit = false;
+                        m_ogre14_static_retention_miss_stage =
+                            !classified ? 11U : 12U;
                         break;
                     }
                 }
@@ -3749,12 +3765,13 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 LOG(fmt::format(
                     "[RoR|SceneSource|Retention] hits={} misses={} "
-                    "admitted={} inventory={} cache={}",
+                    "admitted={} inventory={} cache={} miss_stage={}",
                     m_ogre14_static_retention_hits,
                     m_ogre14_static_retention_misses,
                     m_ogre_next_demo_admitted_static_objects.size(),
                     object_manager->GetStaticGraphicsObjects().size(),
-                    m_ogre14_static_mesh_cache.size()));
+                    m_ogre14_static_mesh_cache.size(),
+                    m_ogre14_static_retention_miss_stage));
             }
             if (pending->static_state_retained)
             {
