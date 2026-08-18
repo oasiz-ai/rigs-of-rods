@@ -211,6 +211,10 @@ private:
   bool capture_pending_ = false;
   std::uint64_t last_joined_read_ns_ = 0U;
   std::uint64_t last_joined_validate_ns_ = 0U;
+  std::uint64_t capture_count_ = 0U;
+  std::uint64_t section_terrain_ns_ = 0U;
+  std::uint64_t section_static_ns_ = 0U;
+  std::uint64_t section_dynamic_ns_ = 0U;
 };
 
 enum class Ogre14CameraProjectionKind : std::uint8_t {

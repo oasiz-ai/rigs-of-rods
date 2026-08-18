@@ -204,6 +204,8 @@ private:
     // produce, so it is reused and the walk skipped. Any condition failing
     // falls back to the full walk, which refreshes the retention.
     bool m_ogre14_static_retention_valid = false;
+    std::uint64_t m_ogre14_static_retention_hits = 0U;
+    std::uint64_t m_ogre14_static_retention_misses = 0U;
     std::size_t m_ogre14_static_retention_inventory = 0U;
     std::size_t m_ogre14_static_retention_cache_size = 0U;
     std::uint64_t m_ogre14_static_retention_frozen_decisions = 0U;

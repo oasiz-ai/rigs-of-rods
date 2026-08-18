@@ -3679,6 +3679,23 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             material_pending_guard.Arm();
             std::vector<Render::GraphicsSceneAssetInput> static_assets;
             if (pending->static_state_retained)
+                ++m_ogre14_static_retention_hits;
+            else
+                ++m_ogre14_static_retention_misses;
+            if (((m_ogre14_static_retention_hits +
+                  m_ogre14_static_retention_misses) % 300U) == 0U &&
+                object_manager != nullptr)
+            {
+                LOG(fmt::format(
+                    "[RoR|SceneSource|Retention] hits={} misses={} "
+                    "admitted={} inventory={} cache={}",
+                    m_ogre14_static_retention_hits,
+                    m_ogre14_static_retention_misses,
+                    m_ogre_next_demo_admitted_static_objects.size(),
+                    object_manager->GetStaticGraphicsObjects().size(),
+                    m_ogre14_static_mesh_cache.size()));
+            }
+            if (pending->static_state_retained)
             {
                 // The retained capture is byte-equivalent to what the walk
                 // below would produce under the conditions verified above.
