@@ -128,6 +128,32 @@ struct FrameTimeBudgetContext {
     bool presents_frames = true;
 };
 
+/// Frame phases attributed inside one recorded frame. The combined runtime
+/// still drives a hidden OGRE 14 producer before dispatching to Ogre-Next, so
+/// a frame-time total alone cannot say which of the two costs what. Everything
+/// outside these phases is reported as the remainder.
+enum class FrameTimeBudgetPhase : std::uint8_t {
+    /// The hidden OGRE 14 scene and resource producer.
+    PRODUCER = 0U,
+    /// The renderer session: dispatch, render, and wait.
+    RENDERER,
+    COUNT,
+};
+
+inline constexpr std::size_t kFrameTimeBudgetPhaseCount =
+    static_cast<std::size_t>(FrameTimeBudgetPhase::COUNT);
+
+struct FrameTimeBudgetPhaseStats {
+    std::uint64_t samples = 0U;
+    double total_ms = 0.0;
+    double mean_ms = 0.0;
+    double maximum_ms = 0.0;
+    /// Share of the run's total accepted frame time, in [0, 1].
+    double share = 0.0;
+};
+
+const char* ToString(FrameTimeBudgetPhase phase) noexcept;
+
 struct FrameTimeBudgetReport {
     FrameTimeBudgetMode mode = FrameTimeBudgetMode::OFF;
     FrameTimeBudgetVerdict verdict = FrameTimeBudgetVerdict::FAIL_SHORT_RUN;
@@ -150,6 +176,10 @@ struct FrameTimeBudgetReport {
     /// Percentile named by `limits.percentile`. It is the gated statistic.
     double ranked_ms = 0.0;
     double mean_fps = 0.0;
+
+    FrameTimeBudgetPhaseStats phases[kFrameTimeBudgetPhaseCount];
+    /// Accepted frame time attributed to no declared phase.
+    FrameTimeBudgetPhaseStats remainder;
 
     [[nodiscard]] bool passed() const noexcept {
         return verdict == FrameTimeBudgetVerdict::PASS;
@@ -177,6 +207,19 @@ public:
     void ObserveSceneIdentity(
         const std::string& terrain,
         const std::string& actor);
+
+    /// Attribute part of the current frame to a phase. Ignored during warm-up
+    /// so phase totals and frame totals describe the same frames.
+    void RecordPhase(FrameTimeBudgetPhase phase, double seconds);
+
+    /// True when the most recently observed frame was retained rather than
+    /// discarded as warm-up. `RecordFrame` reports the interval that just
+    /// elapsed, while phases are attributed to the frame now being built, so
+    /// tying attribution to the frame counter directly would let the last
+    /// warm-up frame contribute phases the distribution never counted.
+    [[nodiscard]] bool Recording() const noexcept {
+        return last_frame_retained_;
+    }
 
     /// True once the recorder has accepted at least one frame and can name the
     /// scene it is measuring.
@@ -208,6 +251,7 @@ private:
     FrameTimeBudgetContext context_;
     bool limits_valid_;
 
+    bool last_frame_retained_ = false;
     bool scene_identity_observed_ = false;
     bool scene_identity_changed_ = false;
 
@@ -221,6 +265,9 @@ private:
     std::uint64_t minimum_ns_ = 0U;
     std::uint64_t maximum_ns_ = 0U;
     std::uint64_t total_ns_ = 0U;
+    std::uint64_t phase_samples_[kFrameTimeBudgetPhaseCount] = {};
+    std::uint64_t phase_total_ns_[kFrameTimeBudgetPhaseCount] = {};
+    std::uint64_t phase_maximum_ns_[kFrameTimeBudgetPhaseCount] = {};
 };
 
 /// Parse a mode name. Unknown names are rejected instead of defaulting.

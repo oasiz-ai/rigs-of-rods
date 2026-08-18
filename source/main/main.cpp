@@ -3898,7 +3898,20 @@ int main(int argc, char *argv[])
                 if (!renderer_combined_native_visual_showcase)
                 {
 #endif
+                // Attribute the hidden OGRE 14 producer separately from the
+                // Ogre-Next dispatch below. A frame-time total alone cannot
+                // say which of the two co-resident renderers costs what.
+                const auto producer_started =
+                    std::chrono::high_resolution_clock::now();
                 App::GetGfxScene()->UpdateScene(dt_sim); // Draws GUI as well
+                if (frame_budget_session != nullptr)
+                {
+                    frame_budget_session->RecordPhase(
+                        FrameTimeBudgetPhase::PRODUCER,
+                        std::chrono::duration<double>(
+                            std::chrono::high_resolution_clock::now() -
+                            producer_started).count());
+                }
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
                 }
 #endif
@@ -3912,9 +3925,19 @@ int main(int argc, char *argv[])
                     renderer_combined_session != nullptr &&
                     renderer_combined_session->active())
                 {
+                    const auto renderer_started =
+                        std::chrono::high_resolution_clock::now();
                     const RendererInProcessSessionResult scene_result =
                         renderer_combined_session->PostUpdatedScene(
                             *renderer_combined_scene_source);
+                    if (frame_budget_session != nullptr)
+                    {
+                        frame_budget_session->RecordPhase(
+                            FrameTimeBudgetPhase::RENDERER,
+                            std::chrono::duration<double>(
+                                std::chrono::high_resolution_clock::now() -
+                                renderer_started).count());
+                    }
                     renderer_combined_simulation_granted = false;
                     if (!scene_result &&
                         scene_result.status !=

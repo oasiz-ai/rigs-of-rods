@@ -208,11 +208,13 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
     if (warmup_frames_ < static_cast<std::uint64_t>(limits_.warmup_frames))
     {
         ++warmup_frames_;
+        last_frame_retained_ = false;
         return true;
     }
 
     if (accepted_frames_ >= kFrameTimeBudgetMaximumFrames)
     {
+        last_frame_retained_ = false;
         // The bounded run is complete. Additional frames are neither recorded
         // nor treated as observation errors.
         return true;
@@ -221,6 +223,7 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
     if (!IsFiniteBits(seconds) || !(seconds > 0.0))
     {
         ++rejected_frames_;
+        last_frame_retained_ = false;
         return false;
     }
 
@@ -233,6 +236,7 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
     if (seconds < kMinimumSeconds || seconds > kMaximumSeconds)
     {
         ++rejected_frames_;
+        last_frame_retained_ = false;
         return false;
     }
 
@@ -251,6 +255,7 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
     }
 
     ++accepted_frames_;
+    last_frame_retained_ = true;
     total_ns_ += sample_ns;
     minimum_ns_ = std::min(minimum_ns_, sample_ns);
     maximum_ns_ = std::max(maximum_ns_, sample_ns);
@@ -262,6 +267,33 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
         ++over_budget_frames_;
     }
     return true;
+}
+
+void FrameTimeBudgetSession::RecordPhase(
+    FrameTimeBudgetPhase phase, double seconds)
+{
+    const std::size_t index = static_cast<std::size_t>(phase);
+    if (index >= kFrameTimeBudgetPhaseCount)
+        return;
+    // Phase totals must describe the same frames as the frame totals, so
+    // ignore warm-up entirely rather than accumulating a share of frames the
+    // distribution never saw.
+    if (!Recording())
+        return;
+    if (!IsFiniteBits(seconds) || !(seconds > 0.0))
+        return;
+
+    constexpr double kMaximumSeconds =
+        static_cast<double>(kFrameTimeBudgetMaximumSampleNs) / 1000000000.0;
+    if (seconds > kMaximumSeconds)
+        return;
+
+    const std::uint64_t sample_ns =
+        static_cast<std::uint64_t>(seconds * 1000000000.0);
+    ++phase_samples_[index];
+    phase_total_ns_[index] += sample_ns;
+    if (sample_ns > phase_maximum_ns_[index])
+        phase_maximum_ns_[index] = sample_ns;
 }
 
 void FrameTimeBudgetSession::ObserveSceneIdentity(
@@ -344,6 +376,37 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
         report.p99_ms = RankedMilliseconds(99U);
         report.ranked_ms = RankedMilliseconds(limits_.percentile);
         report.mean_fps = report.mean_ms > 0.0 ? 1000.0 / report.mean_ms : 0.0;
+
+        const double total_frame_ms = ToMilliseconds(total_ns_);
+        std::uint64_t attributed_ns = 0U;
+        for (std::size_t index = 0U; index < kFrameTimeBudgetPhaseCount;
+             ++index)
+        {
+            FrameTimeBudgetPhaseStats& stats = report.phases[index];
+            stats.samples = phase_samples_[index];
+            stats.total_ms = ToMilliseconds(phase_total_ns_[index]);
+            stats.maximum_ms = ToMilliseconds(phase_maximum_ns_[index]);
+            stats.mean_ms = stats.samples > 0U
+                ? stats.total_ms / static_cast<double>(stats.samples)
+                : 0.0;
+            stats.share = total_frame_ms > 0.0
+                ? stats.total_ms / total_frame_ms
+                : 0.0;
+            attributed_ns += phase_total_ns_[index];
+        }
+        // The remainder is whatever the declared phases did not claim. A
+        // negative remainder would mean the phases overlapped, so clamp at
+        // zero and let the share expose the inconsistency instead.
+        const std::uint64_t remainder_ns =
+            attributed_ns <= total_ns_ ? total_ns_ - attributed_ns : 0U;
+        report.remainder.samples = accepted_frames_;
+        report.remainder.total_ms = ToMilliseconds(remainder_ns);
+        report.remainder.mean_ms =
+            report.remainder.total_ms / static_cast<double>(accepted_frames_);
+        report.remainder.maximum_ms = 0.0;
+        report.remainder.share = total_frame_ms > 0.0
+            ? report.remainder.total_ms / total_frame_ms
+            : 0.0;
     }
 
     if (mode_ != FrameTimeBudgetMode::GATE)
@@ -432,6 +495,17 @@ const char* ToString(FrameTimeBudgetMode mode) noexcept
     return "off";
 }
 
+const char* ToString(FrameTimeBudgetPhase phase) noexcept
+{
+    switch (phase)
+    {
+    case FrameTimeBudgetPhase::PRODUCER: return "producer";
+    case FrameTimeBudgetPhase::RENDERER: return "renderer";
+    case FrameTimeBudgetPhase::COUNT: break;
+    }
+    return "unknown";
+}
+
 const char* ToString(FrameTimeBudgetVerdict verdict) noexcept
 {
     switch (verdict)
@@ -471,6 +545,17 @@ std::string FormatFrameTimeBudgetSummary(const FrameTimeBudgetReport& report)
     summary += " p99_ms=" + FormatDouble(report.p99_ms, 4);
     summary += " max_ms=" + FormatDouble(report.maximum_ms, 4);
     summary += " over_budget=" + FormatUnsigned(report.over_budget_frames);
+    for (std::size_t index = 0U; index < kFrameTimeBudgetPhaseCount; ++index)
+    {
+        const FrameTimeBudgetPhaseStats& stats = report.phases[index];
+        if (stats.samples == 0U)
+            continue;
+        summary += std::string(" ") +
+            ToString(static_cast<FrameTimeBudgetPhase>(index)) + "_ms=" +
+            FormatDouble(stats.mean_ms, 4) + " " +
+            ToString(static_cast<FrameTimeBudgetPhase>(index)) + "_share=" +
+            FormatDouble(stats.share, 4);
+    }
     return summary;
 }
 
@@ -532,6 +617,27 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
     fields.push_back(JsonRaw("p99_ms", FormatDouble(report.p99_ms, 4)));
     fields.push_back(JsonRaw("ranked_ms", FormatDouble(report.ranked_ms, 4)));
     fields.push_back(JsonRaw("mean_fps", FormatDouble(report.mean_fps, 3)));
+    for (std::size_t index = 0U; index < kFrameTimeBudgetPhaseCount; ++index)
+    {
+        const std::string prefix =
+            std::string("phase_") +
+            ToString(static_cast<FrameTimeBudgetPhase>(index)) + "_";
+        const FrameTimeBudgetPhaseStats& stats = report.phases[index];
+        fields.push_back(JsonRaw(
+            prefix + "samples", FormatUnsigned(stats.samples)));
+        fields.push_back(JsonRaw(
+            prefix + "total_ms", FormatDouble(stats.total_ms, 4)));
+        fields.push_back(JsonRaw(
+            prefix + "mean_ms", FormatDouble(stats.mean_ms, 4)));
+        fields.push_back(JsonRaw(
+            prefix + "max_ms", FormatDouble(stats.maximum_ms, 4)));
+        fields.push_back(JsonRaw(
+            prefix + "share", FormatDouble(stats.share, 6)));
+    }
+    fields.push_back(JsonRaw(
+        "phase_remainder_mean_ms", FormatDouble(report.remainder.mean_ms, 4)));
+    fields.push_back(JsonRaw(
+        "phase_remainder_share", FormatDouble(report.remainder.share, 6)));
     fields.push_back(JsonRaw(
         "bin_width_ns", FormatUnsigned(kFrameTimeBudgetBinWidthNs)));
     fields.push_back(JsonRaw(

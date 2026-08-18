@@ -428,6 +428,78 @@ void TestSceneIdentityIsObservedAndPinned()
         RoR::FrameTimeBudgetVerdict::ADVISORY);
 }
 
+/// Phase attribution splits a frame into its declared parts plus a remainder,
+/// and describes exactly the frames the distribution retained.
+void TestPhaseAttribution()
+{
+    RoR::FrameTimeBudgetLimits limits = DefaultLimits();
+    limits.warmup_frames = 10U;
+    RoR::FrameTimeBudgetSession session(
+        RoR::FrameTimeBudgetMode::MEASURE, limits, DefaultContext());
+
+    // Warm-up frames and their phases are both excluded.
+    for (int frame = 0; frame < 10; ++frame)
+    {
+        CHECK(session.RecordFrame(0.050));
+        session.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.040);
+        CHECK(!session.Recording());
+    }
+    // Recording reflects the frame just observed, so it turns on only once an
+    // accepted frame has been reported, not merely when warm-up is exhausted.
+    CHECK(!session.Recording());
+
+    // A 10 ms frame: 6 ms producer, 3 ms renderer, 1 ms remainder.
+    for (int frame = 0; frame < 100; ++frame)
+    {
+        CHECK(session.RecordFrame(0.010));
+        CHECK(session.Recording());
+        session.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.006);
+        session.RecordPhase(RoR::FrameTimeBudgetPhase::RENDERER, 0.003);
+    }
+
+    const RoR::FrameTimeBudgetReport report = session.Finalize();
+    CHECK(report.accepted_frames == 100U);
+    const std::size_t producer =
+        static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::PRODUCER);
+    const std::size_t renderer =
+        static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::RENDERER);
+    CHECK(report.phases[producer].samples == 100U);
+    CHECK(NearlyEqual(report.phases[producer].mean_ms, 6.0, 1e-6));
+    CHECK(NearlyEqual(report.phases[producer].share, 0.6, 1e-6));
+    CHECK(NearlyEqual(report.phases[renderer].mean_ms, 3.0, 1e-6));
+    CHECK(NearlyEqual(report.phases[renderer].share, 0.3, 1e-6));
+    CHECK(NearlyEqual(report.remainder.mean_ms, 1.0, 1e-6));
+    CHECK(NearlyEqual(report.remainder.share, 0.1, 1e-6));
+    CHECK(NearlyEqual(report.phases[producer].share +
+                          report.phases[renderer].share +
+                          report.remainder.share,
+                      1.0, 1e-9));
+
+    // Overlapping phases cannot produce a negative remainder.
+    RoR::FrameTimeBudgetSession overlapping(
+        RoR::FrameTimeBudgetMode::MEASURE, DefaultLimits(), DefaultContext());
+    for (int frame = 0; frame < 50; ++frame)
+    {
+        CHECK(overlapping.RecordFrame(0.010));
+        overlapping.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.009);
+        overlapping.RecordPhase(RoR::FrameTimeBudgetPhase::RENDERER, 0.009);
+    }
+    const RoR::FrameTimeBudgetReport overlap = overlapping.Finalize();
+    CHECK(overlap.remainder.total_ms == 0.0);
+    CHECK(overlap.remainder.share == 0.0);
+
+    // Malformed phase samples are ignored, never accumulated.
+    RoR::FrameTimeBudgetSession malformed(
+        RoR::FrameTimeBudgetMode::MEASURE, DefaultLimits(), DefaultContext());
+    for (int frame = 0; frame < 20; ++frame)
+        CHECK(malformed.RecordFrame(0.010));
+    malformed.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, std::nan(""));
+    malformed.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, -1.0);
+    malformed.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.0);
+    malformed.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 1.0e9);
+    CHECK(malformed.Finalize().phases[producer].samples == 0U);
+}
+
 /// Finalize is pure: repeated calls return the same report.
 void TestFinalizeIsRepeatable()
 {
@@ -550,6 +622,7 @@ int main(int argc, char** argv)
     TestRequestedFrameCeiling();
     TestSaturatingBin();
     TestSceneIdentityIsObservedAndPinned();
+    TestPhaseAttribution();
     TestNonPresentingLoopFailsClosed();
     TestFinalizeIsRepeatable();
     TestModeParsing();
