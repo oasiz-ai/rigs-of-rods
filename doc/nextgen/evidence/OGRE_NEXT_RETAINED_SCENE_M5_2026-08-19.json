@@ -1,0 +1,41 @@
+{
+ "conclusion": "The retained static scene takes the Ogre-Next combined runtime from 25 FPS to 82.7 FPS on raw CityWorld, matching the OGRE 14 path on the same scene, and the CityWorld Next enhanced overlay renders on Ogre-Next for the first time at 73.0 FPS with its procedural roads admitted through the finalized adapter. The sustained 60 FPS budget passes on both; p95 remains above the 18.3 ms ceiling (19.3 and 20.1 ms) and is the next target.",
+ "format": "ror-ogre-next-retained-scene-v1",
+ "history_ms": {
+  "attributed": 31.08,
+  "first_measurement": 39.41,
+  "retained": 12.1
+ },
+ "measured_renderer": "ogre-next-combined",
+ "notes": [
+  "Static walk on the raw map: 13.53 ms to 0.106 ms per frame, hits=1798 of 1800 with both misses being the initial walks.",
+  "Retention on the enhanced overlay reports miss_stage=1 with admitted=0: that map flows through a different static admission branch. It is fast without retention; the branch difference is recorded as open work.",
+  "Zero dispatch failures on either map. The enhanced overlay's 27.7 ms maximum is the lowest stall ceiling measured on any combined run."
+ ],
+ "recorded_at_local": "2026-08-18T08:45:47-07:00",
+ "repository_commit": "be0985cd57a3ddb60b8e729c631a6e6b923156f7",
+ "retained_scene": {
+  "enhanced_overlay_v8": "retention inactive (miss_stage=1, admitted=0); fast regardless",
+  "raw_cityworld": "hits=1798 misses=2, static walk 13.53 ms -> 0.106 ms"
+ },
+ "runs": {
+  "enhanced_overlay_v8": {
+   "accepted_frames": 1800,
+   "maximum_ms": 27.6693,
+   "mean_fps": 72.982,
+   "mean_ms": 13.7021,
+   "p95_ms": 20.125,
+   "p99_ms": 21.9531,
+   "terrain": "CityWorldNextLocalOverlay.terrn2"
+  },
+  "raw_cityworld": {
+   "accepted_frames": 1800,
+   "maximum_ms": 75.784,
+   "mean_fps": 82.653,
+   "mean_ms": 12.0987,
+   "p95_ms": 19.2812,
+   "p99_ms": 21.8281,
+   "terrain": "CityWorld.terrn2"
+  }
+ }
+}

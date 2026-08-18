@@ -25,7 +25,7 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
     def test_retention_gate_checks_every_invalidating_condition(self) -> None:
         anchor = "bool retention_hit ="
         start = self.scene.index(anchor)
-        gate = self.scene[start : start + 1200]
+        gate = self.scene[start : start + 1900]
         for condition in (
             "m_ogre14_static_retention_valid",
             "retention_objects == nullptr",
