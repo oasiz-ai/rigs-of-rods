@@ -3932,11 +3932,18 @@ int main(int argc, char *argv[])
                             *renderer_combined_scene_source);
                     if (frame_budget_session != nullptr)
                     {
+                        // The session reports its own split between CPU scene
+                        // conversion and dispatch/GPU completion; recording
+                        // its numbers keeps the two attributable separately.
                         frame_budget_session->RecordPhase(
-                            FrameTimeBudgetPhase::RENDERER,
-                            std::chrono::duration<double>(
-                                std::chrono::high_resolution_clock::now() -
-                                renderer_started).count());
+                            FrameTimeBudgetPhase::SCENE_CAPTURE,
+                            static_cast<double>(
+                                scene_result.scene_capture_ns) / 1.0e9);
+                        frame_budget_session->RecordPhase(
+                            FrameTimeBudgetPhase::SCENE_DISPATCH,
+                            static_cast<double>(
+                                scene_result.scene_dispatch_ns) / 1.0e9);
+                        (void)renderer_started;
                     }
                     renderer_combined_simulation_granted = false;
                     if (!scene_result &&

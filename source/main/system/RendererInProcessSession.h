@@ -133,6 +133,12 @@ struct RendererInProcessSessionResult final {
   std::uint64_t scene_snapshot_id = 0U;
   std::uint64_t frontend_frame_id = 0U;
   std::uint32_t event_polls = 0U;
+  /// Wall-clock nanoseconds this frame spent converting the joined scene on
+  /// the CPU, up to and including snapshot production.
+  std::uint64_t scene_capture_ns = 0U;
+  /// Wall-clock nanoseconds this frame spent dispatching to the frontend,
+  /// rendering, and waiting for completion.
+  std::uint64_t scene_dispatch_ns = 0U;
   bool pending_frame = false;
   bool shutdown_requested = false;
   bool simulation_may_advance = false;

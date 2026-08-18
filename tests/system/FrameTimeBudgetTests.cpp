@@ -454,7 +454,7 @@ void TestPhaseAttribution()
         CHECK(session.RecordFrame(0.010));
         CHECK(session.Recording());
         session.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.006);
-        session.RecordPhase(RoR::FrameTimeBudgetPhase::RENDERER, 0.003);
+        session.RecordPhase(RoR::FrameTimeBudgetPhase::SCENE_DISPATCH, 0.003);
     }
 
     const RoR::FrameTimeBudgetReport report = session.Finalize();
@@ -462,7 +462,7 @@ void TestPhaseAttribution()
     const std::size_t producer =
         static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::PRODUCER);
     const std::size_t renderer =
-        static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::RENDERER);
+        static_cast<std::size_t>(RoR::FrameTimeBudgetPhase::SCENE_DISPATCH);
     CHECK(report.phases[producer].samples == 100U);
     CHECK(NearlyEqual(report.phases[producer].mean_ms, 6.0, 1e-6));
     CHECK(NearlyEqual(report.phases[producer].share, 0.6, 1e-6));
@@ -482,7 +482,7 @@ void TestPhaseAttribution()
     {
         CHECK(overlapping.RecordFrame(0.010));
         overlapping.RecordPhase(RoR::FrameTimeBudgetPhase::PRODUCER, 0.009);
-        overlapping.RecordPhase(RoR::FrameTimeBudgetPhase::RENDERER, 0.009);
+        overlapping.RecordPhase(RoR::FrameTimeBudgetPhase::SCENE_DISPATCH, 0.009);
     }
     const RoR::FrameTimeBudgetReport overlap = overlapping.Finalize();
     CHECK(overlap.remainder.total_ms == 0.0);

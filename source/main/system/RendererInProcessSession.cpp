@@ -11,6 +11,7 @@
 #include "render/RendererFrontendDirectDispatcher.h"
 #include "render/RendererFrontendPresentationPolicy.h"
 
+#include <chrono>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -759,6 +760,7 @@ public:
                     false, event_polls);
     }
 
+    const auto frame_started = std::chrono::steady_clock::now();
     try {
       Render::GraphicsSceneFrameInput frame;
       JoinedCaptureGuard capture_guard(source);
@@ -819,7 +821,23 @@ public:
           !retained.production.asset_delta.has_value();
       pending = std::move(retained);
       capture_guard.Commit();
-      return TryPending(event_polls);
+      // Split the renderer's share of the frame at the point CPU scene
+      // conversion ends and dispatch begins. Measured attribution put 84% of
+      // a CityWorld frame inside this session; these two numbers say whether
+      // that is conversion on the CPU or dispatch and GPU completion, which
+      // need opposite fixes.
+      const auto capture_ended = std::chrono::steady_clock::now();
+      RendererInProcessSessionResult dispatched = TryPending(event_polls);
+      const auto dispatch_ended = std::chrono::steady_clock::now();
+      dispatched.scene_capture_ns =
+          static_cast<std::uint64_t>(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  capture_ended - frame_started).count());
+      dispatched.scene_dispatch_ns =
+          static_cast<std::uint64_t>(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  dispatch_ended - capture_ended).count());
+      return dispatched;
     } catch (const std::bad_alloc &) {
       return Failure(RendererInProcessSessionStatus::FAILED_ALLOCATION,
                      Render::ValidationResult::Success(),

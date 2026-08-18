@@ -500,7 +500,8 @@ const char* ToString(FrameTimeBudgetPhase phase) noexcept
     switch (phase)
     {
     case FrameTimeBudgetPhase::PRODUCER: return "producer";
-    case FrameTimeBudgetPhase::RENDERER: return "renderer";
+    case FrameTimeBudgetPhase::SCENE_CAPTURE: return "scene_capture";
+    case FrameTimeBudgetPhase::SCENE_DISPATCH: return "scene_dispatch";
     case FrameTimeBudgetPhase::COUNT: break;
     }
     return "unknown";
