@@ -135,9 +135,12 @@ struct FrameTimeBudgetContext {
 enum class FrameTimeBudgetPhase : std::uint8_t {
     /// The hidden OGRE 14 scene and resource producer.
     PRODUCER = 0U,
-    /// CPU conversion of the joined scene, up to and including snapshot
-    /// production.
-    SCENE_CAPTURE,
+    /// Reading the joined OGRE 14 scene into a frame input.
+    SCENE_JOINED_READ,
+    /// Normalizing and validating that frame input.
+    SCENE_NORMALIZE,
+    /// Producing the renderer-neutral snapshot from it.
+    SCENE_PRODUCE,
     /// Dispatch to the frontend, render submission, and completion wait.
     SCENE_DISPATCH,
     COUNT,

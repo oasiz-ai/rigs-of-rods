@@ -761,6 +761,9 @@ public:
     }
 
     const auto frame_started = std::chrono::steady_clock::now();
+    std::uint64_t joined_read_ns = 0U;
+    std::uint64_t normalize_ns = 0U;
+    std::uint64_t produce_ns = 0U;
     try {
       Render::GraphicsSceneFrameInput frame;
       JoinedCaptureGuard capture_guard(source);
@@ -776,8 +779,13 @@ public:
         }
         FramePolicyCaptureGuard policy_guard(frame_policy);
         capture_guard.Arm();
+        const auto joined_read_started = std::chrono::steady_clock::now();
         const Render::ValidationResult captured =
             source.CaptureJoinedGraphicsFrame(frame);
+        joined_read_ns = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - joined_read_started)
+                .count());
         if (!captured) {
           capture_guard.DismissUncaptured();
           return Failure(
@@ -785,10 +793,14 @@ public:
               Render::RenderOperationCode::INVALID_ARGUMENT, event_polls);
         }
       }
+      const auto normalize_started = std::chrono::steady_clock::now();
       const Render::ValidationResult normalized =
           frame_policy.NormalizeAndValidate(
               frame, current_surface.pixel_width,
               current_surface.pixel_height);
+      normalize_ns = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::steady_clock::now() - normalize_started).count());
       if (!normalized) {
         return Failure(RendererInProcessSessionStatus::CAPTURE_REJECTED,
                        normalized,
@@ -796,8 +808,12 @@ public:
                        event_polls);
       }
 
+      const auto produce_started = std::chrono::steady_clock::now();
       Render::GraphicsSceneSnapshotProduceResult produced =
           producer->Produce(frame);
+      produce_ns = static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(
+              std::chrono::steady_clock::now() - produce_started).count());
       if (!produced) {
         return Failure(RendererInProcessSessionStatus::FAILED_PRODUCER,
                        produced.validation,
@@ -833,6 +849,9 @@ public:
           static_cast<std::uint64_t>(
               std::chrono::duration_cast<std::chrono::nanoseconds>(
                   capture_ended - frame_started).count());
+      dispatched.scene_joined_read_ns = joined_read_ns;
+      dispatched.scene_normalize_ns = normalize_ns;
+      dispatched.scene_produce_ns = produce_ns;
       dispatched.scene_dispatch_ns =
           static_cast<std::uint64_t>(
               std::chrono::duration_cast<std::chrono::nanoseconds>(

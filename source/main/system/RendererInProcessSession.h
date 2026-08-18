@@ -136,6 +136,11 @@ struct RendererInProcessSessionResult final {
   /// Wall-clock nanoseconds this frame spent converting the joined scene on
   /// the CPU, up to and including snapshot production.
   std::uint64_t scene_capture_ns = 0U;
+  /// Sub-spans of `scene_capture_ns`: reading the joined OGRE 14 scene,
+  /// normalizing and validating it, and producing the neutral snapshot.
+  std::uint64_t scene_joined_read_ns = 0U;
+  std::uint64_t scene_normalize_ns = 0U;
+  std::uint64_t scene_produce_ns = 0U;
   /// Wall-clock nanoseconds this frame spent dispatching to the frontend,
   /// rendering, and waiting for completion.
   std::uint64_t scene_dispatch_ns = 0U;
