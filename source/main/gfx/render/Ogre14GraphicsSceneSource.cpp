@@ -10,8 +10,6 @@
 
 #include <chrono>
 
-#include "Application.h"
-
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -1113,32 +1111,8 @@ ValidationResult Ogre14GraphicsSceneSource::CaptureJoinedGraphicsFrame(
       provider_.DiscardOgre14GraphicsSceneCapture();
       return validation;
     }
-    // Periodically surface the per-section traversal cost. The joined read
-    // dominates a combined-runtime frame, and which section owns it decides
-    // what a retained native scene must cache.
-    ++capture_count_;
-    section_terrain_ns_ += capture.terrain_ns;
-    section_static_ns_ += capture.static_meshes_ns;
-    section_dynamic_ns_ += capture.dynamic_meshes_ns;
-    if ((capture_count_ % 300U) == 0U)
-    {
-        LogFormat(
-            "[RoR|SceneSource] captures=%llu mean_ns terrain=%llu "
-            "static=%llu dynamic=%llu other=%llu",
-            static_cast<unsigned long long>(capture_count_),
-            static_cast<unsigned long long>(
-                section_terrain_ns_ / capture_count_),
-            static_cast<unsigned long long>(
-                section_static_ns_ / capture_count_),
-            static_cast<unsigned long long>(
-                section_dynamic_ns_ / capture_count_),
-            static_cast<unsigned long long>(
-                last_joined_read_ns_ > (capture.terrain_ns +
-                    capture.static_meshes_ns + capture.dynamic_meshes_ns)
-                    ? last_joined_read_ns_ - capture.terrain_ns -
-                          capture.static_meshes_ns - capture.dynamic_meshes_ns
-                    : 0U));
-    }
+    // The per-section traversal cost is surfaced by the provider at commit
+    // time: this renderer-neutral layer stays free of application logging.
 
     frame = std::move(capture.frame);
     capture_pending_ = true;

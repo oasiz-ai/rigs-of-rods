@@ -30,6 +30,7 @@
 #include "EnvironmentMap.h" // RoR::GfxEnvmap
 #include "GfxActorCaptureInventory.h"
 #include "GfxData.h"
+#include "ogre14/Ogre14LegacyLiveMaterialCoordinator.h"
 #include "ogre14/detail/Ogre14ToOgreNextTerrainSource.h"
 #include "ogre14/detail/OgreNextDemoMaterialSource.h"
 #include "render/Ogre14GraphicsSceneSource.h"
@@ -129,6 +130,11 @@ public:
 
 private:
 
+    /// Creates the per-generation road material coordinator on first use,
+    /// with the authored road2 compatibility declaration and ContentManager
+    /// as the authenticated texture resolver and authority provider.
+    Render::ValidationResult EnsureOgre14RoadMaterialCoordinator();
+
     Render::ValidationResult CaptureOgre14DynamicActorInventory(
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
         std::map<std::string,
@@ -225,6 +231,18 @@ private:
     std::size_t m_ogre14_static_retention_road_live = 0U;
     std::size_t m_ogre14_static_retention_road_cached = 0U;
     Render::Ogre14ProceduralRoadInventory m_ogre14_procedural_road_inventory;
+    // Per-generation legacy material coordinator. Textured road2 admission
+    // observes the live material through the authenticated native extractor
+    // and resolves the exact translated closure the road inventory requires;
+    // a fresh translator/catalog identity is minted per scene generation.
+    std::unique_ptr<Render::Ogre14LegacyLiveMaterialCoordinator>
+        m_ogre14_road_material_coordinator;
+    // Committed-capture section cost accounting, logged every 300 commits.
+    std::uint64_t m_ogre14_section_log_captures = 0U;
+    std::uint64_t m_ogre14_section_log_terrain_ns = 0U;
+    std::uint64_t m_ogre14_section_log_static_ns = 0U;
+    std::uint64_t m_ogre14_section_log_dynamic_ns = 0U;
+    std::uint64_t m_ogre14_section_log_other_ns = 0U;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
     // cache commits at its own map-generation boundary, before unrelated
@@ -326,6 +344,18 @@ private:
         Gfx::Detail::OgreNextDemoCuratedCityWorldCoverage
             curated_cityworld_material_coverage;
         std::string analytic_sky_log_snapshot;
+        /// Prepared road-material frame backing this capture's authoritative
+        /// road inventory. The coordinator commits it only after the joined
+        /// transaction is accepted; every earlier discard funnels through
+        /// DiscardOgre14GraphicsSceneCapture.
+        Render::Ogre14LegacyPreparedMaterialFrame road_material_frame;
+        bool has_road_material_frame = false;
+        /// This capture's per-section traversal cost, logged from commit so
+        /// only accepted exposures are counted.
+        std::uint64_t section_terrain_ns = 0U;
+        std::uint64_t section_static_ns = 0U;
+        std::uint64_t section_dynamic_ns = 0U;
+        std::uint64_t section_other_ns = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
 

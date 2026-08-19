@@ -50,6 +50,105 @@
 using namespace RoR;
 using namespace Ogre;
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+namespace {
+
+/// The combined runtime admits textured procedural roads only through the
+/// exact legacy material closure, and the stock road2 state cannot pass the
+/// authenticated native extractor: its DXT1 diffuse cannot be read back as
+/// uncompressed RGBA8, the fixed-function ambient defaults to white, and the
+/// translator rejects nonzero ambient/specular/emissive lobes. Prepare the
+/// exact canonical state here, before any procedural road finalizes its
+/// snapshot from this material. Every missing precondition logs and leaves
+/// the material untouched, so a later capture fails closed with its own
+/// exact reason instead of observing a half-prepared material.
+void PrepareCombinedRuntimeRoadMaterial(
+    const std::string& terrain_resource_group)
+{
+    const char* const road_texture_name = "cityworld_road2_basecolor.png";
+    const Ogre::MaterialPtr road_material =
+        Ogre::MaterialManager::getSingleton().getByName(
+            "road2", "MaterialsRG");
+    if (!road_material)
+    {
+        LOG("[RoR|Terrain|CombinedRoadMaterial] material road2 is not "
+            "loaded; procedural roads will fail the joined capture closed");
+        return;
+    }
+    road_material->load();
+    if (road_material->getNumTechniques() != 1 ||
+        road_material->getTechnique(0) == nullptr ||
+        road_material->getTechnique(0)->getNumPasses() != 1 ||
+        road_material->getTechnique(0)->getPass(0) == nullptr ||
+        road_material->getTechnique(0)->getPass(0)
+                ->getNumTextureUnitStates() != 1)
+    {
+        LOG(fmt::format(
+            "[RoR|Terrain|CombinedRoadMaterial] road2 is not the authored "
+            "single-technique/single-pass/single-unit material "
+            "(techniques={}); leaving it untouched",
+            road_material->getNumTechniques()));
+        return;
+    }
+    if (!Ogre::ResourceGroupManager::getSingleton().resourceExists(
+            terrain_resource_group, road_texture_name))
+    {
+        LOG(fmt::format(
+            "[RoR|Terrain|CombinedRoadMaterial] '{}' is not part of terrain "
+            "group '{}'; road2 keeps its stock DXT1 state",
+            road_texture_name, terrain_resource_group));
+        return;
+    }
+    Ogre::TexturePtr road_texture;
+    try
+    {
+        // The authenticated terrain archive is the source authority: the
+        // receipt for this texture is minted while its bytes are fetched
+        // from the SHA-256-verified member, which is what the authenticated
+        // capture overload later requires. Hardware gamma marks the base
+        // color as sRGB exactly once.
+        road_texture = Ogre::TextureManager::getSingleton().load(
+            road_texture_name, terrain_resource_group, Ogre::TEX_TYPE_2D,
+            Ogre::MIP_DEFAULT, 1.0f, Ogre::PF_UNKNOWN,
+            /*hwGammaCorrection:*/ true);
+    }
+    catch (const Ogre::Exception& e)
+    {
+        LOG(fmt::format(
+            "[RoR|Terrain|CombinedRoadMaterial] loading '{}' failed: {}",
+            road_texture_name, e.getDescription()));
+        return;
+    }
+    if (!road_texture)
+    {
+        LOG(fmt::format(
+            "[RoR|Terrain|CombinedRoadMaterial] loading '{}' produced no "
+            "texture", road_texture_name));
+        return;
+    }
+    Ogre::Pass* const road_pass =
+        road_material->getTechnique(0)->getPass(0);
+    Ogre::TextureUnitState* const road_unit =
+        road_pass->getTextureUnitState(0);
+    road_unit->setTexture(road_texture);
+    road_unit->setHardwareGammaEnabled(true);
+    road_pass->setAmbient(Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f));
+    road_pass->setDiffuse(Ogre::ColourValue(1.0f, 1.0f, 1.0f, 1.0f));
+    road_pass->setSpecular(Ogre::ColourValue(0.0f, 0.0f, 0.0f, 0.0f));
+    road_pass->setSelfIllumination(Ogre::ColourValue(0.0f, 0.0f, 0.0f));
+    road_pass->setShininess(0.0f);
+    LOG(fmt::format(
+        "[RoR|Terrain|CombinedRoadMaterial] road2 prepared: texture='{}' "
+        "({}x{}, format={}, hw_gamma={}), lobes zeroed",
+        road_texture_name, road_texture->getWidth(),
+        road_texture->getHeight(),
+        static_cast<int>(road_texture->getFormat()),
+        road_texture->isHardwareGammaEnabled()));
+}
+
+} // namespace
+#endif // ROR_OGRE_NEXT_COMBINED_RUNTIME
+
 RoR::Terrain::Terrain(CacheEntryPtr entry, Terrn2DocumentPtr def)
     : m_collisions(0)
     , m_geometry_manager(0)
@@ -234,6 +333,12 @@ bool RoR::Terrain::initialize()
     loading_window->SetProgress(77, _L("Initializing Water Subsystem"));
     this->initWater();
 
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // Must precede the first ProceduralRoad::finish so every finalized road
+    // snapshot already observes the canonical closure-capable state.
+    PrepareCombinedRuntimeRoadMaterial(this->getTerrainFileResourceGroup());
+#endif
+
     loading_window->SetProgress(80, _L("Loading Terrain Objects"));
     this->loadTerrainObjects(); // *.tobj files
 
@@ -255,12 +360,19 @@ bool RoR::Terrain::initialize()
     loading_window->SetProgress(95, _L("Loading Terrain Actors"));
     this->LoadPredefinedActors();
 
+#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
     // Every material this map will show is now loaded. Generate their
     // RTShader techniques here rather than letting the resolver listener
     // create each one on first visibility, which resolves shadowing as the
     // camera enters new areas and is visible as flashing.
     loading_window->SetProgress(98, _L("Preparing shaders"));
     App::GetAppContext()->PrewarmRTShaderTechniques();
+#else
+    // The combined producer never presents an OGRE 14 frame, so RTSS pop-in
+    // cannot occur, while generated techniques would mutate captured
+    // materials: the authenticated native extractor requires the authored
+    // single-technique structure.
+#endif
 
     LOG(" ===== TERRAIN LOADING DONE " + m_cache_entry->fname);
 

@@ -29,6 +29,7 @@
 #include "AppContext.h"
 #if OGRE_VERSION_MAJOR >= 14
 #include "ContentManager.h"
+#include "gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
 #endif
 #include "Actor.h"
 #include "ActorManager.h"
@@ -393,6 +394,31 @@ public:
 
 private:
     RoR::Gfx::Detail::OgreNextDemoMaterialSource& m_source;
+    bool m_armed = false;
+};
+
+class Ogre14RoadMaterialFramePendingGuard final
+{
+public:
+    explicit Ogre14RoadMaterialFramePendingGuard(
+        std::unique_ptr<RoR::Render::Ogre14LegacyLiveMaterialCoordinator>&
+            coordinator) noexcept:
+        m_coordinator(coordinator)
+    {
+    }
+
+    ~Ogre14RoadMaterialFramePendingGuard()
+    {
+        if (m_armed && m_coordinator != nullptr)
+            m_coordinator->DiscardPreparedFrame();
+    }
+
+    void Arm() noexcept { m_armed = true; }
+    void Release() noexcept { m_armed = false; }
+
+private:
+    std::unique_ptr<RoR::Render::Ogre14LegacyLiveMaterialCoordinator>&
+        m_coordinator;
     bool m_armed = false;
 };
 
@@ -2812,6 +2838,9 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_static_retention_road_cached = 0U;
     m_ogre14_procedural_road_inventory =
         Render::Ogre14ProceduralRoadInventory();
+    // A fresh coordinator per generation: the opaque catalog identity must
+    // change even when numeric sequences restart at one.
+    m_ogre14_road_material_coordinator.reset();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3505,6 +3534,49 @@ private:
 
 } // namespace
 
+Render::ValidationResult GfxScene::EnsureOgre14RoadMaterialCoordinator()
+{
+    if (m_ogre14_road_material_coordinator != nullptr)
+        return Render::ValidationResult::Success();
+    ContentManager* const content_manager = App::GetContentManager();
+    if (content_manager == nullptr)
+    {
+        return Render::ValidationResult::Failure(
+            Render::ValidationCode::MISSING_REFERENCE,
+            "road_material.content_manager",
+            "no ContentManager authority for road material translation");
+    }
+    // Authored compatibility declaration: road2 is the exact legacy lit,
+    // diffuse-textured fixed-function road material. The lit election and
+    // the sRGB base-color role are declared here, never inferred from pass
+    // state or file names.
+    std::vector<Render::Ogre14LegacyMaterialSemanticDeclaration>
+        declarations(1U);
+    declarations[0].material_key.exact_resource_group = "MaterialsRG";
+    declarations[0].material_key.exact_name = "road2";
+    declarations[0].source = Render::Ogre14LegacyMaterialSemanticSource::
+        VERSIONED_COMPATIBILITY_TABLE;
+    declarations[0].source_revision = 1U;
+    declarations[0].base_color_semantic =
+        Render::Ogre14LegacyBaseColorSemantic::ROUGH_DIELECTRIC_PBR;
+    declarations[0].texture_color_role =
+        Render::Ogre14LegacyTextureColorRole::BASE_COLOR_SRGB;
+    Render::Ogre14LegacyMaterialSemanticRegistry semantic_registry;
+    Render::ValidationResult validation =
+        Render::BuildOgre14LegacyMaterialSemanticRegistry(
+            Render::Ogre14LegacyMaterialSemanticRegistryConfiguration{},
+            declarations, semantic_registry);
+    if (!validation)
+        return validation;
+    // The textured construction: ContentManager is both the authenticated
+    // texture resolver used at native capture and the scene-lifetime
+    // authority snapshot provider consulted by every PrepareFrame.
+    return Render::CreateOgre14LegacyLiveMaterialCoordinator(
+        Render::Ogre14LegacyLiveMaterialCoordinatorConfiguration{},
+        semantic_registry, *content_manager,
+        m_ogre14_road_material_coordinator);
+}
+
 Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     Render::Ogre14GraphicsSceneCapture& capture)
 {
@@ -3515,9 +3587,13 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             "ogre14_capture.pending",
             "the preceding OGRE 14 capture must be committed or discarded");
     }
+    const std::chrono::steady_clock::time_point ogre14_capture_started =
+        std::chrono::steady_clock::now();
     auto pending = std::make_unique<Ogre14PendingCaptureState>();
     OgreNextDemoMaterialPendingGuard material_pending_guard(
         m_ogre_next_demo_material_source);
+    Ogre14RoadMaterialFramePendingGuard road_material_frame_guard(
+        m_ogre14_road_material_coordinator);
 
     // Static objects do not move, yet every capture walked all of them
     // through OGRE and deep-copied the static registries into this pending
@@ -3840,28 +3916,69 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 m_ogre14_procedural_road_inventory;
             std::vector<Render::Ogre14GraphicsSceneStaticSectionCaptureInput>
                 road_sections;
-            if (procedural_roads_adapted)
+            if (procedural_roads_adapted && road_captures.empty())
             {
+                // An empty complete inventory still publishes: removed roads
+                // become permanent tombstones. No material is admitted here.
                 static_validation = Render::BuildOgre14ProceduralRoadInventory(
                     road_captures, pending->procedural_road_inventory,
                     road_sections);
                 if (!static_validation)
                     return static_validation;
-
-                // Road materials must be observed by the demo material source
-                // exactly as static-section materials are, or they reach the
-                // factor-only fallback still carrying authored texture units
-                // and the whole capture is refused. Project each one from the
-                // live material; the road mesh payload was wound from the
-                // captured cull state, so a projection that changes the cull
-                // would invert the geometry and fails closed instead.
-                for (Render::Ogre14GraphicsSceneStaticSectionCaptureInput&
-                         road_section : road_sections)
+            }
+            else if (procedural_roads_adapted)
+            {
+                // Textured road2 is admitted only through its exact legacy
+                // material closure: observe each live road material through
+                // the authenticated native extractor, translate one complete
+                // frame, and hand the road inventory that authoritative
+                // frame. No factor fallback runs on this path.
+                static_validation = EnsureOgre14RoadMaterialCoordinator();
+                if (!static_validation)
+                    return static_validation;
+                ContentManager* const road_content_manager =
+                    App::GetContentManager();
+                if (road_content_manager == nullptr)
                 {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::MISSING_REFERENCE,
+                        "road_material.content_manager",
+                        "no ContentManager authority for road textures");
+                }
+                std::vector<Render::Ogre14LegacyMaterialObservation>
+                    road_observations;
+                for (const Render::Ogre14ProceduralRoadCapture& road_capture :
+                     road_captures)
+                {
+                    Render::Ogre14LegacyAssetKey road_material_key;
+                    road_material_key.exact_resource_group =
+                        road_capture.material.exact_resource_group;
+                    road_material_key.exact_name =
+                        road_capture.material.exact_name;
+                    bool already_observed = false;
+                    for (const Render::Ogre14LegacyMaterialObservation&
+                             existing : road_observations)
+                    {
+                        if (existing.material_key == road_material_key)
+                        {
+                            already_observed = true;
+                            break;
+                        }
+                    }
+                    if (already_observed)
+                        continue;
+                    Render::Ogre14LegacyMaterialObservation observation;
+                    observation.material_key = road_material_key;
+                    static_validation = m_ogre14_road_material_coordinator->
+                        ResolveMaterialSemantics(
+                            road_material_key,
+                            observation.semantic_resolution);
+                    if (!static_validation)
+                        return static_validation;
                     const Ogre::MaterialPtr live_road_material =
                         Ogre::MaterialManager::getSingleton().getByName(
-                            road_section.material.exact_name,
-                            road_section.material.exact_resource_group);
+                            road_material_key.exact_name,
+                            road_material_key.exact_resource_group);
                     if (!live_road_material)
                     {
                         return Render::ValidationResult::Failure(
@@ -3869,24 +3986,74 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                             "road.material.live_lookup",
                             "finalized road material is not loaded");
                     }
-                    const auto road_cull_before = road_section.material.cull;
-                    bool road_reverse_winding = false;
-                    bool road_used_matte = false;
-                    static_validation = CaptureOgreNextDemoMaterialInput(
-                        live_road_material, road_section.material,
-                        road_reverse_winding, road_used_matte);
+                    static_validation =
+                        Render::CaptureOgre14LegacyNativeMaterial(
+                            *live_road_material,
+                            observation.semantic_resolution
+                                .native_declaration,
+                            *road_content_manager,
+                            observation.native_capture);
                     if (!static_validation)
                         return static_validation;
-                    (void)road_used_matte;
-                    if (road_section.material.cull != road_cull_before)
+                    road_observations.push_back(std::move(observation));
+                }
+                Render::Ogre14LegacyPreparedMaterialFrame road_material_frame;
+                static_validation =
+                    m_ogre14_road_material_coordinator->PrepareFrame(
+                        m_ogre14_road_material_coordinator->source_sequence()
+                            + 1U,
+                        road_observations, road_material_frame);
+                if (!static_validation)
+                    return static_validation;
+                road_material_frame_guard.Arm();
+                for (Render::Ogre14ProceduralRoadCapture& road_capture :
+                     road_captures)
+                {
+                    const Render::Ogre14LegacyPreparedMaterial*
+                        prepared_material = nullptr;
+                    for (const Render::Ogre14LegacyPreparedMaterial&
+                             candidate_material :
+                         road_material_frame.materials())
+                    {
+                        if (candidate_material.material_key.exact_resource_group
+                                == road_capture.material.exact_resource_group
+                            && candidate_material.material_key.exact_name
+                                == road_capture.material.exact_name)
+                        {
+                            prepared_material = &candidate_material;
+                            break;
+                        }
+                    }
+                    if (prepared_material == nullptr)
                     {
                         return Render::ValidationResult::Failure(
-                            Render::ValidationCode::REVISION_MISMATCH,
-                            "road.material.cull_drift",
-                            "projected road material changed the cull the "
-                            "road mesh was wound from");
+                            Render::ValidationCode::MISSING_REFERENCE,
+                            "road_material.prepared_lookup",
+                            "captured road has no prepared material closure");
                     }
+                    // Retain the exact extractor-minted native owner. The
+                    // closure's own audit must never be assigned here: a
+                    // shared control block is rejected as laundering.
+                    road_capture.exact_native_material_audit =
+                        prepared_material->native_material_audit;
                 }
+                const Render::Ogre14LegacyTranslatedFrame* const
+                    road_translated_frame =
+                        road_material_frame.translated_frame();
+                if (road_translated_frame == nullptr)
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::MISSING_REFERENCE,
+                        "road_material.translated_frame",
+                        "prepared road material frame has no translation");
+                }
+                static_validation = Render::BuildOgre14ProceduralRoadInventory(
+                    road_captures, *road_translated_frame,
+                    pending->procedural_road_inventory, road_sections);
+                if (!static_validation)
+                    return static_validation;
+                pending->road_material_frame = std::move(road_material_frame);
+                pending->has_road_material_frame = true;
             }
 
             static_validation =
@@ -4742,8 +4909,24 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
         }
     }
 
+    {
+        const std::uint64_t capture_total_ns =
+            static_cast<std::uint64_t>(std::chrono::duration_cast<
+                std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() -
+                    ogre14_capture_started).count());
+        const std::uint64_t section_sum_ns = candidate.terrain_ns +
+            candidate.static_meshes_ns + candidate.dynamic_meshes_ns;
+        pending->section_terrain_ns = candidate.terrain_ns;
+        pending->section_static_ns = candidate.static_meshes_ns;
+        pending->section_dynamic_ns = candidate.dynamic_meshes_ns;
+        pending->section_other_ns = capture_total_ns > section_sum_ns
+            ? capture_total_ns - section_sum_ns
+            : 0U;
+    }
     m_ogre14_pending_capture = std::move(pending);
     material_pending_guard.Release();
+    road_material_frame_guard.Release();
     capture = std::move(candidate);
     return Render::ValidationResult::Success();
 }
@@ -4809,6 +4992,53 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             m_ogre_next_demo_analytic_sky_log_snapshot));
     }
     m_ogre_next_demo_material_source.Commit();
+    if (m_ogre14_pending_capture->has_road_material_frame &&
+        m_ogre14_road_material_coordinator != nullptr)
+    {
+        const Render::Ogre14LegacyPreparedMaterialCommitResult
+            road_material_commit_result =
+                m_ogre14_road_material_coordinator->
+                    CommitPreparedFrameAfterAcceptedExposure(
+                        m_ogre14_pending_capture->road_material_frame);
+        if (road_material_commit_result !=
+            Render::Ogre14LegacyPreparedMaterialCommitResult::COMMITTED)
+        {
+            // The accepted exposure could not advance the translator. Drop
+            // the pending frame so the next capture can prepare again, and
+            // leave a loud record: a silent wedge here would starve every
+            // later road frame with "the preceding material frame must be
+            // committed or discarded".
+            m_ogre14_road_material_coordinator->DiscardPreparedFrame();
+            LOG(fmt::format(
+                "[RoR|SceneSource|RoadMaterial] prepared frame refused at "
+                "accepted exposure: result={}",
+                static_cast<unsigned int>(road_material_commit_result)));
+        }
+    }
+    // Periodically surface the per-section traversal cost. The joined read
+    // dominates a combined-runtime frame, and which section owns it decides
+    // what a retained native scene must cache. Counting at commit means only
+    // accepted exposures are measured.
+    ++m_ogre14_section_log_captures;
+    m_ogre14_section_log_terrain_ns +=
+        m_ogre14_pending_capture->section_terrain_ns;
+    m_ogre14_section_log_static_ns +=
+        m_ogre14_pending_capture->section_static_ns;
+    m_ogre14_section_log_dynamic_ns +=
+        m_ogre14_pending_capture->section_dynamic_ns;
+    m_ogre14_section_log_other_ns +=
+        m_ogre14_pending_capture->section_other_ns;
+    if ((m_ogre14_section_log_captures % 300U) == 0U)
+    {
+        LOG(fmt::format(
+            "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "
+            "dynamic={} other={}",
+            m_ogre14_section_log_captures,
+            m_ogre14_section_log_terrain_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_static_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_dynamic_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_other_ns / m_ogre14_section_log_captures));
+    }
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;
     const Gfx::Detail::OgreNextDemoCuratedCityWorldCoverage&
@@ -5076,6 +5306,8 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
 void GfxScene::DiscardOgre14GraphicsSceneCapture() noexcept
 {
     m_ogre_next_demo_material_source.Discard();
+    if (m_ogre14_road_material_coordinator != nullptr)
+        m_ogre14_road_material_coordinator->DiscardPreparedFrame();
     m_ogre14_pending_capture.reset();
 }
 

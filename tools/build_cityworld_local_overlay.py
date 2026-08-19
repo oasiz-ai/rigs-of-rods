@@ -34,6 +34,15 @@ if _TERRAIN_LAYERS_SPEC is None or _TERRAIN_LAYERS_SPEC.loader is None:
 terrain_layers = _importlib_util.module_from_spec(_TERRAIN_LAYERS_SPEC)
 sys.modules[_TERRAIN_LAYERS_SPEC.name] = terrain_layers
 _TERRAIN_LAYERS_SPEC.loader.exec_module(terrain_layers)
+_ROAD_TEXTURE_SPEC = _importlib_util.spec_from_file_location(
+    "cityworld_road_texture",
+    Path(__file__).resolve().parent / "cityworld_road_texture.py",
+)
+if _ROAD_TEXTURE_SPEC is None or _ROAD_TEXTURE_SPEC.loader is None:
+    raise RuntimeError("could not load the road texture decoder")
+road_texture = _importlib_util.module_from_spec(_ROAD_TEXTURE_SPEC)
+sys.modules[_ROAD_TEXTURE_SPEC.name] = road_texture
+_ROAD_TEXTURE_SPEC.loader.exec_module(road_texture)
 import zipfile
 
 
@@ -345,8 +354,15 @@ INFILL_ASSET_CONTRACTS = (
 EXPECTED_REGIONAL_INFILL_ROUTES = 7
 EXPECTED_REGIONAL_INFILL_PLACEMENTS = 46
 # v8 adds the enhanced multi-layer terrain: its global and page OTC
-# configurations plus the authored RGBA blend map.
-EXPECTED_PACKAGE_ENTRIES = 79
+# configurations plus the authored RGBA blend map. v9 adds the uncompressed
+# road2 base color the combined runtime's authenticated road-material capture
+# requires; the authenticated overlay archive is what mints its receipt.
+ROAD_BASECOLOR_NAME = "cityworld_road2_basecolor.png"
+ROAD2_DDS_REPOSITORY_PATH = "resources/textures/road2.dds"
+PINNED_ROAD2_DDS_SHA256 = (
+    "591c24e00484bbab58158f646e2710058eb5ae1360d1244f794687b8d1055698"
+)
+EXPECTED_PACKAGE_ENTRIES = 80
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -4153,6 +4169,22 @@ def build_local_overlay(
     package_roles[ENHANCED_PAGE_OTC_NAME] = "derived-terrain-config"
     add_payload(payloads, ENHANCED_BLEND_NAME, blend_png)
     package_roles[ENHANCED_BLEND_NAME] = "derived-terrain-blendmap"
+    road2_dds_path = repository / ROAD2_DDS_REPOSITORY_PATH
+    road2_dds_sha256 = sha256_regular_file(
+        road2_dds_path, max_bytes=8 * 1024 * 1024)
+    if road2_dds_sha256 != PINNED_ROAD2_DDS_SHA256:
+        raise OverlayFailure(
+            "road2.dds drifted from its pinned provenance: "
+            f"expected {PINNED_ROAD2_DDS_SHA256}, found {road2_dds_sha256}")
+    try:
+        road_basecolor_png = road_texture.build_road_basecolor_png(
+            road2_dds_path.read_bytes())
+    except road_texture.RoadTextureError as error:
+        raise OverlayFailure(
+            f"road2.dds could not be decoded deterministically: {error}"
+        ) from error
+    add_payload(payloads, ROAD_BASECOLOR_NAME, road_basecolor_png)
+    package_roles[ROAD_BASECOLOR_NAME] = "derived-road-basecolor"
     add_payload(payloads, OVERLAY_NAME, placement)
     package_roles[OVERLAY_NAME] = "overlay-placement"
     for asset in runtime_assets:

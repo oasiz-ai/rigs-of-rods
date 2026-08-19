@@ -75,6 +75,18 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_ogre14_scene_retention_contract.py"
 )
 add_test(
+    NAME ogre14_road_material_coordinator_wiring_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_ogre14_road_material_coordinator_wiring_contract.py"
+)
+add_test(
+    NAME cityworld_road_texture
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_cityworld_road_texture.py"
+)
+add_test(
     NAME frame_time_budget_runtime_contract
     COMMAND
         "${Python3_EXECUTABLE}"
