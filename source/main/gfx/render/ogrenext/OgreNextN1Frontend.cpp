@@ -10386,6 +10386,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
         record.bounds_valid = true;
         ++impl_->retained_audit.bounds_entries;
       }
+      ++impl_->shadow_audit.bounds_observations_refreshed;
     };
 
     // Cloned non-receiver datablocks must stay inside the same reviewed
@@ -11048,6 +11049,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       throw std::runtime_error(
           "retained shadow aggregates survived a disabled shadow plan");
     }
+    // The committed bounds evidence stays a complete per-instance set: it is
+    // materialized from the retained records (sorted by instance_id, like
+    // the snapshot) into a frame-local vector here, and moved into the
+    // shadow audit only after every publication stage has prepared.
     if (shadow_plan.enabled) {
       if (impl_->retained_audit.bounds_entries !=
           static_cast<std::uint64_t>(impl_->retained_instances.size())) {

@@ -596,7 +596,14 @@ struct OgreNextPssmShadowRuntimeAudit final {
       last_native_normal_offset_bias{};
   bool native_projection_extents_verified = false;
   bool native_readback_verified = false;
+  /// True when the retained observation set below is complete for the
+  /// admitted scene and every entry was observed natively at admission or
+  /// during the rotating re-verification window since.
   bool native_bounds_readback_verified = false;
+  /// Cumulative native AABB readbacks that refreshed a retained observation
+  /// entry (create, update, or rotating window), so evidence consumers can
+  /// see the refresh rate behind the retained set.
+  std::uint64_t bounds_observations_refreshed = 0U;
   std::vector<OgreNextPssmNativeBoundsObservation>
       last_native_bounds_observations;
 };
