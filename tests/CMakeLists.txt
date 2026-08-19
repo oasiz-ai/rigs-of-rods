@@ -87,6 +87,12 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_cityworld_road_texture.py"
 )
 add_test(
+    NAME cityworld_replacement_textures
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_cityworld_replacement_textures.py"
+)
+add_test(
     NAME frame_time_budget_runtime_contract
     COMMAND
         "${Python3_EXECUTABLE}"

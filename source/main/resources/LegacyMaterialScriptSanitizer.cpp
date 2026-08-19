@@ -467,9 +467,53 @@ const LegacyMaterialScriptEdit CITYWORLD_BUSSTOP_EDITS[] = {
     {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
      125U, "color_op", "colour_op"}};
 
+// Reviewed high-resolution facade replacements. The replacement members are
+// independently authored procedural textures shipped by the CityWorld Next
+// local overlay under the reserved cityworld_next_replacements/ namespace
+// (tools/cityworld_replacement_textures.py). Original member names are never
+// intercepted: every original texture stays resolvable by its own name, and
+// only these exact-script, exact-line plans reference the replacements.
 const LegacyMaterialScriptEdit CITYWORLD_DNEBUILDINGS_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     438U,
+     "texture brickwall_darkred.dds",
+     "texture cityworld_next_replacements/brickwall_darkred_1024.png"},
     {LegacyMaterialScriptEditKind::REMOVE_TRIMMED_LINE,
-     2385U, "texture_unit", ""}};
+     2385U, "texture_unit", ""},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     2566U,
+     "texture lightgreybrick.dds",
+     "texture cityworld_next_replacements/lightgreybrick_1024.png"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     2607U,
+     "texture betterbrickdiffuse.dds",
+     "texture cityworld_next_replacements/betterbrickdiffuse_1024.png"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     2637U,
+     "texture concretetan.dds",
+     "texture cityworld_next_replacements/concretetan_1024.png"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     2667U,
+     "texture concretelightgrey.dds",
+     "texture cityworld_next_replacements/concretelightgrey_1024.png"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     3205U,
+     "texture brickwall_darkred.dds",
+     "texture cityworld_next_replacements/brickwall_darkred_1024.png"}};
+
+const LegacyMaterialScriptEdit CITYWORLD_ASIA_EDITS[] = {
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     11U,
+     "texture asiaconcrete.dds",
+     "texture cityworld_next_replacements/asiaconcrete_1024.png"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     51U,
+     "texture darkcrete.dds",
+     "texture cityworld_next_replacements/darkcrete_1024.png"},
+    {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
+     65U,
+     "texture redcrete.dds",
+     "texture cityworld_next_replacements/redcrete_1024.png"}};
 
 const LegacyMaterialScriptEdit CITYWORLD_STREETFURNITURE_EDITS[] = {
     {LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE,
@@ -558,6 +602,12 @@ const LegacyMaterialScriptEditPlan CITYWORLD_PLANS[] = {
      CITYWORLD_DNEBUILDINGS_EDITS,
      sizeof(CITYWORLD_DNEBUILDINGS_EDITS) /
          sizeof(CITYWORLD_DNEBUILDINGS_EDITS[0])},
+    {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
+     "asia.material",
+     "ec34c578c12989e9a1559dfb56c539da49454d5fe7bbda2763fd7e279af6bc66",
+     CITYWORLD_ASIA_EDITS,
+     sizeof(CITYWORLD_ASIA_EDITS) /
+         sizeof(CITYWORLD_ASIA_EDITS[0])},
     {kCityWorldLegacyMaterialCompatibilityArchiveSha256,
      "streetfurniture.material",
      "0a9bd28b7f23cd028181e923cdcda2ffff19674e8f833b254f523845259b1be0",

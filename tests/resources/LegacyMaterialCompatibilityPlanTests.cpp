@@ -230,6 +230,64 @@ void TestMissingTexturesAreExactAndArchiveScoped()
             CITYWORLD_SHA, wrong_script_name, color));
 }
 
+void TestReplacementNamespaceIsDisjointFromReviewedRules()
+{
+    // The CityWorld Next overlay ships reviewed replacement textures under
+    // this reserved namespace; they are reached only through script-repair
+    // plans. No alias, material-fallback, or missing-texture rule may ever
+    // resolve a replacement name, and no generated fallback name may enter
+    // the reserved namespace.
+    const std::string namespace_prefix = "cityworld_next_replacements/";
+    const char* replacement_members[] = {
+        "cityworld_next_replacements/asiaconcrete_1024.png",
+        "cityworld_next_replacements/darkcrete_1024.png",
+        "cityworld_next_replacements/redcrete_1024.png",
+        "cityworld_next_replacements/betterbrickdiffuse_1024.png",
+        "cityworld_next_replacements/lightgreybrick_1024.png",
+        "cityworld_next_replacements/brickwall_darkred_1024.png",
+        "cityworld_next_replacements/concretetan_1024.png",
+        "cityworld_next_replacements/concretelightgrey_1024.png"};
+    for (const char* member : replacement_members)
+    {
+        CHECK(
+            RoR::ResolveLegacyMaterialReference(
+                CITYWORLD_SHA, member).disposition ==
+            RoR::LegacyMaterialReferenceDisposition::NONE);
+        RoR::LegacyMaterialColor color = {0U, 0U, 0U, false};
+        CHECK(
+            !RoR::ResolveLegacyMissingTexture(
+                CITYWORLD_SHA, member, color));
+        const std::string fallback_name =
+            RoR::BuildLegacyMaterialFallbackResourceName(
+                CITYWORLD_SHA, member);
+        CHECK(fallback_name.compare(
+            0U, namespace_prefix.size(), namespace_prefix) != 0);
+        const std::string texture_fallback_name =
+            RoR::BuildLegacyTextureFallbackResourceName(
+                CITYWORLD_SHA, CITYWORLD_SHA, member);
+        CHECK(texture_fallback_name.compare(
+            0U, namespace_prefix.size(), namespace_prefix) != 0);
+    }
+
+    // Alias targets stay outside the reserved namespace: an original name
+    // is never rewritten to itself or into a replacement member.
+    const char* alias_requests[] = {
+        "modularbuildings/SOLID/TEX/betterbrickdiffuse.dds",
+        "Material.005/TEXFACE/brickwall_darkred.dds",
+        "Material.005/TEXFACE/betterbrickdiffuse.dds"};
+    for (const char* requested : alias_requests)
+    {
+        const RoR::LegacyMaterialReferenceResolution resolution =
+            RoR::ResolveLegacyMaterialReference(CITYWORLD_SHA, requested);
+        CHECK(
+            resolution.disposition ==
+            RoR::LegacyMaterialReferenceDisposition::ALIAS);
+        CHECK(resolution.target_material.compare(
+            0U, namespace_prefix.size(), namespace_prefix) != 0);
+        CHECK(resolution.target_material != requested);
+    }
+}
+
 } // namespace
 
 int main()
@@ -240,5 +298,6 @@ int main()
     TestAmbiguousAndUndeclaredNamesUseReviewedFallbacks();
     TestGeneratedResourceNamesArePortableStableAndDistinct();
     TestMissingTexturesAreExactAndArchiveScoped();
+    TestReplacementNamespaceIsDisjointFromReviewedRules();
     return EXIT_SUCCESS;
 }

@@ -43,6 +43,17 @@ if _ROAD_TEXTURE_SPEC is None or _ROAD_TEXTURE_SPEC.loader is None:
 road_texture = _importlib_util.module_from_spec(_ROAD_TEXTURE_SPEC)
 sys.modules[_ROAD_TEXTURE_SPEC.name] = road_texture
 _ROAD_TEXTURE_SPEC.loader.exec_module(road_texture)
+_REPLACEMENT_TEXTURES_SPEC = _importlib_util.spec_from_file_location(
+    "cityworld_replacement_textures",
+    Path(__file__).resolve().parent / "cityworld_replacement_textures.py",
+)
+if (_REPLACEMENT_TEXTURES_SPEC is None
+        or _REPLACEMENT_TEXTURES_SPEC.loader is None):
+    raise RuntimeError("could not load the replacement texture generator")
+replacement_textures = _importlib_util.module_from_spec(
+    _REPLACEMENT_TEXTURES_SPEC)
+sys.modules[_REPLACEMENT_TEXTURES_SPEC.name] = replacement_textures
+_REPLACEMENT_TEXTURES_SPEC.loader.exec_module(replacement_textures)
 import zipfile
 
 
@@ -386,7 +397,17 @@ material RoR/CityWorldNext/ParcelAsphalt
 \t}
 }
 """
-EXPECTED_PACKAGE_ENTRIES = 82
+# v11 ships independently authored high-resolution replacements for reviewed
+# low-resolution CityWorld facade textures. Replacement payloads live under
+# the reserved cityworld_next_replacements/ namespace and are reached only
+# through the reviewed script-repair plans in
+# source/main/resources/LegacyMaterialScriptSanitizer.cpp; original CityWorld
+# member names are never intercepted or shadowed, which the build-time
+# namespace-collision assertion below enforces against the audited archive
+# member index.
+REPLACEMENT_TEXTURE_ROLE = "curated-replacement-texture"
+REPLACEMENT_NAMESPACE_PREFIX = replacement_textures.REPLACEMENT_NAMESPACE
+EXPECTED_PACKAGE_ENTRIES = 90
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -692,6 +713,27 @@ def source_member_provenance(archive_path: Path) -> list[dict[str, Any]]:
                     }
                 )
             return result
+    except zipfile.BadZipFile as error:
+        raise OverlayFailure("input is not a valid ZIP archive") from error
+
+
+def source_member_name_index(
+    archive_path: Path,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Casefolded full-name and basename index of the audited archive.
+
+    Generated package members must stay disjoint from both: an equal full
+    name would let mount order decide selection, and an equal basename would
+    let OGRE's zip basename fallback shadow an original member.
+    """
+
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            _, names = validate_archive_members(archive.infolist())
+            basenames = frozenset(
+                name.rsplit("/", 1)[-1] for name in names
+            )
+            return frozenset(names), basenames
     except zipfile.BadZipFile as error:
         raise OverlayFailure("input is not a valid ZIP archive") from error
 
@@ -4221,6 +4263,31 @@ def build_local_overlay(
         PARCEL_SURFACES_MATERIAL_TEXT.encode("utf-8"),
     )
     package_roles[PARCEL_SURFACES_MATERIAL_NAME] = "curated-parcel-materials"
+
+    # Independently authored replacement textures for reviewed low-resolution
+    # CityWorld facades. Only the reviewed script-repair plans reference the
+    # namespaced member names below; the payloads are procedural and never
+    # contain CityWorld bytes.
+    replacement_records = []
+    for replacement_entry in replacement_textures.REPLACEMENT_TEXTURES:
+        replacement_member, replacement_payload = (
+            replacement_textures.build_replacement(
+                replacement_entry.original_member))
+        if not replacement_member.startswith(REPLACEMENT_NAMESPACE_PREFIX):
+            raise OverlayFailure(
+                "replacement texture escapes the reserved namespace: "
+                f"{replacement_member}")
+        add_payload(payloads, replacement_member, replacement_payload)
+        package_roles[replacement_member] = REPLACEMENT_TEXTURE_ROLE
+        replacement_records.append(
+            payload_record(
+                replacement_member,
+                replacement_payload,
+                REPLACEMENT_TEXTURE_ROLE,
+            )
+        )
+    replacement_manifest = replacement_textures.replacement_manifest()
+
     add_payload(payloads, OVERLAY_NAME, placement)
     package_roles[OVERLAY_NAME] = "overlay-placement"
     for asset in runtime_assets:
@@ -4275,6 +4342,31 @@ def build_local_overlay(
         for payload in payloads.values()
     ):
         raise OverlayFailure("generated package duplicates an original source member")
+
+    # No generated member may collide with any member of the audited
+    # CityWorld.zip index: mount-order name shadowing must stay impossible.
+    # Replacement textures additionally keep their basenames disjoint so
+    # OGRE's zip basename fallback can never select them for an original
+    # texture request.
+    source_member_names, source_member_basenames = source_member_name_index(
+        source_archive)
+    for generated_name in sorted((*payloads, REPORT_NAME)):
+        if generated_name.casefold() in source_member_names:
+            raise OverlayFailure(
+                "generated package member collides with an original "
+                f"CityWorld member name: {generated_name}")
+    for generated_name in sorted(payloads):
+        if not generated_name.startswith(REPLACEMENT_NAMESPACE_PREFIX):
+            continue
+        if package_roles.get(generated_name) != REPLACEMENT_TEXTURE_ROLE:
+            raise OverlayFailure(
+                "reserved replacement namespace carries a non-replacement "
+                f"member: {generated_name}")
+        generated_basename = generated_name.casefold().rsplit("/", 1)[-1]
+        if generated_basename in source_member_basenames:
+            raise OverlayFailure(
+                "replacement texture basename collides with an original "
+                f"CityWorld member basename: {generated_name}")
     if len(payloads) + 1 != EXPECTED_PACKAGE_ENTRIES:
         raise OverlayFailure(
             "regional-infill package member count drifted: "
@@ -4351,6 +4443,16 @@ def build_local_overlay(
             "source_authentication": infill_source_authentication,
             "summary": infill_audit["summary"],
         },
+        "replacement_textures": {
+            "format": replacement_textures.REPLACEMENT_TEXTURES_FORMAT,
+            "independently_authored": True,
+            "namespace": REPLACEMENT_NAMESPACE_PREFIX,
+            "packaged": replacement_records,
+            "selection_mechanism":
+                "reviewed-script-repair-plans-only-original-names-never-"
+                "intercepted",
+            "textures": replacement_manifest,
+        },
         "rights": {
             "local_only": True,
             "redistribution_allowed": False,
@@ -4366,6 +4468,7 @@ def build_local_overlay(
                 + 19
                 + 5,
             "source_textures_copied": False,
+            "replacement_textures_independently_authored": True,
         },
         "visual_asset_usage": {
             "corridor_placement_mode":
