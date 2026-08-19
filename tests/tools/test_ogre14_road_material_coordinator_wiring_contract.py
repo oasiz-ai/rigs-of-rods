@@ -133,25 +133,24 @@ class RoadMaterialCoordinatorWiringTests(unittest.TestCase):
             "setShininess(0.0f)",
         ):
             self.assertIn(token, body, token)
-        # Preparation precedes road finalization; RTSS prewarm is skipped in
-        # the combined producer so no generated technique can reach either
-        # the finish-time snapshot or the capture-time extractor.
+        # Preparation precedes road finalization so every finalized snapshot
+        # observes the canonical state.
         prepare_call = terrain.index(
             "PrepareCombinedRuntimeRoadMaterial(this->")
         objects = terrain.index("this->loadTerrainObjects();")
         self.assertLess(prepare_call, objects)
-        prewarm = terrain.index("PrewarmRTShaderTechniques();")
-        gate = terrain.rindex(
-            "#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)", 0, prewarm)
-        self.assertLess(gate, prewarm)
 
-    def test_combined_producer_never_registers_the_rtss_resolver(self) -> None:
-        app_context = (ROOT / "source/main/AppContext.cpp").read_text()
-        listener = app_context.index(
-            "new OgreBites::SGTechniqueResolverListener")
-        gate = app_context.rindex(
-            "#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)", 0, listener)
-        self.assertLess(gate, listener)
+    def test_observation_strips_generated_techniques_first(self) -> None:
+        # The producer's RTT renders (survey map, envmap) run on a render
+        # system without fixed-function support, so the RTSS resolver stays
+        # registered and appends generated techniques to every rendered
+        # material. The authenticated extractor requires the authored single
+        # technique, so the observation strips generated techniques through
+        # the RTSS bookkeeping immediately before the capture.
+        strip = self.scene.index("removeAllShaderBasedTechniques(")
+        capture = self.scene.index(
+            "Render::CaptureOgre14LegacyNativeMaterial(")
+        self.assertLess(strip, capture)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@
 #if OGRE_VERSION_MAJOR >= 14
 #include "ContentManager.h"
 #include "gfx/ogre14/Ogre14LegacyNativeAssetExtractor.h"
+#include <RTShaderSystem/OgreRTShaderSystem.h>
 #endif
 #include "Actor.h"
 #include "ActorManager.h"
@@ -3985,6 +3986,24 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                             Render::ValidationCode::MISSING_REFERENCE,
                             "road.material.live_lookup",
                             "finalized road material is not loaded");
+                    }
+                    // Producer-side RTT renders (survey map, envmap) let the
+                    // RTSS resolver append generated techniques, while the
+                    // authenticated extractor requires the authored single
+                    // technique. Strip generated techniques through the RTSS
+                    // bookkeeping for the duration of this capture; the
+                    // resolver regenerates them lazily on the next render.
+                    if (live_road_material->getNumTechniques() > 1)
+                    {
+                        Ogre::RTShader::ShaderGenerator* const
+                            shader_generator = Ogre::RTShader::
+                                ShaderGenerator::getSingletonPtr();
+                        if (shader_generator != nullptr)
+                        {
+                            shader_generator->removeAllShaderBasedTechniques(
+                                road_material_key.exact_name,
+                                road_material_key.exact_resource_group);
+                        }
                     }
                     static_validation =
                         Render::CaptureOgre14LegacyNativeMaterial(

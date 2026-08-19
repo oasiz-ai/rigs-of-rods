@@ -360,19 +360,12 @@ bool RoR::Terrain::initialize()
     loading_window->SetProgress(95, _L("Loading Terrain Actors"));
     this->LoadPredefinedActors();
 
-#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
     // Every material this map will show is now loaded. Generate their
     // RTShader techniques here rather than letting the resolver listener
     // create each one on first visibility, which resolves shadowing as the
     // camera enters new areas and is visible as flashing.
     loading_window->SetProgress(98, _L("Preparing shaders"));
     App::GetAppContext()->PrewarmRTShaderTechniques();
-#else
-    // The combined producer never presents an OGRE 14 frame, so RTSS pop-in
-    // cannot occur, while generated techniques would mutate captured
-    // materials: the authenticated native extractor requires the authored
-    // single-technique structure.
-#endif
 
     LOG(" ===== TERRAIN LOADING DONE " + m_cache_entry->fname);
 

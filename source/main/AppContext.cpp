@@ -1291,18 +1291,15 @@ bool AppContext::SetUpRTShaderSystem()
         CreateFolder(shader_cache_path);
         m_shader_generator->setShaderCachePath(shader_cache_path);
 
-#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+        // The resolver listener stays registered in the combined runtime
+        // too: the hidden producer still renders RTTs (survey map, envmap)
+        // on a render system without fixed-function support. The road
+        // material observation strips generated techniques for the duration
+        // of its authenticated capture instead.
         m_rtshader_material_listener =
             new OgreBites::SGTechniqueResolverListener(m_shader_generator);
         Ogre::MaterialManager::getSingleton().addListener(
             m_rtshader_material_listener);
-#else
-        // The combined producer never presents an OGRE 14 frame. On-demand
-        // RTSS technique generation would only append techniques to captured
-        // materials, which the authenticated native extractor rejects; the
-        // generator stays available for TerrainMaterialGeneratorA, but no
-        // resolver listener may mutate scene materials.
-#endif
 
         LOG(fmt::format(
             "[RoR|Startup|Rendering] OGRE RTShader System initialized; cache='{}'",
