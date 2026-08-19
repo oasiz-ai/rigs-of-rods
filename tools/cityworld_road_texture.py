@@ -216,3 +216,67 @@ def build_parcel_asphalt_png(size: int = 512) -> bytes:
             rgba[index + 2] = luminance + 3
             rgba[index + 3] = 255
     return encode_png_rgba(size, size, bytes(rgba))
+
+
+def _bilinear_sample(rgba: bytes, width: int, height: int,
+                     u: float, v: float) -> tuple[int, int, int]:
+    """Bilinear RGB sample with wrap addressing, deterministic arithmetic."""
+
+    x = u * width - 0.5
+    y = v * height - 0.5
+    x0 = int(x // 1)
+    y0 = int(y // 1)
+    fx = x - x0
+    fy = y - y0
+    total = [0.0, 0.0, 0.0]
+    for (sx, sy, weight) in (
+            (x0, y0, (1 - fx) * (1 - fy)),
+            (x0 + 1, y0, fx * (1 - fy)),
+            (x0, y0 + 1, (1 - fx) * fy),
+            (x0 + 1, y0 + 1, fx * fy)):
+        base = (((sy % height) * width) + (sx % width)) * 4
+        total[0] += rgba[base] * weight
+        total[1] += rgba[base + 1] * weight
+        total[2] += rgba[base + 2] * weight
+    return (int(total[0] + 0.5), int(total[1] + 0.5), int(total[2] + 0.5))
+
+
+def build_enhanced_road_basecolor_png(
+        dds_payload: bytes, scale: int = 4) -> bytes:
+    """Deterministic detail-enhanced upscale of the legacy road atlas.
+
+    Bilinear magnification alone adds no information; this pass restores
+    surface believability at close range by modulating the upscaled base
+    with fine hash-noise grain, attenuated where the source is locally
+    high-contrast (lane markings, curb edges) so authored features stay
+    crisp instead of dissolving into speckle.
+    """
+
+    width, height, rgba = decode_dxt1_dds(dds_payload)
+    out_width = width * scale
+    out_height = height * scale
+    out = bytearray(out_width * out_height * 4)
+    for y in range(out_height):
+        v = (y + 0.5) / out_height
+        for x in range(out_width):
+            u = (x + 0.5) / out_width
+            red, green, blue = _bilinear_sample(rgba, width, height, u, v)
+            # Local contrast from the source neighborhood: compare against
+            # the sample half a source texel away.
+            red2, green2, blue2 = _bilinear_sample(
+                rgba, width, height,
+                (x + 0.5 + scale * 0.5) / out_width,
+                (y + 0.5 + scale * 0.5) / out_height)
+            contrast = abs(red - red2) + abs(green - green2) + \
+                abs(blue - blue2)
+            # Grain scales down where authored contrast is high.
+            grain_span = 14 if contrast < 24 else (6 if contrast < 72 else 2)
+            grain = (_hash32(x, y, 11) % (2 * grain_span + 1)) - grain_span
+            mottle = ((_hash32(x >> 4, y >> 4, 13) % 9) - 4
+                      if contrast < 24 else 0)
+            index = ((y * out_width) + x) * 4
+            out[index] = max(0, min(255, red + grain + mottle))
+            out[index + 1] = max(0, min(255, green + grain + mottle))
+            out[index + 2] = max(0, min(255, blue + grain + mottle))
+            out[index + 3] = 255
+    return encode_png_rgba(out_width, out_height, bytes(out))

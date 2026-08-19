@@ -26,7 +26,7 @@ constexpr char kCityWorldLegacyMaterialCompatibilityArchiveSha256[] =
 constexpr std::uint64_t
     kCityWorldLegacyMaterialCompatibilityArchiveBytes = 158845395ULL;
 
-/// The reviewed CityWorld Next local overlay (v10). Its members carry the
+/// The reviewed CityWorld Next local overlay (v11). Its members carry the
 /// authenticated texture authority the combined runtime's road-material
 /// capture requires (cityworld_road2_basecolor.png). The digest is the
 /// deterministic output of tools/build_cityworld_local_overlay.py over the
@@ -34,9 +34,9 @@ constexpr std::uint64_t
 /// this pin in the same commit, or the runtime falls back to the ordinary
 /// unauthenticated mount and road captures fail closed.
 constexpr char kCityWorldNextLocalOverlayArchiveSha256[] =
-    "0bcf148636141d78ea6f2e8e78ad0e0cf175017fe3e1a05f1101010316bae2f0";
+    "91c9869f3993ea5b547a0e740ec05f6c38c24bbd06586c0cdc096af647ab5aca";
 constexpr std::uint64_t
-    kCityWorldNextLocalOverlayArchiveBytes = 8796193ULL;
+    kCityWorldNextLocalOverlayArchiveBytes = 27199221ULL;
 
 /// Hash probing is private to the active OgreNext migration session and only
 /// applies to a selected primary terrain ZIP.  These inexpensive facts limit

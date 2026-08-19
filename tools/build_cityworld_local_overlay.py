@@ -4201,7 +4201,9 @@ def build_local_overlay(
             "road2.dds drifted from its pinned provenance: "
             f"expected {PINNED_ROAD2_DDS_SHA256}, found {road2_dds_sha256}")
     try:
-        road_basecolor_png = road_texture.build_road_basecolor_png(
+        # v11: detail-enhanced 4x upscale - close-range asphalt grain with
+        # authored markings kept crisp; plain magnification adds nothing.
+        road_basecolor_png = road_texture.build_enhanced_road_basecolor_png(
             road2_dds_path.read_bytes())
     except road_texture.RoadTextureError as error:
         raise OverlayFailure(
@@ -4212,7 +4214,7 @@ def build_local_overlay(
     add_payload(
         payloads,
         PARCEL_ASPHALT_TEXTURE_NAME,
-        road_texture.build_parcel_asphalt_png(),
+        road_texture.build_parcel_asphalt_png(2048),
     )
     package_roles[PARCEL_ASPHALT_TEXTURE_NAME] = "derived-parcel-basecolor"
     add_payload(

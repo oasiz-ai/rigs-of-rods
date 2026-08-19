@@ -139,9 +139,12 @@ void PrepareCombinedRuntimeRoadMaterial(
     // disabled; the translator requires always-pass for a base color.
     road_unit->setTextureCompareEnabled(false);
     road_unit->setTextureCompareFunction(Ogre::CMPF_ALWAYS_PASS);
+    // Canonical anisotropic tuple: passes the extractor, the translator
+    // ([2,16] with min/mag ANISOTROPIC), and the N1 policy (lowered to
+    // all-linear + integral anisotropy), reaching Metal as true 4x aniso.
     road_unit->setTextureFiltering(
-        Ogre::FO_LINEAR, Ogre::FO_LINEAR, Ogre::FO_LINEAR);
-    road_unit->setTextureAnisotropy(1);
+        Ogre::FO_ANISOTROPIC, Ogre::FO_ANISOTROPIC, Ogre::FO_LINEAR);
+    road_unit->setTextureAnisotropy(4);
     road_unit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_WRAP);
     road_unit->setTextureMipmapBias(0.0f);
     road_pass->setAmbient(Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f));
