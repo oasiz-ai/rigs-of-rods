@@ -344,6 +344,102 @@ ValidateWindingProofForCapture(const Ogre14ProceduralRoadCapture &capture,
   return ValidationResult::Success();
 }
 
+/// Deterministic per-vertex tangent frame for the finalized road geometry.
+/// RT4/V1 requires an authored tangent stream beside UV0; roads derive it
+/// from the exact captured streams with fixed iteration order, so the same
+/// geometry bytes always produce the same tangent bytes. Faces without a UV
+/// gradient (TEXFIT_NONE caps author constant UVs) contribute nothing and
+/// fall back to a deterministic frame built from the unit normal alone.
+ValidationResult ComputeOgre14ProceduralRoadTangents(
+    const std::vector<Float3> &positions,
+    const std::vector<Float3> &normals,
+    const std::vector<Float2> &texture_coordinates,
+    const std::vector<std::uint32_t> &indices,
+    std::vector<Float4> &tangents) {
+  std::vector<Float3> accumulated_tangents(positions.size(), Float3{});
+  std::vector<Float3> accumulated_bitangents(positions.size(), Float3{});
+  for (std::size_t index = 0U; index + 2U < indices.size(); index += 3U) {
+    const std::uint32_t i0 = indices[index];
+    const std::uint32_t i1 = indices[index + 1U];
+    const std::uint32_t i2 = indices[index + 2U];
+    const Float3 edge1 = Subtract(positions[i1], positions[i0]);
+    const Float3 edge2 = Subtract(positions[i2], positions[i0]);
+    const float du1 = texture_coordinates[i1].x - texture_coordinates[i0].x;
+    const float dv1 = texture_coordinates[i1].y - texture_coordinates[i0].y;
+    const float du2 = texture_coordinates[i2].x - texture_coordinates[i0].x;
+    const float dv2 = texture_coordinates[i2].y - texture_coordinates[i0].y;
+    const float determinant = (du1 * dv2) - (du2 * dv1);
+    if (!std::isfinite(determinant) ||
+        std::fabs(determinant) <= 1.0e-12F) {
+      continue;
+    }
+    const float reciprocal = 1.0F / determinant;
+    const Float3 triangle_tangent{
+        ((edge1.x * dv2) - (edge2.x * dv1)) * reciprocal,
+        ((edge1.y * dv2) - (edge2.y * dv1)) * reciprocal,
+        ((edge1.z * dv2) - (edge2.z * dv1)) * reciprocal};
+    const Float3 triangle_bitangent{
+        ((edge2.x * du1) - (edge1.x * du2)) * reciprocal,
+        ((edge2.y * du1) - (edge1.y * du2)) * reciprocal,
+        ((edge2.z * du1) - (edge1.z * du2)) * reciprocal};
+    const std::uint32_t triangle_vertices[3] = {i0, i1, i2};
+    for (const std::uint32_t vertex : triangle_vertices) {
+      accumulated_tangents[vertex].x += triangle_tangent.x;
+      accumulated_tangents[vertex].y += triangle_tangent.y;
+      accumulated_tangents[vertex].z += triangle_tangent.z;
+      accumulated_bitangents[vertex].x += triangle_bitangent.x;
+      accumulated_bitangents[vertex].y += triangle_bitangent.y;
+      accumulated_bitangents[vertex].z += triangle_bitangent.z;
+    }
+  }
+  tangents.clear();
+  tangents.reserve(positions.size());
+  for (std::size_t vertex = 0U; vertex < positions.size(); ++vertex) {
+    const Float3 &normal = normals[vertex];
+    Float3 tangent = accumulated_tangents[vertex];
+    const float normal_dot = (normal.x * tangent.x) +
+        (normal.y * tangent.y) + (normal.z * tangent.z);
+    tangent = {tangent.x - (normal.x * normal_dot),
+               tangent.y - (normal.y * normal_dot),
+               tangent.z - (normal.z * normal_dot)};
+    float length_squared = (tangent.x * tangent.x) +
+        (tangent.y * tangent.y) + (tangent.z * tangent.z);
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-20F) {
+      const Float3 axis = std::fabs(normal.y) < 0.9F
+          ? Float3{0.0F, 1.0F, 0.0F}
+          : Float3{1.0F, 0.0F, 0.0F};
+      const float axis_dot = (normal.x * axis.x) + (normal.y * axis.y) +
+          (normal.z * axis.z);
+      tangent = {axis.x - (normal.x * axis_dot),
+                 axis.y - (normal.y * axis_dot),
+                 axis.z - (normal.z * axis_dot)};
+      length_squared = (tangent.x * tangent.x) + (tangent.y * tangent.y) +
+          (tangent.z * tangent.z);
+    }
+    if (!std::isfinite(length_squared) || length_squared <= 1.0e-20F) {
+      return Failure(ValidationCode::VALUE_OUT_OF_RANGE,
+                     "road.mesh.tangents",
+                     "road tangent frame is degenerate", vertex);
+    }
+    const float inverse_length = 1.0F / std::sqrt(length_squared);
+    tangent = {tangent.x * inverse_length, tangent.y * inverse_length,
+               tangent.z * inverse_length};
+    if (!IsFinite(tangent)) {
+      return Failure(ValidationCode::NON_FINITE_VALUE, "road.mesh.tangents",
+                     "road tangent is not finite", vertex);
+    }
+    const Float3 normal_cross_tangent = Cross(normal, tangent);
+    const Float3 &bitangent = accumulated_bitangents[vertex];
+    const float handedness_measure =
+        (normal_cross_tangent.x * bitangent.x) +
+        (normal_cross_tangent.y * bitangent.y) +
+        (normal_cross_tangent.z * bitangent.z);
+    tangents.push_back({tangent.x, tangent.y, tangent.z,
+                        handedness_measure < 0.0F ? -1.0F : 1.0F});
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult
 ValidateCachedPayloadWinding(const Ogre14ProceduralRoadCapture &capture,
                              const Ogre14ProceduralRoadCacheEntry &entry) {
@@ -368,7 +464,8 @@ ValidateCachedPayloadWinding(const Ogre14ProceduralRoadCapture &capture,
       mesh.normals.size() != capture.exact_render_normals.size() ||
       mesh.texture_coordinates_0.size() !=
           capture.texture_coordinates_0.size() ||
-      mesh.indices.size() != capture.indices.size() || !mesh.tangents.empty() ||
+      mesh.indices.size() != capture.indices.size() ||
+      mesh.tangents.size() != capture.positions.size() ||
       !mesh.velocities.empty() || !mesh.texture_coordinates_1.empty() ||
       !mesh.colors.empty()) {
     return Failure(ValidationCode::REVISION_MISMATCH, "road.cache.mesh_payload",
@@ -385,6 +482,25 @@ ValidateCachedPayloadWinding(const Ogre14ProceduralRoadCapture &capture,
                      "road.cache.mesh_payload.vertex_streams",
                      "cached procedural-road vertex bytes disagree with the "
                      "exact geometry key",
+                     index);
+    }
+  }
+  // Tangents are a pure derivation of the exact geometry; recompute them and
+  // require the cached bytes to agree, so a corrupted cached stream cannot
+  // ride an otherwise byte-identical geometry key.
+  std::vector<Float4> expected_tangents;
+  ValidationResult tangent_validation = ComputeOgre14ProceduralRoadTangents(
+      capture.positions, capture.exact_render_normals,
+      capture.texture_coordinates_0, capture.indices, expected_tangents);
+  if (!tangent_validation) {
+    return tangent_validation;
+  }
+  for (std::size_t index = 0U; index < expected_tangents.size(); ++index) {
+    if (!Float4BitsEqual(mesh.tangents[index], expected_tangents[index])) {
+      return Failure(ValidationCode::REVISION_MISMATCH,
+                     "road.cache.mesh_payload.vertex_streams",
+                     "cached procedural-road tangent bytes disagree with the "
+                     "exact geometry derivation",
                      index);
     }
   }
@@ -646,6 +762,12 @@ ValidationResult BuildOgre14ProceduralRoadMeshPayload(
   input.normals = capture.exact_render_normals;
   input.texture_coordinates_0 = capture.texture_coordinates_0;
   input.indices = capture.indices;
+  validation = ComputeOgre14ProceduralRoadTangents(
+      input.positions, input.normals, input.texture_coordinates_0,
+      input.indices, input.tangents);
+  if (!validation) {
+    return validation;
+  }
   return BuildOgre14GraphicsSceneStaticMeshPayload(input, payload);
 }
 
