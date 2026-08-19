@@ -35,7 +35,14 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
-constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 3U;
+/// Version 4: per-frame scene counters (pbs/transmission/normal/emissive/
+/// caster/receiver) are retained aggregates maintained O(changed) and
+/// cross-checked against the snapshot-derived shadow plan every present,
+/// and native_state_verifications advances per created/updated instance
+/// plus a rotating re-verification window instead of once per instance
+/// per present. Values and log fields are unchanged; only the derivation
+/// and the verification growth rate differ.
+constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 4U;
 constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 1U;
 
 /// Rotating native re-verification budget for the retained scene: after the
