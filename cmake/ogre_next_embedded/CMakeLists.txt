@@ -1002,6 +1002,7 @@ target_link_libraries(ror_ogre_next_embedded_n1_runtime
     PRIVATE
         OgreNextHlmsPbs
         OgreNextHlmsUnlit
+        OgreNextOverlay
         RenderSystem_Metal
         OgreNextMain
         Threads::Threads)
