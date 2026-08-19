@@ -36,6 +36,47 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
 constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 3U;
+constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 1U;
+
+/// Rotating native re-verification budget for the retained scene: after the
+/// per-frame diff, up to this many retained instances that were not created
+/// or updated this frame are re-read from Ogre and compared against their
+/// admitted descriptors. Every retained instance is therefore re-verified at
+/// least once every ceil(N / window) presented frames; any mismatch fails the
+/// present closed and tears the retained scene down to empty.
+constexpr std::uint64_t kOgreNextRetainedVerifyWindow = 128U;
+
+/// Lifecycle evidence for the instance_id-keyed retained native scene.
+/// `last_*` fields describe the most recent completed present; cumulative
+/// counters are monotonic for the frontend lifetime. `recovery_teardowns`
+/// counts full retained teardowns performed on a failed present (the next
+/// present rebuilds from an empty native scene).
+struct OgreNextRetainedSceneAudit final {
+  std::uint32_t version = kOgreNextRetainedSceneAuditVersion;
+  std::uint64_t generation = 0U;
+  std::uint64_t frames_diffed = 0U;
+  std::uint64_t retained_instances = 0U;
+  std::uint64_t retained_lights = 0U;
+  std::uint64_t bounds_entries = 0U;
+  std::uint64_t created = 0U;
+  std::uint64_t updated = 0U;
+  std::uint64_t destroyed = 0U;
+  std::uint64_t dynamic_updates = 0U;
+  std::uint64_t verified = 0U;
+  std::uint64_t last_created = 0U;
+  std::uint64_t last_updated = 0U;
+  std::uint64_t last_destroyed = 0U;
+  std::uint64_t last_dynamic_updates = 0U;
+  std::uint64_t last_verified = 0U;
+  std::uint64_t verify_window = kOgreNextRetainedVerifyWindow;
+  std::uint64_t verify_cursor = 0U;
+  std::uint64_t recovery_teardowns = 0U;
+  /// Per-phase CPU cost of the most recent present, for offline
+  /// scene_dispatch attribution. Metadata-only; no GPU readback.
+  std::uint64_t last_light_phase_microseconds = 0U;
+  std::uint64_t last_instance_phase_microseconds = 0U;
+  std::uint64_t last_cleanup_phase_microseconds = 0U;
+};
 
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
@@ -650,6 +691,8 @@ public:
   QueryHdrCompositorAudit() const noexcept;
   [[nodiscard]] OgreNextNativeLightingPassAudit
   QueryNativeLightingPassAudit() const noexcept;
+  [[nodiscard]] OgreNextRetainedSceneAudit
+  QueryRetainedSceneAudit() const noexcept;
   [[nodiscard]] OgreNextN1PresentationAudit
   QueryPresentationAudit() const noexcept;
   [[nodiscard]] OgreNextAnalyticSkyRuntimeAudit

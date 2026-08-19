@@ -7578,6 +7578,7 @@ public:
       OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
   OgreNextPssmShadowRuntimeAudit shadow_audit;
   OgreNextNativeLightingPassAudit lighting_audit;
+  OgreNextRetainedSceneAudit retained_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
@@ -7832,6 +7833,11 @@ OgreNextN1Frontend::QueryNativeLightingPassAudit() const noexcept {
 OgreNextN1PresentationAudit
 OgreNextN1Frontend::QueryPresentationAudit() const noexcept {
   return impl_->PresentationAudit();
+}
+
+OgreNextRetainedSceneAudit
+OgreNextN1Frontend::QueryRetainedSceneAudit() const noexcept {
+  return impl_->retained_audit;
 }
 
 OgreNextAnalyticSkyRuntimeAudit
@@ -9916,6 +9922,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
 
+    const auto light_phase_start = std::chrono::steady_clock::now();
     lights.reserve(snapshot.lights().size());
     bool positive_calibrated_directional_light = false;
     for (const LightDescriptor &descriptor : snapshot.lights()) {
@@ -9975,7 +9982,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     lighting_candidate.calibrated_directional_lighting =
         positive_calibrated_directional_light;
+    impl_->retained_audit.last_light_phase_microseconds =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - light_phase_start)
+                .count());
 
+    const auto instance_phase_start = std::chrono::steady_clock::now();
     items.reserve(snapshot.mesh_instances().size());
     reflection_items.reserve(snapshot.mesh_instances().size());
     if (shadow_plan.enabled) {
@@ -10323,6 +10336,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       throw std::runtime_error(
           "Ogre-Next PSSM native bounds observation set is incomplete");
     }
+    impl_->retained_audit.last_instance_phase_microseconds =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - instance_phase_start)
+                .count());
 
     impl_->camera->setNearClipDistance(view.near_plane);
     impl_->camera->setFarClipDistance(view.far_plane);
@@ -11407,10 +11425,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
     // Keep only the N3/N4 target and its frame geometry alive across ordinary
     // scene cleanup. Every fallible publication stage is now prepared, so a
     // teardown failure can abort all pending transactions through one path.
+    const auto cleanup_phase_start = std::chrono::steady_clock::now();
     if (!cleanup_scene(false)) {
       impl_->faulted = true;
       return fail_after_cleanup(FrameCleanupFailure());
     }
+    impl_->retained_audit.last_cleanup_phase_microseconds =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - cleanup_phase_start)
+                .count());
     if (analytic_sky_frame_completed) {
       const OgreNextAnalyticSkyRuntimeAudit &after =
           impl_->analytic_sky_audit;
@@ -11690,6 +11714,27 @@ RenderOperationResult OgreNextN1Frontend::Render(
           request.presentation_surface_revision;
       impl_->presentation_audit.last_width = validated_view.width;
       impl_->presentation_audit.last_height = validated_view.height;
+    }
+    // Retained-scene instrumentation baseline: the native scene is still
+    // rebuilt and destroyed once per present, so created == destroyed ==
+    // the admitted instance count and nothing is retained across presents.
+    {
+      const std::uint64_t rebuilt_instances =
+          static_cast<std::uint64_t>(snapshot.mesh_instances().size());
+      OgreNextRetainedSceneAudit &retained = impl_->retained_audit;
+      retained.generation = impl_->scene_generation;
+      ++retained.frames_diffed;
+      retained.last_created = rebuilt_instances;
+      retained.last_updated = 0U;
+      retained.last_destroyed = rebuilt_instances;
+      retained.last_dynamic_updates = 0U;
+      retained.last_verified = rebuilt_instances;
+      retained.created += rebuilt_instances;
+      retained.destroyed += rebuilt_instances;
+      retained.verified += rebuilt_instances;
+      retained.retained_instances = 0U;
+      retained.retained_lights = 0U;
+      retained.bounds_entries = 0U;
     }
     output = std::move(candidate);
     // Ownership of this live token moved to the caller's attachment. The

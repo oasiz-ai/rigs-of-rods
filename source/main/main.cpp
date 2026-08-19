@@ -908,6 +908,7 @@ int main(int argc, char *argv[])
     std::string renderer_combined_particle_audit_signature;
     std::string renderer_combined_analytic_sky_audit_signature;
     std::string renderer_combined_native_lighting_audit_signature;
+    std::uint64_t renderer_combined_retained_scene_logged_frame = 0U;
     std::string renderer_combined_native_sun_visibility_audit_signature;
     bool renderer_combined_turntable_audit_published = false;
     std::uint64_t renderer_combined_turntable_audit_segment = 0U;
@@ -4364,6 +4365,38 @@ int main(int argc, char *argv[])
                                     lighting_audit.completed_frames));
                                 renderer_combined_native_lighting_audit_signature =
                                     lighting_audit_signature;
+                            }
+                            const RendererRetainedSceneAudit
+                                retained_scene_audit =
+                                    renderer_combined_presenter
+                                        .RetainedSceneAudit();
+                            // Throttled: the first diffed frame, every frame
+                            // whose diff created or destroyed native state,
+                            // and a heartbeat every 300 presented frames.
+                            if (retained_scene_audit.available &&
+                                retained_scene_audit.frames_diffed != 0U &&
+                                retained_scene_audit.frames_diffed !=
+                                    renderer_combined_retained_scene_logged_frame &&
+                                (renderer_combined_retained_scene_logged_frame ==
+                                     0U ||
+                                 retained_scene_audit.last_created +
+                                         retained_scene_audit.last_destroyed !=
+                                     0U ||
+                                 retained_scene_audit.frames_diffed >=
+                                     renderer_combined_retained_scene_logged_frame +
+                                         300U))
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|RetainedScene] "
+                                    "created={} updated={} destroyed={} "
+                                    "retained={} verified={}",
+                                    retained_scene_audit.last_created,
+                                    retained_scene_audit.last_updated,
+                                    retained_scene_audit.last_destroyed,
+                                    retained_scene_audit.retained_instances,
+                                    retained_scene_audit.last_verified));
+                                renderer_combined_retained_scene_logged_frame =
+                                    retained_scene_audit.frames_diffed;
                             }
                             const RendererNativeSunVisibilityV2Audit
                                 sun_visibility_audit =
