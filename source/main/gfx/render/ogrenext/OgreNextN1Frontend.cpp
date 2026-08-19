@@ -10612,6 +10612,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
             RenderOperationCode::RESOURCE_STALE,
             "N1 native asset allocation is missing for a validated scene");
       }
+      // A clone is a copy of its source material's contents: when the
+      // instance moves to a different material reference, the retained clone
+      // must be recreated from the new source, not merely rebound.
+      const bool material_reference_changed =
+          record.descriptor.material != instance.material;
       record.descriptor = instance;
       record.dynamic_mesh = base_mesh->dynamic;
       const bool pbs_material =
@@ -10640,7 +10645,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
           MaterialTransmissionMode::THIN_PARALLEL_SLAB;
       const bool needs_receiver_clone =
           pbs_material && shadow_plan.enabled && !receives_shadow;
-      if (!needs_receiver_clone && record.receiver_clone != nullptr &&
+      if ((!needs_receiver_clone || material_reference_changed) &&
+          record.receiver_clone != nullptr &&
           !impl_->DestroyRetainedReceiverClone(record)) {
         throw std::runtime_error(
             "Ogre-Next PSSM receiver clone retirement failed its native absence check");
