@@ -11,13 +11,19 @@
 #pragma once
 
 #include "render/GraphicsSceneSnapshotProducer.h"
+#include "render/ogrenext/OgreNextPssmShadowPolicy.h"
 
 #include <cstdint>
 
 namespace RoR::Detail {
 
 constexpr float kOgreNextDemoCameraNearMeters = 0.5F;
-constexpr float kOgreNextDemoCameraFarMeters = 350.0F;
+/// Aliases the render-layer pinned view far so the normalized camera is
+/// bit-exactly what the PSSM view validation expects. The previous 350 m
+/// far clipped everything past the first city block, which presented as
+/// pop-in no matter how far static admission reached.
+constexpr float kOgreNextDemoCameraFarMeters =
+    Render::kOgreNextExpectedViewFarMeters;
 
 /// Resolve OGRE 14's exact zero far-clip sentinel to the finite product
 /// capture range. Every other value is preserved for the ordinary camera

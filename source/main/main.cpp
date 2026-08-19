@@ -1326,6 +1326,15 @@ int main(int argc, char *argv[])
                 *combined_frontend,
                 renderer_combined_presenter,
                 renderer_combined_frame_policy);
+        // The hidden OGRE 14 producer only feeds joined captures; its own
+        // shadow atlas and environment-map RTT passes render into textures
+        // nothing on the presenter reads. Measured at 15.4 ms/frame on the
+        // full CityWorld admission, so the combined runtime forces both off
+        // regardless of the archived user configuration. The presenter's
+        // native PSSM and reflection probes are unaffected.
+        App::gfx_shadow_type->setVal((int)GfxShadowType::NONE);
+        App::gfx_envmap_enabled->setVal(false);
+        App::gfx_envmap_rate->setVal(0);
         RendererInProcessSessionConfig combined_session_config;
         combined_session_config.frontend =
             renderer_combined_presenter.InitialFrontendRequest();

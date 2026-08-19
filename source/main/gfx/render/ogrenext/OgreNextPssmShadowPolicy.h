@@ -40,6 +40,13 @@ constexpr float kOgreNextPssmFarMeters = 350.0F;
 /// the presenter keeps distant admitted objects cheap, and the retained
 /// static scene keeps the larger walk a one-time cost per approach.
 constexpr float kOgreNextDemoStaticAdmissionFarMeters = 12000.0F;
+/// The one camera far plane every combined view carries. It matches the
+/// admission far above so admitted distant content is actually visible:
+/// with the previous 350 m view far, everything past the first block was
+/// far-clipped and read as pop-in. Shadow split arithmetic stays bounded
+/// by kOgreNextPssmFarMeters and is unaffected by the view far.
+constexpr float kOgreNextExpectedViewFarMeters =
+    kOgreNextDemoStaticAdmissionFarMeters;
 constexpr float kOgreNextPssmLambda = 0.97F;
 constexpr float kOgreNextPssmSplitBlend = 0.125F;
 constexpr float kOgreNextPssmSplitPaddingMeters = 1.0F;

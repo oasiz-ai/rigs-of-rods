@@ -138,11 +138,11 @@ bool TryBuildOgreNextPssmProjectionExtents(
   const float horizontal_offset = portable_projection.elements[8U];
   const float vertical_offset = portable_projection.elements[9U];
   const float expected_depth_scale =
-      kOgreNextPssmFarMeters /
-      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+      kOgreNextExpectedViewFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextExpectedViewFarMeters);
   const float expected_depth_offset =
-      kOgreNextPssmNearMeters * kOgreNextPssmFarMeters /
-      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+      kOgreNextPssmNearMeters * kOgreNextExpectedViewFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextExpectedViewFarMeters);
   if (!(IsFinite(horizontal_scale) && horizontal_scale > 0.0F &&
         IsFinite(vertical_scale) && vertical_scale > 0.0F &&
         IsFinite(horizontal_offset) && IsFinite(vertical_offset)) ||
@@ -252,10 +252,10 @@ ValidationResult TryBuildOgreNextPssmShadowFramePlan(
   }
 
   if (view.near_plane != kOgreNextPssmNearMeters ||
-      view.far_plane != kOgreNextPssmFarMeters) {
+      view.far_plane != kOgreNextExpectedViewFarMeters) {
     return Unsupported(
         "views.clip_distance",
-        "PSSM_3_CASCADE_V1 requires exact 0.5 m near and 350 m far clip distances");
+        "PSSM_3_CASCADE_V1 requires the exact pinned view near and far clip distances");
   }
   if ((view.visibility_mask & kOgreNextPssmNativeVisibilityMask) == 0U) {
     return Unsupported(
