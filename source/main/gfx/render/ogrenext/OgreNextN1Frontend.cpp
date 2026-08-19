@@ -10682,7 +10682,67 @@ RenderOperationResult OgreNextN1Frontend::Render(
       record.node->setPosition(position);
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
-      ++diff_updated;
+      return RenderOperationResult::Success();
+    };
+
+    // Deformable content changed: Items cannot rebind meshes, so the item is
+    // recreated against a freshly uploaded deformed mesh while the retained
+    // SceneNode, receiver clone, and record identity survive. The prior
+    // deformed mesh retires through the interop frame-mesh list (destroyed
+    // after the next published-frame discard); on the immediate path Ogre's
+    // VaoManager already defers the actual GPU free by frame count.
+    const auto rebuild_deformed_instance =
+        [&](Impl::RetainedInstance &record,
+            const MeshInstanceDescriptor &instance) -> RenderOperationResult {
+      const MeshResourceDescriptor *base_mesh =
+          impl_->registry->ResolveMesh(instance.mesh);
+      if (base_mesh == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "N1 native asset allocation is missing for a validated scene");
+      }
+      const auto update = std::find_if(
+          snapshot.dynamic_mesh_updates().begin(),
+          snapshot.dynamic_mesh_updates().end(),
+          [&instance](const DynamicMeshUpdateDescriptor &candidate) {
+            return candidate.instance_id == instance.instance_id;
+          });
+      if (update == snapshot.dynamic_mesh_updates().end() ||
+          update->instance_id != instance.instance_id) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "N2 could not resolve the validated full deformation update");
+      }
+      if (record.item != nullptr) {
+        record.node->detachObject(record.item);
+        impl_->scene_manager->destroyItem(record.item);
+        record.item = nullptr;
+      }
+      if (record.deformed_mesh.mesh) {
+        if (impl_->native_interop) {
+          impl_->frame_meshes.push_back(std::move(record.deformed_mesh));
+        } else if (!impl_->DestroyMesh(record.deformed_mesh)) {
+          throw std::runtime_error(
+              "Ogre-Next retained deformed-mesh retirement failed");
+        }
+        record.deformed_mesh = Impl::NativeMesh{};
+      }
+      MeshResourceDescriptor deformed = *base_mesh;
+      deformed.positions = update->positions;
+      deformed.normals = update->normals;
+      deformed.tangents = update->tangents;
+      deformed.velocities = update->velocities;
+      deformed.local_bounds = update->updated_local_bounds;
+      const std::string suffix =
+          "_i" + std::to_string(instance.instance_id) + "_d" +
+          std::to_string(instance.deformation_revision) + "_q" +
+          std::to_string(++impl_->deformed_mesh_sequence);
+      record.deformed_mesh =
+          impl_->CreateMesh(instance.mesh, deformed, suffix);
+      record.item = impl_->scene_manager->createItem(
+          record.deformed_mesh.mesh, Ogre::SCENE_DYNAMIC);
+      record.node->attachObject(record.item);
+      ++diff_dynamic_updates;
       return RenderOperationResult::Success();
     };
 
@@ -10827,12 +10887,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
 
     // Merge-join of the sorted snapshot instance vector against the retained
-    // map. Dynamic instances (deformation_revision > 1) are still recreated
-    // every present at this stage; bit-identical static instances are kept.
+    // map. A bit-identical descriptor — including a parked deformable whose
+    // deformation_revision did not advance — costs no native work.
     const bool retained_shadow_state_changed =
         impl_->retained_scene_shadow_enabled != shadow_plan.enabled;
     std::vector<std::uint64_t> stale_instances;
     std::vector<const MeshInstanceDescriptor *> incoming_instances;
+    std::vector<const MeshInstanceDescriptor *> deforming_instances;
     std::vector<const MeshInstanceDescriptor *> changed_instances;
     {
       auto retained = impl_->retained_instances.begin();
@@ -10849,14 +10910,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
           continue;
         }
         const MeshInstanceDescriptor &previous = retained->second.descriptor;
-        if (instance.deformation_revision > 1U ||
-            previous.mesh != instance.mesh ||
-            previous.topology_revision != instance.topology_revision ||
-            previous.deformation_revision != instance.deformation_revision) {
-          // An Item cannot rebind its mesh: mesh identity, topology, and (at
-          // this stage) any deformable content go through destroy + create.
+        if (previous.mesh != instance.mesh ||
+            previous.topology_revision != instance.topology_revision) {
+          // An Item cannot rebind its mesh: mesh identity and topology
+          // changes go through destroy + create.
           stale_instances.push_back(retained->first);
           incoming_instances.push_back(&instance);
+        } else if (previous.deformation_revision !=
+                   instance.deformation_revision) {
+          deforming_instances.push_back(&instance);
         } else if (retained_shadow_state_changed ||
                    !SameMeshInstanceDescriptor(previous, instance)) {
           changed_instances.push_back(&instance);
@@ -10883,6 +10945,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->retained_instances.erase(record);
       ++diff_destroyed;
     }
+    for (const MeshInstanceDescriptor *instance : deforming_instances) {
+      const auto record =
+          impl_->retained_instances.find(instance->instance_id);
+      if (record == impl_->retained_instances.end()) {
+        throw std::logic_error(
+            "retained-scene diff lost a scheduled deformation update");
+      }
+      impl_->SubtractRetainedContribution(record->second);
+      const RenderOperationResult rebuilt =
+          rebuild_deformed_instance(record->second, *instance);
+      if (!rebuilt) {
+        return fail_after_cleanup(rebuilt);
+      }
+      const RenderOperationResult updated =
+          update_retained_instance(record->second, *instance);
+      if (!updated) {
+        return fail_after_cleanup(updated);
+      }
+      const RenderOperationResult verified =
+          verify_retained_instance(record->second);
+      if (!verified) {
+        return fail_after_cleanup(verified);
+      }
+      impl_->AddRetainedContribution(record->second);
+    }
     for (const MeshInstanceDescriptor *instance : changed_instances) {
       const auto record =
           impl_->retained_instances.find(instance->instance_id);
@@ -10902,6 +10989,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
         return fail_after_cleanup(verified);
       }
       impl_->AddRetainedContribution(record->second);
+      ++diff_updated;
     }
     for (const MeshInstanceDescriptor *instance : incoming_instances) {
       const RenderOperationResult created =
