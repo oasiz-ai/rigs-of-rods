@@ -2051,6 +2051,193 @@ void TestSceneGenerationFinalizationAndTickReset() {
           "failed generation finalization changed the published sentinel");
 }
 
+void TestHudOverlayAssetLifecycleAndRevisions() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer();
+  GraphicsSceneFrameInput frame = MakeFrame();
+  GraphicsSceneHudOverlayInput hud;
+  hud.width = 2U;
+  hud.height = 2U;
+  hud.content_hash = 0xF00DU;
+  hud.rgba8_bytes =
+      std::make_shared<const std::vector<std::uint8_t>>(16U, 0x40U);
+  frame.hud_overlay = hud;
+
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  Require(first.ok(), "first HUD overlay frame was rejected");
+  Require(first.production.asset_delta.has_value(),
+          "first HUD overlay frame carried no asset delta");
+  const SceneSnapshot &first_scene = *first.production.scene_snapshot;
+  Require(first_scene.hud_overlay().enabled,
+          "the produced snapshot did not enable the HUD overlay");
+  const RenderAssetReference first_material = first_scene.hud_overlay().material;
+  Require(first_material.kind == RenderAssetKind::MATERIAL &&
+              first_material.revision == 1U,
+          "HUD overlay material reference is not a fresh material");
+  std::size_t hud_texture_upserts = 0U;
+  std::size_t hud_sampler_upserts = 0U;
+  std::size_t hud_material_upserts = 0U;
+  RenderAssetReference hud_texture_reference;
+  for (const RenderAssetMutation &mutation :
+       first.production.asset_delta->mutations) {
+    if (const auto *texture =
+            std::get_if<TextureResourceDescriptor>(&mutation.payload)) {
+      if (texture->debug_name == "RoRHudOverlayTexture") {
+        ++hud_texture_upserts;
+        hud_texture_reference = mutation.asset;
+        Require(texture->width == 2U && texture->height == 2U &&
+                    texture->mip_levels.size() == 1U &&
+                    texture->color_space == TextureColorSpace::SRGB &&
+                    texture->mip_levels.front().bytes ==
+                        *hud.rgba8_bytes,
+                "HUD overlay texture payload was not published exactly");
+      }
+    } else if (const auto *sampler =
+                   std::get_if<SamplerResourceDescriptor>(
+                       &mutation.payload)) {
+      if (sampler->debug_name == "RoRHudOverlaySampler") {
+        ++hud_sampler_upserts;
+        Require(sampler->mip_filter == SamplerFilter::NEAREST &&
+                    sampler->address_u == SamplerAddressMode::CLAMP_TO_EDGE &&
+                    sampler->maximum_lod == 0.0F,
+                "HUD overlay sampler profile changed");
+      }
+    } else if (const auto *material =
+                   std::get_if<MaterialDescriptor>(&mutation.payload)) {
+      if (material->debug_name == "RoRHudOverlayMaterial") {
+        ++hud_material_upserts;
+        Require(mutation.asset == first_material,
+                "descriptor HUD material differs from the delta mutation");
+        Require(material->model == MaterialModel::UNLIT &&
+                    material->blend_mode ==
+                        MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER &&
+                    material->base_color_transfer ==
+                        BaseColorTransfer::
+                            SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE &&
+                    !material->depth_write &&
+                    material->base_color_texture.texture.valid() &&
+                    material->base_color_texture.sampler.valid(),
+                "HUD overlay material profile changed");
+      }
+    }
+  }
+  Require(hud_texture_upserts == 1U && hud_sampler_upserts == 1U &&
+              hud_material_upserts == 1U,
+          "first HUD delta must publish texture, sampler, and material once");
+  Require(hud_texture_reference.revision == 1U,
+          "fresh HUD texture must start at revision one");
+
+  // Unchanged content hash: no delta, unchanged references.
+  frame.simulation_tick += 1U;
+  frame.simulation_time_seconds += 0.016;
+  const GraphicsSceneSnapshotProduceResult second = producer.Produce(frame);
+  Require(second.ok() && !second.production.asset_delta.has_value(),
+          "unchanged HUD content shipped an asset delta");
+  Require(second.production.scene_snapshot->hud_overlay().material ==
+              first_material,
+          "unchanged HUD content changed its material reference");
+
+  // Changed content hash: texture revision bump plus the material re-UPSERT
+  // embedding the new texture revision; the sampler stays untouched.
+  GraphicsSceneHudOverlayInput changed = hud;
+  changed.content_hash = 0xBEEFU;
+  changed.rgba8_bytes =
+      std::make_shared<const std::vector<std::uint8_t>>(16U, 0x80U);
+  frame.hud_overlay = changed;
+  frame.simulation_tick += 1U;
+  const GraphicsSceneSnapshotProduceResult third = producer.Produce(frame);
+  Require(third.ok() && third.production.asset_delta.has_value(),
+          "changed HUD content shipped no asset delta");
+  std::size_t changed_mutations = 0U;
+  for (const RenderAssetMutation &mutation :
+       third.production.asset_delta->mutations) {
+    ++changed_mutations;
+    Require(mutation.type == RenderAssetMutationType::UPSERT,
+            "changed HUD content destroyed an asset");
+    if (const auto *texture =
+            std::get_if<TextureResourceDescriptor>(&mutation.payload)) {
+      Require(texture->debug_name == "RoRHudOverlayTexture" &&
+                  mutation.asset.id == hud_texture_reference.id &&
+                  mutation.asset.revision == 2U &&
+                  texture->mip_levels.front().bytes == *changed.rgba8_bytes,
+              "changed HUD content did not bump exactly the texture revision");
+    } else {
+      const auto *material = std::get_if<MaterialDescriptor>(&mutation.payload);
+      Require(material != nullptr &&
+                  material->debug_name == "RoRHudOverlayMaterial" &&
+                  mutation.asset.id == first_material.id &&
+                  mutation.asset.revision == 2U &&
+                  material->base_color_texture.texture.revision == 2U,
+              "HUD material did not follow its texture revision");
+    }
+  }
+  Require(changed_mutations == 2U,
+          "changed HUD content must mutate exactly texture and material");
+  Require(third.production.scene_snapshot->hud_overlay().material.revision ==
+              2U,
+          "descriptor HUD material did not follow the revision bump");
+
+  // Absent HUD input tombstones the synthesized assets and disables the field.
+  frame.hud_overlay.reset();
+  frame.simulation_tick += 1U;
+  const GraphicsSceneSnapshotProduceResult fourth = producer.Produce(frame);
+  Require(fourth.ok() && fourth.production.asset_delta.has_value(),
+          "HUD retirement shipped no asset delta");
+  Require(!fourth.production.scene_snapshot->hud_overlay().enabled,
+          "HUD retirement left the descriptor enabled");
+  std::size_t destroys = 0U;
+  for (const RenderAssetMutation &mutation :
+       fourth.production.asset_delta->mutations) {
+    Require(mutation.type == RenderAssetMutationType::DESTROY,
+            "HUD retirement produced a non-destroy mutation");
+    ++destroys;
+  }
+  Require(destroys == 3U,
+          "HUD retirement must tombstone texture, sampler, and material");
+
+  // Malformed inputs fail closed before any state advances.
+  GraphicsSceneSnapshotProducer strict = MakeProducer();
+  GraphicsSceneFrameInput malformed = MakeFrame();
+  GraphicsSceneHudOverlayInput bad = hud;
+  bad.width = 0U;
+  malformed.hud_overlay = bad;
+  Require(strict.Produce(malformed).validation.code ==
+              ValidationCode::INVALID_DIMENSIONS,
+          "zero HUD extent was accepted");
+  bad = hud;
+  bad.content_hash = 0U;
+  malformed.hud_overlay = bad;
+  Require(strict.Produce(malformed).validation.code ==
+              ValidationCode::INVALID_IDENTIFIER,
+          "zero HUD content hash was accepted");
+  bad = hud;
+  bad.rgba8_bytes = nullptr;
+  malformed.hud_overlay = bad;
+  Require(strict.Produce(malformed).validation.code ==
+              ValidationCode::EMPTY_PAYLOAD,
+          "HUD input without a byte owner was accepted");
+  bad = hud;
+  bad.rgba8_bytes =
+      std::make_shared<const std::vector<std::uint8_t>>(15U, 0x40U);
+  malformed.hud_overlay = bad;
+  Require(strict.Produce(malformed).validation.code ==
+              ValidationCode::SIZE_MISMATCH,
+          "mis-sized HUD byte payload was accepted");
+
+  // The reserved source identities may never be minted by an adapter.
+  GraphicsSceneSnapshotProducer collision_producer = MakeProducer();
+  GraphicsSceneFrameInput collision = MakeFrame();
+  GraphicsSceneAssetInput colliding_sampler = SamplerAsset();
+  colliding_sampler.source_asset_id =
+      kGraphicsSceneHudOverlayTextureSourceAssetId;
+  collision.assets.push_back(colliding_sampler);
+  collision.hud_overlay = hud;
+  Require(collision_producer.Produce(collision).validation.code ==
+              ValidationCode::DUPLICATE_IDENTIFIER,
+          "a reserved HUD source identity collision was accepted");
+}
+
 } // namespace
 
 int main() {
@@ -2071,5 +2258,6 @@ int main() {
   TestExhaustionAndBoundsFailClosed();
   TestDeterministicAcrossAdapterTraversalOrders();
   TestSceneGenerationFinalizationAndTickReset();
+  TestHudOverlayAssetLifecycleAndRevisions();
   return EXIT_SUCCESS;
 }

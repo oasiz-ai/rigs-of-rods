@@ -68,6 +68,7 @@
 #endif
 #include "RendererGameInputEngineTarget.h"
 #include "RendererOgre14RuntimeOwnership.h"
+#include "gfx/Ogre14GuiOverlayCapture.h"
 #include "gfx/render/Ogre14GraphicsSceneSource.h"
 #include "ScriptEngine.h"
 #include "Skidmark.h"
@@ -788,11 +789,13 @@ int main(int argc, char *argv[])
         return 70;
     }
 
-    // There is intentionally no transported menu/HUD in this first combined
-    // runtime. A Finder launch supplies only argv[0], so make exactly that
-    // case an immediately visible CityWorld/Alexis renderer demonstration.
-    // The explicit forward-native showcase is consumed above and remains in
-    // MAIN_MENU; every other caller argument retains pointer identity/order.
+    // The menu/HUD is transported as a GUI-RTT texture asset (see
+    // Ogre14GuiOverlayCapture) riding SIMULATION-state snapshots only, so a
+    // bare launch must land in a simulation. A Finder launch supplies only
+    // argv[0]; make exactly that case an immediately visible CityWorld/Alexis
+    // renderer demonstration. The explicit forward-native showcase is
+    // consumed above and remains in MAIN_MENU; every other caller argument
+    // retains pointer identity/order.
     static char combined_check_cache[] = "-checkcache";
     static char combined_map_option[] = "-map";
     static char combined_map[] = "CityWorld.terrn2";
@@ -895,6 +898,8 @@ int main(int argc, char *argv[])
         renderer_combined_input_target;
     std::unique_ptr<Render::IJoinedGraphicsSceneSource>
         renderer_combined_scene_source;
+    std::unique_ptr<Ogre14GuiOverlayCapture>
+        renderer_combined_hud_capture;
     Render::NativeVisualShowcaseSceneSource*
         renderer_combined_native_showcase_scene_source = nullptr;
     std::unique_ptr<RendererInProcessSession>
@@ -1263,6 +1268,11 @@ int main(int argc, char *argv[])
                     std::make_unique<Render::Ogre14GraphicsSceneSource>(
                         *App::GetGfxScene());
                 App::GetGfxScene()->EnableOgreNextDemoCapture();
+                // The transported menu/HUD capture belongs to the joined
+                // OGRE 14 source only; the forward-native showcase carries
+                // no GUI.
+                renderer_combined_hud_capture =
+                    std::make_unique<Ogre14GuiOverlayCapture>();
             }
             catch (...)
             {
@@ -3920,6 +3930,18 @@ int main(int argc, char *argv[])
                 const auto producer_started =
                     std::chrono::high_resolution_clock::now();
                 App::GetGfxScene()->UpdateScene(dt_sim); // Draws GUI as well
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                // Capture the just-built menu/HUD overlay between UpdateScene
+                // (which drew the GUI) and the joined-scene post below, so
+                // the readback rides this exact joined boundary. The cost is
+                // attributed to the PRODUCER phase recorded underneath.
+                if (renderer_combined_hud_capture != nullptr &&
+                    renderer_combined_session != nullptr &&
+                    renderer_combined_session->active())
+                {
+                    renderer_combined_hud_capture->CaptureIfDirty();
+                }
+#endif
                 if (frame_budget_session != nullptr)
                 {
                     frame_budget_session->RecordPhase(

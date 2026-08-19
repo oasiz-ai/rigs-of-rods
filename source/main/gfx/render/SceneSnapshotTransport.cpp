@@ -288,6 +288,10 @@ bool WritePayload(WireWriter &writer, const SceneSnapshot &scene,
       return false;
     }
   }
+  if (!writer.AddBool(scene.hud_overlay().enabled) ||
+      !WriteAssetReference(writer, scene.hud_overlay().material)) {
+    return false;
+  }
   if (!writer.AddU32(
           static_cast<std::uint32_t>(scene.dynamic_mesh_updates().size()))) {
     return false;
@@ -611,6 +615,12 @@ bool ReadPayload(const std::uint8_t *payload, std::size_t payload_size,
     descriptor.reflection_probes.push_back(probe);
   }
 
+  if (!reader.ReadBool(descriptor.hud_overlay.enabled) ||
+      !ReadAssetReference(reader, descriptor.hud_overlay.material)) {
+    status = reader.status();
+    return false;
+  }
+
   if (!reader.ReadCount(kSceneSnapshotTransportMaximumDynamicMeshUpdates,
                         kMinimumDynamicMeshUpdateBytes, count) ||
       !reader.Reserve(descriptor.dynamic_mesh_updates, count)) {
@@ -673,7 +683,7 @@ SceneSnapshotTransportDecodeResult Failure(
 bool IsKnownSceneSnapshotTransportMessageKind(
     SceneSnapshotTransportMessageKind kind) noexcept {
   return kind ==
-         SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
+         SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
 }
 
 std::array<std::uint8_t, 32U>
@@ -772,7 +782,7 @@ SceneSnapshotTransportEncodeResult EncodeSceneSnapshotTransportFrame(
       return result;
     }
     return EncodeRenderTransportEnvelope(
-        SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2,
+        SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2,
         sequence, payload, kSceneSnapshotTransportMaximumPayloadBytes);
   } catch (const std::bad_alloc &) {
     result.bytes.clear();

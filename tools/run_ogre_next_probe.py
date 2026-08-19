@@ -1672,7 +1672,7 @@ def validate_build_contract(
                 "hdr_history_validation_mode": (
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"
                 ),
-                "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+                "hdr_workspace": "RoRHdrWorkspaceHudV1",
                 "hdr_visual_evidence_version": 1,
             }
         )
@@ -3720,7 +3720,7 @@ def validate_n1_checkpoint(
                     "history_format",
                     "output_format",
                     "ui_included",
-                    "ui_free_workspace_verified",
+                    "hud_workspace_verified",
                     "deterministic_simulation_delta",
                     "history_validation_mode",
                     "native_r16_history_validated",
@@ -3773,14 +3773,14 @@ def validate_n1_checkpoint(
                     "clean_shutdown",
                 }
                 and hdr_compositor.get("schema")
-                == "ror.ogre_next_hdr_compositor.v5"
-                and hdr_compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2"
+                == "ror.ogre_next_hdr_compositor.v6"
+                and hdr_compositor.get("workspace") == "RoRHdrWorkspaceHudV1"
                 and hdr_compositor.get("persistent_workspace") is True
                 and hdr_compositor.get("scene_format") == "RGBA16_FLOAT"
                 and hdr_compositor.get("history_format") == "R16_FLOAT"
                 and hdr_compositor.get("output_format") == "RGBA8_SRGB"
-                and hdr_compositor.get("ui_included") is False
-                and hdr_compositor.get("ui_free_workspace_verified") is True
+                and hdr_compositor.get("ui_included") is True
+                and hdr_compositor.get("hud_workspace_verified") is True
                 and hdr_compositor.get("deterministic_simulation_delta")
                 is True
                 and hdr_compositor.get("history_validation_mode")

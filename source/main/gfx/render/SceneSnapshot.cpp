@@ -586,6 +586,22 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
         ValidationCode::MISSING_REFERENCE, "environment",
         "environment texture and explicit sampler must be supplied together");
   }
+  if (descriptor.hud_overlay.enabled) {
+    if (!descriptor.hud_overlay.material.valid()) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_ASSET_REFERENCE, "hud_overlay.material",
+          "enabled HUD overlay requires a valid material reference");
+    }
+    if (descriptor.hud_overlay.material.kind != RenderAssetKind::MATERIAL) {
+      return ValidationResult::Failure(
+          ValidationCode::WRONG_ASSET_KIND, "hud_overlay.material",
+          "HUD overlay reference must identify a material");
+    }
+  } else if (!IsAbsentRenderAssetReference(descriptor.hud_overlay.material)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ASSET_REFERENCE, "hud_overlay.material",
+        "disabled HUD overlay must keep the canonical absent material");
+  }
 
   // Reuse one failure carrier throughout the collection walks. In an MSVC
   // checked-iterator Debug build, constructing a successful ValidationResult
@@ -953,6 +969,51 @@ ValidationResult ValidateSceneSnapshotAssets(
             validated_assets, *texture, *sampler);
     if (!validation) {
       return validation;
+    }
+  }
+
+  if (descriptor.hud_overlay.enabled) {
+    const MaterialDescriptor *material =
+        registry.ResolveMaterial(descriptor.hud_overlay.material);
+    if (material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "hud_overlay.material",
+          "HUD overlay references a missing, stale, or tombstoned material");
+    }
+    if (material->model != MaterialModel::UNLIT ||
+        material->base_color_transfer !=
+            BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE ||
+        material->blend_mode !=
+            MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER ||
+        material->alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
+        material->depth_write) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "hud_overlay.material",
+          "HUD overlay requires an UNLIT display-domain premultiplied "
+          "source-over material without alpha test or depth writes");
+    }
+    if (!material->base_color_texture.texture.valid() ||
+        !material->base_color_texture.sampler.valid()) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "hud_overlay.material.base_color_texture",
+          "HUD overlay material requires a bound base texture and sampler");
+    }
+    const TextureResourceDescriptor *texture =
+        registry.ResolveTexture(material->base_color_texture.texture);
+    const SamplerResourceDescriptor *sampler =
+        registry.ResolveSampler(material->base_color_texture.sampler);
+    if (texture == nullptr || sampler == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "hud_overlay.material.base_color_texture",
+          "HUD overlay texture or sampler is missing, stale, or tombstoned");
+    }
+    if (texture->mip_levels.size() != 1U) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "hud_overlay.material.base_color_texture",
+          "HUD overlay texture must carry exactly one mip level");
     }
   }
 

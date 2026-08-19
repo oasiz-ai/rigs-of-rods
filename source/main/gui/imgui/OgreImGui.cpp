@@ -152,9 +152,13 @@ void OgreImGui::renderQueueStarted(Ogre::uint8 queueGroupId,
                 // Checking `sceneMgr->_getCurrentRenderStage() == Ogre::SceneManager::IRS_RENDER_TO_TEXTURE`)
                 // doesn't do the trick if the RTT is updated by calling `Ogre::RenderTarget::update()` by hand,
                 // which we do frequently.
-                // To compensate, we also check if the active viewport matches our screen viewport.
+                // To compensate, we also check if the active viewport matches our screen viewport,
+                // or the one registered HUD capture viewport (the transported menu/HUD
+                // render target). All other RTTs keep the refusal so worldmodel and
+                // reflection captures stay GUI-free.
                 Ogre::Viewport* vp_target = App::GetAppContext()->GetViewport();
-                if (vp == vp_target)
+                if (vp == vp_target ||
+                    (m_hud_capture_viewport != nullptr && vp == m_hud_capture_viewport))
                 {
                     m_imgui_overlay->_findVisibleObjects(vp->getCamera(), sceneMgr->getRenderQueue(), vp);
                 }

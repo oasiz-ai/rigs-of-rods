@@ -107,6 +107,7 @@ bool IsKnownMaterialBlendMode(MaterialBlendMode mode) noexcept {
   case MaterialBlendMode::REPLACE:
   case MaterialBlendMode::STRAIGHT_SOURCE_OVER:
   case MaterialBlendMode::LEGACY_STRAIGHT_ALPHA:
+  case MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER:
     return true;
   }
   return false;

@@ -23,7 +23,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kSceneSnapshotVersion = 5U;
+constexpr std::uint32_t kSceneSnapshotVersion = 6U;
 constexpr std::uint32_t kSceneLightingHashVersion = 3U;
 constexpr std::uint32_t kSceneReflectionProbeHashVersion = 1U;
 
@@ -104,6 +104,21 @@ struct AnalyticSkyDescriptor {
   float cloud_coverage = 0.0F;
   Float3 cloud_radiance{};
   float cloud_phase_radians = 0.0F;
+};
+
+/// Optional transported menu/HUD overlay. The material is an ordinary
+/// MaterialModel::UNLIT display-domain material
+/// (SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE) whose base-color texture carries
+/// display-referred, premultiplied RGBA GUI pixels with union coverage in
+/// alpha; MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER is required so a
+/// presenter composites it after tone mapping as one fullscreen
+/// (ONE, ONE_MINUS_SRC_ALPHA) quad. Disabled state keeps the canonical
+/// absent material reference. The HUD is deliberately a texture reference,
+/// not a geometry domain, so its content flows through the existing
+/// per-frame asset delta and revision machinery.
+struct HudOverlayDescriptor {
+  bool enabled = false;
+  RenderAssetReference material;
 };
 
 struct SceneEnvironmentDescriptor {
@@ -252,6 +267,10 @@ struct SceneSnapshotDescriptor {
   /// scheduling remains frontend/runtime state; the immutable snapshot carries
   /// the complete authored set required to derive that schedule.
   std::vector<ReflectionProbeRuntimeDescriptor> reflection_probes;
+  /// Version 6: optional transported menu/HUD overlay reference. It is not
+  /// lighting state; the canonical lighting/reflection hash encodings remain
+  /// untouched by this field.
+  HudOverlayDescriptor hud_overlay;
   std::vector<DynamicMeshUpdateDescriptor> dynamic_mesh_updates;
   std::vector<ParticleEvent> particle_events;
 };
@@ -360,6 +379,9 @@ public:
   [[nodiscard]] const std::vector<ReflectionProbeRuntimeDescriptor> &
   reflection_probes() const noexcept {
     return descriptor_.reflection_probes;
+  }
+  [[nodiscard]] const HudOverlayDescriptor &hud_overlay() const noexcept {
+    return descriptor_.hud_overlay;
   }
   [[nodiscard]] const std::vector<DynamicMeshUpdateDescriptor> &
   dynamic_mesh_updates() const noexcept {

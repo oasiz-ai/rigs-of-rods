@@ -704,6 +704,17 @@ BuildPbsBlendblock(const MaterialDescriptor &descriptor) {
     // Exact OGRE `scene_blend alpha_blend`, including its squared-alpha
     // destination equation.
     blendblock.setBlendType(Ogre::SBT_TRANSPARENT_ALPHA);
+  } else if (descriptor.blend_mode ==
+             MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER) {
+    // Porter-Duff source-over for content whose RGB already carries its
+    // coverage (the transported HUD overlay texture).
+    blendblock.mSourceBlendFactor = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactor = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mSourceBlendFactorAlpha = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactorAlpha = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mBlendOperation = Ogre::SBO_ADD;
+    blendblock.mBlendOperationAlpha = Ogre::SBO_ADD;
+    blendblock.calculateSeparateBlendMode();
   }
   return blendblock;
 }
@@ -840,11 +851,11 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
 void VerifyDisplayDomainUnlitMapping(
     const Ogre::HlmsUnlitDatablock &datablock,
     const Ogre::HlmsUnlit &expected_creator, Ogre::TextureGpu *texture,
-    const Ogre::HlmsSamplerblock &sampler) {
+    const Ogre::HlmsSamplerblock &sampler,
+    const Ogre::HlmsMacroblock &expected_macroblock,
+    const Ogre::HlmsBlendblock &expected_blendblock) {
   const Ogre::String *name = datablock.getNameStr();
   const Ogre::ColourValue colour = datablock.getColour();
-  const Ogre::HlmsMacroblock default_macroblock;
-  const Ogre::HlmsBlendblock default_blendblock;
   if (datablock.getCreator() != &expected_creator || name == nullptr ||
       name->compare(
           0U, sizeof(kOgreNextDisplayDomainDatablockPrefix) - 1U,
@@ -855,9 +866,9 @@ void VerifyDisplayDomainUnlitMapping(
       datablock.getSamplerblock(0U) == nullptr ||
       *datablock.getSamplerblock(0U) != sampler ||
       datablock.getMacroblock() == nullptr ||
-      *datablock.getMacroblock() != default_macroblock ||
+      *datablock.getMacroblock() != expected_macroblock ||
       datablock.getBlendblock() == nullptr ||
-      *datablock.getBlendblock() != default_blendblock) {
+      *datablock.getBlendblock() != expected_blendblock) {
     throw std::runtime_error(
         "Ogre-Next RT4/V1 display-domain Unlit datablock differs from the reviewed one-texture mapping");
   }
@@ -1589,7 +1600,10 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
 }
 
 constexpr const char kOgreNextHdrResourceGroup[] = "RoROgreNextHdrV2";
-constexpr const char kOgreNextHdrWorkspace[] = "RoRHdrWorkspaceUiFreeV2";
+// The production workspace connects the stock HdrRenderUi node after
+// postprocessing so the transported menu/HUD composites post-tonemap. The
+// former UI-free workspace name is retired with its topology.
+constexpr const char kOgreNextHdrWorkspace[] = "RoRHdrWorkspaceHudV1";
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
 constexpr const char kOgreNextHdrUiOverlayControlWorkspace[] =
     "RoRHdrWorkspaceUiOverlayControlV3";
@@ -2316,6 +2330,14 @@ constexpr const char kOgreNextHdrUiPanelName[] = "RoRHdrUiOverlayPanel";
 constexpr const char kOgreNextHdrUiDatablockName[] =
     "RoRHdrUiOverlayMagenta";
 #endif
+// Production menu/HUD overlay composited by the stock HdrRenderUi node. The
+// panel datablock carries the reserved display-domain prefix so its shader
+// piece applies the exact sRGB EOTF after filtering; into the sRGB output the
+// round trip is an identity for display-referred GUI pixels.
+constexpr const char kOgreNextHudOverlayName[] = "RoRHdrHudOverlayV1";
+constexpr const char kOgreNextHudPanelName[] = "RoRHdrHudOverlayPanelV1";
+constexpr const char kOgreNextHudDatablockName[] =
+    "RoRDisplayDomainUnlit_HudOverlayPanelV1";
 
 RenderOperationResult HdrBackendFailure(const std::string &detail) {
   return RenderOperationResult::Failure(
@@ -3808,11 +3830,19 @@ public:
     if (descriptor.model == MaterialModel::UNLIT) {
       native.kind = NativeMaterial::Kind::DISPLAY_DOMAIN_UNLIT;
       native.name = AssetName("RoRDisplayDomainUnlit", asset);
+      // Honor the validated blend/depth profile at creation: the opaque scene
+      // profile reproduces the historical default blocks exactly, while the
+      // HUD overlay profile carries premultiplied source-over without depth
+      // writes.
+      const Ogre::HlmsMacroblock unlit_macroblock =
+          BuildPbsMacroblock(descriptor);
+      const Ogre::HlmsBlendblock unlit_blendblock =
+          BuildPbsBlendblock(descriptor);
       try {
         native.display_domain_unlit_datablock =
             static_cast<Ogre::HlmsUnlitDatablock *>(unlit->createDatablock(
-                native.name, native.name, Ogre::HlmsMacroblock(),
-                Ogre::HlmsBlendblock(), Ogre::HlmsParamVec()));
+                native.name, native.name, unlit_macroblock,
+                unlit_blendblock, Ogre::HlmsParamVec()));
         const auto found =
             candidate_textures.find(descriptor.base_color_texture.texture.id);
         const SamplerResourceDescriptor *sampler_descriptor =
@@ -3840,7 +3870,8 @@ public:
                                                                          0U);
         VerifyDisplayDomainUnlitMapping(
             *native.display_domain_unlit_datablock, *unlit,
-            found->second.sampled, sampler);
+            found->second.sampled, sampler, unlit_macroblock,
+            unlit_blendblock);
         return native;
       } catch (...) {
         if (!DestroyMaterial(native)) {
@@ -4164,7 +4195,7 @@ public:
     audit.native_r16_history_validated = hdr_native_history_validated;
     audit.exact_current_to_old_copy_verified =
         hdr_exact_current_to_old_copy_verified;
-    audit.ui_free_workspace_verified = hdr_ui_free_workspace_verified;
+    audit.hud_workspace_verified = hdr_hud_workspace_verified;
     audit.width = hdr_width;
     audit.height = hdr_height;
     audit.warmup_frames = hdr_warmup_frames;
@@ -4514,6 +4545,242 @@ public:
   }
 #endif
 
+  [[nodiscard]] bool HudOverlayControlSelected() const noexcept {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+    return hdr_ui_overlay_control;
+#else
+    return false;
+#endif
+  }
+
+  [[nodiscard]] RenderOperationResult CreateHudOverlayRuntime() {
+    if (HudOverlayControlSelected()) {
+      // The isolated magenta negative-control owns the HdrRenderUi node in
+      // this configuration; the production HUD runtime stays absent.
+      return RenderOperationResult::Success();
+    }
+    if (scene_manager == nullptr || unlit == nullptr || hud_overlay_system ||
+        hud_overlay != nullptr || hud_overlay_panel != nullptr ||
+        hud_overlay_datablock != nullptr) {
+      return HdrBackendFailure("HUD overlay runtime lifecycle is not empty");
+    }
+
+    hud_overlay_system = std::make_unique<Ogre::v1::OverlaySystem>();
+    scene_manager->addRenderQueueListener(hud_overlay_system.get());
+    hud_overlay_listener_registered = true;
+
+    Ogre::HlmsMacroblock macroblock;
+    macroblock.mDepthCheck = false;
+    macroblock.mDepthWrite = false;
+    macroblock.mCullMode = Ogre::CULL_NONE;
+    // Premultiplied source-over: the HUD texture accumulated its GUI over a
+    // zero-cleared target, so RGB already carries coverage.
+    Ogre::HlmsBlendblock blendblock;
+    blendblock.mSourceBlendFactor = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactor = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mSourceBlendFactorAlpha = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactorAlpha = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mBlendOperation = Ogre::SBO_ADD;
+    blendblock.mBlendOperationAlpha = Ogre::SBO_ADD;
+    blendblock.calculateSeparateBlendMode();
+    Ogre::HlmsDatablock *base_datablock = unlit->createDatablock(
+        Ogre::IdString(kOgreNextHudDatablockName), kOgreNextHudDatablockName,
+        macroblock, blendblock, Ogre::HlmsParamVec());
+    hud_overlay_datablock =
+        dynamic_cast<Ogre::HlmsUnlitDatablock *>(base_datablock);
+    if (hud_overlay_datablock == nullptr) {
+      return HdrBackendFailure(
+          "HUD overlay runtime did not create an Unlit datablock");
+    }
+    hud_overlay_datablock_created = true;
+    hud_overlay_datablock->setUseColour(true);
+    hud_overlay_datablock->setColour(Ogre::ColourValue::White);
+
+    Ogre::v1::OverlayManager &manager =
+        Ogre::v1::OverlayManager::getSingleton();
+    hud_overlay = manager.create(kOgreNextHudOverlayName);
+    Ogre::v1::OverlayElement *element = manager.createOverlayElement(
+        "Panel", kOgreNextHudPanelName);
+    hud_overlay_panel =
+        dynamic_cast<Ogre::v1::OverlayContainer *>(element);
+    if (hud_overlay == nullptr || hud_overlay_panel == nullptr) {
+      return HdrBackendFailure(
+          "HUD overlay runtime did not create an Overlay panel");
+    }
+    hud_overlay_panel->setMetricsMode(Ogre::v1::GMM_RELATIVE);
+    hud_overlay_panel->setPosition(0.0F, 0.0F);
+    hud_overlay_panel->setDimensions(1.0F, 1.0F);
+    hud_overlay_panel->setMaterialName(kOgreNextHudDatablockName);
+    hud_overlay->add2D(hud_overlay_panel);
+    // Hidden until a validated snapshot enables the transported HUD.
+    hud_overlay->hide();
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] bool DestroyHudOverlayRuntime() noexcept {
+    bool clean = true;
+    if (hud_overlay != nullptr && hud_overlay_panel != nullptr) {
+      try {
+        hud_overlay->remove2D(hud_overlay_panel);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (Ogre::v1::OverlayManager::getSingletonPtr() != nullptr) {
+      Ogre::v1::OverlayManager &manager =
+          Ogre::v1::OverlayManager::getSingleton();
+      if (hud_overlay_panel != nullptr) {
+        try {
+          manager.destroyOverlayElement(hud_overlay_panel);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (hud_overlay != nullptr) {
+        try {
+          manager.destroy(hud_overlay);
+        } catch (...) {
+          clean = false;
+        }
+      }
+    } else if (hud_overlay_panel != nullptr || hud_overlay != nullptr) {
+      clean = false;
+    }
+    hud_overlay_panel = nullptr;
+    hud_overlay = nullptr;
+    if (hud_overlay_datablock != nullptr) {
+      try {
+        hud_overlay_datablock->setTexture(0U, nullptr);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    hud_overlay_bound_texture = {};
+    if (hud_overlay_datablock_created && unlit != nullptr) {
+      try {
+        unlit->destroyDatablock(Ogre::IdString(kOgreNextHudDatablockName));
+      } catch (...) {
+        clean = false;
+      }
+    } else if (hud_overlay_datablock_created) {
+      clean = false;
+    }
+    hud_overlay_datablock = nullptr;
+    hud_overlay_datablock_created = false;
+    if (hud_overlay_listener_registered && scene_manager != nullptr &&
+        hud_overlay_system) {
+      try {
+        scene_manager->removeRenderQueueListener(hud_overlay_system.get());
+      } catch (...) {
+        clean = false;
+      }
+    } else if (hud_overlay_listener_registered) {
+      clean = false;
+    }
+    hud_overlay_listener_registered = false;
+    hud_overlay_system.reset();
+    return clean;
+  }
+
+  /// Detaches the panel's bound native texture before an asset transaction
+  /// may retire/replace it. The next validated frame rebinds and shows the
+  /// overlay again through CommitHudOverlay().
+  [[nodiscard]] bool UnbindHudOverlayTextureBeforeAssetReplacement() noexcept {
+    if (hud_overlay_datablock == nullptr ||
+        !hud_overlay_bound_texture.valid()) {
+      return true;
+    }
+    try {
+      if (hud_overlay != nullptr) {
+        hud_overlay->hide();
+      }
+      hud_overlay_datablock->setTexture(0U, nullptr);
+      hud_overlay_bound_texture = {};
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+
+  /// Per-frame HUD commit: binds the validated display-domain HUD texture to
+  /// the panel only when its reference (id + revision) changed and toggles
+  /// overlay visibility. Fail-closed: an enabled HUD whose native state is
+  /// absent, mis-shaped, or extent-mismatched rejects the frame.
+  [[nodiscard]] RenderOperationResult CommitHudOverlay(
+      const SceneSnapshot &snapshot, const CameraViewRequest &view) {
+    if (HudOverlayControlSelected()) {
+      return RenderOperationResult::Success();
+    }
+    const HudOverlayDescriptor &hud = snapshot.hud_overlay();
+    if (!hdr_enabled) {
+      if (hud.enabled) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "the transported HUD overlay requires the persistent HDR "
+            "compositor's post-tonemap UI node");
+      }
+      return RenderOperationResult::Success();
+    }
+    if (hud_overlay == nullptr || hud_overlay_panel == nullptr ||
+        hud_overlay_datablock == nullptr) {
+      return HdrBackendFailure(
+          "HUD overlay runtime is absent for a validated frame");
+    }
+    if (!hud.enabled) {
+      hud_overlay->hide();
+      return RenderOperationResult::Success();
+    }
+    const auto material = materials.find(hud.material.id);
+    const MaterialDescriptor *portable_material =
+        registry->ResolveMaterial(hud.material);
+    if (material == materials.end() ||
+        material->second.asset != hud.material ||
+        material->second.kind != NativeMaterial::Kind::DISPLAY_DOMAIN_UNLIT ||
+        material->second.display_domain_unlit_datablock == nullptr ||
+        portable_material == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::RESOURCE_STALE,
+          "HUD overlay material has no native display-domain allocation");
+    }
+    const auto texture =
+        textures.find(portable_material->base_color_texture.texture.id);
+    if (texture == textures.end() ||
+        texture->second.asset !=
+            portable_material->base_color_texture.texture ||
+        !texture->second.usage.display_domain_rgba ||
+        texture->second.sampled == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::RESOURCE_STALE,
+          "HUD overlay texture has no native display-domain allocation");
+    }
+    if (texture->second.sampled->getWidth() != view.width ||
+        texture->second.sampled->getHeight() != view.height) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "HUD overlay texture extent must equal the presented view extent");
+    }
+    if (hud_overlay_bound_texture !=
+        portable_material->base_color_texture.texture) {
+      const SamplerResourceDescriptor *sampler_descriptor =
+          registry->ResolveSampler(
+              portable_material->base_color_texture.sampler);
+      if (sampler_descriptor == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "HUD overlay sampler disappeared before native binding");
+      }
+      const Ogre::HlmsSamplerblock sampler =
+          ToOgreSampler(*sampler_descriptor);
+      hud_overlay_datablock->setTexture(0U, texture->second.sampled,
+                                        &sampler);
+      hud_overlay_datablock->setTextureUvSource(0U, 0U);
+      hud_overlay_bound_texture =
+          portable_material->base_color_texture.texture;
+    }
+    hud_overlay->show();
+    return RenderOperationResult::Success();
+  }
+
   [[nodiscard]] RenderOperationResult MaybeInjectHdrFailure(
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       OgreNextN1HdrFailureStage stage
@@ -4563,12 +4830,11 @@ public:
     }
     definition->connectExternal(
         0U, Ogre::IdString(kOgreNextHdrPostprocessingNode), 2U);
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    if (hdr_ui_overlay_control) {
-      definition->connect(Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U,
-                          Ogre::IdString(kOgreNextHdrUiNode), 0U);
-    }
-#endif
+    // Production and the isolated UI-overlay control both terminate on the
+    // stock HdrRenderUi node so the transported menu/HUD composites after
+    // tone mapping into the sRGB output.
+    definition->connect(Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U,
+                        Ogre::IdString(kOgreNextHdrUiNode), 0U);
 
     const auto &aliases = definition->getNodeAliasMap();
     const bool has_rendering =
@@ -4579,11 +4845,8 @@ public:
         aliases.find(Ogre::IdString(kOgreNextThinSlabNode)) != aliases.end();
     const bool has_upstream_ui =
         aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-    const bool expected_ui = hdr_ui_overlay_control;
-#else
-    constexpr bool expected_ui = false;
-#endif
+    // The HDR UI node is now a required production member of the closure.
+    constexpr bool expected_ui = true;
     if (!has_rendering || !has_postprocessing ||
         has_refraction != SunVisibilityV2Enabled() ||
         has_upstream_ui != expected_ui) {
@@ -4617,7 +4880,7 @@ public:
             "sun-visibility V2 continuation node closure is not exact");
       }
     }
-    hdr_ui_free_workspace_verified = !has_upstream_ui;
+    hdr_hud_workspace_verified = has_upstream_ui;
     return RenderOperationResult::Success();
   }
 
@@ -4688,6 +4951,11 @@ public:
       clean = DestroyHdrUiOverlayControl() && clean;
     }
 #endif
+    if (destroy_definitions_and_resources) {
+      // The HUD overlay's v1::OverlaySystem lifetime precedes workspace
+      // definition removal, mirroring the isolated UI-control ordering.
+      clean = DestroyHudOverlayRuntime() && clean;
+    }
     if (renderer != nullptr && hdr_output_target != nullptr) {
       try {
         renderer->getTextureGpuManager()->destroyTexture(hdr_output_target);
@@ -4844,7 +5112,7 @@ public:
     hdr_manual_delta_bound = false;
     hdr_native_history_validated = false;
     hdr_exact_current_to_old_copy_verified = false;
-    hdr_ui_free_workspace_verified = false;
+    hdr_hud_workspace_verified = false;
     hdr_linear_scene_target_verified = false;
     hdr_base_hdr_target_verified = false;
     hdr_sun_full_hdr_target_verified = false;
@@ -5492,11 +5760,8 @@ public:
           aliases.end();
       const bool has_ui =
           aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-      const bool expected_ui = hdr_ui_overlay_control;
-#else
-      constexpr bool expected_ui = false;
-#endif
+      // The HDR UI node is a required production member of the closure.
+      constexpr bool expected_ui = true;
       if (!has_rendering || !has_postprocessing || has_ui != expected_ui) {
         return HdrBackendFailure(
             "retained HDR workspace topology changed before resize rebuild");
@@ -5517,7 +5782,7 @@ public:
               "retained sun-visibility V2 continuation topology changed before resize rebuild");
         }
       }
-      hdr_ui_free_workspace_verified = !has_ui;
+      hdr_hud_workspace_verified = has_ui;
     }
 
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -5529,6 +5794,12 @@ public:
       }
     }
 #endif
+    if (first_resource_initialization) {
+      const RenderOperationResult hud_runtime = CreateHudOverlayRuntime();
+      if (!hud_runtime) {
+        return hud_runtime;
+      }
+    }
 
     if (first_resource_initialization) {
       const RenderOperationResult workspace_definition =
@@ -7389,7 +7660,7 @@ public:
   bool hdr_manual_delta_bound = false;
   bool hdr_native_history_validated = false;
   bool hdr_exact_current_to_old_copy_verified = false;
-  bool hdr_ui_free_workspace_verified = false;
+  bool hdr_hud_workspace_verified = false;
   bool sun_visibility_v2_frame_awaiting_continuation = false;
   bool sun_visibility_v2_hdr_commit_pending = false;
   std::uint64_t sun_visibility_v2_pending_frame_id = 0U;
@@ -7439,6 +7710,18 @@ public:
   Ogre::v1::OverlayContainer *hdr_overlay_panel = nullptr;
   bool hdr_overlay_listener_registered = false;
 #endif
+  // Production transported menu/HUD overlay composited by the HdrRenderUi
+  // node. Created with the persistent HDR compositor resources; shown only
+  // while a validated snapshot enables its HUD reference.
+  std::unique_ptr<Ogre::v1::OverlaySystem> hud_overlay_system;
+  Ogre::v1::Overlay *hud_overlay = nullptr;
+  Ogre::v1::OverlayContainer *hud_overlay_panel = nullptr;
+  bool hud_overlay_listener_registered = false;
+  Ogre::HlmsUnlitDatablock *hud_overlay_datablock = nullptr;
+  bool hud_overlay_datablock_created = false;
+  // Exact texture reference (id + revision) currently bound to the panel
+  // datablock. Rebinding happens only when this reference changes.
+  RenderAssetReference hud_overlay_bound_texture;
 };
 
 OgreNextN1Frontend::OgreNextN1Frontend(
@@ -8517,6 +8800,12 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
       }
     }
 
+    if (!impl_->UnbindHudOverlayTextureBeforeAssetReplacement()) {
+      static_cast<void>(impl_->RollbackCandidateAllocations(
+          candidate_meshes, candidate_materials, candidate_textures));
+      impl_->faulted = true;
+      return NativeTeardownFailure("Ogre-Next HUD overlay texture unbind");
+    }
     bool retired_cleanly = true;
     for (auto &entry : impl_->materials) {
       const auto replacement = candidate_materials.find(entry.first);
@@ -9618,6 +9907,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
           "PSSM plan visibility differs from the RT4 authored layer mask");
     }
     impl_->scene_manager->setVisibilityMask(authored_view_visibility);
+
+    {
+      const RenderOperationResult hud_commit =
+          impl_->CommitHudOverlay(snapshot, view);
+      if (!hud_commit) {
+        return fail_after_cleanup(hud_commit);
+      }
+    }
 
     lights.reserve(snapshot.lights().size());
     bool positive_calibrated_directional_light = false;

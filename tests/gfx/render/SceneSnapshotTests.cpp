@@ -7,6 +7,7 @@
 */
 
 #include "SceneSnapshot.h"
+#include "RenderAssetRegistry.h"
 #include "RenderResourceDescriptors.h"
 
 #include <cmath>
@@ -15,6 +16,7 @@
 #include <limits>
 #include <memory>
 #include <type_traits>
+#include <utility>
 
 namespace {
 
@@ -690,13 +692,193 @@ void TestShadowGeometryClassificationAndMasks() {
           "instance casts-shadow flag was ignored");
 }
 
+void TestHudOverlayContract() {
+  using namespace RoR::Render;
+
+  // Disabled default: the canonical absent reference is the only valid
+  // disabled payload.
+  SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
+  Require(!descriptor.hud_overlay.enabled &&
+              ValidateSceneSnapshotDescriptor(descriptor).ok(),
+          "default-disabled HUD overlay was rejected");
+  descriptor.hud_overlay.material = Asset(RenderAssetKind::MATERIAL, 60U);
+  RequireInvalid(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+                 "disabled HUD overlay with a bound material was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.hud_overlay.enabled = true;
+  RequireInvalid(descriptor, ValidationCode::INVALID_ASSET_REFERENCE,
+                 "enabled HUD overlay without a material was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.hud_overlay.enabled = true;
+  descriptor.hud_overlay.material = Asset(RenderAssetKind::TEXTURE, 60U);
+  RequireInvalid(descriptor, ValidationCode::WRONG_ASSET_KIND,
+                 "texture asset was accepted as the HUD overlay material");
+
+  // Registry-resolved profile requirements. A minimal scene carries only the
+  // HUD reference so the walk exercises exactly the HUD resolution rules.
+  const RenderAssetReference hud_texture =
+      Asset(RenderAssetKind::TEXTURE, 70U);
+  const RenderAssetReference hud_sampler =
+      Asset(RenderAssetKind::SAMPLER, 71U);
+  const RenderAssetReference hud_material =
+      Asset(RenderAssetKind::MATERIAL, 72U);
+
+  TextureResourceDescriptor texture;
+  texture.debug_name = "HudTex";
+  texture.format = TextureResourceFormat::RGBA8_UNORM;
+  texture.color_space = TextureColorSpace::SRGB;
+  texture.width = 2U;
+  texture.height = 2U;
+  TextureMipLevelDescriptor mip;
+  mip.width = 2U;
+  mip.height = 2U;
+  mip.row_pitch_bytes = 8U;
+  mip.layer_pitch_bytes = 16U;
+  mip.bytes.assign(16U, 0x80U);
+  texture.mip_levels.push_back(mip);
+
+  SamplerResourceDescriptor sampler;
+  sampler.debug_name = "HudSampler";
+  sampler.mip_filter = SamplerFilter::NEAREST;
+  sampler.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.address_w = SamplerAddressMode::CLAMP_TO_EDGE;
+  sampler.maximum_lod = 0.0F;
+
+  MaterialDescriptor material;
+  material.debug_name = "HudMaterial";
+  material.model = MaterialModel::UNLIT;
+  material.blend_mode = MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER;
+  material.base_color_transfer =
+      BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+  material.depth_write = false;
+  material.base_color_texture.texture = hud_texture;
+  material.base_color_texture.sampler = hud_sampler;
+
+  const auto make_registry = [&](const MaterialDescriptor &hud_material_state,
+                                 const TextureResourceDescriptor
+                                     &hud_texture_state) {
+    auto registry = std::make_unique<RenderAssetRegistry>(31U);
+    RenderAssetDelta delta;
+    delta.registry_id = 31U;
+    delta.base_sequence = 0U;
+    delta.sequence = 1U;
+    delta.full_snapshot = true;
+    RenderAssetMutation texture_mutation;
+    texture_mutation.asset = hud_texture;
+    texture_mutation.payload = hud_texture_state;
+    delta.mutations.push_back(std::move(texture_mutation));
+    RenderAssetMutation sampler_mutation;
+    sampler_mutation.asset = hud_sampler;
+    sampler_mutation.payload = sampler;
+    delta.mutations.push_back(std::move(sampler_mutation));
+    RenderAssetMutation material_mutation;
+    material_mutation.asset = hud_material;
+    material_mutation.payload = hud_material_state;
+    delta.mutations.push_back(std::move(material_mutation));
+    Require(registry->Apply(delta).ok(),
+            "HUD overlay registry fixture could not be applied");
+    return registry;
+  };
+
+  SceneSnapshotDescriptor hud_scene;
+  hud_scene.snapshot_id = 1U;
+  hud_scene.asset_registry_id = 31U;
+  hud_scene.asset_sequence = 1U;
+  hud_scene.hud_overlay.enabled = true;
+  hud_scene.hud_overlay.material = hud_material;
+  Require(ValidateSceneSnapshotDescriptor(hud_scene).ok(),
+          "enabled HUD overlay scene fixture must be valid");
+
+  {
+    const auto registry = make_registry(material, texture);
+    Require(ValidateSceneSnapshotAssets(hud_scene, *registry).ok(),
+            "canonical HUD overlay material profile was rejected");
+  }
+  {
+    auto registry = std::make_unique<RenderAssetRegistry>(31U);
+    RenderAssetDelta delta;
+    delta.registry_id = 31U;
+    delta.base_sequence = 0U;
+    delta.sequence = 1U;
+    delta.full_snapshot = true;
+    Require(registry->Apply(delta).ok(),
+            "empty HUD registry fixture could not be applied");
+    const ValidationResult missing =
+        ValidateSceneSnapshotAssets(hud_scene, *registry);
+    Require(!missing && missing.code == ValidationCode::MISSING_REFERENCE,
+            "HUD overlay with a missing material was accepted");
+  }
+  {
+    MaterialDescriptor wrong_model = material;
+    wrong_model.model = MaterialModel::PBR_METALLIC_ROUGHNESS;
+    wrong_model.base_color_transfer =
+        BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER;
+    wrong_model.blend_mode = MaterialBlendMode::STRAIGHT_SOURCE_OVER;
+    const auto registry = make_registry(wrong_model, texture);
+    const ValidationResult rejected =
+        ValidateSceneSnapshotAssets(hud_scene, *registry);
+    Require(!rejected &&
+                rejected.code == ValidationCode::UNSUPPORTED_FEATURE,
+            "non-UNLIT HUD overlay material was accepted");
+  }
+  {
+    MaterialDescriptor wrong_blend = material;
+    wrong_blend.blend_mode = MaterialBlendMode::STRAIGHT_SOURCE_OVER;
+    const auto registry = make_registry(wrong_blend, texture);
+    const ValidationResult rejected =
+        ValidateSceneSnapshotAssets(hud_scene, *registry);
+    Require(!rejected &&
+                rejected.code == ValidationCode::UNSUPPORTED_FEATURE,
+            "non-premultiplied HUD overlay blend was accepted");
+  }
+  {
+    MaterialDescriptor depth_writer = material;
+    depth_writer.depth_write = true;
+    const auto registry = make_registry(depth_writer, texture);
+    const ValidationResult rejected =
+        ValidateSceneSnapshotAssets(hud_scene, *registry);
+    Require(!rejected &&
+                rejected.code == ValidationCode::UNSUPPORTED_FEATURE,
+            "depth-writing HUD overlay material was accepted");
+  }
+  {
+    TextureResourceDescriptor two_mips = texture;
+    TextureMipLevelDescriptor tail;
+    tail.width = 1U;
+    tail.height = 1U;
+    tail.row_pitch_bytes = 4U;
+    tail.layer_pitch_bytes = 4U;
+    tail.bytes.assign(4U, 0x80U);
+    two_mips.mip_levels.push_back(tail);
+    const auto registry = make_registry(material, two_mips);
+    const ValidationResult rejected =
+        ValidateSceneSnapshotAssets(hud_scene, *registry);
+    Require(!rejected &&
+                rejected.code == ValidationCode::VALUE_OUT_OF_RANGE,
+            "multi-mip HUD overlay texture was accepted");
+  }
+  {
+    MaterialDescriptor unbound = material;
+    unbound.base_color_texture = {};
+    const auto registry = make_registry(unbound, texture);
+    const ValidationResult rejected =
+        ValidateSceneSnapshotAssets(hud_scene, *registry);
+    Require(!rejected &&
+                rejected.code == ValidationCode::MISSING_REFERENCE,
+            "texture-free HUD overlay material was accepted");
+  }
+}
+
 void TestCanonicalLightingEnvironmentHash() {
   using namespace RoR::Render;
 
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
   const std::uint64_t baseline =
       ComputeSceneLightingEnvironmentHash(descriptor);
-  Require(baseline == 2591863498842240184ULL,
+  Require(baseline == 2759767521327219205ULL,
           "canonical lighting hash fixture drifted");
 
   SceneSnapshotDescriptor unrelated = descriptor;
@@ -705,6 +887,9 @@ void TestCanonicalLightingEnvironmentHash() {
   unrelated.simulation_time_seconds += 1.0;
   unrelated.mesh_instances.front().visibility_mask = 0x7FFFFFFFU;
   unrelated.particle_events.front().random_seed += 1U;
+  // The HUD overlay is deliberately not lighting state.
+  unrelated.hud_overlay.enabled = true;
+  unrelated.hud_overlay.material = Asset(RenderAssetKind::MATERIAL, 60U);
   Require(ComputeSceneLightingEnvironmentHash(unrelated) == baseline,
           "lighting digest included unrelated frame or geometry state");
 
@@ -762,6 +947,7 @@ int main() {
   TestPhotometricColorAndExposureContracts();
   TestAnalyticSunMembership();
   TestShadowGeometryClassificationAndMasks();
+  TestHudOverlayContract();
   TestCanonicalLightingEnvironmentHash();
   std::cout << "scene snapshot tests passed\n";
   return EXIT_SUCCESS;

@@ -72,7 +72,7 @@ struct RendererOgre14GameHostSessionResult final {
   RendererOgre14GameHostSessionStatus terminal_cause =
       RendererOgre14GameHostSessionStatus::FAILED_INTERNAL;
   Render::RenderTransportMessageKind kind =
-      Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
+      Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
   std::uint64_t forward_sequence = 0U;
   std::uint64_t reverse_sequence = 0U;
   std::uint64_t surface_revision = 0U;

@@ -104,6 +104,21 @@ void TestValidPbrAndUnlitMaterials() {
   descriptor.blend_mode = MaterialBlendMode::LEGACY_STRAIGHT_ALPHA;
   Require(ValidateMaterialDescriptor(descriptor).ok(),
           "valid unlit material was rejected");
+
+  Require(IsKnownMaterialBlendMode(
+              MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER),
+          "premultiplied source-over blend mode is not a known mode");
+  MaterialDescriptor hud;
+  hud.debug_name = "hud-overlay";
+  hud.model = MaterialModel::UNLIT;
+  hud.blend_mode = MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER;
+  hud.base_color_transfer =
+      BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+  hud.depth_write = false;
+  hud.base_color_texture.texture = Asset(RenderAssetKind::TEXTURE, 7U);
+  hud.base_color_texture.sampler = Asset(RenderAssetKind::SAMPLER, 8U);
+  Require(ValidateMaterialDescriptor(hud).ok(),
+          "premultiplied source-over HUD overlay material was rejected");
 }
 
 void TestInvalidVersionEnumsAndNames() {

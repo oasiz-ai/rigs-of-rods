@@ -131,9 +131,13 @@ of the contract.
 ## Cross-process scene, asset, and input transport
 
 `RenderTransportEnvelope` version 1 is the deterministic, fail-closed wire
-edge shared by isolated render processes. Message kind `1` carries one complete
-`SceneSnapshot` version 4 plus one `CameraViewRequest` under render-frame
-contract version 2. Message kind `7` carries `RenderAssetDelta` payload version
+edge shared by isolated render processes. Message kind `9` carries one complete
+`SceneSnapshot` version 6 plus one `CameraViewRequest` under render-frame
+contract version 2; the retired scene kinds `1` (schema v4) and `8` (schema v5)
+stay reserved so a stale peer's frames fail closed as unknown kinds. Version 6
+adds the optional transported menu/HUD overlay reference (an UNLIT
+display-domain material with the premultiplied source-over blend whose base
+texture carries the GUI readback). Message kind `7` carries `RenderAssetDelta` payload version
 2, whose material subframes are `MaterialDescriptor` version 4. Version 4 keeps
 blending and alpha testing independent, distinguishes true source-over from
 OGRE's legacy squared-alpha preset, and adds an explicit metallic-roughness or
@@ -173,7 +177,7 @@ The fixed 64-byte header is independent of host structure packing:
 | 0 | 8 | bytes | ASCII `RORSCN01` magic |
 | 8 | 2 | little-endian `u16` | transport version (`1`) |
 | 10 | 2 | little-endian `u16` | header size (`64`) |
-| 12 | 2 | little-endian `u16` | message kind (`1` scene, `2` reserved legacy assets, `3` input, `4` ACK, `5` control, `6` scene boundary, `7` assets v2/material v4) |
+| 12 | 2 | little-endian `u16` | message kind (`1`/`8` reserved legacy scenes, `2` reserved legacy assets, `3` input, `4` ACK, `5` control, `6` scene boundary, `7` assets v2/material v4, `9` scene v6) |
 | 14 | 2 | little-endian `u16` | reserved flags (`0`) |
 | 16 | 8 | little-endian `u64` | strictly ordered sequence |
 | 24 | 8 | little-endian `u64` | exact payload byte count |

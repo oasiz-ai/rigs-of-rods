@@ -338,7 +338,7 @@ struct OgreNextN1Configuration final {
 /// the versioned conditioning/storage bound and the corresponding public frame
 /// has been committed. Accepted native bits are authoritative.
 struct OgreNextHdrCompositorAudit final {
-  std::uint32_t version = 3U;
+  std::uint32_t version = 4U;
   OgreNextHdrSceneTopology scene_topology =
       OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
   bool enabled = false;
@@ -346,7 +346,11 @@ struct OgreNextHdrCompositorAudit final {
   bool deterministic_delta_bound = false;
   bool native_r16_history_validated = false;
   bool exact_current_to_old_copy_verified = false;
-  bool ui_free_workspace_verified = false;
+  /// Version 4: the production workspace terminates on the stock HdrRenderUi
+  /// node so the transported menu/HUD composites post-tonemap. This proves
+  /// the exact workspace closure including that UI node; the former
+  /// `ui_free_workspace_verified` flag is retired with the UI-free topology.
+  bool hud_workspace_verified = false;
   OgreNextHdrHistoryValidationMode history_validation_mode =
       OgreNextHdrHistoryValidationMode::NONE;
   std::uint32_t width = 0U;

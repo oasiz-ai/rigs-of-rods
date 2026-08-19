@@ -266,7 +266,7 @@ RendererFrontendTransportDispatcher::Dispatch(
     switch (frame.kind) {
     case RenderTransportMessageKind::RENDER_ASSET_DELTA_V2:
       return DispatchAsset(frame);
-    case RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2:
+    case RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2:
       return DispatchScene(frame, presentation_policy);
     case RenderTransportMessageKind::SCENE_GENERATION_BOUNDARY_V1:
       return DispatchSceneGenerationBoundary(frame);

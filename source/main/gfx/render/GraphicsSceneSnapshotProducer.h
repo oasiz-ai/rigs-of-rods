@@ -25,8 +25,19 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 5U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 6U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 6U;
+
+/// Reserved joined-graphics source identities for the producer-synthesized
+/// menu/HUD overlay assets ("RORHUD" + ordinal). Adapters must never mint
+/// these identities for ordinary scene content; a colliding frame fails
+/// closed as a duplicate source asset identity.
+constexpr std::uint64_t kGraphicsSceneHudOverlayTextureSourceAssetId =
+    UINT64_C(0x524F524855440001);
+constexpr std::uint64_t kGraphicsSceneHudOverlaySamplerSourceAssetId =
+    UINT64_C(0x524F524855440002);
+constexpr std::uint64_t kGraphicsSceneHudOverlayMaterialSourceAssetId =
+    UINT64_C(0x524F524855440003);
 
 /// Source identities belong to the joined graphics scene, not a renderer.
 /// Zero is the canonical absent identity. A nonzero identity is never reused
@@ -122,6 +133,22 @@ struct GraphicsSceneLightInput {
   std::uint32_t shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
 };
 
+/// One complete display-referred GUI overlay readback for this joined frame.
+/// Bytes are tight RGBA8 rows (row pitch = width * 4) of premultiplied
+/// source-over GUI pixels with union coverage in alpha, exactly as blitted
+/// from a zero-cleared overlay-only render target; they are never re-encoded.
+/// content_hash identifies the exact pixel content: an unchanged hash and
+/// extent must reuse the same immutable byte owner so no texture revision is
+/// consumed. The producer synthesizes the texture, sampler, and material
+/// assets under the reserved kGraphicsSceneHudOverlay* source identities and
+/// publishes descriptor.hud_overlay.
+struct GraphicsSceneHudOverlayInput {
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uint64_t content_hash = 0U;
+  std::shared_ptr<const std::vector<std::uint8_t>> rgba8_bytes;
+};
+
 /// The one renderer-neutral main camera in the first producer slice. Current
 /// matrices are unjittered and relative to the frame's absolute world origin;
 /// the producer owns previous matrices and origin rebasing.
@@ -164,6 +191,10 @@ struct GraphicsSceneFrameInput {
   /// source identities are resolved only after this frame's exact candidate
   /// asset catalog has been validated.
   std::optional<Ogre14JoinedParticleSourceFrame> continuous_particles;
+  /// Optional transported menu/HUD overlay readback. Present only when the
+  /// source captured GUI pixels for this joined boundary; asset revisions
+  /// advance only when content_hash (or the extent) changes.
+  std::optional<GraphicsSceneHudOverlayInput> hud_overlay;
   GraphicsSceneCameraInput camera;
 };
 

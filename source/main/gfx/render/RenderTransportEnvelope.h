@@ -36,7 +36,9 @@ enum class RenderTransportMessageKind : std::uint16_t {
   RENDER_BRIDGE_CONTROL_V1 = 5U,
   SCENE_GENERATION_BOUNDARY_V1 = 6U,
   RENDER_ASSET_DELTA_V2 = 7U,
-  SCENE_SNAPSHOT_V5_CAMERA_V2 = 8U,
+  // 8U carried the retired scene-snapshot v5 schema and stays reserved so a
+  // stale peer's v5 frames fail closed as UNKNOWN_MESSAGE_KIND.
+  SCENE_SNAPSHOT_V6_CAMERA_V2 = 9U,
 };
 
 enum class RenderTransportStatus : std::uint8_t {
@@ -92,7 +94,7 @@ struct RenderTransportEnvelopeEncodeResult {
 /// Borrowed view valid only while the input frame remains alive and unchanged.
 struct RenderTransportEnvelopeView {
   RenderTransportMessageKind kind =
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
   std::uint64_t sequence = 0U;
   const std::uint8_t *payload = nullptr;
   std::size_t payload_size = 0U;

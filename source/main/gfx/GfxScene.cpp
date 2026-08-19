@@ -2826,6 +2826,9 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
     m_ogre14_automatic_reflection_probe_state = {};
+    // The retained GUI readback belongs to the closing generation; the next
+    // map republishes only after a fresh overlay capture.
+    m_ogre14_hud_overlay_latest.reset();
     // The retained static scene belongs to the map generation that produced
     // it. A different map with the same object count would otherwise pass
     // every retention gate while carrying the previous map's meshes.
@@ -5250,6 +5253,11 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::LIGHTS);
         }
+
+        // The transported menu/HUD rides as an optional input; the producer
+        // owns its asset identities and revision policy, so an unchanged
+        // retained readback costs no asset delta.
+        candidate.frame.hud_overlay = m_ogre14_hud_overlay_latest;
 
         Render::Double3 automatic_probe_camera_position;
         if (CaptureOgre14MainCamera(

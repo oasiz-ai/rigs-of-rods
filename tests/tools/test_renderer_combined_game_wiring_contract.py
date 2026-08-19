@@ -45,7 +45,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
 
     def test_finder_launch_is_exact_cityworld_alexis_demo(self) -> None:
         start = self.main.index(
-            "// There is intentionally no transported menu/HUD"
+            "// The menu/HUD is transported as a GUI-RTT texture asset"
         )
         end = self.main.index("#else", start)
         block = self.main[start:end]
@@ -65,6 +65,28 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn("argc = 7;", block)
         self.assertIn("argv = renderer_combined_demo_arguments.data();", block)
         self.assertEqual(block.count("renderer_combined_demo_arguments ="), 1)
+
+    def test_hud_overlay_capture_rides_the_joined_scene_boundary(self) -> None:
+        # The transported menu/HUD is read back between UpdateScene (which
+        # builds the complete DearIMGUI frame) and the joined-scene post, so
+        # the readback rides the exact same joined boundary.
+        update = self.main.index(
+            "App::GetGfxScene()->UpdateScene(dt_sim); // Draws GUI as well"
+        )
+        capture = self.main.index(
+            "renderer_combined_hud_capture->CaptureIfDirty();", update
+        )
+        post = self.main.index(
+            "renderer_combined_session->PostUpdatedScene(", capture
+        )
+        self.assertLess(update, capture)
+        self.assertLess(capture, post)
+        self.assertIn(
+            "renderer_combined_hud_capture =\n"
+            "                    std::make_unique<Ogre14GuiOverlayCapture>();",
+            self.main,
+        )
+        self.assertIn("gfx/Ogre14GuiOverlayCapture.{h,cpp}", self.main_cmake)
 
     def test_native_showcase_options_are_private_and_precede_normal_cli(self) -> None:
         resolve = self.main.index(

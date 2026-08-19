@@ -47,6 +47,11 @@ enum class MaterialBlendMode : std::uint8_t {
   /// ONE_MINUS_SRC_ALPHA for both RGB and alpha. This intentionally preserves
   /// the legacy squared-alpha destination equation and is not source-over.
   LEGACY_STRAIGHT_ALPHA = 2,
+  /// Porter-Duff source-over for premultiplied source content: ONE /
+  /// ONE_MINUS_SRC_ALPHA for both RGB and alpha. Source RGB is already
+  /// multiplied by its coverage (e.g. a GUI render target accumulated over a
+  /// zero-cleared background), so no SRC_ALPHA factor is applied.
+  PREMULTIPLIED_SOURCE_OVER = 3,
 };
 
 enum class MaterialAlphaTestMode : std::uint8_t {
@@ -121,9 +126,12 @@ struct TextureBinding {
 ///   specular_factor. Roughness remains the explicit scalar
 ///   roughness_factor. Metallic state is never synthesized in this workflow;
 /// - alpha is base texture A times factor A times vertex-color A (white when
-///   absent) and is never premultiplied. STRAIGHT_SOURCE_OVER uses
-///   SRC_ALPHA/ONE_MINUS_SRC_ALPHA for RGB and ONE/ONE_MINUS_SRC_ALPHA for
-///   alpha; LEGACY_STRAIGHT_ALPHA uses SRC_ALPHA/ONE_MINUS_SRC_ALPHA for both;
+///   absent). STRAIGHT_SOURCE_OVER uses SRC_ALPHA/ONE_MINUS_SRC_ALPHA for RGB
+///   and ONE/ONE_MINUS_SRC_ALPHA for alpha; LEGACY_STRAIGHT_ALPHA uses
+///   SRC_ALPHA/ONE_MINUS_SRC_ALPHA for both. Sampled content is never
+///   premultiplied by the renderer; PREMULTIPLIED_SOURCE_OVER instead declares
+///   that the authored texel RGB already carries its coverage and blends
+///   ONE/ONE_MINUS_SRC_ALPHA on both channels;
 /// - alpha testing is independent of blending. GREATER rejects equality while
 ///   GREATER_EQUAL keeps equality; depth testing is always enabled with
 ///   LESS_EQUAL while depth_write is explicit. This represents blended cutout

@@ -1211,8 +1211,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.header)
         for token in (
-            "RoRHdrWorkspaceUiFreeV2",
+            "RoRHdrWorkspaceHudV1",
             "RoRHdrWorkspaceUiOverlayControlV3",
+            "CreateHudOverlayRuntime",
+            "CommitHudOverlay",
+            "DestroyHudOverlayRuntime",
+            "UnbindHudOverlayTextureBeforeAssetReplacement",
+            "RoRDisplayDomainUnlit_HudOverlayPanelV1",
+            "hud_workspace_verified",
+            "HUD overlay texture extent must equal the presented view extent",
             "PFG_RGBA16_FLOAT",
             "PFG_R16_FLOAT",
             "PFG_RGBA8_UNORM_SRGB",
@@ -1335,7 +1342,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.entry_cmake)
         self.assertIn("RunHdrCompositorProof", self.smoke)
-        self.assertIn("ror.ogre_next_hdr_compositor.v5", self.smoke)
+        self.assertIn("ror.ogre_next_hdr_compositor.v6", self.smoke)
         self.assertIn("ror.ogre_next_hdr_compositor_visual.v2", self.smoke)
         for token in (
             '\\"split_lighting\\"',
@@ -1376,7 +1383,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.hdr_topology_header)
         for token in (
-            "std::uint32_t version = 3U;",
+            "std::uint32_t version = 4U;",
             "OgreNextHdrSceneTopology scene_topology",
             "OgreNextHdrSceneTopology hdr_scene_topology",
             "pssm_finalized_with_populated_scene",
