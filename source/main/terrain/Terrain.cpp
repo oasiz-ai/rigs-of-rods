@@ -132,6 +132,18 @@ void PrepareCombinedRuntimeRoadMaterial(
         road_pass->getTextureUnitState(0);
     road_unit->setTexture(road_texture);
     road_unit->setHardwareGammaEnabled(true);
+    // Pin the complete canonical sampler. The first sampler setter detaches
+    // the unit from the mutable shared default onto a fresh local sampler,
+    // so the captured state stays independent of global filtering config.
+    // OGRE's sampler default keeps CMPF_GREATER_EQUAL even with comparison
+    // disabled; the translator requires always-pass for a base color.
+    road_unit->setTextureCompareEnabled(false);
+    road_unit->setTextureCompareFunction(Ogre::CMPF_ALWAYS_PASS);
+    road_unit->setTextureFiltering(
+        Ogre::FO_LINEAR, Ogre::FO_LINEAR, Ogre::FO_LINEAR);
+    road_unit->setTextureAnisotropy(1);
+    road_unit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_WRAP);
+    road_unit->setTextureMipmapBias(0.0f);
     road_pass->setAmbient(Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f));
     road_pass->setDiffuse(Ogre::ColourValue(1.0f, 1.0f, 1.0f, 1.0f));
     road_pass->setSpecular(Ogre::ColourValue(0.0f, 0.0f, 0.0f, 0.0f));
