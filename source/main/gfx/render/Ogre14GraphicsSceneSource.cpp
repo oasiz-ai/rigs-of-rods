@@ -3343,12 +3343,16 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
   const double daylight = daylight_linear * daylight_linear *
                           (3.0 - 2.0 * daylight_linear);
 
+  // Policy v2 halves the daylight gradient: with the v2 exposure
+  // compensation seating surfaces on the tonemap's linear section, the v1
+  // gradient rendered at 75-95% of the filmic white point and read as a
+  // blown white sky instead of a graded blue one.
   constexpr std::array<double, 3U> kNightZenith{{0.08, 0.10, 0.22}};
-  constexpr std::array<double, 3U> kDayZenith{{0.35, 0.65, 1.15}};
+  constexpr std::array<double, 3U> kDayZenith{{0.175, 0.325, 0.575}};
   constexpr std::array<double, 3U> kNightHorizon{{0.12, 0.10, 0.18}};
-  constexpr std::array<double, 3U> kDayHorizon{{1.10, 0.85, 0.65}};
-  constexpr std::array<double, 3U> kZenithSunScatter{{0.018, 0.040, 0.090}};
-  constexpr std::array<double, 3U> kHorizonSunScatter{{0.050, 0.065, 0.090}};
+  constexpr std::array<double, 3U> kDayHorizon{{0.55, 0.425, 0.325}};
+  constexpr std::array<double, 3U> kZenithSunScatter{{0.009, 0.020, 0.045}};
+  constexpr std::array<double, 3U> kHorizonSunScatter{{0.025, 0.0325, 0.045}};
   constexpr double kGroundAmbientScale = 0.15;
   constexpr double kSunDiskScale = 24.0;
 

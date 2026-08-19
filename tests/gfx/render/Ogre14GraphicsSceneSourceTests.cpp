@@ -624,12 +624,12 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
       {0.2F, 0.25F, 0.3F}, sun, environment);
   Require(result.ok() && environment.analytic_sky.enabled &&
               environment.analytic_sky.sun_light_id == sun.source_light_id &&
-              Near(environment.analytic_sky.zenith_radiance.x, 0.088F) &&
-              Near(environment.analytic_sky.zenith_radiance.y, 0.2025F) &&
-              Near(environment.analytic_sky.zenith_radiance.z, 0.435F) &&
-              Near(environment.analytic_sky.horizon_radiance.x, 0.27F) &&
-              Near(environment.analytic_sky.horizon_radiance.y, 0.2775F) &&
-              Near(environment.analytic_sky.horizon_radiance.z, 0.285F) &&
+              Near(environment.analytic_sky.zenith_radiance.x, 0.044F) &&
+              Near(environment.analytic_sky.zenith_radiance.y, 0.10125F) &&
+              Near(environment.analytic_sky.zenith_radiance.z, 0.2175F) &&
+              Near(environment.analytic_sky.horizon_radiance.x, 0.135F) &&
+              Near(environment.analytic_sky.horizon_radiance.y, 0.13875F) &&
+              Near(environment.analytic_sky.horizon_radiance.z, 0.1425F) &&
               Near(environment.analytic_sky.ground_radiance.x, 0.03F) &&
               Near(environment.analytic_sky.ground_radiance.y, 0.0375F) &&
               Near(environment.analytic_sky.ground_radiance.z, 0.045F) &&
@@ -647,18 +647,18 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
       {0.01F, 0.012F, 0.015F}, sun, environment);
   Require(result.ok() &&
               environment.analytic_sky.zenith_radiance ==
-                  Float3{0.022859251126646996F, 0.047378916293382645F,
-                         0.09662292897701263F} &&
+                  Float3{0.0114296256F, 0.0236894581F,
+                         0.0483114645F} &&
               environment.analytic_sky.horizon_radiance ==
-                  Float3{0.06477569788694382F, 0.07451573759317398F,
-                         0.08912292867898941F} &&
+                  Float3{0.0323878489F, 0.0372578688F,
+                         0.0445614643F} &&
               environment.analytic_sky.ground_radiance ==
                   Float3{0.001500000013038516F, 0.0017999999690800905F,
                          0.0022499999031424522F} &&
               environment.analytic_sky.sun_disk_radiance ==
                   Float3{25.812335968017578F, 23.74734878540039F,
                          21.166114807128906F},
-          "RT4 smoke sky no longer matches the exact policy-v1 report oracle");
+          "RT4 smoke sky no longer matches the exact policy-v2 report oracle");
 
   const SceneEnvironmentDescriptor accepted = environment;
   sun.type = LightType::POINT;
