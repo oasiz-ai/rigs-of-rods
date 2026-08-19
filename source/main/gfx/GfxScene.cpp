@@ -4159,6 +4159,49 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         census_material.base_color_factor.z));
                     ++census_logged;
                 }
+                // Texture-content census: a projected section carries a
+                // white factor, so a dark BOUND texture is the remaining
+                // way a legal admitted surface renders near black.
+                std::size_t texture_census_logged = 0U;
+                for (const Render::GraphicsSceneAssetInput& census_asset :
+                     static_assets)
+                {
+                    if (texture_census_logged >= 10U)
+                        break;
+                    if (census_asset.payload == nullptr ||
+                        !std::holds_alternative<
+                            Render::TextureResourceDescriptor>(
+                            *census_asset.payload))
+                        continue;
+                    const Render::TextureResourceDescriptor& census_texture =
+                        std::get<Render::TextureResourceDescriptor>(
+                            *census_asset.payload);
+                    if (census_texture.mip_levels.empty())
+                        continue;
+                    const std::vector<std::uint8_t>& census_bytes =
+                        census_texture.mip_levels.front().bytes;
+                    std::uint64_t census_sum = 0U;
+                    std::size_t census_samples = 0U;
+                    for (std::size_t index = 0U;
+                         index + 3U < census_bytes.size(); index += 4U)
+                    {
+                        census_sum += census_bytes[index];
+                        census_sum += census_bytes[index + 1U];
+                        census_sum += census_bytes[index + 2U];
+                        census_samples += 3U;
+                    }
+                    const std::uint64_t census_mean = census_samples == 0U
+                        ? 0U
+                        : census_sum / census_samples;
+                    if (census_mean > 48U)
+                        continue;
+                    LOG(fmt::format(
+                        "[RoR|SceneSource|TextureCensus] '{}' {}x{} "
+                        "rgb_mean={}",
+                        census_texture.debug_name, census_texture.width,
+                        census_texture.height, census_mean));
+                    ++texture_census_logged;
+                }
             }
             // Stash the retention refresh on the pending transaction. It is
             // applied only when this frame commits, so a capture a later
