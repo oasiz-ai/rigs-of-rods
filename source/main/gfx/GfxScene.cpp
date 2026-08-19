@@ -4014,6 +4014,36 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                             observation.native_capture);
                     if (!static_validation)
                         return static_validation;
+                    if (!observation.native_capture.textures.empty() &&
+                        !observation.native_capture.textures.front()
+                             .mip_levels.empty())
+                    {
+                        // Content probe: the readback bytes ship verbatim
+                        // into the closure. A decoded-on-readback sRGB
+                        // texture would arrive here linear and be decoded
+                        // again by the presenter, landing near black.
+                        const std::vector<std::uint8_t>& probe_bytes =
+                            observation.native_capture.textures.front()
+                                .mip_levels.front().bytes;
+                        std::uint64_t probe_sum = 0U;
+                        std::size_t probe_samples = 0U;
+                        for (std::size_t index = 0U;
+                             index + 3U < probe_bytes.size(); index += 4U)
+                        {
+                            probe_sum += probe_bytes[index];
+                            probe_sum += probe_bytes[index + 1U];
+                            probe_sum += probe_bytes[index + 2U];
+                            probe_samples += 3U;
+                        }
+                        LOG(fmt::format(
+                            "[RoR|SceneSource|RoadMaterial] observed "
+                            "texture '{}' mip0 rgb_mean={}",
+                            observation.native_capture.textures.front()
+                                .key.exact_name,
+                            probe_samples == 0U
+                                ? 0U
+                                : probe_sum / probe_samples));
+                    }
                     road_observations.push_back(std::move(observation));
                 }
                 Render::Ogre14LegacyPreparedMaterialFrame road_material_frame;
