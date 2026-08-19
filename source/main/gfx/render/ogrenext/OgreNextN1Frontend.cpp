@@ -7198,6 +7198,24 @@ public:
       native_interop.reset();
     }
     bool clean = production_output_handles.live_count() == 0U;
+    // Full GPU drain before any native teardown. Metal's in-flight frame
+    // semaphore is created at the dynamic buffer multiplier (3) and must be
+    // back at that value before ~MetalRenderSystem releases it, or
+    // libdispatch traps in _dispatch_semaphore_dispose. The documented full
+    // stall commits the tail command buffer and blocks until the device has
+    // retired every pending frame, which runs each frame's completion
+    // handler that re-signals the semaphore.
+    if (renderer != nullptr) {
+      try {
+        Ogre::VaoManager *const vao_manager = renderer->getVaoManager();
+        if (vao_manager != nullptr) {
+          vao_manager->waitForSpecificFrameToFinish(
+              vao_manager->getFrameCount());
+        }
+      } catch (...) {
+        clean = false;
+      }
+    }
     if (reflection_probe_runtime) {
       clean = reflection_probe_runtime->Shutdown() && clean;
       reflection_probe_runtime.reset();
