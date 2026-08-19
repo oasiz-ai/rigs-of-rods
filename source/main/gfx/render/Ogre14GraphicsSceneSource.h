@@ -827,8 +827,17 @@ constexpr std::uint32_t kOgre14LightCompatibilityCalibrationVersion = 1U;
 /// deliberately derives a bounded-shape modern sky from only the joined live
 /// ambient value and the exact captured main-light direction/chromaticity/
 /// power. Changing any coefficient is therefore a reviewed policy revision.
-constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 1U;
+constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 2U;
 constexpr float kOgre14ModernAnalyticSunAngularRadiusRadians = 0.00465047F;
+/// Policy v2: the pinned Ogre-Next HDR tonemap was reviewed against scenes
+/// several stops brighter than the native OGRE 14 lighting domain, so the
+/// whole joined scene rendered in the filmic toe - light albedos survived
+/// as dim gray while dark albedos (city asphalt) crushed to black. The
+/// analytic-sky environment declares the compensation that seats native
+/// mid-tones on the curve's linear section; the sky gradient then lands
+/// just below the filmic white point. This scales every surface equally
+/// and cannot change shadow-to-sunlit ratios.
+constexpr float kOgre14ModernAnalyticSkyExposureCompensationEv = 3.5F;
 
 enum class Ogre14GraphicsSceneLightKind : std::uint8_t {
   POINT = 0U,

@@ -3407,6 +3407,8 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
   sky.sun_angular_radius_radians =
       kOgre14ModernAnalyticSunAngularRadiusRadians;
   candidate.analytic_sky = sky;
+  candidate.exposure_compensation_ev =
+      kOgre14ModernAnalyticSkyExposureCompensationEv;
   environment = candidate;
   return ValidationResult::Success();
 }

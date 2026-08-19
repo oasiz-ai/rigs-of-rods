@@ -610,7 +610,7 @@ void TestConstantEnvironmentConversionIsExactAndTransactional() {
 
 void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
   using namespace RoR::Render;
-  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 1U);
+  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 2U);
   GraphicsSceneLightInput sun;
   sun.source_light_id = 0xA51U;
   sun.type = LightType::DIRECTIONAL;
@@ -635,8 +635,10 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
               Near(environment.analytic_sky.ground_radiance.z, 0.045F) &&
               Near(environment.analytic_sky.sun_disk_radiance.x, 24.0F) &&
               Near(environment.analytic_sky.sun_angular_radius_radians,
-                   kOgre14ModernAnalyticSunAngularRadiusRadians),
-          "policy-v1 daylight sky did not preserve its reviewed coefficients or live sun identity");
+                   kOgre14ModernAnalyticSunAngularRadiusRadians) &&
+              environment.exposure_compensation_ev ==
+                  kOgre14ModernAnalyticSkyExposureCompensationEv,
+          "policy-v2 daylight sky did not preserve its reviewed coefficients or live sun identity");
 
   Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
                                           sun.color_linear),
