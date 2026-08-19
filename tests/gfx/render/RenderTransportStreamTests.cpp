@@ -103,7 +103,7 @@ void TestStatusAndConfigurationContract() {
 
 void TestEveryTwoChunkBoundaryAndOwnership() {
   const std::vector<std::uint8_t> frame = MakeFrame(
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 9U, 257U);
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 9U, 257U);
   for (std::size_t split = 0U; split <= frame.size(); ++split) {
     RenderTransportStreamDecoder decoder(1024U);
     const auto first = decoder.Accept(frame.data(), split);
@@ -126,7 +126,7 @@ void TestEveryTwoChunkBoundaryAndOwnership() {
     const RenderTransportStreamFrameResult taken = decoder.TakeFrame();
     Require(taken.ok() && taken.kind ==
                               RenderTransportMessageKind::
-                                  SCENE_SNAPSHOT_V5_CAMERA_V2 &&
+                                  SCENE_SNAPSHOT_V6_CAMERA_V2 &&
                 taken.sequence == 9U && taken.bytes == frame &&
                 decoder.buffered_bytes() == 0U &&
                 decoder.expected_frame_bytes() == 0U &&
@@ -153,7 +153,7 @@ void TestCoalescingAndPendingBackpressure() {
   const std::vector<std::uint8_t> first = MakeFrame(
       RenderTransportMessageKind::RENDER_ASSET_DELTA_V2, 1U, 3U);
   const std::vector<std::uint8_t> second = MakeFrame(
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 2U, 7U);
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 2U, 7U);
   std::vector<std::uint8_t> joined = first;
   joined.insert(joined.end(), second.begin(), second.end());
 
@@ -202,7 +202,7 @@ void TestHeaderAndEnvelopeFailuresAreTerminal() {
   };
   for (const HeaderCase &test_case : cases) {
     std::vector<std::uint8_t> frame = MakeFrame(
-        RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 1U, 8U);
+        RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 1U, 8U);
     if (test_case.width == 2U) {
       WriteU16(frame, test_case.offset,
                static_cast<std::uint16_t>(test_case.value));
@@ -224,7 +224,7 @@ void TestHeaderAndEnvelopeFailuresAreTerminal() {
   }
 
   std::vector<std::uint8_t> bad_magic = MakeFrame(
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 1U, 8U);
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 1U, 8U);
   bad_magic[0U] ^= 0xffU;
   RenderTransportStreamDecoder magic_decoder(1024U);
   const auto magic = magic_decoder.Accept(bad_magic.data(), bad_magic.size());
@@ -233,7 +233,7 @@ void TestHeaderAndEnvelopeFailuresAreTerminal() {
           "invalid magic did not fail in the header");
 
   std::vector<std::uint8_t> oversized_scene = MakeFrame(
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 1U, 0U);
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 1U, 0U);
   WriteU64(oversized_scene, 24U,
            kRenderTransportStreamSceneMaximumPayloadBytes + 1U);
   RenderTransportStreamDecoder kind_limit_decoder(
@@ -279,7 +279,7 @@ void TestHeaderAndEnvelopeFailuresAreTerminal() {
 
 void TestCloseAndCallerErrors() {
   const std::vector<std::uint8_t> frame = MakeFrame(
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 7U, 32U);
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 7U, 32U);
   RenderTransportStreamDecoder decoder(1024U);
   const auto null_input = decoder.Accept(nullptr, 1U);
   Require(null_input.status ==
@@ -329,7 +329,7 @@ void TestCloseAndCallerErrors() {
 
 void TestZeroPayloadEnvelope() {
   const std::vector<std::uint8_t> frame = MakeFrame(
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2, 3U, 0U);
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2, 3U, 0U);
   RenderTransportStreamDecoder decoder(0U);
   const auto accepted = decoder.Accept(frame.data(), frame.size());
   Require(accepted.status == RenderTransportStreamStatus::FRAME_READY &&

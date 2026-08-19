@@ -56,4 +56,4 @@
   "|hdr_media_manifest=@ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_SHA256@" \
   "|hdr_temporal_contract=2" \
   "|hdr_history_validation=native_authoritative_conditioning_plus_one_r16_ulp_v2" \
-  "|hdr_workspace=RoRHdrWorkspaceUiFreeV2"
+  "|hdr_workspace=RoRHdrWorkspaceHudV1"

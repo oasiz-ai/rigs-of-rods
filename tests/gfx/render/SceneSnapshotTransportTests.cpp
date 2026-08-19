@@ -220,6 +220,9 @@ SceneSnapshotDescriptor MakeRichDescriptor() {
   particle.random_seed = 0xA55AU;
   descriptor.particle_events.push_back(particle);
 
+  descriptor.hud_overlay.enabled = true;
+  descriptor.hud_overlay.material = Asset(RenderAssetKind::MATERIAL, 6U, 7U);
+
   Require(ValidateSceneSnapshotDescriptor(descriptor).ok(),
           "rich scene fixture must be valid");
   return descriptor;
@@ -313,43 +316,43 @@ void TestGoldenMinimalFrame() {
       EncodeSceneSnapshotTransportFrame(1U, *snapshot, camera);
   Require(first.ok() && second.ok() && first.bytes == second.bytes,
           "identical inputs did not produce identical bytes");
-  Require(first.bytes.size() == 611U, "minimal frame size changed");
+  Require(first.bytes.size() == 637U, "minimal frame size changed");
   Require(std::equal(kSceneSnapshotTransportMagic.begin(),
                      kSceneSnapshotTransportMagic.end(), first.bytes.begin()),
           "wire magic changed");
   Require(ReadU16(first.bytes, 8U) == kSceneSnapshotTransportVersion &&
               ReadU16(first.bytes, 10U) ==
                   kSceneSnapshotTransportHeaderBytes &&
-              ReadU16(first.bytes, 12U) == 8U &&
+              ReadU16(first.bytes, 12U) == 9U &&
               ReadU16(first.bytes, 14U) == 0U &&
               ReadU64(first.bytes, 16U) == 1U &&
-              ReadU64(first.bytes, 24U) == 547U,
+              ReadU64(first.bytes, 24U) == 573U,
           "fixed little-endian frame header changed");
 
   // Filled from the independently exercised encoder only after the structural
   // assertions above pass. This exact fixture pins every byte, including the
   // SHA-256 field, binary floating-point encoding, and reserved zero bytes.
   static const std::string kGoldenHex =
-      "524f5253434e3031010040000800000001000000000000002302000000000000"
-      "258223e1c0b8fe67e43779b130b47db71828633cbbe9a9c40235712fbe7bbe8a"
-      "0100000005000000020000000000000001000000000000000200000000000000"
+      "524f5253434e3031010040000900000001000000000000003d02000000000000"
+      "2faf6af1b2169c472438361a65f2488a02f9ecb630d4bdf7901dc05e756ac87b"
+      "0100000006000000020000000000000001000000000000000200000000000000"
       "03000000000000000400000000000000000000000000e03f0000000000002440"
       "00000000000034400000000000003e408fc2f53c8fc2f53c8fc2f53c00000000"
       "0000000000000000000000000000000000000000000000000000000000000000"
       "00000000000000000000000000000000803f0000000000000000000000000000"
       "0000000000000000000000000000000000000000000000000000000000000000"
       "0000000000000000000000000000000000000000000000000000000000000000"
-      "0000000000000000000000000000000000000000000000000000000900000000"
-      "00000080070000380400000000803f0000000000000000000000000000000000"
-      "00803f000000000000000000000000000000000000803f000000000000204000"
-      "0040c0000000000000803f0000803f0000000000000000000000000000000000"
-      "00803f00000000000000000000000000000000540080bf000080bf0000000000"
-      "00000053cdccbd000000000000803f0000000000000000000000000000000000"
-      "00803f000000000000000000000000000000000000803f000000000000104000"
-      "0040c0000000000000803f0000803f0000000000000000000000000000000000"
-      "00803f00000000000000000000000000000000540080bf000080bf0000000000"
-      "00000053cdccbd000000000000803e000000becdcccc3d00401c460000c03fff"
-      "ffff00";
+      "0000000000000000000000000000000000000000000000000000000000000000"
+      "0000000000000000000000000000000000000000000900000000000000800700"
+      "00380400000000803f000000000000000000000000000000000000803f000000"
+      "000000000000000000000000000000803f0000000000002040000040c0000000"
+      "000000803f0000803f000000000000000000000000000000000000803f000000"
+      "00000000000000000000000000540080bf000080bf000000000000000053cdcc"
+      "bd000000000000803f000000000000000000000000000000000000803f000000"
+      "000000000000000000000000000000803f0000000000001040000040c0000000"
+      "000000803f0000803f000000000000000000000000000000000000803f000000"
+      "00000000000000000000000000540080bf000080bf000000000000000053cdcc"
+      "bd000000000000803e000000becdcccc3d00401c460000c03fffffff00";
   const std::string actual_hex = ToHex(first.bytes);
   Require(actual_hex == kGoldenHex,
           "minimal frame no longer matches the v1 golden bytes");
@@ -374,7 +377,7 @@ void TestRichRoundTripAndSignedZeroNormalization() {
   Require(decoded.ok() && decoded.message->sequence() == 44U,
           "rich frame was not decoded");
   Require(decoded.message->kind() ==
-              SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2,
+              SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2,
           "decoded message kind changed");
   const SceneSnapshot &scene = *decoded.message->scene_snapshot();
   Require(scene.version() == kSceneSnapshotVersion &&
@@ -386,7 +389,7 @@ void TestRichRoundTripAndSignedZeroNormalization() {
               scene.reflection_probes().size() == 1U &&
               scene.dynamic_mesh_updates().size() == 1U &&
               scene.particle_events().size() == 1U,
-          "one or more v5 scene collections did not round-trip");
+          "one or more v6 scene collections did not round-trip");
   Require(scene.environment().analytic_sky.enabled &&
               scene.environment().environment_texture.revision == 2U &&
               scene.mesh_instances().front().deformation_revision == 9U &&
@@ -395,12 +398,16 @@ void TestRichRoundTripAndSignedZeroNormalization() {
                   120U &&
               scene.dynamic_mesh_updates().front().tangents.size() == 2U &&
               scene.particle_events().front().random_seed == 0xA55AU,
-          "representative v5 scene payload fields did not round-trip");
+          "representative v6 scene payload fields did not round-trip");
   Require(scene.environment().analytic_sky.cloud_coverage == 0.45F &&
               scene.environment().analytic_sky.cloud_radiance ==
                   Float3{0.1675F, 0.169375F, 0.17125F} &&
               scene.environment().analytic_sky.cloud_phase_radians == 0.4F,
-          "v5 analytic-sky cloud fields did not round-trip");
+          "v6 analytic-sky cloud fields did not round-trip");
+  Require(scene.hud_overlay().enabled &&
+              scene.hud_overlay().material ==
+                  Asset(RenderAssetKind::MATERIAL, 6U, 7U),
+          "v6 HUD overlay reference did not round-trip");
   Require(decoded.message->camera() == camera,
           "camera contract did not round-trip semantically");
 
@@ -475,6 +482,18 @@ void TestFramingAndPayloadRejections() {
   RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
                 SceneSnapshotTransportStatus::UNKNOWN_MESSAGE_KIND,
                 "unknown message kind was accepted");
+  // Kinds 1 (scene v4) and 8 (scene v5) are permanently reserved: a stale
+  // peer's frames must fail closed instead of decoding as the current schema.
+  frame = encoded.bytes;
+  WriteU16(frame, 12U, 1U);
+  RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
+                SceneSnapshotTransportStatus::UNKNOWN_MESSAGE_KIND,
+                "retired v4 message kind was accepted");
+  frame = encoded.bytes;
+  WriteU16(frame, 12U, 8U);
+  RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
+                SceneSnapshotTransportStatus::UNKNOWN_MESSAGE_KIND,
+                "retired v5 message kind was accepted");
   frame = encoded.bytes;
   WriteU64(frame, 16U, 0U);
   RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
@@ -539,6 +558,16 @@ void TestFramingAndPayloadRejections() {
   RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
                 SceneSnapshotTransportStatus::COUNT_LIMIT_EXCEEDED,
                 "malicious mesh count reached allocation");
+
+  // The minimal frame carries empty mesh/light/probe collections, so its HUD
+  // flag byte sits at 231 + 3*4 = 243. Enabling it while the material stays
+  // canonical absent must fail semantic validation.
+  frame = encoded.bytes;
+  frame[kSceneSnapshotTransportHeaderBytes + 243U] = 1U;
+  RefreshPayloadDigest(frame);
+  RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
+                SceneSnapshotTransportStatus::PAYLOAD_VALIDATION_FAILED,
+                "enabled HUD overlay without a material was accepted");
 }
 
 void TestTransactionalSequenceLineage() {

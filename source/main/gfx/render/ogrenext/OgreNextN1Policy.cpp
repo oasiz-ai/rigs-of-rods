@@ -146,6 +146,46 @@ ValidationResult ValidateDisplayDomainTexturePolicy(
   return ValidationResult::Success();
 }
 
+ValidationResult ValidateHudOverlayDisplayDomainTexturePolicy(
+    const TextureResourceDescriptor &texture,
+    const SamplerResourceDescriptor &sampler, std::size_t index) {
+  if (texture.type != TextureResourceType::TEXTURE_2D ||
+      texture.array_layers != 1U ||
+      texture.format != TextureResourceFormat::RGBA8_UNORM ||
+      texture.color_space != TextureColorSpace::SRGB) {
+    return Unsupported(
+        "assets.material.base_color_texture",
+        "RT4/V1 HUD overlay requires one non-array RGBA8 sRGB-authored texture uploaded without hardware sRGB decode",
+        index);
+  }
+  if (texture.mip_levels.size() != 1U) {
+    return Unsupported(
+        "assets.material.base_color_texture.mip_levels",
+        "RT4/V1 HUD overlay requires exactly one authored mip level",
+        index);
+  }
+  // Coverage alpha is the whole point of the HUD texture, so the opaque
+  // alpha-255 rule of the scene display-domain profile deliberately does not
+  // apply here.
+  if (sampler.minification_filter != SamplerFilter::LINEAR ||
+      sampler.magnification_filter != SamplerFilter::LINEAR ||
+      sampler.mip_filter != SamplerFilter::NEAREST ||
+      sampler.address_u != SamplerAddressMode::CLAMP_TO_EDGE ||
+      sampler.address_v != SamplerAddressMode::CLAMP_TO_EDGE ||
+      sampler.address_w != SamplerAddressMode::CLAMP_TO_EDGE ||
+      sampler.mip_lod_bias != 0.0F || sampler.minimum_lod != 0.0F ||
+      sampler.maximum_lod != 0.0F || sampler.anisotropy_enabled ||
+      sampler.maximum_anisotropy != 1.0F || sampler.compare_enabled ||
+      sampler.compare_operation != SamplerCompareOperation::ALWAYS ||
+      sampler.border_color != Float4{}) {
+    return Unsupported(
+        "assets.material.base_color_texture.sampler",
+        "RT4/V1 HUD overlay requires linear min/mag, nearest mip selection, clamp-to-edge, the exact single-mip LOD range, and canonical non-anisotropic non-comparison state",
+        index);
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateCanonicalPositiveZNormalTexture(
     const TextureResourceDescriptor &texture, std::size_t index) {
   if (texture.color_space != TextureColorSpace::LINEAR) {
@@ -361,12 +401,21 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
       material.base_color_transfer ==
           BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
   if (display_domain_unlit) {
+    // Two exact display-domain Unlit profiles exist: the opaque scene profile
+    // (replace blend, depth writes; e.g. the authenticated terrain composite)
+    // and the HUD overlay profile (premultiplied source-over coverage, no
+    // depth writes; composited post-tonemap by the HDR UI node).
+    const bool opaque_scene_profile =
+        material.blend_mode == MaterialBlendMode::REPLACE &&
+        material.depth_write;
+    const bool hud_overlay_profile =
+        material.blend_mode == MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER &&
+        !material.depth_write;
     if (raster_feature_tier !=
             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 ||
-        material.blend_mode != MaterialBlendMode::REPLACE ||
+        (!opaque_scene_profile && !hud_overlay_profile) ||
         material.alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
         material.double_sided ||
-        !material.depth_write ||
         material.base_color_factor != Float4{1.0F, 1.0F, 1.0F, 1.0F} ||
         !material.base_color_texture.texture.valid() ||
         !material.base_color_texture.sampler.valid() ||
@@ -388,7 +437,7 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
         material.index_of_refraction != 1.5F) {
       return Unsupported(
           "assets.material",
-          "RT4/V1 display-domain Unlit admits exactly one opaque UV0 base texture with white modulation and canonical unused fields",
+          "RT4/V1 display-domain Unlit admits exactly the opaque scene profile or the premultiplied HUD overlay profile: one UV0 base texture with white modulation and canonical unused fields",
           index);
     }
     return ValidationResult::Success();
@@ -399,6 +448,12 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
     return Unsupported(
         "assets.material.model",
         "N1 accepts conventional PBR with an explicit metallic-roughness or specular workflow, or the exact RT4/V1 display-domain Unlit profile",
+        index);
+  }
+  if (material.blend_mode == MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER) {
+    return Unsupported(
+        "assets.material.blend_mode",
+        "N1 admits premultiplied source-over only through the display-domain HUD overlay profile",
         index);
   }
   const bool thin_slab_transmission =
@@ -1379,7 +1434,11 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
                 record_index);
           }
           const ValidationResult display_domain_validation =
-              ValidateDisplayDomainTexturePolicy(*texture, *sampler,
+              material->blend_mode ==
+                      MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER
+                  ? ValidateHudOverlayDisplayDomainTexturePolicy(
+                        *texture, *sampler, record_index)
+                  : ValidateDisplayDomainTexturePolicy(*texture, *sampler,
                                                        record_index);
           if (!display_domain_validation) {
             return display_domain_validation;

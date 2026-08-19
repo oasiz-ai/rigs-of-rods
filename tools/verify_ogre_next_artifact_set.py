@@ -1164,7 +1164,7 @@ def _read_build_contract(
         "hdr_history_validation_mode": (
             "native_authoritative_conditioning_plus_one_r16_ulp_v2"
         ),
-        "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+        "hdr_workspace": "RoRHdrWorkspaceHudV1",
         "hdr_visual_evidence_version": 1,
         "headless_child_bootstrap": True,
         "headless_child_output_name": "RoR-OgreNext",
@@ -1403,7 +1403,7 @@ def _expected_rt4_build_identity(
         + "|hdr_temporal_contract=2"
         + "|hdr_history_validation="
         + "native_authoritative_conditioning_plus_one_r16_ulp_v2"
-        + "|hdr_workspace=RoRHdrWorkspaceUiFreeV2"
+        + "|hdr_workspace=RoRHdrWorkspaceHudV1"
     )
 
 
@@ -2142,7 +2142,7 @@ def _verify_hdr_compositor(value: object) -> None:
             "history_format",
             "output_format",
             "ui_included",
-            "ui_free_workspace_verified",
+            "hud_workspace_verified",
             "deterministic_simulation_delta",
             "history_validation_mode",
             "native_r16_history_validated",
@@ -2222,14 +2222,14 @@ def _verify_hdr_compositor(value: object) -> None:
     oracle = _recompute_hdr_history_oracle(compositor)
     checks = {
         "schema": compositor.get("schema")
-        == "ror.ogre_next_hdr_compositor.v5",
-        "workspace": compositor.get("workspace") == "RoRHdrWorkspaceUiFreeV2",
+        == "ror.ogre_next_hdr_compositor.v6",
+        "workspace": compositor.get("workspace") == "RoRHdrWorkspaceHudV1",
         "persistence": compositor.get("persistent_workspace") is True,
         "formats": compositor.get("scene_format") == "RGBA16_FLOAT"
         and compositor.get("history_format") == "R16_FLOAT"
         and compositor.get("output_format") == "RGBA8_SRGB",
-        "ui_free": compositor.get("ui_included") is False
-        and compositor.get("ui_free_workspace_verified") is True,
+        "hud_ui": compositor.get("ui_included") is True
+        and compositor.get("hud_workspace_verified") is True,
         "deterministic_delta": compositor.get(
             "deterministic_simulation_delta"
         )

@@ -1713,6 +1713,113 @@ void TestDisplayDomainUnlitPolicy() {
           "display-domain Unlit instance was allowed to receive shadows");
 }
 
+RenderAssetDelta MakeHudOverlayCatalogDelta(std::uint64_t registry_id) {
+  // The HUD overlay profile: premultiplied source-over coverage without depth
+  // writes over one single-mip texture with meaningful alpha and the exact
+  // single-mip LOD range.
+  RenderAssetDelta delta = MakeDisplayDomainUnlitCatalogDelta(registry_id);
+  MaterialDescriptor &material =
+      std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+  material.debug_name = "RT4/V1 HUD overlay Unlit";
+  material.blend_mode = MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER;
+  material.depth_write = false;
+  TextureResourceDescriptor &texture =
+      std::get<TextureResourceDescriptor>(delta.mutations[2U].payload);
+  texture.debug_name = "RT4/V1 HUD overlay readback";
+  texture.mip_levels.pop_back();
+  texture.mip_levels.front().bytes = {0U,  32U, 64U, 0U,   255U, 96U,
+                                      64U, 40U, 0U,  160U, 192U, 255U,
+                                      255U, 224U, 192U, 128U};
+  SamplerResourceDescriptor &sampler =
+      std::get<SamplerResourceDescriptor>(delta.mutations[3U].payload);
+  sampler.debug_name = "RT4/V1 HUD overlay sampler";
+  sampler.maximum_lod = 0.0F;
+  return delta;
+}
+
+void TestHudOverlayMaterialPolicy() {
+  constexpr std::uint64_t kRegistryId = 640U;
+  constexpr OgreNextRasterFeatureTier kModern =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+  const auto validate_catalog = [&](RenderAssetDelta delta) {
+    RenderAssetRegistry candidate(delta.registry_id);
+    Require(candidate.Apply(delta).ok(),
+            "HUD overlay mutation is not structurally valid");
+    return ValidateOgreNextN1AssetCatalog(candidate, false, kModern);
+  };
+
+  RenderAssetRegistry registry(kRegistryId);
+  Require(registry.Apply(MakeHudOverlayCatalogDelta(kRegistryId)).ok(),
+          "HUD overlay catalog could not be constructed");
+  Require(ValidateOgreNextN1AssetCatalog(registry, false, kModern).ok(),
+          "exact HUD overlay profile was rejected");
+  Require(ValidateOgreNextN1AssetCatalog(registry).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "legacy N1 silently admitted the HUD overlay profile");
+
+  // Cross-profile leakage: the premultiplied blend requires no depth writes,
+  // and the opaque profile requires them.
+  RenderAssetDelta depth_writer = MakeHudOverlayCatalogDelta(kRegistryId + 1U);
+  std::get<MaterialDescriptor>(depth_writer.mutations[1U].payload)
+      .depth_write = true;
+  Require(validate_catalog(std::move(depth_writer)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "HUD overlay accepted depth writes");
+  RenderAssetDelta replace_blend = MakeHudOverlayCatalogDelta(kRegistryId + 2U);
+  std::get<MaterialDescriptor>(replace_blend.mutations[1U].payload)
+      .blend_mode = MaterialBlendMode::REPLACE;
+  Require(validate_catalog(std::move(replace_blend)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "the opaque profile accepted the HUD depth/mip state");
+  RenderAssetDelta straight_blend =
+      MakeHudOverlayCatalogDelta(kRegistryId + 3U);
+  std::get<MaterialDescriptor>(straight_blend.mutations[1U].payload)
+      .blend_mode = MaterialBlendMode::STRAIGHT_SOURCE_OVER;
+  Require(validate_catalog(std::move(straight_blend)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "HUD overlay accepted straight source-over");
+
+  // The HUD texture must stay exactly one mip with the matching LOD range.
+  RenderAssetDelta two_mips = MakeHudOverlayCatalogDelta(kRegistryId + 4U);
+  {
+    TextureResourceDescriptor &texture =
+        std::get<TextureResourceDescriptor>(two_mips.mutations[2U].payload);
+    TextureMipLevelDescriptor tail;
+    tail.width = 1U;
+    tail.height = 1U;
+    tail.row_pitch_bytes = 4U;
+    tail.layer_pitch_bytes = 4U;
+    tail.bytes = {1U, 2U, 3U, 4U};
+    texture.mip_levels.push_back(std::move(tail));
+    std::get<SamplerResourceDescriptor>(two_mips.mutations[3U].payload)
+        .maximum_lod = 1.0F;
+  }
+  Require(validate_catalog(std::move(two_mips)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "HUD overlay accepted a multi-mip texture");
+  RenderAssetDelta wrong_lod = MakeHudOverlayCatalogDelta(kRegistryId + 5U);
+  std::get<SamplerResourceDescriptor>(wrong_lod.mutations[3U].payload)
+      .maximum_lod = 1.0F;
+  Require(validate_catalog(std::move(wrong_lod)).code ==
+              ValidationCode::UNSUPPORTED_FEATURE,
+          "HUD overlay accepted a mismatched maximum LOD");
+
+  // Premultiplied source-over never leaks into the conventional PBR path.
+  RenderAssetDelta pbr_premultiplied =
+      MakeModernCatalogDelta(kRegistryId + 6U);
+  {
+    MaterialDescriptor &material =
+        std::get<MaterialDescriptor>(pbr_premultiplied.mutations[1U].payload);
+    material.blend_mode = MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER;
+    material.depth_write = false;
+  }
+  const ValidationResult pbr_rejected =
+      validate_catalog(std::move(pbr_premultiplied));
+  Require(pbr_rejected.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              pbr_rejected.field == "assets.material.blend_mode",
+          "conventional PBR accepted premultiplied source-over");
+}
+
 void TestFrameAndScenePolicy() {
   constexpr std::uint64_t kRegistryId = 72U;
   RenderAssetRegistry registry(kRegistryId);
@@ -2164,6 +2271,7 @@ int main() {
   TestAssetPolicy();
   TestModernPbrAssetPolicy();
   TestDisplayDomainUnlitPolicy();
+  TestHudOverlayMaterialPolicy();
   TestAnalyticSkyNativeMeshIsCameraLocalAndTransactional();
   TestAnalyticSkyCloudLayerIsDeterministicAndHorizonExact();
   TestFrameAndScenePolicy();

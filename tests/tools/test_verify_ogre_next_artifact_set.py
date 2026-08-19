@@ -207,7 +207,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "hdr_history_validation_mode": (
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"
                 ),
-                "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+                "hdr_workspace": "RoRHdrWorkspaceHudV1",
                 "hdr_visual_evidence_version": 1,
                 "headless_child_bootstrap": True,
                 "headless_child_output_name": "RoR-OgreNext",
@@ -1444,14 +1444,14 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 VERIFY.RT4_EXPECTED_TEXTURE_UPLOAD_ROLLBACK
             ),
             "hdr_compositor": {
-                "schema": "ror.ogre_next_hdr_compositor.v5",
-                "workspace": "RoRHdrWorkspaceUiFreeV2",
+                "schema": "ror.ogre_next_hdr_compositor.v6",
+                "workspace": "RoRHdrWorkspaceHudV1",
                 "persistent_workspace": True,
                 "scene_format": "RGBA16_FLOAT",
                 "history_format": "R16_FLOAT",
                 "output_format": "RGBA8_SRGB",
-                "ui_included": False,
-                "ui_free_workspace_verified": True,
+                "ui_included": True,
+                "hud_workspace_verified": True,
                 "deterministic_simulation_delta": True,
                 "history_validation_mode": (
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"

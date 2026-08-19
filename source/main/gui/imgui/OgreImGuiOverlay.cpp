@@ -66,8 +66,16 @@ void ImGuiOverlay::ImGUIRenderable::createMaterial()
     mPass->setVertexColourTracking(TVC_DIFFUSE);
     mPass->setSceneBlending(SBT_TRANSPARENT_ALPHA);
     mPass->setSeparateSceneBlendingOperation(SBO_ADD, SBO_ADD);
+    // Straight source-over with coverage-union destination alpha
+    // (dstA' = srcA + dstA*(1-srcA)). The historical
+    // (ONE_MINUS_SRC_ALPHA, ZERO) alpha factors wrote a useless
+    // srcA-srcA^2 destination alpha; invisible on-screen (window alpha is
+    // ignored) but wrong for the transported HUD render target, which must
+    // accumulate the exact premultiplied source-over composite over its
+    // (0,0,0,0) clear so the presenter can composite it with
+    // (ONE, ONE_MINUS_SRC_ALPHA).
     mPass->setSeparateSceneBlending(SBF_SOURCE_ALPHA, SBF_ONE_MINUS_SOURCE_ALPHA,
-                                    SBF_ONE_MINUS_SOURCE_ALPHA, SBF_ZERO);
+                                    SBF_ONE, SBF_ONE_MINUS_SOURCE_ALPHA);
 
     TextureUnitState* mTexUnit = mPass->createTextureUnitState();
     mTexUnit->setTexture(mFontTex);

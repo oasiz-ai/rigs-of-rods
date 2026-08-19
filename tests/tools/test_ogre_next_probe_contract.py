@@ -627,7 +627,7 @@ class OgreNextProbeContractTests(unittest.TestCase):
                 "hdr_history_validation_mode": (
                     "native_authoritative_conditioning_plus_one_r16_ulp_v2"
                 ),
-                "hdr_workspace": "RoRHdrWorkspaceUiFreeV2",
+                "hdr_workspace": "RoRHdrWorkspaceHudV1",
                 "hdr_visual_evidence_version": 1,
             }
         )

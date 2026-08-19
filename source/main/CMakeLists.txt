@@ -35,6 +35,7 @@ set(SOURCE_FILES
         gfx/GfxActor.{h,cpp}
         gfx/GfxData.{h,cpp}
         gfx/GfxScene.{h,cpp}
+        gfx/Ogre14GuiOverlayCapture.{h,cpp}
         gfx/GfxActorCaptureInventory.h
         gfx/PostProcessPolicy.{h,cpp}
         gfx/PostProcessRuntime.{h,cpp}

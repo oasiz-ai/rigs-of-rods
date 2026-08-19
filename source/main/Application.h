@@ -848,6 +848,7 @@ extern CVar* gfx_fov_internal_default;
 extern CVar* gfx_static_cam_fov_exp;
 extern CVar* gfx_fixed_cam_tracking;
 extern CVar* gfx_fps_limit;
+extern CVar* gfx_hud_capture_rate_hz; //!< Combined runtime: transported menu/HUD readback rate cap; <= 0 disables the capture.
 extern CVar* gfx_speedo_imperial;
 extern CVar* gfx_flexbody_cache;
 extern CVar* gfx_reduce_shadows;

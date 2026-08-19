@@ -118,6 +118,13 @@ public:
         Render::Ogre14GraphicsSceneCapture& capture) override;
     void CommitOgre14GraphicsSceneCapture() noexcept override;
     void DiscardOgre14GraphicsSceneCapture() noexcept override;
+    /// Publishes the latest overlay-only GUI readback (see
+    /// Ogre14GuiOverlayCapture). The retained input rides every subsequent
+    /// joined capture as the optional HUD overlay; an unchanged content hash
+    /// reuses the immutable byte owner so no asset revision advances.
+    void SetOgre14HudOverlayReadback(
+        Render::GraphicsSceneHudOverlayInput readback) noexcept
+        { m_ogre14_hud_overlay_latest = std::move(readback); }
     GameContextSB&     GetSimDataBuffer() { return m_simbuf; }
     GfxEnvmap&     GetEnvMap() { return m_envmap; }
     RoR::SkidmarkConfig* GetSkidmarkConf () { return &m_skidmark_conf; }
@@ -268,6 +275,11 @@ private:
                                        m_ogre14_dynamic_mesh_cache;
     Render::Ogre14AutomaticReflectionProbeState
                                        m_ogre14_automatic_reflection_probe_state;
+    // Latest overlay-only GUI readback for the transported menu/HUD. Reset at
+    // the scene-generation boundary so a new map never republishes stale GUI
+    // pixels before the first fresh capture.
+    std::optional<Render::GraphicsSceneHudOverlayInput>
+                                       m_ogre14_hud_overlay_latest;
     struct Ogre14DustParticleIdentity
     {
         std::uint64_t particle_id = 0U;

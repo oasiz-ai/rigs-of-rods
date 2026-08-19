@@ -360,6 +360,7 @@ void Console::cVarSetupBuiltins()
     App::gfx_static_cam_fov_exp  = this->cVarCreate("gfx_static_cam_fov_exp",  "",                           CVAR_ARCHIVE | CVAR_TYPE_FLOAT,   "1.0");
     App::gfx_fixed_cam_tracking  = this->cVarCreate("gfx_fixed_cam_tracking",  "",                           CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
     App::gfx_fps_limit           = this->cVarCreate("gfx_fps_limit",           "FPS-Limiter",                CVAR_ARCHIVE | CVAR_TYPE_INT,     "0");
+    App::gfx_hud_capture_rate_hz = this->cVarCreate("gfx_hud_capture_rate_hz", "HUD capture rate (Hz)",      CVAR_ARCHIVE | CVAR_TYPE_INT,     "30");
     App::gfx_speedo_imperial     = this->cVarCreate("gfx_speedo_imperial",     "gfx_speedo_imperial",        CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
     App::gfx_flexbody_cache      = this->cVarCreate("gfx_flexbody_cache",      "Flexbody_UseCache",          CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
     App::gfx_reduce_shadows      = this->cVarCreate("gfx_reduce_shadows",      "Shadow optimizations",       CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "true");

@@ -67,6 +67,14 @@ public:
     virtual void renderQueueStarted(Ogre::uint8 queueGroupId,
         const Ogre::String& invocation, bool& skipThisInvocation) override;
 
+    /// Registers the one render-to-texture viewport allowed to render the
+    /// DearIMGUI overlay (the transported menu/HUD capture target). Every
+    /// other RTT keeps the historical refusal so worldmodel and reflection
+    /// captures stay GUI-free. Pass nullptr to unregister.
+    void SetHudCaptureViewport(Ogre::Viewport* viewport)
+        { m_hud_capture_viewport = viewport; }
+
 private:
     std::unique_ptr<Ogre::ImGuiOverlay> m_imgui_overlay;
+    Ogre::Viewport* m_hud_capture_viewport = nullptr;
 };

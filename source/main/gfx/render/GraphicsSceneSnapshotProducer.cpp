@@ -521,6 +521,20 @@ public:
     bool initialized = false;
   };
 
+  /// Immutable payload owners for the producer-synthesized HUD overlay
+  /// assets. The sampler and material are built once; the texture payload is
+  /// rebuilt only when the readback content hash or extent changes, so
+  /// unchanged HUD frames reuse the exact owners and take the stable-catalog
+  /// fast path without a texture revision bump.
+  struct HudOverlayAssetCache {
+    std::shared_ptr<const RenderAssetPayload> texture_payload;
+    std::shared_ptr<const RenderAssetPayload> sampler_payload;
+    std::shared_ptr<const RenderAssetPayload> material_payload;
+    std::uint64_t content_hash = 0U;
+    std::uint32_t width = 0U;
+    std::uint32_t height = 0U;
+  };
+
   explicit Impl(GraphicsSceneSnapshotProducerConfiguration producer_config)
       : configuration(std::move(producer_config)),
         asset_catalog(std::make_shared<const AssetCatalog>(
@@ -619,6 +633,99 @@ public:
         candidate, diagnostics.asset_payload_candidate_bytes_compared);
   }
 
+  [[nodiscard]] bool ValidateHudOverlayInput(
+      const GraphicsSceneHudOverlayInput &hud,
+      ValidationResult &failure) const {
+    if (hud.width == 0U || hud.height == 0U) {
+      failure = Failure(ValidationCode::INVALID_DIMENSIONS,
+                        "hud_overlay.extent",
+                        "HUD overlay extent must be nonzero");
+      return false;
+    }
+    if (hud.content_hash == 0U) {
+      failure = Failure(ValidationCode::INVALID_IDENTIFIER,
+                        "hud_overlay.content_hash",
+                        "HUD overlay content hash must be nonzero");
+      return false;
+    }
+    if (hud.rgba8_bytes == nullptr) {
+      failure = Failure(ValidationCode::EMPTY_PAYLOAD, "hud_overlay.bytes",
+                        "HUD overlay requires an immutable byte owner");
+      return false;
+    }
+    std::uint64_t expected_bytes = 0U;
+    if (!AddElementBytes(static_cast<std::size_t>(hud.width) * 4U,
+                         hud.height, expected_bytes) ||
+        expected_bytes >
+            static_cast<std::uint64_t>(
+                (std::numeric_limits<std::size_t>::max)()) ||
+        hud.rgba8_bytes->size() != expected_bytes) {
+      failure = Failure(ValidationCode::SIZE_MISMATCH, "hud_overlay.bytes",
+                        "HUD overlay bytes must be exactly width*height*4");
+      return false;
+    }
+    return true;
+  }
+
+  void EnsureHudOverlayAssetPayloads(const GraphicsSceneHudOverlayInput &hud) {
+    if (hud_overlay_cache.sampler_payload == nullptr) {
+      SamplerResourceDescriptor sampler;
+      sampler.debug_name = "RoRHudOverlaySampler";
+      sampler.minification_filter = SamplerFilter::LINEAR;
+      sampler.magnification_filter = SamplerFilter::LINEAR;
+      sampler.mip_filter = SamplerFilter::NEAREST;
+      sampler.address_u = SamplerAddressMode::CLAMP_TO_EDGE;
+      sampler.address_v = SamplerAddressMode::CLAMP_TO_EDGE;
+      sampler.address_w = SamplerAddressMode::CLAMP_TO_EDGE;
+      // The HUD texture carries exactly one mip; the display-domain sampler
+      // contract requires the exact complete LOD range for that chain.
+      sampler.minimum_lod = 0.0F;
+      sampler.maximum_lod = 0.0F;
+      hud_overlay_cache.sampler_payload =
+          std::make_shared<const RenderAssetPayload>(std::move(sampler));
+    }
+    if (hud_overlay_cache.material_payload == nullptr) {
+      MaterialDescriptor material;
+      material.debug_name = "RoRHudOverlayMaterial";
+      material.model = MaterialModel::UNLIT;
+      material.blend_mode = MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER;
+      material.base_color_transfer =
+          BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+      material.alpha_test_mode = MaterialAlphaTestMode::DISABLED;
+      material.depth_write = false;
+      hud_overlay_cache.material_payload =
+          std::make_shared<const RenderAssetPayload>(std::move(material));
+    }
+    if (hud_overlay_cache.texture_payload == nullptr ||
+        hud_overlay_cache.content_hash != hud.content_hash ||
+        hud_overlay_cache.width != hud.width ||
+        hud_overlay_cache.height != hud.height) {
+      TextureResourceDescriptor texture;
+      texture.debug_name = "RoRHudOverlayTexture";
+      texture.type = TextureResourceType::TEXTURE_2D;
+      texture.format = TextureResourceFormat::RGBA8_UNORM;
+      // Display-referred bytes as drawn by the GUI; the display-domain
+      // material transfer preserves them through filtering, so the storage
+      // declares sRGB-authored content uploaded without hardware decode.
+      texture.color_space = TextureColorSpace::SRGB;
+      texture.width = hud.width;
+      texture.height = hud.height;
+      texture.array_layers = 1U;
+      TextureMipLevelDescriptor mip;
+      mip.width = hud.width;
+      mip.height = hud.height;
+      mip.row_pitch_bytes = static_cast<std::uint64_t>(hud.width) * 4U;
+      mip.layer_pitch_bytes = mip.row_pitch_bytes * hud.height;
+      mip.bytes = *hud.rgba8_bytes;
+      texture.mip_levels.push_back(std::move(mip));
+      hud_overlay_cache.texture_payload =
+          std::make_shared<const RenderAssetPayload>(std::move(texture));
+      hud_overlay_cache.content_hash = hud.content_hash;
+      hud_overlay_cache.width = hud.width;
+      hud_overlay_cache.height = hud.height;
+    }
+  }
+
   [[nodiscard]] GraphicsSceneSnapshotProduceResult
   Produce(const GraphicsSceneFrameInput &frame,
           bool finalize_scene_generation = false) {
@@ -664,7 +771,31 @@ public:
                   "producer snapshot identity space is exhausted");
       return result;
     }
-    if (frame.assets.size() > configuration.maximum_asset_records) {
+    std::array<GraphicsSceneAssetInput, 3U> hud_asset_inputs{};
+    std::size_t hud_asset_input_count = 0U;
+    if (frame.hud_overlay.has_value()) {
+      if (!ValidateHudOverlayInput(*frame.hud_overlay, result.validation)) {
+        return result;
+      }
+      EnsureHudOverlayAssetPayloads(*frame.hud_overlay);
+      hud_asset_inputs[0U].source_asset_id =
+          kGraphicsSceneHudOverlayTextureSourceAssetId;
+      hud_asset_inputs[0U].payload = hud_overlay_cache.texture_payload;
+      hud_asset_inputs[1U].source_asset_id =
+          kGraphicsSceneHudOverlaySamplerSourceAssetId;
+      hud_asset_inputs[1U].payload = hud_overlay_cache.sampler_payload;
+      hud_asset_inputs[2U].source_asset_id =
+          kGraphicsSceneHudOverlayMaterialSourceAssetId;
+      hud_asset_inputs[2U].payload = hud_overlay_cache.material_payload;
+      hud_asset_inputs[2U].material_bindings[static_cast<std::size_t>(
+          MaterialTextureSlot::BASE_COLOR)] = GraphicsSceneAssetBinding{
+          kGraphicsSceneHudOverlayTextureSourceAssetId,
+          kGraphicsSceneHudOverlaySamplerSourceAssetId};
+      hud_asset_input_count = hud_asset_inputs.size();
+    }
+    if (frame.assets.size() > configuration.maximum_asset_records ||
+        hud_asset_input_count >
+            configuration.maximum_asset_records - frame.assets.size()) {
       result.validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "assets",
           "live source asset count exceeds the configured bound");
@@ -715,23 +846,23 @@ public:
     }
 
     std::vector<IndexedAssetInput> sorted_assets;
-    sorted_assets.reserve(frame.assets.size());
+    sorted_assets.reserve(frame.assets.size() + hud_asset_input_count);
     std::uint64_t payload_bytes = 0U;
-    for (std::size_t index = 0U; index < frame.assets.size(); ++index) {
-      const GraphicsSceneAssetInput &input = frame.assets[index];
-      // Avoid constructing two successful std::strings per asset. MSVC's
-      // checked-iterator Debug STL allocates a proxy for each such string,
-      // which would turn the stable-catalog path into O(asset count) heap
-      // allocation calls despite doing no logical per-asset allocation.
+    // Avoid constructing two successful std::strings per asset. MSVC's
+    // checked-iterator Debug STL allocates a proxy for each such string,
+    // which would turn the stable-catalog path into O(asset count) heap
+    // allocation calls despite doing no logical per-asset allocation.
+    const auto admit_source_asset = [&](const GraphicsSceneAssetInput &input,
+                                        std::size_t index) {
       if (!ValidateSourceAssetMetadata(input, index, result.validation)) {
-        return result;
+        return false;
       }
       std::uint64_t candidate_payload_bytes = 0U;
       if (!AddPayloadBytes(*input.payload, candidate_payload_bytes)) {
         result.validation = Failure(
             ValidationCode::SIZE_MISMATCH, "assets.payload_bytes",
             "asset payload byte count overflowed", index);
-        return result;
+        return false;
       }
       if (!HasValidatedSourceIdentity(input)) {
         if (!RecordPayloadValidation(candidate_payload_bytes,
@@ -739,11 +870,11 @@ public:
           result.validation = Failure(
               ValidationCode::SIZE_MISMATCH, "assets.payload_bytes",
               "validated payload byte count overflowed", index);
-          return result;
+          return false;
         }
         result.validation = ValidateSourceAssetPayload(input, index);
         if (!result.validation) {
-          return result;
+          return false;
         }
       }
       if (!AddByteCount(candidate_payload_bytes, payload_bytes) ||
@@ -752,9 +883,22 @@ public:
             ValidationCode::SIZE_MISMATCH, "assets.payload_bytes",
             "asset payload byte count overflowed or exceeded its bound",
             index);
-        return result;
+        return false;
       }
       sorted_assets.push_back(IndexedAssetInput{&input, index});
+      return true;
+    };
+    for (std::size_t index = 0U; index < frame.assets.size(); ++index) {
+      if (!admit_source_asset(frame.assets[index], index)) {
+        return result;
+      }
+    }
+    for (std::size_t hud_index = 0U; hud_index < hud_asset_input_count;
+         ++hud_index) {
+      if (!admit_source_asset(hud_asset_inputs[hud_index],
+                              frame.assets.size() + hud_index)) {
+        return result;
+      }
     }
     std::sort(sorted_assets.begin(), sorted_assets.end(),
               [](const IndexedAssetInput &lhs,
@@ -1398,6 +1542,21 @@ public:
     descriptor.absolute_world_origin_meters =
         frame.absolute_world_origin_meters;
     descriptor.environment = std::move(environment);
+    if (frame.hud_overlay.has_value()) {
+      const auto hud_material = candidate_catalog.assets.find(
+          kGraphicsSceneHudOverlayMaterialSourceAssetId);
+      if (hud_material == candidate_catalog.assets.end() ||
+          !hud_material->second.live ||
+          hud_material->second.asset.kind != RenderAssetKind::MATERIAL) {
+        result.validation = Failure(
+            ValidationCode::MISSING_REFERENCE, "hud_overlay.material",
+            "synthesized HUD overlay material is absent from the candidate "
+            "catalog");
+        return result;
+      }
+      descriptor.hud_overlay.enabled = true;
+      descriptor.hud_overlay.material = hud_material->second.asset;
+    }
 
     descriptor.lights.reserve(sorted_lights.size());
     std::size_t light_scan = 0U;
@@ -2305,6 +2464,7 @@ public:
   bool dynamic_update_sequence_exhausted = false;
   bool asset_compatibility_cache_initialized = false;
   std::shared_ptr<const SceneSnapshot> published_snapshot;
+  HudOverlayAssetCache hud_overlay_cache;
   Ogre14ParticleCaptureSource particle_capture_source;
 };
 
