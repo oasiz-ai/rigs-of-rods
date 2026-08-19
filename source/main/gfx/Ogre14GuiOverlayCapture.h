@@ -44,7 +44,9 @@ namespace RoR {
 class Ogre14GuiOverlayCapture
 {
 public:
-    Ogre14GuiOverlayCapture() = default;
+    // Both stay out of line: the inline-defaulted constructor would
+    // instantiate the pimpl deleter in every including translation unit.
+    Ogre14GuiOverlayCapture();
     ~Ogre14GuiOverlayCapture();
 
     Ogre14GuiOverlayCapture(const Ogre14GuiOverlayCapture&) = delete;

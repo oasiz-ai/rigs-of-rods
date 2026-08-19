@@ -129,6 +129,8 @@ struct Ogre14GuiOverlayCapture::NativeResources
     Ogre::Viewport* viewport = nullptr;
 };
 
+Ogre14GuiOverlayCapture::Ogre14GuiOverlayCapture() = default;
+
 Ogre14GuiOverlayCapture::~Ogre14GuiOverlayCapture()
 {
     DestroyRenderResources();
