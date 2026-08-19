@@ -66,6 +66,19 @@ material rorng_city_infill_farmstead_98x86_paint_cream
   }
 }
 
+material rorng_city_infill_farmstead_98x86_concrete
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.36 0.37 0.34 1
+      diffuse 0.36 0.37 0.34 1
+      specular 0.04 0.04 0.04 1 1.33502664
+    }
+  }
+}
+
 material rorng_city_infill_farmstead_98x86_clay_tile
 {
   technique
@@ -79,6 +92,32 @@ material rorng_city_infill_farmstead_98x86_clay_tile
   }
 }
 
+material rorng_city_infill_farmstead_98x86_paint_white
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.72 0.71 0.64 1
+      diffuse 0.72 0.71 0.64 1
+      specular 0.04 0.04 0.04 1 5.44217726
+    }
+  }
+}
+
+material rorng_city_infill_farmstead_98x86_rock_dark
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.21 0.075 0.035 1
+      diffuse 0.21 0.075 0.035 1
+      specular 0.04 0.04 0.04 1 1
+    }
+  }
+}
+
 material rorng_city_infill_farmstead_98x86_paint_blue
 {
   technique
@@ -88,6 +127,19 @@ material rorng_city_infill_farmstead_98x86_paint_blue
       ambient 0.025 0.19 0.32 1
       diffuse 0.025 0.19 0.32 1
       specular 0.04 0.04 0.04 1 30
+    }
+  }
+}
+
+material rorng_city_infill_farmstead_98x86_glass
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.035 0.12 0.17 1
+      diffuse 0.035 0.12 0.17 1
+      specular 0.0391 0.0544 0.0634 1 128
     }
   }
 }
@@ -113,6 +165,19 @@ material rorng_city_infill_farmstead_98x86_trunk
     {
       ambient 0.18 0.075 0.025 1
       diffuse 0.18 0.075 0.025 1
+      specular 0.04 0.04 0.04 1 1
+    }
+  }
+}
+
+material rorng_city_infill_farmstead_98x86_leaf
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.045 0.22 0.07 1
+      diffuse 0.045 0.22 0.07 1
       specular 0.04 0.04 0.04 1 1
     }
   }

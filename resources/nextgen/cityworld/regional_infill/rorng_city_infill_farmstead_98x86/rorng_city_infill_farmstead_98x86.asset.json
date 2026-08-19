@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.blend",
-      "sha256": "980109f222526065cdb5b3b996cebccc558283dc3681765ed344fe77ead58481"
+      "sha256": "912096e137a3b71748bb4a7542888097eecc67433a9b6e26c54fa65658b9c9ed"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86.glb",
-      "sha256": "5ee4700900e53274019b77117e8c71b040479b66c1ccae05ec435e2358f3c77b"
+      "sha256": "79fa8fc9e453da63b3ef8a88849d0b3e16d230333d82a090ceb1dfe818d10966"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_farmstead_98x86/rorng_city_infill_farmstead_98x86_preview.png",
-      "sha256": "ea51c68c0d34fb1f1dc02b39bb890347a2926685883acfa2fa6e6c3a93316d3d"
+      "sha256": "0cd1c0809bc61d5f28ec78516093f50d7674e62682e182b1779913dc06bf133b"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
+      "sha256": "ff1798f6ba21c147ccc5e05ee3bfdcd4ac2766cec7ac85dfca37578dbaa6fced"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -109,8 +109,8 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
         "role": "material-fallback",
-        "sha256": "280881e3cae9beef565ce43bdd616b1ee59eec4a04015ac43022b67dc7324541",
-        "size": 1963
+        "sha256": "3f6e7470b3b0407b11d9c4bf82ba391055e4819e01a1a95883899ba9a053b531",
+        "size": 2964
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.odef",
@@ -127,25 +127,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "82b7761e3ddddb07e431f10b291bfe36ae15327e5025fcf3d850fc549890125f",
-        "size": 531542
+        "sha256": "8535bf3aceb31fcb3f6e1d4bb548d332636a1889fb0762ca41c946d4abc66aab",
+        "size": 1375566
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "9db450673828e4171c83547cadad226d062dd342087c5a78160892aee87e87eb",
-        "size": 31926
+        "sha256": "3413c488c332cb8da7f505e706c389d2ed5d5eb18a116cc495a8fa675026c93b",
+        "size": 61822
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "f985c5801c4310c792d42ff23a6eed65e27054382015174ddcf5fccef5e3ce78",
+        "sha256": "0ba8dac1044abca179bd7cfb03148677655116693e0ac18ba6ac36ca88cc96c8",
         "size": 14614
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.compile.json",
-      "sha256": "ccacd26ed9206c2e19b44d4c6578758a6afc0e4fde24d6b44376e1f209cbba0b"
+      "sha256": "ab5441db238634530b354bf30b00c47a012bae18a6f1862d1811eb0f66df321b"
     }
   },
   "connectors": [],
@@ -187,7 +187,7 @@
           "max": [
             49.0,
             43.0,
-            12.31029
+            14.6
           ],
           "min": [
             -49.0,
@@ -197,14 +197,14 @@
         },
         "lod": 0,
         "name": "rorng_city_infill_farmstead_98x86_lod0",
-        "triangles": 4696
+        "triangles": 14780
       },
       {
         "bounds_blender_z_up": {
           "max": [
             49.0,
             43.0,
-            12.295312
+            13.75
           ],
           "min": [
             -49.0,
@@ -214,14 +214,14 @@
         },
         "lod": 1,
         "name": "rorng_city_infill_farmstead_98x86_lod1",
-        "triangles": 372
+        "triangles": 796
       },
       {
         "bounds_blender_z_up": {
           "max": [
             49.0,
             43.0,
-            12.295312
+            12.295578
           ],
           "min": [
             -49.0,
@@ -284,6 +284,18 @@
     },
     {
       "base_color_factor_linear": [
+        0.36,
+        0.37,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_concrete",
+      "roughness_factor": 0.88
+    },
+    {
+      "base_color_factor_linear": [
         0.52,
         0.34,
         0.055,
@@ -320,6 +332,30 @@
     },
     {
       "base_color_factor_linear": [
+        0.035,
+        0.12,
+        0.17,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.18,
+      "name": "rorng_city_infill_farmstead_98x86_glass",
+      "roughness_factor": 0.16
+    },
+    {
+      "base_color_factor_linear": [
+        0.045,
+        0.22,
+        0.07,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_leaf",
+      "roughness_factor": 0.92
+    },
+    {
+      "base_color_factor_linear": [
         0.025,
         0.19,
         0.32,
@@ -344,6 +380,18 @@
     },
     {
       "base_color_factor_linear": [
+        0.72,
+        0.71,
+        0.64,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_paint_white",
+      "roughness_factor": 0.72
+    },
+    {
+      "base_color_factor_linear": [
         0.055,
         0.065,
         0.075,
@@ -353,6 +401,18 @@
       "metallic_factor": 0.7,
       "name": "rorng_city_infill_farmstead_98x86_powdercoat_metal",
       "roughness_factor": 0.31
+    },
+    {
+      "base_color_factor_linear": [
+        0.21,
+        0.075,
+        0.035,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_farmstead_98x86_rock_dark",
+      "roughness_factor": 0.98
     },
     {
       "base_color_factor_linear": [

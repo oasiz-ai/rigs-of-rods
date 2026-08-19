@@ -43,10 +43,10 @@
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "6c23707d0a1fab96aa4ce433d3ae823a0c4fcd33ee714fb21e119e67fbfaacdd",
+    "asset_contract_sha256": "bbf2e74253fff4e6da012900d67be42e7e1ce4fa232292daf842556453ab79ff",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
-      "sha256": "ed1f1e41b382ce6b4f4316f17ff03904806dc977373a72a4314136de42709160"
+      "sha256": "daa9045d5238abccc2bacd73df26af350fbc8f780e8f84bd8d02f5ca335f25f1"
     }
   },
   "limits": {
@@ -95,7 +95,7 @@
     {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
       "role": "render-lod0",
-      "sha256": "c1a6d39d77c205343363aff7819c57af2381742189bf1ab93ba45fa8f6cc94f2",
+      "sha256": "4599282903605d632a1a05d5692d12dabdf36b34fd9680b36a7cfc1835bedd9f",
       "size": 538361
     },
     {
@@ -212,7 +212,7 @@
   },
   "xml_intermediate_sha256": {
     "rorng_city_infill_service_station_90x65_collision_fixture.mesh.xml": "3ed65bf94da1a3398b305f02f2009f8465970cbd9d573c5c58aa419e8a1f7a2a",
-    "rorng_city_infill_service_station_90x65_lod0.mesh.xml": "1610e50f7b1f04284a793e4678e638c8ba53fc00790d38a77d7d5dba44bea742",
+    "rorng_city_infill_service_station_90x65_lod0.mesh.xml": "701a4a088c582c2731058872bacf32c2b8520efd54ecefbbd672de45a417100a",
     "rorng_city_infill_service_station_90x65_lod1.mesh.xml": "1072d15240c71863f7396a182b81954bdc1382187092600435e25802b7e64fea",
     "rorng_city_infill_service_station_90x65_lod2.mesh.xml": "5715ef60f6925ae97f0a54356eda033dc067de9fe96a7d215a9ec5c49118a375"
   }

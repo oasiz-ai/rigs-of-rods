@@ -43,7 +43,7 @@
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "1d11c0749d3e24afc175355042de27c6b9f53ae75af808f9b62839fc000126ed",
+    "asset_contract_sha256": "e3a20e27f8b74a6f8d07024d7d136f1bfd147e4d829c02bfdb19804fdbeb4cae",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.glb",
       "sha256": "9436c097c5f70a866737585a0fa8f1cc9e3e01249a5af250a9ae49d33b70cfb9"

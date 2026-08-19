@@ -27,8 +27,8 @@ ASSET_VALIDATOR = REPOSITORY_ROOT / "tools/validate_cityworld_asset.py"
 ASSET_COMPILER = REPOSITORY_ROOT / "tools/compile_cityworld_asset.py"
 
 EXPECTED_VARIANTS = {
-    "rorng_city_infill_farmstead_98x86": ("farmland", [4696, 372, 132]),
-    "rorng_city_infill_suburb_block_96x88": ("suburb", [8976, 560, 292]),
+    "rorng_city_infill_farmstead_98x86": ("farmland", [14780, 796, 132]),
+    "rorng_city_infill_suburb_block_96x88": ("suburb", [27784, 1376, 292]),
     "rorng_city_infill_service_station_90x65": (
         "service-station",
         [4120, 232, 140],

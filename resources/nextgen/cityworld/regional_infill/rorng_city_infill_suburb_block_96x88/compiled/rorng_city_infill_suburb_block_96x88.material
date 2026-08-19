@@ -40,6 +40,19 @@ material rorng_city_infill_suburb_block_96x88_stucco
   }
 }
 
+material rorng_city_infill_suburb_block_96x88_concrete
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.36 0.37 0.34 1
+      diffuse 0.36 0.37 0.34 1
+      specular 0.04 0.04 0.04 1 1.33502664
+    }
+  }
+}
+
 material rorng_city_infill_suburb_block_96x88_clay_tile
 {
   technique
@@ -66,6 +79,32 @@ material rorng_city_infill_suburb_block_96x88_paint_white
   }
 }
 
+material rorng_city_infill_suburb_block_96x88_rock_dark
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.21 0.075 0.035 1
+      diffuse 0.21 0.075 0.035 1
+      specular 0.04 0.04 0.04 1 1
+    }
+  }
+}
+
+material rorng_city_infill_suburb_block_96x88_paint_cream
+{
+  technique
+  {
+    pass
+    {
+      ambient 0.68 0.54 0.35 1
+      diffuse 0.68 0.54 0.35 1
+      specular 0.04 0.04 0.04 1 3.99481281
+    }
+  }
+}
+
 material rorng_city_infill_suburb_block_96x88_paint_blue
 {
   technique
@@ -88,19 +127,6 @@ material rorng_city_infill_suburb_block_96x88_glass
       ambient 0.035 0.12 0.17 1
       diffuse 0.035 0.12 0.17 1
       specular 0.0391 0.0544 0.0634 1 128
-    }
-  }
-}
-
-material rorng_city_infill_suburb_block_96x88_rock_dark
-{
-  technique
-  {
-    pass
-    {
-      ambient 0.21 0.075 0.035 1
-      diffuse 0.21 0.075 0.035 1
-      specular 0.04 0.04 0.04 1 1
     }
   }
 }
