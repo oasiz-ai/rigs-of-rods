@@ -838,6 +838,13 @@ constexpr float kOgre14ModernAnalyticSunAngularRadiusRadians = 0.00465047F;
 /// just below the filmic white point. This scales every surface equally
 /// and cannot change shadow-to-sunlit ratios.
 constexpr float kOgre14ModernAnalyticSkyExposureCompensationEv = 3.5F;
+/// Policy v2 also derives the hemisphere ambient from the sun instead of
+/// forwarding the legacy scene ambient: OGRE 14 content authors ambient
+/// nearly equal to the sun (0.7 vs 0.867), which lights every face almost
+/// identically - a flat, washed look with no directional contrast. Under
+/// HlmsPbs AmbientFixed, shadow/sunlit = f/(1+f), so 0.15 seats fully
+/// shadowed surfaces at ~13% of sunlit - clear-day photometry.
+constexpr float kOgre14ModernAnalyticSkyAmbientSunFraction = 0.15F;
 
 enum class Ogre14GraphicsSceneLightKind : std::uint8_t {
   POINT = 0U,

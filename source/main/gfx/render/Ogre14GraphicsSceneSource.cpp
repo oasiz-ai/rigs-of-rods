@@ -3413,6 +3413,29 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
   candidate.analytic_sky = sky;
   candidate.exposure_compensation_ev =
       kOgre14ModernAnalyticSkyExposureCompensationEv;
+  // Sun-derived hemisphere ambient (policy v2): forwarding the legacy
+  // scene ambient lights every face almost identically because content
+  // authors it nearly equal to the sun. The night floor keeps the legacy
+  // value scaled down so below-horizon scenes stay readable.
+  {
+    std::array<double, 3U> ambient_v2{};
+    for (std::size_t channel = 0U; channel < 3U; ++channel) {
+      const double sun_ambient =
+          static_cast<double>(kOgre14ModernAnalyticSkyAmbientSunFraction) *
+          native_sun_rgb[channel] * daylight;
+      const double night_floor = ambient_rgb[channel] * 0.05;
+      ambient_v2[channel] =
+          sun_ambient > night_floor ? sun_ambient : night_floor;
+    }
+    Float3 ambient_v2_radiance{};
+    if (!to_float3(ambient_v2, ambient_v2_radiance)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "environment.analytic_sky.ambient",
+          "policy-v2 ambient overflowed canonical binary32 radiance");
+    }
+    candidate.ambient_radiance = ambient_v2_radiance;
+  }
   environment = candidate;
   return ValidationResult::Success();
 }
