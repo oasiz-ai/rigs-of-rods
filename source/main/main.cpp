@@ -3222,6 +3222,76 @@ int main(int argc, char *argv[])
 
                         if (all_clear)
                         {
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                            // A bundle reload destroys and re-creates a live
+                            // resource group's materials and textures, which
+                            // is a scene-generation boundary for the combined
+                            // renderer: retained frozen material decisions
+                            // and cached authenticated observations would
+                            // otherwise fail every later capture closed on
+                            // cache revalidation, presenting as a permanent
+                            // freeze. Finalize the open generation exactly
+                            // like the terrain-unload boundary above.
+                            if (renderer_combined_session != nullptr &&
+                                renderer_combined_session->active())
+                            {
+                                const auto reload_reset_deadline =
+                                    std::chrono::steady_clock::now() +
+                                    std::chrono::milliseconds(2000);
+                                RendererInProcessSessionResult
+                                    reload_reset_result =
+                                        renderer_combined_session->
+                                            ResetSceneGeneration();
+                                while ((reload_reset_result.status ==
+                                            RendererInProcessSessionStatus::
+                                                PENDING_BACKPRESSURE ||
+                                        reload_reset_result.status ==
+                                            RendererInProcessSessionStatus::
+                                                PENDING_FRONTEND_SURFACE) &&
+                                       std::chrono::steady_clock::now() <
+                                           reload_reset_deadline)
+                                {
+                                    std::this_thread::sleep_for(
+                                        std::chrono::milliseconds(1));
+                                    reload_reset_result =
+                                        renderer_combined_session->
+                                            ResetSceneGeneration();
+                                }
+                                if (!reload_reset_result)
+                                {
+                                    LOG(fmt::format(
+                                        "[RoR|RendererCombined|Scene] Bundle "
+                                        "reload held at generation boundary: "
+                                        "status='{}', frontend={}, field='{}',"
+                                        " detail='{}'",
+                                        ToString(reload_reset_result.status),
+                                        static_cast<unsigned int>(
+                                            reload_reset_result.frontend_code),
+                                        reload_reset_result.validation.field,
+                                        reload_reset_result.validation
+                                            .detail));
+                                    const RendererInProcessSessionResult
+                                        reload_shutdown =
+                                            CloseCombinedRendererSession(
+                                                *renderer_combined_session);
+                                    if (reload_shutdown.status !=
+                                        RendererInProcessSessionStatus::CLOSED)
+                                    {
+                                        FailStopApplication(EXIT_FAILURE);
+                                    }
+                                    App::GetGameContext()->PushMessage(
+                                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                                    delete entry_ptr;
+                                    break;
+                                }
+                            }
+#endif
+                            // Release every capture-side authenticated
+                            // receipt/cache owner before this resource group
+                            // is destroyed; the next capture re-observes and
+                            // re-mints the fresh generation.
+                            App::GetGfxScene()->
+                                ResetOgre14GraphicsSceneGeneration();
                             // Nobody uses the RG anymore -> destroy and re-create it.
                             App::GetCacheSystem()->ReLoadResource(*entry_ptr);
 
