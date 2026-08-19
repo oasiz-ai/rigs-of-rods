@@ -26,6 +26,8 @@
 #include "gfx/render/ogrenext/OgreNextPssmShadowPolicy.h"
 #include "system/detail/OgreNextDemoFrameNormalization.h"
 
+#include <cstdio>
+
 #include "AppContext.h"
 #if OGRE_VERSION_MAJOR >= 14
 #include "ContentManager.h"
@@ -4201,6 +4203,167 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         census_texture.debug_name, census_texture.width,
                         census_texture.height, census_mean));
                     ++texture_census_logged;
+                }
+                // Proximity census: name what actually stands in front of
+                // the spawn camera. The black surface fills the near field,
+                // so it is one of these instances.
+                std::map<std::uint64_t, bool> census_material_bindings;
+                std::map<std::uint64_t, const Render::MaterialDescriptor*>
+                    census_materials;
+                std::map<std::uint64_t, const Render::MeshResourceDescriptor*>
+                    census_meshes;
+                for (const Render::GraphicsSceneAssetInput& census_asset :
+                     static_assets)
+                {
+                    if (census_asset.payload == nullptr)
+                        continue;
+                    if (std::holds_alternative<Render::MaterialDescriptor>(
+                            *census_asset.payload))
+                    {
+                        census_materials[census_asset.source_asset_id] =
+                            &std::get<Render::MaterialDescriptor>(
+                                *census_asset.payload);
+                        census_material_bindings[
+                            census_asset.source_asset_id] =
+                            census_asset.material_bindings[static_cast<
+                                std::size_t>(
+                                Render::MaterialTextureSlot::BASE_COLOR)]
+                                .texture_source_asset_id != 0U;
+                    }
+                    else if (std::holds_alternative<
+                                 Render::MeshResourceDescriptor>(
+                                 *census_asset.payload))
+                        census_meshes[census_asset.source_asset_id] =
+                            &std::get<Render::MeshResourceDescriptor>(
+                                *census_asset.payload);
+                }
+                // One-shot full inventory dump for offline analysis:
+                // every instance with joined names, factors, and binding.
+                static bool census_dumped = false;
+                if (!census_dumped)
+                {
+                    census_dumped = true;
+                    std::FILE* const dump = std::fopen(
+                        "/private/tmp/ror-frame-inventory.txt", "w");
+                    if (dump != nullptr)
+                    {
+                        std::fprintf(
+                            dump, "camera %.2f %.2f %.2f\n",
+                            static_cast<double>(static_camera_position.x),
+                            static_cast<double>(static_camera_position.y),
+                            static_cast<double>(static_camera_position.z));
+                        for (const Render::GraphicsSceneStaticMeshInput&
+                                 dump_instance :
+                             candidate.frame.static_meshes)
+                        {
+                            const auto dump_material = census_materials.find(
+                                dump_instance.material_source_asset_id);
+                            const auto dump_mesh = census_meshes.find(
+                                dump_instance.mesh_source_asset_id);
+                            const bool dump_textured =
+                                census_material_bindings.count(
+                                    dump_instance
+                                        .material_source_asset_id) != 0U &&
+                                census_material_bindings.at(
+                                    dump_instance.material_source_asset_id);
+                            std::fprintf(
+                                dump,
+                                "%.1f %.1f %.1f|%s|%s|%s|%.3f %.3f %.3f|%d\n",
+                                static_cast<double>(
+                                    dump_instance.render_from_object
+                                        .elements[12U]),
+                                static_cast<double>(
+                                    dump_instance.render_from_object
+                                        .elements[13U]),
+                                static_cast<double>(
+                                    dump_instance.render_from_object
+                                        .elements[14U]),
+                                dump_mesh != census_meshes.end()
+                                    ? dump_mesh->second->debug_name.c_str()
+                                    : "?",
+                                dump_material != census_materials.end()
+                                    ? dump_material->second->debug_name
+                                          .c_str()
+                                    : "?",
+                                dump_material != census_materials.end() &&
+                                        dump_material->second->model ==
+                                            Render::MaterialModel::UNLIT
+                                    ? "UNLIT"
+                                    : "PBR",
+                                dump_material != census_materials.end()
+                                    ? static_cast<double>(
+                                          dump_material->second
+                                              ->base_color_factor.x)
+                                    : -1.0,
+                                dump_material != census_materials.end()
+                                    ? static_cast<double>(
+                                          dump_material->second
+                                              ->base_color_factor.y)
+                                    : -1.0,
+                                dump_material != census_materials.end()
+                                    ? static_cast<double>(
+                                          dump_material->second
+                                              ->base_color_factor.z)
+                                    : -1.0,
+                                dump_textured ? 1 : 0);
+                        }
+                        std::fclose(dump);
+                    }
+                }
+                std::size_t proximity_logged = 0U;
+                for (const Render::GraphicsSceneStaticMeshInput&
+                         census_instance : candidate.frame.static_meshes)
+                {
+                    if (proximity_logged >= 14U)
+                        break;
+                    const float dx =
+                        census_instance.render_from_object.elements[12U] -
+                        static_camera_position.x;
+                    const float dy =
+                        census_instance.render_from_object.elements[13U] -
+                        static_camera_position.y;
+                    const float dz =
+                        census_instance.render_from_object.elements[14U] -
+                        static_camera_position.z;
+                    const float distance_squared =
+                        (dx * dx) + (dy * dy) + (dz * dz);
+                    if (distance_squared > 40.0F * 40.0F)
+                        continue;
+                    const auto census_material = census_materials.find(
+                        census_instance.material_source_asset_id);
+                    const auto census_mesh = census_meshes.find(
+                        census_instance.mesh_source_asset_id);
+                    LOG(fmt::format(
+                        "[RoR|SceneSource|ProximityCensus] d={:.1f} mesh='{}'"
+                        " material='{}' model={} base=({:.2f},{:.2f},{:.2f})"
+                        " textured={}",
+                        std::sqrt(distance_squared),
+                        census_mesh != census_meshes.end()
+                            ? census_mesh->second->debug_name
+                            : "?",
+                        census_material != census_materials.end()
+                            ? census_material->second->debug_name
+                            : "?",
+                        census_material != census_materials.end()
+                            ? (census_material->second->model ==
+                                       Render::MaterialModel::UNLIT
+                                   ? "UNLIT"
+                                   : "PBR")
+                            : "?",
+                        census_material != census_materials.end()
+                            ? census_material->second->base_color_factor.x
+                            : -1.0F,
+                        census_material != census_materials.end()
+                            ? census_material->second->base_color_factor.y
+                            : -1.0F,
+                        census_material != census_materials.end()
+                            ? census_material->second->base_color_factor.z
+                            : -1.0F,
+                        census_material_bindings.count(
+                            census_instance.material_source_asset_id) != 0U &&
+                            census_material_bindings.at(
+                                census_instance.material_source_asset_id)));
+                    ++proximity_logged;
                 }
             }
             // Stash the retention refresh on the pending transaction. It is
