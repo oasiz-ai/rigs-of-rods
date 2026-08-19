@@ -569,6 +569,9 @@ Render::ValidationResult CaptureNativePage(
           linear_to_srgb[mip.bytes[texel_base + 1U]];
       mip.bytes[texel_base + 2U] =
           linear_to_srgb[mip.bytes[texel_base + 2U]];
+      // The RTT alpha channel is not meaningful; the opaque PBS admission
+      // gate requires alpha 255 in every texel of every mip.
+      mip.bytes[texel_base + 3U] = 255U;
     }
   }
   {
@@ -976,11 +979,15 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
 
     Render::MaterialDescriptor material;
     material.debug_name = PageDebugName(page.slot_x, page.slot_y, "Material");
-    material.model = Render::MaterialModel::UNLIT;
+    // The page is lit by the presenter like every other opaque surface: the
+    // producer bakes a pure-albedo composite (unit ambient, no directional
+    // term), and a display-domain unlit surface would be crushed to black
+    // by an exposure calibrated for the analytic sun.
+    material.model = Render::MaterialModel::PBR_METALLIC_ROUGHNESS;
     material.blend_mode = Render::MaterialBlendMode::REPLACE;
     material.alpha_test_mode = Render::MaterialAlphaTestMode::DISABLED;
     material.base_color_transfer =
-        Render::BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE;
+        Render::BaseColorTransfer::SRGB_DECODE_BEFORE_FILTER;
     material.double_sided = false;
     material.base_color_factor = {1.0F, 1.0F, 1.0F, 1.0F};
     material.metallic_factor = 0.0F;

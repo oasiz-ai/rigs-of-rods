@@ -453,9 +453,20 @@ void TerrainGeometryManager::UpdateMainLightPosition()
     if (light)
     {
         terrainOptions->setLightMapDirection(light->getDerivedDirection());
+#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
         terrainOptions->setCompositeMapDiffuse(light->getDiffuseColour());
+#endif
     }
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // The combined presenter lights the terrain itself: the captured
+    // composite must stay pure albedo, so the bake uses unit ambient and no
+    // directional term instead of the sun. Baked sun lighting here would be
+    // applied twice on the Ogre-Next side.
+    terrainOptions->setCompositeMapDiffuse(ColourValue::Black);
+    terrainOptions->setCompositeMapAmbient(ColourValue::White);
+#else
     terrainOptions->setCompositeMapAmbient(App::GetGfxScene()->GetSceneManager()->getAmbientLight());
+#endif
 
     m_ogre_terrain_group->update();
 }
@@ -489,10 +500,18 @@ void TerrainGeometryManager::configureTerrainDefaults()
         terrainOptions->setLightMapDirection(light->getDerivedDirection());
         if (custom_mat.empty())
         {
+#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
             terrainOptions->setCompositeMapDiffuse(light->getDiffuseColour());
+#endif
         }
     }
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+    // Albedo bake for the combined presenter; see UpdateMainLightPosition.
+    terrainOptions->setCompositeMapDiffuse(ColourValue::Black);
+    terrainOptions->setCompositeMapAmbient(ColourValue::White);
+#else
     terrainOptions->setCompositeMapAmbient(App::GetGfxScene()->GetSceneManager()->getAmbientLight());
+#endif
 
     // Configure default import settings for if we use imported image
     Ogre::Terrain::ImportData& defaultimp = m_ogre_terrain_group->getDefaultImportSettings();
