@@ -22,6 +22,8 @@
 #include <OgreTechnique.h>
 #include <OgreTexture.h>
 #include <OgreTextureUnitState.h>
+#include <OgreLogManager.h>
+#include <OgreStringConverter.h>
 #include <Terrain/OgreTerrain.h>
 #include <Terrain/OgreTerrainGroup.h>
 
@@ -538,6 +540,54 @@ Render::ValidationResult CaptureNativePage(
   // exactly the base buffer on every backend, then complete all tail mips with
   // the cross-platform private CPU rule below.
   native_base.buffer->blitToMemory(destination);
+  {
+    // One-shot content probe. The composite ships content-unchecked, so a
+    // bake that froze black texels into the blend-selected regions would
+    // otherwise be invisible to every validation and every log line.
+    std::uint8_t rgb_min = 255U;
+    std::uint8_t rgb_max = 0U;
+    std::uint64_t rgb_sum = 0U;
+    const std::size_t texel_count =
+        static_cast<std::size_t>(mip.width) * mip.height;
+    for (std::size_t texel = 0U; texel < texel_count; ++texel) {
+      const std::size_t texel_base = texel * 4U;
+      for (std::size_t channel = 0U; channel < 3U; ++channel) {
+        const std::uint8_t value = mip.bytes[texel_base + channel];
+        rgb_min = std::min(rgb_min, value);
+        rgb_max = std::max(rgb_max, value);
+        rgb_sum += value;
+      }
+    }
+    std::string layer_textures;
+    for (std::uint8_t layer = 0U; layer < terrain->getLayerCount();
+         ++layer) {
+      if (!layer_textures.empty())
+        layer_textures += "|";
+      layer_textures += terrain->getLayerTextureName(layer, 0U);
+    }
+    Ogre::LogManager::getSingleton().logMessage(
+        "[RoR|SceneSource|TerrainComposite] page=" +
+        Ogre::StringConverter::toString(slot_x) + "," +
+        Ogre::StringConverter::toString(slot_y) + " size=" +
+        Ogre::StringConverter::toString(mip.width) + "x" +
+        Ogre::StringConverter::toString(mip.height) + " rgb_min=" +
+        Ogre::StringConverter::toString(
+            static_cast<unsigned int>(rgb_min)) +
+        " rgb_max=" +
+        Ogre::StringConverter::toString(
+            static_cast<unsigned int>(rgb_max)) +
+        " rgb_mean=" +
+        Ogre::StringConverter::toString(
+            texel_count == 0U
+                ? 0U
+                : static_cast<unsigned int>(
+                      rgb_sum / (static_cast<std::uint64_t>(texel_count) *
+                                 3U))) +
+        " layers=" +
+        Ogre::StringConverter::toString(
+            static_cast<unsigned int>(terrain->getLayerCount())) +
+        " layer_textures=" + layer_textures);
+  }
   output_texture.mip_levels.push_back(std::move(mip));
 
   validation = CompleteOgreNextDemoOpaqueMipChain(output_texture);
