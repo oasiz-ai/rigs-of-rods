@@ -59,7 +59,14 @@ public:
     /// reads it back with the row-flip recipe, and publishes the readback to
     /// GfxScene. Failures leave the previously published readback untouched
     /// and log once per failure signature.
-    void CaptureIfDirty();
+    /// `target_width`/`target_height` name the presented drawable extent in
+    /// pixels; the presenter fails a mismatched HUD texture closed, and on a
+    /// scaled backing store the hidden producer viewport's logical extent is
+    /// the wrong answer. The overlay projection maps the ImGui display size
+    /// onto the full render-target viewport, so capturing at the drawable
+    /// extent is a clean upscale.
+    void CaptureIfDirty(std::uint32_t target_width,
+                        std::uint32_t target_height);
 
 private:
     bool EnsureRenderResources(std::uint32_t width, std::uint32_t height);

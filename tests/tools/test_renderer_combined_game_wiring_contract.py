@@ -74,7 +74,7 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "App::GetGfxScene()->UpdateScene(dt_sim); // Draws GUI as well"
         )
         capture = self.main.index(
-            "renderer_combined_hud_capture->CaptureIfDirty();", update
+            "renderer_combined_hud_capture->CaptureIfDirty(", update
         )
         post = self.main.index(
             "renderer_combined_session->PostUpdatedScene(", capture

@@ -281,7 +281,8 @@ void Ogre14GuiOverlayCapture::DestroyRenderResources() noexcept
     m_height = 0U;
 }
 
-void Ogre14GuiOverlayCapture::CaptureIfDirty()
+void Ogre14GuiOverlayCapture::CaptureIfDirty(
+    const std::uint32_t target_width, const std::uint32_t target_height)
 {
     const auto log_failure_once = [this](const std::string& signature) {
         if (signature != m_failure_log_signature)
@@ -301,15 +302,8 @@ void Ogre14GuiOverlayCapture::CaptureIfDirty()
     {
         return;
     }
-    Ogre::Viewport* const screen_viewport = App::GetAppContext()->GetViewport();
-    if (screen_viewport == nullptr)
-    {
-        return;
-    }
-    const std::uint32_t width =
-        static_cast<std::uint32_t>(screen_viewport->getActualWidth());
-    const std::uint32_t height =
-        static_cast<std::uint32_t>(screen_viewport->getActualHeight());
+    const std::uint32_t width = target_width;
+    const std::uint32_t height = target_height;
     if (width == 0U || height == 0U)
     {
         return;

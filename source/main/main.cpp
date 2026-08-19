@@ -3939,7 +3939,18 @@ int main(int argc, char *argv[])
                     renderer_combined_session != nullptr &&
                     renderer_combined_session->active())
                 {
-                    renderer_combined_hud_capture->CaptureIfDirty();
+                    // The presenter fails a HUD texture that does not match
+                    // the presented drawable extent closed, so the capture
+                    // targets that exact pixel extent (not the hidden
+                    // producer viewport's logical size).
+                    const Render::FrontendSurfaceUpdate hud_surface =
+                        renderer_combined_presenter.CurrentSurface();
+                    if (!hud_surface.suspended)
+                    {
+                        renderer_combined_hud_capture->CaptureIfDirty(
+                            hud_surface.pixel_width,
+                            hud_surface.pixel_height);
+                    }
                 }
 #endif
                 if (frame_budget_session != nullptr)
