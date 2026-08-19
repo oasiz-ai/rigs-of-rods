@@ -5,6 +5,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -329,6 +330,271 @@ void TestPinnedPlanMetadataIsExact()
         RoR::FindLegacyMaterialScriptEditPlan(
             plan->archive_sha256,
             "unplanned.material") == nullptr);
+}
+
+void TestReplacementTexturePlansAreNamespacedAndExact()
+{
+    const std::string archive_sha256 =
+        "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+    const std::string namespace_prefix = "cityworld_next_replacements/";
+    const std::string replacement_prefix =
+        "texture " + namespace_prefix;
+
+    const RoR::LegacyMaterialScriptEditPlan* asia_plan =
+        RoR::FindLegacyMaterialScriptEditPlan(
+            archive_sha256, "asia.material");
+    CHECK(asia_plan != nullptr);
+    CHECK(
+        std::string(asia_plan->script_sha256) ==
+        "ec34c578c12989e9a1559dfb56c539da49454d5fe7bbda2763fd7e279af6bc66");
+    CHECK(asia_plan->edit_count == 3U);
+
+    const RoR::LegacyMaterialScriptEditPlan* buildings_plan =
+        RoR::FindLegacyMaterialScriptEditPlan(
+            archive_sha256, "dnebuildings.material");
+    CHECK(buildings_plan != nullptr);
+    CHECK(
+        std::string(buildings_plan->script_sha256) ==
+        "11bb735dfadd54f594bfa02e967014edcd67cb5b7fcda8b3c8c3668cea2dc420");
+    CHECK(buildings_plan->edit_count == 7U);
+
+    // Every replacement token is reserved-namespaced, resolution suffixed,
+    // and never rewrites an original name to itself; anchors never reference
+    // the reserved namespace, so original member names stay untouched.
+    const char* planned_scripts[] = {
+        "NeoQ2-0.material",
+        "NeoQ2-0-builds.material",
+        "NeoQ2-0-asphalt.material",
+        "NeoQ2-0-concrete-road.material",
+        "NeoQ2-0-vegetation.material",
+        "NeoQ2-0-SmfS.material",
+        "NeoQueretaro.material",
+        "busstopNJTnormalmapped.material",
+        "asia.material",
+        "dnebuildings.material",
+        "streetfurniture.material",
+        "dneroads.material"};
+    std::size_t replacement_edit_count = 0U;
+    for (const char* script : planned_scripts)
+    {
+        const RoR::LegacyMaterialScriptEditPlan* plan =
+            RoR::FindLegacyMaterialScriptEditPlan(archive_sha256, script);
+        CHECK(plan != nullptr);
+        if (plan == nullptr)
+        {
+            continue;
+        }
+        for (std::size_t index = 0U; index < plan->edit_count; ++index)
+        {
+            const RoR::LegacyMaterialScriptEdit& edit = plan->edits[index];
+            const std::string expected(edit.expected);
+            const std::string replacement(edit.replacement);
+            CHECK(
+                expected.find(namespace_prefix) == std::string::npos);
+            if (replacement.find(namespace_prefix) == std::string::npos)
+            {
+                continue;
+            }
+            ++replacement_edit_count;
+            CHECK(
+                edit.kind ==
+                RoR::LegacyMaterialScriptEditKind::REPLACE_TOKEN_ON_LINE);
+            CHECK(replacement.compare(
+                0U, replacement_prefix.size(), replacement_prefix) == 0);
+            CHECK(
+                replacement.size() > 9U &&
+                replacement.compare(
+                    replacement.size() - 9U, 9U, "_1024.png") == 0);
+            CHECK(expected.compare(0U, 8U, "texture ") == 0);
+            CHECK(expected != replacement);
+            // The replaced member name never equals the original one, so
+            // the original stays resolvable by its own exact name.
+            CHECK(
+                replacement.find(expected.substr(8U)) == std::string::npos);
+        }
+    }
+    CHECK(replacement_edit_count == 9U);
+
+    // Applied-plan digests are pinned: any edit drift is a reviewable
+    // receipt change, never a silent one.
+    std::string asia_digest;
+    CHECK(RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+        *asia_plan,
+        "asia.material",
+        asia_plan->script_sha256,
+        asia_digest));
+    CHECK(asia_digest ==
+        "8efc14bacdab481861575b99e7873135e9fffe09cddf661db9d7fd342e9e1373");
+    std::string buildings_digest;
+    CHECK(RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+        *buildings_plan,
+        "dnebuildings.material",
+        buildings_plan->script_sha256,
+        buildings_digest));
+    CHECK(buildings_digest ==
+        "1f74ab1c91053fbaa3c5d8448c269c1255c8dd5c33e7203bd92d641c95fb82df");
+}
+
+std::string SyntheticScriptWithAnchors(
+    std::size_t line_count,
+    const std::vector<std::pair<std::size_t, std::string>>& anchors)
+{
+    std::vector<std::string> lines(line_count, "// pad");
+    lines[0] = "material synthetic_fixture";
+    lines[1] = "{";
+    lines[line_count - 1U] = "}";
+    for (const auto& anchor : anchors)
+    {
+        lines[anchor.first - 1U] = anchor.second;
+    }
+    std::string payload;
+    for (const std::string& line : lines)
+    {
+        payload += line;
+        payload += "\r\n";
+    }
+    return payload;
+}
+
+void TestReplacementTexturePlansApplyOnByteExactAnchors()
+{
+    const std::string archive_sha256 =
+        "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+
+    const RoR::LegacyMaterialScriptEditPlan* asia_plan =
+        RoR::FindLegacyMaterialScriptEditPlan(
+            archive_sha256, "asia.material");
+    CHECK(asia_plan != nullptr);
+    const std::string asia_payload = SyntheticScriptWithAnchors(
+        121U,
+        {{11U, "\t\t\t\ttexture asiaconcrete.dds"},
+         {51U, "\t\t\t\ttexture darkcrete.dds"},
+         {65U, "\t\t\t\ttexture redcrete.dds"}});
+    const RoR::LegacyMaterialScriptPlanApplication asia_applied =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            *asia_plan, asia_plan->script_sha256, asia_payload);
+    CHECK(asia_applied.applicable);
+    CHECK(asia_applied.safe);
+    CHECK(asia_applied.applied_edit_count == 3U);
+    CHECK(
+        asia_applied.payload.find(
+            "texture cityworld_next_replacements/asiaconcrete_1024.png") !=
+        std::string::npos);
+    CHECK(
+        asia_applied.payload.find(
+            "texture cityworld_next_replacements/darkcrete_1024.png") !=
+        std::string::npos);
+    CHECK(
+        asia_applied.payload.find(
+            "texture cityworld_next_replacements/redcrete_1024.png") !=
+        std::string::npos);
+    CHECK(
+        asia_applied.payload.find("texture asiaconcrete.dds") ==
+        std::string::npos);
+
+    // A one-byte anchor drift rejects the whole plan transactionally.
+    std::string drifted = asia_payload;
+    const std::size_t anchor = drifted.find("texture darkcrete.dds");
+    CHECK(anchor != std::string::npos);
+    drifted.replace(anchor, 21U, "texture Darkcrete.dds");
+    const RoR::LegacyMaterialScriptPlanApplication rejected =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            *asia_plan, asia_plan->script_sha256, drifted);
+    CHECK(rejected.applicable);
+    CHECK(!rejected.safe);
+    CHECK(rejected.payload == drifted);
+    CHECK(rejected.applied_edit_count == 0U);
+
+    const RoR::LegacyMaterialScriptEditPlan* buildings_plan =
+        RoR::FindLegacyMaterialScriptEditPlan(
+            archive_sha256, "dnebuildings.material");
+    CHECK(buildings_plan != nullptr);
+    const std::string buildings_payload = SyntheticScriptWithAnchors(
+        3426U,
+        {{438U, "\t\t\t\ttexture brickwall_darkred.dds"},
+         {2385U, "\t\t\t\ttexture_unit"},
+         {2566U, "\t\t\t\ttexture lightgreybrick.dds"},
+         {2607U, "\t\t\t\ttexture betterbrickdiffuse.dds"},
+         {2637U, "\t\t\t\ttexture concretetan.dds"},
+         {2667U, "\t\t\t\ttexture concretelightgrey.dds"},
+         {3205U, "\t\t\t\ttexture brickwall_darkred.dds"}});
+    const RoR::LegacyMaterialScriptPlanApplication buildings_applied =
+        RoR::ApplyLegacyMaterialScriptEditPlan(
+            *buildings_plan,
+            buildings_plan->script_sha256,
+            buildings_payload);
+    CHECK(buildings_applied.applicable);
+    CHECK(buildings_applied.safe);
+    CHECK(buildings_applied.applied_edit_count == 7U);
+    const char* replaced_tokens[] = {
+        "texture cityworld_next_replacements/brickwall_darkred_1024.png",
+        "texture cityworld_next_replacements/lightgreybrick_1024.png",
+        "texture cityworld_next_replacements/betterbrickdiffuse_1024.png",
+        "texture cityworld_next_replacements/concretetan_1024.png",
+        "texture cityworld_next_replacements/concretelightgrey_1024.png"};
+    for (const char* token : replaced_tokens)
+    {
+        CHECK(buildings_applied.payload.find(token) != std::string::npos);
+    }
+    CHECK(
+        buildings_applied.payload.find("texture brickwall_darkred.dds") ==
+        std::string::npos);
+    // Both anchored lines received the same replacement member.
+    const std::size_t first_brick = buildings_applied.payload.find(
+        "texture cityworld_next_replacements/brickwall_darkred_1024.png");
+    CHECK(
+        buildings_applied.payload.find(
+            "texture cityworld_next_replacements/brickwall_darkred_1024.png",
+            first_brick + 1U) != std::string::npos);
+}
+
+void TestPinnedReplacementScriptsWhenAvailable()
+{
+    const std::string fixture_directory =
+        ReadEnvironment("ROR_CITYWORLD_NEOQ20_MATERIAL_DIR");
+    if (fixture_directory.empty())
+    {
+        return;
+    }
+
+    const char* scripts[] = {
+        "asia.material",
+        "dnebuildings.material"};
+    const std::string archive_sha256 =
+        "ebeac2f0204f25ca1955f29ca1583b2afa4517a3a848feb1db203814acac2ef3";
+    for (const char* script : scripts)
+    {
+        const std::string path = fixture_directory + "/" + script;
+        std::ifstream input(path.c_str(), std::ios::in | std::ios::binary);
+        if (!input.good())
+        {
+            continue;
+        }
+        std::ostringstream payload_stream;
+        payload_stream << input.rdbuf();
+        const std::string payload = payload_stream.str();
+        const RoR::LegacyMaterialScriptEditPlan* plan =
+            RoR::FindLegacyMaterialScriptEditPlan(
+                archive_sha256,
+                script);
+        CHECK(plan != nullptr);
+        if (plan == nullptr)
+        {
+            continue;
+        }
+        const RoR::LegacyMaterialScriptPlanApplication applied =
+            RoR::ApplyLegacyMaterialScriptEditPlan(
+                *plan,
+                plan->script_sha256,
+                payload);
+        CHECK(applied.applicable);
+        CHECK(applied.safe);
+        CHECK(applied.applied_edit_count == plan->edit_count);
+        CHECK(applied.payload != payload);
+        CHECK(
+            applied.payload.find("cityworld_next_replacements/") !=
+            std::string::npos);
+    }
 }
 
 void TestPinnedNeoQ20PayloadsWhenAvailable()
@@ -677,6 +943,9 @@ int main()
     TestAmbiguousAndUnbalancedScriptsAreRejectedByteExact();
     TestMultipleStandaloneRepairsAreDeterministic();
     TestPinnedPlanMetadataIsExact();
+    TestReplacementTexturePlansAreNamespacedAndExact();
+    TestReplacementTexturePlansApplyOnByteExactAnchors();
+    TestPinnedReplacementScriptsWhenAvailable();
     TestPinnedNeoQ20PayloadsWhenAvailable();
     TestExactPlanAppliesTransactionally();
     TestDuplicateMaterialBlockRemovalIsTransactional();

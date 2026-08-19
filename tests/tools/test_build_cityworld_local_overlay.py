@@ -2149,6 +2149,7 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                     "source_placement_records_derived": True,
                     "derived_source_placement_record_count": 91,
                     "source_textures_copied": False,
+                    "replacement_textures_independently_authored": True,
                 },
             )
 
@@ -2364,6 +2365,129 @@ class CityWorldLocalOverlayBuilderTests(unittest.TestCase):
                 REPOSITORY_ROOT,
                 BUILDER.GATEWAY_MANIFEST,
             )
+
+    def test_replacement_textures_are_packaged_namespaced_and_reported(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _, output, _ = self.build_fixture(Path(directory))
+            with zipfile.ZipFile(output) as package:
+                payloads = {
+                    name: package.read(name)
+                    for name in package.namelist()
+                }
+            report = json.loads(payloads[BUILDER.REPORT_NAME])
+            self.assertEqual(
+                report["package"]["entries"],
+                BUILDER.EXPECTED_PACKAGE_ENTRIES,
+            )
+            namespaced = sorted(
+                name
+                for name in payloads
+                if name.startswith(BUILDER.REPLACEMENT_NAMESPACE_PREFIX)
+            )
+            expected_members = sorted(
+                entry.replacement_member
+                for entry in
+                BUILDER.replacement_textures.REPLACEMENT_TEXTURES
+            )
+            self.assertEqual(namespaced, expected_members)
+            self.assertEqual(len(namespaced), 8)
+            records = {
+                record["path"]: record
+                for record in report["package"]["files"]
+            }
+            for member in expected_members:
+                payload = payloads[member]
+                self.assertEqual(payload[:8], b"\x89PNG\r\n\x1a\n")
+                record = records[member]
+                self.assertEqual(
+                    record["role"], BUILDER.REPLACEMENT_TEXTURE_ROLE)
+                self.assertEqual(
+                    record["sha256"],
+                    hashlib.sha256(payload).hexdigest(),
+                )
+            replacement_report = report["replacement_textures"]
+            self.assertEqual(
+                replacement_report["format"],
+                BUILDER.replacement_textures.REPLACEMENT_TEXTURES_FORMAT,
+            )
+            self.assertEqual(
+                replacement_report["namespace"],
+                BUILDER.REPLACEMENT_NAMESPACE_PREFIX,
+            )
+            self.assertTrue(replacement_report["independently_authored"])
+            self.assertEqual(
+                sorted(
+                    record["replacement_member"]
+                    for record in replacement_report["textures"]
+                ),
+                expected_members,
+            )
+            for record in replacement_report["textures"]:
+                self.assertNotEqual(
+                    record["replacement_member"],
+                    record["original_member"],
+                )
+                self.assertNotIn(record["original_member"], payloads)
+
+    def test_replacement_namespace_collision_with_source_fails_closed(
+        self,
+    ) -> None:
+        collisions = (
+            # Exact member-name collision with the audited archive index.
+            "cityworld_next_replacements/asiaconcrete_1024.png",
+            # Basename collision: OGRE's zip basename fallback must never be
+            # able to select a replacement for an original member request.
+            "asiaconcrete_1024.png",
+        )
+        for collision in collisions:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                archive, digest = self.make_archive(
+                    root,
+                    extra_entries=((collision, b"original-member"),),
+                )
+                output = root / "CityWorldNextLocalOverlay.zip"
+                with (
+                    mock.patch.object(
+                        BUILDER,
+                        "PINNED_ARCHIVE_SHA256",
+                        digest,
+                    ),
+                    mock.patch.object(
+                        BUILDER,
+                        "prepare_assets",
+                        return_value=self.fake_assets(),
+                    ),
+                    mock.patch.object(
+                        BUILDER,
+                        "prepare_streetlight_asset",
+                        return_value=self.fake_streetlight_asset(),
+                    ),
+                    mock.patch.object(
+                        BUILDER,
+                        "prepare_regional_infill_assets",
+                        return_value=self.fake_regional_infill_bundle(),
+                    ),
+                    mock.patch.object(
+                        BUILDER,
+                        "authenticate_regional_infill_source",
+                        return_value=
+                            self.fake_regional_infill_source_authentication(),
+                    ),
+                ):
+                    with self.assertRaisesRegex(
+                        BUILDER.OverlayFailure,
+                        "collides with an original CityWorld member",
+                    ):
+                        BUILDER.build_local_overlay(
+                            archive_path=archive,
+                            repository_path=REPOSITORY_ROOT,
+                            output_path=output,
+                            surface_offset_m=0.08,
+                        )
+                self.assertFalse(output.exists())
 
     def test_duplicate_package_names_and_unsafe_generated_names_fail(self) -> None:
         payloads: dict[str, bytes] = {}
