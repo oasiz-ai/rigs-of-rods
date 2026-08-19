@@ -357,23 +357,10 @@ void Ogre14GuiOverlayCapture::CaptureIfDirty(
         Ogre::PixelBox pixels(width, height, 1U, Ogre::PF_BYTE_RGBA,
                               rgba8->data());
         m_native->texture->getBuffer()->blitToMemory(pixels);
-        if (m_native->target->requiresTextureFlipping())
-        {
-            const std::size_t row_bytes =
-                static_cast<std::size_t>(width) * 4U;
-            for (std::size_t top = 0U,
-                             bottom = static_cast<std::size_t>(height) - 1U;
-                 top < bottom; ++top, --bottom)
-            {
-                std::swap_ranges(
-                    rgba8->begin() +
-                        static_cast<std::ptrdiff_t>(top * row_bytes),
-                    rgba8->begin() +
-                        static_cast<std::ptrdiff_t>((top + 1U) * row_bytes),
-                    rgba8->begin() +
-                        static_cast<std::ptrdiff_t>(bottom * row_bytes));
-            }
-        }
+        // No row flip: the pinned GL3Plus blitToMemory already returns rows
+        // top-down. Flipping on requiresTextureFlipping() (true for GL FBO
+        // targets) presented the whole HUD vertically mirrored on the first
+        // live run; the flag describes on-GPU addressing, not readback order.
 
         Render::GraphicsSceneHudOverlayInput readback;
         readback.width = width;
