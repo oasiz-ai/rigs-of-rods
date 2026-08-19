@@ -5133,6 +5133,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             Render::ValidationResult environment_validation =
                 Render::BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
                     native_ambient, candidate.frame.lights.front(),
+                    candidate.frame.simulation_time_seconds,
                     candidate.frame.environment);
             if (!environment_validation)
             {
@@ -5152,7 +5153,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 "horizon=[{:.9g},{:.9g},{:.9g}] "
                 "ground=[{:.9g},{:.9g},{:.9g}] "
                 "sun_disk=[{:.9g},{:.9g},{:.9g}] "
-                "sun_angular_radius_radians={:.9g}",
+                "sun_angular_radius_radians={:.9g} "
+                "cloud_coverage={:.9g} "
+                "cloud_radiance=[{:.9g},{:.9g},{:.9g}] "
+                "cloud_phase_radians={:.9g}",
                 Render::kOgre14ModernAnalyticSkyPolicyVersion,
                 sky.enabled, sky.sun_light_id,
                 committed_sun.direction.x, committed_sun.direction.y,
@@ -5164,7 +5168,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 sky.ground_radiance.x, sky.ground_radiance.y,
                 sky.ground_radiance.z, sky.sun_disk_radiance.x,
                 sky.sun_disk_radiance.y, sky.sun_disk_radiance.z,
-                sky.sun_angular_radius_radians);
+                sky.sun_angular_radius_radians, sky.cloud_coverage,
+                sky.cloud_radiance.x, sky.cloud_radiance.y,
+                sky.cloud_radiance.z, sky.cloud_phase_radians);
             candidate.available_fields |=
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::ENVIRONMENT);

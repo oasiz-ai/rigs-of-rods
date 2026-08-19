@@ -62,7 +62,7 @@ struct RenderTransportStreamFrameResult final {
   RenderTransportStreamStatus status =
       RenderTransportStreamStatus::REJECTED_NO_FRAME;
   RenderTransportMessageKind kind =
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
   std::uint64_t sequence = 0U;
   std::vector<std::uint8_t> bytes;
 
@@ -136,7 +136,7 @@ private:
   std::uint64_t maximum_payload_bytes_ = 0U;
   std::uint64_t expected_frame_bytes_ = 0U;
   RenderTransportMessageKind kind_ =
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
   std::uint64_t sequence_ = 0U;
   std::vector<std::uint8_t> frame_;
   RenderTransportStreamStatus status_ =

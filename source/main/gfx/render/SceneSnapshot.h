@@ -23,8 +23,8 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kSceneSnapshotVersion = 4U;
-constexpr std::uint32_t kSceneLightingHashVersion = 2U;
+constexpr std::uint32_t kSceneSnapshotVersion = 5U;
+constexpr std::uint32_t kSceneLightingHashVersion = 3U;
 constexpr std::uint32_t kSceneReflectionProbeHashVersion = 1U;
 
 class RenderAssetRegistry;
@@ -85,6 +85,14 @@ enum MeshInstanceFlag : std::uint32_t {
 /// below it, ground_radiance is constant. The sun disk adds
 /// sun_disk_radiance within sun_angular_radius_radians of the directional light
 /// named by sun_light_id. All radiance fields use linear RGB W/(m^2 sr).
+///
+/// The optional deterministic cloud layer is described, not rendered, here: a
+/// backend derives its cloud pattern purely from these three values, so equal
+/// descriptors must always reproduce identical cloud geometry. cloud_coverage
+/// is the covered sky fraction in [0, 1]; cloud_phase_radians rotates the
+/// pattern in longitude and is produced as fmod(time, 2*pi), which native
+/// admission relies on. All three stay canonical zero while the layer (or
+/// the whole sky) is disabled.
 struct AnalyticSkyDescriptor {
   bool enabled = false;
   std::uint64_t sun_light_id = 0U;
@@ -93,6 +101,9 @@ struct AnalyticSkyDescriptor {
   Float3 ground_radiance{};
   Float3 sun_disk_radiance{};
   float sun_angular_radius_radians = 0.0F;
+  float cloud_coverage = 0.0F;
+  Float3 cloud_radiance{};
+  float cloud_phase_radians = 0.0F;
 };
 
 struct SceneEnvironmentDescriptor {

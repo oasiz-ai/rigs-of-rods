@@ -133,6 +133,10 @@ SceneSnapshotDescriptor MakeRichDescriptor() {
   descriptor.environment.analytic_sky.sun_disk_radiance = {9000.0F, 8500.0F,
                                                             7200.0F};
   descriptor.environment.analytic_sky.sun_angular_radius_radians = 0.00465F;
+  descriptor.environment.analytic_sky.cloud_coverage = 0.45F;
+  descriptor.environment.analytic_sky.cloud_radiance = {0.1675F, 0.169375F,
+                                                        0.17125F};
+  descriptor.environment.analytic_sky.cloud_phase_radians = 0.4F;
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 10U;
@@ -309,42 +313,43 @@ void TestGoldenMinimalFrame() {
       EncodeSceneSnapshotTransportFrame(1U, *snapshot, camera);
   Require(first.ok() && second.ok() && first.bytes == second.bytes,
           "identical inputs did not produce identical bytes");
-  Require(first.bytes.size() == 591U, "minimal frame size changed");
+  Require(first.bytes.size() == 611U, "minimal frame size changed");
   Require(std::equal(kSceneSnapshotTransportMagic.begin(),
                      kSceneSnapshotTransportMagic.end(), first.bytes.begin()),
           "wire magic changed");
   Require(ReadU16(first.bytes, 8U) == kSceneSnapshotTransportVersion &&
               ReadU16(first.bytes, 10U) ==
                   kSceneSnapshotTransportHeaderBytes &&
-              ReadU16(first.bytes, 12U) == 1U &&
+              ReadU16(first.bytes, 12U) == 8U &&
               ReadU16(first.bytes, 14U) == 0U &&
               ReadU64(first.bytes, 16U) == 1U &&
-              ReadU64(first.bytes, 24U) == 527U,
+              ReadU64(first.bytes, 24U) == 547U,
           "fixed little-endian frame header changed");
 
   // Filled from the independently exercised encoder only after the structural
   // assertions above pass. This exact fixture pins every byte, including the
   // SHA-256 field, binary floating-point encoding, and reserved zero bytes.
   static const std::string kGoldenHex =
-      "524f5253434e3031010040000100000001000000000000000f02000000000000"
-      "d5c9ec1c0e35559250cb20c1220e0515e293fbe54bfbd48149f032c2c7055ce1"
-      "0100000004000000020000000000000001000000000000000200000000000000"
+      "524f5253434e3031010040000800000001000000000000002302000000000000"
+      "258223e1c0b8fe67e43779b130b47db71828633cbbe9a9c40235712fbe7bbe8a"
+      "0100000005000000020000000000000001000000000000000200000000000000"
       "03000000000000000400000000000000000000000000e03f0000000000002440"
       "00000000000034400000000000003e408fc2f53c8fc2f53c8fc2f53c00000000"
       "0000000000000000000000000000000000000000000000000000000000000000"
       "00000000000000000000000000000000803f0000000000000000000000000000"
       "0000000000000000000000000000000000000000000000000000000000000000"
       "0000000000000000000000000000000000000000000000000000000000000000"
-      "00000000000000090000000000000080070000380400000000803f0000000000"
-      "00000000000000000000000000803f0000000000000000000000000000000000"
-      "00803f0000000000002040000040c0000000000000803f0000803f0000000000"
-      "00000000000000000000000000803f0000000000000000000000000000000054"
-      "0080bf000080bf000000000000000053cdccbd000000000000803f0000000000"
-      "00000000000000000000000000803f0000000000000000000000000000000000"
-      "00803f0000000000001040000040c0000000000000803f0000803f0000000000"
-      "00000000000000000000000000803f0000000000000000000000000000000054"
-      "0080bf000080bf000000000000000053cdccbd000000000000803e000000becd"
-      "cccc3d00401c460000c03fffffff00";
+      "0000000000000000000000000000000000000000000000000000000900000000"
+      "00000080070000380400000000803f0000000000000000000000000000000000"
+      "00803f000000000000000000000000000000000000803f000000000000204000"
+      "0040c0000000000000803f0000803f0000000000000000000000000000000000"
+      "00803f00000000000000000000000000000000540080bf000080bf0000000000"
+      "00000053cdccbd000000000000803f0000000000000000000000000000000000"
+      "00803f000000000000000000000000000000000000803f000000000000104000"
+      "0040c0000000000000803f0000803f0000000000000000000000000000000000"
+      "00803f00000000000000000000000000000000540080bf000080bf0000000000"
+      "00000053cdccbd000000000000803e000000becdcccc3d00401c460000c03fff"
+      "ffff00";
   const std::string actual_hex = ToHex(first.bytes);
   Require(actual_hex == kGoldenHex,
           "minimal frame no longer matches the v1 golden bytes");
@@ -369,7 +374,7 @@ void TestRichRoundTripAndSignedZeroNormalization() {
   Require(decoded.ok() && decoded.message->sequence() == 44U,
           "rich frame was not decoded");
   Require(decoded.message->kind() ==
-              SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2,
+              SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2,
           "decoded message kind changed");
   const SceneSnapshot &scene = *decoded.message->scene_snapshot();
   Require(scene.version() == kSceneSnapshotVersion &&
@@ -381,7 +386,7 @@ void TestRichRoundTripAndSignedZeroNormalization() {
               scene.reflection_probes().size() == 1U &&
               scene.dynamic_mesh_updates().size() == 1U &&
               scene.particle_events().size() == 1U,
-          "one or more v4 scene collections did not round-trip");
+          "one or more v5 scene collections did not round-trip");
   Require(scene.environment().analytic_sky.enabled &&
               scene.environment().environment_texture.revision == 2U &&
               scene.mesh_instances().front().deformation_revision == 9U &&
@@ -390,7 +395,12 @@ void TestRichRoundTripAndSignedZeroNormalization() {
                   120U &&
               scene.dynamic_mesh_updates().front().tangents.size() == 2U &&
               scene.particle_events().front().random_seed == 0xA55AU,
-          "representative v4 scene payload fields did not round-trip");
+          "representative v5 scene payload fields did not round-trip");
+  Require(scene.environment().analytic_sky.cloud_coverage == 0.45F &&
+              scene.environment().analytic_sky.cloud_radiance ==
+                  Float3{0.1675F, 0.169375F, 0.17125F} &&
+              scene.environment().analytic_sky.cloud_phase_radians == 0.4F,
+          "v5 analytic-sky cloud fields did not round-trip");
   Require(decoded.message->camera() == camera,
           "camera contract did not round-trip semantically");
 
@@ -521,9 +531,9 @@ void TestFramingAndPayloadRejections() {
                 SceneSnapshotTransportStatus::NON_CANONICAL_FLOAT,
                 "negative zero payload encoding was accepted");
 
-  // Prefix/identity/time/origin/environment consume 211 payload bytes.
+  // Prefix/identity/time/origin/environment consume 231 payload bytes.
   frame = encoded.bytes;
-  WriteU32(frame, kSceneSnapshotTransportHeaderBytes + 211U,
+  WriteU32(frame, kSceneSnapshotTransportHeaderBytes + 231U,
            (std::numeric_limits<std::uint32_t>::max)());
   RefreshPayloadDigest(frame);
   RequireStatus(SceneSnapshotTransportDecoder{}.Accept(frame).status,
@@ -636,11 +646,11 @@ void TestCanonicalCollectionOrderIsRevalidated() {
       EncodeSceneSnapshotTransportFrame(1U, *snapshot, MakeCamera());
   Require(encoded.ok(), "canonical-order fixture was not encoded");
 
-  // The fixed prefix/environment consumes 211 bytes; one mesh count plus its
-  // 234-byte record and the light count put the first light ID at offset 453.
+  // The fixed prefix/environment consumes 231 bytes; one mesh count plus its
+  // 234-byte record and the light count put the first light ID at offset 473.
   // Raising it above the following ID creates wire order [40, 30].
   std::vector<std::uint8_t> reordered = encoded.bytes;
-  WriteU64(reordered, kSceneSnapshotTransportHeaderBytes + 453U, 40U);
+  WriteU64(reordered, kSceneSnapshotTransportHeaderBytes + 473U, 40U);
   RefreshPayloadDigest(reordered);
   RequireStatus(SceneSnapshotTransportDecoder{}.Accept(reordered).status,
                 SceneSnapshotTransportStatus::PAYLOAD_VALIDATION_FAILED,

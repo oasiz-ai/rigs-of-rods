@@ -44,6 +44,12 @@ constexpr double kOgreNextRt4NormalDecodedQuantizationTolerance = 1.0 / 255.0;
 constexpr std::uint32_t kOgreNextAnalyticSkyHemisphereRings = 16U;
 constexpr std::uint32_t kOgreNextAnalyticSkyLongitudeSegments = 64U;
 constexpr std::uint32_t kOgreNextAnalyticSkySunSegments = 32U;
+/// A descriptor with cloud_coverage > 0 densifies only the upper hemisphere
+/// so the per-vertex cloud field resolves individual shapes; the lower
+/// hemisphere keeps the legacy density because ground radiance is constant.
+/// The vertex layout is unchanged - clouds are baked into vertex radiance.
+constexpr std::uint32_t kOgreNextAnalyticSkyCloudRings = 48U;
+constexpr std::uint32_t kOgreNextAnalyticSkyCloudSegments = 128U;
 
 struct OgreNextAnalyticSkyNativeVertex final {
   Float3 position;

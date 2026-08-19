@@ -28,13 +28,15 @@ inline constexpr std::array<std::uint8_t, 8U> kRenderTransportEnvelopeMagic{{
 }};
 
 enum class RenderTransportMessageKind : std::uint16_t {
-  SCENE_SNAPSHOT_V4_CAMERA_V2 = 1U,
+  // 1U carried the retired scene-snapshot v4 schema and stays reserved so a
+  // stale peer's v4 frames fail closed as UNKNOWN_MESSAGE_KIND.
   RENDER_ASSET_DELTA_V1 = 2U,
   INPUT_EVENT_BATCH_V1 = 3U,
   RENDER_BRIDGE_ACKNOWLEDGEMENT_V1 = 4U,
   RENDER_BRIDGE_CONTROL_V1 = 5U,
   SCENE_GENERATION_BOUNDARY_V1 = 6U,
   RENDER_ASSET_DELTA_V2 = 7U,
+  SCENE_SNAPSHOT_V5_CAMERA_V2 = 8U,
 };
 
 enum class RenderTransportStatus : std::uint8_t {
@@ -90,7 +92,7 @@ struct RenderTransportEnvelopeEncodeResult {
 /// Borrowed view valid only while the input frame remains alive and unchanged.
 struct RenderTransportEnvelopeView {
   RenderTransportMessageKind kind =
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
   std::uint64_t sequence = 0U;
   const std::uint8_t *payload = nullptr;
   std::size_t payload_size = 0U;

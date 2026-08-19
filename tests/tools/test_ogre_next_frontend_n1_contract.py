@@ -892,11 +892,13 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
 
     def test_rt4_v1_analytic_sky_is_live_native_and_transactional(self) -> None:
         for token in (
-            "kOgre14ModernAnalyticSkyPolicyVersion = 1U",
+            "kOgre14ModernAnalyticSkyPolicyVersion = 3U",
             "SkyX's native shader is azimuth-dependent",
             "BuildOgre14GraphicsSceneAnalyticSkyEnvironment",
             "joined live",
             "kOgre14ModernAnalyticSunAngularRadiusRadians",
+            "kOgre14ModernAnalyticSkyCloudCoverageDaylightFraction",
+            "kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond",
         ):
             self.assertIn(token, self.ogre14_scene_source_header)
         for token in (
@@ -934,6 +936,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         for token in (
             "BuildOgreNextAnalyticSkyNativeMesh",
             "kOgreNextAnalyticSkyHemisphereRings",
+            "kOgreNextAnalyticSkyCloudRings",
+            "kOgreNextAnalyticSkyCloudSegments",
+            "cloud_coverage",
+            "cloud_phase_radians",
             "candidate.background_vertices",
             "candidate.sun_vertices",
             "mesh = std::move(candidate)",

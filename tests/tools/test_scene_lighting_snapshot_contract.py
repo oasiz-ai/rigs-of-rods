@@ -61,10 +61,13 @@ class SceneLightingSnapshotContractTests(unittest.TestCase):
             self.scene_source,
         )
         for token in (
-            "kSceneLightingHashVersion = 2U",
+            "kSceneLightingHashVersion = 3U",
             "struct AnalyticSkyDescriptor",
             "sun_light_id",
             "sun_disk_radiance",
+            "cloud_coverage",
+            "cloud_radiance",
+            "cloud_phase_radians",
             "exposure_compensation_ev",
             "LIGHT_SHADOW_STATIC_GEOMETRY",
             "LIGHT_SHADOW_DYNAMIC_GEOMETRY",

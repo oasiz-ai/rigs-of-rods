@@ -3294,12 +3294,22 @@ ValidationResult BuildOgre14GraphicsSceneEnvironment(
 ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
     const Float3 &native_ambient_linear,
     const GraphicsSceneLightInput &sun,
+    double simulation_time_seconds,
     SceneEnvironmentDescriptor &environment) {
   SceneEnvironmentDescriptor candidate;
   ValidationResult ambient =
       BuildOgre14GraphicsSceneEnvironment(native_ambient_linear, candidate);
   if (!ambient) {
     return ambient;
+  }
+  if (!std::isfinite(simulation_time_seconds) ||
+      simulation_time_seconds < 0.0) {
+    return ValidationResult::Failure(
+        std::isfinite(simulation_time_seconds)
+            ? ValidationCode::VALUE_OUT_OF_RANGE
+            : ValidationCode::NON_FINITE_VALUE,
+        "environment.analytic_sky.cloud_phase_radians",
+        "modern analytic sky requires the finite nonnegative joined simulation time");
   }
   if (sun.source_light_id == 0U) {
     return ValidationResult::Failure(
@@ -3360,6 +3370,7 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
   std::array<double, 3U> horizon{};
   std::array<double, 3U> ground{};
   std::array<double, 3U> disk{};
+  std::array<double, 3U> cloud{};
   for (std::size_t channel = 0U; channel < 3U; ++channel) {
     const double zenith_scale =
         kNightZenith[channel] +
@@ -3375,6 +3386,11 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
                             kHorizonSunScatter[channel];
     ground[channel] = ambient_rgb[channel] * kGroundAmbientScale;
     disk[channel] = native_sun_rgb[channel] * daylight * kSunDiskScale;
+    cloud[channel] =
+        static_cast<double>(kOgre14ModernAnalyticSkyCloudHorizonFraction) *
+            horizon[channel] +
+        static_cast<double>(kOgre14ModernAnalyticSkyCloudSunFraction) *
+            native_sun_rgb[channel] * daylight;
   }
   const auto to_float3 = [](const std::array<double, 3U> &value,
                             Float3 &output) noexcept {
@@ -3402,7 +3418,8 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
   if (!to_float3(zenith, sky.zenith_radiance) ||
       !to_float3(horizon, sky.horizon_radiance) ||
       !to_float3(ground, sky.ground_radiance) ||
-      !to_float3(disk, sky.sun_disk_radiance)) {
+      !to_float3(disk, sky.sun_disk_radiance) ||
+      !to_float3(cloud, sky.cloud_radiance)) {
     return ValidationResult::Failure(
         ValidationCode::VALUE_OUT_OF_RANGE,
         "environment.analytic_sky.radiance",
@@ -3410,6 +3427,18 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
   }
   sky.sun_angular_radius_radians =
       kOgre14ModernAnalyticSunAngularRadiusRadians;
+  // Both cloud scalars are provably in range: coverage is a [0, 1] daylight
+  // fraction scaled by a [0, 1] policy constant, and fmod of a validated
+  // finite nonnegative product stays inside [0, 2*pi).
+  constexpr double kTwoPi = 6.28318530717958647692;
+  sky.cloud_coverage = static_cast<float>(
+      static_cast<double>(
+          kOgre14ModernAnalyticSkyCloudCoverageDaylightFraction) *
+      daylight);
+  sky.cloud_phase_radians = static_cast<float>(std::fmod(
+      simulation_time_seconds *
+          static_cast<double>(kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond),
+      kTwoPi));
   candidate.analytic_sky = sky;
   candidate.exposure_compensation_ev =
       kOgre14ModernAnalyticSkyExposureCompensationEv;
