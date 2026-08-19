@@ -1331,6 +1331,13 @@ int main(int argc, char *argv[])
             renderer_combined_presenter.InitialFrontendRequest();
         combined_session_config.producer.registry_id =
             kCombinedRendererAssetRegistryId;
+        // The combined runtime admits the whole map up front (the 12 km
+        // static admission ball), so one authoritative frame legitimately
+        // carries the entire map's unique mesh and texture payload. The
+        // conservative library default of 512 MiB stays in place for every
+        // other session; this bound remains a runaway-duplication backstop.
+        combined_session_config.producer.maximum_asset_payload_bytes =
+            4096ULL * 1024ULL * 1024ULL;
         combined_session_config.color_format =
             presenter_config.lighting_mode ==
                     RendererOgreNextInProcessLightingMode::
