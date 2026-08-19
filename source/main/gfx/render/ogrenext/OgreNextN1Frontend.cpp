@@ -10144,7 +10144,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->shadow_audit.native_projection_extents_verified = false;
       impl_->shadow_audit.native_readback_verified = false;
       impl_->shadow_audit.native_bounds_readback_verified = false;
-      impl_->shadow_audit.last_native_bounds_observations.clear();
+      // The committed observation set is not cleared here: it stays the
+      // evidence of the last completed shadow present until this present
+      // commits its own retained set, or a mutation failure tears the
+      // retained scene (and its evidence) down with it.
       impl_->scene_manager->setShadowFarDistance(kOgreNextPssmFarMeters);
       impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
           kOgreNextPssmFarMeters);
@@ -10701,18 +10704,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
             RenderOperationCode::RESOURCE_STALE,
             "N1 native asset allocation is missing for a validated scene");
       }
-      const auto update = std::find_if(
-          snapshot.dynamic_mesh_updates().begin(),
-          snapshot.dynamic_mesh_updates().end(),
-          [&instance](const DynamicMeshUpdateDescriptor &candidate) {
-            return candidate.instance_id == instance.instance_id;
-          });
-      if (update == snapshot.dynamic_mesh_updates().end() ||
-          update->instance_id != instance.instance_id) {
-        return RenderOperationResult::Failure(
-            RenderOperationCode::RESOURCE_STALE,
-            "N2 could not resolve the validated full deformation update");
-      }
       if (record.item != nullptr) {
         record.node->detachObject(record.item);
         impl_->scene_manager->destroyItem(record.item);
@@ -10727,20 +10718,47 @@ RenderOperationResult OgreNextN1Frontend::Render(
         }
         record.deformed_mesh = Impl::NativeMesh{};
       }
-      MeshResourceDescriptor deformed = *base_mesh;
-      deformed.positions = update->positions;
-      deformed.normals = update->normals;
-      deformed.tangents = update->tangents;
-      deformed.velocities = update->velocities;
-      deformed.local_bounds = update->updated_local_bounds;
-      const std::string suffix =
-          "_i" + std::to_string(instance.instance_id) + "_d" +
-          std::to_string(instance.deformation_revision) + "_q" +
-          std::to_string(++impl_->deformed_mesh_sequence);
-      record.deformed_mesh =
-          impl_->CreateMesh(instance.mesh, deformed, suffix);
-      record.item = impl_->scene_manager->createItem(
-          record.deformed_mesh.mesh, Ogre::SCENE_DYNAMIC);
+      // Snapshots may back frames in any order, so a revision transition
+      // back to one legitimately restores the undeformed catalog mesh.
+      const Impl::NativeMesh *render_mesh = nullptr;
+      if (instance.deformation_revision > 1U) {
+        const auto update = std::find_if(
+            snapshot.dynamic_mesh_updates().begin(),
+            snapshot.dynamic_mesh_updates().end(),
+            [&instance](const DynamicMeshUpdateDescriptor &candidate) {
+              return candidate.instance_id == instance.instance_id;
+            });
+        if (update == snapshot.dynamic_mesh_updates().end() ||
+            update->instance_id != instance.instance_id) {
+          return RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N2 could not resolve the validated full deformation update");
+        }
+        MeshResourceDescriptor deformed = *base_mesh;
+        deformed.positions = update->positions;
+        deformed.normals = update->normals;
+        deformed.tangents = update->tangents;
+        deformed.velocities = update->velocities;
+        deformed.local_bounds = update->updated_local_bounds;
+        const std::string suffix =
+            "_i" + std::to_string(instance.instance_id) + "_d" +
+            std::to_string(instance.deformation_revision) + "_q" +
+            std::to_string(++impl_->deformed_mesh_sequence);
+        record.deformed_mesh =
+            impl_->CreateMesh(instance.mesh, deformed, suffix);
+        render_mesh = &record.deformed_mesh;
+      } else {
+        const auto mesh = impl_->meshes.find(instance.mesh.id);
+        if (mesh == impl_->meshes.end() ||
+            mesh->second.asset != instance.mesh) {
+          return RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N1 native asset allocation is missing for a validated scene");
+        }
+        render_mesh = &mesh->second;
+      }
+      record.item = impl_->scene_manager->createItem(render_mesh->mesh,
+                                                     Ogre::SCENE_DYNAMIC);
       record.node->attachObject(record.item);
       ++diff_dynamic_updates;
       return RenderOperationResult::Success();

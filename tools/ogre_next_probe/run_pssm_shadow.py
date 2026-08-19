@@ -16,7 +16,7 @@ import tempfile
 from typing import Any
 
 
-REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v4"
+REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v5"
 EXECUTION_SCHEMA = "ror.ogre_next_pssm_shadow_execution_challenge.v1"
 RECEIPT_SCHEMA = "ror.ogre_next_pssm_shadow_execution_receipt.v1"
 ATTESTATION_SCHEMA = "ror.ogre_next_pssm_shadow_attestation.v1"

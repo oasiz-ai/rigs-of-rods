@@ -63,7 +63,7 @@ PSSM_ARTIFACT_MANIFEST_ARTIFACT = (
     "ror-ogre-next-pssm-shadow-artifact-manifest.json"
 )
 PSSM_EXECUTABLE_STEM = "ror_ogre_next_pssm_shadow_smoke"
-PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v4"
+PSSM_REPORT_SCHEMA = "ror.ogre_next_pssm_shadow_smoke.v5"
 PSSM_EXECUTION_SCHEMA = "ror.ogre_next_pssm_shadow_execution_challenge.v1"
 PSSM_EXECUTION_RECEIPT_SCHEMA = (
     "ror.ogre_next_pssm_shadow_execution_receipt.v1"
@@ -4575,13 +4575,16 @@ def _verify_pssm_pass(
             "shadow_node_destroys": 10,
             "workspace_node_definition_creates": 10,
             "workspace_node_definition_destroys": 10,
-            "receiver_datablock_creates": 10,
-            "receiver_datablock_destroys": 10,
+            # v5: the PSSM non-receiver clone lives for its retained
+            # instance's lifetime — one create at admission, one destroy
+            # (with absence proof) at shutdown — instead of one per frame.
+            "receiver_datablock_creates": 1,
+            "receiver_datablock_destroys": 1,
             "d32_atlas_cleanup_absence_checks": 1,
             "workspace_definition_cleanup_absence_checks": 10,
             "workspace_node_cleanup_absence_checks": 10,
             "shadow_node_cleanup_absence_checks": 10,
-            "receiver_datablock_cleanup_absence_checks": 10,
+            "receiver_datablock_cleanup_absence_checks": 1,
             "target_texture_cleanup_absence_checks": 10,
             "d32_post_create_same_instance_retry_verified": True,
             "d32_cleanup_lookup_failure_closed_retry_verified": True,

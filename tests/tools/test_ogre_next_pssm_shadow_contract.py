@@ -413,7 +413,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.smoke)
         for token in (
-            "render_mesh->mesh->getAabb()",
+            "render_mesh.mesh->getAabb()",
             "item->getLocalAabb()",
             "item->getWorldAabbUpdated()",
             "node->_getFullTransformUpdated()",
@@ -455,7 +455,7 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "setCastShadows(casts_shadow)",
             "setReceiveShadows(false)",
             "std::string(kOgreNextUvAffinePbsDatablockPrefix)",
-            '"PssmNonReceiver_f"',
+            '"PssmNonReceiver_i"',
             "mIncludeOverlays = false",
             "PixelFormat::RGBA16_FLOAT",
             "PixelFormat::RGBA8_SRGB",

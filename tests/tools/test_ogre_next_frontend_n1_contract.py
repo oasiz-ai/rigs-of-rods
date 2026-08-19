@@ -620,9 +620,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.smoke)
         for token in (
-            "submitted_frame_meshes.push_back(",
             "impl_->CreateMesh(instance.mesh, deformed, suffix)",
-            "destroy_submitted_frame_meshes",
+            "rebuild_deformed_instance",
+            "frame_meshes.push_back(std::move(record.deformed_mesh))",
         ):
             self.assertIn(token, self.frontend)
         self.assertIn('"dynamic_meshes"', RUNNER_PATH.read_text(encoding="utf-8"))
@@ -648,11 +648,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "kOgreNextRt4LuxToNativePowerScale",
             "getPowerScale()",
             "failed native readback",
-            "destroyLight(iterator->first)",
+            "destroyLight(iterator->light)",
         ):
             self.assertIn(token, self.frontend)
         self.assertLess(
-            self.frontend.index("node->attachObject(light)"),
+            self.frontend.index("record.node->attachObject(record.light)"),
             self.frontend.index("light->setDirection(Ogre::Vector3"),
         )
         self.assertIn(
@@ -1305,7 +1305,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend.index(
                 "native_interop->PreparePublishFrame(", frame_transaction
             ),
-            self.frontend.index("if (!cleanup_scene(false))", frame_transaction),
+            self.frontend.index("if (!cleanup_scene())", frame_transaction),
             self.frontend.index(
                 "hdr_temporal_state.CanCommitPrepared()", frame_transaction
             ),
