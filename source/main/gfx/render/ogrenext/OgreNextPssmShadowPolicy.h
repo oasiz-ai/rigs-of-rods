@@ -33,6 +33,13 @@ constexpr std::uint32_t kOgreNextPssmCascadeCount = 3U;
 // deriving a different cascade distribution.
 constexpr float kOgreNextPssmNearMeters = 0.5F;
 constexpr float kOgreNextPssmFarMeters = 350.0F;
+/// Static admission reaches far beyond the shadow range: reusing the PSSM
+/// far as the admission far made every static object beyond ~500 m simply
+/// not exist on the presenter, popping in as the camera approached. The
+/// admission ball must cover the map's real sightlines; frustum culling on
+/// the presenter keeps distant admitted objects cheap, and the retained
+/// static scene keeps the larger walk a one-time cost per approach.
+constexpr float kOgreNextDemoStaticAdmissionFarMeters = 12000.0F;
 constexpr float kOgreNextPssmLambda = 0.97F;
 constexpr float kOgreNextPssmSplitBlend = 0.125F;
 constexpr float kOgreNextPssmSplitPaddingMeters = 1.0F;

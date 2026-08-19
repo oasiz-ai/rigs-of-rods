@@ -651,7 +651,7 @@ RoR::Render::ValidationResult CaptureOgreNextDemoStaticAdmissionView(
             static_cast<float>(extents.top),
             static_cast<float>(extents.bottom),
             static_cast<float>(camera->getNearClipDistance()),
-            RoR::Render::kOgreNextPssmFarMeters,
+            RoR::Render::kOgreNextDemoStaticAdmissionFarMeters,
             target_aspect, candidate_radius);
     if (!validation)
         return validation;
