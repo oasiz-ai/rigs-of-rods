@@ -2682,6 +2682,15 @@ public:
     }
   };
 
+  /// One retained native directional light. The descriptor is re-applied and
+  /// read back every present; the record exists so set changes and teardown
+  /// have exactly one owner per native Light/SceneNode pair.
+  struct RetainedLight final {
+    LightDescriptor descriptor;
+    Ogre::Light *light = nullptr;
+    Ogre::SceneNode *node = nullptr;
+  };
+
   struct NativeTexture {
     RenderAssetReference asset;
     NativeTextureUsage usage;
@@ -4166,6 +4175,46 @@ public:
     }
     frame_meshes.clear();
     return clean;
+  }
+
+  [[nodiscard]] bool DestroyRetainedLights() noexcept {
+    bool clean = true;
+    for (auto iterator = retained_lights.rbegin();
+         iterator != retained_lights.rend(); ++iterator) {
+      if (iterator->node != nullptr && iterator->light != nullptr) {
+        try {
+          iterator->node->detachObject(iterator->light);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (iterator->light != nullptr) {
+        try {
+          scene_manager->destroyLight(iterator->light);
+        } catch (...) {
+          clean = false;
+        }
+        iterator->light = nullptr;
+      }
+      if (iterator->node != nullptr) {
+        try {
+          scene_manager->destroySceneNode(iterator->node);
+        } catch (...) {
+          clean = false;
+        }
+        iterator->node = nullptr;
+      }
+    }
+    retained_lights.clear();
+    retained_audit.retained_lights = 0U;
+    return clean;
+  }
+
+  /// Tears the retained native scene down to the empty state. Used by the
+  /// present failure path, asset retirement, generation reset, and shutdown;
+  /// the next present rebuilds it from scratch at first-frame cost.
+  [[nodiscard]] bool DestroyRetainedScene() noexcept {
+    return DestroyRetainedLights();
   }
 
   [[nodiscard]] bool DestroyRetainedOutputTarget() noexcept {
@@ -7495,6 +7544,9 @@ public:
     clean = DestroyBootstrapPresentationGraph() && clean;
     clean = DestroyRetainedOutputTarget() && clean;
     clean = DestroyHdrCompositor() && clean;
+    // Retained Items and receiver clones must die before the datablocks,
+    // textures, and meshes they link to.
+    clean = DestroyRetainedScene() && clean;
     clean = DestroyFrameMeshes() && clean;
     clean = DestroyCatalog() && clean;
     if (root && scene_manager != nullptr) {
@@ -7554,6 +7606,8 @@ public:
   std::map<RenderAssetId, NativeMaterial> materials;
   std::map<RenderAssetId, NativeTexture> textures;
   std::vector<NativeMesh> frame_meshes;
+  /// Retained native lights in snapshot order (strictly increasing light_id).
+  std::vector<RetainedLight> retained_lights;
   /// N3/N4 retain their last HDR target until the native image publication
   /// is discarded, or until frontend shutdown first revokes every token.
   Ogre::TextureGpu *retained_output_target = nullptr;
@@ -8953,6 +9007,26 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
     }
     impl_->hdr_exact_current_to_old_copy_verified = false;
   }
+  // The dispatcher gates generation reset on a committed final empty scene,
+  // which empties the retained scene through the diff (rendered) or the
+  // asset-retirement unbind (retired without render). Anything still
+  // retained here is an anomaly: tear it down to empty rather than leak it
+  // into the next generation.
+  if (!impl_->retained_lights.empty()) {
+    ++impl_->retained_audit.recovery_teardowns;
+    if (!impl_->DestroyRetainedScene()) {
+      impl_->faulted = true;
+      return NativeTeardownFailure(
+          "Ogre-Next retained scene generation reset");
+    }
+  }
+  impl_->retained_audit.generation = next_generation;
+  impl_->retained_audit.last_created = 0U;
+  impl_->retained_audit.last_updated = 0U;
+  impl_->retained_audit.last_destroyed = 0U;
+  impl_->retained_audit.last_dynamic_updates = 0U;
+  impl_->retained_audit.last_verified = 0U;
+  impl_->retained_audit.verify_cursor = 0U;
   impl_->scene_generation = next_generation;
   return RenderOperationResult::Success();
 }
@@ -9272,7 +9346,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
   std::uint64_t particle_native_particles_submitted = 0U;
   std::uint64_t particle_native_state_verifications = 0U;
   std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
-  std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
+  // True once the retained native scene may have been mutated this present.
+  // Failures before this point return without touching retained state; any
+  // later failure tears the retained scene down to empty (§fail_after_cleanup)
+  // so a half-applied diff is never observable.
+  bool scene_mutation_started = false;
   struct ReceiverDatablock final {
     Ogre::IdString name;
   };
@@ -9667,31 +9745,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
     receiver_datablocks.clear();
-    for (auto iterator = lights.rbegin(); iterator != lights.rend();
-         ++iterator) {
-      if (iterator->second != nullptr && iterator->first != nullptr) {
-        try {
-          iterator->second->detachObject(iterator->first);
-        } catch (...) {
-          clean = false;
-        }
-      }
-      if (iterator->first != nullptr) {
-        try {
-          impl_->scene_manager->destroyLight(iterator->first);
-        } catch (...) {
-          clean = false;
-        }
-      }
-      if (iterator->second != nullptr) {
-        try {
-          impl_->scene_manager->destroySceneNode(iterator->second);
-        } catch (...) {
-          clean = false;
-        }
-      }
-    }
-    lights.clear();
     if (destroy_frame_geometry) {
       clean = destroy_submitted_frame_meshes() && clean;
     }
@@ -9775,6 +9828,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
     clean = abort_hdr_pssm_finalization() && clean;
     clean = abort_production_output() && clean;
     clean = cleanup_scene(false) && clean;
+    if (scene_mutation_started) {
+      // A failed present must never leave a half-mutated retained scene:
+      // tear down to empty and let the next present rebuild from scratch.
+      ++impl_->retained_audit.recovery_teardowns;
+      clean = impl_->DestroyRetainedScene() && clean;
+    }
     clean = destroy_retained_target() && clean;
     clean = destroy_submitted_frame_meshes() && clean;
     if (hdr_native_frame_executed) {
@@ -9922,15 +9981,51 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
 
+    // The retained light set is keyed by light_id; set changes (generation
+    // boundaries) destroy and recreate. Every present re-applies the full
+    // setter set and reads it back: the HDR directional split listener
+    // rewrites directional power inside the compositor each frame, so the
+    // retained light has the highest drift exposure in the scene.
     const auto light_phase_start = std::chrono::steady_clock::now();
-    lights.reserve(snapshot.lights().size());
+    scene_mutation_started = true;
+    bool retained_light_set_matches =
+        impl_->retained_lights.size() == snapshot.lights().size();
+    for (std::size_t index = 0U;
+         retained_light_set_matches && index < snapshot.lights().size();
+         ++index) {
+      retained_light_set_matches =
+          impl_->retained_lights[index].descriptor.light_id ==
+          snapshot.lights()[index].light_id;
+    }
+    if (!retained_light_set_matches) {
+      if (!impl_->DestroyRetainedLights()) {
+        impl_->faulted = true;
+        return fail_after_cleanup(
+            NativeTeardownFailure("Ogre-Next retained light replacement"));
+      }
+      impl_->retained_lights.reserve(snapshot.lights().size());
+      for (const LightDescriptor &descriptor : snapshot.lights()) {
+        // Establish the ownership record before native allocation so a
+        // partial light set has exactly one teardown target.
+        impl_->retained_lights.emplace_back();
+        Impl::RetainedLight &record = impl_->retained_lights.back();
+        record.descriptor = descriptor;
+        record.light = impl_->scene_manager->createLight();
+        record.node =
+            impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
+        record.node->attachObject(record.light);
+      }
+      impl_->retained_audit.retained_lights =
+          static_cast<std::uint64_t>(impl_->retained_lights.size());
+    }
     bool positive_calibrated_directional_light = false;
-    for (const LightDescriptor &descriptor : snapshot.lights()) {
-      Ogre::Light *light = impl_->scene_manager->createLight();
-      lights.emplace_back(light, nullptr);
-      Ogre::SceneNode *node =
-          impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
-      lights.back().second = node;
+    for (std::size_t light_index = 0U;
+         light_index < snapshot.lights().size(); ++light_index) {
+      const LightDescriptor &descriptor = snapshot.lights()[light_index];
+      Impl::RetainedLight &retained_light =
+          impl_->retained_lights[light_index];
+      retained_light.descriptor = descriptor;
+      Ogre::Light *light = retained_light.light;
       light->setType(Ogre::Light::LT_DIRECTIONAL);
       if (persistent_hdr) {
         light->setVisibilityFlags(kOgreNextRt4AuthoredVisibilityMask);
@@ -9943,7 +10038,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                descriptor.color_linear.z);
       light->setPowerScale(
           descriptor.intensity * kOgreNextRt4LuxToNativePowerScale);
-      node->attachObject(light);
       light->setDirection(Ogre::Vector3(descriptor.direction.x,
                                         descriptor.direction.y,
                                         descriptor.direction.z));
@@ -11221,7 +11315,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const std::size_t render_iterations =
         request.present || persistent_hdr ? 1U : 3U;
     if (persistent_hdr && !impl_->SingleSceneHdrPssmEnabled()) {
-      impl_->hdr_directional_split_listener.BeginFrame(lights);
+      std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>>
+          retained_light_pairs;
+      retained_light_pairs.reserve(impl_->retained_lights.size());
+      for (const Impl::RetainedLight &record : impl_->retained_lights) {
+        retained_light_pairs.emplace_back(record.light, record.node);
+      }
+      impl_->hdr_directional_split_listener.BeginFrame(retained_light_pairs);
     }
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
       if (persistent_hdr) {
@@ -11733,7 +11833,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       retained.destroyed += rebuilt_instances;
       retained.verified += rebuilt_instances;
       retained.retained_instances = 0U;
-      retained.retained_lights = 0U;
+      retained.retained_lights =
+          static_cast<std::uint64_t>(impl_->retained_lights.size());
       retained.bounds_entries = 0U;
     }
     output = std::move(candidate);
