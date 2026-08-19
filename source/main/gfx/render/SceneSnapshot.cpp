@@ -411,6 +411,9 @@ std::uint64_t ComputeSceneLightingEnvironmentHash(
   hasher.AddFloat3(environment.analytic_sky.ground_radiance);
   hasher.AddFloat3(environment.analytic_sky.sun_disk_radiance);
   hasher.AddFloat(environment.analytic_sky.sun_angular_radius_radians);
+  hasher.AddFloat(environment.analytic_sky.cloud_coverage);
+  hasher.AddFloat3(environment.analytic_sky.cloud_radiance);
+  hasher.AddFloat(environment.analytic_sky.cloud_phase_radians);
   hasher.AddFloat(environment.exposure_compensation_ev);
 
   hasher.AddU64(static_cast<std::uint64_t>(descriptor.lights.size()));
@@ -516,7 +519,9 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
       !IsFinite(sky.horizon_radiance) ||
       !IsFinite(sky.ground_radiance) ||
       !IsFinite(sky.sun_disk_radiance) ||
-      !IsFinite(sky.sun_angular_radius_radians)) {
+      !IsFinite(sky.sun_angular_radius_radians) ||
+      !IsFinite(sky.cloud_coverage) || !IsFinite(sky.cloud_radiance) ||
+      !IsFinite(sky.cloud_phase_radians)) {
     return ValidationResult::Failure(
         ValidationCode::NON_FINITE_VALUE, "environment.analytic_sky",
         "all analytic sky numeric fields must be finite");
@@ -526,7 +531,10 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
         !IsCanonicalZero(sky.horizon_radiance) ||
         !IsCanonicalZero(sky.ground_radiance) ||
         !IsCanonicalZero(sky.sun_disk_radiance) ||
-        sky.sun_angular_radius_radians != 0.0F) {
+        sky.sun_angular_radius_radians != 0.0F ||
+        sky.cloud_coverage != 0.0F ||
+        !IsCanonicalZero(sky.cloud_radiance) ||
+        sky.cloud_phase_radians != 0.0F) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "environment.analytic_sky",
           "disabled analytic sky state must use its canonical zero payload");
@@ -537,13 +545,15 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
              !IsNonNegative(sky.ground_radiance) ||
              !IsNonNegative(sky.sun_disk_radiance) ||
              sky.sun_angular_radius_radians <= 0.0F ||
-             sky.sun_angular_radius_radians > kHalfPi) {
+             sky.sun_angular_radius_radians > kHalfPi ||
+             sky.cloud_coverage < 0.0F || sky.cloud_coverage > 1.0F ||
+             !IsNonNegative(sky.cloud_radiance)) {
     return ValidationResult::Failure(
         sky.sun_light_id == 0U ? ValidationCode::INVALID_IDENTIFIER
                                : ValidationCode::VALUE_OUT_OF_RANGE,
         "environment.analytic_sky",
-        "enabled sky requires a sun identity, nonnegative radiance, and a "
-        "sun half-angle in (0, pi/2]");
+        "enabled sky requires a sun identity, nonnegative radiance, a sun "
+        "half-angle in (0, pi/2], and cloud coverage in [0, 1]");
   }
   const bool environment_texture_absent = IsAbsentRenderAssetReference(
       descriptor.environment.environment_texture);

@@ -610,7 +610,7 @@ void TestConstantEnvironmentConversionIsExactAndTransactional() {
 
 void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
   using namespace RoR::Render;
-  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 2U);
+  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 3U);
   GraphicsSceneLightInput sun;
   sun.source_light_id = 0xA51U;
   sun.type = LightType::DIRECTIONAL;
@@ -621,7 +621,7 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
   SceneEnvironmentDescriptor environment;
   environment.ambient_radiance = {9.0F, 8.0F, 7.0F};
   ValidationResult result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
-      {0.2F, 0.25F, 0.3F}, sun, environment);
+      {0.2F, 0.25F, 0.3F}, sun, 100.0, environment);
   Require(result.ok() && environment.analytic_sky.enabled &&
               environment.analytic_sky.sun_light_id == sun.source_light_id &&
               Near(environment.analytic_sky.zenith_radiance.x, 0.044F) &&
@@ -639,12 +639,21 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
               environment.exposure_compensation_ev ==
                   kOgre14ModernAnalyticSkyExposureCompensationEv,
           "policy-v2 daylight sky did not preserve its reviewed coefficients or live sun identity");
+  // Policy v3 clouds: coverage tracks the same daylight term, the cloud
+  // radiance is 0.5*horizon + 0.10*native_sun*daylight per channel, and the
+  // phase is fmod(simulation_time * rate, 2*pi) - here 100 s * 0.004 = 0.4.
+  Require(Near(environment.analytic_sky.cloud_coverage, 0.45F) &&
+              Near(environment.analytic_sky.cloud_radiance.x, 0.1675F) &&
+              Near(environment.analytic_sky.cloud_radiance.y, 0.169375F) &&
+              Near(environment.analytic_sky.cloud_radiance.z, 0.17125F) &&
+              Near(environment.analytic_sky.cloud_phase_radians, 0.4F),
+          "policy-v3 daylight cloud layer did not preserve its reviewed coefficients");
 
   Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
                                           sun.color_linear),
           "smoke sun chromaticity fixture could not be normalized");
   result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
-      {0.01F, 0.012F, 0.015F}, sun, environment);
+      {0.01F, 0.012F, 0.015F}, sun, 100.0, environment);
   Require(result.ok() &&
               environment.analytic_sky.zenith_radiance ==
                   Float3{0.0114296256F, 0.0236894581F,
@@ -659,11 +668,16 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
                   Float3{25.812335968017578F, 23.74734878540039F,
                          21.166114807128906F},
           "RT4 smoke sky no longer matches the exact policy-v2 report oracle");
+  Require(Near(environment.analytic_sky.cloud_coverage, 0.45F) &&
+              Near(environment.analytic_sky.cloud_radiance.x, 0.1237453F) &&
+              Near(environment.analytic_sky.cloud_radiance.y, 0.1175762F) &&
+              Near(environment.analytic_sky.cloud_radiance.z, 0.1104729F),
+          "chromatic-sun cloud radiance no longer matches the policy-v3 mix");
 
   const SceneEnvironmentDescriptor accepted = environment;
   sun.type = LightType::POINT;
   result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
-      {0.2F, 0.25F, 0.3F}, sun, environment);
+      {0.2F, 0.25F, 0.3F}, sun, 100.0, environment);
   Require(!result && result.code == ValidationCode::WRONG_RESOURCE_KIND &&
               environment.analytic_sky.sun_light_id ==
                   accepted.analytic_sky.sun_light_id &&
@@ -672,15 +686,38 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
           "non-directional sky authority was accepted or changed output");
 
   sun.type = LightType::DIRECTIONAL;
+  result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+      {0.2F, 0.25F, 0.3F}, sun, -1.0, environment);
+  Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE &&
+              environment.analytic_sky.cloud_phase_radians ==
+                  accepted.analytic_sky.cloud_phase_radians,
+          "negative simulation time was accepted or changed output");
+  result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
+      {0.2F, 0.25F, 0.3F}, sun,
+      std::numeric_limits<double>::quiet_NaN(), environment);
+  Require(!result && result.code == ValidationCode::NON_FINITE_VALUE &&
+              environment.analytic_sky.cloud_coverage ==
+                  accepted.analytic_sky.cloud_coverage,
+          "non-finite simulation time was accepted or changed output");
+
   sun.direction = {0.0F, 0.8F, -0.6F};
   result = BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
-      {0.2F, 0.25F, 0.3F}, sun, environment);
+      {0.2F, 0.25F, 0.3F}, sun, 2000.0, environment);
   Require(result.ok() &&
               Near(environment.analytic_sky.zenith_radiance.x, 0.016F) &&
               Near(environment.analytic_sky.zenith_radiance.y, 0.025F) &&
               Near(environment.analytic_sky.zenith_radiance.z, 0.066F) &&
               environment.analytic_sky.sun_disk_radiance == Float3{},
           "policy-v1 below-horizon sun did not produce its exact night sky");
+  // Night: coverage collapses to zero with the daylight term while the cloud
+  // radiance stays the pure horizon mix; 2000 s * 0.004 = 8 wraps past 2*pi.
+  Require(environment.analytic_sky.cloud_coverage == 0.0F &&
+              Near(environment.analytic_sky.cloud_radiance.x, 0.012F) &&
+              Near(environment.analytic_sky.cloud_radiance.y, 0.0125F) &&
+              Near(environment.analytic_sky.cloud_radiance.z, 0.027F) &&
+              Near(environment.analytic_sky.cloud_phase_radians,
+                   1.71681469F),
+          "policy-v3 night cloud state did not collapse deterministically");
 }
 
 void TestLightIdentityIsStableExactAndTransactional() {

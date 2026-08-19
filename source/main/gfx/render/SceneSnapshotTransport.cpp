@@ -95,6 +95,9 @@ bool WriteEnvironment(WireWriter &writer,
          WriteFloat3(writer, sky.ground_radiance) &&
          WriteFloat3(writer, sky.sun_disk_radiance) &&
          writer.AddFloat(sky.sun_angular_radius_radians) &&
+         writer.AddFloat(sky.cloud_coverage) &&
+         WriteFloat3(writer, sky.cloud_radiance) &&
+         writer.AddFloat(sky.cloud_phase_radians) &&
          writer.AddFloat(environment.exposure_compensation_ev);
 }
 
@@ -368,6 +371,9 @@ bool ReadEnvironment(WireReader &reader,
          ReadFloat3(reader, sky.ground_radiance) &&
          ReadFloat3(reader, sky.sun_disk_radiance) &&
          reader.ReadFloat(sky.sun_angular_radius_radians) &&
+         reader.ReadFloat(sky.cloud_coverage) &&
+         ReadFloat3(reader, sky.cloud_radiance) &&
+         reader.ReadFloat(sky.cloud_phase_radians) &&
          reader.ReadFloat(environment.exposure_compensation_ev);
 }
 
@@ -667,7 +673,7 @@ SceneSnapshotTransportDecodeResult Failure(
 bool IsKnownSceneSnapshotTransportMessageKind(
     SceneSnapshotTransportMessageKind kind) noexcept {
   return kind ==
-         SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
+         SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
 }
 
 std::array<std::uint8_t, 32U>
@@ -766,7 +772,7 @@ SceneSnapshotTransportEncodeResult EncodeSceneSnapshotTransportFrame(
       return result;
     }
     return EncodeRenderTransportEnvelope(
-        SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2,
+        SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2,
         sequence, payload, kSceneSnapshotTransportMaximumPayloadBytes);
   } catch (const std::bad_alloc &) {
     result.bytes.clear();

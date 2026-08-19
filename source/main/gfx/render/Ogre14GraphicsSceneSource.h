@@ -827,7 +827,7 @@ constexpr std::uint32_t kOgre14LightCompatibilityCalibrationVersion = 1U;
 /// deliberately derives a bounded-shape modern sky from only the joined live
 /// ambient value and the exact captured main-light direction/chromaticity/
 /// power. Changing any coefficient is therefore a reviewed policy revision.
-constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 2U;
+constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 3U;
 constexpr float kOgre14ModernAnalyticSunAngularRadiusRadians = 0.00465047F;
 /// Policy v2: the pinned Ogre-Next HDR tonemap was reviewed against scenes
 /// several stops brighter than the native OGRE 14 lighting domain, so the
@@ -845,6 +845,17 @@ constexpr float kOgre14ModernAnalyticSkyExposureCompensationEv = 3.5F;
 /// HlmsPbs AmbientFixed, shadow/sunlit = f/(1+f), so 0.15 seats fully
 /// shadowed surfaces at ~13% of sunlit - clear-day photometry.
 constexpr float kOgre14ModernAnalyticSkyAmbientSunFraction = 0.15F;
+/// Policy v3 adds the deterministic cloud layer. Coverage scales with the
+/// same smoothstepped daylight term as the gradient so clouds fade out with
+/// the sun instead of floating over a night sky; the cloud radiance sits
+/// between the horizon band and a sun-tinted white so the layer reads as lit
+/// vapour rather than as a second gradient. The drift rate is radians of
+/// pattern phase per simulation second - simulation time is the only clock so
+/// replayed captures reproduce identical cloud geometry.
+constexpr float kOgre14ModernAnalyticSkyCloudCoverageDaylightFraction = 0.45F;
+constexpr float kOgre14ModernAnalyticSkyCloudHorizonFraction = 0.5F;
+constexpr float kOgre14ModernAnalyticSkyCloudSunFraction = 0.10F;
+constexpr float kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond = 0.004F;
 
 enum class Ogre14GraphicsSceneLightKind : std::uint8_t {
   POINT = 0U,
@@ -935,13 +946,16 @@ private:
     const Float3 &native_ambient_linear,
     SceneEnvironmentDescriptor &environment);
 
-/// Adds policy-v1 analytic sky state to the exact constant-ambient
+/// Adds versioned analytic sky state to the exact constant-ambient
 /// conversion. `sun` must be the matching converted live directional light;
-/// its stable identity is referenced directly, never recreated. Failure
-/// leaves `environment` untouched.
+/// its stable identity is referenced directly, never recreated.
+/// `simulation_time_seconds` must be the joined finite nonnegative simulation
+/// time; it drives only the deterministic cloud phase, never a wall clock.
+/// Failure leaves `environment` untouched.
 [[nodiscard]] ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
     const Float3 &native_ambient_linear,
     const GraphicsSceneLightInput &sun,
+    double simulation_time_seconds,
     SceneEnvironmentDescriptor &environment);
 
 /// Builds the canonical right-handed, [0,1]-depth camera contract without

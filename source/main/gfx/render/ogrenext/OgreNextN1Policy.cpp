@@ -659,13 +659,22 @@ ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
                       environment.environment_intensity) ||
       !IsFiniteScaled(sky.sun_disk_radiance,
                       environment.environment_intensity) ||
+      !IsFiniteScaled(sky.cloud_radiance,
+                      environment.environment_intensity) ||
       !IsFinite(sky.sun_angular_radius_radians) ||
       sky.sun_angular_radius_radians <= 0.0F ||
       sky.sun_angular_radius_radians > 1.57079632679489661923F ||
+      !IsFinite(sky.cloud_coverage) || sky.cloud_coverage < 0.0F ||
+      sky.cloud_coverage > 1.0F || !IsFinite(sky.cloud_phase_radians) ||
+      // Producers emit fmod(..., 2*pi); anything outside that canonical
+      // range would push the noise-lattice float-to-integer casts out of
+      // their defined domain, so it fails closed here instead.
+      sky.cloud_phase_radians < 0.0F ||
+      sky.cloud_phase_radians > 6.28318530717958647692F ||
       !IsFinite(sun.direction)) {
     return Unsupported(
         "environment.analytic_sky",
-        "analytic sky radiance, radius, or directional-light geometry is not representable by native binary32 mesh state");
+        "analytic sky radiance, radius, cloud state, or directional-light geometry is not representable by native binary32 mesh state");
   }
 
   const auto length = [](const Float3 &value) noexcept {
@@ -701,32 +710,125 @@ ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
   const Float4 horizon = scaled_radiance(sky.horizon_radiance);
   const Float4 ground = scaled_radiance(sky.ground_radiance);
   const Float4 disk = scaled_radiance(sky.sun_disk_radiance);
+  const Float4 cloud = scaled_radiance(sky.cloud_radiance);
   constexpr float kHalfPi = 1.57079632679489661923F;
   constexpr float kTwoPi = 6.28318530717958647692F;
 
+  // The cloud field is pure deterministic integer/float arithmetic - an
+  // FNV-1a-32 lattice hash under 3-octave bilinear value noise. No libm
+  // transcendental participates, so equal descriptors reproduce identical
+  // radiance bytes and the per-frame geometry hash and optional GPU byte
+  // readback stay meaningful determinism evidence. Longitude lattice indices
+  // wrap modulo the per-octave cell count, keeping the field 2*pi-periodic
+  // so the duplicated wrap column carries exactly the column-zero radiance.
+  constexpr std::uint32_t kCloudCellsPerRevolution = 8U;
+  constexpr std::uint32_t kCloudOctaves = 3U;
+  const auto lattice_hash01 = [](std::uint32_t x, std::uint32_t y,
+                                 std::uint32_t octave) noexcept {
+    std::uint32_t hash = 2166136261U;
+    for (const std::uint32_t word : {x, y, octave}) {
+      for (std::uint32_t byte = 0U; byte < 4U; ++byte) {
+        hash ^= (word >> (byte * 8U)) & 0xFFU;
+        hash *= 16777619U;
+      }
+    }
+    return static_cast<float>(hash >> 8U) * (1.0F / 16777216.0F);
+  };
+  const auto cloud_field = [&](float longitude_revolutions,
+                               float sin_latitude) noexcept {
+    float total = 0.0F;
+    float amplitude = 1.0F;
+    float amplitude_sum = 0.0F;
+    for (std::uint32_t octave = 0U; octave < kCloudOctaves; ++octave) {
+      const std::uint32_t cells = kCloudCellsPerRevolution << octave;
+      const float sample_x =
+          (longitude_revolutions +
+           sky.cloud_phase_radians * (1.0F / kTwoPi)) *
+          static_cast<float>(cells);
+      const float sample_y = sin_latitude * 3.0F *
+                             static_cast<float>(1U << octave);
+      const float cell_x = std::floor(sample_x);
+      const float cell_y = std::floor(sample_y);
+      // Both samples are nonnegative by construction: longitude and phase
+      // are in [0, 2*pi) and the upper hemisphere keeps sin_latitude >= 0.
+      const std::uint32_t x0 = static_cast<std::uint32_t>(cell_x) % cells;
+      const std::uint32_t x1 = (x0 + 1U) % cells;
+      const std::uint32_t y0 = static_cast<std::uint32_t>(cell_y);
+      const float fraction_x = sample_x - cell_x;
+      const float fraction_y = sample_y - cell_y;
+      const float weight_x =
+          fraction_x * fraction_x * (3.0F - 2.0F * fraction_x);
+      const float weight_y =
+          fraction_y * fraction_y * (3.0F - 2.0F * fraction_y);
+      const float bottom =
+          lattice_hash01(x0, y0, octave) +
+          (lattice_hash01(x1, y0, octave) - lattice_hash01(x0, y0, octave)) *
+              weight_x;
+      const float top =
+          lattice_hash01(x0, y0 + 1U, octave) +
+          (lattice_hash01(x1, y0 + 1U, octave) -
+           lattice_hash01(x0, y0 + 1U, octave)) *
+              weight_x;
+      total += (bottom + (top - bottom) * weight_y) * amplitude;
+      amplitude_sum += amplitude;
+      amplitude *= 0.5F;
+    }
+    return total / amplitude_sum;
+  };
+  const auto cloud_density = [&](float longitude_revolutions,
+                                 float sin_latitude) noexcept {
+    const float field = cloud_field(longitude_revolutions, sin_latitude);
+    const float divisor =
+        sky.cloud_coverage > 1.0e-3F ? sky.cloud_coverage : 1.0e-3F;
+    const float remapped = std::clamp(
+        (field - (1.0F - sky.cloud_coverage)) / divisor, 0.0F, 1.0F);
+    const float shaped = remapped * remapped * (3.0F - 2.0F * remapped);
+    // Fading to zero below ~5 degrees keeps the horizon ring at exactly the
+    // analytic horizon radiance, which downstream haze converges against.
+    const float horizon_fade =
+        std::clamp((sin_latitude - 0.087F) / 0.10F, 0.0F, 1.0F);
+    return shaped * horizon_fade;
+  };
+
+  const bool clouds_enabled = sky.cloud_coverage > 0.0F;
+  const std::uint32_t upper_rings = clouds_enabled
+                                        ? kOgreNextAnalyticSkyCloudRings
+                                        : kOgreNextAnalyticSkyHemisphereRings;
+  const std::uint32_t upper_segments =
+      clouds_enabled ? kOgreNextAnalyticSkyCloudSegments
+                     : kOgreNextAnalyticSkyLongitudeSegments;
+
   try {
     OgreNextAnalyticSkyNativeMesh candidate;
-    constexpr std::size_t kRingVertices =
-        static_cast<std::size_t>(kOgreNextAnalyticSkyLongitudeSegments) + 1U;
-    constexpr std::size_t kHemisphereVertices =
-        static_cast<std::size_t>(kOgreNextAnalyticSkyHemisphereRings) *
-            kRingVertices +
-        1U;
-    constexpr std::size_t kHemisphereIndices =
-        (static_cast<std::size_t>(kOgreNextAnalyticSkyHemisphereRings) - 1U) *
-            kOgreNextAnalyticSkyLongitudeSegments * 6U +
-        kOgreNextAnalyticSkyLongitudeSegments * 3U;
-    candidate.background_vertices.reserve(kHemisphereVertices * 2U);
-    candidate.background_indices.reserve(kHemisphereIndices * 2U);
+    const auto hemisphere_vertices = [](std::uint32_t rings,
+                                        std::uint32_t segments) noexcept {
+      return static_cast<std::size_t>(rings) *
+                 (static_cast<std::size_t>(segments) + 1U) +
+             1U;
+    };
+    const auto hemisphere_indices = [](std::uint32_t rings,
+                                       std::uint32_t segments) noexcept {
+      return (static_cast<std::size_t>(rings) - 1U) *
+                 static_cast<std::size_t>(segments) * 6U +
+             static_cast<std::size_t>(segments) * 3U;
+    };
+    candidate.background_vertices.reserve(
+        hemisphere_vertices(upper_rings, upper_segments) +
+        hemisphere_vertices(kOgreNextAnalyticSkyHemisphereRings,
+                            kOgreNextAnalyticSkyLongitudeSegments));
+    candidate.background_indices.reserve(
+        hemisphere_indices(upper_rings, upper_segments) +
+        hemisphere_indices(kOgreNextAnalyticSkyHemisphereRings,
+                           kOgreNextAnalyticSkyLongitudeSegments));
 
-    const auto append_hemisphere = [&](bool upper) {
+    const auto append_hemisphere = [&](std::uint32_t rings,
+                                       std::uint32_t segments, bool upper) {
+      const std::uint32_t ring_vertices = segments + 1U;
       const std::uint32_t base = static_cast<std::uint32_t>(
           candidate.background_vertices.size());
-      for (std::uint32_t ring = 0U;
-           ring < kOgreNextAnalyticSkyHemisphereRings; ++ring) {
+      for (std::uint32_t ring = 0U; ring < rings; ++ring) {
         const float vertical_fraction =
-            static_cast<float>(ring) /
-            static_cast<float>(kOgreNextAnalyticSkyHemisphereRings);
+            static_cast<float>(ring) / static_cast<float>(rings);
         const float latitude = vertical_fraction * kHalfPi;
         const float signed_y =
             (upper ? 1.0F : -1.0F) * std::sin(latitude);
@@ -738,27 +840,32 @@ ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
               horizon.y + (zenith.y - horizon.y) * signed_y,
               horizon.z + (zenith.z - horizon.z) * signed_y, 1.0F};
         }
-        for (std::uint32_t segment = 0U;
-             segment <= kOgreNextAnalyticSkyLongitudeSegments; ++segment) {
+        for (std::uint32_t segment = 0U; segment <= segments; ++segment) {
           const float longitude =
-              static_cast<float>(segment) /
-              static_cast<float>(kOgreNextAnalyticSkyLongitudeSegments) *
+              static_cast<float>(segment) / static_cast<float>(segments) *
               kTwoPi;
+          Float4 vertex_radiance = radiance;
+          if (upper && clouds_enabled) {
+            const float density = cloud_density(
+                static_cast<float>(segment % segments) /
+                    static_cast<float>(segments),
+                signed_y);
+            vertex_radiance = {
+                radiance.x + (cloud.x - radiance.x) * density,
+                radiance.y + (cloud.y - radiance.y) * density,
+                radiance.z + (cloud.z - radiance.z) * density, 1.0F};
+          }
           candidate.background_vertices.push_back({
               {radius * horizontal * std::cos(longitude), radius * signed_y,
                radius * horizontal * std::sin(longitude)},
-              radiance});
+              vertex_radiance});
         }
       }
-      for (std::uint32_t ring = 0U;
-           ring + 1U < kOgreNextAnalyticSkyHemisphereRings; ++ring) {
-        for (std::uint32_t segment = 0U;
-             segment < kOgreNextAnalyticSkyLongitudeSegments; ++segment) {
+      for (std::uint32_t ring = 0U; ring + 1U < rings; ++ring) {
+        for (std::uint32_t segment = 0U; segment < segments; ++segment) {
           const std::uint32_t first =
-              base + ring * static_cast<std::uint32_t>(kRingVertices) +
-              segment;
-          const std::uint32_t next =
-              first + static_cast<std::uint32_t>(kRingVertices);
+              base + ring * ring_vertices + segment;
+          const std::uint32_t next = first + ring_vertices;
           candidate.background_indices.insert(
               candidate.background_indices.end(),
               {first, next, first + 1U, first + 1U, next, next + 1U});
@@ -766,21 +873,26 @@ ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
       }
       const std::uint32_t pole = static_cast<std::uint32_t>(
           candidate.background_vertices.size());
+      Float4 pole_radiance = upper ? zenith : ground;
+      if (upper && clouds_enabled) {
+        const float density = cloud_density(0.0F, 1.0F);
+        pole_radiance = {
+            zenith.x + (cloud.x - zenith.x) * density,
+            zenith.y + (cloud.y - zenith.y) * density,
+            zenith.z + (cloud.z - zenith.z) * density, 1.0F};
+      }
       candidate.background_vertices.push_back(
-          {{0.0F, upper ? radius : -radius, 0.0F},
-           upper ? zenith : ground});
-      const std::uint32_t final_ring =
-          base + (kOgreNextAnalyticSkyHemisphereRings - 1U) *
-                     static_cast<std::uint32_t>(kRingVertices);
-      for (std::uint32_t segment = 0U;
-           segment < kOgreNextAnalyticSkyLongitudeSegments; ++segment) {
+          {{0.0F, upper ? radius : -radius, 0.0F}, pole_radiance});
+      const std::uint32_t final_ring = base + (rings - 1U) * ring_vertices;
+      for (std::uint32_t segment = 0U; segment < segments; ++segment) {
         candidate.background_indices.insert(
             candidate.background_indices.end(),
             {final_ring + segment, pole, final_ring + segment + 1U});
       }
     };
-    append_hemisphere(true);
-    append_hemisphere(false);
+    append_hemisphere(upper_rings, upper_segments, true);
+    append_hemisphere(kOgreNextAnalyticSkyHemisphereRings,
+                      kOgreNextAnalyticSkyLongitudeSegments, false);
 
     candidate.sun_vertices.reserve(
         static_cast<std::size_t>(kOgreNextAnalyticSkySunSegments) + 2U);

@@ -55,7 +55,7 @@ struct RendererFrontendTransportDispatchResult final {
   RendererFrontendTransportDispatchStatus terminal_cause =
       RendererFrontendTransportDispatchStatus::FAILED_INTERNAL;
   RenderTransportMessageKind kind =
-      RenderTransportMessageKind::SCENE_SNAPSHOT_V4_CAMERA_V2;
+      RenderTransportMessageKind::SCENE_SNAPSHOT_V5_CAMERA_V2;
   std::uint64_t sequence = 0U;
   /// Exact decoded immutable snapshot identity for a successfully completed
   /// scene. Asset results and every rejected/failed result leave this zero.

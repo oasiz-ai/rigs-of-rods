@@ -56,6 +56,10 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
   descriptor.environment.analytic_sky.sun_disk_radiance = {9000.0F, 8500.0F,
                                                             7200.0F};
   descriptor.environment.analytic_sky.sun_angular_radius_radians = 0.00465F;
+  descriptor.environment.analytic_sky.cloud_coverage = 0.45F;
+  descriptor.environment.analytic_sky.cloud_radiance = {0.1675F, 0.169375F,
+                                                        0.17125F};
+  descriptor.environment.analytic_sky.cloud_phase_radians = 0.4F;
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 10U;
@@ -504,6 +508,33 @@ void TestWorldLightAndParticleValidation() {
                  "disabled analytic sky retained noncanonical live fields");
 
   descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.cloud_coverage = 1.5F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "cloud coverage above one was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.cloud_coverage = -0.25F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "negative cloud coverage was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.cloud_radiance = {0.1F, -0.1F, 0.1F};
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "negative cloud radiance was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.cloud_phase_radians =
+      std::numeric_limits<float>::quiet_NaN();
+  RequireInvalid(descriptor, ValidationCode::NON_FINITE_VALUE,
+                 "non-finite cloud phase was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky = {};
+  descriptor.environment.analytic_sky.cloud_phase_radians = 0.1F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "disabled analytic sky retained live cloud state");
+
+  descriptor = MakeValidDescriptor();
   descriptor.particle_events.front().effect = static_cast<ParticleEffect>(255U);
   RequireInvalid(descriptor, ValidationCode::INVALID_ENUM,
                  "unknown particle effect was accepted");
@@ -665,7 +696,7 @@ void TestCanonicalLightingEnvironmentHash() {
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
   const std::uint64_t baseline =
       ComputeSceneLightingEnvironmentHash(descriptor);
-  Require(baseline == 3546428629778719113ULL,
+  Require(baseline == 2591863498842240184ULL,
           "canonical lighting hash fixture drifted");
 
   SceneSnapshotDescriptor unrelated = descriptor;
@@ -703,6 +734,16 @@ void TestCanonicalLightingEnvironmentHash() {
   changed_sky.environment.analytic_sky.zenith_radiance.x += 0.01F;
   Require(ComputeSceneLightingEnvironmentHash(changed_sky) != baseline,
           "lighting digest omitted analytic environment state");
+
+  SceneSnapshotDescriptor changed_cloud = descriptor;
+  changed_cloud.environment.analytic_sky.cloud_coverage += 0.01F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_cloud) != baseline,
+          "lighting digest omitted cloud coverage");
+  SceneSnapshotDescriptor changed_cloud_phase = descriptor;
+  changed_cloud_phase.environment.analytic_sky.cloud_phase_radians += 0.01F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_cloud_phase) !=
+              baseline,
+          "lighting digest omitted cloud phase");
 
   SceneSnapshotDescriptor reordered = descriptor;
   std::swap(reordered.lights[0U], reordered.lights[1U]);

@@ -891,7 +891,7 @@ void TestTwoEndedAssetSceneInputAckControlAndHalfClose() {
               ReadFrame(fixture.game_outbound.read_handle, stream,
                         scene_frame) &&
               scene_frame.kind == RenderTransportMessageKind::
-                                      SCENE_SNAPSHOT_V4_CAMERA_V2;
+                                      SCENE_SNAPSHOT_V5_CAMERA_V2;
     SceneSnapshotTransportDecodeResult decoded_scene;
     if (ok) {
       decoded_scene = scene_decoder.Accept(scene_frame.bytes);
@@ -1131,7 +1131,7 @@ void TestAcknowledgedSceneCanBePresentedByALaterAck() {
   }
   Require(frames[0U].sequence == 1U && frames[1U].sequence == 2U &&
               frames[1U].kind == RenderTransportMessageKind::
-                                      SCENE_SNAPSHOT_V4_CAMERA_V2 &&
+                                      SCENE_SNAPSHOT_V5_CAMERA_V2 &&
               frames[2U].sequence == 3U &&
               WaitUntil([&session]() {
                 return session.last_written_forward_sequence() == 3U ||
@@ -1363,7 +1363,7 @@ void TestQueuedSceneRetiresAcrossSurfaceBarrier() {
   Require(ReadFrame(fixture.game_outbound.read_handle, stream, retired_frame) &&
               retired_frame.sequence == 2U &&
               retired_frame.kind == RenderTransportMessageKind::
-                                        SCENE_SNAPSHOT_V4_CAMERA_V2 &&
+                                        SCENE_SNAPSHOT_V5_CAMERA_V2 &&
               WaitUntil([&session]() {
                 return session.last_written_forward_sequence() == 2U ||
                        session.terminal();
@@ -1396,7 +1396,7 @@ void TestQueuedSceneRetiresAcrossSurfaceBarrier() {
   Require(ReadFrame(fixture.game_outbound.read_handle, stream, resized_frame) &&
               resized_frame.sequence == 3U &&
               resized_frame.kind == RenderTransportMessageKind::
-                                        SCENE_SNAPSHOT_V4_CAMERA_V2,
+                                        SCENE_SNAPSHOT_V5_CAMERA_V2,
           "resized scene did not continue exact forward lineage");
   (void)session.Close();
 }
@@ -1535,7 +1535,7 @@ void TestProductLifecycleRetainsPendingFrameAcrossBackpressureAndResize() {
   Require(ReadFrame(fixture.game_outbound.read_handle, stream, scene_frame) &&
               scene_frame.sequence == 2U &&
               scene_frame.kind == RenderTransportMessageKind::
-                                      SCENE_SNAPSHOT_V4_CAMERA_V2,
+                                      SCENE_SNAPSHOT_V5_CAMERA_V2,
           "retained scene did not follow its asset without a lineage gap");
   SceneSnapshotTransportDecoder scene_decoder(2U);
   const SceneSnapshotTransportDecodeResult decoded_scene =

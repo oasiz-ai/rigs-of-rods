@@ -9,7 +9,9 @@
 #include "OgreNextN1Policy.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -34,6 +36,38 @@ void Require(bool condition, const char *message) {
     std::cerr << "Ogre-Next N1 policy test failed: " << message << '\n';
     std::exit(EXIT_FAILURE);
   }
+}
+
+/// FNV-1a-64 over the exact binary32 bit patterns and index words of one
+/// built sky mesh, mirroring the frontend's per-frame geometry-content hash
+/// so a pinned golden here is direct determinism evidence for the builder.
+std::uint64_t HashAnalyticSkyMesh(const OgreNextAnalyticSkyNativeMesh &mesh) {
+  std::uint64_t hash = 14695981039346656037ULL;
+  const auto add_u32 = [&hash](std::uint32_t word) {
+    for (std::uint32_t byte = 0U; byte < 4U; ++byte) {
+      hash ^= (word >> (byte * 8U)) & 0xFFU;
+      hash *= 1099511628211ULL;
+    }
+  };
+  const auto add_float = [&add_u32](float value) {
+    std::uint32_t bits = 0U;
+    std::memcpy(&bits, &value, sizeof(bits));
+    add_u32(bits);
+  };
+  for (const OgreNextAnalyticSkyNativeVertex &vertex :
+       mesh.background_vertices) {
+    add_float(vertex.position.x);
+    add_float(vertex.position.y);
+    add_float(vertex.position.z);
+    add_float(vertex.radiance.x);
+    add_float(vertex.radiance.y);
+    add_float(vertex.radiance.z);
+    add_float(vertex.radiance.w);
+  }
+  for (const std::uint32_t index : mesh.background_indices) {
+    add_u32(index);
+  }
+  return hash;
 }
 
 RenderAssetId Id(std::uint64_t low) {
@@ -1994,6 +2028,130 @@ void TestAnalyticSkyNativeMeshIsCameraLocalAndTransactional() {
           "mismatched sky/light identity changed the published native mesh");
 }
 
+void TestAnalyticSkyCloudLayerIsDeterministicAndHorizonExact() {
+  using namespace RoR::Render;
+  SceneEnvironmentDescriptor environment;
+  environment.environment_intensity = 2.0F;
+  environment.analytic_sky.enabled = true;
+  environment.analytic_sky.sun_light_id = 7U;
+  environment.analytic_sky.zenith_radiance = {0.1F, 0.2F, 0.3F};
+  environment.analytic_sky.horizon_radiance = {0.4F, 0.5F, 0.6F};
+  environment.analytic_sky.ground_radiance = {0.01F, 0.02F, 0.03F};
+  environment.analytic_sky.sun_disk_radiance = {8.0F, 7.0F, 6.0F};
+  environment.analytic_sky.sun_angular_radius_radians = 0.00465047F;
+  environment.analytic_sky.cloud_coverage = 0.45F;
+  environment.analytic_sky.cloud_radiance = {0.1675F, 0.169375F, 0.17125F};
+  environment.analytic_sky.cloud_phase_radians = 0.4F;
+  LightDescriptor sun;
+  sun.light_id = 7U;
+  sun.type = LightType::DIRECTIONAL;
+  sun.direction = {0.0F, -0.8F, -0.6F};
+
+  constexpr std::size_t kCloudRingVertices =
+      kOgreNextAnalyticSkyCloudSegments + 1U;
+  constexpr std::size_t kCloudHemisphereVertices =
+      kOgreNextAnalyticSkyCloudRings * kCloudRingVertices + 1U;
+  constexpr std::size_t kCloudHemisphereIndices =
+      (kOgreNextAnalyticSkyCloudRings - 1U) *
+          kOgreNextAnalyticSkyCloudSegments * 6U +
+      kOgreNextAnalyticSkyCloudSegments * 3U;
+  constexpr std::size_t kLegacyRingVertices =
+      kOgreNextAnalyticSkyLongitudeSegments + 1U;
+  constexpr std::size_t kLegacyHemisphereVertices =
+      kOgreNextAnalyticSkyHemisphereRings * kLegacyRingVertices + 1U;
+  constexpr std::size_t kLegacyHemisphereIndices =
+      (kOgreNextAnalyticSkyHemisphereRings - 1U) *
+          kOgreNextAnalyticSkyLongitudeSegments * 6U +
+      kOgreNextAnalyticSkyLongitudeSegments * 3U;
+
+  OgreNextAnalyticSkyNativeMesh mesh;
+  ValidationResult result =
+      BuildOgreNextAnalyticSkyNativeMesh(environment, sun, 2.0F, mesh);
+  Require(result.ok() &&
+              mesh.background_vertices.size() ==
+                  kCloudHemisphereVertices + kLegacyHemisphereVertices &&
+              mesh.background_indices.size() ==
+                  kCloudHemisphereIndices + kLegacyHemisphereIndices &&
+              mesh.sun_vertices.size() ==
+                  kOgreNextAnalyticSkySunSegments + 2U &&
+              mesh.sun_indices.size() ==
+                  kOgreNextAnalyticSkySunSegments * 3U,
+          "cloud-coverage sky did not densify only the upper hemisphere");
+
+  // The horizon ring must remain the exact analytic horizon color so the
+  // aerial-haze convergence contract holds; the wrap column must equal the
+  // first column exactly (the cloud field is 2*pi-periodic by construction).
+  for (std::size_t segment = 0U; segment <= kOgreNextAnalyticSkyCloudSegments;
+       ++segment) {
+    Require(mesh.background_vertices[segment].radiance ==
+                Float4{0.8F, 1.0F, 1.2F, 1.0F},
+            "cloud layer bled into the exact horizon ring");
+  }
+  bool any_cloud_mix = false;
+  for (std::size_t ring = 1U; ring < kOgreNextAnalyticSkyCloudRings; ++ring) {
+    const std::size_t row = ring * kCloudRingVertices;
+    Require(mesh.background_vertices[row].radiance ==
+                mesh.background_vertices[row +
+                                         kOgreNextAnalyticSkyCloudSegments]
+                    .radiance,
+            "cloud wrap column diverged from its first column");
+    for (std::size_t segment = 1U; segment < kOgreNextAnalyticSkyCloudSegments;
+         ++segment) {
+      if (!(mesh.background_vertices[row + segment].radiance ==
+            mesh.background_vertices[row].radiance)) {
+        any_cloud_mix = true;
+      }
+    }
+  }
+  Require(any_cloud_mix,
+          "cloud coverage produced no per-vertex variation at all");
+  const std::size_t lower_base = kCloudHemisphereVertices;
+  Require(mesh.background_vertices[lower_base].radiance ==
+              Float4{0.02F, 0.04F, 0.06F, 1.0F},
+          "cloud layer changed the lower hemisphere");
+
+  OgreNextAnalyticSkyNativeMesh repeat;
+  Require(BuildOgreNextAnalyticSkyNativeMesh(environment, sun, 2.0F, repeat)
+                  .ok() &&
+              repeat.background_vertices.size() ==
+                  mesh.background_vertices.size(),
+          "cloud mesh rebuild failed");
+  const std::uint64_t first_hash = HashAnalyticSkyMesh(mesh);
+  Require(first_hash == HashAnalyticSkyMesh(repeat),
+          "equal descriptors produced different cloud geometry");
+  Require(first_hash == 0x907D62E21D02E799ULL,
+          "pinned deterministic cloud-mesh golden hash drifted");
+
+  SceneEnvironmentDescriptor shifted = environment;
+  shifted.analytic_sky.cloud_phase_radians = 1.2F;
+  OgreNextAnalyticSkyNativeMesh drifted;
+  Require(BuildOgreNextAnalyticSkyNativeMesh(shifted, sun, 2.0F, drifted)
+                  .ok() &&
+              HashAnalyticSkyMesh(drifted) != first_hash,
+          "cloud phase did not move the deterministic pattern");
+
+  const std::size_t accepted_background_size = mesh.background_vertices.size();
+  SceneEnvironmentDescriptor hostile = environment;
+  hostile.analytic_sky.cloud_coverage = 1.5F;
+  result = BuildOgreNextAnalyticSkyNativeMesh(hostile, sun, 2.0F, mesh);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              mesh.background_vertices.size() == accepted_background_size,
+          "out-of-range cloud coverage was accepted or changed the mesh");
+  hostile = environment;
+  hostile.analytic_sky.cloud_phase_radians =
+      std::numeric_limits<float>::quiet_NaN();
+  result = BuildOgreNextAnalyticSkyNativeMesh(hostile, sun, 2.0F, mesh);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              mesh.background_vertices.size() == accepted_background_size,
+          "non-finite cloud phase was accepted or changed the mesh");
+  hostile = environment;
+  hostile.analytic_sky.cloud_phase_radians = 7.0F;
+  result = BuildOgreNextAnalyticSkyNativeMesh(hostile, sun, 2.0F, mesh);
+  Require(!result && result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              mesh.background_vertices.size() == accepted_background_size,
+          "noncanonical cloud phase outside [0, 2*pi] was accepted");
+}
+
 } // namespace
 
 int main() {
@@ -2007,6 +2165,7 @@ int main() {
   TestModernPbrAssetPolicy();
   TestDisplayDomainUnlitPolicy();
   TestAnalyticSkyNativeMeshIsCameraLocalAndTransactional();
+  TestAnalyticSkyCloudLayerIsDeterministicAndHorizonExact();
   TestFrameAndScenePolicy();
   std::cout << "Ogre-Next N1 fail-closed policy tests passed\n";
   return EXIT_SUCCESS;

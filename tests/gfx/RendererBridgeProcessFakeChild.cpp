@@ -427,7 +427,7 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
       !WriteEnvelope(
           outbound,
           RoR::Render::RenderTransportMessageKind::
-              SCENE_SNAPSHOT_V4_CAMERA_V2,
+              SCENE_SNAPSHOT_V5_CAMERA_V2,
           2U, scene_payload)) {
     return kContractFailureExit + 1;
   }
@@ -509,7 +509,7 @@ RunGame(const RoR::RendererBridgeEndpointArgvParseResult &parsed) {
       !ReadEnvelope(
           inbound,
           RoR::Render::RenderTransportMessageKind::
-              SCENE_SNAPSHOT_V4_CAMERA_V2,
+              SCENE_SNAPSHOT_V5_CAMERA_V2,
           2U, scene_payload) ||
       !WriteExact(outbound, kAcknowledgement.data(),
                   kAcknowledgement.size())) {

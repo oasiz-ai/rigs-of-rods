@@ -528,7 +528,7 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
         policy.color_format = Render::PixelFormat::RGBA8_SRGB;
         const bool scene_frame =
             frame.kind == Render::RenderTransportMessageKind::
-                              SCENE_SNAPSHOT_V4_CAMERA_V2;
+                              SCENE_SNAPSHOT_V5_CAMERA_V2;
         policy.retire_scene_without_render =
             scene_frame &&
             (surface_changed || observation.surface.suspended);
@@ -561,7 +561,7 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
           }
         } else if (frame.kind ==
                    Render::RenderTransportMessageKind::
-                       SCENE_SNAPSHOT_V4_CAMERA_V2) {
+                       SCENE_SNAPSHOT_V5_CAMERA_V2) {
           const bool retired =
               dispatched.status == Render::
                   RendererFrontendTransportDispatchStatus::
@@ -606,7 +606,7 @@ RendererOgreNextLiveSessionResult RunRendererOgreNextLiveSession(
             last_presented_snapshot_id;
         if (frame.kind ==
                 Render::RenderTransportMessageKind::
-                    SCENE_SNAPSHOT_V4_CAMERA_V2 &&
+                    SCENE_SNAPSHOT_V5_CAMERA_V2 &&
             dispatched.status == Render::
                 RendererFrontendTransportDispatchStatus::
                     SCENE_FRAME_COMPLETED &&
