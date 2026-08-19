@@ -2842,8 +2842,10 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_procedural_road_inventory =
         Render::Ogre14ProceduralRoadInventory();
     // A fresh coordinator per generation: the opaque catalog identity must
-    // change even when numeric sequences restart at one.
+    // change even when numeric sequences restart at one. Cached observations
+    // carry the old generation's registry receipts, so they go with it.
     m_ogre14_road_material_coordinator.reset();
+    m_ogre14_road_observation_cache.clear();
     m_ogre14_joined_buffer_epoch = 0U;
     m_ogre14_joined_buffer_ready = false;
     m_ogre14_joined_buffer_atomic = false;
@@ -3950,110 +3952,175 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 }
                 std::vector<Render::Ogre14LegacyMaterialObservation>
                     road_observations;
-                for (const Render::Ogre14ProceduralRoadCapture& road_capture :
-                     road_captures)
+                bool used_cached_road_observation = false;
+                const auto observe_road_materials =
+                    [&](const bool allow_cached_observations)
+                    -> Render::ValidationResult
                 {
-                    Render::Ogre14LegacyAssetKey road_material_key;
-                    road_material_key.exact_resource_group =
-                        road_capture.material.exact_resource_group;
-                    road_material_key.exact_name =
-                        road_capture.material.exact_name;
-                    bool already_observed = false;
-                    for (const Render::Ogre14LegacyMaterialObservation&
-                             existing : road_observations)
+                    road_observations.clear();
+                    used_cached_road_observation = false;
+                    for (const Render::Ogre14ProceduralRoadCapture&
+                             road_capture : road_captures)
                     {
-                        if (existing.material_key == road_material_key)
+                        Render::Ogre14LegacyAssetKey road_material_key;
+                        road_material_key.exact_resource_group =
+                            road_capture.material.exact_resource_group;
+                        road_material_key.exact_name =
+                            road_capture.material.exact_name;
+                        bool already_observed = false;
+                        for (const Render::Ogre14LegacyMaterialObservation&
+                                 existing : road_observations)
                         {
-                            already_observed = true;
-                            break;
+                            if (existing.material_key == road_material_key)
+                            {
+                                already_observed = true;
+                                break;
+                            }
                         }
-                    }
-                    if (already_observed)
-                        continue;
-                    Render::Ogre14LegacyMaterialObservation observation;
-                    observation.material_key = road_material_key;
-                    static_validation = m_ogre14_road_material_coordinator->
-                        ResolveMaterialSemantics(
-                            road_material_key,
-                            observation.semantic_resolution);
-                    if (!static_validation)
-                        return static_validation;
-                    const Ogre::MaterialPtr live_road_material =
-                        Ogre::MaterialManager::getSingleton().getByName(
-                            road_material_key.exact_name,
-                            road_material_key.exact_resource_group);
-                    if (!live_road_material)
-                    {
-                        return Render::ValidationResult::Failure(
-                            Render::ValidationCode::MISSING_REFERENCE,
-                            "road.material.live_lookup",
-                            "finalized road material is not loaded");
-                    }
-                    // Producer-side RTT renders (survey map, envmap) let the
-                    // RTSS resolver append generated techniques, while the
-                    // authenticated extractor requires the authored single
-                    // technique. Strip generated techniques through the RTSS
-                    // bookkeeping for the duration of this capture; the
-                    // resolver regenerates them lazily on the next render.
-                    if (live_road_material->getNumTechniques() > 1)
-                    {
-                        Ogre::RTShader::ShaderGenerator* const
-                            shader_generator = Ogre::RTShader::
-                                ShaderGenerator::getSingletonPtr();
-                        if (shader_generator != nullptr)
-                        {
-                            shader_generator->removeAllShaderBasedTechniques(
+                        if (already_observed)
+                            continue;
+                        const Ogre::MaterialPtr live_road_material =
+                            Ogre::MaterialManager::getSingleton().getByName(
                                 road_material_key.exact_name,
                                 road_material_key.exact_resource_group);
-                        }
-                    }
-                    static_validation =
-                        Render::CaptureOgre14LegacyNativeMaterial(
-                            *live_road_material,
-                            observation.semantic_resolution
-                                .native_declaration,
-                            *road_content_manager,
-                            observation.native_capture);
-                    if (!static_validation)
-                        return static_validation;
-                    if (!observation.native_capture.textures.empty() &&
-                        !observation.native_capture.textures.front()
-                             .mip_levels.empty())
-                    {
-                        // Content probe: the readback bytes ship verbatim
-                        // into the closure. A decoded-on-readback sRGB
-                        // texture would arrive here linear and be decoded
-                        // again by the presenter, landing near black.
-                        const std::vector<std::uint8_t>& probe_bytes =
-                            observation.native_capture.textures.front()
-                                .mip_levels.front().bytes;
-                        std::uint64_t probe_sum = 0U;
-                        std::size_t probe_samples = 0U;
-                        for (std::size_t index = 0U;
-                             index + 3U < probe_bytes.size(); index += 4U)
+                        if (!live_road_material)
                         {
-                            probe_sum += probe_bytes[index];
-                            probe_sum += probe_bytes[index + 1U];
-                            probe_sum += probe_bytes[index + 2U];
-                            probe_samples += 3U;
+                            return Render::ValidationResult::Failure(
+                                Render::ValidationCode::MISSING_REFERENCE,
+                                "road.material.live_lookup",
+                                "finalized road material is not loaded");
                         }
-                        LOG(fmt::format(
-                            "[RoR|SceneSource|RoadMaterial] observed "
-                            "texture '{}' mip0 rgb_mean={}",
-                            observation.native_capture.textures.front()
-                                .key.exact_name,
-                            probe_samples == 0U
-                                ? 0U
-                                : probe_sum / probe_samples));
+                        const std::string observation_cache_key =
+                            road_material_key.exact_resource_group + '\n'
+                            + road_material_key.exact_name;
+                        if (allow_cached_observations)
+                        {
+                            const auto cached =
+                                m_ogre14_road_observation_cache.find(
+                                    observation_cache_key);
+                            if (cached != m_ogre14_road_observation_cache.end()
+                                && cached->second.material_state_count
+                                    == static_cast<std::uint64_t>(
+                                        live_road_material->getStateCount()))
+                            {
+                                road_observations.push_back(
+                                    cached->second.observation);
+                                used_cached_road_observation = true;
+                                continue;
+                            }
+                        }
+                        Render::Ogre14LegacyMaterialObservation observation;
+                        observation.material_key = road_material_key;
+                        Render::ValidationResult observation_validation =
+                            m_ogre14_road_material_coordinator->
+                                ResolveMaterialSemantics(
+                                    road_material_key,
+                                    observation.semantic_resolution);
+                        if (!observation_validation)
+                            return observation_validation;
+                        // Producer-side RTT renders (survey map, envmap) let
+                        // the RTSS resolver append generated techniques, while
+                        // the authenticated extractor requires the authored
+                        // single technique. Strip generated techniques through
+                        // the RTSS bookkeeping for the duration of this
+                        // capture; the resolver regenerates them lazily on the
+                        // next render.
+                        if (live_road_material->getNumTechniques() > 1)
+                        {
+                            Ogre::RTShader::ShaderGenerator* const
+                                shader_generator = Ogre::RTShader::
+                                    ShaderGenerator::getSingletonPtr();
+                            if (shader_generator != nullptr)
+                            {
+                                shader_generator->
+                                    removeAllShaderBasedTechniques(
+                                        road_material_key.exact_name,
+                                        road_material_key
+                                            .exact_resource_group);
+                            }
+                        }
+                        observation_validation =
+                            Render::CaptureOgre14LegacyNativeMaterial(
+                                *live_road_material,
+                                observation.semantic_resolution
+                                    .native_declaration,
+                                *road_content_manager,
+                                observation.native_capture);
+                        if (!observation_validation)
+                            return observation_validation;
+                        if (!observation.native_capture.textures.empty() &&
+                            !observation.native_capture.textures.front()
+                                 .mip_levels.empty())
+                        {
+                            // Content probe: the readback bytes ship verbatim
+                            // into the closure. A decoded-on-readback sRGB
+                            // texture would arrive here linear and be decoded
+                            // again by the presenter, landing near black.
+                            const std::vector<std::uint8_t>& probe_bytes =
+                                observation.native_capture.textures.front()
+                                    .mip_levels.front().bytes;
+                            std::uint64_t probe_sum = 0U;
+                            std::size_t probe_samples = 0U;
+                            for (std::size_t index = 0U;
+                                 index + 3U < probe_bytes.size(); index += 4U)
+                            {
+                                probe_sum += probe_bytes[index];
+                                probe_sum += probe_bytes[index + 1U];
+                                probe_sum += probe_bytes[index + 2U];
+                                probe_samples += 3U;
+                            }
+                            LOG(fmt::format(
+                                "[RoR|SceneSource|RoadMaterial] observed "
+                                "texture '{}' mip0 rgb_mean={}",
+                                observation.native_capture.textures.front()
+                                    .key.exact_name,
+                                probe_samples == 0U
+                                    ? 0U
+                                    : probe_sum / probe_samples));
+                        }
+                        // Cache the finished observation for later walks. The
+                        // state count is read after the RTSS strip so a hit
+                        // means the material is byte-identical to capture
+                        // time; any mutation (including regenerated RTSS
+                        // techniques) forces a fresh capture.
+                        Ogre14RoadMaterialObservationCacheEntry cache_entry;
+                        cache_entry.material_state_count =
+                            static_cast<std::uint64_t>(
+                                live_road_material->getStateCount());
+                        cache_entry.observation = observation;
+                        m_ogre14_road_observation_cache
+                            [observation_cache_key] = std::move(cache_entry);
+                        road_observations.push_back(std::move(observation));
                     }
-                    road_observations.push_back(std::move(observation));
-                }
+                    return Render::ValidationResult::Success();
+                };
+                static_validation = observe_road_materials(true);
+                if (!static_validation)
+                    return static_validation;
                 Render::Ogre14LegacyPreparedMaterialFrame road_material_frame;
                 static_validation =
                     m_ogre14_road_material_coordinator->PrepareFrame(
                         m_ogre14_road_material_coordinator->source_sequence()
                             + 1U,
                         road_observations, road_material_frame);
+                if (!static_validation && used_cached_road_observation)
+                {
+                    // Fail closed on cache staleness: a receipt-registry
+                    // publication since capture time invalidates the cached
+                    // loaded-resource resolutions, and PrepareFrame is the
+                    // authority that notices. Drop the cache, re-observe
+                    // every material live, and retry exactly once; a fresh
+                    // failure then propagates normally.
+                    m_ogre14_road_observation_cache.clear();
+                    static_validation = observe_road_materials(false);
+                    if (!static_validation)
+                        return static_validation;
+                    static_validation =
+                        m_ogre14_road_material_coordinator->PrepareFrame(
+                            m_ogre14_road_material_coordinator
+                                ->source_sequence() + 1U,
+                            road_observations, road_material_frame);
+                }
                 if (!static_validation)
                     return static_validation;
                 road_material_frame_guard.Arm();
@@ -4129,6 +4196,11 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             // or exposure-crushed on the presenter - an UNLIT model in the
             // HDR frame, or a near-zero base color factor. These are
             // invisible to every validation because they are legal.
+            // Diagnostics only: byte-scanning texture payloads on every
+            // walk is measurable frame cost, so the whole block is opt-in.
+            static const bool census_enabled =
+                std::getenv("ROR_SCENE_CENSUS") != nullptr;
+            if (census_enabled)
             {
                 std::size_t census_logged = 0U;
                 for (const Render::GraphicsSceneAssetInput& census_asset :

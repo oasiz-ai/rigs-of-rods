@@ -237,6 +237,17 @@ private:
     // a fresh translator/catalog identity is minted per scene generation.
     std::unique_ptr<Render::Ogre14LegacyLiveMaterialCoordinator>
         m_ogre14_road_material_coordinator;
+    // Observation cache keyed by material state count: the authenticated
+    // capture reads back and hashes every texture byte, which is walk-frame
+    // cost the unchanged material does not owe twice. A stale cache fails
+    // PrepareFrame cleanly and is rebuilt once from the live material.
+    struct Ogre14RoadMaterialObservationCacheEntry
+    {
+        std::uint64_t material_state_count = 0U;
+        Render::Ogre14LegacyMaterialObservation observation;
+    };
+    std::map<std::string, Ogre14RoadMaterialObservationCacheEntry,
+             std::less<>> m_ogre14_road_observation_cache;
     // Committed-capture section cost accounting, logged every 300 commits.
     std::uint64_t m_ogre14_section_log_captures = 0U;
     std::uint64_t m_ogre14_section_log_terrain_ns = 0U;
