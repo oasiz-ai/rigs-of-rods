@@ -109,8 +109,8 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.material",
         "role": "material-fallback",
-        "sha256": "183e32d7786726205d2056fc7e92a01b1bdee337092a64ddc0b503b64a27dac4",
-        "size": 2162
+        "sha256": "280881e3cae9beef565ce43bdd616b1ee59eec4a04015ac43022b67dc7324541",
+        "size": 1963
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.odef",
@@ -127,25 +127,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "1526e7dc658cc4ea64a3494e67ea932cab9f4cf82415152fdea71a25233fcb45",
-        "size": 531552
+        "sha256": "82b7761e3ddddb07e431f10b291bfe36ae15327e5025fcf3d850fc549890125f",
+        "size": 531542
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "d2e6544f4b3bc90d147b81d7dbeb7049aab82dc2c90f7d838e2c60f0e9f8ccf9",
-        "size": 31936
+        "sha256": "9db450673828e4171c83547cadad226d062dd342087c5a78160892aee87e87eb",
+        "size": 31926
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "18e13ccb5cc4d0dd699b45fd45d8177a8201aba1f59d59ec89cfd62eda97c0cb",
-        "size": 14624
+        "sha256": "f985c5801c4310c792d42ff23a6eed65e27054382015174ddcf5fccef5e3ce78",
+        "size": 14614
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_farmstead_98x86/compiled/rorng_city_infill_farmstead_98x86.compile.json",
-      "sha256": "4097b546f388fc0817ea2da9bf9b5683664c8ba2fab7e4bda1cbc31ed5137c62"
+      "sha256": "ccacd26ed9206c2e19b44d4c6578758a6afc0e4fde24d6b44376e1f209cbba0b"
     }
   },
   "connectors": [],
@@ -255,7 +255,8 @@
       "color_space": "linear-factor",
       "metallic_factor": 0.0,
       "name": "rorng_city_infill_farmstead_98x86_asphalt",
-      "roughness_factor": 0.91
+      "roughness_factor": 0.91,
+      "runtime_parent_material": "RoR/CityWorldNext/ParcelAsphalt"
     },
     {
       "base_color_factor_linear": [

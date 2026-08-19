@@ -162,3 +162,57 @@ def build_road_basecolor_png(dds_payload: bytes) -> bytes:
 
     width, height, rgba = decode_dxt1_dds(dds_payload)
     return encode_png_rgba(width, height, rgba)
+
+
+def _hash32(x: int, y: int, salt: int) -> int:
+    """Deterministic per-texel hash (FNV-1a over the coordinates)."""
+
+    value = 2166136261
+    for byte in (x & 0xFF, (x >> 8) & 0xFF, y & 0xFF, (y >> 8) & 0xFF,
+                 salt & 0xFF):
+        value ^= byte
+        value = (value * 16777619) & 0xFFFFFFFF
+    return value
+
+
+def build_parcel_asphalt_png(size: int = 512) -> bytes:
+    """Deterministic tileable asphalt base color for the infill parcels.
+
+    The compiled parcel assets authored near-black factor-only asphalt
+    (linear 0.035-0.048), which reads as a void on the lit presenter. This
+    tile carries the same tonal family at display brightness with speckle
+    and coarse mottling so large pads stop rendering as flat paint. Pure
+    stdlib and bit-deterministic; both noise octaves wrap, so the tile is
+    seamless.
+    """
+
+    if size <= 0 or size & (size - 1):
+        raise RoadTextureError("parcel tile size must be a power of two")
+    coarse = 16
+    cell = size // coarse
+    coarse_values = [
+        [(_hash32(cx, cy, 7) % 17) - 8 for cx in range(coarse)]
+        for cy in range(coarse)
+    ]
+    rgba = bytearray(size * size * 4)
+    for y in range(size):
+        cy0, fy = divmod(y, cell)
+        ty = fy / cell
+        for x in range(size):
+            cx0, fx = divmod(x, cell)
+            tx = fx / cell
+            v00 = coarse_values[cy0 % coarse][cx0 % coarse]
+            v10 = coarse_values[cy0 % coarse][(cx0 + 1) % coarse]
+            v01 = coarse_values[(cy0 + 1) % coarse][cx0 % coarse]
+            v11 = coarse_values[(cy0 + 1) % coarse][(cx0 + 1) % coarse]
+            mottle = ((v00 * (1 - tx) + v10 * tx) * (1 - ty) +
+                      (v01 * (1 - tx) + v11 * tx) * ty)
+            speckle = (_hash32(x, y, 3) % 21) - 10
+            base = 62 + mottle + speckle
+            luminance = max(34, min(96, int(base)))
+            index = ((y * size) + x) * 4
+            rgba[index] = luminance
+            rgba[index + 1] = luminance + 1
+            rgba[index + 2] = luminance + 3
+            rgba[index + 3] = 255
+    return encode_png_rgba(size, size, bytes(rgba))

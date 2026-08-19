@@ -27,19 +27,6 @@ material rorng_city_infill_suburb_block_96x88_sand
   }
 }
 
-material rorng_city_infill_suburb_block_96x88_asphalt
-{
-  technique
-  {
-    pass
-    {
-      ambient 0.035 0.042 0.048 1
-      diffuse 0.035 0.042 0.048 1
-      specular 0.04 0.04 0.04 1 1
-    }
-  }
-}
-
 material rorng_city_infill_suburb_block_96x88_stucco
 {
   technique

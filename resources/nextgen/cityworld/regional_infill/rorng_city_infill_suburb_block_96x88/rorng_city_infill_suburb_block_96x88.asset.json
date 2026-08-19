@@ -221,8 +221,8 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.material",
         "role": "material-fallback",
-        "sha256": "e8921497a4027fd6b05c8b69cd969f2f3169b29e7090e8a78ecaa279a9d039c2",
-        "size": 2362
+        "sha256": "71f7f40e264d6c409b1055da4a3e5726622e4947581778180f69b0494b6a75fe",
+        "size": 2160
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.odef",
@@ -239,25 +239,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "ccf05e30b3ecbb8a210fe316ee092ad9052c9d30d0a82bf0c2ff423b5db5d259",
-        "size": 1223243
+        "sha256": "8f1594611768e93252d8622e3aabd9d0dcc675758fb74b1e741d46e03673011e",
+        "size": 1223230
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "5fbc8cda7cf75d4e65650c5e04208821e327af28a43298029e532d9850b07b36",
-        "size": 59529
+        "sha256": "212f69d7c1b94022f7fa50416d67877780a748b8b8f0501b78dd90b16273b585",
+        "size": 59516
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "4bbfc8ee172ac07c1fec0b40f71ec43d887a586a0d08c534dbf383eac2d6a3d5",
-        "size": 30882
+        "sha256": "4ee5df8f5c7e7e4c6e8305f5763816a9d1a9eedd051e1301a92bd87dd8f7f8f1",
+        "size": 30869
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.compile.json",
-      "sha256": "64640d0193f17e97f09d40a29907bd0b807e9b4c22ea574e95d376228167f28b"
+      "sha256": "7b548f838de38ae7842a1be6b996648da1b014bd256b78fbb704fecf90732db2"
     }
   },
   "connectors": [],
@@ -367,7 +367,8 @@
       "color_space": "linear-factor",
       "metallic_factor": 0.0,
       "name": "rorng_city_infill_suburb_block_96x88_asphalt",
-      "roughness_factor": 0.91
+      "roughness_factor": 0.91,
+      "runtime_parent_material": "RoR/CityWorldNext/ParcelAsphalt"
     },
     {
       "base_color_factor_linear": [

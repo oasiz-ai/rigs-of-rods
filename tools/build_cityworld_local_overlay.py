@@ -362,7 +362,31 @@ ROAD2_DDS_REPOSITORY_PATH = "resources/textures/road2.dds"
 PINNED_ROAD2_DDS_SHA256 = (
     "591c24e00484bbab58158f646e2710058eb5ae1360d1244f794687b8d1055698"
 )
-EXPECTED_PACKAGE_ENTRIES = 80
+# v10 textures the infill parcel pads: the compiled assets bind the curated
+# parent material below through runtime_parent_material, replacing their
+# near-black factor-only asphalt with a deterministic tiled base color.
+PARCEL_ASPHALT_TEXTURE_NAME = "cityworld_parcel_asphalt.png"
+PARCEL_SURFACES_MATERIAL_NAME = "cityworld_next_parcel_surfaces.material"
+PARCEL_SURFACES_MATERIAL_TEXT = """\
+// Curated parcel surface materials for the CityWorld Next overlay.
+// Compiled infill assets bind these directly via runtime_parent_material.
+material RoR/CityWorldNext/ParcelAsphalt
+{
+\ttechnique
+\t{
+\t\tpass
+\t\t{
+\t\t\tdiffuse 1 1 1 1
+\t\t\ttexture_unit
+\t\t\t{
+\t\t\t\ttexture cityworld_parcel_asphalt.png
+\t\t\t\tscale 0.125 0.125
+\t\t\t}
+\t\t}
+\t}
+}
+"""
+EXPECTED_PACKAGE_ENTRIES = 82
 ASSET_MANIFESTS = (
     GATEWAY_MANIFEST,
     TRANSITION_MANIFEST,
@@ -4185,6 +4209,18 @@ def build_local_overlay(
         ) from error
     add_payload(payloads, ROAD_BASECOLOR_NAME, road_basecolor_png)
     package_roles[ROAD_BASECOLOR_NAME] = "derived-road-basecolor"
+    add_payload(
+        payloads,
+        PARCEL_ASPHALT_TEXTURE_NAME,
+        road_texture.build_parcel_asphalt_png(),
+    )
+    package_roles[PARCEL_ASPHALT_TEXTURE_NAME] = "derived-parcel-basecolor"
+    add_payload(
+        payloads,
+        PARCEL_SURFACES_MATERIAL_NAME,
+        PARCEL_SURFACES_MATERIAL_TEXT.encode("utf-8"),
+    )
+    package_roles[PARCEL_SURFACES_MATERIAL_NAME] = "curated-parcel-materials"
     add_payload(payloads, OVERLAY_NAME, placement)
     package_roles[OVERLAY_NAME] = "overlay-placement"
     for asset in runtime_assets:
