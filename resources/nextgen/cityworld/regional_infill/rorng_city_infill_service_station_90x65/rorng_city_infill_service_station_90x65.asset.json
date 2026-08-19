@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.blend",
-      "sha256": "a170e727e3e8ee320ea971a7322f99516b27c9fe141a418713ba41843cd837a1"
+      "sha256": "c15bd7102132a84b1357f8fb16ba13083953a9933929bf3f7aa752a3494d36f0"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65.glb",
-      "sha256": "ed1f1e41b382ce6b4f4316f17ff03904806dc977373a72a4314136de42709160"
+      "sha256": "daa9045d5238abccc2bacd73df26af350fbc8f780e8f84bd8d02f5ca335f25f1"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_service_station_90x65/rorng_city_infill_service_station_90x65_preview.png",
-      "sha256": "e4e58f09ca45b6d23852afadc440bb55275380fe80e3864337afdd700f46f275"
+      "sha256": "ddb8f440a2d16ee8770603f526948295c24b7051d2193564afe7641dc0a27aa5"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
+      "sha256": "ff1798f6ba21c147ccc5e05ee3bfdcd4ac2766cec7ac85dfca37578dbaa6fced"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -383,7 +383,7 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "c1a6d39d77c205343363aff7819c57af2381742189bf1ab93ba45fa8f6cc94f2",
+        "sha256": "4599282903605d632a1a05d5692d12dabdf36b34fd9680b36a7cfc1835bedd9f",
         "size": 538361
       },
       {
@@ -401,7 +401,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_service_station_90x65/compiled/rorng_city_infill_service_station_90x65.compile.json",
-      "sha256": "73e0edcfc67c5acc5c4c57da480a68f54aedb146a68edf1a9013054ee5a0509f"
+      "sha256": "210e1895193dea32d91ea33a0ba4189bac3fc422545373c3c106b4ad0c27ae9f"
     }
   },
   "connectors": [],

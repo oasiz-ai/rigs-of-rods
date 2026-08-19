@@ -67,6 +67,9 @@ VARIANTS: tuple[dict[str, Any], ...] = (
         "label": "Golden Horizon Farmstead",
         "footprint_m": (98.0, 86.0),
         "height_m": 18.0,
+        "runtime_parent_materials": {
+            "asphalt": "RoR/CityWorldNext/ParcelAsphalt",
+        },
     },
     {
         "asset_id": "rorng_city_infill_suburb_block_96x88",
@@ -75,6 +78,9 @@ VARIANTS: tuple[dict[str, Any], ...] = (
         "label": "Sunridge Courtyard Homes",
         "footprint_m": (96.0, 88.0),
         "height_m": 15.0,
+        "runtime_parent_materials": {
+            "asphalt": "RoR/CityWorldNext/ParcelAsphalt",
+        },
     },
     {
         "asset_id": "rorng_city_infill_service_station_90x65",
@@ -524,6 +530,12 @@ def add_gabled_roof(
     mat: bpy.types.Material,
     collection: bpy.types.Collection,
     detail: bool,
+    trim_mat: bpy.types.Material | None = None,
+    accent_mat: bpy.types.Material | None = None,
+    tile_courses: int = 0,
+    tile_segments: int = 0,
+    ridge_cap: bool = False,
+    wall_width: float = 0.0,
 ) -> None:
     half_width = width * 0.5
     rise = ridge_z - eave_z
@@ -545,6 +557,505 @@ def add_gabled_roof(
             bevel=0.045 if detail else 0.0,
             segments=2,
         )
+    if trim_mat is not None:
+        for side in (-1.0, 1.0):
+            label = "left" if side < 0 else "right"
+            add_box(
+                parts,
+                f"{prefix}_fascia_{label}",
+                (0.15, depth - 0.12, 0.36),
+                (
+                    centre[0] + side * (half_width - 0.09),
+                    centre[1],
+                    eave_z - 0.05,
+                ),
+                trim_mat,
+                collection,
+                bevel=0.03 if detail else 0.0,
+                segments=1,
+            )
+            if detail and wall_width > 0.0 and half_width > wall_width * 0.5:
+                soffit_span = half_width - wall_width * 0.5
+                add_box(
+                    parts,
+                    f"{prefix}_soffit_{label}",
+                    (soffit_span, depth - 0.12, 0.06),
+                    (
+                        centre[0] + side * (wall_width * 0.5 + soffit_span * 0.5),
+                        centre[1],
+                        eave_z - 0.19,
+                    ),
+                    trim_mat,
+                    collection,
+                )
+        if detail:
+            for side in (-1.0, 1.0):
+                for end in (-1.0, 1.0):
+                    add_box(
+                        parts,
+                        f"{prefix}_rake_{'l' if side < 0 else 'r'}"
+                        f"_{'s' if end < 0 else 'n'}",
+                        (panel_length * 0.97, 0.12, 0.3),
+                        (
+                            centre[0] + side * width * 0.25,
+                            centre[1] + end * (depth * 0.5 + 0.03),
+                            eave_z + rise * 0.5 + 0.06,
+                        ),
+                        trim_mat,
+                        collection,
+                        rotation=(0.0, side * slope, 0.0),
+                    )
+    if ridge_cap:
+        add_box(
+            parts,
+            f"{prefix}_ridge_cap",
+            (0.55, depth + 0.06, 0.16),
+            (centre[0], centre[1], ridge_z + 0.05),
+            mat,
+            collection,
+            bevel=0.035 if detail else 0.0,
+            segments=1,
+        )
+        if detail and accent_mat is not None:
+            crest_count = max(4, int(depth // 2.2))
+            crest_span = depth - 0.4
+            segment_length = crest_span / crest_count
+            for index in range(crest_count):
+                add_box(
+                    parts,
+                    f"{prefix}_crest_{index}",
+                    (0.5, segment_length * 0.62, 0.1),
+                    (
+                        centre[0] + (0.024 if index % 2 else -0.024),
+                        centre[1]
+                        - crest_span * 0.5
+                        + (index + 0.5) * segment_length,
+                        ridge_z + 0.16,
+                    ),
+                    accent_mat,
+                    collection,
+                )
+    if detail and tile_courses > 0 and tile_segments > 0 and accent_mat is not None:
+        tile_span = depth - 0.5
+        segment_depth = tile_span / tile_segments
+        for side in (-1.0, 1.0):
+            normal_x = math.sin(slope) * side
+            normal_z = math.cos(slope)
+            for row in range(tile_courses):
+                t = (row + 0.55) / tile_courses
+                surface_x = centre[0] + side * half_width * t
+                surface_z = eave_z + rise * (1.0 - t)
+                for segment in range(tile_segments):
+                    lift = 0.155 + ((row + segment) % 2) * 0.014
+                    add_box(
+                        parts,
+                        f"{prefix}_tile_{'l' if side < 0 else 'r'}"
+                        f"_{row}_{segment}",
+                        (0.11, segment_depth - 0.07, 0.055),
+                        (
+                            surface_x + normal_x * lift,
+                            centre[1]
+                            - tile_span * 0.5
+                            + (segment + 0.5) * segment_depth,
+                            surface_z + normal_z * lift,
+                        ),
+                        accent_mat,
+                        collection,
+                        rotation=(0.0, side * slope, 0.0),
+                    )
+
+
+def add_gable_prism(
+    parts: list[bpy.types.Object],
+    name: str,
+    *,
+    width: float,
+    depth: float,
+    base_z: float,
+    apex_z: float,
+    centre: tuple[float, float],
+    mat: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> bpy.types.Object:
+    """Close the open gable wedge with a watertight triangular attic prism."""
+
+    half_width = width * 0.5
+    half_depth = depth * 0.5
+    rise = apex_z - base_z
+    vertices = [
+        (-half_width, -half_depth, 0.0),
+        (half_width, -half_depth, 0.0),
+        (0.0, -half_depth, rise),
+        (-half_width, half_depth, 0.0),
+        (half_width, half_depth, 0.0),
+        (0.0, half_depth, rise),
+    ]
+    faces = [
+        (0, 1, 2),
+        (3, 5, 4),
+        (0, 3, 4, 1),
+        (1, 4, 5, 2),
+        (0, 2, 5, 3),
+    ]
+    mesh = bpy.data.meshes.new(f"{name}_mesh")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.validate()
+    mesh.update()
+    uv_layer = mesh.uv_layers.new(name="UVMap")
+    for polygon in mesh.polygons:
+        normal = polygon.normal
+        for loop_index in polygon.loop_indices:
+            position = mesh.vertices[mesh.loops[loop_index].vertex_index].co
+            if abs(normal.z) >= max(abs(normal.x), abs(normal.y)):
+                uv = (position.x, position.y)
+            elif abs(normal.y) >= abs(normal.x):
+                uv = (position.x, position.z)
+            else:
+                uv = (position.y, position.z)
+            uv_layer.data[loop_index].uv = (uv[0] * 0.25, uv[1] * 0.25)
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)
+    obj.location = (centre[0], centre[1], base_z)
+    BASE.apply_transform(obj)
+    BASE.assign_material(obj, mat)
+    parts.append(obj)
+    return obj
+
+
+def add_plinth(
+    parts: list[bpy.types.Object],
+    name: str,
+    *,
+    width: float,
+    depth: float,
+    centre: tuple[float, float],
+    mat: bpy.types.Material,
+    collection: bpy.types.Collection,
+    detail: bool,
+) -> None:
+    add_box(
+        parts,
+        name,
+        (width + 0.7, depth + 0.7, 0.42),
+        (centre[0], centre[1], 0.13),
+        mat,
+        collection,
+        bevel=0.05 if detail else 0.0,
+        segments=2,
+    )
+
+
+def add_inset_window(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    wall_y: float,
+    facing: float,
+    centre_z: float,
+    width: float,
+    height: float,
+    frame_mat: bpy.types.Material,
+    glass_mat: bpy.types.Material,
+    collection: bpy.types.Collection,
+    shutter_mat: bpy.types.Material | None = None,
+    axis: str = "y",
+) -> None:
+    """Recess a glazed opening behind protruding casing for real relief.
+
+    ``axis`` names the wall normal: ``"y"`` places the opening on a wall
+    whose outward face is along Y at ``wall_y`` (spanning X around ``x``);
+    ``"x"`` mirrors the roles for gable-end walls.
+    """
+
+    def emit(
+        suffix: str,
+        along: float,
+        out: float,
+        z: float,
+        span: float,
+        thickness: float,
+        rise: float,
+        mat: bpy.types.Material,
+        *,
+        bevel: float = 0.0,
+    ) -> None:
+        if axis == "y":
+            dimensions = (span, thickness, rise)
+            location = (x + along, wall_y + facing * out, z)
+        else:
+            dimensions = (thickness, span, rise)
+            location = (wall_y + facing * out, x + along, z)
+        add_box(
+            parts,
+            f"{prefix}_{suffix}",
+            dimensions,
+            location,
+            mat,
+            collection,
+            bevel=bevel,
+            segments=1,
+        )
+
+    half_width = width * 0.5
+    half_height = height * 0.5
+    for side in (-1.0, 1.0):
+        emit(
+            f"jamb_{'l' if side < 0 else 'r'}",
+            side * (half_width + 0.05),
+            0.045,
+            centre_z,
+            0.1,
+            0.34,
+            height + 0.32,
+            frame_mat,
+        )
+    emit(
+        "lintel",
+        0.0,
+        0.045,
+        centre_z + half_height + 0.11,
+        width + 0.44,
+        0.34,
+        0.11,
+        frame_mat,
+    )
+    emit(
+        "sill",
+        0.0,
+        0.07,
+        centre_z - half_height - 0.085,
+        width + 0.5,
+        0.46,
+        0.09,
+        frame_mat,
+        bevel=0.02,
+    )
+    emit("pane", 0.0, 0.02, centre_z, width, 0.07, height, glass_mat)
+    emit("mullion_v", 0.0, 0.06, centre_z, 0.055, 0.05, height, frame_mat)
+    emit("mullion_h", 0.0, 0.06, centre_z, width, 0.05, 0.055, frame_mat)
+    if shutter_mat is not None:
+        for side in (-1.0, 1.0):
+            emit(
+                f"shutter_{'l' if side < 0 else 'r'}",
+                side * (half_width + 0.42),
+                0.045,
+                centre_z,
+                0.5,
+                0.08,
+                height + 0.2,
+                shutter_mat,
+            )
+
+
+def add_inset_door(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    wall_y: float,
+    facing: float,
+    width: float,
+    height: float,
+    door_mat: bpy.types.Material,
+    frame_mat: bpy.types.Material,
+    step_mat: bpy.types.Material,
+    canopy_mat: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> None:
+    """Recess an entry door behind casing with a stoop and shed canopy."""
+
+    half_width = width * 0.5
+    centre_z = 0.12 + height * 0.5
+    top_z = 0.12 + height
+    for side in (-1.0, 1.0):
+        add_box(
+            parts,
+            f"{prefix}_jamb_{'l' if side < 0 else 'r'}",
+            (0.13, 0.42, height + 0.2),
+            (x + side * (half_width + 0.065), wall_y + facing * 0.06, centre_z),
+            frame_mat,
+            collection,
+        )
+    add_box(
+        parts,
+        f"{prefix}_lintel",
+        (width + 0.56, 0.42, 0.13),
+        (x, wall_y + facing * 0.06, top_z + 0.09),
+        frame_mat,
+        collection,
+    )
+    add_box(
+        parts,
+        f"{prefix}_slab",
+        (width, 0.09, height),
+        (x, wall_y + facing * 0.025, centre_z),
+        door_mat,
+        collection,
+    )
+    add_box(
+        parts,
+        f"{prefix}_threshold",
+        (width + 0.5, 0.55, 0.13),
+        (x, wall_y + facing * 0.24, 0.065),
+        step_mat,
+        collection,
+    )
+    add_box(
+        parts,
+        f"{prefix}_stoop",
+        (width + 1.2, 1.4, 0.16),
+        (x, wall_y + facing * 0.95, 0.08),
+        step_mat,
+        collection,
+        bevel=0.03,
+        segments=1,
+    )
+    add_box(
+        parts,
+        f"{prefix}_canopy",
+        (width + 1.3, 1.25, 0.09),
+        (x, wall_y + facing * 0.72, top_z + 0.46),
+        canopy_mat,
+        collection,
+        rotation=(facing * math.radians(12.0), 0.0, 0.0),
+        bevel=0.02,
+        segments=1,
+    )
+    post_height = top_z + 0.3
+    for side in (-1.0, 1.0):
+        add_cylinder(
+            parts,
+            f"{prefix}_post_{'l' if side < 0 else 'r'}",
+            radius=0.07,
+            depth=post_height,
+            location=(
+                x + side * (half_width + 0.45),
+                wall_y + facing * 1.2,
+                post_height * 0.5 + 0.08,
+            ),
+            mat=frame_mat,
+            collection=collection,
+            vertices=8,
+        )
+
+
+def add_garage_trim(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    wall_y: float,
+    facing: float,
+    width: float,
+    height: float,
+    frame_mat: bpy.types.Material,
+    slat_mat: bpy.types.Material,
+    collection: bpy.types.Collection,
+) -> None:
+    half_width = width * 0.5
+    centre_z = 0.12 + height * 0.5
+    for side in (-1.0, 1.0):
+        add_box(
+            parts,
+            f"{prefix}_jamb_{'l' if side < 0 else 'r'}",
+            (0.16, 0.3, height + 0.25),
+            (x + side * (half_width + 0.11), wall_y + facing * 0.04, centre_z),
+            frame_mat,
+            collection,
+        )
+    add_box(
+        parts,
+        f"{prefix}_lintel",
+        (width + 0.66, 0.3, 0.17),
+        (x, wall_y + facing * 0.04, 0.12 + height + 0.11),
+        frame_mat,
+        collection,
+    )
+    for row in range(4):
+        add_box(
+            parts,
+            f"{prefix}_slat_{row}",
+            (width - 0.3, 0.05, 0.15),
+            (
+                x,
+                wall_y + facing * 0.1,
+                0.42 + row * (height - 0.6) / 3.0,
+            ),
+            slat_mat,
+            collection,
+        )
+
+
+def add_chimney(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    y: float,
+    base_z: float,
+    height: float,
+    mat: bpy.types.Material,
+    cap_mat: bpy.types.Material,
+    collection: bpy.types.Collection,
+    detail: bool,
+) -> None:
+    add_box(
+        parts,
+        f"{prefix}_stack",
+        (0.85, 0.65, height),
+        (x, y, base_z + height * 0.5),
+        mat,
+        collection,
+        bevel=0.04 if detail else 0.0,
+        segments=1,
+    )
+    if detail:
+        add_box(
+            parts,
+            f"{prefix}_cap",
+            (1.05, 0.85, 0.12),
+            (x, y, base_z + height + 0.06),
+            cap_mat,
+            collection,
+        )
+
+
+def add_orchard_tree(
+    parts: list[bpy.types.Object],
+    *,
+    prefix: str,
+    x: float,
+    y: float,
+    index: int,
+    lod: int,
+    collection: bpy.types.Collection,
+    mats: dict[str, bpy.types.Material],
+) -> None:
+    add_cylinder(
+        parts,
+        f"{prefix}_trunk",
+        radius=0.26 if lod == 0 else 0.34,
+        depth=2.8,
+        location=(x, y, 1.4),
+        mat=mats["trunk"],
+        collection=collection,
+        vertices=10 if lod == 0 else 7,
+    )
+    add_ico(
+        parts,
+        f"{prefix}_canopy",
+        location=(x, y, 3.9),
+        scale=(
+            (2.1, 2.1, 2.2 + (index % 3) * 0.12)
+            if lod == 0
+            else (2.3, 2.3, 2.3)
+        ),
+        mat=mats["leaf"],
+        collection=collection,
+        subdivisions=2 if lod == 0 else 1,
+        rotation_z=math.radians(23.0 * index),
+    )
 
 
 def add_palm(
@@ -605,69 +1116,170 @@ def add_house(
     width = 24.0
     depth = 17.0
     height = 6.5
+    ridge_z = height + 3.0
+    front_y = -depth * 0.5
+    body_mat = mats["stucco" if int(abs(x) + abs(y)) % 2 else "paint_cream"]
     local: list[bpy.types.Object] = []
     add_box(
         local,
         f"{prefix}_body",
         (width, depth, height),
         (0.0, 0.0, height * 0.5),
-        mats["stucco" if int(abs(x) + abs(y)) % 2 else "paint_cream"],
+        body_mat,
         collection,
-        bevel=0.12 if detail else 0.0,
-        segments=3,
+        bevel=0.12 if detail else 0.05 if lod == 1 else 0.0,
+        segments=3 if detail else 1,
     )
+    if lod < 2:
+        add_plinth(
+            local,
+            f"{prefix}_plinth",
+            width=width,
+            depth=depth,
+            centre=(0.0, 0.0),
+            mat=mats["concrete"],
+            collection=collection,
+            detail=detail,
+        )
+        add_gable_prism(
+            local,
+            f"{prefix}_attic",
+            width=width,
+            depth=depth,
+            base_z=height - 0.05,
+            apex_z=ridge_z - 0.12,
+            centre=(0.0, 0.0),
+            mat=body_mat,
+            collection=collection,
+        )
     add_gabled_roof(
         local,
         prefix=f"{prefix}_roof",
-        width=width + 1.2,
-        depth=depth + 1.1,
+        width=width + 2.0,
+        depth=depth + 1.6,
         eave_z=height,
-        ridge_z=height + 3.0,
+        ridge_z=ridge_z,
         centre=(0.0, 0.0),
         mat=mats["clay"],
         collection=collection,
         detail=detail,
+        trim_mat=mats["paint_white"] if lod < 2 else None,
+        accent_mat=mats["rock_dark"],
+        tile_courses=9 if detail else 0,
+        tile_segments=8 if detail else 0,
+        ridge_cap=lod < 2,
+        wall_width=width,
     )
     if lod < 2:
         add_box(
             local,
             f"{prefix}_garage",
             (7.2, 0.16, 2.7),
-            (-5.6, -depth * 0.5 - 0.03, 1.5),
+            (-5.6, front_y - 0.03, 1.5),
             mats["paint_white"],
             collection,
             bevel=0.04 if detail else 0.0,
             segments=2,
         )
+        add_chimney(
+            local,
+            prefix=f"{prefix}_chimney",
+            x=4.0,
+            y=3.0,
+            base_z=7.6,
+            height=2.8,
+            mat=mats["rock_dark"],
+            cap_mat=mats["concrete"],
+            collection=collection,
+            detail=detail,
+        )
+    if detail:
+        add_garage_trim(
+            local,
+            prefix=f"{prefix}_garage_trim",
+            x=-5.6,
+            wall_y=front_y - 0.03,
+            facing=-1.0,
+            width=7.2,
+            height=2.7,
+            frame_mat=mats["paint_white"],
+            slat_mat=mats["paint_cream"],
+            collection=collection,
+        )
+        add_inset_door(
+            local,
+            prefix=f"{prefix}_entry",
+            x=4.2,
+            wall_y=front_y,
+            facing=-1.0,
+            width=1.5,
+            height=2.55,
+            door_mat=mats["paint_blue"],
+            frame_mat=mats["paint_white"],
+            step_mat=mats["concrete"],
+            canopy_mat=mats["clay"],
+            collection=collection,
+        )
+        for wx in (-8.0, 0.5, 7.4):
+            add_inset_window(
+                local,
+                prefix=f"{prefix}_window_{wx:+.1f}",
+                x=wx,
+                wall_y=front_y,
+                facing=-1.0,
+                centre_z=4.2,
+                width=2.5,
+                height=1.55,
+                frame_mat=mats["paint_white"],
+                glass_mat=mats["glass"],
+                collection=collection,
+                shutter_mat=mats["paint_blue"],
+            )
+        for wx in (-6.0, 6.0):
+            add_inset_window(
+                local,
+                prefix=f"{prefix}_rear_window_{wx:+.1f}",
+                x=wx,
+                wall_y=depth * 0.5,
+                facing=1.0,
+                centre_z=4.2,
+                width=2.5,
+                height=1.55,
+                frame_mat=mats["paint_white"],
+                glass_mat=mats["glass"],
+                collection=collection,
+            )
+        for side in (-1.0, 1.0):
+            add_inset_window(
+                local,
+                prefix=f"{prefix}_side_window_{'w' if side < 0 else 'e'}",
+                x=-2.5,
+                wall_y=side * width * 0.5,
+                facing=side,
+                centre_z=4.2,
+                width=2.2,
+                height=1.5,
+                frame_mat=mats["paint_white"],
+                glass_mat=mats["glass"],
+                collection=collection,
+                axis="x",
+            )
+    elif lod == 1:
         add_box(
             local,
             f"{prefix}_entry",
             (1.5, 0.18, 2.55),
-            (4.2, -depth * 0.5 - 0.04, 1.35),
+            (4.2, front_y - 0.04, 1.35),
             mats["paint_blue"],
             collection,
-            bevel=0.04 if detail else 0.0,
-            segments=2,
         )
-    if detail:
         for wx in (-8.0, 0.5, 7.4):
             add_box(
                 local,
                 f"{prefix}_window_{wx:+.1f}",
                 (2.5, 0.12, 1.55),
-                (wx, -depth * 0.5 - 0.07, 4.2),
+                (wx, front_y - 0.07, 4.2),
                 mats["glass"],
-                collection,
-                bevel=0.035,
-                segments=2,
-            )
-        for row in range(6):
-            add_box(
-                local,
-                f"{prefix}_tile_ridge_{row}",
-                (0.08, depth + 0.9, 0.11),
-                (-width * 0.42 + row * width * 0.168, 0.0, height + 1.52),
-                mats["rock_dark"],
                 collection,
             )
     for obj in local:
@@ -788,35 +1400,91 @@ def farmstead_lod(
         add_box(
             parts,
             f"lod{lod}_crop_row_{index}",
-            (row_width, row_depth, 0.52 if lod == 0 else 0.3),
-            (x, row_y, 0.26 if lod == 0 else 0.15),
+            (row_width, row_depth, 0.3),
+            (x, row_y, 0.15),
             mats["crop_green" if index % 3 else "crop_gold"],
             collection,
             bevel=0.08 if lod == 0 else 0.0,
             segments=2,
         )
+        if lod == 0:
+            clump_count = 13
+            clump_depth = row_depth / clump_count
+            for clump in range(clump_count):
+                phase = (index + clump) % 3
+                add_box(
+                    parts,
+                    f"lod0_crop_clump_{index}_{clump}",
+                    (
+                        row_width * 0.92,
+                        clump_depth * 0.66,
+                        0.42 + phase * 0.09,
+                    ),
+                    (
+                        x + (0.16 if (index + clump) % 2 else -0.16),
+                        row_y - row_depth * 0.5 + (clump + 0.5) * clump_depth,
+                        0.36 + phase * 0.045,
+                    ),
+                    mats["crop_green" if index % 3 else "crop_gold"],
+                    collection,
+                    rotation=(
+                        0.0,
+                        0.0,
+                        math.radians(float((index * 7 + clump * 11) % 10) - 5.0),
+                    ),
+                )
     barn_x, barn_y = -32.0, 26.0
+    barn_height = 8.2
+    barn_ridge = 12.2
     add_box(
         parts,
         f"lod{lod}_barn_body",
-        (24.0, 17.0, 8.2),
-        (barn_x, barn_y, 4.1),
+        (24.0, 17.0, barn_height),
+        (barn_x, barn_y, barn_height * 0.5),
         mats["paint_cream"],
         collection,
-        bevel=0.1 if lod == 0 else 0.0,
-        segments=3,
+        bevel=0.1 if lod == 0 else 0.05 if lod == 1 else 0.0,
+        segments=3 if lod == 0 else 1,
     )
+    if lod < 2:
+        add_plinth(
+            parts,
+            f"lod{lod}_barn_plinth",
+            width=24.0,
+            depth=17.0,
+            centre=(barn_x, barn_y),
+            mat=mats["concrete"],
+            collection=collection,
+            detail=lod == 0,
+        )
+        add_gable_prism(
+            parts,
+            f"lod{lod}_barn_attic",
+            width=24.0,
+            depth=17.0,
+            base_z=barn_height - 0.05,
+            apex_z=barn_ridge - 0.12,
+            centre=(barn_x, barn_y),
+            mat=mats["paint_cream"],
+            collection=collection,
+        )
     add_gabled_roof(
         parts,
         prefix=f"lod{lod}_barn_roof",
-        width=25.2,
-        depth=18.2,
-        eave_z=8.2,
-        ridge_z=12.2,
+        width=26.0,
+        depth=18.8,
+        eave_z=barn_height,
+        ridge_z=barn_ridge,
         centre=(barn_x, barn_y),
         mat=mats["clay"],
         collection=collection,
         detail=lod == 0,
+        trim_mat=mats["paint_white"] if lod < 2 else None,
+        accent_mat=mats["rock_dark"],
+        tile_courses=10 if lod == 0 else 0,
+        tile_segments=8 if lod == 0 else 0,
+        ridge_cap=lod < 2,
+        wall_width=24.0,
     )
     if lod < 2:
         add_box(
@@ -829,6 +1497,125 @@ def farmstead_lod(
             bevel=0.05 if lod == 0 else 0.0,
             segments=2,
         )
+        if lod == 0:
+            add_box(
+                parts,
+                f"lod0_barn_door_track",
+                (6.6, 0.3, 0.3),
+                (barn_x, barn_y - 8.62, 6.18),
+                mats["paint_white"],
+                collection,
+            )
+            for side in (-1.0, 1.0):
+                add_box(
+                    parts,
+                    f"lod0_barn_door_trim_{'l' if side < 0 else 'r'}",
+                    (0.3, 0.3, 6.1),
+                    (barn_x + side * 3.0, barn_y - 8.62, 3.05),
+                    mats["paint_white"],
+                    collection,
+                )
+                add_box(
+                    parts,
+                    f"lod0_barn_door_brace_{'l' if side < 0 else 'r'}",
+                    (0.24, 0.1, 6.6),
+                    (barn_x + side * 1.32, barn_y - 8.7, 3.0),
+                    mats["paint_white"],
+                    collection,
+                    rotation=(0.0, side * math.radians(24.0), 0.0),
+                )
+            for wx in (-8.0, 8.0):
+                add_inset_window(
+                    parts,
+                    prefix=f"lod0_barn_window_{wx:+.1f}",
+                    x=barn_x + wx,
+                    wall_y=barn_y - 8.5,
+                    facing=-1.0,
+                    centre_z=4.6,
+                    width=1.6,
+                    height=1.3,
+                    frame_mat=mats["paint_white"],
+                    glass_mat=mats["glass"],
+                    collection=collection,
+                )
+            add_inset_window(
+                parts,
+                prefix="lod0_barn_loft_window",
+                x=barn_x,
+                wall_y=barn_y - 8.5,
+                facing=-1.0,
+                centre_z=9.3,
+                width=1.5,
+                height=1.5,
+                frame_mat=mats["paint_white"],
+                glass_mat=mats["glass"],
+                collection=collection,
+            )
+            for wx in (-6.0, 6.0):
+                add_inset_window(
+                    parts,
+                    prefix=f"lod0_barn_rear_window_{wx:+.1f}",
+                    x=barn_x + wx,
+                    wall_y=barn_y + 8.5,
+                    facing=1.0,
+                    centre_z=4.6,
+                    width=1.6,
+                    height=1.3,
+                    frame_mat=mats["paint_white"],
+                    glass_mat=mats["glass"],
+                    collection=collection,
+                )
+            add_box(
+                parts,
+                f"lod0_barn_cupola_base",
+                (2.3, 2.6, 1.1),
+                (barn_x, barn_y, barn_ridge + 0.52),
+                mats["paint_cream"],
+                collection,
+                bevel=0.05,
+                segments=2,
+            )
+            for side in (-1.0, 1.0):
+                add_box(
+                    parts,
+                    f"lod0_barn_cupola_vent_{'s' if side < 0 else 'n'}",
+                    (1.5, 0.08, 0.7),
+                    (barn_x, barn_y + side * 1.34, barn_ridge + 0.55),
+                    mats["metal"],
+                    collection,
+                )
+            add_gabled_roof(
+                parts,
+                prefix="lod0_barn_cupola_roof",
+                width=2.9,
+                depth=3.1,
+                eave_z=barn_ridge + 1.07,
+                ridge_z=barn_ridge + 1.75,
+                centre=(barn_x, barn_y),
+                mat=mats["clay"],
+                collection=collection,
+                detail=False,
+                ridge_cap=True,
+            )
+            add_cylinder(
+                parts,
+                "lod0_barn_cupola_finial",
+                radius=0.07,
+                depth=0.7,
+                location=(barn_x, barn_y, barn_ridge + 2.05),
+                mat=mats["metal"],
+                collection=collection,
+                vertices=8,
+            )
+        elif lod == 1:
+            add_box(
+                parts,
+                f"lod1_barn_cupola",
+                (2.3, 2.6, 1.6),
+                (barn_x, barn_y, barn_ridge + 0.75),
+                mats["paint_cream"],
+                collection,
+            )
         silo_count = 2 if lod == 0 else 1
         for index in range(silo_count):
             sx = -7.0 + index * 8.0
@@ -852,6 +1639,51 @@ def farmstead_lod(
                 collection=collection,
                 subdivisions=2 if lod == 0 else 1,
             )
+            ring_count = 3 if lod == 0 else 1
+            for ring in range(ring_count):
+                add_cylinder(
+                    parts,
+                    f"lod{lod}_silo_ring_{index}_{ring}",
+                    radius=3.3,
+                    depth=0.1,
+                    location=(sx, 31.0, 2.4 + ring * 2.8),
+                    mat=mats["metal"],
+                    collection=collection,
+                    vertices=24 if lod == 0 else 10,
+                )
+            if lod == 0:
+                add_cylinder(
+                    parts,
+                    f"lod0_silo_vent_{index}",
+                    radius=0.34,
+                    depth=0.8,
+                    location=(sx, 31.0, 12.0),
+                    mat=mats["metal"],
+                    collection=collection,
+                    vertices=10,
+                )
+    orchard_positions = (
+        (-16.0, 38.4),
+        (-8.0, 38.9),
+        (0.0, 38.3),
+        (8.0, 38.8),
+        (16.0, 38.4),
+        (24.0, 38.9),
+        (32.0, 38.3),
+        (40.0, 38.8),
+    )
+    orchard_count = 8 if lod == 0 else 2 if lod == 1 else 0
+    for index, (tree_x, tree_y) in enumerate(orchard_positions[:orchard_count]):
+        add_orchard_tree(
+            parts,
+            prefix=f"lod{lod}_orchard_{index}",
+            x=tree_x,
+            y=tree_y,
+            index=index,
+            lod=lod,
+            collection=collection,
+            mats=mats,
+        )
     if lod == 0:
         for index in range(24):
             x = -46.0 + index * 4.0
@@ -953,6 +1785,27 @@ def suburb_lod(
                 bevel=0.08,
                 segments=2,
             )
+            add_box(
+                parts,
+                f"lod0_perimeter_wall_cap_{side:+.0f}",
+                (1.7, 84.0, 0.16),
+                (side * 47.0, 0.0, 1.86),
+                mats["concrete"],
+                collection,
+                bevel=0.03,
+                segments=1,
+            )
+            for pier in range(7):
+                add_box(
+                    parts,
+                    f"lod0_perimeter_pier_{side:+.0f}_{pier}",
+                    (1.9, 1.1, 2.04),
+                    (side * 47.0, -36.0 + pier * 12.0, 1.02),
+                    mats["stucco"],
+                    collection,
+                    bevel=0.06,
+                    segments=2,
+                )
     return parts
 
 
@@ -1672,6 +2525,21 @@ def generate_variant(root: Path, spec: dict[str, Any]) -> dict[str, Any]:
         collision_objects=collision_objects,
         materials=asset_materials,
     )
+    runtime_parents = {
+        f"{asset_id}_{suffix}": parent
+        for suffix, parent in dict(
+            spec.get("runtime_parent_materials", {})
+        ).items()
+    }
+    for declaration in manifest["materials"]:
+        parent = runtime_parents.pop(declaration["name"], None)
+        if parent is not None:
+            declaration["runtime_parent_material"] = parent
+    if runtime_parents:
+        raise RuntimeError(
+            f"{asset_id} declares runtime parents for unused materials: "
+            + ", ".join(sorted(runtime_parents))
+        )
     generator_record = {
         "dependencies": [
             {

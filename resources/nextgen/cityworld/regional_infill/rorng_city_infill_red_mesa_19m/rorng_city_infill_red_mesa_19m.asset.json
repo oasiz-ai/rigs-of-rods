@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.blend",
-      "sha256": "b60bf179c35b6c625676c8c68b6dd0ce69d9bcdb60de189ac23a88e9accf9564"
+      "sha256": "e9a445980705bdbe1d23b36185c0160a329b0f11cb234c6071f6a862d7b407a9"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m.glb",
@@ -10,7 +10,7 @@
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_red_mesa_19m/rorng_city_infill_red_mesa_19m_preview.png",
-      "sha256": "94e3fb87df4109ff87e176fae0f6502a4eef01cabef9c489885b4ad664122a42"
+      "sha256": "8efc2697680cb5f3bcc6a84554015554263a69b5b9a45878be1d59b2f04d728e"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
+      "sha256": "ff1798f6ba21c147ccc5e05ee3bfdcd4ac2766cec7ac85dfca37578dbaa6fced"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -145,7 +145,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_red_mesa_19m/compiled/rorng_city_infill_red_mesa_19m.compile.json",
-      "sha256": "91e95f0c8f65f63baa01b1f5dd2dbf3832f4086efa786bfccbbd166c6e6a9375"
+      "sha256": "b16a88fd6034451e291865c01592ffd18a9001bae7129e88fbe34cc513002cac"
     }
   },
   "connectors": [],

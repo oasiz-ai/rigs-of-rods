@@ -2,7 +2,7 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.blend",
-      "sha256": "769c3ba0c33af45b0b3702ed0f5baecd78bf5b54651e5ca63fc3c4b50cb27066"
+      "sha256": "afb4070c71b35357737cb59b7b2d0ad03cbaf51307eba29ad93e27e77e3ed81c"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.glb",
@@ -10,7 +10,7 @@
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m_preview.png",
-      "sha256": "0f8018d8cbdc251ed1bbae230a1f590a3169d2359f36f6e2ab1e20509a1d6937"
+      "sha256": "0397bf5d51b0930a5494389d1beb4ed057450eba30bfbb5c9cf5da785814fd22"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
+      "sha256": "ff1798f6ba21c147ccc5e05ee3bfdcd4ac2766cec7ac85dfca37578dbaa6fced"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -145,7 +145,7 @@
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/compiled/rorng_city_infill_arroyo_oasis_19m.compile.json",
-      "sha256": "36c8b2a1d2068836000d7348de08b0a688fb3278bc0076b5d106fd5eb245ec6a"
+      "sha256": "1424b65d3cee97c535a1069ec10220a0413feaa25521c450181717a9f651f4d3"
     }
   },
   "connectors": [],

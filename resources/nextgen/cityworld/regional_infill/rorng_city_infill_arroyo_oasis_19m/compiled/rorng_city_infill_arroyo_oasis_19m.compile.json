@@ -43,7 +43,7 @@
   "connectors": [],
   "format": "ror-cityworld-scene-compile-report-v1",
   "inputs": {
-    "asset_contract_sha256": "d8533374abf49bb447a8213240eaa7199d85368bba6114c9f925a116936281c6",
+    "asset_contract_sha256": "a13270ae1ac532f45e85537d70513de251528a60c687e4b66c2b7d8130af7705",
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_arroyo_oasis_19m/rorng_city_infill_arroyo_oasis_19m.glb",
       "sha256": "527fe7b69ea59696d8b862e440817119f57b0e79b01f039424867dbfa8c08788"

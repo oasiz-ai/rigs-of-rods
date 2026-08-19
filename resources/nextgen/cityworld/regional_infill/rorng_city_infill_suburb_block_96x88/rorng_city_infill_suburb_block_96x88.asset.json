@@ -2,15 +2,15 @@
   "artifacts": {
     "blend": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.blend",
-      "sha256": "f968a84af83ae6f23ccf210cc385cd77111f1d925aff4124fcc8f5749631ca59"
+      "sha256": "4ae4fc4b6d2c20ded004540b3deb27157943289a642070206b6c6119473434fc"
     },
     "glb": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88.glb",
-      "sha256": "4e38a90dfa32e59db7d2435217b579d2955917fd09db0383d3a31831234b7bea"
+      "sha256": "d5c009902cf4a3d35e0bfa0453528a1c93c119126afaeffa8c07431a9f5c80e8"
     },
     "preview": {
       "path": "content-source/cityworld_next/regional_infill/rorng_city_infill_suburb_block_96x88/rorng_city_infill_suburb_block_96x88_preview.png",
-      "sha256": "32fca3b3bc2c40031965792c87c22f1e3a5cfa12acd93d693741ba34d989a77a"
+      "sha256": "77c1e64132c4644bf538aec85018fa306a7218387f12fa72420e71f3ecbbc62f"
     }
   },
   "asset": {
@@ -42,7 +42,7 @@
       ],
       "format": "ror-cityworld-regional-infill-generator-v1",
       "path": "tools/blender/cityworld_next/generate_cityworld_infill_family.py",
-      "sha256": "c19056c6921187cc68d9f0acb32b487fae4af2111065d6cd5e217d0b157ddf0a"
+      "sha256": "ff1798f6ba21c147ccc5e05ee3bfdcd4ac2766cec7ac85dfca37578dbaa6fced"
     },
     "procedural_provenance": {
       "external_geometry": false,
@@ -221,8 +221,8 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.material",
         "role": "material-fallback",
-        "sha256": "71f7f40e264d6c409b1055da4a3e5726622e4947581778180f69b0494b6a75fe",
-        "size": 2160
+        "sha256": "88441fbf77f184079ca8a55f1d787dd1924e9c10fa987daf829ee93fd1a24427",
+        "size": 2575
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.odef",
@@ -239,25 +239,25 @@
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod0.mesh",
         "role": "render-lod0",
-        "sha256": "8f1594611768e93252d8622e3aabd9d0dcc675758fb74b1e741d46e03673011e",
-        "size": 1223230
+        "sha256": "2cded0ab733115ecfb80f85c40291ff6b8f8b7169acf4121c0264390d7d1f461",
+        "size": 3235739
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod1.mesh",
         "role": "render-lod1",
-        "sha256": "212f69d7c1b94022f7fa50416d67877780a748b8b8f0501b78dd90b16273b585",
-        "size": 59516
+        "sha256": "3892efc9a161277870fb5d29101865442ebe4a32c840d0b0e640e3c099fd73ff",
+        "size": 154065
       },
       {
         "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88_lod2.mesh",
         "role": "render-lod2",
-        "sha256": "4ee5df8f5c7e7e4c6e8305f5763816a9d1a9eedd051e1301a92bd87dd8f7f8f1",
-        "size": 30869
+        "sha256": "a8f5f54e9b8e5b1d294fa20e8c86193418422200b446f7295e45fa87446e4f11",
+        "size": 32021
       }
     ],
     "report": {
       "path": "resources/nextgen/cityworld/regional_infill/rorng_city_infill_suburb_block_96x88/compiled/rorng_city_infill_suburb_block_96x88.compile.json",
-      "sha256": "7b548f838de38ae7842a1be6b996648da1b014bd256b78fbb704fecf90732db2"
+      "sha256": "aa37549bf21f5953b5c1231f04a6155ab9e5ff1c7c1c60496b910e671ed1b113"
     }
   },
   "connectors": [],
@@ -309,14 +309,14 @@
         },
         "lod": 0,
         "name": "rorng_city_infill_suburb_block_96x88_lod0",
-        "triangles": 8976
+        "triangles": 27784
       },
       {
         "bounds_blender_z_up": {
           "max": [
             48.0,
             44.0,
-            10.242814
+            10.4
           ],
           "min": [
             -48.0,
@@ -326,14 +326,14 @@
         },
         "lod": 1,
         "name": "rorng_city_infill_suburb_block_96x88_lod1",
-        "triangles": 560
+        "triangles": 1376
       },
       {
         "bounds_blender_z_up": {
           "max": [
             48.0,
             44.0,
-            9.597281
+            9.597439
           ],
           "min": [
             -48.0,
@@ -396,6 +396,18 @@
     },
     {
       "base_color_factor_linear": [
+        0.36,
+        0.37,
+        0.34,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_concrete",
+      "roughness_factor": 0.88
+    },
+    {
+      "base_color_factor_linear": [
         0.035,
         0.12,
         0.17,
@@ -429,6 +441,18 @@
       "metallic_factor": 0.0,
       "name": "rorng_city_infill_suburb_block_96x88_paint_blue",
       "roughness_factor": 0.5
+    },
+    {
+      "base_color_factor_linear": [
+        0.68,
+        0.54,
+        0.35,
+        1.0
+      ],
+      "color_space": "linear-factor",
+      "metallic_factor": 0.0,
+      "name": "rorng_city_infill_suburb_block_96x88_paint_cream",
+      "roughness_factor": 0.76
     },
     {
       "base_color_factor_linear": [
