@@ -541,6 +541,37 @@ Render::ValidationResult CaptureNativePage(
   // the cross-platform private CPU rule below.
   native_base.buffer->blitToMemory(destination);
   {
+    // The composite bake renders lit LINEAR values: GL3Plus encodes on
+    // write only for sRGB storage formats, and the sampling-identity policy
+    // above requires the native composite to stay non-sRGB. The published
+    // display-domain contract (SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE)
+    // carries display-encoded bytes, so encode exactly once here; without
+    // this the presenter re-decodes linear bytes and the whole terrain
+    // lands near black (observed base readback mean 35/255).
+    static const std::array<std::uint8_t, 256U> linear_to_srgb = [] {
+      std::array<std::uint8_t, 256U> table{};
+      for (std::size_t value = 0U; value < table.size(); ++value) {
+        const double linear = static_cast<double>(value) / 255.0;
+        const double srgb = linear <= 0.0031308
+            ? linear * 12.92
+            : (1.055 * std::pow(linear, 1.0 / 2.4)) - 0.055;
+        table[value] = static_cast<std::uint8_t>(
+            std::lround(std::min(std::max(srgb, 0.0), 1.0) * 255.0));
+      }
+      return table;
+    }();
+    const std::size_t encode_texel_count =
+        static_cast<std::size_t>(mip.width) * mip.height;
+    for (std::size_t texel = 0U; texel < encode_texel_count; ++texel) {
+      const std::size_t texel_base = texel * 4U;
+      mip.bytes[texel_base] = linear_to_srgb[mip.bytes[texel_base]];
+      mip.bytes[texel_base + 1U] =
+          linear_to_srgb[mip.bytes[texel_base + 1U]];
+      mip.bytes[texel_base + 2U] =
+          linear_to_srgb[mip.bytes[texel_base + 2U]];
+    }
+  }
+  {
     // One-shot content probe. The composite ships content-unchecked, so a
     // bake that froze black texels into the blend-selected regions would
     // otherwise be invisible to every validation and every log line.
