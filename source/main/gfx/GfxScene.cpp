@@ -4123,6 +4123,43 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 return static_validation;
             }
+            // Census: name every admitted material that would render black
+            // or exposure-crushed on the presenter - an UNLIT model in the
+            // HDR frame, or a near-zero base color factor. These are
+            // invisible to every validation because they are legal.
+            {
+                std::size_t census_logged = 0U;
+                for (const Render::GraphicsSceneAssetInput& census_asset :
+                     static_assets)
+                {
+                    if (census_logged >= 12U)
+                        break;
+                    if (census_asset.payload == nullptr ||
+                        !std::holds_alternative<Render::MaterialDescriptor>(
+                            *census_asset.payload))
+                        continue;
+                    const Render::MaterialDescriptor& census_material =
+                        std::get<Render::MaterialDescriptor>(
+                            *census_asset.payload);
+                    const bool census_unlit = census_material.model ==
+                        Render::MaterialModel::UNLIT;
+                    const bool census_black =
+                        census_material.base_color_factor.x <= 0.05F &&
+                        census_material.base_color_factor.y <= 0.05F &&
+                        census_material.base_color_factor.z <= 0.05F;
+                    if (!census_unlit && !census_black)
+                        continue;
+                    LOG(fmt::format(
+                        "[RoR|SceneSource|MaterialCensus] '{}' model={} "
+                        "base_color=({:.3f},{:.3f},{:.3f})",
+                        census_material.debug_name,
+                        census_unlit ? "UNLIT" : "PBR",
+                        census_material.base_color_factor.x,
+                        census_material.base_color_factor.y,
+                        census_material.base_color_factor.z));
+                    ++census_logged;
+                }
+            }
             // Stash the retention refresh on the pending transaction. It is
             // applied only when this frame commits, so a capture a later
             // section discards can never leave the retained scene describing
