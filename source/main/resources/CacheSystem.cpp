@@ -1873,6 +1873,20 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
                 verification_error);
         if (!use_authenticated_primary_snapshot)
         {
+            // Second reviewed digest: the CityWorld Next local overlay. Its
+            // members (the road base color) need the same source authority;
+            // verification is byte-exact, never name-based.
+            use_authenticated_primary_snapshot =
+                LoadAndVerifyTerrainBundleArchiveSnapshot(
+                    entry->resource_bundle_path,
+                    kCityWorldNextLocalOverlayArchiveSha256,
+                    kCityWorldNextLocalOverlayArchiveBytes,
+                    authenticated_primary_snapshot,
+                    observed_sha256,
+                    verification_error);
+        }
+        if (!use_authenticated_primary_snapshot)
+        {
             RoR::LogFormat(
                 "[RoR|ModCache|AuthenticatedPrimary] Primary terrain ZIP "
                 "did not match a reviewed material-compatibility archive; "
