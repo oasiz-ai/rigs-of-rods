@@ -440,6 +440,50 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn("SkipUpdatedScene();", loop[post:])
         self.assertIn("if (!renderer_combined_simulation_granted)", loop)
 
+    def test_gui_only_states_present_instead_of_discarding_their_grant(
+        self,
+    ) -> None:
+        """The main menu captures its GUI and spends its grant presenting it.
+
+        Before this path existed the menu built a complete DearIMGUI frame,
+        captured nothing, and handed the grant to SkipUpdatedScene(), so the
+        presenter never swapped and the window showed nothing.
+        """
+        loop = self.main[self.main.index("while (App::app_state") :]
+        menu = loop.index("App::GetGuiManager()->DrawMainMenuGui();")
+        menu_capture = loop.index("CaptureIfDirty(", menu)
+        post = loop.index("PostUpdatedScene(", menu_capture)
+        grant = loop.index("if (renderer_combined_simulation_granted)", post)
+        present = loop.index("PresentUiOverlayFrame(", grant)
+        skip = loop.index("SkipUpdatedScene();", grant)
+        # The menu captures before the simulation branch, and the grant is
+        # spent on a present with the skip retained only as the fallback.
+        self.assertLess(menu, menu_capture)
+        self.assertLess(menu_capture, post)
+        self.assertLess(grant, present)
+        self.assertLess(present, skip)
+
+        tail = loop[grant : loop.index("OgreProfileEnd(\"Scene and GUI\")", grant)]
+        for token in (
+            "LastPublishedOverlay()",
+            "Render::UiOverlayFrameRequest ui_request;",
+            "ui_request.rgba8_bytes = ui_overlay->rgba8_bytes->data();",
+            # The image is composited 1:1, so a stale extent must fall back to
+            # the skip rather than being rescaled onto the drawable.
+            "ui_overlay->width == ui_surface.pixel_width",
+            "ui_overlay->height == ui_surface.pixel_height",
+            "RendererInProcessSessionStatus::UI_OVERLAY_PRESENTED",
+            "[RoR|RendererCombined|UiOverlay]",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, tail)
+        # PENDING_FRONTEND_SURFACE is the documented adopt-and-retry status and
+        # must not be logged once per frame while a resize is in flight.
+        self.assertIn("PENDING_FRONTEND_SURFACE", tail)
+        # The refusal to manufacture an empty PSSM scene is the reason this
+        # path exists; it must never be replaced by a synthesized menu scene.
+        self.assertNotIn("PostUpdatedScene(", tail)
+
     def test_presenter_precedes_hidden_host_and_outlives_it(self) -> None:
         presenter = self.main.index(
             "RendererOgreNextInProcessPresenter renderer_combined_presenter"
