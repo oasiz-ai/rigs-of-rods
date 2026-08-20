@@ -29,27 +29,27 @@ PINNED_MEMBER_SHA256 = {
     "bodytemp.png":
         "032555688d1fd236f4dd50897446c622ef3f003c6ed6ad02b6ca8f706030357b",
     "bodytempspec.png":
-        "61646baa4fad5c05366c11f36000c50fd6075830c169c4e4ea123edb8a74635e",
+        "19b2749db52f24d00a55dbdb5cb51ec33e04737794646113a99d75d66f402be6",
     "body_black.png":
         "c50b3cde9475e08dc869f9ca1a907b4f483cdc56426c3364a23b49265ee82fa0",
     "body_blackspec.png":
-        "74baf89871f96617497cea5a2067cd131e8414fe2b764ae0e73c4ee2875af38e",
+        "2fd457bf2d1be2faebe5728b8e5275eea6e0b342104eb7d1c44c598359456720",
     "body_blue.png":
         "d48b297f96977928dc852578b3fc7e3e0b95c6bead9e74901dc2cdd442e00441",
     "body_bluespec.png":
-        "a86f7f5c0adee0b93aa796f8a471eba49f9eaad1ac889a3dcb00da9c0bac9bc5",
+        "9fedb5ff7a6d3c5db9d1788c01f2e26d094fcc3ee53f7a2ec9940eab7bd4c2ac",
     "body_green.png":
         "9fbb6849e031e446a17e4051b41f4289272d708af64faa431368908fe2655ecc",
     "body_greenspec.png":
-        "cd360baefbd03c3cc2a650f982c52b50af32e1d062ddf10eae52e33c22c5788d",
+        "307e54d3e11fdf8f5b01cd627ed8c798884259bde7bef2c9d5c5386a5ca984ec",
     "body_purple.png":
         "b6ef84d77ccda6bc20f6dc4f1acfc149a993662bf129c2ebc676f5fa3184b44d",
     "body_purplespec.png":
-        "a96a52ec4aa3677b9bc4f029cbbc36803ecaa7991024a2e0876e6ef731dd5390",
+        "3dc8ae19fe97e0ceb72973757b48f60cfa9378c449f6005fadb5ed2427bbfbe9",
     "body_white.png":
         "3c402211ef6e134379826d666f8b0ad6ecb8c7c31b6a12ab267914fe6f6c2ad1",
     "body_whitespec.png":
-        "cdebefa5d1e83399de705f8f40b0ee76a80cc0060e54d308cd999d48240a3e0d",
+        "45880f4e8680784fd6d72bc9ce8c3868d7218204f48e0f000ab781ffc779d61e",
 }
 
 
@@ -160,9 +160,9 @@ class PaintFormatTests(unittest.TestCase):
                         paint.CLEARCOAT_SPECULAR_LEVEL), 2.0)
 
     def test_specular_carries_real_variation(self) -> None:
-        # The presenter pins roughness at 1.0 for this vehicle, so the
-        # specular map is the only spatially varying specular input there is.
-        # A flat map would make the paint indistinguishable from the 5x5
+        # roughness_factor and specular_factor are single scalars, so this map
+        # is the only spatially varying specular input the presenter has. A
+        # flat map would leave the paint indistinguishable from the 5x5
         # placeholder it replaces.
         for skin in paint.PAINT_SKINS:
             with self.subTest(member=skin.specular_member):

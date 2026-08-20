@@ -16,14 +16,18 @@ worth stating plainly.  For an AlexisSaber managed material the lowering in
 * ``specular_texture``    <- the ``*spec`` member, decoded as LINEAR_DATA,
 * ``metallic_factor``     = 0.0 (hardcoded),
 * ``specular_factor``     = {1, 1, 1} (constant off the curated path),
-* ``roughness_factor``    = sqrt(2 / (shininess + 2)), and the shared managed
-  template never sets a shininess, so it is pinned at 1.0.
+* ``index_of_refraction`` = 1.5, giving a dielectric F0 of 0.04,
+* ``roughness_factor``    = sqrt(2 / (shininess + 2)) for every other legacy
+  projection, which lands on 1.0 because no managed template authors a
+  shininess.  The body paint is the one exception: it carries the reviewed
+  ``kOgreNextDemoAlexisBodyPaintRoughness`` instead.
 
-So there is no authorable roughness, no normal map and no clearcoat lobe: the
-two colour maps are the entire authoring surface, and the highlight is a broad
-rough-specular sheen rather than a tight clearcoat highlight.  The paint is
-built for that response - the specular map carries the visible structure and
-the base colour stays close to its authored mean.
+There is still no normal map and no separate clearcoat lobe, so the two colour
+maps plus that one reviewed scalar are the entire authoring surface.  The
+reviewed roughness is not optional decoration: under the shininess derivation
+the lobe is fully rough, and a fully rough lobe spreads the specular product so
+wide that any clearcoat map is indistinguishable from a flat one.  Paint and
+roughness are one deliverable; shipping either alone wastes the other.
 
 The second constraint is the UV layout.  Every ``SaberBody`` panel mesh
 (``AlexisSaberDoors/FF/RF/Hood/FBump/RBump``) independently unwraps across the
@@ -74,9 +78,21 @@ PAINT_FORMAT = "ror-alexis-saber-paint-v1"
 PAINT_SIZE = 512
 
 #: Clearcoat specular level, in the same 0..255 linear encoding the shipped
-#: ``bodytempspec.png`` placeholder used.  Clearcoat reflectance does not
-#: depend on the pigment underneath it, so every skin shares this mean.
-CLEARCOAT_SPECULAR_LEVEL = 73
+#: ``*Spec`` members use.  Clearcoat reflectance does not depend on the pigment
+#: underneath it, so every skin shares this mean.
+#:
+#: Deliberately *not* the 73 the shipped ``bodytempspec.png`` placeholder
+#: carried.  73 was authored for the legacy ``SpecularMapping1`` pass, where the
+#: member is an amplitude on an additive cube-map reflection.  The presenter
+#: consumes the very same member as a PBS specular multiplier: the pinned Hlms
+#: does ``pixelData.specular.xyz *= specularMap`` under SpecularWorkflow, with
+#: F0 held at the IOR 1.5 dielectric 0.04.  Carried over literally, 73 would cut
+#: a dielectric's specular to 29 per cent of neutral for no physical reason.
+#: 214 leaves the clearcoat close to the neutral multiplier while keeping
+#: headroom above it for flake and below it for the sheen and peel fields.
+#: Because F0 stays 0.04 no matter how bright this map is, a high level cannot
+#: turn the paint into chrome; it only stops it being needlessly dim.
+CLEARCOAT_SPECULAR_LEVEL = 214
 
 #: Coarse "wet clearcoat" undulation: 16 lattice cells over the square.
 #: A panel is roughly a metre across, so a cell lands near 6 cm - large
@@ -136,11 +152,11 @@ PAINT_SKINS: tuple[PaintSkin, ...] = (
         specular_member="bodytempspec.png",
         base_rgb=(177, 0, 0),
         flake_albedo_gain=34,
-        flake_specular_gain=58,
+        flake_specular_gain=46,
         albedo_sheen=5,
         albedo_peel=4,
-        specular_sheen=13,
-        specular_peel=12,
+        specular_sheen=24,
+        specular_peel=17,
         salt=0x41,
     ),
     PaintSkin(
@@ -149,11 +165,11 @@ PAINT_SKINS: tuple[PaintSkin, ...] = (
         specular_member="body_blackspec.png",
         base_rgb=(3, 3, 3),
         flake_albedo_gain=44,
-        flake_specular_gain=64,
+        flake_specular_gain=50,
         albedo_sheen=4,
         albedo_peel=3,
-        specular_sheen=15,
-        specular_peel=14,
+        specular_sheen=27,
+        specular_peel=19,
         salt=0x47,
     ),
     PaintSkin(
@@ -162,11 +178,11 @@ PAINT_SKINS: tuple[PaintSkin, ...] = (
         specular_member="body_bluespec.png",
         base_rgb=(0, 19, 127),
         flake_albedo_gain=38,
-        flake_specular_gain=60,
+        flake_specular_gain=48,
         albedo_sheen=5,
         albedo_peel=4,
-        specular_sheen=14,
-        specular_peel=13,
+        specular_sheen=25,
+        specular_peel=18,
         salt=0x4D,
     ),
     PaintSkin(
@@ -175,11 +191,11 @@ PAINT_SKINS: tuple[PaintSkin, ...] = (
         specular_member="body_greenspec.png",
         base_rgb=(58, 193, 0),
         flake_albedo_gain=30,
-        flake_specular_gain=54,
+        flake_specular_gain=44,
         albedo_sheen=6,
         albedo_peel=5,
-        specular_sheen=12,
-        specular_peel=11,
+        specular_sheen=22,
+        specular_peel=16,
         salt=0x53,
     ),
     PaintSkin(
@@ -188,11 +204,11 @@ PAINT_SKINS: tuple[PaintSkin, ...] = (
         specular_member="body_purplespec.png",
         base_rgb=(127, 0, 110),
         flake_albedo_gain=36,
-        flake_specular_gain=59,
+        flake_specular_gain=47,
         albedo_sheen=5,
         albedo_peel=4,
-        specular_sheen=14,
-        specular_peel=13,
+        specular_sheen=25,
+        specular_peel=18,
         salt=0x59,
     ),
     PaintSkin(
@@ -201,11 +217,11 @@ PAINT_SKINS: tuple[PaintSkin, ...] = (
         specular_member="body_whitespec.png",
         base_rgb=(253, 253, 253),
         flake_albedo_gain=14,
-        flake_specular_gain=48,
+        flake_specular_gain=40,
         albedo_sheen=4,
         albedo_peel=4,
-        specular_sheen=11,
-        specular_peel=11,
+        specular_sheen=20,
+        specular_peel=15,
         salt=0x5F,
     ),
 )

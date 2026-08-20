@@ -2371,39 +2371,67 @@ bool OgreNextDemoOmitsNonUniformSpeedBump(
          derived_scale.y == 0.5F && derived_scale.z == 0.5F;
 }
 
+namespace {
+
+constexpr std::string_view kAlexisBundleGroup =
+    "{bundle USER:/mods/AlexisSaber.zip}";
+
+/// True when `exact_material_name` is exactly `base` followed by the actor
+/// spawner's instance suffix for AlexisSaber.truck, with an all-digit body.
+bool MatchesAlexisManagedBase(std::string_view exact_material_name,
+                              std::string_view base) noexcept {
+  constexpr std::string_view kSuffixPrefix =
+      " (AlexisSaber.truck [Instance ID ";
+  constexpr std::string_view kSuffixEnd = "])";
+  if (exact_material_name.size() <=
+          base.size() + kSuffixPrefix.size() + kSuffixEnd.size() ||
+      exact_material_name.substr(0U, base.size()) != base ||
+      exact_material_name.substr(base.size(), kSuffixPrefix.size()) !=
+          kSuffixPrefix ||
+      exact_material_name.substr(exact_material_name.size() -
+                                 kSuffixEnd.size()) != kSuffixEnd) {
+    return false;
+  }
+  const std::string_view instance = exact_material_name.substr(
+      base.size() + kSuffixPrefix.size(),
+      exact_material_name.size() - base.size() - kSuffixPrefix.size() -
+          kSuffixEnd.size());
+  return !instance.empty() &&
+         std::all_of(instance.begin(), instance.end(),
+                     [](char value) { return value >= '0' && value <= '9'; });
+}
+
+} // namespace
+
 bool OgreNextDemoAllowsAlexisTUS0Approximation(
     std::string_view exact_resource_group,
     std::string_view exact_material_name) noexcept {
-  if (exact_resource_group != "{bundle USER:/mods/AlexisSaber.zip}") {
+  if (exact_resource_group != kAlexisBundleGroup) {
     return false;
   }
   constexpr std::array<std::string_view, 5U> kOpaqueManagedNames{
       {"SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles",
        "SaberBody"}};
-  constexpr std::string_view kSuffixPrefix =
-      " (AlexisSaber.truck [Instance ID ";
-  constexpr std::string_view kSuffixEnd = "])";
   for (const std::string_view base : kOpaqueManagedNames) {
-    if (exact_material_name.size() <=
-            base.size() + kSuffixPrefix.size() + kSuffixEnd.size() ||
-        exact_material_name.substr(0U, base.size()) != base ||
-        exact_material_name.substr(base.size(), kSuffixPrefix.size()) !=
-            kSuffixPrefix ||
-        exact_material_name.substr(exact_material_name.size() -
-                                   kSuffixEnd.size()) != kSuffixEnd) {
-      continue;
-    }
-    const std::string_view instance = exact_material_name.substr(
-        base.size() + kSuffixPrefix.size(),
-        exact_material_name.size() - base.size() - kSuffixPrefix.size() -
-            kSuffixEnd.size());
-    if (!instance.empty() &&
-        std::all_of(instance.begin(), instance.end(),
-                    [](char value) { return value >= '0' && value <= '9'; })) {
+    if (MatchesAlexisManagedBase(exact_material_name, base)) {
       return true;
     }
   }
   return false;
+}
+
+bool OgreNextDemoResolveAlexisAuthoredRoughness(
+    std::string_view exact_resource_group,
+    std::string_view exact_material_name, float &out_roughness) noexcept {
+  // Only the body paint. The chassis, wheels and grilles are not clearcoated
+  // surfaces and keep the shininess derivation they ship with today, so this
+  // exception cannot silently restyle the rest of the vehicle.
+  if (exact_resource_group != kAlexisBundleGroup ||
+      !MatchesAlexisManagedBase(exact_material_name, "SaberBody")) {
+    return false;
+  }
+  out_roughness = kOgreNextDemoAlexisBodyPaintRoughness;
+  return true;
 }
 
 } // namespace RoR::Gfx::Detail

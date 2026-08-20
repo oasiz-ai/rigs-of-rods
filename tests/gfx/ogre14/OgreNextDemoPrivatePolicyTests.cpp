@@ -1602,6 +1602,42 @@ void CheckStaticCaptureAdmission() {
       "invalid AABB partially published its admission result");
 }
 
+void CheckAlexisAuthoredRoughnessPolicy() {
+  // The reviewed roughness is the only thing that makes the authored specular
+  // map visible: every managed template leaves shininess at 0, and the
+  // shininess derivation puts every other managed vehicle material at exactly
+  // 1.0, where the specular lobe is too broad to carry a clearcoat.
+  Require(kOgreNextDemoAlexisBodyPaintRoughness > 0.0F &&
+              kOgreNextDemoAlexisBodyPaintRoughness < 1.0F,
+          "the reviewed body-paint roughness left the open unit interval");
+  float roughness = -1.0F;
+  Require(OgreNextDemoResolveAlexisAuthoredRoughness(
+              "{bundle USER:/mods/AlexisSaber.zip}",
+              "SaberBody (AlexisSaber.truck [Instance ID 16])", roughness) &&
+              roughness == kOgreNextDemoAlexisBodyPaintRoughness,
+          "the Alexis body paint lost its reviewed roughness");
+  // Everything else keeps the shininess derivation, so this exception cannot
+  // restyle the rest of the vehicle or any other content.
+  constexpr std::array<std::pair<std::string_view, std::string_view>, 5U>
+      kOutsideTheException{{
+          {"{bundle USER:/mods/AlexisSaber.zip}",
+           "SaberChassis (AlexisSaber.truck [Instance ID 17])"},
+          {"{bundle USER:/mods/AlexisSaber.zip}",
+           "SaberWheels (AlexisSaber.truck [Instance ID 19])"},
+          {"{bundle USER:/mods/AlexisSaber.zip}", "SaberBody"},
+          {"{bundle USER:/mods/AlexisSaber.zip}",
+           "SaberBody (AlexisSaber.truck [Instance ID x])"},
+          {"OtherGroup", "SaberBody (AlexisSaber.truck [Instance ID 16])"},
+      }};
+  for (const auto &[group, name] : kOutsideTheException) {
+    float escaped = -1.0F;
+    Require(!OgreNextDemoResolveAlexisAuthoredRoughness(group, name,
+                                                        escaped) &&
+                escaped == -1.0F,
+            "the reviewed body-paint roughness escaped its exact scope");
+  }
+}
+
 void CheckMatteFallbackPolicy() {
   Require(!OgreNextDemoRequiresMatte(0U, false),
           "factor-only material was unnecessarily matted");
@@ -1657,6 +1693,7 @@ void CheckMatteFallbackPolicy() {
                   "OtherGroup",
                   "SaberChassis (AlexisSaber.truck [Instance ID 17])"),
           "Alexis opaque TUS0 approximation escaped its exact content scope");
+  CheckAlexisAuthoredRoughnessPolicy();
 }
 
 void CheckMatteTintPolicy() {
