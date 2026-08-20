@@ -607,8 +607,12 @@ public:
     bool catalog_stable_for_section = false;
     /// The exact non-retained asset inputs the catalog below was proven
     /// against, in canonical order. Index-aligned across the three vectors.
+    /// The payload owners are weak, not raw: a raw address could be reused by
+    /// a different payload allocated after the anchored one was released, and
+    /// the induction would then read a changed asset as unchanged. An expired
+    /// weak owner simply fails the comparison and forces the full walk.
     std::vector<std::uint64_t> residue_ids;
-    std::vector<const RenderAssetPayload *> residue_payloads;
+    std::vector<std::weak_ptr<const RenderAssetPayload>> residue_payloads;
     std::vector<std::array<GraphicsSceneAssetBinding,
                            kGraphicsSceneMaterialTextureSlotCount>>
         residue_bindings;
@@ -1068,7 +1072,7 @@ public:
       for (std::size_t index = 0U; index < residue_asset_count; ++index) {
         const GraphicsSceneAssetInput &input = *sorted_assets[index].input;
         if (retained_static.residue_ids[index] != input.source_asset_id ||
-            retained_static.residue_payloads[index] != input.payload.get() ||
+            retained_static.residue_payloads[index].lock() != input.payload ||
             retained_static.residue_bindings[index] !=
                 input.material_bindings) {
           retained_residue_matches = false;
@@ -1080,7 +1084,8 @@ public:
     // residue is still contiguous at the head of sorted_assets, keeps the
     // commit block free of anything that can throw.
     std::vector<std::uint64_t> candidate_residue_ids;
-    std::vector<const RenderAssetPayload *> candidate_residue_payloads;
+    std::vector<std::weak_ptr<const RenderAssetPayload>>
+        candidate_residue_payloads;
     std::vector<std::array<GraphicsSceneAssetBinding,
                            kGraphicsSceneMaterialTextureSlotCount>>
         candidate_residue_bindings;
@@ -1099,7 +1104,7 @@ public:
       for (std::size_t index = 0U; index < residue_asset_count; ++index) {
         const GraphicsSceneAssetInput &input = *sorted_assets[index].input;
         candidate_residue_ids.push_back(input.source_asset_id);
-        candidate_residue_payloads.push_back(input.payload.get());
+        candidate_residue_payloads.push_back(input.payload);
         candidate_residue_bindings.push_back(input.material_bindings);
       }
     }
@@ -1158,6 +1163,8 @@ public:
         frame.absolute_world_origin_meters == retained_static.block_origin &&
         frame.static_meshes.empty() &&
         frame.dynamic_meshes.size() == retained_static.dynamic_ids.size() &&
+        retained_static.dynamic_positions.size() ==
+            retained_static.dynamic_ids.size() &&
         retained_static.block_source->mesh_instances().size() ==
             retained_mesh_count + retained_static.dynamic_ids.size();
     std::vector<IndexedStaticMeshInput> sorted_objects;
