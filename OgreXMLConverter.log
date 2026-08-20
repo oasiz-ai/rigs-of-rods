@@ -1,8 +1,1 @@
-12:51:13: Warning: conversion uses an old format [MeshSerializer_v1.41]; upgrade with the OgreMeshUpgrader tool
-12:51:13: XMLMeshSerializer writing mesh data to /private/tmp/claude-501/-Users-beshoyhanna-Development-rigs-of-rods/b3b6995e-fccb-4610-9da7-1ad3b8722543/scratchpad/alexis/AlexisSaberSubframe.mesh.xml...
-12:51:13: Populating DOM...
-12:51:13: Writing submesh...
-12:51:13: Dedicated geometry bone assignments exported.
-12:51:13: Submesh exported.
-12:51:13: DOM populated, writing XML file..
-12:51:13: XMLMeshSerializer export successful.
+17:06:14: Error: Unknown input type: --help

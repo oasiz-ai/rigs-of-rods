@@ -97,6 +97,7 @@ struct Ogre14ActorCaptureCoverageProbe
 {
     std::size_t cab_entities = 0U;
     std::size_t cab_sections = 0U;
+    std::size_t cab_sections_omitted_invisible = 0U;
     std::size_t flexbody_entities = 0U;
     std::size_t flexbody_sections = 0U;
     std::size_t flexbody_placeholders = 0U;
@@ -119,11 +120,18 @@ struct Ogre14ActorCaptureCoverageProbe
     std::size_t enumerated_sections = 0U;
 };
 
+bool IsOgreNextDemoInvisibleCabMaterial(const Ogre::MaterialPtr& material);
+
 /// Counts one candidate Entity into a category and into the actor totals.
 /// A detached, unnamed or meshless Entity is counted nowhere: the legacy
 /// scene does not draw it either, so it is not missing coverage.
+///
+/// `omits_invisible_cab_sections` reproduces the one deliberate omission the
+/// capture makes inside an enumerated Entity, so `enumerated_sections` can be
+/// compared directly against the material census's candidate_sections.
 void AccumulateOgre14ProbeEntity(
     Ogre::Entity* entity, bool enumerated_by_capture,
+    bool omits_invisible_cab_sections,
     std::size_t& category_entities, std::size_t& category_sections,
     Ogre14ActorCaptureCoverageProbe& probe)
 {
@@ -133,6 +141,20 @@ void AccumulateOgre14ProbeEntity(
         return;
     }
     const std::size_t sections = entity->getNumSubEntities();
+    std::size_t omitted = 0U;
+    if (omits_invisible_cab_sections)
+    {
+        for (std::size_t index = 0U; index < sections; ++index)
+        {
+            Ogre::SubEntity* const sub_entity = entity->getSubEntity(index);
+            if (sub_entity != nullptr &&
+                IsOgreNextDemoInvisibleCabMaterial(sub_entity->getMaterial()))
+            {
+                ++omitted;
+            }
+        }
+        probe.cab_sections_omitted_invisible += omitted;
+    }
     ++category_entities;
     category_sections += sections;
     ++probe.attached_entities;
@@ -140,7 +162,7 @@ void AccumulateOgre14ProbeEntity(
     if (enumerated_by_capture)
     {
         ++probe.enumerated_entities;
-        probe.enumerated_sections += sections;
+        probe.enumerated_sections += sections - omitted;
     }
 }
 
@@ -3852,7 +3874,7 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
     }
     Ogre14ActorCaptureCoverageProbe probe;
     AccumulateOgre14ProbeEntity(
-        gfx_actor->m_cab_entity, true, probe.cab_entities,
+        gfx_actor->m_cab_entity, true, true, probe.cab_entities,
         probe.cab_sections, probe);
     for (FlexBody* const flexbody : gfx_actor->m_flexbodies)
     {
@@ -3865,7 +3887,7 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
             continue;
         }
         AccumulateOgre14ProbeEntity(
-            flexbody->getEntity(), true, probe.flexbody_entities,
+            flexbody->getEntity(), true, false, probe.flexbody_entities,
             probe.flexbody_sections, probe);
     }
     for (const WheelGfx& wheel : gfx_actor->m_wheels)
@@ -3882,19 +3904,19 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
                     wheel.wx_scenenode->getAttachedObject(0U));
             }
             AccumulateOgre14ProbeEntity(
-                entity, true, probe.flexmesh_wheel_entities,
+                entity, true, false, probe.flexmesh_wheel_entities,
                 probe.flexmesh_wheel_sections, probe);
         }
         else if (FlexMeshWheel* const meshwheel =
                      dynamic_cast<FlexMeshWheel*>(wheel.wx_flex_mesh))
         {
             AccumulateOgre14ProbeEntity(
-                meshwheel->GetTireEntity(), true,
+                meshwheel->GetTireEntity(), true, false,
                 probe.meshwheel_tire_entities, probe.meshwheel_tire_sections,
                 probe);
             AccumulateOgre14ProbeEntity(
                 meshwheel->GetRimEntity(),
-                kOgre14CaptureEnumeratesMeshWheelRims,
+                kOgre14CaptureEnumeratesMeshWheelRims, false,
                 probe.meshwheel_rim_entities, probe.meshwheel_rim_sections,
                 probe);
         }
@@ -3926,13 +3948,13 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
         const bool props_enumerated = kOgre14CaptureEnumeratesProps &&
             !renders_into_a_native_render_target;
         AccumulateOgre14ProbeEntity(
-            prop.pp_mesh_obj->getEntity(), props_enumerated,
+            prop.pp_mesh_obj->getEntity(), props_enumerated, false,
             probe.prop_mesh_entities, probe.prop_mesh_sections, probe);
         if (prop.pp_wheel_mesh_obj != nullptr)
         {
             AccumulateOgre14ProbeEntity(
                 prop.pp_wheel_mesh_obj->getEntity(), props_enumerated,
-                probe.prop_steering_wheel_entities,
+                false, probe.prop_steering_wheel_entities,
                 probe.prop_steering_wheel_sections, probe);
         }
         for (Ogre::BillboardSet* const beacon : prop.pp_beacon_bbs)
@@ -3943,13 +3965,15 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
     }
 
     const std::string snapshot = fmt::format(
-        "cab={}/{} flexbody={}/{} flexbody_placeholders={} "
+        "cab={}/{} cab_sections_omitted_invisible={} "
+        "flexbody={}/{} flexbody_placeholders={} "
         "flexmesh_wheel={}/{} meshwheel_tire={}/{} meshwheel_rim={}/{} "
         "prop_mesh={}/{} prop_steering_wheel={}/{} "
         "prop_slots_removed_by_tuneup={} prop_mirror_entities={} "
         "prop_beacon_billboards={} attached={}/{} enumerated={}/{} "
         "unenumerated={}/{}",
         probe.cab_entities, probe.cab_sections,
+        probe.cab_sections_omitted_invisible,
         probe.flexbody_entities, probe.flexbody_sections,
         probe.flexbody_placeholders,
         probe.flexmesh_wheel_entities, probe.flexmesh_wheel_sections,

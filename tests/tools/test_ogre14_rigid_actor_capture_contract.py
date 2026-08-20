@@ -237,6 +237,14 @@ class RigidActorCaptureContractTests(unittest.TestCase):
         self.assertIn("meshwheel->GetRimEntity()", probe)
         self.assertIn("prop.pp_mesh_obj->getEntity()", probe)
         self.assertIn("unenumerated={}/{}", probe)
+        # The capture walks the cab entity but omits its intentionally
+        # invisible sections, so the probe reproduces that one omission
+        # and its enumerated total can be compared straight against the
+        # material census's candidate_sections.
+        self.assertIn("cab_sections_omitted_invisible={}", probe)
+        self.assertIn(
+            "probe.enumerated_sections += sections - omitted;", self.scene
+        )
 
 
 if __name__ == "__main__":
