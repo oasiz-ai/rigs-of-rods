@@ -196,7 +196,8 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};"
         "curated_cityworld={}/{};curated_observed={};curated_matte={};"
         "curated_environment_pending={};uncurated_spherical_matte={};"
-        "layered_legacy={};unpresented_layers={};reasons={}",
+        "layered_legacy={};unpresented_layers={};additive_overlay_legacy={};"
+        "unpresented_additive_overlay_passes={};reasons={}",
         active_projections, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.distinct_eligible_texture_keys,
@@ -231,6 +232,8 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         curated.uncurated_spherical_family_matte_materials,
         counters.layered_legacy_material_projections,
         counters.unpresented_legacy_layer_units,
+        counters.additive_overlay_legacy_material_projections,
+        counters.unpresented_legacy_additive_overlay_passes,
         FormatOgreNextDemoMaterialExclusions(counters));
 }
 
@@ -252,7 +255,9 @@ std::string FormatOgreNextDemoMaterialCounters(
         "active_specular_workflow_projections={} "
         "active_anisotropic_sampler_projections={} "
         "layered_legacy_material_projections={} "
-        "unpresented_legacy_layer_units={} ",
+        "unpresented_legacy_layer_units={} "
+        "additive_overlay_legacy_material_projections={} "
+        "unpresented_legacy_additive_overlay_passes={} ",
         counters.new_frozen_material_decisions, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.projections, counters.distinct_eligible_texture_keys,
@@ -268,7 +273,9 @@ std::string FormatOgreNextDemoMaterialCounters(
         counters.active_specular_workflow_projections,
         counters.active_anisotropic_sampler_projections,
         counters.layered_legacy_material_projections,
-        counters.unpresented_legacy_layer_units);
+        counters.unpresented_legacy_layer_units,
+        counters.additive_overlay_legacy_material_projections,
+        counters.unpresented_legacy_additive_overlay_passes);
     result += fmt::format(
         "active_texture_state_observations={} "
         "active_normalized_texture_observations={} "

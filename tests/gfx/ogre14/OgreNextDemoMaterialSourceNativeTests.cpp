@@ -2070,6 +2070,149 @@ void TestAlphaStateAndAnisotropicProjection() {
   source.Discard();
 }
 
+// The shipping CityWorld multi-pass population is exactly two trailing-pass
+// shapes. A purely additive overlay is admitted - pass 0's base colour is
+// presented while the overlay stays observed, counted, and unpresented - and a
+// destination-modifying overlay is refused under its own name, because
+// presenting pass 0 alone would show colour the author covered.
+void TestLegacyAdditiveOverlayPassAdmission() {
+  const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
+  auto readbacks = std::make_shared<std::size_t>(0U);
+  Ogre14AuthenticatedTextureReceiptRegistry authenticated_registry;
+  RequireOk(InitializeOgre14AuthenticatedTextureReceiptRegistry(
+                Ogre14AuthenticatedTextureRegistryConfiguration{},
+                authenticated_registry),
+            "initialize additive-overlay authenticated authority");
+  OrdinaryTrustResolver trust_resolver;
+  EmptyAuthorityProvider authority_provider;
+  authority_provider.registry = &authenticated_registry;
+  authority_provider.resolver = &trust_resolver;
+  Ogre14SelectedTextureSourceReceiptRegistry selected_registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry({},
+                                                           selected_registry),
+            "initialize additive-overlay selected registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                kGroup, 1U, selected_registry),
+            "activate additive-overlay selected group");
+  SelectedResolver selected_resolver;
+  selected_resolver.registry = &selected_registry;
+  Ogre::TexturePtr texture =
+      std::make_shared<TestTexture>(kTextureName, 91U, kGroup, readbacks);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*texture, 1U, 0U, 0x5A00U, bytes),
+                selected_registry),
+            "commit additive-overlay source receipt");
+  texture->load();
+
+  // `alumbradopublico`'s exact authored shape: an opaque canonical pass 0 plus
+  // one `scene_blend add` / `lighting off` / `depth_write off` /
+  // `alpha_rejection greater 128` glow overlay.
+  NativeMaterial native(texture, 113U);
+  Ogre::Pass *const overlay =
+      native.material->getTechnique(0U)->createPass();
+  overlay->setSceneBlending(Ogre::SBF_ONE, Ogre::SBF_ONE);
+  overlay->setLightingEnabled(false);
+  overlay->setDepthWriteEnabled(false);
+  overlay->setAlphaRejectSettings(Ogre::CMPF_GREATER, 128U);
+  Ogre::TextureUnitState *const overlay_unit =
+      overlay->createTextureUnitState();
+  overlay_unit->setTexture(texture);
+
+  OgreNextDemoMaterialSource source;
+  Require(source.BindAuthenticatedTextureAuthority(trust_resolver,
+                                                   authority_provider) &&
+              source.BindOrdinarySelectedTextureSourceResolver(
+                  selected_resolver),
+          "bind additive-overlay MaterialSource authorities");
+  Require(source.BeginCapture(), "begin additive-overlay capture");
+  Ogre14GraphicsSceneMaterialCaptureInput input = CaptureInput();
+  bool projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "project pass 0 beneath an additive overlay");
+  std::vector<GraphicsSceneAssetInput> assets = BuildPlaceholderAssets(input);
+  RequireOk(source.Apply(assets), "apply additive-overlay projection");
+  const OgreNextDemoMaterialSourceCounters admitted =
+      source.CurrentCaptureCounters();
+  Require(projected && admitted.projections == 1U &&
+              admitted.additive_overlay_legacy_material_projections == 1U &&
+              admitted.unpresented_legacy_additive_overlay_passes == 1U &&
+              admitted.matte_excluded_sections == 0U,
+          "additive overlay was not admitted with its unpresented pass "
+          "counted exactly once");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  // The frozen owner records the overlay-pass count, so growing the technique
+  // between TryProject and Apply must abort publication rather than silently
+  // present a shape the decision never saw.
+  Require(source.BeginCapture(), "begin additive-overlay drift capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "reuse additive-overlay projection before drift");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> before = assets;
+  Ogre::Pass *const drift_overlay =
+      native.material->getTechnique(0U)->createPass();
+  drift_overlay->setSceneBlending(Ogre::SBF_ONE, Ogre::SBF_ONE);
+  const ValidationResult drifted_apply = source.Apply(assets);
+  Require(!drifted_apply &&
+              drifted_apply.code == ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, before),
+          "an added additive overlay pass published without revalidation");
+  native.material->getTechnique(0U)->removePass(2U);
+  source.Discard();
+
+  // `scene_blend alpha_blend` on the overlay replaces what pass 0 wrote, so the
+  // whole material keeps its own named refusal instead of being admitted.
+  source.Reset();
+  overlay->setSceneBlending(Ogre::SBF_SOURCE_ALPHA,
+                            Ogre::SBF_ONE_MINUS_SOURCE_ALPHA);
+  Require(source.BeginCapture(), "begin blended-overlay capture");
+  input = CaptureInput();
+  projected = true;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "classify a destination-modifying overlay pass");
+  const OgreNextDemoMaterialSourceCounters blended =
+      source.CurrentCaptureCounters();
+  Require(!projected && blended.matte_excluded_sections == 1U &&
+              blended.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED)] == 1U &&
+              blended.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_MULTI_PASS_UNSUPPORTED)] == 0U,
+          "an alpha-blended lit decal overlay was admitted or lost its name");
+  source.Discard();
+
+  // Anything outside both reviewed shapes keeps the generic refusal, so the
+  // census stays a closed named partition.
+  source.Reset();
+  overlay->setSceneBlending(Ogre::SBF_ONE_MINUS_SOURCE_COLOUR,
+                            Ogre::SBF_SOURCE_COLOUR);
+  Require(source.BeginCapture(), "begin unclassified-overlay capture");
+  input = CaptureInput();
+  projected = true;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "classify an unrecognised overlay blend");
+  const OgreNextDemoMaterialSourceCounters unclassified =
+      source.CurrentCaptureCounters();
+  Require(!projected && unclassified.matte_excluded_sections == 1U &&
+              unclassified.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_MULTI_PASS_UNSUPPORTED)] == 1U &&
+              unclassified.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED)] == 0U,
+          "an unrecognised overlay blend was admitted or renamed");
+  RequireZeroReadback(source, *readbacks);
+  source.Discard();
+}
+
 void TestNativeMaterialSourceLifecycle() {
   TestTexture::destruction_count = 0U;
   const std::vector<std::uint8_t> bytes = OpaqueRgbPng();
@@ -2533,6 +2676,7 @@ int main(int argc, char **argv) {
   TestRetryableOrdinaryAbsencePromotion();
   TestManagedSpecularProjectionAndRollback();
   TestAlphaStateAndAnisotropicProjection();
+  TestLegacyAdditiveOverlayPassAdmission();
   TestNativeMaterialSourceLifecycle();
   std::cout << "OgreNext demo MaterialSource native lifecycle tests passed\n";
   return EXIT_SUCCESS;

@@ -769,6 +769,28 @@ LegacyUnpresentedLayerKind ClassifyLegacyUnpresentedLayer(
   }
 }
 
+/// Bounded classification of one trailing (index >= 1) pass of a legacy
+/// multi-pass technique.
+///
+/// The shipping CityWorld multi-pass population is exactly two shapes. An
+/// `ADDITIVE` overlay declares `scene_blend add` with an add operation and no
+/// raster-state override: whatever it draws is summed onto what pass 0 already
+/// wrote, so pass 0's colour is a strict lower bound on the authored result and
+/// omitting the overlay can only make the surface dimmer, never a different
+/// colour. A `DESTINATION_MODIFYING` overlay - an alpha-blended lit decal, or a
+/// modulate darkening layer - replaces or scales that colour instead, so
+/// presenting pass 0 alone would show colour the author deliberately covered.
+/// Only the first bound is safe to trade, and anything outside both shapes is
+/// not classified at all.
+enum class LegacyOverlayPassKind : std::uint8_t {
+  UNSUPPORTED = 0U,
+  ADDITIVE = 1U,
+  DESTINATION_MODIFYING = 2U,
+};
+
+LegacyOverlayPassKind ClassifyLegacyOverlayPass(
+    const Ogre::Pass &pass) noexcept;
+
 bool IsRtssGeneratedTechnique(const Ogre::Technique &technique) noexcept {
   try {
     return technique.getSchemeName() == Ogre::MSN_SHADERGEN &&
@@ -910,28 +932,74 @@ bool HasAuthoredProgram(const Ogre::Pass &pass) noexcept {
 }
 
 /// Single structural gate for an ordinary (uncurated, non-Alexis) legacy
-/// material. One technique-pass, no GPU program, unit 0 as base colour, and
-/// every further unit a recognised legacy layer that is observed but never
-/// presented. Both the admission decision and its later revalidation call this
-/// so the two can never drift apart.
+/// material. No GPU program, pass 0 unit 0 as base colour, every further unit a
+/// recognised legacy layer, and every further pass a recognised additive
+/// overlay - all of which are observed and counted but never presented. Both
+/// the admission decision and its later revalidation call this so the two can
+/// never drift apart.
 bool HasAdmissibleLegacyShape(
     const Ogre::Technique &technique, const Ogre::Pass &pass,
     std::size_t &unpresented_layer_units,
+    std::size_t &unpresented_additive_overlay_passes,
     OgreNextDemoTextureProjectionExclusion &exclusion) noexcept {
   unpresented_layer_units = 0U;
+  unpresented_additive_overlay_passes = 0U;
   if (HasAuthoredProgram(pass)) {
     exclusion = OgreNextDemoTextureProjectionExclusion::
         MATERIAL_AUTHORED_PROGRAM_UNSUPPORTED;
     return false;
   }
-  if (technique.getNumPasses() != 1U) {
-    // A trailing pass carries visible contribution this projection cannot
-    // present - an additive glow overlay, or an alpha-rejected lit-window
-    // decal. Admitting pass 0 alone would silently delete it, so the whole
-    // material stays matte under its own named, counted reason instead.
+  const std::size_t pass_count =
+      static_cast<std::size_t>(technique.getNumPasses());
+  if (pass_count == 0U) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
+    return false;
+  }
+  if (pass_count > kOgreNextDemoMaximumLegacyTechniquePasses) {
     exclusion =
         OgreNextDemoTextureProjectionExclusion::MATERIAL_MULTI_PASS_UNSUPPORTED;
     return false;
+  }
+  // A trailing pass carries visible contribution this projection does not
+  // present. Classify what it actually is: an additive overlay bounds the loss
+  // to "dimmer than authored" and may be traded for pass 0's base colour under
+  // an explicit policy constant, while a destination-modifying overlay would
+  // let pass 0 show colour the author covered and is refused under its own
+  // name. Anything else is not classified and keeps the generic refusal.
+  std::size_t additive_overlay_passes = 0U;
+  for (std::size_t index = 1U; index < pass_count; ++index) {
+    const Ogre::Pass *const overlay =
+        const_cast<Ogre::Technique &>(technique).getPass(
+            static_cast<unsigned short>(index));
+    const LegacyOverlayPassKind kind =
+        overlay == nullptr ? LegacyOverlayPassKind::UNSUPPORTED
+                           : ClassifyLegacyOverlayPass(*overlay);
+    if (kind == LegacyOverlayPassKind::DESTINATION_MODIFYING) {
+      exclusion = OgreNextDemoTextureProjectionExclusion::
+          MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED;
+      return false;
+    }
+    if (kind != LegacyOverlayPassKind::ADDITIVE) {
+      exclusion = OgreNextDemoTextureProjectionExclusion::
+          MATERIAL_MULTI_PASS_UNSUPPORTED;
+      return false;
+    }
+    ++additive_overlay_passes;
+  }
+  if (additive_overlay_passes != 0U) {
+    if (!kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses) {
+      exclusion = OgreNextDemoTextureProjectionExclusion::
+          MATERIAL_ADDITIVE_OVERLAY_PASS_UNSUPPORTED;
+      return false;
+    }
+    if (!kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials &&
+        pass.getAlphaRejectFunction() != Ogre::CMPF_ALWAYS_PASS) {
+      exclusion = OgreNextDemoTextureProjectionExclusion::
+          MATERIAL_ALPHA_TESTED_OVERLAY_PASS_UNSUPPORTED;
+      return false;
+    }
+    unpresented_additive_overlay_passes = additive_overlay_passes;
   }
   const std::size_t unit_count =
       static_cast<std::size_t>(pass.getNumTextureUnitStates());
@@ -1047,6 +1115,81 @@ ExactPassObservation ObserveExactPass(const Ogre::Pass &pass) noexcept {
   observation.fog_override = pass.getFogOverride();
   observation.iterate_per_light = pass.getIteratePerLight();
   return observation;
+}
+
+LegacyOverlayPassKind ClassifyLegacyOverlayPass(
+    const Ogre::Pass &pass) noexcept {
+  try {
+    if (HasAuthoredProgram(pass) ||
+        pass.getNumTextureUnitStates() >
+            kOgreNextDemoMaximumLegacyLayeredTextureUnits) {
+      return LegacyOverlayPassKind::UNSUPPORTED;
+    }
+    const ExactPassObservation observation = ObserveExactPass(pass);
+    // Shared floor for either overlay shape. Everything here is state that
+    // would let a trailing pass affect the frame beyond compositing its own
+    // fragments onto pass 0's - a depth-bias offset, a masked colour write, a
+    // raster mode override, per-light or multi-iteration replay, or a fog
+    // override - and is refused rather than reasoned about.
+    if (observation.alpha_reject != Ogre::CMPF_ALWAYS_PASS &&
+        observation.alpha_reject != Ogre::CMPF_GREATER &&
+        observation.alpha_reject != Ogre::CMPF_GREATER_EQUAL) {
+      return LegacyOverlayPassKind::UNSUPPORTED;
+    }
+    if (!observation.write_red || !observation.write_green ||
+        !observation.write_blue || !observation.write_alpha ||
+        observation.alpha_to_coverage || !observation.depth_check ||
+        observation.depth_function != Ogre::CMPF_LESS_EQUAL ||
+        observation.depth_bias_constant != 0.0F ||
+        observation.depth_bias_slope_scale != 0.0F ||
+        observation.iteration_depth_bias != 0.0F ||
+        observation.polygon_mode != Ogre::PM_SOLID ||
+        !observation.polygon_mode_overrideable || observation.fog_override ||
+        observation.pass_iteration_count != 1U ||
+        observation.iterate_per_light) {
+      return LegacyOverlayPassKind::UNSUPPORTED;
+    }
+    if (observation.color_operation != Ogre::SBO_ADD ||
+        observation.alpha_operation != Ogre::SBO_ADD) {
+      return LegacyOverlayPassKind::UNSUPPORTED;
+    }
+    // `scene_blend add`: destination = destination + source, on colour and on
+    // alpha. This is the only shape whose omission is bounded.
+    if (observation.source_color == Ogre::SBF_ONE &&
+        observation.destination_color == Ogre::SBF_ONE &&
+        observation.source_alpha == Ogre::SBF_ONE &&
+        observation.destination_alpha == Ogre::SBF_ONE) {
+      return LegacyOverlayPassKind::ADDITIVE;
+    }
+    // The two destination-modifying legacy overlay blends: `scene_blend
+    // alpha_blend` (a lit decal, which CityWorld declares on ~60 facade
+    // materials) and `scene_blend zero src_colour` (a modulate darkening
+    // layer). Naming them separates a deliberate refusal from an unrecognised
+    // topology in the live census.
+    const bool alpha_blend_overlay =
+        observation.source_color == Ogre::SBF_SOURCE_ALPHA &&
+        observation.destination_color == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA &&
+        observation.source_alpha == Ogre::SBF_SOURCE_ALPHA &&
+        observation.destination_alpha == Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    // Both spellings of a modulate darkening layer: OGRE's `scene_blend
+    // modulate` shorthand and the explicit `scene_blend zero src_colour` the
+    // NeoQ2.0 ground material declares.
+    const bool modulate_overlay =
+        (observation.source_color == Ogre::SBF_ZERO &&
+         observation.destination_color == Ogre::SBF_SOURCE_COLOUR &&
+         observation.source_alpha == Ogre::SBF_ZERO &&
+         observation.destination_alpha == Ogre::SBF_SOURCE_COLOUR) ||
+        (observation.source_color == Ogre::SBF_DEST_COLOUR &&
+         observation.destination_color == Ogre::SBF_ZERO &&
+         observation.source_alpha == Ogre::SBF_DEST_COLOUR &&
+         observation.destination_alpha == Ogre::SBF_ZERO);
+    if (alpha_blend_overlay || modulate_overlay) {
+      return LegacyOverlayPassKind::DESTINATION_MODIFYING;
+    }
+    return LegacyOverlayPassKind::UNSUPPORTED;
+  } catch (...) {
+    return LegacyOverlayPassKind::UNSUPPORTED;
+  }
 }
 
 bool IsExactManagedSpecularPass(
@@ -2609,6 +2752,7 @@ struct PendingNativeTextureOwner final {
   std::size_t technique_pass_count = 0U;
   std::size_t pass_texture_unit_count = 0U;
   std::size_t unpresented_layer_units = 0U;
+  std::size_t unpresented_additive_overlay_passes = 0U;
   std::array<float, 4U> diffuse{};
   std::array<float, 4U> ambient{};
   std::array<float, 4U> specular{};
@@ -2668,12 +2812,14 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
     // Revalidate the ordinary structural shape through the exact predicate the
     // admission decision used, so the two can never drift apart.
     std::size_t observed_unpresented_layer_units = 0U;
+    std::size_t observed_unpresented_additive_overlay_passes = 0U;
     OgreNextDemoTextureProjectionExclusion observed_shape_exclusion =
         OgreNextDemoTextureProjectionExclusion::NONE;
     const bool observed_admissible_legacy_shape =
         technique != nullptr && pass != nullptr &&
         HasAdmissibleLegacyShape(*technique, *pass,
                                  observed_unpresented_layer_units,
+                                 observed_unpresented_additive_overlay_passes,
                                  observed_shape_exclusion);
     if (pass == nullptr || unit == nullptr || !sampler ||
         reinterpret_cast<std::uintptr_t>(pass) !=
@@ -2696,7 +2842,9 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         (!owner.curated_cityworld && !owner.allow_alexis_approximation &&
          (!observed_admissible_legacy_shape ||
           observed_unpresented_layer_units !=
-              owner.unpresented_layer_units)) ||
+              owner.unpresented_layer_units ||
+          observed_unpresented_additive_overlay_passes !=
+              owner.unpresented_additive_overlay_passes)) ||
         (owner.curated_cityworld && !observed_curated_cityworld) ||
         (owner.allow_alexis_approximation &&
          !IsExactAlexisDiffuseProjection(*technique, *pass,
@@ -2941,8 +3089,10 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     return false;
   }
   std::size_t unpresented_layer_units = 0U;
+  std::size_t unpresented_additive_overlay_passes = 0U;
   if (!allow_alexis_approximation && !allow_curated_cityworld &&
       !HasAdmissibleLegacyShape(*technique, *pass, unpresented_layer_units,
+                                unpresented_additive_overlay_passes,
                                 exclusion)) {
     return false;
   }
@@ -3255,6 +3405,8 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     owner.technique_pass_count = technique->getNumPasses();
     owner.pass_texture_unit_count = pass->getNumTextureUnitStates();
     owner.unpresented_layer_units = unpresented_layer_units;
+    owner.unpresented_additive_overlay_passes =
+        unpresented_additive_overlay_passes;
     owner.diffuse = ObserveColourComponents(pass->getDiffuse());
     owner.ambient = ObserveColourComponents(pass->getAmbient());
     owner.specular = ObserveColourComponents(pass->getSpecular());
@@ -4091,6 +4243,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       pending_->counters.layered_legacy_material_projections += 1U;
       pending_->counters.unpresented_legacy_layer_units +=
           unpresented_layer_units;
+    }
+    if (unpresented_additive_overlay_passes != 0U) {
+      pending_->counters.additive_overlay_legacy_material_projections += 1U;
+      pending_->counters.unpresented_legacy_additive_overlay_passes +=
+          unpresented_additive_overlay_passes;
     }
     if (IsCanonicalAnisotropicSampler(sampler_observation) ||
         (managed_specular != nullptr &&

@@ -651,7 +651,10 @@ std::string_view OgreNextDemoTextureProjectionExclusionName(
                "ambiguous_bc1_alpha_semantic",
                "material_multi_pass_unsupported",
                "material_authored_program_unsupported",
-               "material_texture_unit_layer_unsupported"};
+               "material_texture_unit_layer_unsupported",
+               "material_blended_overlay_pass_unsupported",
+               "material_additive_overlay_pass_unsupported",
+               "material_alpha_tested_overlay_pass_unsupported"};
   const std::size_t index = static_cast<std::size_t>(exclusion);
   return index < names.size() ? names[index] : std::string_view{"invalid"};
 }
@@ -805,6 +808,12 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.unpresented_legacy_layer_units =
       SaturatingAdd(candidate.unpresented_legacy_layer_units,
                     increment.unpresented_legacy_layer_units);
+  candidate.additive_overlay_legacy_material_projections =
+      SaturatingAdd(candidate.additive_overlay_legacy_material_projections,
+                    increment.additive_overlay_legacy_material_projections);
+  candidate.unpresented_legacy_additive_overlay_passes =
+      SaturatingAdd(candidate.unpresented_legacy_additive_overlay_passes,
+                    increment.unpresented_legacy_additive_overlay_passes);
   candidate.authored_specular_source_decodes =
       SaturatingAdd(candidate.authored_specular_source_decodes,
                     increment.authored_specular_source_decodes);
