@@ -102,6 +102,13 @@ public:
     std::uint32_t captured_width = 0U;
     std::uint32_t captured_height = 0U;
     bool asset_submitted = false;
+    /// Set only for the production returned by FinalizeSceneGeneration. That
+    /// snapshot is a state transition, not a frame: it exists to publish the
+    /// emptying asset delta and the particle tombstones, and to satisfy the
+    /// dispatcher's final-empty-scene rule. It carries zero lights, which no
+    /// shadow-enabled raster policy will ever agree to render, so it must be
+    /// retired rather than presented.
+    bool finalizes_scene_generation = false;
   };
 
   Impl(Render::IRendererFrontend &owned_frontend,
@@ -490,8 +497,16 @@ public:
     policy.requested_outputs = config.requested_outputs;
     policy.color_format = config.color_format;
     policy.allow_async_compute = config.allow_async_compute;
+    // A generation-finalizing production is always retired, never presented.
+    // The dispatcher only advances the generation after a final scene with no
+    // lights, while every shadow-enabled policy refuses to render a scene
+    // without exactly one directional light - presenting it could therefore
+    // never succeed. Retirement still publishes the emptying asset delta and
+    // particle tombstones, and the frontend's own reset tears down whatever
+    // the emptying asset sync left retained.
     policy.retire_scene_without_render =
-        stale_surface || current_surface.suspended || shutdown_requested;
+        retained.finalizes_scene_generation || stale_surface ||
+        current_surface.suspended || shutdown_requested;
     policy.present = config.present_frames &&
                      !policy.retire_scene_without_render;
     if (policy.present) {
@@ -963,6 +978,7 @@ public:
       retained.captured_height = last_scene_height;
       retained.asset_submitted =
           !retained.production.asset_delta.has_value();
+      retained.finalizes_scene_generation = true;
       finalizing_scene_snapshot_id =
           retained.production.scene_snapshot->snapshot_id();
       pending = std::move(retained);

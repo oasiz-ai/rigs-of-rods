@@ -357,6 +357,15 @@ public:
                                RenderFrameOutput &output) override {
     log.emplace_back("scene");
     render_attempts.push_back(request);
+    // Mirrors every shadow-enabled raster policy: a scene without exactly one
+    // directional light is unrenderable. The generation-finalizing snapshot
+    // always has zero lights, so it must never reach this operation.
+    if (reject_zero_light_render && request.scene_snapshot != nullptr &&
+        request.scene_snapshot->lights().empty()) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::UNSUPPORTED,
+          "lights: requires exactly one shadow-casting directional light");
+    }
     if (request.present) {
       const ValidationResult presentation =
           ValidateRenderFramePresentation(request, current_surface);
@@ -440,6 +449,7 @@ public:
   RenderOperationCode initialization_failure = RenderOperationCode::OK;
   RenderOperationCode bootstrap_failure = RenderOperationCode::OK;
   RenderOperationCode render_failure = RenderOperationCode::OK;
+  bool reject_zero_light_render = false;
   bool initialized = false;
   bool bootstrap_show_surface_committed = false;
   bool show_surface_committed = false;
@@ -1141,7 +1151,10 @@ void TestSurfaceBackpressureRetainsAndRetiresExactCapture() {
               reset.ok() && reset.scene_snapshot_id == 3U &&
               session.scene_generation() == 2U &&
               session.last_consumed_scene_snapshot_id() == 3U &&
-              session.last_frontend_frame_id() == 2U &&
+              // The generation-finalizing snapshot is retired, not rendered,
+              // so with no continuous particles it reaches no frontend
+              // operation and consumes no frontend frame identity.
+              session.last_frontend_frame_id() == 1U &&
               frontend.reset_generations == std::vector<std::uint64_t>{2U},
           "map reset replaced dispatcher or reset process-lifetime IDs");
 
@@ -1156,7 +1169,10 @@ void TestSurfaceBackpressureRetainsAndRetiresExactCapture() {
   Require(reloaded.status ==
                   RendererInProcessSessionStatus::FRAME_COMPLETED &&
               reloaded.scene_snapshot_id == 4U &&
-              reloaded.frontend_frame_id == 3U &&
+              // Frame identities stay strictly increasing and unique across
+              // the generation boundary; the retired finalization simply
+              // consumed none, so the new map's first frame follows directly.
+              reloaded.frontend_frame_id == 2U &&
               session.scene_generation() == 2U,
           "new map did not preserve global snapshot/frontend frame identity");
 
@@ -1170,7 +1186,9 @@ void TestSurfaceBackpressureRetainsAndRetiresExactCapture() {
   Require(closed.status == RendererInProcessSessionStatus::CLOSED &&
               closed.ok() && events.shutdowns == 1U &&
               session.last_consumed_scene_snapshot_id() == 4U &&
-              session.last_frontend_frame_id() == 3U,
+              // Shutdown finalizes its own generation, which is likewise
+              // retired rather than rendered and consumes no frame identity.
+              session.last_frontend_frame_id() == 2U,
           "shutdown retry did not release frontend before event pump");
   const std::size_t frontend_shutdown =
       FindAfter(log, "frontend-shutdown", 1U);
@@ -1180,6 +1198,50 @@ void TestSurfaceBackpressureRetainsAndRetiresExactCapture() {
           "event/window owner shut down before frontend released its borrow");
   Require(session.Shutdown().ok() && events.shutdowns == 1U,
           "closed session shutdown was not idempotent");
+}
+
+/// The generation-finalizing snapshot carries no lights, which every
+/// shadow-enabled raster policy refuses to render, while the dispatcher only
+/// advances the generation after a final scene with no lights. Presenting that
+/// snapshot could therefore never succeed: it must be retired instead. A
+/// regression here breaks terrain unload, map change, vehicle bundle reload,
+/// and shutdown all at once, so the render-refusing frontend is pinned here.
+void TestGenerationFinalizationRetiresInsteadOfRendering() {
+  std::vector<std::string> log;
+  FakeFrontend frontend(log);
+  FakeEventPump events(log);
+  FakeFramePolicy frame_policy;
+  RendererInProcessSession session(frontend, events, frame_policy);
+  Require(session.Start(Config(0x46494E414C495A31ULL)).ok(),
+          "generation-finalization session did not initialize");
+  FakeSceneSource source(log);
+  events.Push(RendererInProcessEventPollPoint::BEFORE_SIMULATION);
+  Require(session.PumpEventsBeforeSimulation().simulation_may_advance,
+          "populated-frame simulation grant was not established");
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult populated =
+      session.PostUpdatedScene(source);
+  Require(populated.status ==
+                  RendererInProcessSessionStatus::FRAME_COMPLETED &&
+              frontend.rendered.size() == 1U,
+          "populated frame did not render before generation finalization");
+
+  const std::size_t rendered_before = frontend.rendered.size();
+  const std::size_t attempts_before = frontend.render_attempts.size();
+  frontend.reject_zero_light_render = true;
+  events.Push(RendererInProcessEventPollPoint::BEFORE_PRESENT);
+  const RendererInProcessSessionResult reset = session.ResetSceneGeneration();
+  Require(reset.status ==
+                  RendererInProcessSessionStatus::SCENE_GENERATION_RESET &&
+              reset.ok() && !reset.terminal,
+          "a render-refusing frontend blocked the generation reset");
+  Require(frontend.render_attempts.size() == attempts_before &&
+              frontend.rendered.size() == rendered_before,
+          "the generation-finalizing snapshot was submitted to Render");
+  Require(frontend.reset_generations == std::vector<std::uint64_t>{2U} &&
+              session.scene_generation() == 2U &&
+              !session.has_pending_frame(),
+          "generation reset did not advance exactly once and drain");
 }
 
 void TestStatusSurface() {
@@ -1226,6 +1288,7 @@ int main() {
   TestOnlyTypedPresentationSurfaceStaleIsRetryable();
   TestFailedStartQuiescesAfterFrontendRollback();
   TestSurfaceBackpressureRetainsAndRetiresExactCapture();
+  TestGenerationFinalizationRetiresInsteadOfRendering();
   std::cout << "renderer in-process session tests passed\n";
   return EXIT_SUCCESS;
 }

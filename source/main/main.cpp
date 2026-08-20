@@ -2418,12 +2418,13 @@ int main(int argc, char *argv[])
                                         "[RoR|RendererCombined|Scene] Terrain "
                                         "unload held at generation boundary: "
                                         "status='{}', frontend={}, field='{}', "
-                                        "detail='{}'",
+                                        "detail='{}', backend='{}'",
                                         ToString(reset_result.status),
                                         static_cast<unsigned int>(
                                             reset_result.frontend_code),
                                         reset_result.validation.field,
-                                        reset_result.validation.detail));
+                                        reset_result.validation.detail,
+                                        reset_result.frontend_detail.c_str()));
                                     LOG(fmt::format(
                                         "[RoR|RendererCombined|Scene] Session "
                                         "closed after generation-reset failure: "
@@ -3264,13 +3265,15 @@ int main(int argc, char *argv[])
                                         "[RoR|RendererCombined|Scene] Bundle "
                                         "reload held at generation boundary: "
                                         "status='{}', frontend={}, field='{}',"
-                                        " detail='{}'",
+                                        " detail='{}', backend='{}'",
                                         ToString(reload_reset_result.status),
                                         static_cast<unsigned int>(
                                             reload_reset_result.frontend_code),
                                         reload_reset_result.validation.field,
                                         reload_reset_result.validation
-                                            .detail));
+                                            .detail,
+                                        reload_reset_result.frontend_detail
+                                            .c_str()));
                                     const RendererInProcessSessionResult
                                         reload_shutdown =
                                             CloseCombinedRendererSession(
