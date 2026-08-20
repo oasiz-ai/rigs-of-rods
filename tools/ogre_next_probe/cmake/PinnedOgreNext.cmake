@@ -342,7 +342,7 @@ endforeach ()
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/linux-shader-toolchain.lock.json")
 set(ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_SHA256
-    "02d2a965f817786e295212161686c8fc1ff33f0000946b5f90ebd4c161eac35e")
+    "c2a5309582e2bc08267e517e7451f242689f1262005f22d0db218a081c81262a")
 file(SHA256 "${ROR_OGRE_NEXT_LINUX_TOOLCHAIN_LOCK_PATH}"
     _ror_linux_toolchain_lock_sha256)
 if (NOT _ror_linux_toolchain_lock_sha256 STREQUAL
@@ -956,14 +956,23 @@ else ()
     set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
     set(SPIRV_TOOLS_USE_MIMALLOC OFF CACHE BOOL "" FORCE)
     set(SKIP_SPIRV_TOOLS_INSTALL ON CACHE BOOL "" FORCE)
+    # shaderc is nested below OGRE, whose dependency configuration may leave
+    # normal (non-cache) option bindings in an ancestor scope. CMake resolves
+    # those before cache entries, so bind both scopes before shaderc adds
+    # glslang. The shaderc compatibility patch repeats this at the immediate
+    # add_subdirectory owner.
+    set(GLSLANG_TESTS OFF)
     set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLSLANG_ENABLE_INSTALL OFF)
     set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
     set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
     set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
     set(ENABLE_PCH OFF CACHE BOOL "" FORCE)
     set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
     set(ENABLE_SPIRV ON CACHE BOOL "" FORCE)
+    set(ENABLE_OPT ON)
     set(ENABLE_OPT ON CACHE BOOL "" FORCE)
+    set(BUILD_EXTERNAL OFF)
     set(BUILD_EXTERNAL OFF CACHE BOOL "" FORCE)
 endif ()
 

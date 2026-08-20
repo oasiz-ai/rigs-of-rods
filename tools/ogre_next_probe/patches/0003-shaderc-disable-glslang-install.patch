@@ -7,6 +7,7 @@ index ab1f791..89f6a58 100644
 +# A generator expression is not a valid configure-time option value here.
 +# Keep glslang installation disabled with shaderc's reviewed skip-install build.
 +set( SKIP_GLSLANG_INSTALL ON )
-@@ -90 +92 @@ if (NOT TARGET glslang)
+@@ -90 +92,2 @@ if (NOT TARGET glslang)
 -    set(GLSLANG_ENABLE_INSTALL $<NOT:${SKIP_GLSLANG_INSTALL}>)
++    set(GLSLANG_ENABLE_INSTALL OFF)
 +    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)

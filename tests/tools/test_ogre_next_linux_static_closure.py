@@ -120,10 +120,38 @@ class OgreNextLinuxStaticClosureTests(unittest.TestCase):
         self.assertEqual(
             RUNNER.sha256_file(SHADERC_PATCH_PATH), shaderc_patch["sha256"]
         )
+        shaderc_patch_text = SHADERC_PATCH_PATH.read_text(encoding="utf-8")
         self.assertIn(
-            "GLSLANG_ENABLE_INSTALL OFF",
-            SHADERC_PATCH_PATH.read_text(encoding="utf-8"),
+            'set(GLSLANG_ENABLE_INSTALL OFF)',
+            shaderc_patch_text,
         )
+        self.assertIn(
+            'set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)',
+            shaderc_patch_text,
+        )
+        self.assertLess(
+            shaderc_patch_text.index('set(GLSLANG_ENABLE_INSTALL OFF)'),
+            shaderc_patch_text.index(
+                'set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)'
+            ),
+        )
+
+    def test_glslang_options_override_normal_and_cache_scopes(self) -> None:
+        for option, value in (
+            ("GLSLANG_TESTS", "OFF"),
+            ("GLSLANG_ENABLE_INSTALL", "OFF"),
+            ("ENABLE_OPT", "ON"),
+            ("BUILD_EXTERNAL", "OFF"),
+        ):
+            with self.subTest(option=option):
+                normal = f"set({option} {value})"
+                cache = f'set({option} {value} CACHE BOOL "" FORCE)'
+                self.assertIn(normal, self.pinned_cmake)
+                self.assertIn(cache, self.pinned_cmake)
+                self.assertLess(
+                    self.pinned_cmake.index(normal),
+                    self.pinned_cmake.index(cache),
+                )
 
     def test_cmake_rejects_distro_cpp_abi_and_builds_one_static_closure(self) -> None:
         for token in (

@@ -126,6 +126,23 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
+    def test_material_pass_iteration_count_is_64_bit(self) -> None:
+        material_source = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/ogre14/detail/OgreNextDemoMaterialSource.cpp"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "std::uint64_t pass_iteration_count = 0U;", material_source
+        )
+        self.assertIn(
+            "static_cast<std::uint64_t>(pass.getPassIterationCount())",
+            material_source,
+        )
+        self.assertNotIn(
+            "std::uint32_t pass_iteration_count", material_source
+        )
+
     def test_matrix_is_explicit_and_fail_closed(self) -> None:
         self.assertIn("fail-fast: false", self.workflow)
         self.assertIn("timeout-minutes: 120", self.workflow)
