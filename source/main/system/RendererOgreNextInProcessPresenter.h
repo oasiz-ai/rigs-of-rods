@@ -208,6 +208,19 @@ struct RendererNativeLightingAudit final {
   bool calibrated_directional_lighting = false;
   bool ambient_environment_lighting = false;
   bool analytic_sky_contribution = false;
+  /// Aerial perspective (audit v5). `aerial_haze_applied` false means the pass
+  /// ran as a bit-exact pass-through under the canonical identity binding, not
+  /// that it was skipped: there is no present-without-haze fallback. The
+  /// extinction and inscatter are the values the frontend actually bound, so a
+  /// live run can prove the presenter consumed transported producer policy.
+  bool aerial_haze_applied = false;
+  bool aerial_haze_workspace_verified = false;
+  bool aerial_haze_constants_bound = false;
+  bool aerial_haze_depth_export_verified = false;
+  float aerial_haze_extinction_per_meter = 0.0F;
+  float aerial_haze_inscatter_r = 0.0F;
+  float aerial_haze_inscatter_g = 0.0F;
+  float aerial_haze_inscatter_b = 0.0F;
   bool emissive_material_response = false;
   bool pssm_shadow_response = false;
   bool thin_parallel_slab_refraction = false;

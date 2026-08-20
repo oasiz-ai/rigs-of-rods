@@ -907,6 +907,7 @@ int main(int argc, char *argv[])
     std::string renderer_combined_scene_failure_signature;
     std::string renderer_combined_particle_audit_signature;
     std::string renderer_combined_analytic_sky_audit_signature;
+    std::string renderer_combined_aerial_haze_audit_signature;
     std::string renderer_combined_native_lighting_audit_signature;
     std::uint64_t renderer_combined_retained_scene_logged_frame = 0U;
     std::string renderer_combined_native_sun_visibility_audit_signature;
@@ -4435,6 +4436,51 @@ int main(int argc, char *argv[])
                                     lighting_audit.completed_frames));
                                 renderer_combined_native_lighting_audit_signature =
                                     lighting_audit_signature;
+                            }
+                            // Aerial perspective evidence. constants_bound_
+                            // verified must be 1 on every presented frame: it
+                            // is the per-frame _readRawConstants readback, not
+                            // a "we tried" flag. enabled=0 means the canonical
+                            // identity binding is in force (no sky, or the
+                            // validated zero-extinction payload), which the
+                            // shader answers with a bit-exact pass-through.
+                            const std::string aerial_haze_signature =
+                                fmt::format(
+                                    "enabled={} "
+                                    "node=RoRAerialHazeNodeV1 "
+                                    "depth=RoROpaqueDepth "
+                                    "depth_export_verified={} "
+                                    "node_verified={} "
+                                    "constants_bound_verified={} "
+                                    "extinction_per_meter={:.9g} "
+                                    "inscatter=[{:.9g},{:.9g},{:.9g}]",
+                                    lighting_audit.aerial_haze_applied ? 1 : 0,
+                                    lighting_audit
+                                            .aerial_haze_depth_export_verified
+                                        ? 1
+                                        : 0,
+                                    lighting_audit
+                                            .aerial_haze_workspace_verified
+                                        ? 1
+                                        : 0,
+                                    lighting_audit.aerial_haze_constants_bound
+                                        ? 1
+                                        : 0,
+                                    lighting_audit
+                                        .aerial_haze_extinction_per_meter,
+                                    lighting_audit.aerial_haze_inscatter_r,
+                                    lighting_audit.aerial_haze_inscatter_g,
+                                    lighting_audit.aerial_haze_inscatter_b);
+                            if (aerial_haze_signature !=
+                                renderer_combined_aerial_haze_audit_signature)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|AerialHaze|"
+                                    "Runtime] {} completed_frames={}",
+                                    aerial_haze_signature,
+                                    lighting_audit.completed_frames));
+                                renderer_combined_aerial_haze_audit_signature =
+                                    aerial_haze_signature;
                             }
                             const RendererRetainedSceneAudit
                                 retained_scene_audit =

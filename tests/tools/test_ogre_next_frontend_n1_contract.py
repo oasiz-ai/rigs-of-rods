@@ -1069,8 +1069,25 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "native_gpu_content_readbacks={}",
             "gpu_readback_scope=",
             "production_disabled_test_artifact_only",
+            # Aerial-perspective runtime evidence. constants_bound_verified is
+            # the per-frame _readRawConstants readback, so the live-runner
+            # validator can treat it as a hard gate.
+            "[RoR|RendererCombined|AerialHaze|",
+            "node=RoRAerialHazeNodeV1",
+            "depth=RoROpaqueDepth",
+            "constants_bound_verified={}",
+            "extinction_per_meter={:.9g}",
         ):
             self.assertIn(token, main_source)
+        for token in (
+            "aerial_haze_applied",
+            "aerial_haze_workspace_verified",
+            "aerial_haze_constants_bound",
+            "aerial_haze_depth_export_verified",
+            "aerial_haze_extinction_per_meter",
+            "aerial_haze_inscatter_r",
+        ):
+            self.assertIn(token, presenter + presenter_header)
 
     def test_display_domain_unlit_runs_after_filter_in_full32_unorm(self) -> None:
         for token in (

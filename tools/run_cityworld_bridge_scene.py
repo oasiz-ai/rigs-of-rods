@@ -133,6 +133,29 @@ POSTPROCESS_BACKENDS = {
     "linux": "gl3plus_glsl330",
     "win32": "d3d11_sm4",
 }
+# Aerial perspective. The presenter emits this line once per change, so a run
+# that never reaches the combined OgreNext presenter emits none at all - that
+# is why the validator returns None instead of failing when the prefix is
+# absent. When the line IS present it is treated as a hard gate.
+AERIAL_HAZE_PREFIX = "[RoR|RendererCombined|AerialHaze|Runtime]"
+AERIAL_HAZE_PATTERN = re.compile(
+    r"\[RoR\|RendererCombined\|AerialHaze\|Runtime\] "
+    r"enabled=(?P<enabled>[01]) "
+    r"node=(?P<node>[A-Za-z0-9_]+) "
+    r"depth=(?P<depth>[A-Za-z0-9_]+) "
+    r"depth_export_verified=(?P<depth_export>[01]) "
+    r"node_verified=(?P<node_verified>[01]) "
+    r"constants_bound_verified=(?P<constants>[01]) "
+    r"extinction_per_meter=(?P<extinction>[^ ]+) "
+    r"inscatter=\[(?P<inscatter_r>[^,]+),(?P<inscatter_g>[^,]+),"
+    r"(?P<inscatter_b>[^\]]+)\] "
+    r"completed_frames=(?P<frames>[0-9]+)"
+)
+# Producer-side Koschmieder band from sky policy v4: 3.912 / 40 km scaled by a
+# daylight factor in [0.55, 1]. Anything outside this cannot be the reviewed
+# policy, and a zero would mean the presenter silently fell back to identity.
+AERIAL_HAZE_MINIMUM_EXTINCTION = 5.0e-5
+AERIAL_HAZE_MAXIMUM_EXTINCTION = 1.0e-4
 
 
 class RendererContract(NamedTuple):
@@ -1031,6 +1054,89 @@ def validate_pssm_log(
     }
 
 
+def validate_aerial_haze_log(engine_log: str) -> dict[str, object] | None:
+    """Gate the combined presenter's aerial-perspective runtime evidence.
+
+    Fail-closed rules, matching the renderer's own contract:
+      * every emitted marker must parse completely - a partial line means the
+        presenter's evidence format drifted;
+      * `constants_bound_verified` must be 1 on every marker, because it is the
+        per-frame `_readRawConstants` readback, not an intent flag;
+      * the node and depth identities are pinned by name;
+      * the FINAL marker must carry a live atmosphere whose extinction sits in
+        the reviewed Koschmieder band. `enabled=0` there would mean the run
+        rendered an exact pass-through, which is correct behaviour for a
+        disabled sky but is not what a daylight city scene should produce.
+    """
+    if AERIAL_HAZE_PREFIX not in engine_log:
+        return None
+    marker_count = engine_log.count(AERIAL_HAZE_PREFIX)
+    matches = list(AERIAL_HAZE_PATTERN.finditer(engine_log))
+    if len(matches) != marker_count:
+        raise BridgeSceneFailure(
+            "aerial-haze runtime marker did not parse completely"
+        )
+    for match in matches:
+        if match.group("node") != "RoRAerialHazeNodeV1":
+            raise BridgeSceneFailure(
+                "aerial-haze marker names an unexpected compositor node"
+            )
+        if match.group("depth") != "RoROpaqueDepth":
+            raise BridgeSceneFailure(
+                "aerial-haze marker names an unexpected depth texture"
+            )
+        if match.group("constants") != "1":
+            raise BridgeSceneFailure(
+                "aerial-haze constants were not readback-verified"
+            )
+        if match.group("depth_export") != "1":
+            raise BridgeSceneFailure(
+                "aerial-haze depth export was not verified"
+            )
+        if match.group("node_verified") != "1":
+            raise BridgeSceneFailure(
+                "aerial-haze compositor node was not verified"
+            )
+    final = matches[-1].groupdict()
+    extinction = float(final["extinction"])
+    inscatter = [
+        float(final["inscatter_r"]),
+        float(final["inscatter_g"]),
+        float(final["inscatter_b"]),
+    ]
+    if not math.isfinite(extinction) or not all(
+        math.isfinite(value) for value in inscatter
+    ):
+        raise BridgeSceneFailure("aerial-haze marker contains non-finite values")
+    if final["enabled"] != "1":
+        raise BridgeSceneFailure(
+            "aerial-haze pass ended on its identity binding instead of a live "
+            "atmosphere"
+        )
+    if not (
+        AERIAL_HAZE_MINIMUM_EXTINCTION
+        <= extinction
+        <= AERIAL_HAZE_MAXIMUM_EXTINCTION
+    ):
+        raise BridgeSceneFailure(
+            "aerial-haze extinction is outside the reviewed policy-v4 band: "
+            f"{extinction}"
+        )
+    if any(value < 0.0 for value in inscatter):
+        raise BridgeSceneFailure("aerial-haze inscatter radiance is negative")
+    return {
+        "node": final["node"],
+        "depth": final["depth"],
+        "enabled": True,
+        "constants_bound_verified": True,
+        "depth_export_verified": True,
+        "node_verified": True,
+        "extinction_per_meter": extinction,
+        "inscatter": inscatter,
+        "markers": marker_count,
+    }
+
+
 def validate_postprocess_log(
     engine_log: str,
     postprocess_mode: str,
@@ -1542,6 +1648,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.postprocess_mode,
         target_platform,
     )
+    aerial_haze_record = validate_aerial_haze_log(engine_log)
     renderer_identity = parse_renderer_identity(engine_log, target_platform)
     effective_configs = {
         "RoR.cfg": read_required_config(
@@ -1647,6 +1754,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "platform": platform.platform(),
         "physics": physics_record,
         "rendering": {
+            "aerial_haze": aerial_haze_record,
             "configs": copied_configs,
             "device": renderer_identity,
             "height": EXPECTED_HEIGHT,

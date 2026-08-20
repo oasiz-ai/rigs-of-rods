@@ -416,6 +416,11 @@ struct OgreNextHdrCompositorAudit final {
   bool aerial_haze_workspace_verified = false;
   bool aerial_haze_constants_bound = false;
   bool aerial_haze_applied = false;
+  /// The atmosphere the last bind actually carried, so a live run can prove
+  /// the presenter consumed the producer's transported policy rather than
+  /// re-deriving one. Zero while the identity binding is in force.
+  float aerial_haze_extinction_per_meter = 0.0F;
+  Float3 aerial_haze_inscatter{};
   OgreNextHdrHistoryValidationMode history_validation_mode =
       OgreNextHdrHistoryValidationMode::NONE;
   std::uint32_t width = 0U;

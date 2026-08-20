@@ -4615,6 +4615,9 @@ public:
     audit.aerial_haze_workspace_verified = hdr_aerial_haze_workspace_verified;
     audit.aerial_haze_constants_bound = hdr_aerial_haze_constants_bound;
     audit.aerial_haze_applied = hdr_aerial_haze_applied;
+    audit.aerial_haze_extinction_per_meter =
+        hdr_aerial_haze_extinction_per_meter;
+    audit.aerial_haze_inscatter = hdr_aerial_haze_inscatter;
     audit.width = hdr_width;
     audit.height = hdr_height;
     audit.warmup_frames = hdr_warmup_frames;
@@ -5746,6 +5749,8 @@ public:
         zero, zero, zero, Ogre::Vector4(0.0F, 0.0F, 1.0F, 0.0F), zero, zero);
     if (bound) {
       hdr_aerial_haze_applied = false;
+      hdr_aerial_haze_extinction_per_meter = 0.0F;
+      hdr_aerial_haze_inscatter = Float3{};
     }
     return bound;
   }
