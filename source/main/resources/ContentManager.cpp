@@ -7820,6 +7820,40 @@ void ContentManager::resourceStreamOpened(const Ogre::String& name, const Ogre::
 
                 if (!committed_selected_source)
                 {
+                    // Name the exact clause that refused, once per texture.
+                    // The predicate above is a long conjunction and a silent
+                    // miss here costs the material its receipt downstream
+                    // (selected_texture_registry.resource_lookup reports only
+                    // "absent", which cannot distinguish these causes).
+                    if (metadata != nullptr)
+                    {
+                        LOG(fmt::format(
+                            "[RoR|ContentManager|SelectedTextureSource] "
+                            "Ordinary receipt refused for '{}' group='{}': "
+                            "stream={} gen={} pkg={} name={} group_match={} "
+                            "ptr={} handle={} state={} loading={} loaded={} "
+                            "by_handle={} by_name={}",
+                            name, group,
+                            static_cast<bool>(dataStream),
+                            generation != m_legacy_material_group_generations.end() &&
+                                generation->second == metadata->source.group_generation,
+                            package_group != m_package_archives_by_group.end() &&
+                                !package_group->second.empty() &&
+                                package_group->second.count(
+                                    metadata->source.selected_archive_name) == 1U,
+                            resource->getName() == name,
+                            resource->getGroup() == group,
+                            reinterpret_cast<std::uintptr_t>(resource) ==
+                                metadata->source.resource_pointer_token,
+                            static_cast<std::uint64_t>(resource->getHandle()) ==
+                                metadata->source.resource_handle,
+                            resource->getStateCount() ==
+                                static_cast<std::size_t>(
+                                    metadata->source.resource_state_count_before_load),
+                            resource->isLoading(), resource->isLoaded(),
+                            static_cast<bool>(by_handle) && by_handle.get() == resource,
+                            static_cast<bool>(by_name) && by_name.get() == resource));
+                    }
                     // The archive stream is already open but the native
                     // Texture has not yet completed its load. Drop the
                     // pre-publication candidate and allow ordinary OGRE
