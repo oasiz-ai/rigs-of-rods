@@ -13,11 +13,14 @@
 
 #include <OgreBuildSettings.h>
 #include <OgreException.h>
+#include <OgreCodec.h>
 #include <OgreHardwarePixelBuffer.h>
+#include <OgreImage.h>
 #include <OgreMaterial.h>
 #include <OgrePass.h>
 #include <OgrePixelFormat.h>
 #include <OgreResource.h>
+#include <OgreResourceGroupManager.h>
 #include <OgreSceneManager.h>
 #include <OgreTechnique.h>
 #include <OgreTexture.h>
@@ -26,6 +29,7 @@
 #include <OgreStringConverter.h>
 #include <Terrain/OgreTerrain.h>
 #include <Terrain/OgreTerrainGroup.h>
+#include <Terrain/OgreTerrainLayerBlendMap.h>
 
 #include <algorithm>
 #include <array>
@@ -35,6 +39,7 @@
 #include <map>
 #include <new>
 #include <set>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -60,6 +65,14 @@ constexpr char kMaterialIdDomain[] =
     "RoR/OgreNextDemo/Terrain/MaterialSourceAsset/v1";
 constexpr char kObjectIdDomain[] =
     "RoR/OgreNextDemo/Terrain/StaticObject/v1";
+constexpr char kWeightTextureIdDomain[] =
+    "RoR/OgreNextDemo/Terrain/WeightTextureSourceAsset/v1";
+constexpr char kWeightSamplerIdDomain[] =
+    "RoR/OgreNextDemo/Terrain/WeightSamplerSourceAsset/v1";
+constexpr char kDetailTextureIdDomain[] =
+    "RoR/OgreNextDemo/Terrain/DetailTextureSourceAsset/v1";
+constexpr char kDetailSamplerIdDomain[] =
+    "RoR/OgreNextDemo/Terrain/DetailSamplerSourceAsset/v1";
 
 Render::ValidationResult Failure(Render::ValidationCode code,
                                  const char *field, const char *detail,
@@ -147,11 +160,127 @@ struct NativeMip final {
   Ogre::HardwarePixelBufferPtr buffer;
 };
 
+/// One authored terrain layer lifted to a portable descriptor, together with
+/// the UV repeat rate that reproduces its authored world size.
+struct AuthoredLayer final {
+  Render::TextureResourceDescriptor texture;
+  Render::SamplerResourceDescriptor sampler;
+  float uv_repeats = 1.0F;
+};
+
 struct NativePageReadback final {
   Ogre::Terrain *terrain = nullptr;
   Render::TextureResourceDescriptor texture;
   Render::SamplerResourceDescriptor sampler;
+
+  /// Set when the page publishes authored-density layers instead of the baked
+  /// composite. `texture`/`sampler` then carry layer 0 rather than the
+  /// composite map, and `base_uv_repeats` tiles it at its authored rate.
+  bool authored_density = false;
+  float base_uv_repeats = 1.0F;
+  Render::TextureResourceDescriptor weight_texture;
+  Render::SamplerResourceDescriptor weight_sampler;
+  std::vector<AuthoredLayer> detail_layers;
 };
+
+/// Wrapping sampler for a layer that repeats many times across one page.
+Render::SamplerResourceDescriptor MakeRepeatSampler(std::string debug_name,
+                                                    std::size_t mip_levels) {
+  Render::SamplerResourceDescriptor sampler;
+  sampler.debug_name = std::move(debug_name);
+  sampler.minification_filter = Render::SamplerFilter::LINEAR;
+  sampler.magnification_filter = Render::SamplerFilter::LINEAR;
+  // A layer repeating hundreds of times per page is minified hard in the
+  // distance; nearest mip selection would alias into visible banding.
+  sampler.mip_filter = Render::SamplerFilter::LINEAR;
+  sampler.address_u = Render::SamplerAddressMode::REPEAT;
+  sampler.address_v = Render::SamplerAddressMode::REPEAT;
+  sampler.address_w = Render::SamplerAddressMode::REPEAT;
+  sampler.mip_lod_bias = 0.0F;
+  sampler.minimum_lod = 0.0F;
+  sampler.maximum_lod = static_cast<float>(mip_levels - 1U);
+  sampler.anisotropy_enabled = false;
+  sampler.maximum_anisotropy = 1.0F;
+  sampler.compare_enabled = false;
+  sampler.compare_operation = Render::SamplerCompareOperation::ALWAYS;
+  sampler.border_color = {};
+  return sampler;
+}
+
+/// Decodes one authored layer image into an opaque sRGB RGBA8 descriptor.
+///
+/// The authored layers are ordinary content files, including DXT-compressed
+/// DDS. OGRE's DDS codec keeps blocks compressed whenever the render system
+/// advertises DXT support, so the codec's own software decode is enforced for
+/// the duration of the load rather than reimplementing block decoding here.
+Render::ValidationResult LoadAuthoredLayerImage(
+    const Ogre::String &texture_name, std::string debug_name,
+    Render::TextureResourceDescriptor &output) {
+  Ogre::Image image;
+  Ogre::Codec *const dds_codec = Ogre::Codec::getCodec("dds");
+  const bool enforced =
+      dds_codec != nullptr &&
+      dds_codec->setParameter("decode_enforce", "true");
+  try {
+    image.load(texture_name,
+               Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+  } catch (const Ogre::Exception &) {
+    if (enforced) {
+      dds_codec->setParameter("decode_enforce", "false");
+    }
+    return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                   "ogre_next_demo.terrain.layer.image",
+                   "an authored terrain layer texture could not be decoded");
+  }
+  if (enforced) {
+    dds_codec->setParameter("decode_enforce", "false");
+  }
+
+  const std::size_t width = image.getWidth();
+  const std::size_t height = image.getHeight();
+  if (width == 0U || height == 0U ||
+      width > kMaximumCompositeDimension ||
+      height > kMaximumCompositeDimension) {
+    return Failure(Render::ValidationCode::INVALID_DIMENSIONS,
+                   "ogre_next_demo.terrain.layer.dimensions",
+                   "authored terrain layer dimensions are empty or exceed the cap");
+  }
+  if (Ogre::PixelUtil::isCompressed(image.getFormat())) {
+    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                   "ogre_next_demo.terrain.layer.format",
+                   "authored terrain layer stayed block compressed after decode");
+  }
+
+  output = Render::TextureResourceDescriptor{};
+  output.debug_name = std::move(debug_name);
+  output.type = Render::TextureResourceType::TEXTURE_2D;
+  output.format = Render::TextureResourceFormat::RGBA8_UNORM;
+  output.color_space = Render::TextureColorSpace::SRGB;
+  output.width = static_cast<std::uint32_t>(width);
+  output.height = static_cast<std::uint32_t>(height);
+  output.array_layers = 1U;
+
+  Render::TextureMipLevelDescriptor mip;
+  mip.width = output.width;
+  mip.height = output.height;
+  mip.row_pitch_bytes = static_cast<std::uint64_t>(output.width) * 4U;
+  mip.layer_pitch_bytes = mip.row_pitch_bytes * output.height;
+  mip.bytes.resize(static_cast<std::size_t>(mip.layer_pitch_bytes));
+  Ogre::PixelBox destination(output.width, output.height, 1U,
+                             Ogre::PF_BYTE_RGBA, mip.bytes.data());
+  Ogre::PixelUtil::bulkPixelConversion(image.getPixelBox(), destination);
+  // The opaque PBS admission gate requires alpha 255 in every texel of every
+  // mip; an authored layer's alpha is a legacy specular or coverage channel
+  // that this path never consumes.
+  const std::size_t texel_count =
+      static_cast<std::size_t>(output.width) * output.height;
+  for (std::size_t texel = 0U; texel < texel_count; ++texel) {
+    mip.bytes[texel * 4U + 3U] = 255U;
+  }
+  output.mip_levels.reserve(CompleteMipCount(output.width, output.height));
+  output.mip_levels.push_back(std::move(mip));
+  return CompleteOgreNextDemoOpaqueMipChain(output);
+}
 
 Render::ValidationResult AcquireNativeMipInventory(
     Ogre::Texture &texture, std::vector<NativeMip> &mips) {
@@ -436,6 +565,192 @@ Render::ValidationResult CaptureExactNativeState(
   return Render::ValidationResult::Success();
 }
 
+/// Packs the terrain's per-layer blend maps into one linear RGBA selection
+/// mask: R selects layer 1, G layer 2, B layer 3.
+///
+/// OGRE's TerrainLayerBlendMap uploads row r of its float array to row r of
+/// its blend texture, and this descriptor's first byte row is likewise V=0, so
+/// rows copy across without a vertical flip. The terrain's own material
+/// samples these weights with the same unscaled page UV that the published
+/// mesh carries in UV0.
+Render::ValidationResult BuildLayerWeightMask(
+    Ogre::Terrain &terrain, std::uint8_t detail_layer_count,
+    std::string debug_name, Render::TextureResourceDescriptor &output) {
+  if (detail_layer_count == 0U || detail_layer_count > 3U) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.terrain.weight.layers",
+                   "the packed weight mask carries one to three detail layers");
+  }
+  const std::size_t size = terrain.getLayerBlendMapSize();
+  if (size == 0U || size > kMaximumCompositeDimension) {
+    return Failure(Render::ValidationCode::INVALID_DIMENSIONS,
+                   "ogre_next_demo.terrain.weight.dimensions",
+                   "terrain blend map size is empty or exceeds the cap");
+  }
+
+  output = Render::TextureResourceDescriptor{};
+  output.debug_name = std::move(debug_name);
+  output.type = Render::TextureResourceType::TEXTURE_2D;
+  output.format = Render::TextureResourceFormat::RGBA8_UNORM;
+  // The mask selects layers and is never displayed, so it must not carry a
+  // transfer function that sampling would decode.
+  output.color_space = Render::TextureColorSpace::LINEAR;
+  output.width = static_cast<std::uint32_t>(size);
+  output.height = static_cast<std::uint32_t>(size);
+  output.array_layers = 1U;
+
+  Render::TextureMipLevelDescriptor mip;
+  mip.width = output.width;
+  mip.height = output.height;
+  mip.row_pitch_bytes = static_cast<std::uint64_t>(output.width) * 4U;
+  mip.layer_pitch_bytes = mip.row_pitch_bytes * output.height;
+  mip.bytes.assign(static_cast<std::size_t>(mip.layer_pitch_bytes), 0U);
+  const std::size_t texel_count =
+      static_cast<std::size_t>(output.width) * output.height;
+  for (std::uint8_t detail = 0U; detail < detail_layer_count; ++detail) {
+    // Terrain layer N+1 is detail channel N.
+    Ogre::TerrainLayerBlendMap *const blend_map =
+        terrain.getLayerBlendMap(static_cast<std::uint8_t>(detail + 1U));
+    if (blend_map == nullptr) {
+      return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                     "ogre_next_demo.terrain.weight.blend_map",
+                     "a terrain layer is missing its blend map", detail);
+    }
+    const float *const weights = blend_map->getBlendPointer();
+    if (weights == nullptr) {
+      return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                     "ogre_next_demo.terrain.weight.blend_map",
+                     "a terrain blend map exposed no CPU weights", detail);
+    }
+    for (std::size_t texel = 0U; texel < texel_count; ++texel) {
+      const float weight = weights[texel];
+      if (!std::isfinite(weight)) {
+        return Failure(Render::ValidationCode::NON_FINITE_VALUE,
+                       "ogre_next_demo.terrain.weight.blend_map",
+                       "a terrain blend weight is not finite", detail);
+      }
+      mip.bytes[texel * 4U + detail] = static_cast<std::uint8_t>(
+          std::lround(std::min(std::max(weight, 0.0F), 1.0F) * 255.0F));
+    }
+  }
+  for (std::size_t texel = 0U; texel < texel_count; ++texel) {
+    mip.bytes[texel * 4U + 3U] = 255U;
+  }
+  output.mip_levels.reserve(CompleteMipCount(output.width, output.height));
+  output.mip_levels.push_back(std::move(mip));
+  return CompleteOgreNextDemoOpaqueMipChain(output);
+}
+
+/// Lifts every authored layer of one page to authored-density descriptors.
+///
+/// Fails softly: the caller keeps the baked composite whenever this cannot
+/// produce a complete, self-consistent layer set, so a page never disappears
+/// because its authored content could not be lifted.
+Render::ValidationResult BuildAuthoredDensityLayers(
+    Ogre::Terrain &terrain, std::int32_t slot_x, std::int32_t slot_y,
+    NativePageReadback &readback) {
+  const std::uint8_t layer_count = terrain.getLayerCount();
+  if (layer_count == 0U) {
+    return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                   "ogre_next_demo.terrain.layer.count",
+                   "the terrain page declares no layers");
+  }
+  const float page_world_size = static_cast<float>(terrain.getWorldSize());
+  if (!std::isfinite(page_world_size) || page_world_size <= 0.0F) {
+    return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                   "ogre_next_demo.terrain.layer.page_world_size",
+                   "the terrain page world size is not positive and finite");
+  }
+  // Ogre-Next carries four detail slots; layer 0 is the base color, so at most
+  // four more layers can be composited over it. Three of them fit the packed
+  // RGB weight mask this path builds.
+  const std::uint8_t detail_layer_count =
+      static_cast<std::uint8_t>(std::min<int>(layer_count - 1, 3));
+
+  const auto layer_repeats = [&](std::uint8_t layer,
+                                 float &repeats) -> Render::ValidationResult {
+    const float layer_world_size =
+        static_cast<float>(terrain.getLayerWorldSize(layer));
+    if (!std::isfinite(layer_world_size) || layer_world_size <= 0.0F) {
+      return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                     "ogre_next_demo.terrain.layer.world_size",
+                     "an authored layer world size is not positive and finite",
+                     layer);
+    }
+    repeats = page_world_size / layer_world_size;
+    if (!std::isfinite(repeats) || repeats <= 0.0F) {
+      return Failure(Render::ValidationCode::VALUE_OUT_OF_RANGE,
+                     "ogre_next_demo.terrain.layer.repeats",
+                     "an authored layer repeat rate is not positive and finite",
+                     layer);
+    }
+    return Render::ValidationResult::Success();
+  };
+
+  Render::TextureResourceDescriptor base_texture;
+  Render::ValidationResult validation = LoadAuthoredLayerImage(
+      terrain.getLayerTextureName(0U, 0U),
+      PageDebugName(slot_x, slot_y, "Layer0"), base_texture);
+  if (!validation) {
+    return validation;
+  }
+  float base_repeats = 1.0F;
+  validation = layer_repeats(0U, base_repeats);
+  if (!validation) {
+    return validation;
+  }
+
+  std::vector<AuthoredLayer> detail_layers;
+  detail_layers.reserve(detail_layer_count);
+  for (std::uint8_t detail = 0U; detail < detail_layer_count; ++detail) {
+    const auto layer = static_cast<std::uint8_t>(detail + 1U);
+    AuthoredLayer authored;
+    validation = LoadAuthoredLayerImage(
+        terrain.getLayerTextureName(layer, 0U),
+        PageDebugName(slot_x, slot_y,
+                      ("Layer" + std::to_string(layer)).c_str()),
+        authored.texture);
+    if (!validation) {
+      return validation;
+    }
+    validation = layer_repeats(layer, authored.uv_repeats);
+    if (!validation) {
+      return validation;
+    }
+    authored.sampler = MakeRepeatSampler(
+        PageDebugName(slot_x, slot_y,
+                      ("Layer" + std::to_string(layer) + "Sampler").c_str()),
+        authored.texture.mip_levels.size());
+    detail_layers.push_back(std::move(authored));
+  }
+
+  Render::TextureResourceDescriptor weight_texture;
+  validation = BuildLayerWeightMask(terrain, detail_layer_count,
+                                    PageDebugName(slot_x, slot_y, "LayerWeight"),
+                                    weight_texture);
+  if (!validation) {
+    return validation;
+  }
+  Render::SamplerResourceDescriptor weight_sampler = MakeRepeatSampler(
+      PageDebugName(slot_x, slot_y, "LayerWeightSampler"),
+      weight_texture.mip_levels.size());
+  // The mask spans the page exactly once, so it clamps rather than repeats.
+  weight_sampler.address_u = Render::SamplerAddressMode::CLAMP_TO_EDGE;
+  weight_sampler.address_v = Render::SamplerAddressMode::CLAMP_TO_EDGE;
+  weight_sampler.address_w = Render::SamplerAddressMode::CLAMP_TO_EDGE;
+
+  readback.texture = std::move(base_texture);
+  readback.sampler = MakeRepeatSampler(
+      PageDebugName(slot_x, slot_y, "Layer0Sampler"),
+      readback.texture.mip_levels.size());
+  readback.base_uv_repeats = base_repeats;
+  readback.weight_texture = std::move(weight_texture);
+  readback.weight_sampler = std::move(weight_sampler);
+  readback.detail_layers = std::move(detail_layers);
+  readback.authored_density = true;
+  return Render::ValidationResult::Success();
+}
+
 Render::ValidationResult JoinNativePage(
     Ogre::TerrainGroup &group, std::int32_t slot_x, std::int32_t slot_y,
     Ogre::Terrain *&joined_terrain) {
@@ -706,6 +1021,61 @@ Render::ValidationResult CaptureNativePage(
   candidate.terrain = terrain;
   candidate.texture = std::move(output_texture);
   candidate.sampler = std::move(output_sampler);
+
+  // Prefer the authored layers over the baked composite.
+  //
+  // The composite is OGRE's distant-LOD approximation: one page-wide bake that
+  // the legacy renderer only ever showed beyond its composite map distance,
+  // falling back to per-layer splatting up close. Publishing it as the only
+  // terrain texture stretches a single map over the whole page, which is why
+  // the ground reads as a featureless wash regardless of its geometry.
+  //
+  // This fails soft on purpose. A page that cannot lift its authored content
+  // keeps the composite and stays visible; it must never vanish because a
+  // layer file was missing or undecodable.
+  NativePageReadback authored = candidate;
+  const Render::ValidationResult authored_validation =
+      BuildAuthoredDensityLayers(*terrain, slot_x, slot_y, authored);
+  if (authored_validation) {
+    std::string detail_repeats;
+    for (const AuthoredLayer &layer : authored.detail_layers) {
+      if (!detail_repeats.empty())
+        detail_repeats += "|";
+      detail_repeats += Ogre::StringConverter::toString(layer.uv_repeats);
+    }
+    Ogre::LogManager::getSingleton().logMessage(
+        "[RoR|SceneSource|TerrainLayers] page=" +
+        Ogre::StringConverter::toString(slot_x) + "," +
+        Ogre::StringConverter::toString(slot_y) + " authored_density=1" +
+        " base=" + Ogre::StringConverter::toString(authored.texture.width) +
+        "x" + Ogre::StringConverter::toString(authored.texture.height) +
+        " base_repeats=" +
+        Ogre::StringConverter::toString(authored.base_uv_repeats) +
+        " base_m_per_texel=" +
+        Ogre::StringConverter::toString(
+            authored.texture.width == 0U || authored.base_uv_repeats <= 0.0F
+                ? 0.0F
+                : static_cast<float>(terrain->getWorldSize()) /
+                      (authored.base_uv_repeats *
+                       static_cast<float>(authored.texture.width))) +
+        " weight=" +
+        Ogre::StringConverter::toString(authored.weight_texture.width) + "x" +
+        Ogre::StringConverter::toString(authored.weight_texture.height) +
+        " detail_layers=" +
+        Ogre::StringConverter::toString(
+            static_cast<unsigned int>(authored.detail_layers.size())) +
+        " detail_repeats=" + detail_repeats);
+    candidate = std::move(authored);
+  } else {
+    Ogre::LogManager::getSingleton().logMessage(
+        "[RoR|SceneSource|TerrainLayers] page=" +
+        Ogre::StringConverter::toString(slot_x) + "," +
+        Ogre::StringConverter::toString(slot_y) +
+        " authored_density=0 composite_fallback_field=" +
+        authored_validation.field +
+        " detail=" + std::string(authored_validation.detail));
+  }
+
   readback = std::move(candidate);
   return Render::ValidationResult::Success();
 }
@@ -744,9 +1114,17 @@ Render::ValidationResult BuildCommittedCapture(
   candidate.assets.reserve(state.page_owners.size() * 4U);
   candidate.static_meshes.reserve(state.page_owners.size());
   for (const auto &entry : state.page_owners) {
+    // A page publishes mesh, base texture, base sampler and material, plus a
+    // texture/sampler pair for the weight mask and for each authored detail
+    // layer. The composite fallback publishes the bare four.
+    constexpr std::size_t kMinimumPageAssets = 4U;
+    constexpr std::size_t kMaximumPageAssets =
+        kMinimumPageAssets + 2U + 2U * Render::kMaterialDetailMapCount;
     if (state.live_pages.find(entry.first) == state.live_pages.end() ||
         entry.second.native_terrain == nullptr ||
-        entry.second.assets.size() != 4U) {
+        entry.second.assets.size() < kMinimumPageAssets ||
+        entry.second.assets.size() > kMaximumPageAssets ||
+        (entry.second.assets.size() - kMinimumPageAssets) % 2U != 0U) {
       return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                      "ogre_next_demo.terrain.frozen_owner",
                      "committed terrain page owner is incomplete");
@@ -1001,6 +1379,12 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
             {kMaterialIdDomain, &material_id},
             {kObjectIdDomain, &object_id},
         }};
+    std::uint64_t weight_texture_id = 0U;
+    std::uint64_t weight_sampler_id = 0U;
+    std::array<std::uint64_t, Render::kMaterialDetailMapCount>
+        detail_texture_ids{};
+    std::array<std::uint64_t, Render::kMaterialDetailMapCount>
+        detail_sampler_ids{};
     for (const auto &identity : identities) {
       validation =
           DeriveOgreNextDemoSourceId(identity.first, page.exact_page_key,
@@ -1016,6 +1400,56 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
       if (!validation) {
         validation.element_index = index;
         return validation;
+      }
+    }
+
+    if (native.authored_density) {
+      // Each authored layer needs its own stable asset identity. The layer
+      // ordinal joins the page key so a page never mints two identities for
+      // one domain, which the registry rejects as a duplicate.
+      const auto register_layer_identity =
+          [&](std::string_view domain, std::size_t ordinal,
+              std::uint64_t &output) -> Render::ValidationResult {
+        std::string key(page.exact_page_key);
+        key.push_back('/');
+        key.append(std::to_string(ordinal));
+        Render::ValidationResult derived =
+            DeriveOgreNextDemoSourceId(domain, key, output);
+        if (!derived) {
+          return derived;
+        }
+        std::string exact_identity(domain);
+        exact_identity.push_back('\0');
+        exact_identity.append(key);
+        return candidate_state->identities.Register(std::move(exact_identity),
+                                                    output);
+      };
+      validation = register_layer_identity(kWeightTextureIdDomain, 0U,
+                                           weight_texture_id);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
+      }
+      validation = register_layer_identity(kWeightSamplerIdDomain, 0U,
+                                           weight_sampler_id);
+      if (!validation) {
+        validation.element_index = index;
+        return validation;
+      }
+      for (std::size_t layer = 0U; layer < native.detail_layers.size();
+           ++layer) {
+        validation = register_layer_identity(kDetailTextureIdDomain, layer,
+                                             detail_texture_ids[layer]);
+        if (!validation) {
+          validation.element_index = index;
+          return validation;
+        }
+        validation = register_layer_identity(kDetailSamplerIdDomain, layer,
+                                             detail_sampler_ids[layer]);
+        if (!validation) {
+          validation.element_index = index;
+          return validation;
+        }
       }
     }
 
@@ -1038,6 +1472,29 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     material.base_color_texture.scale = {1.0F, 1.0F};
     material.base_color_texture.offset = {};
     material.base_color_texture.rotation_radians = 0.0F;
+    if (native.authored_density) {
+      // UV0 spans the page exactly once, so repeating the base layer at its
+      // authored world size is a plain UV scale. Every detail layer then
+      // repeats at its own rate through the native per-detail offset/scale,
+      // while the weight mask stays unscaled across the page.
+      material.version = Render::kMaterialDescriptorDetailVersion;
+      material.base_color_texture.scale = {native.base_uv_repeats,
+                                           native.base_uv_repeats};
+      material.detail_weight_texture.texture_coordinate_set = 0U;
+      material.detail_weight_texture.scale = {1.0F, 1.0F};
+      material.detail_weight_texture.offset = {};
+      material.detail_weight_texture.rotation_radians = 0.0F;
+      for (std::size_t layer = 0U; layer < native.detail_layers.size();
+           ++layer) {
+        Render::TextureBinding &binding = material.detail_textures[layer];
+        binding.texture_coordinate_set = 0U;
+        binding.scale = {native.detail_layers[layer].uv_repeats,
+                         native.detail_layers[layer].uv_repeats};
+        binding.offset = {};
+        binding.rotation_radians = 0.0F;
+        material.detail_weights[layer] = 1.0F;
+      }
+    }
     validation = Render::ValidateMaterialDescriptor(material);
     if (!validation) {
       validation.field = "ogre_next_demo.terrain.material." + validation.field;
@@ -1060,12 +1517,43 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
       validation.element_index = index;
       return validation;
     }
+    if (native.authored_density) {
+      validation = Render::ValidateMaterialTextureCompatibility(
+          Render::MaterialTextureSlot::DETAIL_WEIGHT, native.weight_texture,
+          native.weight_sampler);
+      if (!validation) {
+        validation.field = "ogre_next_demo.terrain.weight_texture." +
+                           validation.field;
+        validation.element_index = index;
+        return validation;
+      }
+      constexpr std::array<Render::MaterialTextureSlot,
+                           Render::kMaterialDetailMapCount>
+          kDetailSlots{Render::MaterialTextureSlot::DETAIL0,
+                       Render::MaterialTextureSlot::DETAIL1,
+                       Render::MaterialTextureSlot::DETAIL2,
+                       Render::MaterialTextureSlot::DETAIL3};
+      for (std::size_t layer = 0U; layer < native.detail_layers.size();
+           ++layer) {
+        validation = Render::ValidateMaterialTextureCompatibility(
+            kDetailSlots[layer], native.detail_layers[layer].texture,
+            native.detail_layers[layer].sampler);
+        if (!validation) {
+          validation.field = "ogre_next_demo.terrain.detail_texture." +
+                             validation.field;
+          validation.element_index = index;
+          return validation;
+        }
+      }
+    }
 
     State::PageOwner owner;
     owner.slot_x = page.slot_x;
     owner.slot_y = page.slot_y;
     owner.native_terrain = native.terrain;
-    owner.assets.reserve(4U);
+    owner.assets.reserve(4U + (native.authored_density
+                                  ? 2U + 2U * native.detail_layers.size()
+                                  : 0U));
     Render::GraphicsSceneAssetInput mesh_asset;
     mesh_asset.source_asset_id = mesh_id;
     mesh_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
@@ -1081,12 +1569,53 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     sampler_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
         std::move(native.sampler));
     owner.assets.push_back(std::move(sampler_asset));
+    if (native.authored_density) {
+      Render::GraphicsSceneAssetInput weight_texture_asset;
+      weight_texture_asset.source_asset_id = weight_texture_id;
+      weight_texture_asset.payload =
+          std::make_shared<const Render::RenderAssetPayload>(
+              std::move(native.weight_texture));
+      owner.assets.push_back(std::move(weight_texture_asset));
+      Render::GraphicsSceneAssetInput weight_sampler_asset;
+      weight_sampler_asset.source_asset_id = weight_sampler_id;
+      weight_sampler_asset.payload =
+          std::make_shared<const Render::RenderAssetPayload>(
+              std::move(native.weight_sampler));
+      owner.assets.push_back(std::move(weight_sampler_asset));
+      for (std::size_t layer = 0U; layer < native.detail_layers.size();
+           ++layer) {
+        Render::GraphicsSceneAssetInput detail_texture_asset;
+        detail_texture_asset.source_asset_id = detail_texture_ids[layer];
+        detail_texture_asset.payload =
+            std::make_shared<const Render::RenderAssetPayload>(
+                std::move(native.detail_layers[layer].texture));
+        owner.assets.push_back(std::move(detail_texture_asset));
+        Render::GraphicsSceneAssetInput detail_sampler_asset;
+        detail_sampler_asset.source_asset_id = detail_sampler_ids[layer];
+        detail_sampler_asset.payload =
+            std::make_shared<const Render::RenderAssetPayload>(
+                std::move(native.detail_layers[layer].sampler));
+        owner.assets.push_back(std::move(detail_sampler_asset));
+      }
+    }
+
     Render::GraphicsSceneAssetInput material_asset;
     material_asset.source_asset_id = material_id;
     material_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
         std::move(material));
     material_asset.material_bindings[static_cast<std::size_t>(
         Render::MaterialTextureSlot::BASE_COLOR)] = {texture_id, sampler_id};
+    if (native.authored_density) {
+      material_asset.material_bindings[static_cast<std::size_t>(
+          Render::MaterialTextureSlot::DETAIL_WEIGHT)] = {weight_texture_id,
+                                                          weight_sampler_id};
+      for (std::size_t layer = 0U; layer < native.detail_layers.size();
+           ++layer) {
+        material_asset.material_bindings[static_cast<std::size_t>(
+            Render::MaterialTextureSlot::DETAIL0) + layer] = {
+            detail_texture_ids[layer], detail_sampler_ids[layer]};
+      }
+    }
     owner.assets.push_back(std::move(material_asset));
 
     owner.instance.source_object_id = object_id;

@@ -123,6 +123,19 @@ bool EqualBinding(const TextureBinding &lhs,
          EqualFloatBits(lhs.rotation_radians, rhs.rotation_radians);
 }
 
+bool EqualDetailLayers(const MaterialDescriptor &lhs,
+                       const MaterialDescriptor &rhs) noexcept {
+  for (std::size_t layer = 0U; layer < kMaterialDetailMapCount; ++layer) {
+    if (!EqualBinding(lhs.detail_textures[layer],
+                      rhs.detail_textures[layer]) ||
+        !EqualFloatBits(lhs.detail_weights[layer],
+                        rhs.detail_weights[layer])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool EqualMaterial(const MaterialDescriptor &lhs,
                    const MaterialDescriptor &rhs) noexcept {
   return lhs.version == rhs.version && lhs.debug_name == rhs.debug_name &&
@@ -160,7 +173,9 @@ bool EqualMaterial(const MaterialDescriptor &lhs,
          EqualBinding(lhs.normal_texture, rhs.normal_texture) &&
          EqualBinding(lhs.occlusion_texture, rhs.occlusion_texture) &&
          EqualBinding(lhs.emissive_texture, rhs.emissive_texture) &&
-         EqualBinding(lhs.specular_texture, rhs.specular_texture);
+         EqualBinding(lhs.specular_texture, rhs.specular_texture) &&
+         EqualBinding(lhs.detail_weight_texture, rhs.detail_weight_texture) &&
+         EqualDetailLayers(lhs, rhs);
 }
 
 ValidationResult ValidatePayload(const RenderAssetMutation &mutation,
@@ -220,23 +235,33 @@ ValidationResult ValidatePayload(const RenderAssetMutation &mutation,
   return validation;
 }
 
-std::array<const TextureBinding *, 6U>
+std::array<const TextureBinding *, 11U>
 MaterialBindings(const MaterialDescriptor &material) noexcept {
   return {{&material.base_color_texture,
            &material.metallic_roughness_texture,
            &material.normal_texture,
            &material.occlusion_texture,
            &material.emissive_texture,
-           &material.specular_texture}};
+           &material.specular_texture,
+           &material.detail_weight_texture,
+           &material.detail_textures[0],
+           &material.detail_textures[1],
+           &material.detail_textures[2],
+           &material.detail_textures[3]}};
 }
 
-const std::array<MaterialTextureSlot, 6U> kMaterialSlots{{
+const std::array<MaterialTextureSlot, 11U> kMaterialSlots{{
     MaterialTextureSlot::BASE_COLOR,
     MaterialTextureSlot::METALLIC_ROUGHNESS,
     MaterialTextureSlot::NORMAL,
     MaterialTextureSlot::OCCLUSION,
     MaterialTextureSlot::EMISSIVE,
     MaterialTextureSlot::SPECULAR,
+    MaterialTextureSlot::DETAIL_WEIGHT,
+    MaterialTextureSlot::DETAIL0,
+    MaterialTextureSlot::DETAIL1,
+    MaterialTextureSlot::DETAIL2,
+    MaterialTextureSlot::DETAIL3,
 }};
 
 RenderAssetRecord MakeRecord(const RenderAssetMutation &mutation) {

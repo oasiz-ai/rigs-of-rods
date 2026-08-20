@@ -3039,8 +3039,11 @@ public:
     state.offset = native.uv0_affine.offset;
     state.portable_texture_binding_count =
         native.uv0_affine.portable_texture_binding_count;
+    // Detail slots are bound too, and the readback loop below counts every
+    // bound slot, so the expected total has to include them.
     state.native_texture_slot_count =
-        native.uv0_affine.native_texture_slot_count;
+        native.uv0_affine.native_texture_slot_count +
+        native.uv0_affine.native_detail_texture_slot_count;
     state.transformed = native.uv0_affine.transformed;
     state.positive_scale = state.scale.x > 0.0F && state.scale.y > 0.0F;
     state.rotation_zero = true;
@@ -4319,6 +4322,47 @@ public:
                      &NativeTexture::sampled);
         bind_texture(descriptor.specular_texture, Ogre::PBSM_SPECULAR,
                      &NativeTexture::linear);
+        // Weighted detail layers. Unlike every slot above, each detail map
+        // keeps its own UV scale in the datablock: the custom UV macro piece
+        // rewrites only the five non-detail lookups, so the weight mask stays
+        // unscaled across the surface while each layer repeats at the rate its
+        // texture was authored for. That separation is the entire point of the
+        // v6 profile and is what lets a page-sized surface show authored-
+        // density material instead of one stretched wash.
+        bind_texture(descriptor.detail_weight_texture, Ogre::PBSM_DETAIL_WEIGHT,
+                     &NativeTexture::linear);
+        constexpr std::array<Ogre::PbsTextureTypes, kMaterialDetailMapCount>
+            kDetailSlots{Ogre::PBSM_DETAIL0, Ogre::PBSM_DETAIL1,
+                         Ogre::PBSM_DETAIL2, Ogre::PBSM_DETAIL3};
+        for (std::size_t layer = 0U; layer < kMaterialDetailMapCount;
+             ++layer) {
+          const TextureBinding &detail = descriptor.detail_textures[layer];
+          bind_texture(detail, kDetailSlots[layer], &NativeTexture::sampled);
+          if (!detail.texture.valid()) {
+            continue;
+          }
+          const auto detail_index = static_cast<Ogre::uint8>(layer);
+          // Sequential lerp over the running result, which is exactly how the
+          // legacy terrain material composited its layers.
+          native.pbs_datablock->setDetailMapBlendMode(
+              detail_index, Ogre::PBSM_BLEND_NORMAL_NON_PREMUL);
+          native.pbs_datablock->setDetailMapWeight(
+              detail_index, descriptor.detail_weights[layer]);
+          // Ogre packs this as XY = offset, ZW = scale, which is the opposite
+          // order from the userValue[0] affine packing above.
+          native.pbs_datablock->setDetailMapOffsetScale(
+              detail_index,
+              Ogre::Vector4(detail.offset.x, detail.offset.y, detail.scale.x,
+                            detail.scale.y));
+          if (native.pbs_datablock->getDetailMapBlendMode(detail_index) !=
+                  Ogre::PBSM_BLEND_NORMAL_NON_PREMUL ||
+              native.pbs_datablock->getDetailMapOffsetScale(detail_index) !=
+                  Ogre::Vector4(detail.offset.x, detail.offset.y,
+                                detail.scale.x, detail.scale.y)) {
+            throw std::runtime_error(
+                "Ogre-Next RT4/V1 live PBS detail state differs from the reviewed mapping");
+          }
+        }
       }
       std::uint32_t native_texture_slot_count = 0U;
       for (std::uint32_t slot = 0U;
@@ -4328,7 +4372,8 @@ public:
             (native.native_texture_slot_mask & (1U << slot)) != 0U ? 1U : 0U;
       }
       if (native_texture_slot_count !=
-          native.uv0_affine.native_texture_slot_count) {
+          native.uv0_affine.native_texture_slot_count +
+              native.uv0_affine.native_detail_texture_slot_count) {
         throw std::runtime_error(
             "Ogre-Next RT4/V1 did not bind every authored UV0 affine texture slot");
       }
@@ -10176,6 +10221,19 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
                  {true, false, false, false, false, false}},
                 {&material->specular_texture,
                  {false, false, true, false, false, false}},
+                // Detail albedo composites with the base color, so it decodes
+                // exactly like an ordinary sRGB sampled map. The weight mask
+                // selects layers and must stay linear.
+                {&material->detail_weight_texture,
+                 {false, false, true, false, false, false}},
+                {&material->detail_textures[0],
+                 {true, false, false, false, false, false}},
+                {&material->detail_textures[1],
+                 {true, false, false, false, false, false}},
+                {&material->detail_textures[2],
+                 {true, false, false, false, false, false}},
+                {&material->detail_textures[3],
+                 {true, false, false, false, false, false}},
             };
             for (const BindingUsage &binding_usage : bindings) {
               const TextureBinding &binding = *binding_usage.binding;

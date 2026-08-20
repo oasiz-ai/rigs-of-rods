@@ -26,7 +26,7 @@
 namespace RoR::Render {
 
 constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 7U;
-constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 6U;
+constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 11U;
 
 /// Reserved joined-graphics source identities for the producer-synthesized
 /// menu/HUD overlay assets ("RORHUD" + ordinal). Adapters must never mint

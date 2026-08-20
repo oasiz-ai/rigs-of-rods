@@ -39,6 +39,15 @@ static_assert(static_cast<std::size_t>(MaterialTextureSlot::NORMAL) == 2U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::OCCLUSION) == 3U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::EMISSIVE) == 4U);
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::SPECULAR) == 5U);
+static_assert(
+    static_cast<std::size_t>(MaterialTextureSlot::DETAIL_WEIGHT) == 6U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0) == 7U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL1) == 8U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL2) == 9U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL3) == 10U);
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0) +
+                  kMaterialDetailMapCount - 1U ==
+              static_cast<std::size_t>(MaterialTextureSlot::DETAIL3));
 
 ValidationResult Failure(ValidationCode code, const char *field,
                          const char *detail,
@@ -60,7 +69,12 @@ MaterialBindings(MaterialDescriptor &material) noexcept {
            &material.normal_texture,
            &material.occlusion_texture,
            &material.emissive_texture,
-           &material.specular_texture}};
+           &material.specular_texture,
+           &material.detail_weight_texture,
+           &material.detail_textures[0],
+           &material.detail_textures[1],
+           &material.detail_textures[2],
+           &material.detail_textures[3]}};
 }
 
 std::array<const TextureBinding *, kGraphicsSceneMaterialTextureSlotCount>
@@ -70,7 +84,12 @@ MaterialBindings(const MaterialDescriptor &material) noexcept {
            &material.normal_texture,
            &material.occlusion_texture,
            &material.emissive_texture,
-           &material.specular_texture}};
+           &material.specular_texture,
+           &material.detail_weight_texture,
+           &material.detail_textures[0],
+           &material.detail_textures[1],
+           &material.detail_textures[2],
+           &material.detail_textures[3]}};
 }
 
 bool BindingIsAbsent(const GraphicsSceneAssetBinding &binding) noexcept {

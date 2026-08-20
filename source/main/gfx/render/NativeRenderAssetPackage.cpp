@@ -1289,6 +1289,16 @@ TextureBinding &BindingAt(MaterialDescriptor &material,
     return material.emissive_texture;
   case MaterialTextureSlot::SPECULAR:
     return material.specular_texture;
+  case MaterialTextureSlot::DETAIL_WEIGHT:
+    return material.detail_weight_texture;
+  case MaterialTextureSlot::DETAIL0:
+    return material.detail_textures[0];
+  case MaterialTextureSlot::DETAIL1:
+    return material.detail_textures[1];
+  case MaterialTextureSlot::DETAIL2:
+    return material.detail_textures[2];
+  case MaterialTextureSlot::DETAIL3:
+    return material.detail_textures[3];
   }
   return material.base_color_texture;
 }
@@ -1308,6 +1318,16 @@ const TextureBinding &BindingAt(const MaterialDescriptor &material,
     return material.emissive_texture;
   case MaterialTextureSlot::SPECULAR:
     return material.specular_texture;
+  case MaterialTextureSlot::DETAIL_WEIGHT:
+    return material.detail_weight_texture;
+  case MaterialTextureSlot::DETAIL0:
+    return material.detail_textures[0];
+  case MaterialTextureSlot::DETAIL1:
+    return material.detail_textures[1];
+  case MaterialTextureSlot::DETAIL2:
+    return material.detail_textures[2];
+  case MaterialTextureSlot::DETAIL3:
+    return material.detail_textures[3];
   }
   return material.base_color_texture;
 }

@@ -12,6 +12,7 @@
 #include "ValidatedAssetCompatibilityInternal.h"
 
 #include <array>
+#include <cmath>
 #include <utility>
 
 namespace RoR::Render {
@@ -135,7 +136,8 @@ bool IsKnownBaseColorTransfer(BaseColorTransfer transfer) noexcept {
 ValidationResult
 ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
   if (descriptor.version != kMaterialDescriptorVersion &&
-      descriptor.version != kMaterialDescriptorTransmissionVersion) {
+      descriptor.version != kMaterialDescriptorTransmissionVersion &&
+      descriptor.version != kMaterialDescriptorDetailVersion) {
     return ValidationResult::Failure(ValidationCode::UNSUPPORTED_VERSION,
                                      "version",
                                      "unsupported material descriptor version");
@@ -335,6 +337,73 @@ ValidateMaterialDescriptor(const MaterialDescriptor &descriptor) {
     }
   }
 
+  {
+    const ValidationResult detail_validation =
+        ValidateTextureBinding(descriptor.detail_weight_texture,
+                               "detail_weight_texture");
+    if (!detail_validation) {
+      return detail_validation;
+    }
+    bool any_detail_layer = false;
+    for (std::size_t layer = 0U; layer < kMaterialDetailMapCount; ++layer) {
+      const ValidationResult layer_validation = ValidateTextureBinding(
+          descriptor.detail_textures[layer], "detail_textures");
+      if (!layer_validation) {
+        return layer_validation;
+      }
+      if (!std::isfinite(descriptor.detail_weights[layer]) ||
+          descriptor.detail_weights[layer] < 0.0F ||
+          descriptor.detail_weights[layer] > 1.0F) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "detail_weights",
+            "detail weights must be finite and within the unit range", layer);
+      }
+      if (!IsAbsentRenderAssetReference(
+              descriptor.detail_textures[layer].texture)) {
+        any_detail_layer = true;
+      }
+    }
+    const bool weight_absent = IsAbsentRenderAssetReference(
+                                   descriptor.detail_weight_texture.texture) &&
+                               IsAbsentRenderAssetReference(
+                                   descriptor.detail_weight_texture.sampler);
+    const bool canonical_no_detail =
+        !any_detail_layer && weight_absent &&
+        descriptor.detail_weights ==
+            std::array<float, kMaterialDetailMapCount>{1.0F, 1.0F, 1.0F, 1.0F};
+    if (descriptor.version != kMaterialDescriptorDetailVersion &&
+        !canonical_no_detail) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "detail_textures",
+          "only material v6 may carry weighted detail layers");
+    }
+    if (any_detail_layer && weight_absent) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "detail_weight_texture",
+          "weighted detail layers require their selecting weight mask");
+    }
+    // The mask spans the surface once. Scaling it would tile the selection
+    // along with the layers and destroy the very separation this profile
+    // exists to provide.
+    const TextureBinding &weight = descriptor.detail_weight_texture;
+    const bool weight_identity_transform =
+        weight.scale == Float2{1.0F, 1.0F} && weight.offset == Float2{} &&
+        weight.rotation_radians == 0.0F;
+    if (!weight_absent && !weight_identity_transform) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "detail_weight_texture",
+          "the detail weight mask must keep its canonical identity transform");
+    }
+    // Detail layers may only be applied to a lit surface: the composite is
+    // performed by the PBS shading path, not by a blended second draw.
+    if (any_detail_layer &&
+        descriptor.model != MaterialModel::PBR_METALLIC_ROUGHNESS) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "detail_textures",
+          "weighted detail layers require the metallic-roughness PBR model");
+    }
+  }
+
   const bool metallic_roughness_absent =
       IsAbsentRenderAssetReference(
           descriptor.metallic_roughness_texture.texture) &&
@@ -476,6 +545,28 @@ ValidateMaterialTextureCompatibility(MaterialTextureSlot slot,
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "texture.color_space",
           "occlusion slot requires linear storage with an R channel");
+    }
+    break;
+  case MaterialTextureSlot::DETAIL_WEIGHT:
+    // The weight mask selects layers; it is never displayed, so it must not
+    // carry a transfer function that sampling would decode.
+    if (!rgba_storage || texture.color_space != TextureColorSpace::LINEAR) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
+          "detail weight slot requires linear RGBA storage");
+    }
+    break;
+  case MaterialTextureSlot::DETAIL0:
+  case MaterialTextureSlot::DETAIL1:
+  case MaterialTextureSlot::DETAIL2:
+  case MaterialTextureSlot::DETAIL3:
+    // Detail layers are albedo and composite with the base color, so they
+    // share the base-color storage rule exactly.
+    if (texture.format != TextureResourceFormat::RGBA8_UNORM ||
+        texture.color_space != TextureColorSpace::SRGB) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "texture.format",
+          "detail albedo slots require RGBA8 sRGB storage");
     }
     break;
   default:

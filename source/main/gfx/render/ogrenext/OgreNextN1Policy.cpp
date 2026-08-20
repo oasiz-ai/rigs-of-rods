@@ -657,6 +657,70 @@ ValidationResult BuildOgreNextN1PbsUv0AffineTransform(
         "RT4/V1 requires the unsupported absent occlusion binding to retain its canonical identity transform",
         material_index);
   }
+
+  // Detail slots deliberately sit outside the shared affine. Ogre-Next carries
+  // a per-detail offset/scale in the datablock itself, and the custom UV macro
+  // piece rewrites only UV_DIFFUSE/NORMAL/SPECULAR/ROUGHNESS/EMISSIVE, so a
+  // detail layer can repeat at its own authored rate while the weight mask
+  // stays unscaled across the whole surface. They are still counted here so
+  // the frontend can prove it bound every slot the material declared.
+  {
+    const TextureBinding *const detail_bindings[] = {
+        &material.detail_weight_texture, &material.detail_textures[0],
+        &material.detail_textures[1],    &material.detail_textures[2],
+        &material.detail_textures[3],
+    };
+    for (const TextureBinding *const binding : detail_bindings) {
+      const bool texture_absent =
+          IsAbsentRenderAssetReference(binding->texture);
+      const bool sampler_absent =
+          IsAbsentRenderAssetReference(binding->sampler);
+      if (texture_absent && sampler_absent) {
+        if (!IsIdentityTextureTransform(*binding)) {
+          return Unsupported(
+              "assets.material.texture_transform",
+              "RT4/V1 requires absent detail bindings to retain their canonical identity transform",
+              material_index);
+        }
+        continue;
+      }
+      if (texture_absent != sampler_absent || !binding->texture.valid() ||
+          !binding->sampler.valid()) {
+        return ValidationResult::Failure(
+            ValidationCode::INVALID_ASSET_REFERENCE,
+            "assets.material.texture_binding",
+            "native detail admission requires a complete texture and sampler pair",
+            material_index);
+      }
+      if (!IsFinite(binding->scale) || !IsFinite(binding->offset) ||
+          !IsFinite(binding->rotation_radians)) {
+        return ValidationResult::Failure(
+            ValidationCode::NON_FINITE_VALUE,
+            "assets.material.texture_transform",
+            "native detail scale, offset, and rotation must be finite",
+            material_index);
+      }
+      if (binding->texture_coordinate_set != 0U) {
+        return Unsupported("assets.material.texture_transform",
+                           "RT4/V1 native detail sampling supports UV0 only",
+                           material_index);
+      }
+      if (binding->scale.x <= 0.0F || binding->scale.y <= 0.0F) {
+        return Unsupported(
+            "assets.material.texture_transform",
+            "RT4/V1 native detail sampling requires strictly positive scale components",
+            material_index);
+      }
+      if (binding->rotation_radians != 0.0F) {
+        return Unsupported(
+            "assets.material.texture_transform",
+            "RT4/V1 native detail sampling keeps rotation fail-closed",
+            material_index);
+      }
+      ++candidate.portable_texture_binding_count;
+      ++candidate.native_detail_texture_slot_count;
+    }
+  }
   candidate.transformed = candidate.scale != Float2{1.0F, 1.0F} ||
                           candidate.offset != Float2{};
   transform = candidate;

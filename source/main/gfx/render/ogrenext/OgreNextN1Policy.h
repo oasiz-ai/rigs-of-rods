@@ -90,6 +90,10 @@ struct OgreNextN1PbsUv0AffineTransform final {
   Float2 offset;
   std::uint32_t portable_texture_binding_count = 0U;
   std::uint32_t native_texture_slot_count = 0U;
+  /// Detail slots are counted apart from the shared affine because each one
+  /// keeps its own UV scale in the native datablock instead of joining
+  /// userValue[0]. The frontend still has to account for every bound slot.
+  std::uint32_t native_detail_texture_slot_count = 0U;
   bool transformed = false;
 };
 
