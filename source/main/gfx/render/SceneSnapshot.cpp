@@ -935,6 +935,44 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   return ValidationResult::Success();
 }
 
+namespace {
+
+/// One update per deformed instance, and far fewer updates than instances, so
+/// an identity-ordered index turns the per-instance lookup from a linear scan
+/// of every update into a binary search. Descriptor validation guarantees at
+/// most one update per instance but orders the vector by update sequence, so
+/// the identity order is established here rather than assumed.
+std::vector<const DynamicMeshUpdateDescriptor *>
+BuildDynamicMeshUpdateIndex(const SceneSnapshotDescriptor &descriptor) {
+  std::vector<const DynamicMeshUpdateDescriptor *> index;
+  index.reserve(descriptor.dynamic_mesh_updates.size());
+  for (const DynamicMeshUpdateDescriptor &update :
+       descriptor.dynamic_mesh_updates) {
+    index.push_back(&update);
+  }
+  std::sort(index.begin(), index.end(),
+            [](const DynamicMeshUpdateDescriptor *lhs,
+               const DynamicMeshUpdateDescriptor *rhs) {
+              return lhs->instance_id < rhs->instance_id;
+            });
+  return index;
+}
+
+const DynamicMeshUpdateDescriptor *FindDynamicMeshUpdate(
+    const std::vector<const DynamicMeshUpdateDescriptor *> &index,
+    std::uint64_t instance_id) noexcept {
+  const auto found = std::lower_bound(
+      index.begin(), index.end(), instance_id,
+      [](const DynamicMeshUpdateDescriptor *candidate, std::uint64_t id) {
+        return candidate->instance_id < id;
+      });
+  return found == index.end() || (*found)->instance_id != instance_id
+             ? nullptr
+             : *found;
+}
+
+} // namespace
+
 ValidationResult ValidateSceneSnapshotAssets(
     const SceneSnapshotDescriptor &descriptor,
     const RenderAssetRegistry &registry) {
@@ -1017,6 +1055,8 @@ ValidationResult ValidateSceneSnapshotAssets(
     }
   }
 
+  const std::vector<const DynamicMeshUpdateDescriptor *> update_index =
+      BuildDynamicMeshUpdateIndex(descriptor);
   for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
        ++index) {
     const MeshInstanceDescriptor &instance = descriptor.mesh_instances[index];
@@ -1035,16 +1075,9 @@ ValidationResult ValidateSceneSnapshotAssets(
       return validation;
     }
 
-    const auto update = std::find_if(
-        descriptor.dynamic_mesh_updates.begin(),
-        descriptor.dynamic_mesh_updates.end(),
-        [&instance](const DynamicMeshUpdateDescriptor &candidate) {
-          return candidate.instance_id == instance.instance_id;
-        });
-    const DynamicMeshUpdateDescriptor *update_ptr =
-        update == descriptor.dynamic_mesh_updates.end() ? nullptr : &*update;
     validation = Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
-        validated_assets, *mesh, instance, update_ptr);
+        validated_assets, *mesh, instance,
+        FindDynamicMeshUpdate(update_index, instance.instance_id));
     if (!validation) {
       validation.element_index = index;
       return validation;
@@ -1058,6 +1091,88 @@ ValidationResult
 ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
                             const RenderAssetRegistry &registry) {
   return ValidateSceneSnapshotAssets(snapshot.descriptor_, registry);
+}
+
+ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids) {
+  if (descriptor.asset_registry_id != registry.registry_id()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "asset_registry_id",
+        "scene references a different renderer-neutral asset registry");
+  }
+  if (descriptor.asset_sequence != registry.sequence()) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "asset_sequence",
+        "scene requires a different asset registry sequence");
+  }
+
+  const ValidatedAssetCompatibilityAccess validated_assets;
+  const std::vector<const DynamicMeshUpdateDescriptor *> update_index =
+      BuildDynamicMeshUpdateIndex(descriptor);
+  std::uint64_t previous_identifier = 0U;
+  std::size_t instance_scan = 0U;
+  for (std::size_t index = 0U; index < instance_ids.size(); ++index) {
+    const std::uint64_t instance_id = instance_ids[index];
+    if (instance_id == 0U ||
+        (index != 0U && instance_id <= previous_identifier)) {
+      return ValidationResult::Failure(
+          instance_id == 0U ? ValidationCode::INVALID_IDENTIFIER
+                            : ValidationCode::SEQUENCE_MISMATCH,
+          "scoped_instances.instance_id",
+          "scoped instance identities must be nonzero and strictly increasing",
+          index);
+    }
+    previous_identifier = instance_id;
+    // mesh_instances is strictly increasing by identity, so one shared cursor
+    // resolves the whole sorted scope in a single pass.
+    while (instance_scan < descriptor.mesh_instances.size() &&
+           descriptor.mesh_instances[instance_scan].instance_id <
+               instance_id) {
+      ++instance_scan;
+    }
+    if (instance_scan >= descriptor.mesh_instances.size() ||
+        descriptor.mesh_instances[instance_scan].instance_id != instance_id) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "scoped_instances.instance_id",
+          "scoped instance identity is absent from this snapshot", index);
+    }
+    const MeshInstanceDescriptor &instance =
+        descriptor.mesh_instances[instance_scan];
+    const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+    const MaterialDescriptor *material =
+        registry.ResolveMaterial(instance.material);
+    if (mesh == nullptr || material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
+          "instance references a missing, stale, or tombstoned asset",
+          instance_scan);
+    }
+    ValidationResult validation =
+        Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+            validated_assets, *material, *mesh);
+    if (!validation) {
+      validation.element_index = instance_scan;
+      return validation;
+    }
+    validation = Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
+        validated_assets, *mesh, instance,
+        FindDynamicMeshUpdate(update_index, instance_id));
+    if (!validation) {
+      validation.element_index = instance_scan;
+      return validation;
+    }
+  }
+
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids) {
+  return ValidateSceneSnapshotAssetsScoped(snapshot.descriptor_, registry,
+                                           instance_ids);
 }
 
 SceneSnapshotCreateResult

@@ -272,6 +272,9 @@ struct GraphicsSceneSnapshotProduction {
     std::uint64_t asset_payload_candidate_bytes_validated = 0U;
     /// Full scene-to-registry compatibility passes. Exact previously validated
     /// mesh/material and environment revisions let stable frames report zero.
+    /// A frame carrying live deformables no longer forces one; it reports a
+    /// dynamic-only pass in scene_asset_compatibility_scoped_validations
+    /// instead, so this counts only pair or environment changes.
     std::uint64_t scene_asset_compatibility_full_validations = 0U;
     /// Deep source-payload equivalence fallbacks after immutable-owner
     /// identity misses. Same-owner stable frames report zero exactly.

@@ -2316,10 +2316,15 @@ public:
           sorted_lights, sorted_probes);
       return result;
     }
+    // A live vehicle used to force the full pass, which re-validated the
+    // whole descriptor a second time and re-resolved every static instance
+    // against the registry. Only the deformable instances actually change
+    // per frame; the exact validated mesh/material pair set and environment
+    // are the evidence that every other instance was already validated
+    // against this registry revision.
     const bool requires_full_asset_compatibility_validation =
         !asset_compatibility_cache_initialized ||
         candidate_mesh_asset_pairs != validated_mesh_asset_pairs ||
-        !sorted_dynamic_objects.empty() ||
         !(candidate_environment_assets == validated_environment_assets);
     if (requires_full_asset_compatibility_validation) {
       result.production.diagnostics
@@ -2327,6 +2332,22 @@ public:
       ValidationResult validation =
           ValidateSceneSnapshotAssets(*created.snapshot,
                                       candidate_catalog.registry);
+      if (!validation) {
+        result.validation = RemapSceneElementIndex(
+            std::move(validation), sorted_mesh_objects,
+            sorted_dynamic_objects, sorted_lights, sorted_probes);
+        return result;
+      }
+    } else if (!sorted_dynamic_objects.empty()) {
+      result.production.diagnostics
+          .scene_asset_compatibility_scoped_validations = 1U;
+      std::vector<std::uint64_t> scoped_instance_ids;
+      scoped_instance_ids.reserve(sorted_dynamic_objects.size());
+      for (const IndexedDynamicMeshInput &object : sorted_dynamic_objects) {
+        scoped_instance_ids.push_back(object.input->source_object_id);
+      }
+      ValidationResult validation = ValidateSceneSnapshotAssetsScoped(
+          *created.snapshot, candidate_catalog.registry, scoped_instance_ids);
       if (!validation) {
         result.validation = RemapSceneElementIndex(
             std::move(validation), sorted_mesh_objects,

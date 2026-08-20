@@ -413,6 +413,9 @@ private:
   CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
   friend ValidationResult ValidateSceneSnapshotAssets(
       const SceneSnapshot &snapshot, const RenderAssetRegistry &registry);
+  friend ValidationResult ValidateSceneSnapshotAssetsScoped(
+      const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+      const std::vector<std::uint64_t> &instance_ids);
 };
 
 struct SceneSnapshotCreateResult {
@@ -438,6 +441,20 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor);
 [[nodiscard]] ValidationResult
 ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
                             const RenderAssetRegistry &registry);
+/// Registry compatibility for only `instance_ids` (nonzero, strictly
+/// increasing) and their dynamic updates, using the same Detail validators as
+/// the full pass so no compatibility rule is forked. It deliberately does not
+/// re-run ValidateSceneSnapshotDescriptor: the snapshot already carries that
+/// proof. A caller must have validated every other instance against this exact
+/// registry revision on a previously accepted frame; an identity absent from
+/// the snapshot fails closed rather than being skipped.
+[[nodiscard]] ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids);
+[[nodiscard]] ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids);
 [[nodiscard]] SceneSnapshotCreateResult
 CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
 
