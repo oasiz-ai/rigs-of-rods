@@ -834,6 +834,7 @@ extern CVar* gfx_particles_mode;
 extern CVar* gfx_enable_videocams;
 extern CVar* gfx_window_videocams;
 extern CVar* gfx_surveymap_icons;
+extern CVar* gfx_surveymap_mode;
 extern CVar* gfx_declutter_map;
 extern CVar* gfx_envmap_enabled;
 extern CVar* gfx_envmap_rate;

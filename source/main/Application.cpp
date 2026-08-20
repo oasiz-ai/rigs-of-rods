@@ -285,6 +285,7 @@ CVar* gfx_particles_mode;
 CVar* gfx_enable_videocams;
 CVar* gfx_window_videocams;
 CVar* gfx_surveymap_icons;
+CVar* gfx_surveymap_mode;
 CVar* gfx_declutter_map;
 CVar* gfx_envmap_enabled;
 CVar* gfx_envmap_rate;

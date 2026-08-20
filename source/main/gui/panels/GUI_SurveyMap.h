@@ -45,6 +45,10 @@ namespace GUI {
 /// Settings:
 ///  * gfx_surveymap_icons - Disables icons, toggle with input `EV_SURVEY_MAP_TOGGLE_ICONS`
 ///  * gfx_declutter_map - Hides icon captions (terrain object names+types, telepoint names, MP usernames)
+///  * gfx_surveymap_mode - The mode the map opens in on every terrain load, and
+///    the mode the player last chose with `SURVEY_MAP_CYCLE`/`SURVEY_MAP_TOGGLE`.
+///    Archived, so the choice survives a restart, and readable from RoR.cfg by a
+///    scripted session that cannot press keys.
 class SurveyMap
 {
 public:
@@ -59,14 +63,25 @@ public:
     void CycleMode();
     void ToggleMode();
 
-protected:
-
+    /// Ordinals are the archived `gfx_surveymap_mode` values; never renumber
+    /// them, an existing RoR.cfg names them by integer.
     enum class SurveyMapMode
     {
-        NONE, // Not visible
-        SMALL,
-        BIG
+        NONE = 0, // Not visible
+        SMALL = 1,
+        BIG = 2
     };
+
+protected:
+
+    /// The archived mode, or NONE for any value outside the enum. Reading an
+    /// unknown ordinal as "hidden" keeps a hand-edited or future config from
+    /// selecting an undefined layout.
+    static SurveyMapMode ArchivedMapMode();
+    /// Applies a player-chosen mode and archives it. Transient suppressions
+    /// (free camera in BIG, the selector being open) deliberately do NOT go
+    /// through here: they must not overwrite the player's choice.
+    void SetAndArchiveMapMode(SurveyMapMode mode);
 
     void setMapZoom(float zoom);
     void setMapZoomRelative(float dt);

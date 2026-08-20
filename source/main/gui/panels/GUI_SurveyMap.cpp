@@ -46,6 +46,14 @@ using namespace Ogre;
 void SurveyMap::Draw()
 {
     // Check special cases
+    if (!mMapTexture)
+    {
+        // Both visible modes dereference the static texture. A mode that
+        // outlived its terrain (or an archived mode applied before one was
+        // ever built) hides instead of drawing.
+        mMapMode = SurveyMapMode::NONE;
+        return;
+    }
     if ((mMapMode == SurveyMapMode::BIG &&
         App::GetCameraManager()->GetCurrentBehavior() == CameraManager::CAMERA_BEHAVIOR_FREE) || 
         App::GetGuiManager()->MainSelector.IsVisible())
@@ -450,6 +458,8 @@ void SurveyMap::CreateTerrainTextures()
         mMapTexture.reset();
     }
     mMapZoom = 0.5f;
+    // Hidden until the static texture below exists; Draw() dereferences
+    // mMapTexture unconditionally in both visible modes.
     mMapMode = SurveyMapMode::NONE;
 
     AxisAlignedBox aab   = App::GetGameContext()->GetTerrain()->getTerrainCollisionAAB();
@@ -475,6 +485,19 @@ void SurveyMap::CreateTerrainTextures()
     texCreatorStatic.update(mMapCenter + mMapCenterOffset, mTerrainSize);
     mMapTexture = texCreatorStatic.convertTextureToStatic(
         "SurveyMapStatic", App::GetGameContext()->GetTerrain()->getTerrainFileResourceGroup());
+
+    // Every terrain load re-opens the map in the archived mode. This is the
+    // only place the mode is established without an input event, so it is also
+    // the only way a scripted session - which cannot inject SURVEY_MAP_CYCLE -
+    // can start with the map visible. Applied only after the static texture
+    // exists, so a failed texture build leaves the map hidden rather than
+    // visible and unbacked.
+    if (mMapTexture)
+    {
+        mMapMode = ArchivedMapMode();
+        mMapLastMode = (mMapMode == SurveyMapMode::NONE) ? SurveyMapMode::SMALL
+                                                         : mMapMode;
+    }
 }
 
 
@@ -533,20 +556,37 @@ const char* SurveyMap::getAIType(const ActorPtr& actor)
     return "unknown";
 }
 
+SurveyMap::SurveyMapMode SurveyMap::ArchivedMapMode()
+{
+    switch (App::gfx_surveymap_mode->getInt())
+    {
+    case (int)SurveyMapMode::SMALL: return SurveyMapMode::SMALL;
+    case (int)SurveyMapMode::BIG:   return SurveyMapMode::BIG;
+    default:                        return SurveyMapMode::NONE;
+    }
+}
+
+void SurveyMap::SetAndArchiveMapMode(SurveyMapMode mode)
+{
+    mMapMode = mode;
+    App::gfx_surveymap_mode->setVal((int)mode);
+}
+
 void SurveyMap::CycleMode()
 {
     switch (mMapMode)
     {
-    case SurveyMapMode::NONE:  mMapLastMode = mMapMode = SurveyMapMode::SMALL; break;
-    case SurveyMapMode::SMALL: mMapLastMode = mMapMode = SurveyMapMode::BIG;   break;
-    case SurveyMapMode::BIG:                  mMapMode = SurveyMapMode::NONE;  break;
+    case SurveyMapMode::NONE:  mMapLastMode = SurveyMapMode::SMALL; this->SetAndArchiveMapMode(SurveyMapMode::SMALL); break;
+    case SurveyMapMode::SMALL: mMapLastMode = SurveyMapMode::BIG;   this->SetAndArchiveMapMode(SurveyMapMode::BIG);   break;
+    case SurveyMapMode::BIG:                                        this->SetAndArchiveMapMode(SurveyMapMode::NONE);  break;
     default:;
     }
 }
 
 void SurveyMap::ToggleMode()
 {
-    mMapMode = (mMapMode == SurveyMapMode::NONE) ? mMapLastMode : SurveyMapMode::NONE;
+    this->SetAndArchiveMapMode(
+        (mMapMode == SurveyMapMode::NONE) ? mMapLastMode : SurveyMapMode::NONE);
 }
 
 void SurveyMap::DrawMapIcon(const SurveyMapEntity& e, ImVec2 view_pos, ImVec2 view_size, Ogre::Vector2 view_origin)
