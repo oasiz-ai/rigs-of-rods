@@ -86,7 +86,7 @@ constexpr std::uint64_t kOgreNextDemoMaximumObservedParticles = 65536U;
 /// enumerates. The spawn-time coverage probe reads the same constants, so the
 /// audit it prints can never drift away from the capture it is auditing.
 constexpr bool kOgre14CaptureEnumeratesMeshWheelRims = true;
-constexpr bool kOgre14CaptureEnumeratesProps = false;
+constexpr bool kOgre14CaptureEnumeratesProps = true;
 
 /// Spawn-time coverage evidence for one actor. `attached` counts every named,
 /// attached OGRE Entity the actor owns - the geometry the hidden legacy scene
@@ -2627,6 +2627,8 @@ struct Ogre14RigidActorCaptureCounters
     std::size_t refused_mirrored_transform = 0U;
     std::size_t refused_non_uniform_scale = 0U;
     std::size_t refused_render_target_material = 0U;
+    std::size_t refused_runtime_mutated_material = 0U;
+    std::size_t refused_beacon_flare_billboards = 0U;
     std::size_t refused_geometry = 0U;
     std::size_t refused_material = 0U;
     /// Exact field/message of the most recent geometry or material refusal, so
@@ -2653,6 +2655,7 @@ RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
     RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
     RoR::GfxActorCaptureLifecycle actor_lifecycle,
     bool renders_into_a_native_render_target,
+    const std::set<const Ogre::Material*>& runtime_mutated_materials,
     const RoR::Actor* managed_material_owner,
     const RoR::Render::ManagedMaterialDeclarationSnapshot*
         managed_material_snapshot,
@@ -2760,6 +2763,18 @@ RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
         {
             ++counters.refused_submesh_inventory;
             counters.last_refusal = "submesh_inventory_mismatch";
+            return RoR::Render::ValidationResult::Success();
+        }
+        if (runtime_mutated_materials.find(
+                sub_entity->getMaterial().get()) !=
+            runtime_mutated_materials.end())
+        {
+            // A materialflare rewrites this pass's self-illumination and
+            // texture unit every time its flare toggles. The projection is a
+            // frozen per-section decision, so publishing it would nail a
+            // blinker permanently on or off.
+            ++counters.refused_runtime_mutated_material;
+            counters.last_refusal = "runtime_mutated_flare_material";
             return RoR::Render::ValidationResult::Success();
         }
         Ogre::RenderOperation operation;
@@ -3010,6 +3025,7 @@ RoR::Render::ValidationResult CaptureOgre14FrozenRigidActorComponent(
     RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
     RoR::GfxActorCaptureLifecycle actor_lifecycle,
     bool renders_into_a_native_render_target,
+    const std::set<const Ogre::Material*>& runtime_mutated_materials,
     const RoR::Actor* managed_material_owner,
     const RoR::Render::ManagedMaterialDeclarationSnapshot*
         managed_material_snapshot,
@@ -3036,7 +3052,8 @@ RoR::Render::ValidationResult CaptureOgre14FrozenRigidActorComponent(
     RoR::Render::ValidationResult validation =
         CaptureOgre14RigidActorEntitySections(
             entity, required_parent_node, identity, actor_lifecycle,
-            renders_into_a_native_render_target, managed_material_owner,
+            renders_into_a_native_render_target, runtime_mutated_materials,
+            managed_material_owner,
             managed_material_snapshot, projected_managed_material_bindings,
             material_source, mesh_cache, counters, sections, admitted);
     if (!validation)
@@ -3069,6 +3086,8 @@ void ReportOgre14RigidActorCaptureCoverage(
         "refused_submesh_inventory={} refused_unexpected_parent_node={} "
         "refused_noncanonical_transform={} refused_mirrored_transform={} "
         "refused_non_uniform_scale={} refused_render_target_material={} "
+        "refused_runtime_mutated_material={} "
+        "refused_beacon_flare_billboards={} "
         "refused_geometry={} refused_material={} last_refusal='{}'",
         counters.considered_entities, counters.captured_entities,
         counters.captured_sections, counters.frozen_refusals,
@@ -3079,7 +3098,10 @@ void ReportOgre14RigidActorCaptureCoverage(
         counters.refused_noncanonical_transform,
         counters.refused_mirrored_transform,
         counters.refused_non_uniform_scale,
-        counters.refused_render_target_material, counters.refused_geometry,
+        counters.refused_render_target_material,
+        counters.refused_runtime_mutated_material,
+        counters.refused_beacon_flare_billboards,
+        counters.refused_geometry,
         counters.refused_material, counters.last_refusal);
     if (candidate == snapshot)
         return;
@@ -3871,20 +3893,24 @@ void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
             ++probe.prop_slots_removed_by_tuneup;
             continue;
         }
-        if (prop.pp_scene_node != nullptr &&
+        // A mirror or video-camera prop is textured by an OGRE RenderTexture
+        // the combined runtime never draws, so the capture refuses it by name.
+        // It stays outside `enumerated` here for the same reason.
+        const bool renders_into_a_native_render_target =
+            prop.pp_scene_node != nullptr &&
             mirror_prop_nodes.find(prop.pp_scene_node) !=
-                mirror_prop_nodes.end())
-        {
+                mirror_prop_nodes.end();
+        if (renders_into_a_native_render_target)
             ++probe.prop_mirror_entities;
-        }
+        const bool props_enumerated = kOgre14CaptureEnumeratesProps &&
+            !renders_into_a_native_render_target;
         AccumulateOgre14ProbeEntity(
-            prop.pp_mesh_obj->getEntity(), kOgre14CaptureEnumeratesProps,
+            prop.pp_mesh_obj->getEntity(), props_enumerated,
             probe.prop_mesh_entities, probe.prop_mesh_sections, probe);
         if (prop.pp_wheel_mesh_obj != nullptr)
         {
             AccumulateOgre14ProbeEntity(
-                prop.pp_wheel_mesh_obj->getEntity(),
-                kOgre14CaptureEnumeratesProps,
+                prop.pp_wheel_mesh_obj->getEntity(), props_enumerated,
                 probe.prop_steering_wheel_entities,
                 probe.prop_steering_wheel_sections, probe);
         }
@@ -4114,6 +4140,17 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         std::vector<Ogre::Vector2> texcoords0;
         std::vector<Render::Ogre14ManagedMaterialDeclarationBinding>
             projected_managed_material_bindings;
+        // Materials this actor rewrites at runtime. The projection is a frozen
+        // per-section decision, so any rigid section bound to one of these
+        // would publish whichever flare state happened to be live when it was
+        // first seen; those sections are refused by name instead.
+        std::set<const Ogre::Material*> runtime_mutated_materials;
+        for (const FlareMaterial& flare_material : actor->m_flare_materials)
+        {
+            if (flare_material.mat_instance)
+                runtime_mutated_materials.insert(
+                    flare_material.mat_instance.get());
+        }
 
         if ((actor->m_cab_mesh == nullptr) !=
             (actor->m_cab_entity == nullptr))
@@ -4284,6 +4321,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                         meshwheel->GetRimEntity(),
                         meshwheel->GetRimSceneNode(), identity,
                         actor_record.second.lifecycle, false,
+                        runtime_mutated_materials,
                         managed_material_owner.GetRef(),
                         &managed_material_snapshot,
                         projected_managed_material_bindings,
@@ -4293,6 +4331,100 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     if (!validation)
                         return validation;
                 }
+            }
+        }
+
+        if (kOgre14CaptureEnumeratesProps)
+        {
+            // Props are the actor's rigid attachments - suspension arms and
+            // shock bodies, exhausts, mirrors, dashboards, beacon housings.
+            // Nothing enumerated them before, so none of this geometry had
+            // ever reached the combined runtime.
+            //
+            // A mirror or video-camera prop is textured by an OGRE
+            // RenderTexture the combined runtime never draws, so it is
+            // identified here by the node the video camera was bound to and
+            // refused by name rather than published as a dead pane.
+            std::set<const Ogre::SceneNode*> render_target_prop_nodes;
+            for (const VideoCamera& videocamera : actor->getVideoCameras())
+            {
+                if (videocamera.vcam_prop_scenenode != nullptr)
+                {
+                    render_target_prop_nodes.insert(
+                        videocamera.vcam_prop_scenenode);
+                }
+            }
+            for (const Prop& prop : actor->getProps())
+            {
+                if (prop.pp_id < 0 ||
+                    static_cast<std::uint64_t>(prop.pp_id) >
+                        (std::numeric_limits<std::uint32_t>::max)())
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::INVALID_IDENTIFIER,
+                        "dynamic_meshes.prop_id",
+                        "actor prop has no stable uint32 creation ID");
+                }
+                // Beacon flares are BillboardSets, not meshes, and their
+                // rotating spot lights are a separate domain. Count them so
+                // the audit shows what a beacon prop still does not carry.
+                for (Ogre::BillboardSet* const beacon : prop.pp_beacon_bbs)
+                {
+                    if (beacon != nullptr)
+                        ++rigid_counters.refused_beacon_flare_billboards;
+                }
+                if (prop.pp_mesh_obj == nullptr)
+                {
+                    // Documented NULL-when-removed slot: a tuneup or addonpart
+                    // deleted this prop, so the legacy scene draws nothing here
+                    // either. Skipping is coverage-neutral, not a refusal.
+                    continue;
+                }
+                const bool renders_into_a_native_render_target =
+                    prop.pp_scene_node != nullptr &&
+                    render_target_prop_nodes.find(prop.pp_scene_node) !=
+                        render_target_prop_nodes.end();
+                identity.component_kind =
+                    Render::Ogre14GraphicsSceneDynamicComponentKind::PROP;
+                identity.component_id =
+                    static_cast<std::uint32_t>(prop.pp_id);
+                Render::ValidationResult validation =
+                    CaptureOgre14FrozenRigidActorComponent(
+                        prop.pp_mesh_obj->getEntity(), prop.pp_scene_node,
+                        identity, actor_record.second.lifecycle,
+                        renders_into_a_native_render_target,
+                        runtime_mutated_materials,
+                        managed_material_owner.GetRef(),
+                        &managed_material_snapshot,
+                        projected_managed_material_bindings,
+                        m_ogre_next_demo_material_source, mesh_cache,
+                        m_ogre14_rigid_actor_capture_decisions,
+                        rigid_counters, sections);
+                if (!validation)
+                    return validation;
+                if (prop.pp_wheel_mesh_obj == nullptr)
+                    continue;
+                // A dashboard prop carries a second mesh on its own node,
+                // steered independently of the prop pivot. It needs its own
+                // component kind so its sections cannot collide with the
+                // prop mesh's, and its own node so it is posed correctly.
+                identity.component_kind = Render::
+                    Ogre14GraphicsSceneDynamicComponentKind::
+                        PROP_STEERING_WHEEL;
+                validation = CaptureOgre14FrozenRigidActorComponent(
+                    prop.pp_wheel_mesh_obj->getEntity(),
+                    prop.pp_wheel_scene_node, identity,
+                    actor_record.second.lifecycle,
+                    renders_into_a_native_render_target,
+                    runtime_mutated_materials,
+                    managed_material_owner.GetRef(),
+                    &managed_material_snapshot,
+                    projected_managed_material_bindings,
+                    m_ogre_next_demo_material_source, mesh_cache,
+                    m_ogre14_rigid_actor_capture_decisions,
+                    rigid_counters, sections);
+                if (!validation)
+                    return validation;
             }
         }
         managed_snapshot_validation =
