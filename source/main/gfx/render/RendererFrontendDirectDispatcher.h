@@ -74,11 +74,16 @@ struct RendererFrontendDirectDispatchResult final {
   /// RenderOperationRecovery::RETRY_NEXT_FRAME -- the frontend's own verdict
   /// that its reverse-abort walk left nothing committed.
   ///
-  /// Counted, NOT yet honoured: these still poison. The counter exists so a
-  /// full session can show whether the verdict fires only on frames that also
-  /// verified a clean rollback, before a follow-up routes them to Reject().
-  /// Landing the behaviour change unmeasured would trade a crash for silent
-  /// corruption on any misclassified partial commit.
+  /// Counted AND honoured: such a frame is routed to `Reject()` and dropped,
+  /// so it no longer poisons and publication resumes on the next frame. The
+  /// counter remains the named degrade this boundary is required to expose --
+  /// it now measures how often the picture silently skipped a frame.
+  ///
+  /// The frontend's verdict alone does not decide this. It is honoured only
+  /// when the dispatcher's own lineage confirms the frame advanced nothing;
+  /// a verdict contradicted by that check is treated as a possible partial
+  /// commit and still poisons, because silent corruption is strictly worse
+  /// than the session kill it would replace.
   std::uint64_t recoverable_frame_failures = 0U;
   bool terminal = false;
 

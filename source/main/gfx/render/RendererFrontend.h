@@ -99,11 +99,14 @@ enum class RenderOperationRecovery : std::uint8_t {
   /// A frontend may only set this from a verdict it already computes over its
   /// complete rollback -- never from a fresh judgement at the failure site. A
   /// misclassified partial commit here becomes silent corruption, which is
-  /// strictly worse than the session kill it replaces, so this enumerator is
-  /// deliberately landed COUNTED BUT NOT HONOURED: the dispatcher records it
-  /// and still poisons. A follow-up flips it to Reject() once a full session
-  /// shows the counter firing only on frames that also verified a clean
-  /// rollback.
+  /// strictly worse than the session kill it replaces.
+  ///
+  /// `RendererFrontendDirectDispatcher` now HONOURS this verdict: the frame is
+  /// dropped through `Reject()` and the next one is submitted normally, so a
+  /// transient render failure degrades one frame instead of ending the
+  /// session. It is honoured only in conjunction with that dispatcher's own
+  /// lineage check -- a verdict contradicted by the dispatcher's state still
+  /// poisons. `RendererFrontendTransportDispatcher` still only counts it.
   RETRY_NEXT_FRAME,
 };
 

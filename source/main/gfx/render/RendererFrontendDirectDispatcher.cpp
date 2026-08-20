@@ -570,22 +570,39 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
                                                cleanup.released);
     }
     if (rendered.recovery == RenderOperationRecovery::RETRY_NEXT_FRAME) {
-      // COUNTED, NOT HONOURED. The frontend verified its own reverse-abort
-      // walk left nothing committed, which by the render-boundary invariant
-      // makes this a droppable frame rather than a dead session. It is
-      // deliberately not routed to Reject() yet: a misclassified partial
-      // commit would become silent corruption, which is worse than the crash
-      // it replaces, so the verdict is measured over a full session first.
+      // COUNTED AND NOW HONOURED. The frontend publishes here the verdict its
+      // own reverse-abort walk already computed: this failure left no prepared
+      // transaction and no half-written native state. By the governing
+      // invariant above that is a droppable frame, not a dead session, so it
+      // routes to Reject() -- the frame is dropped, `rejected_frames`
+      // increments, and the NEXT frame is accepted normally.
       //
-      // The invariant the dispatcher can check itself, and does: a frame that
-      // failed inside Render() must not have advanced any dispatcher lineage.
+      // The frontend's verdict is honoured only together with the one
+      // invariant this dispatcher can verify for itself. The staged landing
+      // asserted it; this enforces it at runtime, because an assert is absent
+      // from the Release build that actually ships. A frame that failed inside
+      // Render() must not have advanced any dispatcher lineage. If the lineage
+      // did move, the clean-rollback claim is contradicted by this
+      // dispatcher's own state: the frontend may hold a partial commit, and a
+      // misclassified partial commit becomes silent corruption, which is
+      // strictly worse than the session kill it would replace. In that case
+      // the dispatcher poisons exactly as it did before.
       if (recoverable_frame_failures_ !=
           (std::numeric_limits<std::uint64_t>::max)()) {
         ++recoverable_frame_failures_;
       }
-      assert(last_consumed_scene_snapshot_id_ < scene_snapshot_id &&
-             last_frontend_frame_id_ + 1U == request.frame_id &&
-             "a recoverable frontend failure advanced dispatcher lineage");
+      const bool lineage_intact =
+          last_consumed_scene_snapshot_id_ < scene_snapshot_id &&
+          last_frontend_frame_id_ + 1U == request.frame_id;
+      if (lineage_intact) {
+        RendererFrontendDirectDispatchResult declined = Reject(
+            RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
+            ValidationCode::OK, rendered.code);
+        declined.frontend_detail.Assign(rendered.detail.c_str());
+        declined.resources_released = cleanup.released;
+        declined.scene_snapshot_id = scene_snapshot_id;
+        return declined;
+      }
     }
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
                 ValidationCode::OK, rendered.code, cleanup.released,

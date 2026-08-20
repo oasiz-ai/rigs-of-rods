@@ -905,6 +905,21 @@ int main(int argc, char *argv[])
     std::unique_ptr<RendererInProcessSession>
         renderer_combined_session;
     std::string renderer_combined_scene_failure_signature;
+    // Publication-degrade bookkeeping. A snapshot rejection drops a frame; it
+    // must never end the session and must never stop publication for good. It
+    // must also never go quiet: the historic code logged one line per distinct
+    // signature and then nothing, so a rejection recurring every frame looked
+    // exactly like a log that simply stopped, which is what made the last one
+    // so expensive to diagnose. These count the recurrence and re-report it on
+    // a bounded schedule instead.
+    std::uint64_t renderer_combined_scene_failure_occurrences = 0U;
+    std::uint64_t renderer_combined_scene_failure_next_report = 1U;
+    std::uint64_t renderer_combined_scene_publication_recoveries = 0U;
+    std::uint64_t renderer_combined_scene_frames_dropped_total = 0U;
+    // True while the last capture did not reach the presenter, so the window
+    // is showing an older frame than the simulation.
+    bool renderer_combined_scene_publication_degraded = false;
+    bool renderer_combined_scene_degrade_notified = false;
     std::string renderer_combined_particle_audit_signature;
     std::string renderer_combined_analytic_sky_audit_signature;
     std::string renderer_combined_aerial_haze_audit_signature;
@@ -4132,6 +4147,19 @@ int main(int argc, char *argv[])
                             RendererInProcessSessionStatus::
                                 PENDING_FRONTEND_SURFACE)
                     {
+                        // This capture is not reaching the presenter. The
+                        // governing invariant of this boundary is that a
+                        // per-frame validation may reject a frame or an
+                        // object, but may not end a session and may not
+                        // permanently stop publication. So the default answer
+                        // here is to drop the frame and capture again next
+                        // tick: the presenter keeps showing the last scene it
+                        // accepted, which is a coherent picture one or more
+                        // frames stale rather than a black window or garbage,
+                        // and the simulation and event pump keep running so
+                        // the window stays responsive and can recover.
+                        ++renderer_combined_scene_failure_occurrences;
+                        ++renderer_combined_scene_frames_dropped_total;
                         const std::string failure_signature =
                             ToString(scene_result.status) +
                             std::string("\n") +
@@ -4145,19 +4173,88 @@ int main(int argc, char *argv[])
                         {
                             renderer_combined_scene_failure_signature =
                                 failure_signature;
+                            renderer_combined_scene_failure_occurrences = 1U;
+                            renderer_combined_scene_failure_next_report = 1U;
+                        }
+                        // Report the first occurrence, then back off
+                        // geometrically to a 600-frame (~10s) ceiling, always
+                        // carrying the recurrence count. Logging every
+                        // occurrence floods at frame rate; logging once ever
+                        // -- the historic behaviour -- goes silent precisely
+                        // when the failure is persistent enough to matter,
+                        // and makes a recurring rejection indistinguishable
+                        // from a log that simply stopped.
+                        const bool report_this_occurrence =
+                            renderer_combined_scene_failure_occurrences >=
+                            renderer_combined_scene_failure_next_report;
+                        if (report_this_occurrence)
+                        {
                             LOG(fmt::format(
                                 "[RoR|RendererCombined|Scene] Snapshot not "
-                                "presented: status='{}', frontend={}, "
-                                "field='{}', detail='{}', backend='{}'",
+                                "presented (x{}, {} frames dropped this "
+                                "session): status='{}', terminal={}, "
+                                "frontend={}, field='{}', detail='{}', "
+                                "backend='{}'",
+                                renderer_combined_scene_failure_occurrences,
+                                renderer_combined_scene_frames_dropped_total,
                                 ToString(scene_result.status),
+                                scene_result.terminal ? 1 : 0,
                                 static_cast<unsigned int>(
                                     scene_result.frontend_code),
                                 scene_result.validation.field,
                                 scene_result.validation.detail,
                                 scene_result.frontend_detail.c_str()));
+                            renderer_combined_scene_failure_next_report =
+                                renderer_combined_scene_failure_occurrences >=
+                                        600U
+                                    ? renderer_combined_scene_failure_occurrences +
+                                          600U
+                                    : renderer_combined_scene_failure_occurrences *
+                                          4U;
                         }
+                        // A terminal rejection used to end the process
+                        // outright, whatever caused it -- one rejected
+                        // snapshot killed a live session. Ask the session to
+                        // resume publication instead. It grants that only for
+                        // causes that committed nothing AND only while its
+                        // dispatcher is not itself latched, so a device-class
+                        // failure still falls through to the fatal path
+                        // below; see
+                        // IsRecoverableRendererInProcessSessionTerminalCause.
+                        bool renderer_publication_lost = false;
                         if (scene_result.terminal)
                         {
+                            const RendererInProcessSessionResult resumed =
+                                renderer_combined_session->
+                                    RecoverPublication();
+                            renderer_publication_lost = !resumed;
+                            LOG(fmt::format(
+                                "[RoR|RendererCombined|Scene] Terminal "
+                                "snapshot failure: cause='{}', "
+                                "publication={} (x{})",
+                                ToString(scene_result.terminal_cause),
+                                renderer_publication_lost
+                                    ? "unrecoverable, ending session"
+                                    : "resumed, frame dropped",
+                                renderer_combined_scene_failure_occurrences));
+                        }
+                        if (renderer_publication_lost)
+                        {
+                            try
+                            {
+                                App::GetConsole()->putMessage(
+                                    Console::CONSOLE_MSGTYPE_INFO,
+                                    Console::CONSOLE_SYSTEM_ERROR,
+                                    fmt::format(
+                                        _L("Renderer stopped: {} ({}). The "
+                                           "session cannot continue."),
+                                        ToString(
+                                            scene_result.terminal_cause),
+                                        scene_result.validation.field));
+                            }
+                            catch (...)
+                            {
+                            }
                             App::GetGameContext()->PushMessage(
                                 Message(MSG_APP_SHUTDOWN_REQUESTED));
                             const RendererInProcessSessionResult
@@ -4170,10 +4267,83 @@ int main(int argc, char *argv[])
                                 FailStopApplication(EXIT_FAILURE);
                             }
                         }
+                        else
+                        {
+                            // A degraded renderer the user cannot see is its
+                            // own trap: the picture silently stops advancing
+                            // while the simulation runs on. Announce entering
+                            // the degrade, then re-announce on the same
+                            // bounded schedule as the log so a persistent one
+                            // stays visible instead of scrolling away.
+                            const bool announce_degrade =
+                                !renderer_combined_scene_publication_degraded ||
+                                (report_this_occurrence &&
+                                 renderer_combined_scene_failure_occurrences >
+                                     1U);
+                            renderer_combined_scene_publication_degraded = true;
+                            if (announce_degrade)
+                            {
+                                renderer_combined_scene_degrade_notified = true;
+                                try
+                                {
+                                    App::GetConsole()->putMessage(
+                                        Console::CONSOLE_MSGTYPE_INFO,
+                                        Console::CONSOLE_SYSTEM_WARNING,
+                                        fmt::format(
+                                            _L("Renderer degraded: showing "
+                                               "the last good frame ({} "
+                                               "rejected, '{}'). Retrying."),
+                                            renderer_combined_scene_failure_occurrences,
+                                            scene_result.validation.field));
+                                }
+                                catch (...)
+                                {
+                                }
+                            }
+                        }
                     }
                     else
                     {
                         renderer_combined_scene_failure_signature.clear();
+                        // Publication is live again. Closing the degrade out
+                        // loud matters as much as opening it: otherwise the
+                        // log shows a renderer that failed and never shows it
+                        // coming back, and the user is left assuming the
+                        // stale picture they were warned about is permanent.
+                        if (renderer_combined_scene_publication_degraded)
+                        {
+                            renderer_combined_scene_publication_degraded =
+                                false;
+                            ++renderer_combined_scene_publication_recoveries;
+                            LOG(fmt::format(
+                                "[RoR|RendererCombined|Scene] Publication "
+                                "resumed after {} rejected frame(s): "
+                                "status='{}' (recovery #{}, {} frames dropped "
+                                "this session)",
+                                renderer_combined_scene_failure_occurrences,
+                                ToString(scene_result.status),
+                                renderer_combined_scene_publication_recoveries,
+                                renderer_combined_scene_frames_dropped_total));
+                            if (renderer_combined_scene_degrade_notified)
+                            {
+                                try
+                                {
+                                    App::GetConsole()->putMessage(
+                                        Console::CONSOLE_MSGTYPE_INFO,
+                                        Console::CONSOLE_SYSTEM_REPLY,
+                                        fmt::format(
+                                            _L("Renderer recovered after {} "
+                                               "dropped frame(s)."),
+                                            renderer_combined_scene_failure_occurrences));
+                                }
+                                catch (...)
+                                {
+                                }
+                            }
+                            renderer_combined_scene_degrade_notified = false;
+                        }
+                        renderer_combined_scene_failure_occurrences = 0U;
+                        renderer_combined_scene_failure_next_report = 1U;
                         // Retained-section reuse is invisible in the frame
                         // timings alone: identical costs can come from a fast
                         // path or from silent re-adoption churn. These

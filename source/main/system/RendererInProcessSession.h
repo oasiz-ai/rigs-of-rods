@@ -240,6 +240,36 @@ public:
   /// generation without reinitializing the frontend or resetting global IDs.
   [[nodiscard]] RendererInProcessSessionResult
   ResetSceneGeneration() noexcept;
+  /// Clears a latched terminal state so publication can resume, for the narrow
+  /// class of causes that demonstrably committed nothing.
+  ///
+  /// The governing invariant of this boundary is that a per-frame validation
+  /// may reject a frame or an object, but may not end a session and may not
+  /// permanently stop publication. `terminal` enforces the first half and
+  /// violates the second: `active()` is false forever afterwards, so the host
+  /// stops calling PostUpdatedScene and the presenter keeps showing its last
+  /// frame for the rest of the process. This is the release valve for exactly
+  /// the causes where that is the wrong answer.
+  ///
+  /// Recovery is granted only when ALL of the following hold, so it can never
+  /// paper over a half-committed frame:
+  ///   * `terminal_cause` is in the recoverable set (see
+  ///     `IsRecoverableRendererInProcessSessionTerminalCause`) -- pre-commit
+  ///     content failures only, never device, allocation, pump, or internal
+  ///     state;
+  ///   * the dispatcher is NOT itself latched. The dispatcher poisons only
+  ///     where the frontend may already have committed native work, so its
+  ///     latch is the independent, self-verifying proof that recovery is
+  ///     unsafe. A session whose dispatcher is dead can never publish again
+  ///     regardless of what this flag says.
+  /// Any retained production is dropped, because resubmitting the exact
+  /// snapshot that was just rejected would reject identically every frame and
+  /// stop publication permanently -- the failure mode the invariant forbids.
+  ///
+  /// Returns READY when publication was resumed, REJECTED_NOT_READY when the
+  /// cause is unrecoverable or the session is closed. It never invents a
+  /// frame: the caller must obtain a fresh grant and capture again.
+  [[nodiscard]] RendererInProcessSessionResult RecoverPublication() noexcept;
   /// Drains any retained typed production, releases frontend window borrows,
   /// then shuts down the event pump. TIMEOUT leaves the session retryable.
   [[nodiscard]] RendererInProcessSessionResult Shutdown() noexcept;
@@ -258,6 +288,29 @@ private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
+
+/// True for the terminal causes that are recoverable in principle: the failure
+/// was observed while converting or validating content, strictly before the
+/// frontend committed anything, so dropping the frame and capturing again is a
+/// complete remedy.
+///
+/// Everything else is deliberately excluded, because continuing would be
+/// meaningless or dishonest rather than merely degraded:
+///   * FAILED_FRONTEND_INITIALIZATION -- there is no frontend to present with.
+///   * FAILED_SURFACE_UPDATE -- the native drawable could not be described.
+///     This is where device loss lands: the session cannot know what it would
+///     be rendering to, so every later frame would be a guess.
+///   * FAILED_EVENT_PUMP -- window and input events are dead. Continuing
+///     leaves an unresponsive window the user cannot even close, which is
+///     worse for them than exiting.
+///   * FAILED_ALLOCATION -- out of memory; the next capture allocates too.
+///   * FAILED_UI_OVERLAY_PRESENTATION / FAILED_FRONTEND_SHUTDOWN /
+///     FAILED_INTERNAL -- native state is already unknown by definition.
+/// FAILED_DISPATCH is admitted here only in principle; `RecoverPublication`
+/// additionally requires the dispatcher's own latch to be clear, which is what
+/// actually proves nothing was committed.
+[[nodiscard]] bool IsRecoverableRendererInProcessSessionTerminalCause(
+    RendererInProcessSessionStatus status) noexcept;
 
 [[nodiscard]] bool IsKnownRendererInProcessSessionStatus(
     RendererInProcessSessionStatus status) noexcept;

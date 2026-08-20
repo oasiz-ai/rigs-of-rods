@@ -12,6 +12,9 @@
 #include "render/RendererFrontendPresentationPolicy.h"
 
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -37,6 +40,43 @@ Render::ValidationResult InvalidObservationVersion() {
   Render::ValidationResult result;
   result.code = Render::ValidationCode::UNSUPPORTED_VERSION;
   return result;
+}
+
+enum class InjectedFaultKind : std::uint8_t { NONE = 0, RECOVERABLE, FATAL };
+
+/// Deliberately gated fault injection for the degrade-and-recover policy; see
+/// PostUpdatedScene. Returns NONE unless ROR_RENDERER_FAULT_INJECT_PATH is set
+/// in the environment AND the file it names currently exists, so a live
+/// session can have the fault raised and cleared under it. `<path>` raises a
+/// recoverable terminal rejection that publication must survive and resume
+/// from; `<path>.fatal` raises a device-class one that must still end the
+/// session. The environment variable is read once; only the cheap existence
+/// check repeats per frame, and only for a session that opted in.
+InjectedFaultKind InjectedFault() noexcept {
+  static const char *const trigger_path =
+      std::getenv("ROR_RENDERER_FAULT_INJECT_PATH");
+  if (trigger_path == nullptr || trigger_path[0] == '\0') {
+    return InjectedFaultKind::NONE;
+  }
+  const auto file_exists = [](const std::string &path) noexcept {
+    std::FILE *const handle = std::fopen(path.c_str(), "rb");
+    if (handle == nullptr) {
+      return false;
+    }
+    (void)std::fclose(handle);
+    return true;
+  };
+  try {
+    const std::string base(trigger_path);
+    if (file_exists(base + ".fatal")) {
+      return InjectedFaultKind::FATAL;
+    }
+    if (file_exists(base)) {
+      return InjectedFaultKind::RECOVERABLE;
+    }
+  } catch (...) {
+  }
+  return InjectedFaultKind::NONE;
 }
 
 void PreserveValidationFailure(
@@ -158,6 +198,37 @@ public:
     PreserveValidationFailure(validation, result.validation);
     result.frontend_code = frontend_code;
     return result;
+  }
+
+  /// See RendererInProcessSession::RecoverPublication. The dispatcher latch is
+  /// consulted as independent evidence: this session poisons on causes it
+  /// observed itself, but a poisoned dispatcher means the frontend may already
+  /// hold committed native work, and no amount of host policy makes that
+  /// publishable again.
+  RendererInProcessSessionResult RecoverPublication() noexcept {
+    if (!started || closed || dispatcher == nullptr) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY,
+                     Render::ValidationResult::Success(),
+                     Render::RenderOperationCode::NOT_INITIALIZED);
+    }
+    if (!terminal) {
+      // Already publishing; nothing to release.
+      return Result(RendererInProcessSessionStatus::READY, true, false, 0U);
+    }
+    if (dispatcher->terminal() ||
+        !IsRecoverableRendererInProcessSessionTerminalCause(terminal_cause)) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY,
+                     Render::ValidationResult::Success(),
+                     Render::RenderOperationCode::INVALID_ARGUMENT);
+    }
+    // Drop the retained production before clearing the latch. Keeping it would
+    // resubmit the exact snapshot that was just rejected on the next pump, and
+    // it would be rejected identically forever.
+    pending.reset();
+    simulation_granted = false;
+    terminal = false;
+    terminal_cause = RendererInProcessSessionStatus::FAILED_INTERNAL;
+    return Result(RendererInProcessSessionStatus::READY, true, false, 0U);
   }
 
   RendererInProcessSessionResult Failure(
@@ -879,6 +950,34 @@ public:
     }
     simulation_granted = false;
     std::uint32_t event_polls = 0U;
+    // Synthetic terminal rejection, for verifying the degrade-and-recover
+    // policy on a live session. Inert unless ROR_RENDERER_FAULT_INJECT_PATH is
+    // set in the environment, and then only while the named trigger file
+    // exists, so the fault can be raised and cleared under a running game
+    // without a restart -- which is the only way to observe that publication
+    // actually RESUMES rather than merely failing to exit. It poisons through
+    // the ordinary Poison() path so the real latch engages and the real
+    // recovery path runs; nothing about the failure is simulated downstream.
+    switch (InjectedFault()) {
+    case InjectedFaultKind::NONE:
+      break;
+    case InjectedFaultKind::RECOVERABLE:
+      return Poison(RendererInProcessSessionStatus::CAPTURE_REJECTED,
+                    Render::ValidationResult::Failure(
+                        Render::ValidationCode::OUT_OF_RANGE,
+                        "injected.fault.recoverable",
+                        "synthetic terminal capture rejection"),
+                    Render::RenderOperationCode::INVALID_ARGUMENT,
+                    event_polls);
+    case InjectedFaultKind::FATAL:
+      return Poison(RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE,
+                    Render::ValidationResult::Failure(
+                        Render::ValidationCode::OUT_OF_RANGE,
+                        "injected.fault.device",
+                        "synthetic device-class surface failure"),
+                    Render::RenderOperationCode::BACKEND_FAILURE,
+                    event_polls);
+    }
     if (shutdown_requested) {
       return Result(RendererInProcessSessionStatus::SHUTDOWN_REQUESTED, true,
                     false, event_polls);
@@ -1264,6 +1363,11 @@ RendererInProcessSession::ResetSceneGeneration() noexcept {
   return impl_->ResetSceneGeneration();
 }
 
+RendererInProcessSessionResult
+RendererInProcessSession::RecoverPublication() noexcept {
+  return impl_->RecoverPublication();
+}
+
 RendererInProcessSessionResult RendererInProcessSession::Shutdown() noexcept {
   return impl_->Shutdown();
 }
@@ -1317,6 +1421,48 @@ Render::FrontendSurfaceUpdate
 RendererInProcessSession::current_surface() const noexcept {
   return impl_ != nullptr ? impl_->current_surface
                           : Render::FrontendSurfaceUpdate{};
+}
+
+bool IsRecoverableRendererInProcessSessionTerminalCause(
+    RendererInProcessSessionStatus status) noexcept {
+  switch (status) {
+  // Content rejected before the frontend was asked to commit anything. The
+  // next capture is a complete remedy.
+  case RendererInProcessSessionStatus::CAPTURE_REJECTED:
+  case RendererInProcessSessionStatus::FAILED_PRODUCER:
+  // Admitted only in principle; RecoverPublication additionally requires the
+  // dispatcher's own latch to be clear, which is the real proof.
+  case RendererInProcessSessionStatus::FAILED_DISPATCH:
+    return true;
+  // Device, memory, window, and unknown-state causes. Continuing would present
+  // to something the session cannot describe, or from state it cannot trust.
+  case RendererInProcessSessionStatus::FAILED_FRONTEND_INITIALIZATION:
+  case RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE:
+  case RendererInProcessSessionStatus::FAILED_EVENT_PUMP:
+  case RendererInProcessSessionStatus::FAILED_ALLOCATION:
+  case RendererInProcessSessionStatus::FAILED_UI_OVERLAY_PRESENTATION:
+  case RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION:
+  case RendererInProcessSessionStatus::FAILED_FRONTEND_SHUTDOWN:
+  case RendererInProcessSessionStatus::FAILED_INTERNAL:
+  // Not terminal causes at all; never a recovery question.
+  case RendererInProcessSessionStatus::READY:
+  case RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED:
+  case RendererInProcessSessionStatus::UI_OVERLAY_PRESENTED:
+  case RendererInProcessSessionStatus::EVENTS_PUMPED:
+  case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
+  case RendererInProcessSessionStatus::WAITING_FOR_SURFACE:
+  case RendererInProcessSessionStatus::FRAME_COMPLETED:
+  case RendererInProcessSessionStatus::FRAME_RETIRED:
+  case RendererInProcessSessionStatus::PENDING_BACKPRESSURE:
+  case RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE:
+  case RendererInProcessSessionStatus::SCENE_GENERATION_RESET:
+  case RendererInProcessSessionStatus::SHUTDOWN_REQUESTED:
+  case RendererInProcessSessionStatus::CLOSED:
+  case RendererInProcessSessionStatus::REJECTED_CONFIGURATION:
+  case RendererInProcessSessionStatus::REJECTED_NOT_READY:
+    return false;
+  }
+  return false;
 }
 
 bool IsKnownRendererInProcessSessionStatus(
