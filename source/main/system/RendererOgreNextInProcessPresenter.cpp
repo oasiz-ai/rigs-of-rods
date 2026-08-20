@@ -418,6 +418,13 @@ public:
   }
 
   RenderOperationResult
+  PresentUiOverlayFrame(const UiOverlayFrameRequest &request) override {
+    // No registry_ bookkeeping: a GUI-only present consumes no portable asset,
+    // snapshot, or frame identity, so this wrapper has nothing to mirror.
+    return frontend_->PresentUiOverlayFrame(request);
+  }
+
+  RenderOperationResult
   UpdateSurface(const FrontendSurfaceUpdate &update, bool headless,
                 std::uint64_t timeout_nanoseconds) override {
     return frontend_->UpdateSurface(update, headless, timeout_nanoseconds);
