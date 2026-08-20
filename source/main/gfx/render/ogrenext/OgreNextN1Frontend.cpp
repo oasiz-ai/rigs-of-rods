@@ -5159,8 +5159,10 @@ public:
 
   /// Per-frame HUD commit: binds the validated display-domain HUD texture to
   /// the panel only when its reference (id + revision) changed and toggles
-  /// overlay visibility. Fail-closed: an enabled HUD whose native state is
-  /// absent, mis-shaped, or extent-mismatched rejects the frame.
+  /// overlay visibility. Fail-closed on absent or mis-shaped native state.
+  /// An extent mismatch is deliberately NOT fatal: it is the ordinary
+  /// transient of a rate-capped HUD readback against a per-frame camera
+  /// extent, and it degrades to a hidden overlay -- see the counted branch.
   [[nodiscard]] RenderOperationResult CommitHudOverlay(
       const SceneSnapshot &snapshot, const CameraViewRequest &view) {
     if (HudOverlayControlSelected()) {
@@ -5210,9 +5212,20 @@ public:
     }
     if (texture->second.sampled->getWidth() != view.width ||
         texture->second.sampled->getHeight() != view.height) {
-      return RenderOperationResult::Failure(
-          RenderOperationCode::UNSUPPORTED,
-          "HUD overlay texture extent must equal the presented view extent");
+      // F4. This is not a corrupt frame, it is a stale HUD readback. The HUD
+      // capture is rate-capped at 30 Hz while the camera extent re-normalizes
+      // every frame, so for ~33 ms after ANY window resize the old-extent HUD
+      // arrives with a new-extent camera. Failing here ended the session:
+      // resizing the window killed the game.
+      //
+      // The correct response is the no-op this function already implements
+      // for a disabled HUD a few lines above -- hide the overlay and present
+      // the frame. Stretching the stale texture over the new extent would be
+      // the wrong picture; one HUD-less frame is not. The next capture at the
+      // new extent rebinds and shows it again.
+      ++degrade_audit.hud_extent_mismatch_frames;
+      hud_overlay->hide();
+      return RenderOperationResult::Success();
     }
     if (hud_overlay_bound_texture !=
         portable_material->base_color_texture.texture) {
@@ -11503,6 +11516,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     std::vector<const MeshInstanceDescriptor *> incoming_instances;
     std::vector<const MeshInstanceDescriptor *> deforming_instances;
     std::vector<const MeshInstanceDescriptor *> changed_instances;
+    std::size_t skipped_non_drawable_instances = 0U;
     {
       auto retained = impl_->retained_instances.begin();
       for (const MeshInstanceDescriptor &instance :
@@ -11511,6 +11525,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
                retained->first < instance.instance_id) {
           stale_instances.push_back(retained->first);
           ++retained;
+        }
+        // F7. The pinned PBS vertex path multiplies authored normals AND
+        // tangents by worldViewMat with no inverse-transpose equivalent, so a
+        // non-uniformly scaled instance cannot carry a correct tangent frame.
+        // Refusing to draw it is right; refusing to draw anything ever again
+        // is not. Drop the object, keep the frame, count the drop. The
+        // producer filters these out upstream; this is the backstop for an
+        // instance that reaches the presenter anyway.
+        //
+        // Scoped to the RT4/V1 tier exactly as the retired scene-level policy
+        // check was: no other tier ever refused a non-uniform scale, and this
+        // must not start dropping instances those tiers render correctly.
+        if (impl_->raster_feature_tier ==
+                OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+            !HasEffectivelyUniformLinearScale(instance.render_from_object)) {
+          ++impl_->degrade_audit.non_uniform_scale_instance_rejections;
+          ++skipped_non_drawable_instances;
+          // Retire it if an earlier frame retained it, so it leaves the
+          // picture rather than freezing at its last drawable transform.
+          if (retained != impl_->retained_instances.end() &&
+              retained->first == instance.instance_id) {
+            stale_instances.push_back(retained->first);
+            ++retained;
+          }
+          continue;
         }
         if (retained == impl_->retained_instances.end() ||
             retained->first > instance.instance_id) {
@@ -11619,7 +11658,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->AddRetainedContribution(record->second);
     }
     impl_->retained_scene_shadow_enabled = shadow_plan.enabled;
-    if (impl_->retained_instances.size() !=
+    // Instances skipped for a non-drawable transform are deliberately absent
+    // from the retained scene, so they are subtracted from the expected total
+    // rather than allowed to trip this invariant.
+    if (impl_->retained_instances.size() +
+            skipped_non_drawable_instances !=
         snapshot.mesh_instances().size()) {
       throw std::logic_error(
           "retained native scene diverged from the admitted snapshot after its diff");
@@ -12154,7 +12197,35 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       visible_particle_count += system->particles.size();
     }
-    if (particle_texture != nullptr && visible_particle_count != 0U) {
+    // F6. Billboard quads are built directly from the camera basis, so a basis
+    // that is not rigid-orthonormal within the calibrated inverse-affine
+    // rounding bound cannot produce correct particles. The tolerance here is
+    // already the calibrated one; only the response was wrong. Failing the
+    // frame ended the session -- during heavy driving, which is exactly when
+    // dust is on screen.
+    //
+    // The comment this replaces claimed particles "have no defined no-op state
+    // the way haze does". They do, and it is the state every frame with no
+    // visible system already takes: emit no batch. particle_batches stays
+    // empty, particle_native_particles_submitted stays where it was, one frame
+    // ships without dust, and the degrade is counted rather than silent.
+    const Ogre::Matrix4 particle_render_from_view =
+        native_view.inverseAffine();
+    const Ogre::Vector3 particle_camera_right(particle_render_from_view[0U][0U],
+                                              particle_render_from_view[1U][0U],
+                                              particle_render_from_view[2U][0U]);
+    const Ogre::Vector3 particle_camera_up(particle_render_from_view[0U][1U],
+                                           particle_render_from_view[1U][1U],
+                                           particle_render_from_view[2U][1U]);
+    const bool particle_camera_basis_rigid = IsRigidOrthonormalCameraBasis(
+        particle_camera_right, particle_camera_up,
+        particle_camera_right.crossProduct(particle_camera_up));
+    if (particle_texture != nullptr && visible_particle_count != 0U &&
+        !particle_camera_basis_rigid) {
+      ++impl_->degrade_audit.particle_basis_rejections;
+    }
+    if (particle_texture != nullptr && visible_particle_count != 0U &&
+        particle_camera_basis_rigid) {
       if (impl_->particle_native_batch_creates ==
               (std::numeric_limits<std::uint64_t>::max)() ||
           impl_->particle_native_batch_destroys ==
@@ -12248,23 +12319,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       ++particle_native_state_verifications;
 
-      const Ogre::Matrix4 render_from_view = native_view.inverseAffine();
-      const Ogre::Vector3 camera_right(render_from_view[0U][0U],
-                                       render_from_view[1U][0U],
-                                       render_from_view[2U][0U]);
-      const Ogre::Vector3 camera_up(render_from_view[0U][1U],
-                                    render_from_view[1U][1U],
-                                    render_from_view[2U][1U]);
-      // Same inverse-affine rounding as the haze basis: admit float32 noise,
-      // reject a genuinely broken basis. Particle billboards have no defined
-      // no-op state the way haze does, so this one still fails the frame.
-      if (!IsRigidOrthonormalCameraBasis(
-              camera_right, camera_up,
-              camera_right.crossProduct(camera_up))) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
-            RenderOperationCode::UNSUPPORTED,
-            "N1 particle camera basis is not rigid and orthonormal"));
-      }
+      // Verified rigid-orthonormal above; this block is not entered otherwise.
+      const Ogre::Vector3 &camera_right = particle_camera_right;
+      const Ogre::Vector3 &camera_up = particle_camera_up;
 
       // Establish the rollback record before allocating any native object.
       // If vector growth fails there is nothing native to release; every later

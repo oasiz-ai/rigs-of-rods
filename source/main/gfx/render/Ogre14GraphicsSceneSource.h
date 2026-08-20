@@ -685,6 +685,18 @@ public:
   }
   [[nodiscard]] ValidationResult RegisterDerivedTerrainPageIdentity(
       std::string_view exact_key, std::uint64_t stable_id);
+
+  /// Static sections filtered out of the capture because their transform
+  /// carries a non-uniform scale the pinned PBS tangent path cannot represent.
+  /// Refusing to draw such a section is correct; refusing to draw the whole
+  /// terrain is not, so the section is dropped and counted rather than failing
+  /// the inventory. Deliberately monotonic for the process lifetime -- a
+  /// degrade counter that a generation reset zeroes hides the degrade.
+  [[nodiscard]] std::uint64_t
+  non_uniform_scale_sections_filtered() const noexcept {
+    return non_uniform_scale_sections_filtered_;
+  }
+
   void Reset() noexcept {
     asset_names_by_id_.clear();
     asset_ids_by_name_.clear();
@@ -724,6 +736,7 @@ private:
       terrain_page_ids_by_name_;
   std::set<std::string, std::less<>> known_terrain_page_keys_;
   std::set<std::string, std::less<>> live_terrain_page_keys_;
+  std::uint64_t non_uniform_scale_sections_filtered_ = 0U;
 };
 
 enum class Ogre14GraphicsSceneStaticInventoryFaultPoint : std::uint8_t {

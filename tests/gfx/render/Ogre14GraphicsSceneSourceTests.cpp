@@ -1280,6 +1280,43 @@ void TestStaticInventorySplitsDeduplicatesAndReusesOwners() {
   }
 }
 
+/// F7. TerrainObjectManager applies `odef->header.scale` verbatim, so a
+/// stretched .odef reaches this builder unfiltered. The pinned PBS tangent
+/// path cannot draw it, but that is a reason to drop one section, not the
+/// whole terrain: the inventory must keep every other section, publish the
+/// drop through a named counter, and never fail.
+void TestStaticInventoryFiltersNonUniformScaleWithoutFailing() {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneStaticIdentityRegistry registry;
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> sections{
+      MakeStaticSection(21U, 0U, "PlainBuilding"),
+      MakeStaticSection(22U, 0U, "StretchedBuilding")};
+  sections[1U].render_from_object.elements[0U] = 2.0F;
+
+  std::vector<GraphicsSceneAssetInput> assets;
+  std::vector<GraphicsSceneStaticMeshInput> instances;
+  const ValidationResult result = BuildOgre14GraphicsSceneStaticInventory(
+      sections, registry, assets, instances);
+  Require(result.ok(),
+          "one non-uniformly scaled section failed the whole inventory");
+  Require(instances.size() == 1U &&
+              registry.non_uniform_scale_sections_filtered() == 1U,
+          "the stretched section was drawn, or its drop was not counted");
+  Require(registry.object_identity_count() == 1U,
+          "a filtered section still claimed a static object identity");
+
+  // The counter is monotonic across captures, and an all-uniform capture
+  // neither adds to it nor resets it.
+  std::vector<Ogre14GraphicsSceneStaticSectionCaptureInput> clean_sections{
+      MakeStaticSection(21U, 0U, "PlainBuilding")};
+  Require(BuildOgre14GraphicsSceneStaticInventory(clean_sections, registry,
+                                                  assets, instances)
+              .ok(),
+          "the capture after a filtered section was rejected");
+  Require(registry.non_uniform_scale_sections_filtered() == 1U,
+          "the non-uniform scale degrade counter is not monotonic");
+}
+
 void TestStaticInventoryFailureAndLifecycleAreAtomic() {
   using namespace RoR::Render;
   Ogre14GraphicsSceneStaticIdentityRegistry registry;
@@ -2402,6 +2439,7 @@ int main() {
   TestStaticMaterialFallbackIsExplicitAndTransactional();
   TestUnsupportedStaticGeometryFailsClosedInStableOrder();
   TestStaticInventorySplitsDeduplicatesAndReusesOwners();
+  TestStaticInventoryFiltersNonUniformScaleWithoutFailing();
   TestStaticInventoryFailureAndLifecycleAreAtomic();
   TestConvertedStaticInventoryFeedsProducer();
   TestTerrainIdentityAndExactStateKeyAreStable();
