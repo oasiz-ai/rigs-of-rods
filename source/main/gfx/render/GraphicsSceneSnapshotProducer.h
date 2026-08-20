@@ -339,8 +339,11 @@ struct GraphicsSceneAssetRecoveryResult {
 /// owners and exact asset-revision pairs also bypass repeated payload scans.
 /// Produce() is fail-closed and transactional: allocation, validation, asset
 /// application, snapshot creation, and camera validation all complete before
-/// any producer state advances. One graphics thread owns an instance; callers
-/// serialize Produce(), recovery, and destruction.
+/// any producer state advances. A rejected frame may still withdraw the
+/// retained static section's reuse cache, which is a memoization rather than
+/// state: dropping it changes only that the next frame revalidates in full,
+/// never what any frame publishes. One graphics thread owns an instance;
+/// callers serialize Produce(), recovery, and destruction.
 class GraphicsSceneSnapshotProducer final {
 public:
   explicit GraphicsSceneSnapshotProducer(
