@@ -2149,7 +2149,7 @@ void TestRetainedAssetSubtractionKeepsTheDomainUnionDisjoint() {
   assets = {binding_conflict, dynamic_only};
   result = SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
   Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
-              result.field == "assets.merge.source_asset_id" &&
+              result.field == "assets.retained.source_asset_id" &&
               assets.size() == 2U &&
               assets.front().source_asset_id == 20U,
           "a conflicting redefinition was collapsed or mutated the input");

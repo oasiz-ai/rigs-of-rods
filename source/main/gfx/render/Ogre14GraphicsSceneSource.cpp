@@ -2162,10 +2162,14 @@ ValidationResult SubtractRetainedOgre14GraphicsSceneAssets(
         found->material_bindings == asset.material_bindings;
     if (!same_owner_and_bindings &&
         !EquivalentGraphicsSceneAssetInput(*found, asset)) {
+      // Deliberately its own field rather than the merge's: a live failure
+      // here means the retained section and this frame describe one identity
+      // differently, which is a different thing to look at than two domains
+      // disagreeing inside one frame.
       return ValidationResult::Failure(
-          ValidationCode::REVISION_MISMATCH, "assets.merge.source_asset_id",
-          "one source identity has conflicting payload bytes or material "
-          "bindings across scene domains",
+          ValidationCode::REVISION_MISMATCH, "assets.retained.source_asset_id",
+          "the retained section and this frame describe one source identity "
+          "with conflicting payload bytes or material bindings",
           index);
     }
   }
