@@ -752,6 +752,97 @@ public:
     return Result(RendererInProcessSessionStatus::SIMULATION_SKIPPED, true);
   }
 
+  RendererInProcessSessionResult PresentUiOverlayFrame(
+      const Render::UiOverlayFrameRequest &request) noexcept {
+    if (!started || closed || terminal || producer == nullptr ||
+        dispatcher == nullptr || !config.present_frames ||
+        config.frontend.headless) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY);
+    }
+    // This REPLACES the grant-consuming skip for a GUI-only application state:
+    // the caller obtained a grant, produced no world, and presents its GUI
+    // instead. Requiring the grant keeps the one-shot pump/consume contract
+    // exactly as it is for PostUpdatedScene and SkipUpdatedScene.
+    if (!simulation_granted || pending.has_value() ||
+        scene_generation_reset_pending) {
+      return Failure(RendererInProcessSessionStatus::REJECTED_NOT_READY,
+                     Render::ValidationResult::Success(),
+                     Render::RenderOperationCode::INVALID_ARGUMENT);
+    }
+    simulation_granted = false;
+    const std::uint32_t event_polls = 0U;
+    if (shutdown_requested) {
+      return Result(RendererInProcessSessionStatus::SHUTDOWN_REQUESTED, true,
+                    false, event_polls);
+    }
+    // A show callback may have committed a newer native surface whose typed
+    // presenter notification is still in flight. Do not invoke the frontend
+    // against the session's older surface; the next pump adopts it.
+    if (awaiting_frontend_surface_update) {
+      return Failure(
+          RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+          Render::ValidationResult::Success(),
+          Render::RenderOperationCode::RESOURCE_STALE, event_polls);
+    }
+    if (current_surface.suspended) {
+      return Result(RendererInProcessSessionStatus::WAITING_FOR_SURFACE, true,
+                    false, event_polls);
+    }
+
+    const std::uint64_t asset_sequence_before = dispatcher->asset_sequence();
+    const std::uint64_t snapshot_before =
+        dispatcher->last_consumed_scene_snapshot_id();
+    const std::uint64_t frame_before = dispatcher->last_frontend_frame_id();
+    try {
+      const Render::RenderOperationResult presented =
+          frontend.PresentUiOverlayFrame(request);
+      if (!presented) {
+        if (presented.code == Render::RenderOperationCode::RESOURCE_STALE &&
+            presented.recovery ==
+                Render::RenderOperationRecovery::
+                    RETRY_AFTER_PRESENTATION_SURFACE_UPDATE) {
+          // Consumed no identity, so this is retryable rather than terminal:
+          // the caller adopts the newer surface on its next pump and presents
+          // the GUI again at the new extent.
+          awaiting_frontend_surface_update = true;
+          return Failure(
+              RendererInProcessSessionStatus::PENDING_FRONTEND_SURFACE,
+              Render::ValidationResult::Success(), presented.code,
+              event_polls);
+        }
+        return Poison(
+            RendererInProcessSessionStatus::FAILED_UI_OVERLAY_PRESENTATION,
+            Render::ValidationResult::Success(), presented.code, event_polls);
+      }
+      if (dispatcher->asset_sequence() != asset_sequence_before ||
+          dispatcher->last_consumed_scene_snapshot_id() != snapshot_before ||
+          dispatcher->last_frontend_frame_id() != frame_before) {
+        return Poison(
+            RendererInProcessSessionStatus::FAILED_UI_OVERLAY_PRESENTATION,
+            Render::ValidationResult::Failure(
+                Render::ValidationCode::NON_DETERMINISTIC_ORDER,
+                "in_process_session.ui_overlay_identity",
+                "GUI-only presentation advanced portable identities"),
+            Render::RenderOperationCode::BACKEND_FAILURE, event_polls);
+      }
+      return Result(RendererInProcessSessionStatus::UI_OVERLAY_PRESENTED, true,
+                    false, event_polls);
+    } catch (const std::bad_alloc &) {
+      return Poison(RendererInProcessSessionStatus::FAILED_ALLOCATION,
+                    Render::ValidationResult::Success(),
+                    Render::RenderOperationCode::OUT_OF_MEMORY, event_polls);
+    } catch (const std::length_error &) {
+      return Poison(RendererInProcessSessionStatus::FAILED_ALLOCATION,
+                    Render::ValidationResult::Success(),
+                    Render::RenderOperationCode::OUT_OF_MEMORY, event_polls);
+    } catch (...) {
+      return Poison(
+          RendererInProcessSessionStatus::FAILED_UI_OVERLAY_PRESENTATION,
+          Render::ValidationResult::Success(),
+          Render::RenderOperationCode::BACKEND_FAILURE, event_polls);
+    }
+  }
+
   RendererInProcessSessionResult PostUpdatedScene(
       Render::IJoinedGraphicsSceneSource &source) noexcept {
     if (!started || closed || terminal || producer == nullptr ||
@@ -1126,6 +1217,12 @@ RendererInProcessSession::PresentBootstrapFrame() noexcept {
 }
 
 RendererInProcessSessionResult
+RendererInProcessSession::PresentUiOverlayFrame(
+    const Render::UiOverlayFrameRequest &request) noexcept {
+  return impl_->PresentUiOverlayFrame(request);
+}
+
+RendererInProcessSessionResult
 RendererInProcessSession::PumpEventsBeforeSimulation() noexcept {
   return impl_->PumpEventsBeforeSimulation();
 }
@@ -1205,6 +1302,7 @@ bool IsKnownRendererInProcessSessionStatus(
   switch (status) {
   case RendererInProcessSessionStatus::READY:
   case RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED:
+  case RendererInProcessSessionStatus::UI_OVERLAY_PRESENTED:
   case RendererInProcessSessionStatus::EVENTS_PUMPED:
   case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
   case RendererInProcessSessionStatus::WAITING_FOR_SURFACE:
@@ -1220,6 +1318,7 @@ bool IsKnownRendererInProcessSessionStatus(
   case RendererInProcessSessionStatus::REJECTED_NOT_READY:
   case RendererInProcessSessionStatus::FAILED_FRONTEND_INITIALIZATION:
   case RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION:
+  case RendererInProcessSessionStatus::FAILED_UI_OVERLAY_PRESENTATION:
   case RendererInProcessSessionStatus::FAILED_EVENT_PUMP:
   case RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE:
   case RendererInProcessSessionStatus::FAILED_PRODUCER:
@@ -1237,6 +1336,8 @@ const char *ToString(RendererInProcessSessionStatus status) noexcept {
   case RendererInProcessSessionStatus::READY: return "ready";
   case RendererInProcessSessionStatus::BOOTSTRAP_PRESENTED:
     return "bootstrap_presented";
+  case RendererInProcessSessionStatus::UI_OVERLAY_PRESENTED:
+    return "ui_overlay_presented";
   case RendererInProcessSessionStatus::EVENTS_PUMPED:
     return "events_pumped";
   case RendererInProcessSessionStatus::SIMULATION_SKIPPED:
@@ -1266,6 +1367,8 @@ const char *ToString(RendererInProcessSessionStatus status) noexcept {
     return "failed_frontend_initialization";
   case RendererInProcessSessionStatus::FAILED_BOOTSTRAP_PRESENTATION:
     return "failed_bootstrap_presentation";
+  case RendererInProcessSessionStatus::FAILED_UI_OVERLAY_PRESENTATION:
+    return "failed_ui_overlay_presentation";
   case RendererInProcessSessionStatus::FAILED_EVENT_PUMP:
     return "failed_event_pump";
   case RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE:

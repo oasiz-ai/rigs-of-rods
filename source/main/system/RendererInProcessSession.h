@@ -93,6 +93,7 @@ struct RendererInProcessSessionConfig final {
 enum class RendererInProcessSessionStatus : std::uint8_t {
   READY = 0U,
   BOOTSTRAP_PRESENTED,
+  UI_OVERLAY_PRESENTED,
   EVENTS_PUMPED,
   SIMULATION_SKIPPED,
   WAITING_FOR_SURFACE,
@@ -108,6 +109,7 @@ enum class RendererInProcessSessionStatus : std::uint8_t {
   REJECTED_NOT_READY,
   FAILED_FRONTEND_INITIALIZATION,
   FAILED_BOOTSTRAP_PRESENTATION,
+  FAILED_UI_OVERLAY_PRESENTATION,
   FAILED_EVENT_PUMP,
   FAILED_SURFACE_UPDATE,
   FAILED_PRODUCER,
@@ -196,6 +198,18 @@ public:
   /// later call adopts that exact notification.
   [[nodiscard]] RendererInProcessSessionResult
   PresentBootstrapFrame() noexcept;
+  /// Presents one GUI-only frame for an application state that has no world
+  /// to capture (the main menu, a settings page, a loading screen). It
+  /// CONSUMES the current one-shot simulation grant, exactly like
+  /// SkipUpdatedScene(), and replaces that call for those states: the caller
+  /// pumped, advanced nothing, and shows its GUI instead of nothing at all.
+  /// No asset, snapshot, or frontend-frame identity advances, so it never
+  /// interleaves with the scene lineage and stays legal at any point in the
+  /// session, including between map generations. PENDING_FRONTEND_SURFACE is
+  /// retryable and consumed no identity; the next pump adopts the surface.
+  [[nodiscard]] RendererInProcessSessionResult
+  PresentUiOverlayFrame(
+      const Render::UiOverlayFrameRequest &request) noexcept;
   /// Pump and apply native input/surface state before the simulation advances.
   /// If an older immutable production is retained, it is drained first. A
   /// successful result with simulation_may_advance=true grants exactly one
