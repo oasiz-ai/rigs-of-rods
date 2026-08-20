@@ -46,6 +46,7 @@
 #include "HydraxWater.h"
 #include "GameContext.h"
 #include "GfxActor.h"
+#include "MeshObject.h"
 #include "GUIManager.h"
 #include "GUIUtils.h"
 #include "GUI_DirectionArrow.h"
@@ -80,6 +81,68 @@ namespace
 constexpr std::uint64_t kOgreNextDemoMaximumObservedParticleSystems = 4096U;
 constexpr std::uint64_t kOgreNextDemoMaximumParticlesPerSystem = 16384U;
 constexpr std::uint64_t kOgreNextDemoMaximumObservedParticles = 65536U;
+
+/// The exact actor-owned Entity families CaptureOgre14DynamicActorInventory()
+/// enumerates. The spawn-time coverage probe reads the same constants, so the
+/// audit it prints can never drift away from the capture it is auditing.
+constexpr bool kOgre14CaptureEnumeratesMeshWheelRims = false;
+constexpr bool kOgre14CaptureEnumeratesProps = false;
+
+/// Spawn-time coverage evidence for one actor. `attached` counts every named,
+/// attached OGRE Entity the actor owns - the geometry the hidden legacy scene
+/// actually draws - and `enumerated` counts the subset the joined dynamic
+/// capture walks. A nonzero `unenumerated` total is vehicle geometry the
+/// combined runtime never sees, whatever its material or texture state.
+struct Ogre14ActorCaptureCoverageProbe
+{
+    std::size_t cab_entities = 0U;
+    std::size_t cab_sections = 0U;
+    std::size_t flexbody_entities = 0U;
+    std::size_t flexbody_sections = 0U;
+    std::size_t flexbody_placeholders = 0U;
+    std::size_t flexmesh_wheel_entities = 0U;
+    std::size_t flexmesh_wheel_sections = 0U;
+    std::size_t meshwheel_tire_entities = 0U;
+    std::size_t meshwheel_tire_sections = 0U;
+    std::size_t meshwheel_rim_entities = 0U;
+    std::size_t meshwheel_rim_sections = 0U;
+    std::size_t prop_mesh_entities = 0U;
+    std::size_t prop_mesh_sections = 0U;
+    std::size_t prop_steering_wheel_entities = 0U;
+    std::size_t prop_steering_wheel_sections = 0U;
+    std::size_t prop_slots_removed_by_tuneup = 0U;
+    std::size_t prop_mirror_entities = 0U;
+    std::size_t prop_beacon_billboards = 0U;
+    std::size_t attached_entities = 0U;
+    std::size_t attached_sections = 0U;
+    std::size_t enumerated_entities = 0U;
+    std::size_t enumerated_sections = 0U;
+};
+
+/// Counts one candidate Entity into a category and into the actor totals.
+/// A detached, unnamed or meshless Entity is counted nowhere: the legacy
+/// scene does not draw it either, so it is not missing coverage.
+void AccumulateOgre14ProbeEntity(
+    Ogre::Entity* entity, bool enumerated_by_capture,
+    std::size_t& category_entities, std::size_t& category_sections,
+    Ogre14ActorCaptureCoverageProbe& probe)
+{
+    if (entity == nullptr || !entity->isAttached() ||
+        entity->getName().empty() || entity->getMesh().isNull())
+    {
+        return;
+    }
+    const std::size_t sections = entity->getNumSubEntities();
+    ++category_entities;
+    category_sections += sections;
+    ++probe.attached_entities;
+    probe.attached_sections += sections;
+    if (enumerated_by_capture)
+    {
+        ++probe.enumerated_entities;
+        probe.enumerated_sections += sections;
+    }
+}
 
 bool IsFiniteOgreRealBits(Ogre::Real value) noexcept
 {
@@ -2909,6 +2972,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     // and must pass a fresh exact authenticated observation before reuse.
     m_ogre_next_demo_material_source.Reset();
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
+    m_ogre14_actor_capture_coverage_log_snapshots.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
     m_ogre14_automatic_reflection_probe_state = {};
     // The retained GUI readback belongs to the closing generation; the next
@@ -3244,6 +3308,143 @@ DustPool* GfxScene::GetDustPool(const char* name)
     }
 }
 
+void GfxScene::ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor)
+{
+    // Diagnostics only. The probe reads exactly the owners the capture reads
+    // and changes none of them; it exists so the gap between "geometry the
+    // legacy scene draws" and "geometry the joined capture enumerates" is a
+    // number in the log rather than an inference from the section census.
+    if (!m_ogre_next_demo_capture_enabled || gfx_actor == nullptr ||
+        gfx_actor->GetActorId() < 0)
+    {
+        return;
+    }
+    Ogre14ActorCaptureCoverageProbe probe;
+    AccumulateOgre14ProbeEntity(
+        gfx_actor->m_cab_entity, true, probe.cab_entities,
+        probe.cab_sections, probe);
+    for (FlexBody* const flexbody : gfx_actor->m_flexbodies)
+    {
+        if (flexbody == nullptr)
+            continue;
+        if (flexbody->getPlaceholderType() !=
+            FlexBody::PlaceholderType::NOT_A_PLACEHOLDER)
+        {
+            ++probe.flexbody_placeholders;
+            continue;
+        }
+        AccumulateOgre14ProbeEntity(
+            flexbody->getEntity(), true, probe.flexbody_entities,
+            probe.flexbody_sections, probe);
+    }
+    for (const WheelGfx& wheel : gfx_actor->m_wheels)
+    {
+        if (wheel.wx_flex_mesh == nullptr)
+            continue;
+        if (dynamic_cast<FlexMesh*>(wheel.wx_flex_mesh) != nullptr)
+        {
+            Ogre::Entity* entity = nullptr;
+            if (wheel.wx_scenenode != nullptr &&
+                wheel.wx_scenenode->numAttachedObjects() == 1U)
+            {
+                entity = dynamic_cast<Ogre::Entity*>(
+                    wheel.wx_scenenode->getAttachedObject(0U));
+            }
+            AccumulateOgre14ProbeEntity(
+                entity, true, probe.flexmesh_wheel_entities,
+                probe.flexmesh_wheel_sections, probe);
+        }
+        else if (FlexMeshWheel* const meshwheel =
+                     dynamic_cast<FlexMeshWheel*>(wheel.wx_flex_mesh))
+        {
+            AccumulateOgre14ProbeEntity(
+                meshwheel->GetTireEntity(), true,
+                probe.meshwheel_tire_entities, probe.meshwheel_tire_sections,
+                probe);
+            AccumulateOgre14ProbeEntity(
+                meshwheel->GetRimEntity(),
+                kOgre14CaptureEnumeratesMeshWheelRims,
+                probe.meshwheel_rim_entities, probe.meshwheel_rim_sections,
+                probe);
+        }
+    }
+    std::set<const Ogre::SceneNode*> mirror_prop_nodes;
+    for (const VideoCamera& videocamera : gfx_actor->getVideoCameras())
+    {
+        if (videocamera.vcam_prop_scenenode != nullptr)
+            mirror_prop_nodes.insert(videocamera.vcam_prop_scenenode);
+    }
+    for (const Prop& prop : gfx_actor->getProps())
+    {
+        if (prop.pp_mesh_obj == nullptr)
+        {
+            // Documented NULL-when-removed slot (GfxData.h). The legacy scene
+            // draws nothing here either, so it is not missing coverage.
+            ++probe.prop_slots_removed_by_tuneup;
+            continue;
+        }
+        if (prop.pp_scene_node != nullptr &&
+            mirror_prop_nodes.find(prop.pp_scene_node) !=
+                mirror_prop_nodes.end())
+        {
+            ++probe.prop_mirror_entities;
+        }
+        AccumulateOgre14ProbeEntity(
+            prop.pp_mesh_obj->getEntity(), kOgre14CaptureEnumeratesProps,
+            probe.prop_mesh_entities, probe.prop_mesh_sections, probe);
+        if (prop.pp_wheel_mesh_obj != nullptr)
+        {
+            AccumulateOgre14ProbeEntity(
+                prop.pp_wheel_mesh_obj->getEntity(),
+                kOgre14CaptureEnumeratesProps,
+                probe.prop_steering_wheel_entities,
+                probe.prop_steering_wheel_sections, probe);
+        }
+        for (Ogre::BillboardSet* const beacon : prop.pp_beacon_bbs)
+        {
+            if (beacon != nullptr)
+                ++probe.prop_beacon_billboards;
+        }
+    }
+
+    const std::string snapshot = fmt::format(
+        "cab={}/{} flexbody={}/{} flexbody_placeholders={} "
+        "flexmesh_wheel={}/{} meshwheel_tire={}/{} meshwheel_rim={}/{} "
+        "prop_mesh={}/{} prop_steering_wheel={}/{} "
+        "prop_slots_removed_by_tuneup={} prop_mirror_entities={} "
+        "prop_beacon_billboards={} attached={}/{} enumerated={}/{} "
+        "unenumerated={}/{}",
+        probe.cab_entities, probe.cab_sections,
+        probe.flexbody_entities, probe.flexbody_sections,
+        probe.flexbody_placeholders,
+        probe.flexmesh_wheel_entities, probe.flexmesh_wheel_sections,
+        probe.meshwheel_tire_entities, probe.meshwheel_tire_sections,
+        probe.meshwheel_rim_entities, probe.meshwheel_rim_sections,
+        probe.prop_mesh_entities, probe.prop_mesh_sections,
+        probe.prop_steering_wheel_entities, probe.prop_steering_wheel_sections,
+        probe.prop_slots_removed_by_tuneup, probe.prop_mirror_entities,
+        probe.prop_beacon_billboards,
+        probe.attached_entities, probe.attached_sections,
+        probe.enumerated_entities, probe.enumerated_sections,
+        probe.attached_entities - probe.enumerated_entities,
+        probe.attached_sections - probe.enumerated_sections);
+    const std::int64_t actor_id = gfx_actor->GetActorId();
+    const auto previous =
+        m_ogre14_actor_capture_coverage_log_snapshots.find(actor_id);
+    if (previous != m_ogre14_actor_capture_coverage_log_snapshots.end() &&
+        previous->second == snapshot)
+    {
+        return; // Unhide of an unchanged actor: already on the record.
+    }
+    LOG(fmt::format(
+        "[RoR|OgreNextDemo|ActorCaptureCoverage] actor_instance_id={} "
+        "source='{}' {}",
+        actor_id, gfx_actor->GetActor() ? gfx_actor->GetActor()->ar_filename
+                                        : std::string(),
+        snapshot));
+    m_ogre14_actor_capture_coverage_log_snapshots[actor_id] = snapshot;
+}
+
 bool GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
 {
     if (gfx_actor == nullptr || gfx_actor->GetActorId() < 0)
@@ -3261,6 +3462,7 @@ bool GfxScene::RegisterGfxActor(RoR::GfxActor* gfx_actor)
             actor_id, static_cast<unsigned int>(mutation)));
         return false;
     }
+    this->ProbeOgre14ActorCaptureCoverage(gfx_actor);
     return true;
 }
 

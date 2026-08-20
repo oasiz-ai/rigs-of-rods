@@ -142,6 +142,12 @@ private:
     /// as the authenticated texture resolver and authority provider.
     Render::ValidationResult EnsureOgre14RoadMaterialCoordinator();
 
+    /// Diagnostics only: logs, once per actor spawn, how many named attached
+    /// OGRE Entities the actor owns versus how many the joined dynamic
+    /// capture enumerates. Reads the same owners the capture reads and
+    /// mutates none of them. Silent unless demo capture is enabled.
+    void ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor);
+
     Render::ValidationResult CaptureOgre14DynamicActorInventory(
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
         std::map<std::string,
@@ -190,6 +196,10 @@ private:
     // do not flood the log; the first accepted inventory and any promotion or
     // denominator/reason change are still emitted exactly once.
     std::string                        m_ogre_next_demo_material_coverage_log_snapshot;
+    // Last spawn-time capture-coverage line emitted per actor identity, so an
+    // unhide of an unchanged actor does not repeat itself. Bounded by the live
+    // actor count and released with the map generation.
+    std::map<std::int64_t, std::string> m_ogre14_actor_capture_coverage_log_snapshots;
     // Last committed policy-v1 sky descriptor telemetry. The candidate text
     // is staged with the joined capture and swapped only from Commit(), so a
     // rejected capture cannot advertise unpresented sky authority.

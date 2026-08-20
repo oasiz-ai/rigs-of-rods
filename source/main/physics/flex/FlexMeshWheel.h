@@ -47,6 +47,16 @@ public:
 
     Ogre::Entity* GetTireEntity() { return m_tire_entity; }
 
+    /// The rim half of this wheel: a rigid authored mesh, not a deformable.
+    /// It has no CPU staging owner - its motion lives entirely in
+    /// GetRimSceneNode(), which flexitPrepare() re-poses every frame.
+    Ogre::Entity* GetRimEntity() { return m_rim_entity; }
+
+    /// The node flexitPrepare() positions and orients. The rim Entity's world
+    /// transform must be read from here; the tire Entity hangs off a separate,
+    /// never-moved node because the tire carries its motion in its vertices.
+    Ogre::SceneNode* GetRimSceneNode() { return m_rim_scene_node; }
+
     Ogre::Vector3 updateVertices();
     /// Copies only the completed graphics staging arrays. Call only after
     /// GfxActor::FinishWheelUpdates(); this never exposes NodeSB/solver data.
