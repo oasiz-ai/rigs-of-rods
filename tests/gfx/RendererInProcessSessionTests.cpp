@@ -1261,6 +1261,12 @@ void TestStatusSurface() {
                                        BOOTSTRAP_PRESENTED)) ==
                   "bootstrap_presented" &&
               std::string(ToString(RendererInProcessSessionStatus::
+                                       UI_OVERLAY_PRESENTED)) ==
+                  "ui_overlay_presented" &&
+              std::string(ToString(RendererInProcessSessionStatus::
+                                       FAILED_UI_OVERLAY_PRESENTATION)) ==
+                  "failed_ui_overlay_presentation" &&
+              std::string(ToString(RendererInProcessSessionStatus::
                                        SIMULATION_SKIPPED)) ==
                   "simulation_skipped" &&
               std::string(ToString(RendererInProcessSessionStatus::
