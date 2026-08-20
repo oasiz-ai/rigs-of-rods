@@ -419,6 +419,96 @@ void TestTwoPhaseCommitIsAtomicAndRetryable() {
           "commit after Reset revived a discarded temporal candidate");
 }
 
+void TestRetiredFrameAccounting() {
+  OgreNextHdrTemporalState state;
+  Require(state.Initialize(OgreNextHdrTemporalConfiguration{}).ok(),
+          "temporal state initialization failed");
+
+  constexpr double kFirstTime = 10.0;
+  const RenderFrameRequest first = Frame(1U, Scene(1U, kFirstTime));
+  OgreNextHdrTemporalFramePlan first_plan;
+  Require(state.PrepareFrame(first,
+                             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                             first_plan)
+              .ok(),
+          "first retired-accounting temporal plan failed");
+  const HdrR16Float first_expected = ExpectedStored(first_plan, 0.5F);
+  Require(state.CommitFrame(first_plan, 0.5F, first_expected).ok() &&
+              state.committed_frame_id() == 1U,
+          "first retired-accounting frame did not commit");
+  const HdrR16Float committed_history = state.previous_inverse_luminance();
+  const OgreNextHdrHistoryComparison committed_comparison =
+      state.last_history_comparison();
+
+  constexpr double kRetiredTime = kFirstTime + 1.0 / 48.0;
+  Require(!state.CanAccountRetiredFrame(1U, kRetiredTime) &&
+              !state.CanAccountRetiredFrame(3U, kRetiredTime),
+          "a retired frame was accounted off the committed lineage");
+  Require(!state.CanAccountRetiredFrame(
+                  2U, std::numeric_limits<double>::quiet_NaN()) &&
+              !state.CanAccountRetiredFrame(
+                  2U, std::numeric_limits<double>::infinity()) &&
+              !state.CanAccountRetiredFrame(2U, -1.0) &&
+              !state.CanAccountRetiredFrame(2U, kFirstTime - 1.0),
+          "non-finite, negative or nonmonotonic retired time was accounted");
+  // Deliberate: kHdrMaximumFrameDeltaSeconds bounds what the temporal shader
+  // blends, and a retired frame runs no shader. Refusing a long suspension
+  // here would turn a recoverable retirement into a fatal reset.
+  Require(state.CanAccountRetiredFrame(
+              2U, kFirstTime + 10.0 * kHdrMaximumFrameDeltaSeconds),
+          "the retire path wrongly inherited the rendered delta envelope");
+  Require(!state.AccountRetiredFrame(3U, kRetiredTime) &&
+              state.committed_frame_id() == 1U,
+          "a refused retirement advanced committed frame identity");
+
+  Require(state.CanAccountRetiredFrame(2U, kRetiredTime) &&
+              state.AccountRetiredFrame(2U, kRetiredTime) &&
+              state.committed_frame_id() == 2U &&
+              state.previous_inverse_luminance().bits ==
+                  committed_history.bits &&
+              state.previous_inverse_luminance().decoded ==
+                  committed_history.decoded &&
+              SameHistoryComparison(state.last_history_comparison(),
+                                    committed_comparison),
+          "accounting a retirement fabricated exposure history");
+
+  // The regression this accounting exists for: without it, every rendered
+  // frame after a retirement is rejected as noncontiguous.
+  constexpr double kThirdTime = kRetiredTime + 1.0 / 48.0;
+  OgreNextHdrTemporalFramePlan third_plan;
+  Require(state.PrepareFrame(Frame(3U, Scene(3U, kThirdTime)),
+                             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1,
+                             third_plan)
+                  .ok() &&
+              third_plan.frame_id == 3U &&
+              third_plan.delta_seconds ==
+                  static_cast<float>(kThirdTime - kRetiredTime) &&
+              third_plan.previous_inverse_luminance_r16.bits ==
+                  committed_history.bits,
+          "the frame after a retirement was not admitted contiguously");
+
+  const HdrR16Float third_expected = ExpectedStored(third_plan, -0.25F);
+  Require(state.PrepareCommit(third_plan, -0.25F, third_expected).ok() &&
+              state.CanCommitPrepared(),
+          "third retired-accounting candidate was not prepared");
+  Require(!state.CanAccountRetiredFrame(3U, kThirdTime) &&
+              !state.AccountRetiredFrame(3U, kThirdTime) &&
+              state.committed_frame_id() == 2U,
+          "a retirement was accounted while a commit was prepared");
+  state.AbortPrepared();
+
+  Require(state.ResetSceneGeneration().ok() &&
+              state.committed_frame_id() == 2U &&
+              state.CanAccountRetiredFrame(3U, 0.0),
+          "scene reset broke retired-frame accounting for the next generation");
+
+  state.Reset();
+  Require(!state.CanAccountRetiredFrame(1U, 0.0) &&
+              !state.AccountRetiredFrame(1U, 0.0) &&
+              state.committed_frame_id() == 0U,
+          "an uninitialized temporal state accounted a retired frame");
+}
+
 void TestFailClosedAdmission() {
   OgreNextHdrTemporalState state;
   Require(state.Initialize(OgreNextHdrTemporalConfiguration{}).ok(),
@@ -469,6 +559,7 @@ int main() {
   TestConfigurationIsTransactional();
   TestDeterministicSimulationTimeAndGpuLineage();
   TestTwoPhaseCommitIsAtomicAndRetryable();
+  TestRetiredFrameAccounting();
   TestFailClosedAdmission();
   std::cout << "Ogre-Next HDR temporal contract tests passed\n";
   return EXIT_SUCCESS;

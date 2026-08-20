@@ -13153,12 +13153,17 @@ OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
     }
     submission_prepared = true;
     if (!impl_->particle_runtime.CanCommit(request.frame_id) ||
-        !impl_->submission_state.CanCommitPrepared(request)) {
+        !impl_->submission_state.CanCommitPrepared(request) ||
+        (impl_->hdr_enabled &&
+         !impl_->hdr_temporal_state.CanAccountRetiredFrame(
+             request.frame_id,
+             request.scene_snapshot->simulation_time_seconds()))) {
       abort();
       impl_->faulted = true;
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
-          "prepared N1 retired-frame state changed before publication");
+          "prepared N1 retired-frame state changed before publication, or the "
+          "retired frame cannot be accounted in the HDR temporal lineage");
     }
     // Both publications are allocation-free. Particle commit is checked first
     // so a failed particle transaction can never consume frame identity.
@@ -13173,6 +13178,22 @@ OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
     }
     particle_prepared = false;
     impl_->submission_state.CommitPrepared(request);
+    // Frontend frame identity has now advanced for a frame that rendered
+    // nothing. HDR must observe the same identity or its contiguity check
+    // rejects every later rendered frame, including the next generation's
+    // first. CanAccountRetiredFrame was checked above and nothing between
+    // there and here touches HDR state, so a false here means an invariant
+    // broke: fault-latch rather than desync silently.
+    if (impl_->hdr_enabled &&
+        !impl_->hdr_temporal_state.AccountRetiredFrame(
+            request.frame_id,
+            request.scene_snapshot->simulation_time_seconds())) {
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "retired frame could not be accounted in the HDR temporal lineage "
+          "after frame identity advanced");
+    }
     submission_prepared = false;
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {
