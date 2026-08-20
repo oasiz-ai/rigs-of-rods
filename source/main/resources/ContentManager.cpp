@@ -211,6 +211,81 @@ bool ResolveLiveArchiveManagerPointer(
     return pointer_matches == 1U;
 }
 
+/// Resolves the one archive member an ordinary texture request may open, using
+/// the same reviewed selection policy the authenticated texture path applies.
+/// Case-sensitive archives still require one exact full-name match; a
+/// case-insensitive archive requires one unambiguous folded full-name match,
+/// and only then may fall back to the explicit Zip basename rule. Ambiguity,
+/// an oversized index, or an absent member all resolve to false, which leaves
+/// the caller with no receipt exactly as a genuine absence does.
+bool ResolveReviewedSelectedTextureSourceMember(
+    const Ogre::Archive& selected_archive,
+    bool recursive,
+    const Ogre::String& name,
+    Ogre::String& reviewed_member)
+{
+    reviewed_member.clear();
+    const Ogre::FileInfoListPtr selected_index =
+        const_cast<Ogre::Archive&>(selected_archive)
+            .findFileInfo("*", recursive, false);
+    if (!selected_index || selected_index->empty() ||
+        selected_index->size() >
+            Render::kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates)
+    {
+        return false;
+    }
+
+    Ogre::String requested_basename;
+    Ogre::String requested_path;
+    Ogre::StringUtil::splitFilename(name, requested_basename, requested_path);
+    Ogre::String folded_full_name = name;
+    Ogre::String folded_basename = requested_basename;
+    Ogre::StringUtil::toLowerCase(folded_full_name);
+    Ogre::StringUtil::toLowerCase(folded_basename);
+
+    const bool archive_case_sensitive = selected_archive.isCaseSensitive();
+    const bool allow_zip_basename_fallback =
+        !archive_case_sensitive &&
+        (selected_archive.getType() == "Zip" ||
+         selected_archive.getType() == "EmbeddedZip");
+
+    std::vector<Render::Ogre14AuthenticatedTextureArchiveMemberObservation>
+        member_observations;
+    member_observations.reserve(selected_index->size());
+    for (const Ogre::FileInfo& indexed_file : *selected_index)
+    {
+        const Ogre::String exact_member =
+            indexed_file.path + indexed_file.basename;
+        if (exact_member.empty())
+        {
+            continue;
+        }
+        Ogre::String folded_member = exact_member;
+        Ogre::StringUtil::toLowerCase(folded_member);
+        Ogre::String indexed_basename = indexed_file.basename;
+        Ogre::StringUtil::toLowerCase(indexed_basename);
+        Render::Ogre14AuthenticatedTextureArchiveMemberObservation observation;
+        observation.exact_member_name = exact_member;
+        observation.exact_full_match = exact_member == name;
+        observation.folded_full_match = folded_member == folded_full_name;
+        observation.folded_basename_match =
+            allow_zip_basename_fallback &&
+            indexed_basename == folded_basename;
+        member_observations.push_back(std::move(observation));
+    }
+
+    Ogre::String selected_member;
+    if (!Render::SelectOgre14AuthenticatedTextureArchiveMember(
+            archive_case_sensitive, allow_zip_basename_fallback,
+            member_observations.data(), member_observations.size(),
+            selected_member))
+    {
+        return false;
+    }
+    reviewed_member.swap(selected_member);
+    return !reviewed_member.empty();
+}
+
 bool IsAuthenticatedMaterialScriptIdentifier(
     const Ogre::String& value, bool allow_empty = false) noexcept
 {
@@ -6664,6 +6739,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
     std::uint64_t compressed_size = 0U;
     std::uint64_t uncompressed_size = 0U;
     std::uint64_t opened_stream_size = 0U;
+    bool member_resolved_by_reviewed_selection = false;
     try
     {
         std::lock_guard<std::mutex> archive_lock(
@@ -6676,6 +6752,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             return Ogre::DataStreamPtr();
         }
         std::size_t matching_location_count = 0U;
+        bool selected_location_recursive = false;
         const Ogre::ResourceGroupManager::LocationList& locations =
             resource_manager->getResourceLocationList(group);
         for (const Ogre::ResourceGroupManager::ResourceLocation& location :
@@ -6683,6 +6760,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
         {
             if (location.archive == selected_archive)
             {
+                selected_location_recursive = location.recursive;
                 ++matching_location_count;
             }
         }
@@ -6711,7 +6789,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             static_cast<std::uint64_t>(exact_file_info->uncompressedSize);
         if (selected_archive_name.empty() ||
             selected_archive_type.empty() || exact_member.empty() ||
-            exact_member != name || compressed_size == 0U ||
+            compressed_size == 0U ||
             uncompressed_size == 0U ||
             uncompressed_size >
                 m_selected_texture_source_configuration.maximum_source_bytes ||
@@ -6720,6 +6798,24 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
                     (std::numeric_limits<std::size_t>::max)()))
         {
             return Ogre::DataStreamPtr();
+        }
+        if (exact_member != name)
+        {
+            // OGRE resolved this request through its case-insensitive archive
+            // lookup, so the member it opened is spelled differently from the
+            // requested resource name. Admit that only when the reviewed
+            // member-selection policy resolves the identical member without
+            // ambiguity; the receipt then names the member actually opened,
+            // and a genuinely absent member still mints nothing.
+            Ogre::String reviewed_member;
+            if (!ResolveReviewedSelectedTextureSourceMember(
+                    *selected_archive, selected_location_recursive, name,
+                    reviewed_member) ||
+                reviewed_member != exact_member)
+            {
+                return Ogre::DataStreamPtr();
+            }
+            member_resolved_by_reviewed_selection = true;
         }
 
         opened_stream = const_cast<Ogre::Archive*>(selected_archive)->open(
@@ -6856,7 +6952,9 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
                 compressed_size ||
             static_cast<std::uint64_t>(exact_file_info->uncompressedSize) !=
                 uncompressed_size ||
-            exact_member != name ||
+            exact_member != file_info_path + file_info_basename ||
+            (exact_member != name &&
+             !member_resolved_by_reviewed_selection) ||
             !resource->isLoading() || resource->isLoaded() ||
             resource->getStateCount() !=
                 static_cast<std::size_t>(state_count_before_load) ||

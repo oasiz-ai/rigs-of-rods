@@ -655,7 +655,8 @@ Ogre14AuthenticatedTextureReceipt BuildCuratedAuthenticatedReceipt(
 
 Ogre14AuthenticatedMaterialScriptSourceInput BuildCuratedScriptSource(
     const std::vector<std::uint8_t> &bytes,
-    const RoR::TerrainBundleAuthenticatedArchiveSnapshot &archive) {
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot &archive,
+    bool apply_reviewed_repair = false) {
   Ogre14AuthenticatedMaterialScriptSourceInput input;
   input.original_bytes =
       std::make_shared<const std::vector<std::uint8_t>>(bytes);
@@ -685,10 +686,42 @@ Ogre14AuthenticatedMaterialScriptSourceInput BuildCuratedScriptSource(
   metadata.effective_sha256 = metadata.original_sha256;
   metadata.repair_plan_version =
       RoR::kLegacyMaterialScriptRepairPlanVersion;
-  Require(RoR::ComputeLegacyMaterialScriptNoRepairPlanSha256(
-              metadata.archive_sha256, metadata.exact_member_name,
-              metadata.original_sha256, metadata.repair_plan_sha256),
-          "hash curated no-repair material-script plan");
+  if (apply_reviewed_repair) {
+    // Reproduce exactly what ContentManager publishes for the live scene: the
+    // source-controlled asia.material repair plan applied to the authenticated
+    // original bytes. Curated admission must survive this state.
+    const RoR::LegacyMaterialScriptEditPlan *const plan =
+        RoR::FindLegacyMaterialScriptEditPlan(metadata.archive_sha256,
+                                              metadata.exact_member_name);
+    Require(plan != nullptr,
+            "reviewed asia.material repair plan disappeared");
+    const std::string original(bytes.begin(), bytes.end());
+    const RoR::LegacyMaterialScriptPlanApplication patched =
+        RoR::ApplyLegacyMaterialScriptEditPlan(*plan, metadata.original_sha256,
+                                               original);
+    Require(patched.applicable && patched.safe &&
+                patched.applied_edit_count == plan->edit_count &&
+                patched.payload != original,
+            "reviewed asia.material repair plan did not apply");
+    const std::vector<std::uint8_t> effective(patched.payload.begin(),
+                                              patched.payload.end());
+    input.effective_bytes =
+        std::make_shared<const std::vector<std::uint8_t>>(effective);
+    metadata.effective_byte_count = effective.size();
+    metadata.effective_sha256 = Sha256(effective);
+    metadata.repair_state = Ogre14MaterialScriptRepairState::APPLIED;
+    metadata.applied_edit_count =
+        static_cast<std::uint64_t>(patched.applied_edit_count);
+    Require(RoR::ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+                *plan, metadata.exact_member_name, metadata.original_sha256,
+                metadata.repair_plan_sha256),
+            "hash curated applied material-script repair plan");
+  } else {
+    Require(RoR::ComputeLegacyMaterialScriptNoRepairPlanSha256(
+                metadata.archive_sha256, metadata.exact_member_name,
+                metadata.original_sha256, metadata.repair_plan_sha256),
+            "hash curated no-repair material-script plan");
+  }
   input.authenticated_archive_snapshot = archive;
   return input;
 }
@@ -1102,13 +1135,32 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
               coverage.environment_pending_entries == 0U &&
               coverage.uncurated_spherical_family_matte_materials == 1U,
           "curated/uncurated native matte coverage lost its exact partition");
+  // The widened structural gate admits this layered shape, so the material now
+  // reaches - and is still refused by - the authenticated-source gate. It must
+  // never be refused for its topology again, and it must never project without
+  // an authenticated source.
+  const OgreNextDemoMaterialSourceCounters unreviewed_layered =
+      source.CurrentCaptureCounters();
+  Require(unreviewed_layered.exclusions_by_reason[static_cast<std::size_t>(
+              OgreNextDemoTextureProjectionExclusion::
+                  MATERIAL_STRUCTURE_UNSUPPORTED)] == 0U &&
+              unreviewed_layered.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_MULTI_PASS_UNSUPPORTED)] == 0U &&
+              unreviewed_layered.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED)] == 0U &&
+              unreviewed_layered.layered_legacy_material_projections == 0U,
+          "layered legacy admission changed its refusal reason or projected "
+          "without an authenticated source");
   RequireZeroReadback(source, *readbacks);
   source.Discard();
 }
 
 void TestCuratedCityWorldLocalAuthenticatedAdmission(
     const std::filesystem::path &archive_path,
-    const std::filesystem::path &extracted_members) {
+    const std::filesystem::path &extracted_members,
+    bool apply_reviewed_repair = false) {
   RoR::TerrainBundleAuthenticatedArchiveSnapshot archive;
   std::string observed_archive_sha256;
   std::string archive_error;
@@ -1200,7 +1252,7 @@ void TestCuratedCityWorldLocalAuthenticatedAdmission(
             "advance curated material-script group");
   std::vector<Ogre14AuthenticatedMaterialScriptSourceInput> script_sources;
   script_sources.push_back(
-      BuildCuratedScriptSource(script_bytes, archive));
+      BuildCuratedScriptSource(script_bytes, archive, apply_reviewed_repair));
   std::vector<Ogre14AuthenticatedMaterialScriptMaterialInput>
       script_materials;
   for (std::size_t index = 0U; index < materials.size(); ++index) {
@@ -2468,7 +2520,10 @@ int main(int argc, char **argv) {
   Ogre::Root root("", "", "");
   TestCuratedCityWorldNativeGateStaysSelective();
   if (argc == 4 && std::string(argv[1]) == "--cityworld-curated-fixture") {
-    TestCuratedCityWorldLocalAuthenticatedAdmission(argv[2], argv[3]);
+    TestCuratedCityWorldLocalAuthenticatedAdmission(argv[2], argv[3], false);
+    // The live scene never sees the unrepaired script: asia.material carries a
+    // source-controlled three-edit repair plan. Admission must hold there too.
+    TestCuratedCityWorldLocalAuthenticatedAdmission(argv[2], argv[3], true);
   } else {
     Require(argc == 1,
             "usage: --cityworld-curated-fixture <archive> <extracted-dir>");

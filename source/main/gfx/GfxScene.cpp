@@ -196,7 +196,7 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};"
         "curated_cityworld={}/{};curated_observed={};curated_matte={};"
         "curated_environment_pending={};uncurated_spherical_matte={};"
-        "reasons={}",
+        "layered_legacy={};unpresented_layers={};reasons={}",
         active_projections, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.distinct_eligible_texture_keys,
@@ -229,6 +229,8 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         curated.observed_entries, curated.matte_entries,
         curated.environment_pending_entries,
         curated.uncurated_spherical_family_matte_materials,
+        counters.layered_legacy_material_projections,
+        counters.unpresented_legacy_layer_units,
         FormatOgreNextDemoMaterialExclusions(counters));
 }
 
@@ -248,7 +250,9 @@ std::string FormatOgreNextDemoMaterialCounters(
         "active_alpha_test_greater_equal_material_projections={} "
         "active_metallic_roughness_workflow_projections={} "
         "active_specular_workflow_projections={} "
-        "active_anisotropic_sampler_projections={} ",
+        "active_anisotropic_sampler_projections={} "
+        "layered_legacy_material_projections={} "
+        "unpresented_legacy_layer_units={} ",
         counters.new_frozen_material_decisions, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.projections, counters.distinct_eligible_texture_keys,
@@ -262,7 +266,9 @@ std::string FormatOgreNextDemoMaterialCounters(
         counters.active_alpha_test_greater_equal_material_projections,
         counters.active_metallic_roughness_workflow_projections,
         counters.active_specular_workflow_projections,
-        counters.active_anisotropic_sampler_projections);
+        counters.active_anisotropic_sampler_projections,
+        counters.layered_legacy_material_projections,
+        counters.unpresented_legacy_layer_units);
     result += fmt::format(
         "active_texture_state_observations={} "
         "active_normalized_texture_observations={} "
@@ -972,11 +978,34 @@ RoR::Render::ValidationResult CaptureOgre14MaterialFallbackInput(
     return RoR::Render::ValidationResult::Success();
 }
 
+// Neutral opaque stand-in for the one texture an excluded section never got to
+// bind. Legacy fixed-function shading modulates that texture by the pass
+// diffuse, so the matte reproduces the same product with the texture replaced
+// by this constant; a pass that authors no diffuse reports opaque white and
+// therefore keeps this constant byte-for-byte.
+constexpr float kOgreNextDemoMatteNeutralRed = 0.64F;
+constexpr float kOgreNextDemoMatteNeutralGreen = 0.67F;
+constexpr float kOgreNextDemoMatteNeutralBlue = 0.70F;
+
+std::string BuildOgreNextDemoMatteTintToken(std::uint32_t token)
+{
+    static constexpr char kDigits[] = "0123456789abcdef";
+    static_assert(RoR::Gfx::Detail::kOgreNextDemoMatteTintTokenCount ==
+                      16U * 16U * 16U,
+                  "matte tint token must be exactly three hex digits");
+    std::string text(3U, '0');
+    text[0] = kDigits[(token >> 8U) & 0xFU];
+    text[1] = kDigits[(token >> 4U) & 0xFU];
+    text[2] = kDigits[token & 0xFU];
+    return text;
+}
+
 // Disposable demo-only policy. Authored textures/programs first receive one
-// canonical neutral opaque matte so unsupported legacy state cannot erase real
-// mesh geometry or live simulation deformation. A later private source step
-// may replace that matte with the narrowly admitted opaque TUS0 PBR projection;
-// every unsupported section retains this deterministic fallback.
+// canonical opaque matte so unsupported legacy state cannot erase real mesh
+// geometry or live simulation deformation. A later private source step may
+// replace that matte with the narrowly admitted opaque TUS0 PBR projection;
+// every unsupported section retains this deterministic fallback, tinted by its
+// own authored diffuse so distinct legacy materials stay distinguishable.
 RoR::Render::ValidationResult CaptureOgreNextDemoMaterialInput(
     const Ogre::MaterialPtr& material,
     RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput& output,
@@ -1011,26 +1040,43 @@ RoR::Render::ValidationResult CaptureOgreNextDemoMaterialInput(
     if (!validation)
         return validation;
 
+    const Ogre::ColourValue& authored_diffuse = resolved.pass->getDiffuse();
+    const RoR::Gfx::Detail::OgreNextDemoMatteTint tint =
+        RoR::Gfx::Detail::OgreNextDemoResolveMatteTint(
+            static_cast<float>(authored_diffuse.r),
+            static_cast<float>(authored_diffuse.g),
+            static_cast<float>(authored_diffuse.b));
+
     RoR::Render::Ogre14GraphicsSceneMaterialCaptureInput candidate;
     candidate.exact_resource_group = "RoR/OgreNextDemo";
+    std::string cull_token;
     switch (reference.cull)
     {
     case RoR::Render::Ogre14GraphicsSceneMaterialCull::NONE:
-        candidate.exact_name = "MatteNeutral/CullNone/v1";
+        cull_token = "CullNone";
         break;
     case RoR::Render::Ogre14GraphicsSceneMaterialCull::CLOCKWISE:
-        candidate.exact_name = "MatteNeutral/CullClockwise/v1";
+        cull_token = "CullClockwise";
         break;
     case RoR::Render::Ogre14GraphicsSceneMaterialCull::ANTICLOCKWISE:
-        candidate.exact_name = "MatteNeutral/CullAnticlockwise/v1";
+        cull_token = "CullAnticlockwise";
         break;
     }
+    // The tint token is a pure function of the emitted factors, so one matte
+    // material key can never describe two different colours.
+    candidate.exact_name = tint.tinted
+        ? "MatteNeutral/" + cull_token + "/Tint" +
+              BuildOgreNextDemoMatteTintToken(tint.token) + "/v1"
+        : "MatteNeutral/" + cull_token + "/v1";
     candidate.pass_count = 1U;
     candidate.texture_unit_count = 0U;
     candidate.has_vertex_program = false;
     candidate.has_fragment_program = false;
     candidate.lighting_enabled = true;
-    candidate.diffuse_linear = {0.64F, 0.67F, 0.70F, 1.0F};
+    candidate.diffuse_linear = {
+        kOgreNextDemoMatteNeutralRed * tint.red,
+        kOgreNextDemoMatteNeutralGreen * tint.green,
+        kOgreNextDemoMatteNeutralBlue * tint.blue, 1.0F};
     candidate.ambient_linear = {1.0F, 1.0F, 1.0F};
     candidate.specular_linear = {};
     candidate.emissive_linear = {};

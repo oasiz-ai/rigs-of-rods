@@ -71,8 +71,18 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   MANAGED_MATERIAL_AUTHORITY_UNAVAILABLE = 23U,
   MANAGED_MATERIAL_SEMANTIC_UNSUPPORTED = 24U,
   AMBIGUOUS_BC1_ALPHA_SEMANTIC = 25U,
-  COUNT = 26U,
+  /// Split out of MATERIAL_STRUCTURE_UNSUPPORTED so the live census names what
+  /// is still refused instead of collapsing every topology into one bucket.
+  MATERIAL_MULTI_PASS_UNSUPPORTED = 26U,
+  MATERIAL_AUTHORED_PROGRAM_UNSUPPORTED = 27U,
+  MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED = 28U,
+  COUNT = 29U,
 };
+
+/// Hard cap on the texture units one admitted legacy pass may declare. Unit 0
+/// is the projected base colour; every further unit must classify as a
+/// recognised legacy layer and contributes no texel.
+constexpr std::size_t kOgreNextDemoMaximumLegacyLayeredTextureUnits = 4U;
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
@@ -151,6 +161,17 @@ constexpr std::string_view
     kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256 =
         "54305f5c7f99fa6a9628337508d230f588e60d1d410f6d6fe56be3186790a57e";
 
+/// Reviewed repair state the curated CityWorld script is allowed to carry.
+/// `asia.material` ships a source-controlled three-edit repair plan from the
+/// overlay texture-replacement work, so demanding an unrepaired script forbids
+/// the only state that ever occurs at runtime and silently kills every curated
+/// row. Admission therefore pins the exact reviewed repair instead of
+/// forbidding repair.
+constexpr std::uint32_t
+    kOgreNextDemoCuratedCityWorldRepairPlanVersion = 1U;
+constexpr std::uint64_t
+    kOgreNextDemoCuratedCityWorldAppliedEditCount = 3U;
+
 struct OgreNextDemoCuratedCityWorldSourceObservation final {
   std::string_view archive_sha256;
   std::string_view exact_script_member;
@@ -158,6 +179,29 @@ struct OgreNextDemoCuratedCityWorldSourceObservation final {
   const std::uint8_t *source_script_bytes = nullptr;
   std::size_t source_script_size = 0U;
 };
+
+/// Observed repair facts for one authenticated curated CityWorld script.
+/// `reviewed_repair_plan_sha256` is the caller's independent recomputation from
+/// the source-controlled plan table; it is never read from the receipt.
+struct OgreNextDemoCuratedCityWorldScriptRepairObservation final {
+  bool repair_applied = false;
+  std::uint64_t applied_edit_count = 0U;
+  std::uint32_t repair_plan_version = 0U;
+  std::string_view repair_plan_sha256;
+  std::string_view reviewed_repair_plan_sha256;
+  std::string_view original_sha256;
+  std::string_view effective_sha256;
+  bool effective_bytes_equal_original = false;
+};
+
+/// Authenticates the script state a curated row is lowered from. The
+/// unrepaired script and the exact reviewed repair are both admissible; every
+/// other state - an unreviewed plan digest, a different edit count, a repair
+/// that changed nothing, or effective bytes that drifted from the declared
+/// repair state - is refused.
+[[nodiscard]] Render::ValidationResult
+AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(
+    const OgreNextDemoCuratedCityWorldScriptRepairObservation &observation);
 
 /// Name-only lookup for telemetry/candidate routing. The returned row confers
 /// no authority; callers must pass it to Authenticate... before lowering.
@@ -241,6 +285,11 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t straight_source_over_material_projections = 0U;
   std::size_t legacy_straight_alpha_material_projections = 0U;
   std::size_t specular_workflow_projections = 0U;
+  /// Distinct new projections admitted through the layered legacy shape: one
+  /// canonical base-colour unit plus one or more recognised legacy layers that
+  /// are observed, counted, and deliberately not presented.
+  std::size_t layered_legacy_material_projections = 0U;
+  std::size_t unpresented_legacy_layer_units = 0U;
   std::size_t authored_specular_source_decodes = 0U;
   /// New managed linear-specular decode activity. These buckets are also
   /// included in the common modern normalization/mip totals above; the
@@ -675,6 +724,38 @@ private:
 [[nodiscard]] bool
 OgreNextDemoRequiresMatte(std::size_t texture_unit_count,
                           bool has_authored_program) noexcept;
+
+/// Quantisation lattice for the demo matte tint. Every matte section stands in
+/// for exactly one texture the projection path declined to admit, so the matte
+/// colour is the legacy pass's own diffuse modulator applied to the neutral
+/// stand-in rather than one scene-wide constant. The token is a pure function
+/// of the quantised tint, so a matte material name and its emitted factors stay
+/// in exact bijection: the identity registry can never observe two different
+/// colours under one material key, and the realised matte material count is
+/// hard-bounded by 3 cull modes x (kOgreNextDemoMatteTintTokenCount + 1).
+constexpr std::uint32_t kOgreNextDemoMatteTintLevels = 16U;
+constexpr std::uint32_t kOgreNextDemoMatteTintTokenCount =
+    kOgreNextDemoMatteTintLevels * kOgreNextDemoMatteTintLevels *
+    kOgreNextDemoMatteTintLevels;
+
+/// Resolved matte tint. `tinted` is false for every material that carries no
+/// usable authored diffuse, in which case the channel factors are exactly one
+/// and the caller must keep the untinted matte identity byte-for-byte.
+struct OgreNextDemoMatteTint {
+  float red = 1.0F;
+  float green = 1.0F;
+  float blue = 1.0F;
+  std::uint32_t token = 0U;
+  bool tinted = false;
+};
+
+/// Fail-closed reduction of one authored legacy diffuse to a matte tint. A
+/// non-finite or out-of-unit-range channel, and the untinted white the OGRE
+/// pass default reports for the overwhelming majority of legacy scripts, both
+/// resolve to the neutral (untinted) result.
+[[nodiscard]] OgreNextDemoMatteTint
+OgreNextDemoResolveMatteTint(float authored_red, float authored_green,
+                             float authored_blue) noexcept;
 [[nodiscard]] bool
 OgreNextDemoDropsDynamicBlendColors(bool has_dynamic_texture_blend) noexcept;
 [[nodiscard]] bool

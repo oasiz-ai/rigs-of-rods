@@ -475,6 +475,62 @@ Render::ValidationResult AuthenticateOgreNextDemoCuratedCityWorldMaterial(
   }
 }
 
+Render::ValidationResult
+AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(
+    const OgreNextDemoCuratedCityWorldScriptRepairObservation &observation) {
+  if (observation.original_sha256 !=
+          kOgreNextDemoCuratedCityWorldScriptSha256 ||
+      !IsLowercaseSha256(observation.original_sha256) ||
+      !IsLowercaseSha256(observation.effective_sha256)) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.identity",
+        "authenticated script is not the reviewed CityWorld source script");
+  }
+  if (observation.repair_plan_version !=
+      kOgreNextDemoCuratedCityWorldRepairPlanVersion) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.plan_version",
+        "authenticated script carries an unreviewed repair-plan version");
+  }
+  // The receipt's own repair-plan digest must equal the digest the caller
+  // recomputed from the source-controlled plan table. That is what makes a
+  // repaired script reviewed rather than merely modified: an unreviewed or
+  // tampered plan produces a different canonical digest and is refused, in
+  // both the repaired and the unrepaired arm.
+  if (!IsLowercaseSha256(observation.repair_plan_sha256) ||
+      !IsLowercaseSha256(observation.reviewed_repair_plan_sha256) ||
+      observation.repair_plan_sha256 !=
+          observation.reviewed_repair_plan_sha256) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.plan_sha256",
+        "authenticated repair plan is not the reviewed source-controlled plan");
+  }
+  if (!observation.repair_applied) {
+    if (observation.applied_edit_count != 0U ||
+        observation.effective_sha256 != observation.original_sha256 ||
+        !observation.effective_bytes_equal_original) {
+      return Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.curated_cityworld.script_repair.unrepaired",
+          "script reports no repair while its effective bytes differ");
+    }
+    return Render::ValidationResult::Success();
+  }
+  if (observation.applied_edit_count !=
+          kOgreNextDemoCuratedCityWorldAppliedEditCount ||
+      observation.effective_sha256 == observation.original_sha256 ||
+      observation.effective_bytes_equal_original) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.applied",
+        "applied repair is not the reviewed edit count or changed nothing");
+  }
+  return Render::ValidationResult::Success();
+}
+
 bool IsOgreNextDemoAuthenticatedTextureSourceMode(
     OgreNextDemoTextureSourceMode mode) noexcept {
   return mode == OgreNextDemoTextureSourceMode::
@@ -592,7 +648,10 @@ std::string_view OgreNextDemoTextureProjectionExclusionName(
                "alpha_state_unsupported",
                "managed_material_authority_unavailable",
                "managed_material_semantic_unsupported",
-               "ambiguous_bc1_alpha_semantic"};
+               "ambiguous_bc1_alpha_semantic",
+               "material_multi_pass_unsupported",
+               "material_authored_program_unsupported",
+               "material_texture_unit_layer_unsupported"};
   const std::size_t index = static_cast<std::size_t>(exclusion);
   return index < names.size() ? names[index] : std::string_view{"invalid"};
 }
@@ -740,6 +799,12 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.specular_workflow_projections =
       SaturatingAdd(candidate.specular_workflow_projections,
                     increment.specular_workflow_projections);
+  candidate.layered_legacy_material_projections =
+      SaturatingAdd(candidate.layered_legacy_material_projections,
+                    increment.layered_legacy_material_projections);
+  candidate.unpresented_legacy_layer_units =
+      SaturatingAdd(candidate.unpresented_legacy_layer_units,
+                    increment.unpresented_legacy_layer_units);
   candidate.authored_specular_source_decodes =
       SaturatingAdd(candidate.authored_specular_source_decodes,
                     increment.authored_specular_source_decodes);
@@ -2216,6 +2281,66 @@ std::size_t OgreNextDemoIdentityRegistry::size() const noexcept {
 bool OgreNextDemoRequiresMatte(std::size_t texture_unit_count,
                                bool has_authored_program) noexcept {
   return texture_unit_count != 0U || has_authored_program;
+}
+
+namespace {
+
+constexpr float kOgreNextDemoMatteTintSteps =
+    static_cast<float>(kOgreNextDemoMatteTintLevels - 1U);
+
+std::uint32_t QuantizeOgreNextDemoMatteTintChannel(float value) noexcept {
+  const float scaled = value * kOgreNextDemoMatteTintSteps;
+  float level = std::floor(scaled + 0.5F);
+  if (level < 0.0F) {
+    level = 0.0F;
+  }
+  if (level > kOgreNextDemoMatteTintSteps) {
+    level = kOgreNextDemoMatteTintSteps;
+  }
+  return static_cast<std::uint32_t>(level);
+}
+
+} // namespace
+
+OgreNextDemoMatteTint
+OgreNextDemoResolveMatteTint(float authored_red, float authored_green,
+                             float authored_blue) noexcept {
+  const OgreNextDemoMatteTint neutral;
+  if (!std::isfinite(authored_red) || !std::isfinite(authored_green) ||
+      !std::isfinite(authored_blue)) {
+    return neutral;
+  }
+  // Fail closed rather than clamp: a legacy script that authors a channel
+  // outside unit range is not describing a base-colour modulator this matte
+  // can represent, so it keeps the reviewed neutral stand-in.
+  if (authored_red < 0.0F || authored_red > 1.0F || authored_green < 0.0F ||
+      authored_green > 1.0F || authored_blue < 0.0F || authored_blue > 1.0F) {
+    return neutral;
+  }
+  const std::uint32_t red_level =
+      QuantizeOgreNextDemoMatteTintChannel(authored_red);
+  const std::uint32_t green_level =
+      QuantizeOgreNextDemoMatteTintChannel(authored_green);
+  const std::uint32_t blue_level =
+      QuantizeOgreNextDemoMatteTintChannel(authored_blue);
+  const std::uint32_t white_level = kOgreNextDemoMatteTintLevels - 1U;
+  // The OGRE pass default diffuse is opaque white, which the overwhelming
+  // majority of legacy scripts never override. White carries no tint
+  // information, so it keeps the untinted matte identity byte-for-byte.
+  if (red_level == white_level && green_level == white_level &&
+      blue_level == white_level) {
+    return neutral;
+  }
+  OgreNextDemoMatteTint tint;
+  tint.red = static_cast<float>(red_level) / kOgreNextDemoMatteTintSteps;
+  tint.green = static_cast<float>(green_level) / kOgreNextDemoMatteTintSteps;
+  tint.blue = static_cast<float>(blue_level) / kOgreNextDemoMatteTintSteps;
+  tint.token =
+      (red_level * kOgreNextDemoMatteTintLevels + green_level) *
+          kOgreNextDemoMatteTintLevels +
+      blue_level;
+  tint.tinted = true;
+  return tint;
 }
 
 bool OgreNextDemoDropsDynamicBlendColors(

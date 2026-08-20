@@ -103,6 +103,73 @@ void CheckCuratedCityWorldAsiaPolicy() {
           "incomplete private source bytes retained reviewed authority");
 }
 
+void CheckCuratedCityWorldScriptRepairPolicy() {
+  const std::string_view kReviewedPlan =
+      "1111111111111111111111111111111111111111111111111111111111111111";
+  const std::string_view kOtherPlan =
+      "2222222222222222222222222222222222222222222222222222222222222222";
+  const std::string_view kEffective =
+      "3333333333333333333333333333333333333333333333333333333333333333";
+
+  OgreNextDemoCuratedCityWorldScriptRepairObservation unrepaired;
+  unrepaired.repair_applied = false;
+  unrepaired.applied_edit_count = 0U;
+  unrepaired.repair_plan_version =
+      kOgreNextDemoCuratedCityWorldRepairPlanVersion;
+  unrepaired.repair_plan_sha256 = kReviewedPlan;
+  unrepaired.reviewed_repair_plan_sha256 = kReviewedPlan;
+  unrepaired.original_sha256 = kOgreNextDemoCuratedCityWorldScriptSha256;
+  unrepaired.effective_sha256 = kOgreNextDemoCuratedCityWorldScriptSha256;
+  unrepaired.effective_bytes_equal_original = true;
+  Require(AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(unrepaired).ok(),
+          "the unrepaired curated script lost its reviewed authority");
+
+  OgreNextDemoCuratedCityWorldScriptRepairObservation repaired = unrepaired;
+  repaired.repair_applied = true;
+  repaired.applied_edit_count =
+      kOgreNextDemoCuratedCityWorldAppliedEditCount;
+  repaired.effective_sha256 = kEffective;
+  repaired.effective_bytes_equal_original = false;
+  Require(AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(repaired).ok(),
+          "the reviewed curated script repair was refused");
+
+  // An unreviewed or tampered plan digest is refused in both arms.
+  OgreNextDemoCuratedCityWorldScriptRepairObservation tampered = repaired;
+  tampered.repair_plan_sha256 = kOtherPlan;
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(tampered),
+          "an unreviewed repair-plan digest was admitted");
+  tampered = unrepaired;
+  tampered.repair_plan_sha256 = kOtherPlan;
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(tampered),
+          "an unreviewed no-repair digest was admitted");
+
+  // A repair of the wrong size, one that changed nothing, or a script whose
+  // bytes drifted from its declared repair state all stay refused.
+  OgreNextDemoCuratedCityWorldScriptRepairObservation wrong_count = repaired;
+  wrong_count.applied_edit_count =
+      kOgreNextDemoCuratedCityWorldAppliedEditCount + 1U;
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(wrong_count),
+          "a repair plan of an unreviewed edit count was admitted");
+  OgreNextDemoCuratedCityWorldScriptRepairObservation empty_repair = repaired;
+  empty_repair.effective_bytes_equal_original = true;
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(empty_repair),
+          "an applied repair that changed nothing was admitted");
+  OgreNextDemoCuratedCityWorldScriptRepairObservation drifted = unrepaired;
+  drifted.effective_bytes_equal_original = false;
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(drifted),
+          "an undeclared script modification was admitted");
+  OgreNextDemoCuratedCityWorldScriptRepairObservation stale_version = repaired;
+  stale_version.repair_plan_version =
+      kOgreNextDemoCuratedCityWorldRepairPlanVersion + 1U;
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(stale_version),
+          "an unreviewed repair-plan version was admitted");
+  OgreNextDemoCuratedCityWorldScriptRepairObservation other_script = repaired;
+  other_script.original_sha256 =
+      "4444444444444444444444444444444444444444444444444444444444444444";
+  Require(!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(other_script),
+          "a script other than the reviewed curated source was admitted");
+}
+
 TextureMipLevelDescriptor MakeMip(std::uint32_t width, std::uint32_t height,
                                   std::vector<std::uint8_t> bytes) {
   TextureMipLevelDescriptor mip;
@@ -1591,6 +1658,49 @@ void CheckMatteFallbackPolicy() {
           "Alexis opaque TUS0 approximation escaped its exact content scope");
 }
 
+void CheckMatteTintPolicy() {
+  const OgreNextDemoMatteTint white = OgreNextDemoResolveMatteTint(
+      1.0F, 1.0F, 1.0F);
+  Require(!white.tinted && white.red == 1.0F && white.green == 1.0F &&
+              white.blue == 1.0F,
+          "the OGRE default white diffuse no longer keeps the neutral matte");
+  const OgreNextDemoMatteTint nearly_white =
+      OgreNextDemoResolveMatteTint(0.999F, 0.999F, 0.999F);
+  Require(!nearly_white.tinted,
+          "a diffuse that quantizes to white left the neutral matte");
+  for (const float bad : {-0.01F, 1.01F,
+                          (std::numeric_limits<float>::quiet_NaN)(),
+                          (std::numeric_limits<float>::infinity)()}) {
+    Require(!OgreNextDemoResolveMatteTint(bad, 0.5F, 0.5F).tinted &&
+                !OgreNextDemoResolveMatteTint(0.5F, bad, 0.5F).tinted &&
+                !OgreNextDemoResolveMatteTint(0.5F, 0.5F, bad).tinted,
+            "an unrepresentable authored diffuse was not failed closed");
+  }
+  const OgreNextDemoMatteTint dark = OgreNextDemoResolveMatteTint(
+      0.1F, 0.1F, 0.1F);
+  Require(dark.tinted && dark.red == dark.green && dark.green == dark.blue &&
+              dark.red > 0.0F && dark.red < 0.2F,
+          "an authored dark foliage diffuse lost its matte tint");
+  const OgreNextDemoMatteTint green = OgreNextDemoResolveMatteTint(
+      0.0785F, 0.4F, 0.0785F);
+  Require(green.tinted && green.green > green.red &&
+              green.red == green.blue,
+          "an authored chromatic diffuse lost its matte hue");
+  Require(green.token != dark.token && green.token != white.token,
+          "distinct matte tints collapsed onto one material identity");
+  Require(green.token < kOgreNextDemoMatteTintTokenCount &&
+              dark.token < kOgreNextDemoMatteTintTokenCount,
+          "a matte tint token escaped its declared bound");
+  // The token must stay a pure function of the emitted factors so one matte
+  // material key can never describe two different colours.
+  const OgreNextDemoMatteTint replayed =
+      OgreNextDemoResolveMatteTint(green.red, green.green, green.blue);
+  Require(replayed.tinted && replayed.token == green.token &&
+              replayed.red == green.red && replayed.green == green.green &&
+              replayed.blue == green.blue,
+          "matte tint quantization is not idempotent");
+}
+
 void CheckMatteMeshNormalization() {
   MeshResourceDescriptor mesh;
   mesh.debug_name = "demo matte triangle";
@@ -1679,6 +1789,7 @@ void CheckMatteMeshNormalization() {
 
 int main() {
   CheckCuratedCityWorldAsiaPolicy();
+  CheckCuratedCityWorldScriptRepairPolicy();
   CheckFullMipOpaqueLowering();
   CheckMalformedMipRollback();
   CheckConventionalSrgbPbrMipChain();
@@ -1698,6 +1809,7 @@ int main() {
   CheckIdentityCollisionAndRollback();
   CheckStaticCaptureAdmission();
   CheckMatteFallbackPolicy();
+  CheckMatteTintPolicy();
   CheckMatteMeshNormalization();
   std::cout << "OgreNext demo private policy tests passed\n";
   return EXIT_SUCCESS;

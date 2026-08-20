@@ -375,6 +375,29 @@ void TestArchiveMemberSelectionCollisionAndCaps() {
       selected);
   Require(!result && result.code == ValidationCode::VALUE_OUT_OF_RANGE,
           "archive member candidate cap+1 was accepted");
+
+  // AlexisSaber.truck declares "alexissabergrillesspec.png" while the archive
+  // member is "AlexisSabergrillesspec.png". A case-insensitive Zip must resolve
+  // that to the exact member spelling so an ordinary selected-source receipt
+  // can name the member it actually opened.
+  const Ogre14AuthenticatedTextureArchiveMemberObservation folded_case[] = {
+      {"AlexisSabergrillesspec.png", false, true, true},
+      {"AlexisSabergrilles.png", false, false, false},
+  };
+  selected = "sentinel";
+  result = SelectOgre14AuthenticatedTextureArchiveMember(false, true,
+                                                         folded_case, 2U,
+                                                         selected);
+  Require(result.ok() && selected == "AlexisSabergrillesspec.png",
+          "a case-only member mismatch lost its exact archive spelling");
+
+  selected = "sentinel";
+  result = SelectOgre14AuthenticatedTextureArchiveMember(true, false,
+                                                         folded_case, 2U,
+                                                         selected);
+  Require(!result && result.code == ValidationCode::MISSING_REFERENCE &&
+              selected == "sentinel",
+          "a case-sensitive archive accepted a case-only member mismatch");
 }
 
 void TestInputAndConfigurationValidation() {
