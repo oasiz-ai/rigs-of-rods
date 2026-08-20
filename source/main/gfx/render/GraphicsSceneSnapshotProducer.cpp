@@ -771,6 +771,44 @@ public:
                   "producer snapshot identity space is exhausted");
       return result;
     }
+    // Optional retained static section. The owners are additional
+    // authoritative content, never a replacement: this frame's complete set
+    // is the disjoint union of each owner with its flat vector. Ordering and
+    // internal uniqueness are proven here once, so every later merge may rely
+    // on them; disjointness against the flat vectors falls out of the
+    // ordinary duplicate-identity scans, and an identity present in neither
+    // is still permanently destroyed.
+    const std::vector<GraphicsSceneAssetInput> *const retained_assets =
+        frame.retained_static_assets.get();
+    const std::vector<GraphicsSceneStaticMeshInput> *const retained_meshes =
+        frame.retained_static_meshes.get();
+    const std::size_t retained_asset_count =
+        retained_assets != nullptr ? retained_assets->size() : 0U;
+    const std::size_t retained_mesh_count =
+        retained_meshes != nullptr ? retained_meshes->size() : 0U;
+    for (std::size_t index = 1U; index < retained_asset_count; ++index) {
+      if ((*retained_assets)[index - 1U].source_asset_id >=
+          (*retained_assets)[index].source_asset_id) {
+        result.validation = Failure(
+            ValidationCode::SEQUENCE_MISMATCH, "retained_static.order",
+            "retained static assets must be strictly increasing by source "
+            "identity",
+            index);
+        return result;
+      }
+    }
+    for (std::size_t index = 1U; index < retained_mesh_count; ++index) {
+      if ((*retained_meshes)[index - 1U].source_object_id >=
+          (*retained_meshes)[index].source_object_id) {
+        result.validation = Failure(
+            ValidationCode::SEQUENCE_MISMATCH, "retained_static.order",
+            "retained static objects must be strictly increasing by source "
+            "identity",
+            index);
+        return result;
+      }
+    }
+
     std::array<GraphicsSceneAssetInput, 3U> hud_asset_inputs{};
     std::size_t hud_asset_input_count = 0U;
     if (frame.hud_overlay.has_value()) {
@@ -795,14 +833,19 @@ public:
     }
     if (frame.assets.size() > configuration.maximum_asset_records ||
         hud_asset_input_count >
-            configuration.maximum_asset_records - frame.assets.size()) {
+            configuration.maximum_asset_records - frame.assets.size() ||
+        retained_asset_count > configuration.maximum_asset_records -
+                                   frame.assets.size() -
+                                   hud_asset_input_count) {
       result.validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "assets",
           "live source asset count exceeds the configured bound");
       return result;
     }
     if (frame.static_meshes.size() >
-        configuration.maximum_static_mesh_objects) {
+            configuration.maximum_static_mesh_objects ||
+        retained_mesh_count > configuration.maximum_static_mesh_objects -
+                                  frame.static_meshes.size()) {
       result.validation = Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "static_meshes",
           "live static object count exceeds the configured bound");
@@ -845,8 +888,14 @@ public:
       return result;
     }
 
+    // Element indices remain the flat frame's own indices; the HUD block and
+    // then the retained section follow them, so a legacy frame reports the
+    // exact indices it reported at version 6.
+    const std::size_t retained_asset_index_base =
+        frame.assets.size() + hud_asset_input_count;
     std::vector<IndexedAssetInput> sorted_assets;
-    sorted_assets.reserve(frame.assets.size() + hud_asset_input_count);
+    sorted_assets.reserve(frame.assets.size() + hud_asset_input_count +
+                          retained_asset_count);
     std::uint64_t payload_bytes = 0U;
     // Avoid constructing two successful std::strings per asset. MSVC's
     // checked-iterator Debug STL allocates a proxy for each such string,
@@ -900,6 +949,12 @@ public:
         return result;
       }
     }
+    for (std::size_t index = 0U; index < retained_asset_count; ++index) {
+      if (!admit_source_asset((*retained_assets)[index],
+                              retained_asset_index_base + index)) {
+        return result;
+      }
+    }
     std::sort(sorted_assets.begin(), sorted_assets.end(),
               [](const IndexedAssetInput &lhs,
                  const IndexedAssetInput &rhs) {
@@ -921,25 +976,37 @@ public:
     }
 
     std::vector<IndexedStaticMeshInput> sorted_objects;
-    sorted_objects.reserve(frame.static_meshes.size());
+    sorted_objects.reserve(frame.static_meshes.size() + retained_mesh_count);
+    const auto admit_static_object =
+        [&](const GraphicsSceneStaticMeshInput &object, std::size_t index) {
+          if (object.source_object_id == 0U) {
+            result.validation = Failure(
+                ValidationCode::INVALID_IDENTIFIER,
+                "static_meshes.source_object_id",
+                "source object identity must be nonzero", index);
+            return false;
+          }
+          if (object.mesh_source_asset_id == 0U ||
+              object.material_source_asset_id == 0U) {
+            result.validation = Failure(
+                ValidationCode::MISSING_REFERENCE, "static_meshes.assets",
+                "static object requires mesh and material source identities",
+                index);
+            return false;
+          }
+          sorted_objects.push_back(IndexedStaticMeshInput{&object, index});
+          return true;
+        };
     for (std::size_t index = 0U; index < frame.static_meshes.size(); ++index) {
-      const GraphicsSceneStaticMeshInput &object = frame.static_meshes[index];
-      if (object.source_object_id == 0U) {
-        result.validation = Failure(
-            ValidationCode::INVALID_IDENTIFIER,
-            "static_meshes.source_object_id",
-            "source object identity must be nonzero", index);
+      if (!admit_static_object(frame.static_meshes[index], index)) {
         return result;
       }
-      if (object.mesh_source_asset_id == 0U ||
-          object.material_source_asset_id == 0U) {
-        result.validation = Failure(
-            ValidationCode::MISSING_REFERENCE, "static_meshes.assets",
-            "static object requires mesh and material source identities",
-            index);
+    }
+    for (std::size_t index = 0U; index < retained_mesh_count; ++index) {
+      if (!admit_static_object((*retained_meshes)[index],
+                               frame.static_meshes.size() + index)) {
         return result;
       }
-      sorted_objects.push_back(IndexedStaticMeshInput{&object, index});
     }
     std::sort(sorted_objects.begin(), sorted_objects.end(),
               [](const IndexedStaticMeshInput &lhs,

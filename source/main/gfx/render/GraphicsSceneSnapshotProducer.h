@@ -25,7 +25,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 6U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 7U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 6U;
 
 /// Reserved joined-graphics source identities for the producer-synthesized
@@ -179,6 +179,21 @@ struct GraphicsSceneFrameInput {
   std::uint64_t environment_sampler_source_asset_id = 0U;
   std::vector<GraphicsSceneAssetInput> assets;
   std::vector<GraphicsSceneStaticMeshInput> static_meshes;
+  /// Optional immutable owners for the retained static section. When present,
+  /// this frame's complete authoritative content is the disjoint union
+  /// (*retained_static_assets + assets) and
+  /// (*retained_static_meshes + static_meshes). Both owners are sorted by
+  /// source identity and internally duplicate-free. An adapter must hand the
+  /// exact same owners for as long as the section is byte-identical, and MUST
+  /// mint new owner vectors for any change - mutating a vector that has ever
+  /// been submitted is a contract violation the producer is entitled to
+  /// detect and fail closed on. Omission semantics are unchanged: an identity
+  /// in neither the owners nor the flat vectors is permanently destroyed.
+  /// Frames without owners behave exactly as version 6.
+  std::shared_ptr<const std::vector<GraphicsSceneAssetInput>>
+      retained_static_assets;
+  std::shared_ptr<const std::vector<GraphicsSceneStaticMeshInput>>
+      retained_static_meshes;
   std::vector<GraphicsSceneDynamicMeshInput> dynamic_meshes;
   /// May arrive in any order. analytic_sky.sun_light_id names one of these
   /// stable source identities directly.
