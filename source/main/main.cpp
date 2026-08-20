@@ -4140,11 +4140,14 @@ int main(int argc, char *argv[])
                     else
                     {
                         renderer_combined_scene_failure_signature.clear();
+                        // Retained-section reuse is invisible in the frame
+                        // timings alone: identical costs can come from a fast
+                        // path or from silent re-adoption churn. These
+                        // counters separate the two. A zero produce span
+                        // means this poll never reached the producer, so it
+                        // must not advance the heartbeat's frame count.
+                        if (scene_result.scene_produce_ns != 0U)
                         {
-                            // Retained-section reuse is invisible in the
-                            // frame timings alone: identical costs can come
-                            // from a fast path or from silent re-adoption
-                            // churn. These counters separate the two.
                             const Render::
                                 GraphicsSceneSnapshotProduction::Diagnostics&
                                     producer_diagnostics =
