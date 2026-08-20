@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <new>
@@ -2051,6 +2052,212 @@ void TestSceneGenerationFinalizationAndTickReset() {
           "failed generation finalization changed the published sentinel");
 }
 
+// Splits MakeFrame()'s static domain into an immutable retained owner pair,
+// leaving only the deformable domain and its assets in the flat vectors.
+void SplitFrameIntoRetainedOwners(
+    RoR::Render::GraphicsSceneFrameInput &frame) {
+  using namespace RoR::Render;
+  auto owner_assets =
+      std::make_shared<std::vector<GraphicsSceneAssetInput>>(frame.assets);
+  std::sort(owner_assets->begin(), owner_assets->end(),
+            [](const GraphicsSceneAssetInput &lhs,
+               const GraphicsSceneAssetInput &rhs) {
+              return lhs.source_asset_id < rhs.source_asset_id;
+            });
+  auto owner_meshes =
+      std::make_shared<std::vector<GraphicsSceneStaticMeshInput>>(
+          frame.static_meshes);
+  std::sort(owner_meshes->begin(), owner_meshes->end(),
+            [](const GraphicsSceneStaticMeshInput &lhs,
+               const GraphicsSceneStaticMeshInput &rhs) {
+              return lhs.source_object_id < rhs.source_object_id;
+            });
+  frame.assets.clear();
+  frame.static_meshes.clear();
+  frame.retained_static_assets = std::move(owner_assets);
+  frame.retained_static_meshes = std::move(owner_meshes);
+}
+
+void AdvanceFrameTime(RoR::Render::GraphicsSceneFrameInput &frame) {
+  ++frame.simulation_tick;
+  frame.simulation_time_seconds += 1.0;
+}
+
+void TestRetainedStaticSectionReuseIsByteStableAndFailsClosed() {
+  using namespace RoR::Render;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(901U);
+  GraphicsSceneFrameInput frame = MakeFrame();
+  SplitFrameIntoRetainedOwners(frame);
+
+  const GraphicsSceneSnapshotProduceResult adopted = producer.Produce(frame);
+  Require(adopted.ok(), "retained-owner adoption frame was rejected");
+  Require(adopted.production.diagnostics.retained_static_adoptions == 1U &&
+              adopted.production.diagnostics.retained_static_block_reuses ==
+                  0U,
+          "first sight of a retained owner did not report an adoption");
+  Require(adopted.production.scene_snapshot->mesh_instances().size() == 2U,
+          "retained owners did not join the authoritative instance set");
+  Require(adopted.production.asset_delta.has_value(),
+          "retained owner assets produced no first catalog transaction");
+
+  // Second frame with the exact same owners: still an adoption, because the
+  // block's transform history only settles once previous == current.
+  AdvanceFrameTime(frame);
+  const GraphicsSceneSnapshotProduceResult settled = producer.Produce(frame);
+  Require(settled.ok() && !settled.production.asset_delta.has_value(),
+          "settling frame was rejected or rebuilt the catalog");
+
+  AdvanceFrameTime(frame);
+  const GraphicsSceneSnapshotProduceResult reused = producer.Produce(frame);
+  Require(reused.ok(), "stable retained-owner frame was rejected");
+  Require(reused.production.diagnostics.retained_static_block_reuses == 1U &&
+              reused.production.diagnostics.retained_static_adoptions == 0U &&
+              reused.production.diagnostics.retained_static_instances_reused ==
+                  2U,
+          "stable retained-owner frame did not reuse the instance block");
+  Require(reused.production.diagnostics.asset_payload_full_validations == 0U &&
+              reused.production.diagnostics
+                      .asset_payload_fallback_comparisons == 0U,
+          "reusing frame rescanned retained payloads");
+  // The section is smaller than either window, so one frame audits all of it.
+  Require(reused.production.diagnostics.retained_static_window_verifications ==
+              static_cast<std::uint64_t>(
+                  frame.retained_static_meshes->size() +
+                  frame.retained_static_assets->size()),
+          "reusing frame did not run the rotating drift audit");
+  const std::vector<MeshInstanceDescriptor> &settled_instances =
+      settled.production.scene_snapshot->mesh_instances();
+  const std::vector<MeshInstanceDescriptor> &reused_instances =
+      reused.production.scene_snapshot->mesh_instances();
+  Require(settled_instances.size() == reused_instances.size(),
+          "reused block changed the instance count");
+  Require(std::memcmp(settled_instances.data(), reused_instances.data(),
+                      settled_instances.size() *
+                          sizeof(MeshInstanceDescriptor)) == 0,
+          "republished retained block is not byte-identical");
+
+  // A live deformable rides the reuse path: its own entry is recanonicalized
+  // while the statics stay byte-identical, and compatibility narrows to it.
+  GraphicsSceneFrameInput dynamic_frame = frame;
+  dynamic_frame.assets.push_back(DynamicMeshAsset());
+  dynamic_frame.dynamic_meshes.push_back(
+      DynamicObject(150U, DynamicState(2U)));
+  AdvanceFrameTime(dynamic_frame);
+  const GraphicsSceneSnapshotProduceResult spawned =
+      producer.Produce(dynamic_frame);
+  Require(spawned.ok() &&
+              spawned.production.scene_snapshot->mesh_instances().size() == 3U,
+          "deformable spawn beside a retained owner was rejected");
+  AdvanceFrameTime(dynamic_frame);
+  const GraphicsSceneSnapshotProduceResult driving =
+      producer.Produce(dynamic_frame);
+  Require(driving.ok() &&
+              driving.production.diagnostics.retained_static_block_reuses ==
+                  1U,
+          "stable frame with a live deformable did not reuse the block");
+  Require(driving.production.diagnostics
+                      .scene_asset_compatibility_full_validations == 0U &&
+              driving.production.diagnostics
+                      .scene_asset_compatibility_scoped_validations == 1U,
+          "a live deformable still forced a full compatibility pass");
+  Require(driving.production.scene_snapshot->dynamic_mesh_updates().size() ==
+              1U,
+          "reusing frame dropped the complete deformation update");
+
+  // Removing the deformable is a signalled change: reuse is refused for that
+  // frame and the identity is tombstoned exactly as on the full path.
+  GraphicsSceneFrameInput despawned = frame;
+  despawned.assets.push_back(DynamicMeshAsset());
+  AdvanceFrameTime(despawned);
+  despawned.simulation_tick += 2U;
+  despawned.simulation_time_seconds += 2.0;
+  const GraphicsSceneSnapshotProduceResult removed =
+      producer.Produce(despawned);
+  Require(removed.ok() &&
+              removed.production.diagnostics
+                      .retained_static_precondition_misses == 1U &&
+              removed.production.scene_snapshot->mesh_instances().size() == 2U,
+          "deformable removal did not refuse reuse and retire the instance");
+
+  // An identity present in both the owner and the residue is a duplicate.
+  GraphicsSceneFrameInput colliding = frame;
+  colliding.assets.push_back(MaterialAsset());
+  AdvanceFrameTime(colliding);
+  colliding.simulation_tick += 4U;
+  colliding.simulation_time_seconds += 4.0;
+  Require(producer.Produce(colliding).validation.code ==
+              ValidationCode::DUPLICATE_IDENTIFIER,
+          "an identity in both the owner and the residue was accepted");
+
+  // An unsorted owner is a contract violation, not a case to canonicalize.
+  GraphicsSceneFrameInput unsorted = frame;
+  auto reversed = std::make_shared<std::vector<GraphicsSceneStaticMeshInput>>(
+      *frame.retained_static_meshes);
+  std::reverse(reversed->begin(), reversed->end());
+  unsorted.retained_static_meshes = std::move(reversed);
+  AdvanceFrameTime(unsorted);
+  unsorted.simulation_tick += 6U;
+  unsorted.simulation_time_seconds += 6.0;
+  const GraphicsSceneSnapshotProduceResult misordered =
+      producer.Produce(unsorted);
+  Require(misordered.validation.code == ValidationCode::SEQUENCE_MISMATCH &&
+              misordered.validation.field == "retained_static.order",
+          "an unsorted retained owner was canonicalized instead of refused");
+
+  // Test-only seam: mutate a published owner in place, which the adapter
+  // contract forbids and nothing else can observe. The rotating audit must
+  // reject the frame rather than republish a block that no longer describes
+  // its inputs.
+  GraphicsSceneFrameInput mutated = frame;
+  AdvanceFrameTime(mutated);
+  mutated.simulation_tick += 8U;
+  mutated.simulation_time_seconds += 8.0;
+  const auto &published_owner = *mutated.retained_static_meshes;
+  const_cast<GraphicsSceneStaticMeshInput &>(published_owner.front())
+      .render_from_object = Translation(77.0F);
+  const GraphicsSceneSnapshotProduceResult drifted = producer.Produce(mutated);
+  Require(drifted.validation.code == ValidationCode::REVISION_MISMATCH &&
+              drifted.validation.field == "retained_static.window",
+          "an in-place owner mutation was republished from the stale block");
+
+  // The next frame rebuilds cleanly from the mutated bytes under the ordinary
+  // rules; the drift surfaced, it did not wedge the producer.
+  GraphicsSceneFrameInput recovered = mutated;
+  recovered.retained_static_meshes =
+      std::make_shared<const std::vector<GraphicsSceneStaticMeshInput>>(
+          published_owner);
+  AdvanceFrameTime(recovered);
+  const GraphicsSceneSnapshotProduceResult rebuilt =
+      producer.Produce(recovered);
+  Require(rebuilt.ok() &&
+              rebuilt.production.diagnostics.retained_static_adoptions == 1U,
+          "the frame after a window rejection did not readopt cleanly");
+  Require(rebuilt.production.scene_snapshot->mesh_instances()
+                  .front()
+                  .render_from_object.elements[12U] == 77.0F,
+          "readoption did not pick up the changed static transform");
+
+  // Dropping the owners is an omission: every retained identity is destroyed.
+  GraphicsSceneFrameInput emptied = recovered;
+  emptied.retained_static_assets.reset();
+  emptied.retained_static_meshes.reset();
+  AdvanceFrameTime(emptied);
+  const GraphicsSceneSnapshotProduceResult tombstoned =
+      producer.Produce(emptied);
+  Require(tombstoned.ok() &&
+              tombstoned.production.scene_snapshot->mesh_instances().empty() &&
+              tombstoned.production.asset_delta.has_value(),
+          "omitting the retained owners did not destroy their content");
+  bool destroyed_any = false;
+  for (const RenderAssetMutation &mutation :
+       tombstoned.production.asset_delta->mutations) {
+    destroyed_any = destroyed_any ||
+                    mutation.type == RenderAssetMutationType::DESTROY;
+  }
+  Require(destroyed_any, "omitted retained assets were not tombstoned");
+}
+
 void TestHudOverlayAssetLifecycleAndRevisions() {
   using namespace RoR::Render;
 
@@ -2258,6 +2465,7 @@ int main() {
   TestExhaustionAndBoundsFailClosed();
   TestDeterministicAcrossAdapterTraversalOrders();
   TestSceneGenerationFinalizationAndTickReset();
+  TestRetainedStaticSectionReuseIsByteStableAndFailsClosed();
   TestHudOverlayAssetLifecycleAndRevisions();
   return EXIT_SUCCESS;
 }

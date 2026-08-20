@@ -1330,11 +1330,9 @@ public:
         retained_block_candidate = false;
       }
     }
-    if (retained_block_possible && !retained_block_candidate) {
-      result.production.diagnostics.retained_static_precondition_misses = 1U;
-      if (!build_sorted_static_objects()) {
-        return result;
-      }
+    if (retained_block_possible && !retained_block_candidate &&
+        !build_sorted_static_objects()) {
+      return result;
     }
 
     std::vector<IndexedMeshObjectInput> sorted_mesh_objects;
@@ -2084,11 +2082,16 @@ public:
     // touched a retained asset invalidates the references the block carries.
     const bool retained_block_reused =
         retained_block_candidate && !retained_section_asset_mutated;
-    if (retained_block_candidate && !retained_block_reused) {
+    if (retained_block_candidate && !retained_block_reused &&
+        (!build_sorted_static_objects() || !build_sorted_mesh_objects())) {
+      return result;
+    }
+    // A known owner pair with an anchored block that this frame could not
+    // reuse. Distinguishing it from an adoption is what separates a genuine
+    // change from silent re-adoption churn in the heartbeat.
+    if (!retained_block_reused && retained_owner_matches &&
+        retained_static.block_source != nullptr) {
       result.production.diagnostics.retained_static_precondition_misses = 1U;
-      if (!build_sorted_static_objects() || !build_sorted_mesh_objects()) {
-        return result;
-      }
     }
 
     std::vector<std::uint64_t> candidate_dynamic_ids;
