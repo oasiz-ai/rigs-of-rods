@@ -758,12 +758,12 @@ LegacyUnpresentedLayerKind ClassifyLegacyUnpresentedLayer(
       return LegacyUnpresentedLayerKind::UNSUPPORTED;
     }
     const auto effect = effects.begin();
-    // All four OGRE environment-map subtypes name the same thing for this
-    // projection: a trailing layer whose texels come from the reflection
-    // probe, not from an authored source file. The projection presents unit 0
-    // only, so the subtype selects a UV derivation this code never evaluates -
-    // it cannot change the presented result, only the name of what is being
-    // withheld.
+    // An OGRE environment-map subtype names the same thing for this
+    // projection whichever spelling it uses: a trailing layer whose texels
+    // come from the reflection probe, not from an authored source file. The
+    // projection presents unit 0 only, so the subtype selects a UV derivation
+    // this code never evaluates - it cannot change the presented result, only
+    // the name of what is being withheld.
     //
     // ENV_REFLECTION is admitted here for a second, stronger reason. The one
     // shape that reaches it is self-inflicted: LegacyMaterialScriptSanitizer
