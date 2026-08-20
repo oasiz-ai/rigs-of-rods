@@ -42,7 +42,7 @@ constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
 /// plus a rotating re-verification window instead of once per instance
 /// per present. Values and log fields are unchanged; only the derivation
 /// and the verification growth rate differ.
-constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 4U;
+constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 5U;
 constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 1U;
 
 /// Rotating native re-verification budget for the retained scene: after the
@@ -386,7 +386,7 @@ struct OgreNextN1Configuration final {
 /// the versioned conditioning/storage bound and the corresponding public frame
 /// has been committed. Accepted native bits are authoritative.
 struct OgreNextHdrCompositorAudit final {
-  std::uint32_t version = 4U;
+  std::uint32_t version = 5U;
   OgreNextHdrSceneTopology scene_topology =
       OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
   bool enabled = false;
@@ -399,6 +399,23 @@ struct OgreNextHdrCompositorAudit final {
   /// the exact workspace closure including that UI node; the former
   /// `ui_free_workspace_verified` flag is retired with the UI-free topology.
   bool hud_workspace_verified = false;
+  /// Version 5: the single-evaluation production workspace exports the
+  /// scene's D32 opaque depth and inserts the aerial-haze quad between the
+  /// scene node and the stock HDR post node.
+  ///
+  /// `opaque_depth_export_verified` proves RoROpaqueDepth was resolved as a
+  /// D32 texture at the reviewed extent. `aerial_haze_workspace_verified`
+  /// proves the haze node instance and its RGBA16F output were likewise
+  /// resolved (both are vacuously true for DIRECTIONAL_SPLIT_V2 without
+  /// sun-visibility V2, which has no such consumer).
+  /// `aerial_haze_constants_bound` proves every named haze constant survived
+  /// its `_readRawConstants` readback. `aerial_haze_applied` distinguishes a
+  /// live atmosphere from the canonical identity binding: false means the
+  /// pass ran as a bit-exact pass-through, never that it was skipped.
+  bool opaque_depth_export_verified = false;
+  bool aerial_haze_workspace_verified = false;
+  bool aerial_haze_constants_bound = false;
+  bool aerial_haze_applied = false;
   OgreNextHdrHistoryValidationMode history_validation_mode =
       OgreNextHdrHistoryValidationMode::NONE;
   std::uint32_t width = 0U;
@@ -476,6 +493,12 @@ struct OgreNextNativeLightingPassAudit final {
   bool calibrated_directional_lighting = false;
   bool ambient_environment_lighting = false;
   bool analytic_sky_contribution = false;
+  /// Version 5: a depth-based aerial-perspective pass extinguished the scene
+  /// toward the analytic sky's exact horizon color before tone mapping. False
+  /// means the frame bound the canonical identity (no sky, or the validated
+  /// zero-extinction payload) and the pass was a bit-exact pass-through - it
+  /// never means the pass was skipped.
+  bool aerial_haze_applied = false;
   bool emissive_material_response = false;
   bool pssm_shadow_response = false;
   bool thin_parallel_slab_refraction = false;

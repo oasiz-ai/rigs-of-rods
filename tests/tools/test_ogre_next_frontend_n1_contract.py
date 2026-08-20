@@ -1422,10 +1422,17 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.hdr_topology_header)
         for token in (
-            "std::uint32_t version = 4U;",
+            # Compositor audit v5 adds the depth-export and aerial-haze
+            # evidence; the lighting-pass audit moves to v5 with it.
+            "std::uint32_t version = 5U;",
+            "kOgreNextNativeLightingPassAuditVersion = 5U",
             "OgreNextHdrSceneTopology scene_topology",
             "OgreNextHdrSceneTopology hdr_scene_topology",
             "pssm_finalized_with_populated_scene",
+            "bool opaque_depth_export_verified = false;",
+            "bool aerial_haze_workspace_verified = false;",
+            "bool aerial_haze_constants_bound = false;",
+            "bool aerial_haze_applied = false;",
         ):
             self.assertIn(token, self.header)
 
@@ -1549,7 +1556,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
 
         for token in (
             "RunSingleSceneHdrPssmTopologyProof",
-            "ror.ogre_next_hdr_pssm_single_scene.v1",
+            # v2 adds the aerial-perspective evidence. The DIRECTIONAL_SPLIT_V2
+            # schemas (hdr_compositor.v6 / hdr_compositor_visual.v2) stay
+            # frozen: haze is single-scene only.
+            "ror.ogre_next_hdr_pssm_single_scene.v2",
+            '\\"depth_export_verified\\"',
+            '\\"haze_node_verified\\"',
+            '\\"haze_constants_bound\\"',
+            '\\"haze_identity_when_sky_disabled\\"',
+            '\\"haze_applied\\"',
             '\\"topology\\": \\"SINGLE_EVALUATION_PSSM_V1\\"',
             '\\"pssm_deferred_until_populated_scene\\"',
             '\\"zero_light_pssm_warmup_avoided\\"',
