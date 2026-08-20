@@ -912,6 +912,18 @@ int main(int argc, char *argv[])
     std::string renderer_combined_native_sun_visibility_audit_signature;
     bool renderer_combined_turntable_audit_published = false;
     std::uint64_t renderer_combined_turntable_audit_segment = 0U;
+    // Producer retained-section audit. Counters are summed over accepted
+    // productions only, so a rejected frame can never inflate them, and are
+    // surfaced as a periodic heartbeat rather than per frame.
+    std::uint64_t renderer_combined_producer_retained_frames = 0U;
+    std::uint64_t renderer_combined_producer_retained_adoptions = 0U;
+    std::uint64_t renderer_combined_producer_retained_fast = 0U;
+    std::uint64_t renderer_combined_producer_retained_misses = 0U;
+    std::uint64_t renderer_combined_producer_retained_window = 0U;
+    std::uint64_t renderer_combined_producer_retained_scoped = 0U;
+    std::uint64_t renderer_combined_producer_retained_payload_full = 0U;
+    std::uint64_t renderer_combined_producer_retained_compat_full = 0U;
+    std::uint64_t renderer_combined_producer_retained_instances = 0U;
 #else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
@@ -4128,6 +4140,60 @@ int main(int argc, char *argv[])
                     else
                     {
                         renderer_combined_scene_failure_signature.clear();
+                        {
+                            // Retained-section reuse is invisible in the
+                            // frame timings alone: identical costs can come
+                            // from a fast path or from silent re-adoption
+                            // churn. These counters separate the two.
+                            const Render::
+                                GraphicsSceneSnapshotProduction::Diagnostics&
+                                    producer_diagnostics =
+                                        scene_result.producer_diagnostics;
+                            ++renderer_combined_producer_retained_frames;
+                            renderer_combined_producer_retained_adoptions +=
+                                producer_diagnostics
+                                    .retained_static_adoptions;
+                            renderer_combined_producer_retained_fast +=
+                                producer_diagnostics
+                                    .retained_static_block_reuses;
+                            renderer_combined_producer_retained_misses +=
+                                producer_diagnostics
+                                    .retained_static_precondition_misses;
+                            renderer_combined_producer_retained_window +=
+                                producer_diagnostics
+                                    .retained_static_window_verifications;
+                            renderer_combined_producer_retained_scoped +=
+                                producer_diagnostics
+                                    .scene_asset_compatibility_scoped_validations;
+                            renderer_combined_producer_retained_payload_full +=
+                                producer_diagnostics
+                                    .asset_payload_full_validations;
+                            renderer_combined_producer_retained_compat_full +=
+                                producer_diagnostics
+                                    .scene_asset_compatibility_full_validations;
+                            renderer_combined_producer_retained_instances +=
+                                producer_diagnostics
+                                    .retained_static_instances_reused;
+                            if ((renderer_combined_producer_retained_frames %
+                                 300U) == 0U)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|ProducerRetained] "
+                                    "schema_version=1 adoptions={} fast={} "
+                                    "misses={} window_verified={} "
+                                    "scoped_dynamic={} "
+                                    "payload_full_validations={} "
+                                    "compat_full={} reused_instances={}",
+                                    renderer_combined_producer_retained_adoptions,
+                                    renderer_combined_producer_retained_fast,
+                                    renderer_combined_producer_retained_misses,
+                                    renderer_combined_producer_retained_window,
+                                    renderer_combined_producer_retained_scoped,
+                                    renderer_combined_producer_retained_payload_full,
+                                    renderer_combined_producer_retained_compat_full,
+                                    renderer_combined_producer_retained_instances));
+                            }
+                        }
                         if (scene_result.status ==
                             RendererInProcessSessionStatus::FRAME_COMPLETED)
                         {

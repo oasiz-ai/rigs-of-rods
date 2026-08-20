@@ -256,10 +256,17 @@ private:
     std::map<std::string, Ogre14RoadMaterialObservationCacheEntry,
              std::less<>> m_ogre14_road_observation_cache;
     // Committed-capture section cost accounting, logged every 300 commits.
+    // Each accumulator names one disjoint span of the capture; `other` is the
+    // measured remainder, so a section that grows can never hide inside a
+    // neighbour's number.
     std::uint64_t m_ogre14_section_log_captures = 0U;
     std::uint64_t m_ogre14_section_log_terrain_ns = 0U;
     std::uint64_t m_ogre14_section_log_static_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_ns = 0U;
+    std::uint64_t m_ogre14_section_log_retained_ns = 0U;
+    std::uint64_t m_ogre14_section_log_merge_ns = 0U;
+    std::uint64_t m_ogre14_section_log_union_ns = 0U;
+    std::uint64_t m_ogre14_section_log_particles_ns = 0U;
     std::uint64_t m_ogre14_section_log_other_ns = 0U;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
@@ -374,10 +381,16 @@ private:
         Render::Ogre14LegacyPreparedMaterialFrame road_material_frame;
         bool has_road_material_frame = false;
         /// This capture's per-section traversal cost, logged from commit so
-        /// only accepted exposures are counted.
+        /// only accepted exposures are counted. `static` is the full static
+        /// walk and `retained` the retained-hit copy, so exactly one of the
+        /// two is nonzero per capture.
         std::uint64_t section_terrain_ns = 0U;
         std::uint64_t section_static_ns = 0U;
         std::uint64_t section_dynamic_ns = 0U;
+        std::uint64_t section_retained_ns = 0U;
+        std::uint64_t section_merge_ns = 0U;
+        std::uint64_t section_union_ns = 0U;
+        std::uint64_t section_particles_ns = 0U;
         std::uint64_t section_other_ns = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;

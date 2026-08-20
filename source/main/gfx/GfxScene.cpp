@@ -3598,6 +3598,13 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     const std::chrono::steady_clock::time_point ogre14_capture_started =
         std::chrono::steady_clock::now();
     auto pending = std::make_unique<Ogre14PendingCaptureState>();
+    // Disjoint per-section spans measured beside the capture-struct sections.
+    // They are locals rather than capture fields so the joined-scene capture
+    // contract stays untouched; commit copies them onto the transaction.
+    std::uint64_t section_retained_copy_ns = 0U;
+    std::uint64_t section_asset_merge_ns = 0U;
+    std::uint64_t section_object_union_ns = 0U;
+    std::uint64_t section_particle_walk_ns = 0U;
     OgreNextDemoMaterialPendingGuard material_pending_guard(
         m_ogre_next_demo_material_source);
     Ogre14RoadMaterialFramePendingGuard road_material_frame_guard(
@@ -3863,8 +3870,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 // The retained capture is byte-equivalent to what the walk
                 // below would produce under the conditions verified above.
-                Ogre14CaptureSectionTimer static_timer(
-                    candidate.static_meshes_ns);
+                // Charged to its own section: `static` must keep meaning the
+                // full walk, so a hit frame reports static=0 retained=copy.
+                Ogre14CaptureSectionTimer retained_timer(
+                    section_retained_copy_ns);
                 static_assets = m_ogre14_static_retention_assets;
                 candidate.frame.static_meshes =
                     m_ogre14_static_retention_meshes;
@@ -4477,23 +4486,35 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             // transaction.
 
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
-            Ogre14CaptureSectionTimer dynamic_timer(
-                candidate.dynamic_meshes_ns);
-            Render::ValidationResult dynamic_validation =
-                CaptureOgre14DynamicActorInventory(
+            Render::ValidationResult dynamic_validation;
+            {
+                // The section timer must end with the joined staging copy it
+                // names. Left unbraced it lived to the end of the enclosing
+                // scene-manager block, so `dynamic=` also billed the merges,
+                // the particle walk, the duplicate set, the terrain append,
+                // the sort, lights, and the environment.
+                Ogre14CaptureSectionTimer dynamic_timer(
+                    candidate.dynamic_meshes_ns);
+                dynamic_validation = CaptureOgre14DynamicActorInventory(
                     pending->dynamic_registry,
                     pending->dynamic_mesh_cache,
                     dynamic_assets, candidate.frame.dynamic_meshes);
+            }
             if (!dynamic_validation)
                 return dynamic_validation;
             std::vector<Render::GraphicsSceneAssetInput> nonterrain_assets;
             const std::vector<Render::GraphicsSceneAssetInput> empty_assets;
-            dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
-                static_assets, dynamic_assets, empty_assets,
-                nonterrain_assets);
+            {
+                Ogre14CaptureSectionTimer merge_timer(section_asset_merge_ns);
+                dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
+                    static_assets, dynamic_assets, empty_assets,
+                    nonterrain_assets);
+            }
             if (!dynamic_validation)
                 return dynamic_validation;
 
+            const std::chrono::steady_clock::time_point
+                particle_walk_started = std::chrono::steady_clock::now();
             std::vector<Render::Ogre14ParticleSourceSystemCapture>
                 captured_dust_systems;
             std::uint64_t dust_material_source_id = 0U;
@@ -5122,12 +5143,21 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             ++pending->particle_capture_state.next_source_sequence;
             candidate.frame.continuous_particles =
                 std::move(particle_frame);
-            dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
-                nonterrain_assets, empty_assets, terrain_capture.assets,
-                candidate.frame.assets);
+            section_particle_walk_ns = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - particle_walk_started)
+                    .count());
+            {
+                Ogre14CaptureSectionTimer merge_timer(section_asset_merge_ns);
+                dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
+                    nonterrain_assets, empty_assets, terrain_capture.assets,
+                    candidate.frame.assets);
+            }
             if (!dynamic_validation)
                 return dynamic_validation;
 
+            {
+            Ogre14CaptureSectionTimer union_timer(section_object_union_ns);
             std::set<std::uint64_t> object_ids;
             for (const Render::GraphicsSceneStaticMeshInput& instance :
                  candidate.frame.static_meshes)
@@ -5169,6 +5199,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 {
                     return first.source_object_id < second.source_object_id;
                 });
+            }
 
             // These bits stage together only after coverage, native CPU
             // extraction, material translation, identity/lifecycle auditing,
@@ -5294,10 +5325,16 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     std::chrono::steady_clock::now() -
                     ogre14_capture_started).count());
         const std::uint64_t section_sum_ns = candidate.terrain_ns +
-            candidate.static_meshes_ns + candidate.dynamic_meshes_ns;
+            candidate.static_meshes_ns + candidate.dynamic_meshes_ns +
+            section_retained_copy_ns + section_asset_merge_ns +
+            section_object_union_ns + section_particle_walk_ns;
         pending->section_terrain_ns = candidate.terrain_ns;
         pending->section_static_ns = candidate.static_meshes_ns;
         pending->section_dynamic_ns = candidate.dynamic_meshes_ns;
+        pending->section_retained_ns = section_retained_copy_ns;
+        pending->section_merge_ns = section_asset_merge_ns;
+        pending->section_union_ns = section_object_union_ns;
+        pending->section_particles_ns = section_particle_walk_ns;
         pending->section_other_ns = capture_total_ns > section_sum_ns
             ? capture_total_ns - section_sum_ns
             : 0U;
@@ -5404,17 +5441,29 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_pending_capture->section_static_ns;
     m_ogre14_section_log_dynamic_ns +=
         m_ogre14_pending_capture->section_dynamic_ns;
+    m_ogre14_section_log_retained_ns +=
+        m_ogre14_pending_capture->section_retained_ns;
+    m_ogre14_section_log_merge_ns +=
+        m_ogre14_pending_capture->section_merge_ns;
+    m_ogre14_section_log_union_ns +=
+        m_ogre14_pending_capture->section_union_ns;
+    m_ogre14_section_log_particles_ns +=
+        m_ogre14_pending_capture->section_particles_ns;
     m_ogre14_section_log_other_ns +=
         m_ogre14_pending_capture->section_other_ns;
     if ((m_ogre14_section_log_captures % 300U) == 0U)
     {
         LOG(fmt::format(
             "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "
-            "dynamic={} other={}",
+            "dynamic={} retained={} merge={} union={} particles={} other={}",
             m_ogre14_section_log_captures,
             m_ogre14_section_log_terrain_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_static_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_dynamic_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_retained_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_merge_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_union_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_particles_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_other_ns / m_ogre14_section_log_captures));
     }
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =

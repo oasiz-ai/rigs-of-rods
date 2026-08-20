@@ -264,6 +264,23 @@ struct GraphicsSceneSnapshotProduction {
     /// Sum of descriptor-owned candidate bytes presented to those fallbacks.
     /// This is an upper bound on bytes equality may inspect, not a timer.
     std::uint64_t asset_payload_candidate_bytes_compared = 0U;
+    /// One when this frame republished a retained static instance block
+    /// instead of re-canonicalizing it, else zero.
+    std::uint64_t retained_static_block_reuses = 0U;
+    /// Instance entries covered by that frame's byte-identity claim.
+    std::uint64_t retained_static_instances_reused = 0U;
+    /// One when this frame (re)anchored the retained-section cache from a
+    /// complete full-pipeline pass, else zero.
+    std::uint64_t retained_static_adoptions = 0U;
+    /// One when the retained owners matched but a reuse precondition failed,
+    /// so the frame took the full path anyway.
+    std::uint64_t retained_static_precondition_misses = 0U;
+    /// Rotating re-derivations performed this frame against the retained
+    /// owners. A mismatch fails the frame closed; it never repairs silently.
+    std::uint64_t retained_static_window_verifications = 0U;
+    /// Dynamic-only scene-to-registry compatibility passes. A live vehicle
+    /// reports one here instead of forcing a full pass.
+    std::uint64_t scene_asset_compatibility_scoped_validations = 0U;
   };
 
   /// Present on first production (a full snapshot) and whenever the logical
