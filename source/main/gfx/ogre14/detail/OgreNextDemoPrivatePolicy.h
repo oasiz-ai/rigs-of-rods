@@ -818,14 +818,46 @@ OgreNextDemoOmitsInvisibleCab(std::string_view exact_material_name,
     std::string_view exact_mesh_name,
     const Render::Float3 &derived_scale) noexcept;
 
-/// Exact content-scoped exception for the first macOS demo. Only the four
-/// reviewed opaque Alexis bases (Chassis, ChassisM, Wheels, Grilles) may lower
-/// their authenticated two-pass declaration to diffuse plus authored linear
-/// specular PBS inputs. Lens, Winds, and Winds_int remain excluded, so this is
-/// deliberately reported as 4/7 authored Alexis specular declarations rather
-/// than full bundle coverage. No other material receives this shortcut.
+/// Exact content-scoped exception for the first macOS demo. Only the five
+/// reviewed opaque Alexis bases (Chassis, ChassisM, Wheels, Grilles, Body) may
+/// lower their authenticated two-pass declaration to diffuse plus authored
+/// linear specular PBS inputs. Lens, Winds, and Winds_int remain excluded, so
+/// this is deliberately reported as 5/8 authored Alexis specular declarations
+/// rather than full bundle coverage. No other material receives this shortcut.
+///
+/// Body joined the scope when the archive's 5x5 body-paint placeholders were
+/// replaced with an authored paint set (tools/alexis_saber_paint.py) and its
+/// managedmaterial declaration was restored; it is opaque flexmesh_standard
+/// with a specular map, exactly the shape Chassis already used.
 [[nodiscard]] bool OgreNextDemoAllowsAlexisTUS0Approximation(
     std::string_view exact_resource_group,
     std::string_view exact_material_name) noexcept;
+
+/// Reviewed roughness for the authored Alexis body paint.
+///
+/// Every other legacy projection derives roughness from Blinn-Phong shininess
+/// as sqrt(2 / (shininess + 2)). No template in resources/managed_materials/
+/// authors a live shininess, so every managed vehicle material lands on
+/// exactly 1.0 - fully rough. The pinned PBS multiplies the authored specular
+/// map straight into the specular lobe (Hlms/Pbs SampleSpecularMap: with
+/// SpecularWorkflow, pixelData.specular.xyz *= specular map, F0 stays at the
+/// IOR 1.5 dielectric 0.04), and a fully rough lobe spreads that product so
+/// wide that a clearcoat map is indistinguishable from a flat one. The
+/// authored paint therefore carries a reviewed roughness; without it the
+/// specular member would be shipped and then thrown away.
+///
+/// 0.22 rather than a physical clearcoat value near 0.05: this presenter
+/// lights the scene with a directional sun and a hemisphere ambient and mounts
+/// no reflection probe or IBL for the vehicle, so a near-mirror lobe has
+/// almost nothing to reflect and reads as a dark panel carrying one bright
+/// dot. 0.22 keeps the highlight broad enough to travel across a curved panel
+/// while still reading as polished paint rather than matte plastic.
+constexpr float kOgreNextDemoAlexisBodyPaintRoughness = 0.22F;
+
+/// True, with `out_roughness` set, only for the Alexis body-paint material in
+/// its own bundle. Every other material keeps the shininess derivation.
+[[nodiscard]] bool OgreNextDemoResolveAlexisAuthoredRoughness(
+    std::string_view exact_resource_group,
+    std::string_view exact_material_name, float &out_roughness) noexcept;
 
 } // namespace RoR::Gfx::Detail

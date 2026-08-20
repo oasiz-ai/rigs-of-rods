@@ -78,6 +78,8 @@ constexpr char kManagedSpecularPbrLoweringPolicy[] =
     "LinearRgbSpecularWorkflowDielectricIor1p5F0p04NoMetallicSynthesis/v1";
 constexpr char kCuratedCityWorldPbrLoweringPolicy[] =
     "RoR/OgreNextDemo/CuratedCityWorldAsia/ReviewedSpecularWorkflow/v1";
+constexpr char kAlexisAuthoredRoughnessPolicy[] =
+    "RoR/OgreNextDemo/AlexisAuthoredBodyPaint/ReviewedRoughness/v1";
 constexpr std::uint32_t kMaximumTextureDimension = 8192U;
 constexpr std::uint64_t kMaximumTextureBaseBytes = 256ULL * 1024ULL * 1024ULL;
 
@@ -1462,6 +1464,31 @@ bool IsExactAlexisDiffuseProjection(
   } else if (base == "SaberGrilles") {
     expected_diffuse = "AlexisSabergrilles.png";
     expected_specular = "alexissabergrillesspec.png";
+  } else if (base == "SaberBody") {
+    // The body paint is the one Alexis base whose texture names move at
+    // runtime: AlexisSaber.skin replaces both the base colour and its paired
+    // specular member when a colour skin is selected, and the replacement
+    // rewrites the texture unit names this predicate reads. Enumerating the
+    // authored pairs keeps the gate exact - an unpaired or unknown pair is
+    // still refused - while letting all six skins project.
+    constexpr std::array<std::pair<std::string_view, std::string_view>, 6U>
+        kAuthoredBodyPaint{{{"bodytemp.png", "bodytempspec.png"},
+                            {"body_black.png", "body_blackspec.png"},
+                            {"body_blue.png", "body_bluespec.png"},
+                            {"body_green.png", "body_greenspec.png"},
+                            {"body_purple.png", "body_purplespec.png"},
+                            {"body_white.png", "body_whitespec.png"}}};
+    for (const auto &[authored_diffuse, authored_specular] :
+         kAuthoredBodyPaint) {
+      if (exact_diffuse_texture_name == authored_diffuse) {
+        expected_diffuse = authored_diffuse;
+        expected_specular = authored_specular;
+        break;
+      }
+    }
+    if (expected_diffuse.empty()) {
+      return false;
+    }
   } else {
     return false;
   }
@@ -3349,6 +3376,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
           projection_key, managed_specular_native.texture_observation);
     }
   }
+  // The reviewed body-paint roughness replaces the shininess derivation, so
+  // it enters identity the same way the curated CityWorld roughness does:
+  // changing the constant must invalidate every projection it produced.
+  float alexis_roughness_identity = 0.0F;
+  if (OgreNextDemoResolveAlexisAuthoredRoughness(
+          native_material->getGroup(), native_material->getName(),
+          alexis_roughness_identity)) {
+    AppendField(projection_key, kAlexisAuthoredRoughnessPolicy);
+    AppendFloatBits(projection_key, alexis_roughness_identity);
+  }
   if (allow_curated_cityworld) {
     AppendField(projection_key, kCuratedCityWorldPbrLoweringPolicy);
     AppendNumber(projection_key,
@@ -4194,12 +4231,17 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       }
       material.specular_texture.texture_coordinate_set = 0U;
     }
-    captured.roughness_factor =
-        allow_curated_cityworld
-            ? curated_policy->roughness_factor
-            : static_cast<float>(std::sqrt(
-                  2.0 /
-                  (static_cast<double>(pass->getShininess()) + 2.0)));
+    float alexis_authored_roughness = 0.0F;
+    if (allow_curated_cityworld) {
+      captured.roughness_factor = curated_policy->roughness_factor;
+    } else if (OgreNextDemoResolveAlexisAuthoredRoughness(
+                   native_material->getGroup(), native_material->getName(),
+                   alexis_authored_roughness)) {
+      captured.roughness_factor = alexis_authored_roughness;
+    } else {
+      captured.roughness_factor = static_cast<float>(std::sqrt(
+          2.0 / (static_cast<double>(pass->getShininess()) + 2.0)));
+    }
     material.roughness_factor = captured.roughness_factor;
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
     captured.emissive_factor = {static_cast<float>(native_emissive.r),
