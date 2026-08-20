@@ -111,6 +111,12 @@ RenderAssetDelta AssetDelta(std::uint64_t registry_id, std::uint64_t sequence,
   return delta;
 }
 
+/// A scene whose shape is NOT a generation-finalizing empty scene. It carries
+/// one asset-free directional light so the dispatcher treats it as ordinary
+/// renderable work. Every scene that is not deliberately finalizing a
+/// generation must use this: the dispatcher retires final empty scenes without
+/// entering the frontend, so a lightless fixture would silently stop
+/// exercising the render path it means to test.
 std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
                                            std::uint64_t registry_id,
                                            std::uint64_t asset_sequence,
@@ -127,9 +133,37 @@ std::shared_ptr<const SceneSnapshot> Scene(std::uint64_t snapshot_id,
           : simulation_tick;
   descriptor.simulation_time_seconds =
       static_cast<double>(descriptor.simulation_tick) / 2000.0;
+  LightDescriptor light;
+  light.light_id = snapshot_id;
+  descriptor.lights.push_back(light);
   SceneSnapshotCreateResult created =
       CreateSceneSnapshot(std::move(descriptor));
   Require(created.ok(), "scene fixture must freeze successfully");
+  return created.snapshot;
+}
+
+/// The generation-finalizing empty scene: no instances, no lights, no probes,
+/// no environment binding. The transport dispatcher retires this shape instead
+/// of rendering it, because a lightless scene can never pass a shadow-enabled
+/// raster policy.
+std::shared_ptr<const SceneSnapshot> FinalScene(
+    std::uint64_t snapshot_id, std::uint64_t registry_id,
+    std::uint64_t asset_sequence,
+    std::uint64_t simulation_tick =
+        (std::numeric_limits<std::uint64_t>::max)()) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = registry_id;
+  descriptor.asset_sequence = asset_sequence;
+  descriptor.simulation_tick =
+      simulation_tick == (std::numeric_limits<std::uint64_t>::max)()
+          ? snapshot_id * 10U
+          : simulation_tick;
+  descriptor.simulation_time_seconds =
+      static_cast<double>(descriptor.simulation_tick) / 2000.0;
+  SceneSnapshotCreateResult created =
+      CreateSceneSnapshot(std::move(descriptor));
+  Require(created.ok(), "final scene fixture must freeze successfully");
   return created.snapshot;
 }
 
@@ -616,11 +650,19 @@ void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
                           OffscreenPolicy())
                 .ok(),
             "generation fixture asset did not synchronize");
-    Require(dispatcher
-                .Dispatch(SceneFrame(2U, Scene(40U, registry_id, 1U, 500U)),
-                          OffscreenPolicy())
-                .ok(),
-            "old generation scene did not render");
+    const RendererFrontendTransportDispatchResult finalized =
+        dispatcher.Dispatch(
+            SceneFrame(2U, FinalScene(40U, registry_id, 1U, 500U)),
+            OffscreenPolicy());
+    // The child session has no notion of generation finalization, so the
+    // dispatcher itself retires the final empty scene: a lightless scene can
+    // never pass a shadow-enabled raster policy, so presenting it could only
+    // fail.
+    RequireStatus(finalized.status,
+                  RendererFrontendTransportDispatchStatus::SCENE_FRAME_RETIRED,
+                  "final empty scene was rendered instead of retired");
+    Require(frontend.rendered_requests.empty(),
+            "final empty scene entered the frontend");
     const RendererFrontendTransportDispatchResult reset = dispatcher.Dispatch(
         BoundaryFrame(3U, registry_id, 1U, 40U), OffscreenPolicy());
     RequireStatus(
@@ -640,8 +682,9 @@ void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
                   RendererFrontendTransportDispatchStatus::
                       SCENE_FRAME_COMPLETED,
                   "marked reload tick zero did not render");
+    // Exactly one render: the retired final scene never reached the frontend.
     Require(!dispatcher.terminal() &&
-                frontend.rendered_requests.size() == 2U,
+                frontend.rendered_requests.size() == 1U,
             "marked generation reset poisoned the live dispatcher");
   }
 
@@ -681,7 +724,7 @@ void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
                 .ok(),
             "mismatch fixture asset did not synchronize");
     Require(dispatcher
-                .Dispatch(SceneFrame(2U, Scene(60U, registry_id, 1U, 500U)),
+                .Dispatch(SceneFrame(2U, FinalScene(60U, registry_id, 1U, 500U)),
                           OffscreenPolicy())
                 .ok(),
             "mismatch fixture final scene did not render");
@@ -725,7 +768,7 @@ void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
                 .ok() &&
                 dispatcher
                     .Dispatch(
-                        SceneFrame(2U, Scene(70U, registry_id, 1U, 500U)),
+                        SceneFrame(2U, FinalScene(70U, registry_id, 1U, 500U)),
                         OffscreenPolicy())
                     .ok(),
             "asset-sequence mismatch fixture did not initialize");
@@ -749,7 +792,7 @@ void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
                 .ok() &&
                 dispatcher
                     .Dispatch(
-                        SceneFrame(2U, Scene(80U, registry_id, 1U, 500U)),
+                        SceneFrame(2U, FinalScene(80U, registry_id, 1U, 500U)),
                         OffscreenPolicy())
                     .ok(),
             "generation mismatch fixture did not initialize");
@@ -775,7 +818,7 @@ void TestAuthenticatedSceneGenerationBoundaryAndUnmarkedRollback() {
                 .ok() &&
                 dispatcher
                     .Dispatch(
-                        SceneFrame(2U, Scene(90U, registry_id, 1U, 500U)),
+                        SceneFrame(2U, FinalScene(90U, registry_id, 1U, 500U)),
                         OffscreenPolicy())
                     .ok(),
             "reset-failure fixture did not initialize");
@@ -1359,8 +1402,12 @@ void TestDirectDispatcherTypedLifecycle() {
               .SynchronizeAssets(AssetDelta(registry_id, 2U, false))
               .ok(),
           "typed incremental asset transaction did not synchronize");
+  // The generation's final empty scene. The DIRECT dispatcher still renders
+  // it -- only the transport dispatcher, which cannot see caller intent,
+  // retires this shape.
   const RendererFrontendDirectDispatchResult second = dispatcher.RenderScene(
-      Scene(103U, registry_id, 2U, 2000U), Camera(8U), OffscreenPolicy());
+      FinalScene(103U, registry_id, 2U, 2000U), Camera(8U),
+      OffscreenPolicy());
   RequireDirectStatus(
       second.status,
       RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
@@ -1599,7 +1646,7 @@ void TestDirectDispatcherFailuresAreTerminal() {
                 .SynchronizeAssets(AssetDelta(registry_id, 1U, true))
                 .ok() &&
                 dispatcher
-                    .RenderScene(Scene(1U, registry_id, 1U), Camera(),
+                    .RenderScene(FinalScene(1U, registry_id, 1U), Camera(),
                                  OffscreenPolicy())
                     .ok(),
             "typed reset-allocation fixture did not initialize");

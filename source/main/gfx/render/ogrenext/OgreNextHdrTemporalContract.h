@@ -141,6 +141,26 @@ public:
   /// Discards the staged candidate without changing committed state.
   void AbortPrepared() noexcept;
 
+  /// A retired frame consumes frontend frame identity
+  /// (RendererFrontendDirectDispatcher.cpp:415) but evaluates no exposure.
+  /// Nothing else advances committed_frame_id_, and ResetSceneGeneration
+  /// deliberately preserves it, so without this every retirement permanently
+  /// breaks the contiguity check in PrepareFrame for every later rendered
+  /// frame. Checked before the retirement commits, applied after. The
+  /// luminance history is untouched: no exposure pass ran, and claiming one
+  /// would be fabrication. Committed simulation time IS advanced, so the next
+  /// rendered frame's delta is the true inter-frame delta rather than an
+  /// inflated one that would trip kHdrMaximumFrameDeltaSeconds after a long
+  /// suspension.
+  [[nodiscard]] bool CanAccountRetiredFrame(
+      std::uint64_t frame_id, double simulation_time_seconds) const noexcept;
+
+  /// Applies what CanAccountRetiredFrame validated. Returns false, changing
+  /// nothing, if the state moved since that check; the caller must treat that
+  /// as a fault, because frame identity has already advanced elsewhere.
+  [[nodiscard]] bool AccountRetiredFrame(
+      std::uint64_t frame_id, double simulation_time_seconds) noexcept;
+
   /// Resets map-scoped simulation time and exposure history while preserving
   /// the renderer-global committed frame ID. The next request must therefore
   /// continue frame identity but may begin again at simulation time zero.

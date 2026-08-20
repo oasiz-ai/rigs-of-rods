@@ -1426,6 +1426,76 @@ public:
     return clean;
   }
 
+  // The render path retires probes as a Prepare/Finalize transaction: an empty
+  // descriptor list erases every candidate state (1211-1226), collects the
+  // committed natives into retired_probes (1227-1236), and FinalizeFrame swaps
+  // the live set empty, moves those natives to deferred_probes and calls
+  // SetPbsBinding(false) because prospective_live_probe_count is zero
+  // (1294-1342). A generation whose final scene is retired never renders, so
+  // none of that runs. Reproduce that exact end state -- and nothing else.
+  //
+  // This deliberately does NOT call PrepareFrame. PrepareFrame requires a
+  // tracking camera (961), opens a scheduler transaction, and for any due
+  // descriptor performs a real cubemap capture. A retirement has no item
+  // bindings at all -- reflection_items is built only from the frontend's
+  // retained instances on the render path, and unlisted items never carry
+  // kOgreNextPccCaptureVisibilityBit -- so a capture taken from here would
+  // render a black cubemap and commit it as an adapter-authoritative receipt.
+  [[nodiscard]] RenderOperationResult RetireProbesForSceneGeneration() {
+    if (!audit.initialized) {
+      return Failure(RenderOperationCode::NOT_INITIALIZED,
+                     "runtime is not initialized");
+    }
+    if (!OnOwnerThread()) {
+      return Failure(RenderOperationCode::INVALID_ARGUMENT,
+                     "probe retirement must run on the initialization thread");
+    }
+    if (faulted) {
+      return Failure(RenderOperationCode::BACKEND_FAILURE,
+                     "runtime is fault-latched after native cleanup failure");
+    }
+    if (pending != nullptr || scheduler.has_pending_plan()) {
+      return Failure(RenderOperationCode::OUTSTANDING_LEASES,
+                     "reflection work remains pending at probe retirement");
+    }
+    if (states.empty() && !audit.pbs_bound) {
+      // The final empty scene was rendered: FinalizeFrame already did this.
+      // Touch nothing, count nothing, and leave ResetSceneGeneration's own
+      // check as the authority for that path.
+      return RenderOperationResult::Success();
+    }
+    // The only allocation, taken before any native mutation, so the steps
+    // below cannot fail halfway and leave PBS unbound while the live set still
+    // names probes.
+    try {
+      deferred_probes.reserve(deferred_probes.size() + states.size());
+    } catch (const std::bad_alloc &) {
+      return Failure(RenderOperationCode::OUT_OF_MEMORY,
+                     "probe retirement could not stage the deferred list");
+    }
+    if (!SetPbsBinding(false)) {
+      faulted = true;
+      return Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "HLMS PBS rejected reflection unbinding at generation retirement");
+    }
+    audit.pbs_bound = false;
+    std::uint64_t retired = 0U;
+    for (auto &entry : states) {
+      if (entry.second.committed != nullptr) {
+        deferred_probes.push_back(entry.second.committed);
+        entry.second.committed = nullptr;
+        ++retired;
+      }
+    }
+    states.clear();
+    audit.live_probe_count = 0U;
+    audit.blend_texture_ready = false;
+    audit.scene_reset_retired_probe_count += retired;
+    ++audit.scene_reset_teardowns;
+    return RenderOperationResult::Success();
+  }
+
   [[nodiscard]] RenderOperationResult ResetSceneGeneration() {
     if (!audit.initialized) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
@@ -1658,6 +1728,11 @@ RenderOperationResult OgreNextReflectionProbeRuntime::FinalizeFrame(
 bool OgreNextReflectionProbeRuntime::AbortFrame(
     std::uint64_t render_frame_id) noexcept {
   return impl_->AbortFrame(render_frame_id);
+}
+
+RenderOperationResult
+OgreNextReflectionProbeRuntime::RetireProbesForSceneGeneration() {
+  return impl_->RetireProbesForSceneGeneration();
 }
 
 RenderOperationResult

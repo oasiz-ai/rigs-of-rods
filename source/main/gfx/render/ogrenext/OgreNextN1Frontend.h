@@ -43,7 +43,7 @@ constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
 /// per present. Values and log fields are unchanged; only the derivation
 /// and the verification growth rate differ.
 constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 5U;
-constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 1U;
+constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 2U;
 
 /// Rotating native re-verification budget for the retained scene: after the
 /// per-frame diff, up to this many retained instances that were not created
@@ -56,8 +56,9 @@ constexpr std::uint64_t kOgreNextRetainedVerifyWindow = 128U;
 /// Lifecycle evidence for the instance_id-keyed retained native scene.
 /// `last_*` fields describe the most recent completed present; cumulative
 /// counters are monotonic for the frontend lifetime. `recovery_teardowns`
-/// counts full retained teardowns performed on a failed present (the next
-/// present rebuilds from an empty native scene).
+/// counts a full teardown forced by a failed present, or by retained
+/// instances surviving the emptying asset synchronization (the next present
+/// rebuilds from an empty native scene).
 struct OgreNextRetainedSceneAudit final {
   std::uint32_t version = kOgreNextRetainedSceneAuditVersion;
   std::uint64_t generation = 0U;
@@ -78,6 +79,11 @@ struct OgreNextRetainedSceneAudit final {
   std::uint64_t verify_window = kOgreNextRetainedVerifyWindow;
   std::uint64_t verify_cursor = 0U;
   std::uint64_t recovery_teardowns = 0U;
+  /// Retained-light teardowns performed at a generation reset because the
+  /// final scene was retired rather than rendered, so no light-set diff ran.
+  /// Expected at every retire-path generation boundary; distinct from
+  /// recovery_teardowns, which now counts only surviving instances.
+  std::uint64_t retired_light_teardowns = 0U;
   /// Per-phase CPU cost of the most recent present, for offline
   /// scene_dispatch attribution. Metadata-only; no GPU readback.
   std::uint64_t last_light_phase_microseconds = 0U;

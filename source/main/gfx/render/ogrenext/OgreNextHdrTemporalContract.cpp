@@ -498,6 +498,31 @@ void OgreNextHdrTemporalState::AbortPrepared() noexcept {
   ClearPending();
 }
 
+bool OgreNextHdrTemporalState::CanAccountRetiredFrame(
+    std::uint64_t frame_id, double simulation_time_seconds) const noexcept {
+  // Mirrors the frame/time gates PrepareFrame applies at 243-252, minus the
+  // delta envelope: kHdrMaximumFrameDeltaSeconds bounds what the temporal
+  // shader blends, and a retired frame runs no shader. Refusing a long
+  // suspension here would turn a recoverable retirement into a fatal reset.
+  return initialized_ && !commit_prepared_ &&
+         committed_frame_id_ != (std::numeric_limits<std::uint64_t>::max)() &&
+         frame_id == committed_frame_id_ + 1U &&
+         std::isfinite(simulation_time_seconds) &&
+         simulation_time_seconds >= 0.0 &&
+         (committed_frame_id_ == 0U ||
+          simulation_time_seconds >= committed_simulation_time_seconds_);
+}
+
+bool OgreNextHdrTemporalState::AccountRetiredFrame(
+    std::uint64_t frame_id, double simulation_time_seconds) noexcept {
+  if (!CanAccountRetiredFrame(frame_id, simulation_time_seconds)) {
+    return false;
+  }
+  committed_frame_id_ = frame_id;
+  committed_simulation_time_seconds_ = simulation_time_seconds;
+  return true;
+}
+
 ValidationResult OgreNextHdrTemporalState::ResetSceneGeneration() {
   if (!initialized_) {
     return ValidationResult::Failure(

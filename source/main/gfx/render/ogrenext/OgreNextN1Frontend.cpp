@@ -9705,6 +9705,22 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
         "scene generation reset requires released frame outputs");
   }
   if (impl_->reflection_probe_runtime) {
+    // A generation whose final scene was retired never ran the render path's
+    // probe Prepare/Finalize pair (12244 / 12853), so nothing erased the live
+    // probe set or unbound HlmsPbs. Complete that lifecycle explicitly here;
+    // it is a no-op when the final scene was rendered.
+    //
+    // Placing it in the reset chain rather than in RetireFrameState is what
+    // makes it cover every retire trigger: RendererInProcessSession.cpp:507
+    // also retires on a stale surface, a suspended surface and
+    // shutdown_requested, and the dispatcher retires on a presentation-extent
+    // mismatch (RendererFrontendDirectDispatcher.cpp:326-332). It is also why
+    // the dispatcher's no-frontend-work fast path at :337 needs no change.
+    const RenderOperationResult retired =
+        impl_->reflection_probe_runtime->RetireProbesForSceneGeneration();
+    if (!retired) {
+      return retired;
+    }
     const RenderOperationResult probes =
         impl_->reflection_probe_runtime->ResetSceneGeneration();
     if (!probes) {
@@ -9748,17 +9764,31 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
     }
     impl_->hdr_exact_current_to_old_copy_verified = false;
   }
-  // The dispatcher gates generation reset on a committed final empty scene,
-  // which empties the retained scene through the diff (rendered) or the
-  // asset-retirement unbind (retired without render). Anything still
-  // retained here is an anomaly: tear it down to empty rather than leak it
-  // into the next generation.
-  if (!impl_->retained_instances.empty() || !impl_->retained_lights.empty()) {
+  // Retained INSTANCES are destroyed on BOTH paths by
+  // DestroyRetainedInstancesForAssetReplacement during the emptying asset
+  // synchronization (:9586 -> :4541), because every instance's mesh and
+  // material are absent from the emptied candidate catalog. An instance
+  // surviving to here really is an anomaly.
+  //
+  // Retained LIGHTS are not asset-backed: only the render path's light-set
+  // diff (:10683-10690) destroys them, and a retired final scene never runs
+  // that diff. Tearing lights down here is the expected completion of the
+  // retire path, not a recovery, so count it separately -- otherwise every
+  // terrain unload raises a corruption counter and the real signal is lost.
+  if (!impl_->retained_instances.empty()) {
     ++impl_->retained_audit.recovery_teardowns;
     if (!impl_->DestroyRetainedScene()) {
       impl_->faulted = true;
       return NativeTeardownFailure(
           "Ogre-Next retained scene generation reset");
+    }
+    impl_->shadow_audit.last_native_bounds_observations.clear();
+  } else if (!impl_->retained_lights.empty()) {
+    ++impl_->retained_audit.retired_light_teardowns;
+    if (!impl_->DestroyRetainedLights()) {
+      impl_->faulted = true;
+      return NativeTeardownFailure(
+          "Ogre-Next retained light generation reset");
     }
     impl_->shadow_audit.last_native_bounds_observations.clear();
   }
@@ -13153,12 +13183,17 @@ OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
     }
     submission_prepared = true;
     if (!impl_->particle_runtime.CanCommit(request.frame_id) ||
-        !impl_->submission_state.CanCommitPrepared(request)) {
+        !impl_->submission_state.CanCommitPrepared(request) ||
+        (impl_->hdr_enabled &&
+         !impl_->hdr_temporal_state.CanAccountRetiredFrame(
+             request.frame_id,
+             request.scene_snapshot->simulation_time_seconds()))) {
       abort();
       impl_->faulted = true;
       return RenderOperationResult::Failure(
           RenderOperationCode::BACKEND_FAILURE,
-          "prepared N1 retired-frame state changed before publication");
+          "prepared N1 retired-frame state changed before publication, or the "
+          "retired frame cannot be accounted in the HDR temporal lineage");
     }
     // Both publications are allocation-free. Particle commit is checked first
     // so a failed particle transaction can never consume frame identity.
@@ -13173,6 +13208,22 @@ OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
     }
     particle_prepared = false;
     impl_->submission_state.CommitPrepared(request);
+    // Frontend frame identity has now advanced for a frame that rendered
+    // nothing. HDR must observe the same identity or its contiguity check
+    // rejects every later rendered frame, including the next generation's
+    // first. CanAccountRetiredFrame was checked above and nothing between
+    // there and here touches HDR state, so a false here means an invariant
+    // broke: fault-latch rather than desync silently.
+    if (impl_->hdr_enabled &&
+        !impl_->hdr_temporal_state.AccountRetiredFrame(
+            request.frame_id,
+            request.scene_snapshot->simulation_time_seconds())) {
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "retired frame could not be accounted in the HDR temporal lineage "
+          "after frame identity advanced");
+    }
     submission_prepared = false;
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {

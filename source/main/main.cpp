@@ -4392,6 +4392,8 @@ int main(int argc, char *argv[])
                                     "reflection_blend_ready={} "
                                     "reflection_ui_free={} "
                                     "reflection_reserved_queue_excluded={} "
+                                    "reflection_scene_reset_teardowns={} "
+                                    "reflection_scene_reset_retired_probe_count={} "
                                     "native_scene_lighting={} rgba16_hdr={} "
                                     "base_hdr={} sun_full_unoccluded={} "
                                     "sun_direct_hdr={} gpu_sun_derivation={} "
@@ -4456,6 +4458,10 @@ int main(int argc, char *argv[])
                                     lighting_audit.reflection_ui_free_capture,
                                     lighting_audit
                                         .reflection_reserved_render_queue_excluded,
+                                    lighting_audit
+                                        .reflection_scene_reset_teardowns,
+                                    lighting_audit
+                                        .reflection_scene_reset_retired_probe_count,
                                     lighting_audit.native_scene_lighting_pass,
                                     lighting_audit.linear_rgba16_hdr_target,
                                     lighting_audit.separate_base_hdr_target,
@@ -4577,12 +4583,17 @@ int main(int argc, char *argv[])
                                 LOG(fmt::format(
                                     "[RoR|RendererCombined|RetainedScene] "
                                     "created={} updated={} destroyed={} "
-                                    "retained={} verified={}",
+                                    "retained={} verified={} "
+                                    "recovery_teardowns={} "
+                                    "retired_light_teardowns={}",
                                     retained_scene_audit.last_created,
                                     retained_scene_audit.last_updated,
                                     retained_scene_audit.last_destroyed,
                                     retained_scene_audit.retained_instances,
-                                    retained_scene_audit.last_verified));
+                                    retained_scene_audit.last_verified,
+                                    retained_scene_audit.recovery_teardowns,
+                                    retained_scene_audit
+                                        .retired_light_teardowns));
                                 renderer_combined_retained_scene_logged_frame =
                                     retained_scene_audit.frames_diffed;
                             }

@@ -924,7 +924,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 "resolution": VERIFY.RT4_REFLECTION_RESOLUTION,
             },
             "runtime_audit": {
-                "version": 3,
+                "version": 4,
                 "successful_capture_count": 1,
                 "failed_capture_count": 0,
                 "live_probe_count": 1,
