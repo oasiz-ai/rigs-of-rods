@@ -1135,6 +1135,24 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
               coverage.environment_pending_entries == 0U &&
               coverage.uncurated_spherical_family_matte_materials == 1U,
           "curated/uncurated native matte coverage lost its exact partition");
+  // The widened structural gate admits this layered shape, so the material now
+  // reaches - and is still refused by - the authenticated-source gate. It must
+  // never be refused for its topology again, and it must never project without
+  // an authenticated source.
+  const OgreNextDemoMaterialSourceCounters unreviewed_layered =
+      source.CurrentCaptureCounters();
+  Require(unreviewed_layered.exclusions_by_reason[static_cast<std::size_t>(
+              OgreNextDemoTextureProjectionExclusion::
+                  MATERIAL_STRUCTURE_UNSUPPORTED)] == 0U &&
+              unreviewed_layered.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_MULTI_PASS_UNSUPPORTED)] == 0U &&
+              unreviewed_layered.exclusions_by_reason[static_cast<std::size_t>(
+                  OgreNextDemoTextureProjectionExclusion::
+                      MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED)] == 0U &&
+              unreviewed_layered.layered_legacy_material_projections == 0U,
+          "layered legacy admission changed its refusal reason or projected "
+          "without an authenticated source");
   RequireZeroReadback(source, *readbacks);
   source.Discard();
 }

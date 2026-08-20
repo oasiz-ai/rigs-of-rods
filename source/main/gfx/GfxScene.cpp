@@ -196,7 +196,7 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};"
         "curated_cityworld={}/{};curated_observed={};curated_matte={};"
         "curated_environment_pending={};uncurated_spherical_matte={};"
-        "reasons={}",
+        "layered_legacy={};unpresented_layers={};reasons={}",
         active_projections, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.distinct_eligible_texture_keys,
@@ -229,6 +229,8 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         curated.observed_entries, curated.matte_entries,
         curated.environment_pending_entries,
         curated.uncurated_spherical_family_matte_materials,
+        counters.layered_legacy_material_projections,
+        counters.unpresented_legacy_layer_units,
         FormatOgreNextDemoMaterialExclusions(counters));
 }
 
@@ -248,7 +250,9 @@ std::string FormatOgreNextDemoMaterialCounters(
         "active_alpha_test_greater_equal_material_projections={} "
         "active_metallic_roughness_workflow_projections={} "
         "active_specular_workflow_projections={} "
-        "active_anisotropic_sampler_projections={} ",
+        "active_anisotropic_sampler_projections={} "
+        "layered_legacy_material_projections={} "
+        "unpresented_legacy_layer_units={} ",
         counters.new_frozen_material_decisions, counters.candidate_sections,
         counters.projected_sections, counters.matte_excluded_sections,
         counters.projections, counters.distinct_eligible_texture_keys,
@@ -262,7 +266,9 @@ std::string FormatOgreNextDemoMaterialCounters(
         counters.active_alpha_test_greater_equal_material_projections,
         counters.active_metallic_roughness_workflow_projections,
         counters.active_specular_workflow_projections,
-        counters.active_anisotropic_sampler_projections);
+        counters.active_anisotropic_sampler_projections,
+        counters.layered_legacy_material_projections,
+        counters.unpresented_legacy_layer_units);
     result += fmt::format(
         "active_texture_state_observations={} "
         "active_normalized_texture_observations={} "

@@ -71,8 +71,18 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   MANAGED_MATERIAL_AUTHORITY_UNAVAILABLE = 23U,
   MANAGED_MATERIAL_SEMANTIC_UNSUPPORTED = 24U,
   AMBIGUOUS_BC1_ALPHA_SEMANTIC = 25U,
-  COUNT = 26U,
+  /// Split out of MATERIAL_STRUCTURE_UNSUPPORTED so the live census names what
+  /// is still refused instead of collapsing every topology into one bucket.
+  MATERIAL_MULTI_PASS_UNSUPPORTED = 26U,
+  MATERIAL_AUTHORED_PROGRAM_UNSUPPORTED = 27U,
+  MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED = 28U,
+  COUNT = 29U,
 };
+
+/// Hard cap on the texture units one admitted legacy pass may declare. Unit 0
+/// is the projected base colour; every further unit must classify as a
+/// recognised legacy layer and contributes no texel.
+constexpr std::size_t kOgreNextDemoMaximumLegacyLayeredTextureUnits = 4U;
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
@@ -275,6 +285,11 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t straight_source_over_material_projections = 0U;
   std::size_t legacy_straight_alpha_material_projections = 0U;
   std::size_t specular_workflow_projections = 0U;
+  /// Distinct new projections admitted through the layered legacy shape: one
+  /// canonical base-colour unit plus one or more recognised legacy layers that
+  /// are observed, counted, and deliberately not presented.
+  std::size_t layered_legacy_material_projections = 0U;
+  std::size_t unpresented_legacy_layer_units = 0U;
   std::size_t authored_specular_source_decodes = 0U;
   /// New managed linear-specular decode activity. These buckets are also
   /// included in the common modern normalization/mip totals above; the

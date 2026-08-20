@@ -713,6 +713,62 @@ bool IsExactCuratedCityWorldSphericalEnvironmentUnit(
          effect->second.subtype == Ogre::TextureUnitState::ENV_CURVED;
 }
 
+/// Bounded classification of one trailing (index >= 1) texture unit of a
+/// single-pass legacy material.
+///
+/// Legacy CityWorld overwhelmingly declares a canonical diffuse on unit 0 and
+/// then one or two further layers - an alpha-blended specular map and/or an
+/// environment reflection. The projection presents unit 0 only, so none of
+/// these layers contributes a single texel and the authenticated-source
+/// contract is untouched: they are structurally observed and counted, never
+/// sampled. Anything outside this bounded set keeps the material matte.
+enum class LegacyUnpresentedLayerKind : std::uint8_t {
+  UNSUPPORTED = 0U,
+  SPECULAR_ALPHA_BLEND = 1U,
+  ENVIRONMENT_REFLECTION = 2U,
+};
+
+bool IsLegacyLayerColourBlend(const Ogre::LayerBlendModeEx &colour) noexcept {
+  return colour.blendType == Ogre::LBT_COLOUR &&
+         colour.source1 == Ogre::LBS_TEXTURE &&
+         colour.source2 == Ogre::LBS_CURRENT &&
+         (colour.operation == Ogre::LBX_MODULATE ||
+          colour.operation == Ogre::LBX_BLEND_CURRENT_ALPHA ||
+          colour.operation == Ogre::LBX_BLEND_MANUAL);
+}
+
+LegacyUnpresentedLayerKind ClassifyLegacyUnpresentedLayer(
+    const Ogre::TextureUnitState &unit) noexcept {
+  try {
+    if (unit.getNumFrames() != 1U || unit.getTextureCoordSet() != 0U ||
+        unit.getProjectiveTexturingFrustum() != nullptr ||
+        unit.getUnorderedAccessMipLevel() != -1 ||
+        !IsIdentityTextureTransform(unit.getTextureTransform()) ||
+        !IsCanonicalModulate(unit.getAlphaBlendMode(), Ogre::LBT_ALPHA)) {
+      return LegacyUnpresentedLayerKind::UNSUPPORTED;
+    }
+    if (IsExactCuratedCityWorldSpecularUnit(unit)) {
+      return LegacyUnpresentedLayerKind::SPECULAR_ALPHA_BLEND;
+    }
+    const Ogre::TextureUnitState::EffectMap &effects = unit.getEffects();
+    if (effects.size() != 1U || !IsLegacyLayerColourBlend(
+                                    unit.getColourBlendMode())) {
+      return LegacyUnpresentedLayerKind::UNSUPPORTED;
+    }
+    const auto effect = effects.begin();
+    if (effect->first != Ogre::TextureUnitState::ET_ENVIRONMENT_MAP ||
+        effect->second.type !=
+            Ogre::TextureUnitState::ET_ENVIRONMENT_MAP ||
+        (effect->second.subtype != Ogre::TextureUnitState::ENV_CURVED &&
+         effect->second.subtype != Ogre::TextureUnitState::ENV_PLANAR)) {
+      return LegacyUnpresentedLayerKind::UNSUPPORTED;
+    }
+    return LegacyUnpresentedLayerKind::ENVIRONMENT_REFLECTION;
+  } catch (...) {
+    return LegacyUnpresentedLayerKind::UNSUPPORTED;
+  }
+}
+
 bool IsRtssGeneratedTechnique(const Ogre::Technique &technique) noexcept {
   try {
     return technique.getSchemeName() == Ogre::MSN_SHADERGEN &&
@@ -851,6 +907,58 @@ bool HasAuthoredProgram(const Ogre::Pass &pass) noexcept {
   return pass.hasVertexProgram() || pass.hasFragmentProgram() ||
          pass.hasGeometryProgram() || pass.hasTessellationHullProgram() ||
          pass.hasTessellationDomainProgram() || pass.hasComputeProgram();
+}
+
+/// Single structural gate for an ordinary (uncurated, non-Alexis) legacy
+/// material. One technique-pass, no GPU program, unit 0 as base colour, and
+/// every further unit a recognised legacy layer that is observed but never
+/// presented. Both the admission decision and its later revalidation call this
+/// so the two can never drift apart.
+bool HasAdmissibleLegacyShape(
+    const Ogre::Technique &technique, const Ogre::Pass &pass,
+    std::size_t &unpresented_layer_units,
+    OgreNextDemoTextureProjectionExclusion &exclusion) noexcept {
+  unpresented_layer_units = 0U;
+  if (HasAuthoredProgram(pass)) {
+    exclusion = OgreNextDemoTextureProjectionExclusion::
+        MATERIAL_AUTHORED_PROGRAM_UNSUPPORTED;
+    return false;
+  }
+  if (technique.getNumPasses() != 1U) {
+    // A trailing pass carries visible contribution this projection cannot
+    // present - an additive glow overlay, or an alpha-rejected lit-window
+    // decal. Admitting pass 0 alone would silently delete it, so the whole
+    // material stays matte under its own named, counted reason instead.
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_MULTI_PASS_UNSUPPORTED;
+    return false;
+  }
+  const std::size_t unit_count =
+      static_cast<std::size_t>(pass.getNumTextureUnitStates());
+  if (unit_count == 0U) {
+    exclusion =
+        OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
+    return false;
+  }
+  if (unit_count > kOgreNextDemoMaximumLegacyLayeredTextureUnits) {
+    exclusion = OgreNextDemoTextureProjectionExclusion::
+        MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED;
+    return false;
+  }
+  for (std::size_t index = 1U; index < unit_count; ++index) {
+    const Ogre::TextureUnitState *const layer =
+        const_cast<Ogre::Pass &>(pass).getTextureUnitState(
+            static_cast<unsigned short>(index));
+    if (layer == nullptr ||
+        ClassifyLegacyUnpresentedLayer(*layer) ==
+            LegacyUnpresentedLayerKind::UNSUPPORTED) {
+      exclusion = OgreNextDemoTextureProjectionExclusion::
+          MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED;
+      return false;
+    }
+  }
+  unpresented_layer_units = unit_count - 1U;
+  return true;
 }
 
 struct ExactPassObservation final {
@@ -2500,6 +2608,7 @@ struct PendingNativeTextureOwner final {
   bool curated_cityworld = false;
   std::size_t technique_pass_count = 0U;
   std::size_t pass_texture_unit_count = 0U;
+  std::size_t unpresented_layer_units = 0U;
   std::array<float, 4U> diffuse{};
   std::array<float, 4U> ambient{};
   std::array<float, 4U> specular{};
@@ -2556,6 +2665,16 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
     const bool observed_curated_cityworld =
         owner.curated_cityworld &&
         HasCuratedCityWorldSphericalFamilyShape(owner.native_material);
+    // Revalidate the ordinary structural shape through the exact predicate the
+    // admission decision used, so the two can never drift apart.
+    std::size_t observed_unpresented_layer_units = 0U;
+    OgreNextDemoTextureProjectionExclusion observed_shape_exclusion =
+        OgreNextDemoTextureProjectionExclusion::NONE;
+    const bool observed_admissible_legacy_shape =
+        technique != nullptr && pass != nullptr &&
+        HasAdmissibleLegacyShape(*technique, *pass,
+                                 observed_unpresented_layer_units,
+                                 observed_shape_exclusion);
     if (pass == nullptr || unit == nullptr || !sampler ||
         reinterpret_cast<std::uintptr_t>(pass) !=
             owner.native_pass_pointer_token ||
@@ -2575,9 +2694,9 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
          (native_texture->getName() != "smoke.dds" ||
           !IsExactContinuousDustSampler(ObserveExactSampler(*sampler)))) ||
         (!owner.curated_cityworld && !owner.allow_alexis_approximation &&
-         (technique->getNumPasses() != 1U ||
-          pass->getNumTextureUnitStates() != 1U ||
-          HasAuthoredProgram(*pass))) ||
+         (!observed_admissible_legacy_shape ||
+          observed_unpresented_layer_units !=
+              owner.unpresented_layer_units)) ||
         (owner.curated_cityworld && !observed_curated_cityworld) ||
         (owner.allow_alexis_approximation &&
          !IsExactAlexisDiffuseProjection(*technique, *pass,
@@ -2821,11 +2940,10 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         OgreNextDemoTextureProjectionExclusion::MATERIAL_STATE_UNSUPPORTED;
     return false;
   }
+  std::size_t unpresented_layer_units = 0U;
   if (!allow_alexis_approximation && !allow_curated_cityworld &&
-      (technique->getNumPasses() != 1U ||
-       pass->getNumTextureUnitStates() != 1U || HasAuthoredProgram(*pass))) {
-    exclusion =
-        OgreNextDemoTextureProjectionExclusion::MATERIAL_STRUCTURE_UNSUPPORTED;
+      !HasAdmissibleLegacyShape(*technique, *pass, unpresented_layer_units,
+                                exclusion)) {
     return false;
   }
   Ogre::TextureUnitState *const unit = pass->getTextureUnitState(0U);
@@ -3136,6 +3254,7 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     owner.curated_cityworld = allow_curated_cityworld;
     owner.technique_pass_count = technique->getNumPasses();
     owner.pass_texture_unit_count = pass->getNumTextureUnitStates();
+    owner.unpresented_layer_units = unpresented_layer_units;
     owner.diffuse = ObserveColourComponents(pass->getDiffuse());
     owner.ambient = ObserveColourComponents(pass->getAmbient());
     owner.specular = ObserveColourComponents(pass->getSpecular());
@@ -3968,6 +4087,11 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     if (!managed_specular_texture_key.empty()) {
       pending_->counters.specular_workflow_projections += 1U;
     }
+    if (unpresented_layer_units != 0U) {
+      pending_->counters.layered_legacy_material_projections += 1U;
+      pending_->counters.unpresented_legacy_layer_units +=
+          unpresented_layer_units;
+    }
     if (IsCanonicalAnisotropicSampler(sampler_observation) ||
         (managed_specular != nullptr &&
          IsCanonicalAnisotropicSampler(
@@ -4271,6 +4395,12 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
             std::string(curated_policy->exact_material_name));
         pending_->curated_cityworld_matte.erase(
             std::string(curated_policy->exact_material_name));
+      } else {
+        // The spherical-family census reports what is still matte. Once the
+        // layered shape is admitted the material leaves that set, so the
+        // counter keeps meaning exactly what its name says.
+        pending_->uncurated_spherical_family_matte.erase(
+            native_material->getName());
       }
       const std::size_t maximum = (std::numeric_limits<std::size_t>::max)();
       if (pending_->counters.candidate_sections != maximum) {
