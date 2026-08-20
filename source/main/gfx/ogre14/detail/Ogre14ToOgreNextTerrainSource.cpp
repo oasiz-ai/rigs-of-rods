@@ -183,6 +183,100 @@ struct NativePageReadback final {
   std::vector<AuthoredLayer> detail_layers;
 };
 
+/// Completes an opaque RGBA8 mip chain for either color space.
+///
+/// The shared opaque lowering accepts sRGB only, because it exists for the
+/// display-domain composite. The layer weight mask is a linear selection
+/// texture and must keep that color space, so this mirrors the same box
+/// filter and the same deterministic half-up rounding without the sRGB
+/// precondition.
+Render::ValidationResult CompleteAuthoredMipChain(
+    Render::TextureResourceDescriptor &texture) {
+  if (texture.type != Render::TextureResourceType::TEXTURE_2D ||
+      texture.format != Render::TextureResourceFormat::RGBA8_UNORM ||
+      texture.array_layers != 1U || texture.width == 0U ||
+      texture.height == 0U || texture.mip_levels.size() != 1U) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.terrain.layer.full_mip_chain",
+                   "authored lowering requires exactly one fresh RGBA8 2D base level");
+  }
+  const Render::TextureMipLevelDescriptor &base = texture.mip_levels.front();
+  const std::uint64_t row_bytes =
+      static_cast<std::uint64_t>(texture.width) * 4U;
+  std::uint64_t layer_bytes = 0U;
+  if (!CheckedMultiply(row_bytes, texture.height, layer_bytes) ||
+      layer_bytes > static_cast<std::uint64_t>(
+                        (std::numeric_limits<std::size_t>::max)()) ||
+      base.width != texture.width || base.height != texture.height ||
+      base.row_pitch_bytes != row_bytes ||
+      base.layer_pitch_bytes != layer_bytes ||
+      base.bytes.size() != static_cast<std::size_t>(layer_bytes)) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.terrain.layer.mip_layout",
+                   "authored lowering requires an exact tight RGBA8 base layout",
+                   0U);
+  }
+  for (std::size_t alpha = 3U; alpha < texture.mip_levels.front().bytes.size();
+       alpha += 4U) {
+    texture.mip_levels.front().bytes[alpha] = 255U;
+  }
+
+  while (texture.mip_levels.size() <
+         CompleteMipCount(texture.width, texture.height)) {
+    const Render::TextureMipLevelDescriptor &source = texture.mip_levels.back();
+    Render::TextureMipLevelDescriptor destination;
+    destination.width = (std::max)(1U, source.width / 2U);
+    destination.height = (std::max)(1U, source.height / 2U);
+    destination.row_pitch_bytes =
+        static_cast<std::uint64_t>(destination.width) * 4U;
+    destination.layer_pitch_bytes =
+        destination.row_pitch_bytes * destination.height;
+    if (destination.layer_pitch_bytes >
+        static_cast<std::uint64_t>((std::numeric_limits<std::size_t>::max)())) {
+      return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                     "ogre_next_demo.terrain.layer.generated_mip",
+                     "generated mip allocation exceeds host address space");
+    }
+    destination.bytes.resize(
+        static_cast<std::size_t>(destination.layer_pitch_bytes));
+    for (std::uint32_t y = 0U; y < destination.height; ++y) {
+      const std::uint32_t source_y0 = y * 2U;
+      const std::uint32_t source_y1 =
+          (std::min)(source_y0 + 1U, source.height - 1U);
+      for (std::uint32_t x = 0U; x < destination.width; ++x) {
+        const std::uint32_t source_x0 = x * 2U;
+        const std::uint32_t source_x1 =
+            (std::min)(source_x0 + 1U, source.width - 1U);
+        const std::size_t offsets[4U] = {
+            static_cast<std::size_t>(source_y0) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x0) * 4U,
+            static_cast<std::size_t>(source_y0) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x1) * 4U,
+            static_cast<std::size_t>(source_y1) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x0) * 4U,
+            static_cast<std::size_t>(source_y1) * source.row_pitch_bytes +
+                static_cast<std::size_t>(source_x1) * 4U,
+        };
+        const std::size_t output =
+            static_cast<std::size_t>(y) * destination.row_pitch_bytes +
+            static_cast<std::size_t>(x) * 4U;
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+          const std::uint32_t sum =
+              static_cast<std::uint32_t>(source.bytes[offsets[0U] + channel]) +
+              static_cast<std::uint32_t>(source.bytes[offsets[1U] + channel]) +
+              static_cast<std::uint32_t>(source.bytes[offsets[2U] + channel]) +
+              static_cast<std::uint32_t>(source.bytes[offsets[3U] + channel]);
+          destination.bytes[output + channel] =
+              static_cast<std::uint8_t>((sum + 2U) / 4U);
+        }
+        destination.bytes[output + 3U] = 255U;
+      }
+    }
+    texture.mip_levels.push_back(std::move(destination));
+  }
+  return Render::ValidationResult::Success();
+}
+
 /// Wrapping sampler for a layer that repeats many times across one page.
 Render::SamplerResourceDescriptor MakeRepeatSampler(std::string debug_name,
                                                     std::size_t mip_levels) {
@@ -279,7 +373,7 @@ Render::ValidationResult LoadAuthoredLayerImage(
   }
   output.mip_levels.reserve(CompleteMipCount(output.width, output.height));
   output.mip_levels.push_back(std::move(mip));
-  return CompleteOgreNextDemoOpaqueMipChain(output);
+  return CompleteAuthoredMipChain(output);
 }
 
 Render::ValidationResult AcquireNativeMipInventory(
@@ -638,7 +732,7 @@ Render::ValidationResult BuildLayerWeightMask(
   }
   output.mip_levels.reserve(CompleteMipCount(output.width, output.height));
   output.mip_levels.push_back(std::move(mip));
-  return CompleteOgreNextDemoOpaqueMipChain(output);
+  return CompleteAuthoredMipChain(output);
 }
 
 /// Lifts every authored layer of one page to authored-density descriptors.
