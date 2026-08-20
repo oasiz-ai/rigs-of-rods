@@ -7639,7 +7639,14 @@ public:
       scene->setVisibilityMask(0U);
       scene->setAllClearColours(
           Ogre::ColourValue(0.012F, 0.018F, 0.028F, 1.0F));
-      scene->setAllLoadActions(Ogre::LoadAction::Clear);
+      // Colour only, per attachment. The clear-only bootstrap node likewise
+      // clears just Colour0 on the borrowed window; the overlay panel's
+      // macroblock disables depth check and depth write, so the window's depth
+      // attachment is neither read nor written and must not be loaded (its
+      // contents are undefined after a swap) or stored.
+      scene->mLoadActionColour[0U] = Ogre::LoadAction::Clear;
+      scene->mLoadActionDepth = Ogre::LoadAction::DontCare;
+      scene->mLoadActionStencil = Ogre::LoadAction::DontCare;
       scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
       scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
 

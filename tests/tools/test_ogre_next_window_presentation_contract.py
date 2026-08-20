@@ -166,7 +166,8 @@ class OgreNextWindowPresentationContractTests(unittest.TestCase):
             "scene->mLastRQ = kOgreNextOverlayLastRenderQueue;",
             "scene->mIncludeOverlays = true;",
             "scene->setVisibilityMask(0U);",
-            "scene->setAllLoadActions(Ogre::LoadAction::Clear);",
+            "scene->mLoadActionColour[0U] = Ogre::LoadAction::Clear;",
+            "scene->mLoadActionDepth = Ogre::LoadAction::DontCare;",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, graph)
