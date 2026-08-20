@@ -34,7 +34,11 @@ struct OgreNextReflectionProbeCaptureEvidence;
 struct OgreNextReflectionProbeNativeOwnershipEvidence;
 #endif
 
-constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 3U;
+/// Version 4 adds the scene-free GUI-only presentation counters to
+/// OgreNextN1PresentationAudit. OgreNextN1PresentationConfiguration shares this
+/// constant and is unchanged in shape, so a version-3 producer of that struct
+/// remains byte-compatible; only the emitted audit grew.
+constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 4U;
 /// Version 4: per-frame scene counters (pbs/transmission/normal/emissive/
 /// caster/receiver) are retained aggregates maintained O(changed) and
 /// cross-checked against the snapshot-derived shadow plan every present,
@@ -165,6 +169,24 @@ struct OgreNextN1PresentationAudit final {
   std::uint64_t bootstrap_clear_passes = 0U;
   std::uint64_t bootstrap_render_one_frame_calls = 0U;
   std::uint64_t bootstrap_window_swap_completions = 0U;
+  /// Scene-free GUI-only presentation (PresentUiOverlayFrame). Its graph is a
+  /// disabled-by-default overlay-only workspace enabled for exactly one
+  /// renderOneFrame() at a time, so ui_overlay_presented_frames is the number
+  /// of menu/loading frames the presenter actually swapped. None of these
+  /// advance presented_frames, first/last_presented_frame_id, or any scene
+  /// identity: a GUI-only frame consumes no frontend frame ID.
+  std::uint64_t ui_overlay_workspace_creates = 0U;
+  std::uint64_t ui_overlay_workspace_destroys = 0U;
+  std::uint64_t ui_overlay_image_creates = 0U;
+  std::uint64_t ui_overlay_image_destroys = 0U;
+  /// GPU uploads of GUI pixels. Strictly less than ui_overlay_presented_frames
+  /// whenever the GUI was static across presents; equal counts mean the
+  /// content hash changed every frame.
+  std::uint64_t ui_overlay_image_uploads = 0U;
+  std::uint64_t ui_overlay_presented_frames = 0U;
+  std::uint64_t ui_overlay_render_one_frame_calls = 0U;
+  std::uint32_t ui_overlay_last_width = 0U;
+  std::uint32_t ui_overlay_last_height = 0U;
   std::uint64_t source_target_creates = 0U;
   std::uint64_t source_target_destroys = 0U;
   std::uint64_t compositor_node_definition_creates = 0U;
@@ -751,6 +773,8 @@ public:
   RenderOperationResult
   Initialize(const FrontendInitializationRequest &request) override;
   RenderOperationResult PresentBootstrapFrame() override;
+  RenderOperationResult
+  PresentUiOverlayFrame(const UiOverlayFrameRequest &request) override;
   RenderOperationResult
   UpdateSurface(const FrontendSurfaceUpdate &update, bool headless,
                 std::uint64_t timeout_nanoseconds) override;

@@ -63,6 +63,7 @@
 #include "OgreRoot.h"
 #include "OgreSceneManager.h"
 #include "OgreSceneNode.h"
+#include "OgreStagingTexture.h"
 #include "OgreSubItem.h"
 #include "OgreSubMesh2.h"
 #include "OgreTechnique.h"
@@ -2539,6 +2540,25 @@ constexpr const char kOgreNextHudPanelName[] = "RoRHdrHudOverlayPanelV1";
 constexpr const char kOgreNextHudDatablockName[] =
     "RoRDisplayDomainUnlit_HudOverlayPanelV1";
 
+// Scene-free GUI-only presentation (PresentUiOverlayFrame). Deliberately a
+// second, separately named overlay/panel/datablock rather than a second user
+// of the production HUD ones: the two paths interleave within one session and
+// neither may ever observe or rebind the other's texture. They share only the
+// scene manager's single v1::OverlaySystem render-queue listener, because a
+// second registered listener would draw every overlay twice.
+constexpr const char kOgreNextMenuOverlayName[] = "RoRMenuOverlayV1";
+constexpr const char kOgreNextMenuPanelName[] = "RoRMenuOverlayPanelV1";
+constexpr const char kOgreNextMenuDatablockName[] =
+    "RoRDisplayDomainUnlit_MenuOverlayPanelV1";
+constexpr const char kOgreNextMenuOverlayTextureName[] =
+    "RoRN1MenuOverlayImage";
+/// v1::OverlayManager places overlays in render queue 254 by default, and the
+/// stock HdrRenderUi node renders exactly [254, 255) with overlays enabled
+/// (mLastRQ is not inclusive). The GUI-only node reproduces that window so no
+/// scene renderable can enter a menu frame even if one were visible.
+constexpr Ogre::uint8 kOgreNextOverlayFirstRenderQueue = 254U;
+constexpr Ogre::uint8 kOgreNextOverlayLastRenderQueue = 255U;
+
 RenderOperationResult HdrBackendFailure(const std::string &detail) {
   return RenderOperationResult::Failure(
       RenderOperationCode::BACKEND_FAILURE,
@@ -2767,6 +2787,10 @@ constexpr const char *kBootstrapPresentationNodeName =
     "RoRN1BootstrapPresentationNode";
 constexpr const char *kBootstrapPresentationWorkspaceName =
     "RoRN1BootstrapPresentationWorkspace";
+constexpr const char *kMenuPresentationNodeName =
+    "RoRN1MenuPresentationNode";
+constexpr const char *kMenuPresentationWorkspaceName =
+    "RoRN1MenuPresentationWorkspace";
 } // namespace
 
 class OgreNextN1Frontend::Impl final
@@ -5008,21 +5032,60 @@ public:
 #endif
   }
 
+  /// The scene manager may hold exactly one v1::OverlaySystem render-queue
+  /// listener: a second one would inject every overlay twice into the same
+  /// queue. Both the production HUD panel and the GUI-only menu panel need
+  /// one, and their lifetimes are independent (the HUD runtime dies with the
+  /// HDR compositor, the menu runtime does not), so ownership lives with the
+  /// frontend instead of with either runtime.
+  [[nodiscard]] RenderOperationResult EnsureOverlaySystem() {
+    if (overlay_system) {
+      return RenderOperationResult::Success();
+    }
+    if (scene_manager == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "overlay render-queue listener requires a live scene manager");
+    }
+    overlay_system = std::make_unique<Ogre::v1::OverlaySystem>();
+    scene_manager->addRenderQueueListener(overlay_system.get());
+    overlay_listener_registered = true;
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] bool DestroyOverlaySystem() noexcept {
+    bool clean = true;
+    if (overlay_listener_registered && scene_manager != nullptr &&
+        overlay_system) {
+      try {
+        scene_manager->removeRenderQueueListener(overlay_system.get());
+      } catch (...) {
+        clean = false;
+      }
+    } else if (overlay_listener_registered) {
+      clean = false;
+    }
+    overlay_listener_registered = false;
+    overlay_system.reset();
+    return clean;
+  }
+
   [[nodiscard]] RenderOperationResult CreateHudOverlayRuntime() {
     if (HudOverlayControlSelected()) {
       // The isolated magenta negative-control owns the HdrRenderUi node in
       // this configuration; the production HUD runtime stays absent.
       return RenderOperationResult::Success();
     }
-    if (scene_manager == nullptr || unlit == nullptr || hud_overlay_system ||
+    if (scene_manager == nullptr || unlit == nullptr ||
         hud_overlay != nullptr || hud_overlay_panel != nullptr ||
         hud_overlay_datablock != nullptr) {
       return HdrBackendFailure("HUD overlay runtime lifecycle is not empty");
     }
 
-    hud_overlay_system = std::make_unique<Ogre::v1::OverlaySystem>();
-    scene_manager->addRenderQueueListener(hud_overlay_system.get());
-    hud_overlay_listener_registered = true;
+    const RenderOperationResult overlays = EnsureOverlaySystem();
+    if (!overlays) {
+      return overlays;
+    }
 
     Ogre::HlmsMacroblock macroblock;
     macroblock.mDepthCheck = false;
@@ -5122,19 +5185,258 @@ public:
     }
     hud_overlay_datablock = nullptr;
     hud_overlay_datablock_created = false;
-    if (hud_overlay_listener_registered && scene_manager != nullptr &&
-        hud_overlay_system) {
+    // The v1::OverlaySystem listener is frontend-owned and outlives this
+    // runtime: the GUI-only menu panel keeps using it after an HDR compositor
+    // rebuild retires the HUD panel. DestroyOverlaySystem() retires it.
+    return clean;
+  }
+
+  /// GUI-only presentation panel. Structurally identical to the HUD panel -
+  /// same reserved display-domain datablock prefix, so the same exact-sRGB-EOTF
+  /// shader piece runs, and the same premultiplied source-over blend for GUI
+  /// pixels drawn over a zero-cleared target - but with its own overlay,
+  /// element, and datablock identities so neither path can rebind the other's
+  /// texture. Unlike the HUD runtime it has no HDR dependency: it composites
+  /// straight onto the window through its own overlay-only node.
+  [[nodiscard]] RenderOperationResult CreateMenuOverlayRuntime() {
+    if (scene_manager == nullptr || unlit == nullptr ||
+        menu_overlay != nullptr || menu_overlay_panel != nullptr ||
+        menu_overlay_datablock != nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only overlay runtime lifecycle is not empty");
+    }
+    const RenderOperationResult overlays = EnsureOverlaySystem();
+    if (!overlays) {
+      return overlays;
+    }
+
+    Ogre::HlmsMacroblock macroblock;
+    macroblock.mDepthCheck = false;
+    macroblock.mDepthWrite = false;
+    macroblock.mCullMode = Ogre::CULL_NONE;
+    Ogre::HlmsBlendblock blendblock;
+    blendblock.mSourceBlendFactor = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactor = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mSourceBlendFactorAlpha = Ogre::SBF_ONE;
+    blendblock.mDestBlendFactorAlpha = Ogre::SBF_ONE_MINUS_SOURCE_ALPHA;
+    blendblock.mBlendOperation = Ogre::SBO_ADD;
+    blendblock.mBlendOperationAlpha = Ogre::SBO_ADD;
+    blendblock.calculateSeparateBlendMode();
+    Ogre::HlmsDatablock *base_datablock = unlit->createDatablock(
+        Ogre::IdString(kOgreNextMenuDatablockName), kOgreNextMenuDatablockName,
+        macroblock, blendblock, Ogre::HlmsParamVec());
+    menu_overlay_datablock =
+        dynamic_cast<Ogre::HlmsUnlitDatablock *>(base_datablock);
+    if (menu_overlay_datablock == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only overlay runtime did not create an Unlit datablock");
+    }
+    menu_overlay_datablock_created = true;
+    menu_overlay_datablock->setUseColour(true);
+    menu_overlay_datablock->setColour(Ogre::ColourValue::White);
+
+    Ogre::v1::OverlayManager &manager =
+        Ogre::v1::OverlayManager::getSingleton();
+    menu_overlay = manager.create(kOgreNextMenuOverlayName);
+    Ogre::v1::OverlayElement *element =
+        manager.createOverlayElement("Panel", kOgreNextMenuPanelName);
+    menu_overlay_panel = dynamic_cast<Ogre::v1::OverlayContainer *>(element);
+    if (menu_overlay == nullptr || menu_overlay_panel == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only overlay runtime did not create an Overlay panel");
+    }
+    menu_overlay_panel->setMetricsMode(Ogre::v1::GMM_RELATIVE);
+    menu_overlay_panel->setPosition(0.0F, 0.0F);
+    menu_overlay_panel->setDimensions(1.0F, 1.0F);
+    menu_overlay_panel->setMaterialName(kOgreNextMenuDatablockName);
+    menu_overlay->add2D(menu_overlay_panel);
+    // Shown only for the duration of one GUI-only present, so a scene frame
+    // rendered through HdrRenderUi can never pick this panel up.
+    menu_overlay->hide();
+    return RenderOperationResult::Success();
+  }
+
+  [[nodiscard]] bool DestroyMenuOverlayRuntime() noexcept {
+    bool clean = true;
+    if (menu_overlay != nullptr && menu_overlay_panel != nullptr) {
       try {
-        scene_manager->removeRenderQueueListener(hud_overlay_system.get());
+        menu_overlay->remove2D(menu_overlay_panel);
       } catch (...) {
         clean = false;
       }
-    } else if (hud_overlay_listener_registered) {
+    }
+    if (Ogre::v1::OverlayManager::getSingletonPtr() != nullptr) {
+      Ogre::v1::OverlayManager &manager =
+          Ogre::v1::OverlayManager::getSingleton();
+      if (menu_overlay_panel != nullptr) {
+        try {
+          manager.destroyOverlayElement(menu_overlay_panel);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (menu_overlay != nullptr) {
+        try {
+          manager.destroy(menu_overlay);
+        } catch (...) {
+          clean = false;
+        }
+      }
+    } else if (menu_overlay_panel != nullptr || menu_overlay != nullptr) {
       clean = false;
     }
-    hud_overlay_listener_registered = false;
-    hud_overlay_system.reset();
+    menu_overlay_panel = nullptr;
+    menu_overlay = nullptr;
+    // The datablock must release the image before the image is destroyed.
+    if (menu_overlay_datablock != nullptr) {
+      try {
+        menu_overlay_datablock->setTexture(0U, nullptr);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    menu_overlay_texture_bound = false;
+    clean = DestroyMenuOverlayImage() && clean;
+    if (menu_overlay_datablock_created && unlit != nullptr) {
+      try {
+        unlit->destroyDatablock(Ogre::IdString(kOgreNextMenuDatablockName));
+      } catch (...) {
+        clean = false;
+      }
+    } else if (menu_overlay_datablock_created) {
+      clean = false;
+    }
+    menu_overlay_datablock = nullptr;
+    menu_overlay_datablock_created = false;
     return clean;
+  }
+
+  [[nodiscard]] bool DestroyMenuOverlayImage() noexcept {
+    if (menu_overlay_texture == nullptr) {
+      menu_overlay_texture_width = 0U;
+      menu_overlay_texture_height = 0U;
+      menu_overlay_texture_content_hash = 0U;
+      return true;
+    }
+    bool clean = true;
+    if (menu_overlay_datablock != nullptr && menu_overlay_texture_bound) {
+      try {
+        menu_overlay_datablock->setTexture(0U, nullptr);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    menu_overlay_texture_bound = false;
+    if (renderer != nullptr) {
+      try {
+        renderer->getTextureGpuManager()->destroyTexture(menu_overlay_texture);
+        ++presentation_audit.ui_overlay_image_destroys;
+      } catch (...) {
+        clean = false;
+      }
+    } else {
+      clean = false;
+    }
+    menu_overlay_texture = nullptr;
+    menu_overlay_texture_width = 0U;
+    menu_overlay_texture_height = 0U;
+    menu_overlay_texture_content_hash = 0U;
+    return clean;
+  }
+
+  /// Allocates (or re-allocates on an extent change) the frontend-private
+  /// display-domain image and uploads the borrowed GUI rows into it. The
+  /// image never enters the portable asset catalog: no RenderAssetId, no
+  /// revision, no registry entry, so it cannot perturb scene asset lineage.
+  /// An unchanged content hash performs no GPU work at all.
+  [[nodiscard]] RenderOperationResult
+  EnsureMenuOverlayImage(const UiOverlayFrameRequest &request) {
+    if (renderer == nullptr || menu_overlay_datablock == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only overlay image requires the menu overlay runtime");
+    }
+    Ogre::TextureGpuManager *texture_manager =
+        renderer->getTextureGpuManager();
+    if (texture_manager == nullptr) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only overlay image has no texture manager");
+    }
+    if (menu_overlay_texture != nullptr &&
+        (menu_overlay_texture_width != request.width ||
+         menu_overlay_texture_height != request.height)) {
+      if (!DestroyMenuOverlayImage()) {
+        faulted = true;
+        return NativeTeardownFailure("Ogre-Next GUI-only overlay image resize");
+      }
+    }
+    if (menu_overlay_texture == nullptr) {
+      if (texture_manager->findTextureNoThrow(
+              Ogre::IdString(kOgreNextMenuOverlayTextureName)) != nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "GUI-only overlay image name survived its allocation");
+      }
+      // PFG_RGBA8_UNORM, exactly what CreateUploadedTexture picks for the
+      // DISPLAY_DOMAIN_RGBA channel: no hardware sRGB decode, because the
+      // reserved-prefix Unlit shader applies the exact EOTF after filtering.
+      menu_overlay_texture = texture_manager->createTexture(
+          kOgreNextMenuOverlayTextureName, Ogre::GpuPageOutStrategy::Discard,
+          Ogre::TextureFlags::ManualTexture, Ogre::TextureTypes::Type2D);
+      if (menu_overlay_texture == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "GUI-only overlay image allocation returned no texture");
+      }
+      menu_overlay_texture->setResolution(request.width, request.height);
+      menu_overlay_texture->setNumMipmaps(1U);
+      menu_overlay_texture->setPixelFormat(Ogre::PFG_RGBA8_UNORM);
+      menu_overlay_texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
+      menu_overlay_texture_width = request.width;
+      menu_overlay_texture_height = request.height;
+      menu_overlay_texture_content_hash = 0U;
+      menu_overlay_texture_bound = false;
+      ++presentation_audit.ui_overlay_image_creates;
+    }
+    if (menu_overlay_texture_content_hash != request.content_hash) {
+      Ogre::StagingTexture *staging = texture_manager->getStagingTexture(
+          request.width, request.height, 1U, 1U, Ogre::PFG_RGBA8_UNORM);
+      if (staging == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::OUT_OF_MEMORY,
+            "GUI-only overlay image could not stage its upload");
+      }
+      try {
+        staging->startMapRegion();
+        Ogre::TextureBox box = staging->mapRegion(
+            request.width, request.height, 1U, 1U, Ogre::PFG_RGBA8_UNORM);
+        box.copyFrom(request.rgba8_bytes, request.width, request.height,
+                     request.width * 4U);
+        staging->stopMapRegion();
+        staging->upload(box, menu_overlay_texture, 0U, nullptr, nullptr);
+      } catch (...) {
+        texture_manager->removeStagingTexture(staging);
+        throw;
+      }
+      texture_manager->removeStagingTexture(staging);
+      menu_overlay_texture_content_hash = request.content_hash;
+      ++presentation_audit.ui_overlay_image_uploads;
+    }
+    if (!menu_overlay_texture_bound) {
+      Ogre::HlmsSamplerblock sampler;
+      sampler.mMinFilter = Ogre::FO_LINEAR;
+      sampler.mMagFilter = Ogre::FO_LINEAR;
+      sampler.mMipFilter = Ogre::FO_NONE;
+      sampler.setAddressingMode(Ogre::TAM_CLAMP);
+      menu_overlay_datablock->setTexture(0U, menu_overlay_texture, &sampler);
+      menu_overlay_datablock->setTextureUvSource(0U, 0U);
+      menu_overlay_texture_bound = true;
+    }
+    return RenderOperationResult::Success();
   }
 
   /// Detaches the panel's bound native texture before an asset transaction
@@ -7189,6 +7491,198 @@ public:
     return true;
   }
 
+  /// The GUI-only graph is a third, independent presentation graph. It has no
+  /// source texture, no shadow node, and one overlay-only PASS_SCENE, so it
+  /// needs no lights and never reaches the PSSM admission gate. It is kept
+  /// separate from the bootstrap graph on purpose: the bootstrap graph's
+  /// refusal to exist once portable renderer state is live is the clear-only
+  /// startup contract, and the menu must present after scenes have rendered.
+  [[nodiscard]] bool DestroyMenuPresentationGraph() noexcept {
+    if (root == nullptr) {
+      return menu_workspace == nullptr && menu_window_texture == nullptr &&
+             !menu_workspace_definition_created &&
+             !menu_node_definition_created;
+    }
+    Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
+    if (compositors == nullptr) {
+      return false;
+    }
+    if (menu_workspace != nullptr) {
+      try {
+        compositors->removeWorkspace(menu_workspace);
+        menu_workspace = nullptr;
+        menu_window_texture = nullptr;
+        ++presentation_audit.ui_overlay_workspace_destroys;
+      } catch (...) {
+        return false;
+      }
+    }
+    if (menu_workspace_definition_created) {
+      try {
+        const Ogre::IdString name(kMenuPresentationWorkspaceName);
+        if (!compositors->hasWorkspaceDefinition(name)) {
+          return false;
+        }
+        compositors->removeWorkspaceDefinition(name);
+        menu_workspace_definition_created = false;
+      } catch (...) {
+        return false;
+      }
+    }
+    if (menu_node_definition_created) {
+      try {
+        const Ogre::IdString name(kMenuPresentationNodeName);
+        if (!compositors->hasNodeDefinition(name)) {
+          return false;
+        }
+        compositors->removeNodeDefinition(name);
+        menu_node_definition_created = false;
+      } catch (...) {
+        return false;
+      }
+    }
+    menu_window_texture = nullptr;
+    return true;
+  }
+
+  [[nodiscard]] RenderOperationResult
+  RebindMenuPresentationWorkspace(Ogre::TextureGpu *window_texture) {
+    if (window_texture == nullptr || root == nullptr ||
+        scene_manager == nullptr || camera == nullptr ||
+        !menu_workspace_definition_created || !menu_node_definition_created) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only presentation rebind has an incomplete overlay graph");
+    }
+    Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
+    try {
+      if (menu_workspace != nullptr) {
+        compositors->removeWorkspace(menu_workspace);
+        menu_workspace = nullptr;
+        menu_window_texture = nullptr;
+        ++presentation_audit.ui_overlay_workspace_destroys;
+      }
+      Ogre::CompositorChannelVec channels;
+      channels.reserve(1U);
+      channels.push_back(window_texture);
+      // Created DISABLED: a GUI-only workspace must never execute inside a
+      // scene frame's renderOneFrame(). PresentUiOverlayFrame enables it for
+      // exactly one call and disables it again.
+      menu_workspace =
+          compositors->addWorkspace(scene_manager, channels, camera,
+                                    kMenuPresentationWorkspaceName, false);
+      ++presentation_audit.ui_overlay_workspace_creates;
+      const Ogre::CompositorChannelVec &observed =
+          menu_workspace->getExternalRenderTargets();
+      if (menu_workspace->getEnabled() || observed.size() != 1U ||
+          observed[0U] != window_texture) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "GUI-only Compositor2 workspace lost its exact disabled window-only channel");
+      }
+      menu_window_texture = window_texture;
+      return RenderOperationResult::Success();
+    } catch (const Ogre::Exception &error) {
+      return BackendFailure(error);
+    } catch (const std::exception &error) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE, error.what());
+    }
+  }
+
+  [[nodiscard]] RenderOperationResult EnsureMenuPresentationGraph() {
+    if (!ProductionPresentationEnabled() || presentation_window == nullptr ||
+        !presentation_resource_group_created || surface.suspended) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::INVALID_ARGUMENT,
+          "GUI-only presentation requires an active production native window");
+    }
+    Ogre::TextureGpu *window_texture = presentation_window->getTexture();
+    if (window_texture == nullptr ||
+        window_texture->getWidth() != surface.pixel_width ||
+        window_texture->getHeight() != surface.pixel_height) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "GUI-only presentation window lost its acknowledged pixel extent");
+    }
+    if (menu_workspace == nullptr) {
+      Ogre::CompositorManager2 *compositors = root->getCompositorManager2();
+      const Ogre::IdString node_name(kMenuPresentationNodeName);
+      const Ogre::IdString workspace_name(kMenuPresentationWorkspaceName);
+      if (menu_node_definition_created || menu_workspace_definition_created ||
+          compositors->hasNodeDefinition(node_name) ||
+          compositors->hasWorkspaceDefinition(workspace_name)) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "GUI-only presentation compositor identity is not empty");
+      }
+      Ogre::CompositorNodeDef *node =
+          compositors->addNodeDefinition(kMenuPresentationNodeName);
+      menu_node_definition_created = true;
+      node->addTextureSourceName("PresentationRT", 0U,
+                                 Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+      node->setNumTargetPass(1U);
+      Ogre::CompositorTargetDef *target = node->addTargetPass("PresentationRT");
+      target->setNumPasses(1U);
+      auto *scene = static_cast<Ogre::CompositorPassSceneDef *>(
+          target->addPass(Ogre::PASS_SCENE));
+      // Exactly the stock HdrRenderUi overlay window, plus the bootstrap
+      // graph's clear so the menu never composites over a stale scene frame.
+      scene->mFirstRQ = kOgreNextOverlayFirstRenderQueue;
+      scene->mLastRQ = kOgreNextOverlayLastRenderQueue;
+      scene->mIncludeOverlays = true;
+      scene->mUpdateLodLists = false;
+      scene->mEnableForwardPlus = false;
+      // A zero visibility mask excludes every scene movable regardless of the
+      // render-queue window, so a retained world can never leak into a menu
+      // frame; overlays are injected by the render-queue listener instead.
+      scene->setVisibilityMask(0U);
+      scene->setAllClearColours(
+          Ogre::ColourValue(0.012F, 0.018F, 0.028F, 1.0F));
+      scene->setAllLoadActions(Ogre::LoadAction::Clear);
+      scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+      scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
+
+      Ogre::CompositorWorkspaceDef *workspace_definition =
+          compositors->addWorkspaceDefinition(kMenuPresentationWorkspaceName);
+      menu_workspace_definition_created = true;
+      workspace_definition->connectExternal(0U, node->getName(), 0U);
+      const RenderOperationResult rebound =
+          RebindMenuPresentationWorkspace(window_texture);
+      if (!rebound) {
+        const bool clean = DestroyMenuPresentationGraph();
+        if (!clean) {
+          faulted = true;
+          return NativeTeardownFailure(
+              "Ogre-Next GUI-only presentation bind rollback");
+        }
+        return rebound;
+      }
+      return RenderOperationResult::Success();
+    }
+    const Ogre::CompositorChannelVec &channels =
+        menu_workspace->getExternalRenderTargets();
+    if (channels.size() != 1U || channels[0U] != menu_window_texture) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "live GUI-only presentation graph changed topology");
+    }
+    if (menu_window_texture != window_texture) {
+      const RenderOperationResult rebound =
+          RebindMenuPresentationWorkspace(window_texture);
+      if (!rebound) {
+        const bool clean = DestroyMenuPresentationGraph();
+        if (!clean) {
+          faulted = true;
+          return NativeTeardownFailure(
+              "Ogre-Next GUI-only drawable rebind rollback");
+        }
+        return rebound;
+      }
+    }
+    return RenderOperationResult::Success();
+  }
+
   [[nodiscard]] RenderOperationResult RebindBootstrapPresentationWorkspace(
       Ogre::TextureGpu *window_texture) {
     if (window_texture == nullptr || root == nullptr || scene_manager == nullptr ||
@@ -8256,8 +8750,13 @@ public:
     }
     clean = DestroyProductionPresentationGraph() && clean;
     clean = DestroyBootstrapPresentationGraph() && clean;
+    clean = DestroyMenuPresentationGraph() && clean;
+    // The GUI-only panel and its private image die before the catalog and the
+    // scene manager, and before the shared overlay listener is unregistered.
+    clean = DestroyMenuOverlayRuntime() && clean;
     clean = DestroyRetainedOutputTarget() && clean;
     clean = DestroyHdrCompositor() && clean;
+    clean = DestroyOverlaySystem() && clean;
     // Retained Items and receiver clones must die before the datablocks,
     // textures, and meshes they link to.
     clean = DestroyRetainedScene() && clean;
@@ -8517,18 +9016,41 @@ public:
   Ogre::v1::OverlayContainer *hdr_overlay_panel = nullptr;
   bool hdr_overlay_listener_registered = false;
 #endif
+  // The scene manager's single overlay render-queue listener, shared by the
+  // production HUD panel and the GUI-only menu panel. Frontend-lifetime: it is
+  // created on first use and retired in CleanupBackend, never with either
+  // panel runtime.
+  std::unique_ptr<Ogre::v1::OverlaySystem> overlay_system;
+  bool overlay_listener_registered = false;
   // Production transported menu/HUD overlay composited by the HdrRenderUi
   // node. Created with the persistent HDR compositor resources; shown only
   // while a validated snapshot enables its HUD reference.
-  std::unique_ptr<Ogre::v1::OverlaySystem> hud_overlay_system;
   Ogre::v1::Overlay *hud_overlay = nullptr;
   Ogre::v1::OverlayContainer *hud_overlay_panel = nullptr;
-  bool hud_overlay_listener_registered = false;
   Ogre::HlmsUnlitDatablock *hud_overlay_datablock = nullptr;
   bool hud_overlay_datablock_created = false;
   // Exact texture reference (id + revision) currently bound to the panel
   // datablock. Rebinding happens only when this reference changes.
   RenderAssetReference hud_overlay_bound_texture;
+  // Scene-free GUI-only presentation. The image is frontend-private: it holds
+  // no RenderAssetId and never appears in the registry, so a GUI-only present
+  // cannot advance or observe portable asset lineage.
+  Ogre::v1::Overlay *menu_overlay = nullptr;
+  Ogre::v1::OverlayContainer *menu_overlay_panel = nullptr;
+  Ogre::HlmsUnlitDatablock *menu_overlay_datablock = nullptr;
+  bool menu_overlay_datablock_created = false;
+  Ogre::TextureGpu *menu_overlay_texture = nullptr;
+  std::uint32_t menu_overlay_texture_width = 0U;
+  std::uint32_t menu_overlay_texture_height = 0U;
+  /// Content hash of the pixels currently resident in menu_overlay_texture.
+  /// Zero means "allocated but never uploaded"; the request contract rejects
+  /// zero, so an unchanged GUI performs no upload and no allocation.
+  std::uint64_t menu_overlay_texture_content_hash = 0U;
+  bool menu_overlay_texture_bound = false;
+  Ogre::TextureGpu *menu_window_texture = nullptr;
+  Ogre::CompositorWorkspace *menu_workspace = nullptr;
+  bool menu_node_definition_created = false;
+  bool menu_workspace_definition_created = false;
 };
 
 OgreNextN1Frontend::OgreNextN1Frontend(
@@ -9156,6 +9678,213 @@ RenderOperationResult OgreNextN1Frontend::PresentBootstrapFrame() {
   }
 }
 
+RenderOperationResult OgreNextN1Frontend::PresentUiOverlayFrame(
+    const UiOverlayFrameRequest &request) {
+  if (!impl_->initialized) {
+    return NotInitialized();
+  }
+  if (!impl_->OnOwnerThread()) {
+    return WrongThread();
+  }
+  if (impl_->faulted) {
+    return FaultedFrontend();
+  }
+  const ValidationResult shape = ValidateUiOverlayFrameRequest(request);
+  if (!shape) {
+    return OgreNextN1OperationFromValidation(shape);
+  }
+  if (!impl_->ProductionPresentationEnabled()) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "scene-free GUI-only presentation requires the production native-window mode");
+  }
+  if (impl_->HudOverlayControlSelected()) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::UNSUPPORTED,
+        "the isolated UI-overlay negative control owns the overlay runtime");
+  }
+  if (impl_->surface.suspended) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::RESOURCE_STALE,
+        "scene-free GUI-only presentation is waiting for an active surface");
+  }
+  if (impl_->sun_visibility_v2_frame_awaiting_continuation) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "sun-visibility V2 retains its HDR image set until the post-external continuation");
+  }
+  if (impl_->production_output_handles.live_count() != 0U) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUTSTANDING_LEASES,
+        "scene-free GUI-only presentation requires released frame outputs");
+  }
+  // The image is composited 1:1 over the cleared window; a mismatched extent
+  // would silently rescale the GUI, so it fails closed exactly like the
+  // transported HUD's extent check does for a scene frame.
+  if (request.width != impl_->surface.pixel_width ||
+      request.height != impl_->surface.pixel_height) {
+    return RenderOperationResult::Failure(
+        RenderOperationCode::RESOURCE_STALE,
+        "GUI-only overlay extent must equal the presented drawable extent",
+        RenderOperationRecovery::RETRY_AFTER_PRESENTATION_SURFACE_UPDATE);
+  }
+
+  // Captured BEFORE any native work so the post-condition below proves the
+  // GUI-only frame consumed no portable identity, exactly as the clear-only
+  // bootstrap present does.
+  const OgreNextN1ParticleRuntimeAudit particles_before =
+      impl_->particle_runtime.audit();
+  const std::uint64_t presented_frames_before =
+      impl_->presentation_audit.presented_frames;
+  const std::size_t tracked_snapshots_before =
+      impl_->submission_state.TrackedSnapshotIdentityCount();
+  const RenderAssetRegistry *const registry_before = impl_->registry.get();
+
+  try {
+    if (impl_->menu_overlay == nullptr) {
+      const RenderOperationResult runtime = impl_->CreateMenuOverlayRuntime();
+      if (!runtime) {
+        const bool clean = impl_->DestroyMenuOverlayRuntime();
+        if (!clean) {
+          impl_->faulted = true;
+          return NativeTeardownFailure(
+              "Ogre-Next GUI-only overlay runtime rollback");
+        }
+        return runtime;
+      }
+    }
+    const RenderOperationResult image = impl_->EnsureMenuOverlayImage(request);
+    if (!image) {
+      return image;
+    }
+    const RenderOperationResult graph = impl_->EnsureMenuPresentationGraph();
+    if (!graph) {
+      return graph;
+    }
+
+    // renderOneFrame() executes every ENABLED workspace. A GUI-only frame must
+    // execute exactly one of them, so the scene graphs are suspended for the
+    // duration and restored to the exact state they were found in - which is
+    // what keeps EnsureProductionPresentationGraph's `exact` fast path valid
+    // on the next scene frame instead of forcing a graph rebuild.
+    const auto suspend = [](Ogre::CompositorWorkspace *workspace) {
+      const bool was_enabled =
+          workspace != nullptr && workspace->getEnabled();
+      if (was_enabled) {
+        workspace->setEnabled(false);
+      }
+      return was_enabled;
+    };
+    const bool bootstrap_enabled = suspend(impl_->bootstrap_workspace);
+    const bool production_enabled = suspend(impl_->production_workspace);
+    const bool hdr_enabled_workspace = suspend(impl_->hdr_workspace);
+    const bool hdr_v2_enabled = suspend(impl_->hdr_v2_continuation_workspace);
+    bool restored = false;
+    const auto restore = [&]() noexcept {
+      if (restored) {
+        return true;
+      }
+      restored = true;
+      bool clean = true;
+      try {
+        if (impl_->menu_overlay != nullptr) {
+          impl_->menu_overlay->hide();
+        }
+        if (impl_->menu_workspace != nullptr) {
+          impl_->menu_workspace->setEnabled(false);
+          clean = !impl_->menu_workspace->getEnabled() && clean;
+        }
+        if (bootstrap_enabled && impl_->bootstrap_workspace != nullptr) {
+          impl_->bootstrap_workspace->setEnabled(true);
+          clean = impl_->bootstrap_workspace->getEnabled() && clean;
+        }
+        if (production_enabled && impl_->production_workspace != nullptr) {
+          impl_->production_workspace->setEnabled(true);
+          clean = impl_->production_workspace->getEnabled() && clean;
+        }
+        if (hdr_enabled_workspace && impl_->hdr_workspace != nullptr) {
+          impl_->hdr_workspace->setEnabled(true);
+          clean = impl_->hdr_workspace->getEnabled() && clean;
+        }
+        if (hdr_v2_enabled &&
+            impl_->hdr_v2_continuation_workspace != nullptr) {
+          impl_->hdr_v2_continuation_workspace->setEnabled(true);
+          clean =
+              impl_->hdr_v2_continuation_workspace->getEnabled() && clean;
+        }
+      } catch (...) {
+        clean = false;
+      }
+      return clean;
+    };
+
+    bool rendered = false;
+    try {
+      impl_->menu_overlay->show();
+      impl_->menu_workspace->setEnabled(true);
+      if (!impl_->menu_workspace->getEnabled()) {
+        throw std::runtime_error(
+            "GUI-only presentation workspace refused activation");
+      }
+      ++impl_->presentation_audit.ui_overlay_render_one_frame_calls;
+      rendered = impl_->root->renderOneFrame();
+    } catch (...) {
+      if (!restore()) {
+        impl_->faulted = true;
+      }
+      throw;
+    }
+    if (!restore()) {
+      impl_->faulted = true;
+      return NativeTeardownFailure(
+          "Ogre-Next GUI-only presentation graph restoration");
+    }
+    if (!rendered) {
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "Ogre-Next ended the GUI-only frame loop");
+    }
+
+    const OgreNextN1ParticleRuntimeAudit particles_after =
+        impl_->particle_runtime.audit();
+    if (impl_->registry.get() != registry_before ||
+        impl_->submission_state.TrackedSnapshotIdentityCount() !=
+            tracked_snapshots_before ||
+        impl_->production_output_handles.live_count() != 0U ||
+        impl_->presentation_audit.presented_frames !=
+            presented_frames_before ||
+        particles_after.committed_source_sequence !=
+            particles_before.committed_source_sequence ||
+        particles_after.create_commands != particles_before.create_commands ||
+        particles_after.update_commands != particles_before.update_commands ||
+        particles_after.stop_commands != particles_before.stop_commands ||
+        particles_after.destroy_commands !=
+            particles_before.destroy_commands) {
+      impl_->faulted = true;
+      return RenderOperationResult::Failure(
+          RenderOperationCode::BACKEND_FAILURE,
+          "scene-free GUI-only presentation changed portable renderer state");
+    }
+    ++impl_->presentation_audit.ui_overlay_presented_frames;
+    impl_->presentation_audit.ui_overlay_last_width = request.width;
+    impl_->presentation_audit.ui_overlay_last_height = request.height;
+    return RenderOperationResult::Success();
+  } catch (const Ogre::Exception &error) {
+    impl_->faulted = true;
+    return BackendFailure(error);
+  } catch (const std::bad_alloc &) {
+    impl_->faulted = true;
+    return RenderOperationResult::Failure(
+        RenderOperationCode::OUT_OF_MEMORY,
+        "scene-free GUI-only presentation ran out of memory");
+  } catch (const std::exception &error) {
+    impl_->faulted = true;
+    return RenderOperationResult::Failure(RenderOperationCode::BACKEND_FAILURE,
+                                          error.what());
+  }
+}
+
 RenderOperationResult OgreNextN1Frontend::UpdateSurface(
     const FrontendSurfaceUpdate &update, bool headless,
     std::uint64_t /*timeout_nanoseconds*/) {
@@ -9220,6 +9949,19 @@ RenderOperationResult OgreNextN1Frontend::UpdateSurface(
         impl_->faulted = true;
         return NativeTeardownFailure(
             "Ogre-Next bootstrap presentation surface transition");
+      }
+      // The GUI-only workspace holds the old window texture as its single
+      // external channel, and its private image is allocated at the old
+      // extent. Retire both here rather than letting the next GUI-only
+      // present observe a superseded drawable.
+      if (surface_shape_changed &&
+          (impl_->menu_workspace != nullptr ||
+           impl_->menu_overlay_texture != nullptr) &&
+          !(impl_->DestroyMenuPresentationGraph() &&
+            impl_->DestroyMenuOverlayImage())) {
+        impl_->faulted = true;
+        return NativeTeardownFailure(
+            "Ogre-Next GUI-only presentation surface transition");
       }
       if (update.suspended) {
         if (impl_->presentation_window == nullptr) {
