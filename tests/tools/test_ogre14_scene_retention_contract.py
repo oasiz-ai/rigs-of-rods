@@ -59,15 +59,50 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         self.assertIn("candidate.frame.retained_static_meshes =", window)
         self.assertIn("m_ogre14_static_retention_meshes_owner;", window)
 
+    def test_hit_frames_subtract_the_owner_from_the_residue(self) -> None:
+        # A source identity legitimately spans scene domains, and the
+        # cross-domain merge is what collapses the copies. A retained-hit
+        # frame keeps the static half out of that merge, so the copy another
+        # domain still carries has to be subtracted against the owner or the
+        # producer sees one identity twice and rejects the frame.
+        anchor = "SubtractRetainedOgre14GraphicsSceneAssets("
+        self.assertIn(anchor, self.scene)
+        start = self.scene.index(anchor)
+        window = self.scene[start - 1400 : start + 300]
+        self.assertIn("pending->static_state_retained", window)
+        self.assertIn("MergeOgre14GraphicsSceneAssets(", window)
+        self.assertIn("m_ogre14_static_retention_assets_owner", window)
+        self.assertIn("candidate.frame.assets", window)
+        self.assertIn("if (!dynamic_validation)", self.scene[start : start + 700])
+
     def test_refresh_mints_new_owner_vectors(self) -> None:
         # Owner identity is the producer's only change signal, so a refresh
         # must allocate fresh vectors rather than edit a published owner.
         anchor = "pending->retention_assets_owner ="
         start = self.scene.index(anchor)
-        window = self.scene[start - 1600 : start + 400]
+        window = self.scene[start - 2200 : start + 400]
         self.assertIn("std::make_shared<", window)
         self.assertIn("pending->retention_meshes_owner =", window)
         self.assertIn("pending->retention_object_ids =", window)
+
+    def test_owner_is_minted_from_the_published_asset_union(self) -> None:
+        # The material source rewrites the static walk's placeholder material
+        # payloads into their projected form and republishes every cached
+        # projection per frame. An owner minted from the pre-projection walk
+        # would describe one identity two different ways, which is precisely
+        # what the producer rejects, so the owner must come from the published
+        # union with only the per-frame actor domain held back.
+        anchor = "refreshed_assets->push_back(asset);"
+        start = self.scene.index(anchor)
+        window = self.scene[start - 1400 : start + 200]
+        self.assertIn("candidate.frame.assets", window)
+        self.assertIn("actor_asset_ids", window)
+        self.assertIn("std::binary_search(", window)
+        self.assertNotIn("static_assets", window)
+        # And the projection republication is what the hit-frame subtraction
+        # removes, so the two must stay in the same file and agree.
+        self.assertIn(
+            "SubtractRetainedOgre14GraphicsSceneAssets(", self.scene)
 
     def test_gate_scans_unadmitted_bounds_against_the_camera(self) -> None:
         # Full admission is unreachable on a 12 km map, so the gate must be a

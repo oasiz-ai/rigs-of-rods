@@ -2257,6 +2257,106 @@ void TestRetainedStaticSectionReuseIsByteStableAndFailsClosed() {
   Require(destroyed_any, "omitted retained assets were not tombstoned");
 }
 
+void TestRetainedReuseAcrossEveryLiveAssetCategory() {
+  using namespace RoR::Render;
+
+  // The combined runtime's asset set is a union of four things: the retained
+  // static section (authored objects, terrain pages, procedural road), the
+  // per-frame deformable domain, the producer-synthesized HUD overlay, and
+  // the environment. A fixture that only spans the first two proves nothing
+  // about whether the union those four form still validates on a reuse frame.
+  const auto mesh_asset = [](std::uint64_t identity, bool dynamic_mesh) {
+    GraphicsSceneAssetInput input;
+    input.source_asset_id = identity;
+    MeshResourceDescriptor mesh = MakeMesh();
+    mesh.dynamic = dynamic_mesh;
+    input.payload =
+        std::make_shared<const RenderAssetPayload>(std::move(mesh));
+    return input;
+  };
+  const auto material_asset = [](std::uint64_t identity) {
+    GraphicsSceneAssetInput input;
+    input.source_asset_id = identity;
+    MaterialDescriptor material;
+    material.debug_name = "retained union material";
+    input.payload = std::make_shared<const RenderAssetPayload>(material);
+    // Every material in the section depends on the one texture and sampler
+    // the section also owns, so dependency resolution crosses the union.
+    input.material_bindings[static_cast<std::size_t>(
+        MaterialTextureSlot::BASE_COLOR)] = {30U, 40U};
+    return input;
+  };
+  const auto static_object = [](std::uint64_t identity, std::uint64_t mesh,
+                                std::uint64_t material, float offset) {
+    GraphicsSceneStaticMeshInput input;
+    input.source_object_id = identity;
+    input.mesh_source_asset_id = mesh;
+    input.material_source_asset_id = material;
+    input.render_from_object = Translation(offset);
+    return input;
+  };
+
+  GraphicsSceneFrameInput frame = MakeFrame();
+  // Terrain-page and procedural-road style content, which on a live map lives
+  // inside the retained owners beside the authored static objects.
+  frame.assets.push_back(mesh_asset(60U, false));
+  frame.assets.push_back(material_asset(61U));
+  frame.assets.push_back(mesh_asset(70U, false));
+  frame.assets.push_back(material_asset(71U));
+  frame.static_meshes.push_back(static_object(600U, 60U, 61U, 11.0F));
+  frame.static_meshes.push_back(static_object(700U, 70U, 71U, 13.0F));
+  SplitFrameIntoRetainedOwners(frame);
+  Require(frame.retained_static_assets->size() == 8U &&
+              frame.retained_static_meshes->size() == 4U,
+          "the retained section fixture does not span authored, terrain, and "
+          "road style content");
+
+  // Everything below stays in the per-frame vectors, exactly as the live
+  // adapter hands them beside the section.
+  frame.assets.push_back(mesh_asset(50U, true));
+  frame.dynamic_meshes.push_back(DynamicObject(150U, DynamicState(2U)));
+  GraphicsSceneHudOverlayInput hud;
+  hud.width = 2U;
+  hud.height = 2U;
+  hud.content_hash = 0xC0FFEEU;
+  hud.rgba8_bytes =
+      std::make_shared<const std::vector<std::uint8_t>>(16U, 0x20U);
+  frame.hud_overlay = hud;
+
+  GraphicsSceneSnapshotProducer producer = MakeProducer(903U);
+  const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
+  Require(first.ok(),
+          "the adoption frame over the complete live asset union was "
+          "rejected");
+  Require(first.production.scene_snapshot->mesh_instances().size() == 5U &&
+              first.production.scene_snapshot->hud_overlay().enabled,
+          "the adoption frame lost a category of the asset union");
+
+  // Two more frames: the second settles the transform history, the third is
+  // the one that actually republishes the retained block. Both must validate
+  // against the same union - this is the frame the live run rejected.
+  for (std::size_t repeat = 0U; repeat < 2U; ++repeat) {
+    AdvanceFrameTime(frame);
+    const GraphicsSceneSnapshotProduceResult produced = producer.Produce(frame);
+    Require(produced.ok(),
+            "a frame reusing the retained section beside the live asset union "
+            "was rejected");
+    Require(produced.production.scene_snapshot->mesh_instances().size() == 5U,
+            "a reusing frame lost an instance from the union");
+    Require(produced.production.scene_snapshot->dynamic_mesh_updates().size() ==
+                1U,
+            "a reusing frame lost the deformable update");
+    Require(produced.production.scene_snapshot->hud_overlay().enabled,
+            "a reusing frame dropped the synthesized HUD overlay");
+    Require(!produced.production.asset_delta.has_value(),
+            "a stable frame over the complete union rebuilt the catalog");
+  }
+  Require(producer.LoadPublishedSnapshot()
+                  ->mesh_instances()
+                  .size() == 5U,
+          "the published union lost content across the reuse frames");
+}
+
 void TestRetainedBlockSurvivesDeformableInterleaving() {
   using namespace RoR::Render;
 
@@ -2553,6 +2653,7 @@ int main() {
   TestDeterministicAcrossAdapterTraversalOrders();
   TestSceneGenerationFinalizationAndTickReset();
   TestRetainedStaticSectionReuseIsByteStableAndFailsClosed();
+  TestRetainedReuseAcrossEveryLiveAssetCategory();
   TestRetainedBlockSurvivesDeformableInterleaving();
   TestHudOverlayAssetLifecycleAndRevisions();
   return EXIT_SUCCESS;

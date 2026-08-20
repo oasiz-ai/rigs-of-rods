@@ -2101,6 +2101,84 @@ void TestCrossDomainAssetMergeAuditsPayloadsBindingsAndOwners() {
       "payload-conflict failure changed the populated merge sentinel");
 }
 
+void TestRetainedAssetSubtractionKeepsTheDomainUnionDisjoint() {
+  using namespace RoR::Render;
+  // A retained static section is handed to the producer beside the remaining
+  // domain inventories instead of being merged into them, so the collapse the
+  // cross-domain merge used to perform has to happen against the section.
+  GraphicsSceneAssetInput shared = MakeMergeMaterialAsset(20U);
+  shared.material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::EMISSIVE)] = {101U, 102U};
+  const GraphicsSceneAssetInput retained_only = MakeMergeMaterialAsset(10U);
+  const GraphicsSceneAssetInput dynamic_only = MakeMergeMaterialAsset(30U);
+  const std::vector<GraphicsSceneAssetInput> retained{retained_only, shared};
+
+  // The exact same owner, which is what an actor sharing a static material
+  // actually carries, needs no byte comparison to be recognised.
+  std::vector<GraphicsSceneAssetInput> assets{shared, dynamic_only};
+  ValidationResult result =
+      SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
+  Require(result.ok() && assets.size() == 1U &&
+              assets.front().source_asset_id == 30U,
+          "a retained identity repeated by another domain was not removed");
+
+  // An equal-but-distinct owner is the merge's own equivalence rule.
+  GraphicsSceneAssetInput equal_copy = shared;
+  equal_copy.payload =
+      std::make_shared<const RenderAssetPayload>(*shared.payload);
+  assets = {equal_copy, dynamic_only};
+  result = SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
+  Require(result.ok() && assets.size() == 1U &&
+              assets.front().source_asset_id == 30U,
+          "an equivalent replacement owner was not recognised as the same "
+          "retained asset");
+
+  // Disjoint inventories are left exactly as they were, in order.
+  assets = {dynamic_only, MakeMergeMaterialAsset(40U)};
+  result = SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
+  Require(result.ok() && assets.size() == 2U &&
+              assets[0U].source_asset_id == 30U &&
+              assets[1U].source_asset_id == 40U,
+          "a disjoint inventory was reordered or reduced");
+
+  // A conflicting redefinition of a retained identity is not a duplicate to
+  // collapse; it fails closed with the merge's own code and field.
+  GraphicsSceneAssetInput binding_conflict = shared;
+  binding_conflict.material_bindings[static_cast<std::size_t>(
+      MaterialTextureSlot::EMISSIVE)] = {101U, 999U};
+  assets = {binding_conflict, dynamic_only};
+  result = SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH &&
+              result.field == "assets.merge.source_asset_id" &&
+              assets.size() == 2U &&
+              assets.front().source_asset_id == 20U,
+          "a conflicting redefinition was collapsed or mutated the input");
+
+  GraphicsSceneAssetInput payload_conflict = MakeMergeMaterialAsset(20U, 0.5F);
+  payload_conflict.material_bindings = shared.material_bindings;
+  assets = {payload_conflict};
+  result = SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
+  Require(!result && result.code == ValidationCode::REVISION_MISMATCH,
+          "conflicting payload bytes for a retained identity were collapsed");
+
+  // The section's ordering is a precondition the producer also relies on, so
+  // it is proven here rather than assumed.
+  const std::vector<GraphicsSceneAssetInput> unordered{shared, retained_only};
+  assets = {dynamic_only};
+  result = SubtractRetainedOgre14GraphicsSceneAssets(unordered, assets);
+  Require(!result && result.code == ValidationCode::SEQUENCE_MISMATCH &&
+              result.field == "assets.retained.order" &&
+              assets.size() == 1U,
+          "an unordered retained section was accepted");
+
+  GraphicsSceneAssetInput anonymous = dynamic_only;
+  anonymous.source_asset_id = 0U;
+  assets = {anonymous};
+  result = SubtractRetainedOgre14GraphicsSceneAssets(retained, assets);
+  Require(!result && result.code == ValidationCode::INVALID_IDENTIFIER,
+          "an anonymous asset identity was accepted");
+}
+
 class ThrowingAssetMergeFault final
     : public RoR::Render::IOgre14GraphicsSceneAssetMergeFaultInjector {
 public:
@@ -2299,6 +2377,7 @@ int main() {
   TestPerspectiveAndOrthographicCameraConversion();
   TestCameraConversionRejectsGuesswork();
   TestCrossDomainAssetMergeAuditsPayloadsBindingsAndOwners();
+  TestRetainedAssetSubtractionKeepsTheDomainUnionDisjoint();
   TestCrossDomainAssetMergeCapAndExceptionRollback();
   TestAutomaticReflectionProbeIsTransactionalAndMapScoped();
   return EXIT_SUCCESS;
