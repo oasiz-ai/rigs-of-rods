@@ -1100,7 +1100,7 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
     const ValidationResult sky =
         BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
             descriptor.environment.ambient_radiance, captured_sun,
-            descriptor.environment);
+            descriptor.simulation_time_seconds, descriptor.environment);
     Require(sky.ok(), "RT4/V1 policy-v1 analytic sky could not be staged: " +
                           sky.field + ": " + sky.detail);
     if (suppress_sun_disk) {
