@@ -106,11 +106,21 @@ class ProducerRetainedStaticContractTests(unittest.TestCase):
             "retained_static.block_source = created.snapshot;",
             "retained_static.catalog_stable_for_section = true;",
             "retained_static.verify_instance_cursor =",
-            "retained_static = RetainedStaticSectionCache{};",
         ):
             position = self.producer.index(assignment)
             self.assertLess(commit, position, assignment)
             self.assertLess(position, publish, assignment)
+        # The one pre-commit mutation is dropping the cache after an audit
+        # failure, which withdraws a memoization rather than advancing state.
+        drop = "retained_static = RetainedStaticSectionCache{};"
+        self.assertLess(commit, self.producer.rindex(drop))
+        self.assertLess(self.producer.rindex(drop), publish)
+        position = self.producer.find(drop)
+        while 0 <= position < commit:
+            preceding = self.producer[position - 400 : position]
+            self.assertIn("retained_static.", preceding)
+            self.assertIn("result.validation = Failure(", preceding)
+            position = self.producer.find(drop, position + len(drop))
 
     def test_rotating_window_rejects_instead_of_repairing(self) -> None:
         for token in (
@@ -125,6 +135,19 @@ class ProducerRetainedStaticContractTests(unittest.TestCase):
         window = self.producer[anchor - 1200 : anchor + 400]
         self.assertIn("return result;", window)
         self.assertIn("REVISION_MISMATCH", window)
+        # Keeping the cache after an audit failure would reject the same owner
+        # forever instead of re-validating it once on the full path.
+        for field in (
+            '"retained_static.positions"',
+            '"retained_static.history"',
+            '"retained_static.window"',
+        ):
+            start = self.producer.index(field)
+            self.assertIn(
+                "retained_static = RetainedStaticSectionCache{};",
+                self.producer[start : start + 400],
+                field,
+            )
 
     def test_scoped_compatibility_replaces_the_dynamic_forcing_term(
         self,

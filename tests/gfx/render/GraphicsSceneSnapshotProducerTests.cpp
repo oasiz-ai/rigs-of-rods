@@ -2222,11 +2222,9 @@ void TestRetainedStaticSectionReuseIsByteStableAndFailsClosed() {
           "an in-place owner mutation was republished from the stale block");
 
   // The next frame rebuilds cleanly from the mutated bytes under the ordinary
-  // rules; the drift surfaced, it did not wedge the producer.
+  // rules, from the exact same owner: the drift surfaced once, it did not
+  // wedge the producer into rejecting that owner forever.
   GraphicsSceneFrameInput recovered = mutated;
-  recovered.retained_static_meshes =
-      std::make_shared<const std::vector<GraphicsSceneStaticMeshInput>>(
-          published_owner);
   AdvanceFrameTime(recovered);
   const GraphicsSceneSnapshotProduceResult rebuilt =
       producer.Produce(recovered);

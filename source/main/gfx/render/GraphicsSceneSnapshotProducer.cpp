@@ -2479,6 +2479,7 @@ public:
               "cached deformable block positions no longer name their "
               "instances",
               dynamic_object.original_index);
+          retained_static = RetainedStaticSectionCache{};
           return result;
         }
         const auto prior = std::lower_bound(
@@ -2494,6 +2495,7 @@ public:
               ValidationCode::MISSING_REFERENCE, "retained_static.history",
               "cached deformable identity has no object history",
               dynamic_object.original_index);
+          retained_static = RetainedStaticSectionCache{};
           return result;
         }
         const IndexedMeshObjectInput indexed_input{
@@ -2672,6 +2674,12 @@ public:
         retained_static.verify_instance_cursor;
     std::size_t candidate_verify_asset_cursor =
         retained_static.verify_asset_cursor;
+    // Dropping the cache on a rejected frame is not a state advance: it is a
+    // memoization, and clearing it cannot change what a later frame publishes
+    // or how it validates - only that the next frame takes the full path.
+    // Keeping it would be the opposite of fail-closed: the same owner would
+    // fail the same audit forever instead of being re-validated once under
+    // the ordinary revision-lineage rules.
     if (retained_block_reused) {
       static const bool audit_everything = [] {
         const char *const setting = std::getenv("ROR_PRODUCER_RETAINED_AUDIT");
@@ -2721,6 +2729,7 @@ public:
               "a retained static instance no longer resolves against the "
               "catalog it was canonicalized with",
               owner_index);
+          retained_static = RetainedStaticSectionCache{};
           return result;
         }
         MeshInstanceDescriptor expected;
@@ -2743,6 +2752,7 @@ public:
               "a retained static instance no longer matches the block "
               "republished for it",
               owner_index);
+          retained_static = RetainedStaticSectionCache{};
           return result;
         }
       }
@@ -2761,6 +2771,7 @@ public:
               "a retained asset no longer matches the admission facts cached "
               "for its owner",
               owner_index);
+          retained_static = RetainedStaticSectionCache{};
           return result;
         }
       }
