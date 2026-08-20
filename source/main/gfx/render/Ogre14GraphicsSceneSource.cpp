@@ -687,6 +687,9 @@ bool IsKnownDynamicComponentKind(
   case Ogre14GraphicsSceneDynamicComponentKind::FLEXBODY:
   case Ogre14GraphicsSceneDynamicComponentKind::FLEXMESH_WHEEL:
   case Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_TIRE:
+  case Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_RIM:
+  case Ogre14GraphicsSceneDynamicComponentKind::PROP:
+  case Ogre14GraphicsSceneDynamicComponentKind::PROP_STEERING_WHEEL:
     return true;
   }
   return false;

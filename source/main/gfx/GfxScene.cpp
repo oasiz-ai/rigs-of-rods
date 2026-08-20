@@ -85,7 +85,7 @@ constexpr std::uint64_t kOgreNextDemoMaximumObservedParticles = 65536U;
 /// The exact actor-owned Entity families CaptureOgre14DynamicActorInventory()
 /// enumerates. The spawn-time coverage probe reads the same constants, so the
 /// audit it prints can never drift away from the capture it is auditing.
-constexpr bool kOgre14CaptureEnumeratesMeshWheelRims = false;
+constexpr bool kOgre14CaptureEnumeratesMeshWheelRims = true;
 constexpr bool kOgre14CaptureEnumeratesProps = false;
 
 /// Spawn-time coverage evidence for one actor. `attached` counts every named,
@@ -2602,6 +2602,492 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
     return RoR::Render::ValidationResult::Success();
 }
 
+/// Refusal ledger for rigid actor geometry - mesh-wheel rims and prop meshes.
+/// These are authored static meshes carried by a scene node the actor re-poses
+/// every frame, not deformables, so they have no CPU staging owner and cannot
+/// go through CaptureOgre14DynamicEntitySections().
+///
+/// Every entity or section this capture cannot reproduce faithfully lands in
+/// exactly one named counter and is named once in `last_refusal`; none is
+/// dropped silently. A refusal never fails the joined frame the rest of the
+/// actor still populates - but it is frozen for the producer lifetime, because
+/// a section identity that appeared once may never disappear and return.
+struct Ogre14RigidActorCaptureCounters
+{
+    std::size_t considered_entities = 0U;
+    std::size_t captured_entities = 0U;
+    std::size_t captured_sections = 0U;
+    std::size_t frozen_refusals = 0U;
+    std::size_t refused_detached_entity = 0U;
+    std::size_t refused_animated_entity = 0U;
+    std::size_t refused_rendering_distance = 0U;
+    std::size_t refused_submesh_inventory = 0U;
+    std::size_t refused_unexpected_parent_node = 0U;
+    std::size_t refused_noncanonical_transform = 0U;
+    std::size_t refused_mirrored_transform = 0U;
+    std::size_t refused_non_uniform_scale = 0U;
+    std::size_t refused_render_target_material = 0U;
+    std::size_t refused_geometry = 0U;
+    std::size_t refused_material = 0U;
+    /// Exact field/message of the most recent geometry or material refusal, so
+    /// the audit names the clause rather than only counting it.
+    std::string last_refusal;
+};
+
+/// Captures one rigid actor-owned Entity as dynamic sections.
+///
+/// The mesh bytes are read from OGRE once per immutable draw range and cached;
+/// what changes per frame is only `render_from_object`, taken from the Entity's
+/// own parent node. The per-frame `state` republishes that same immutable
+/// object-space geometry, so the inventory builder reuses the previous
+/// deformation owner unchanged and a parked vehicle costs zero deformation
+/// updates on the presenter.
+///
+/// `admitted` reports whether the Entity's sections were emitted; the caller
+/// freezes that answer for the producer lifetime. A returned failure is never
+/// a refusal - it is an authority or transaction error that must fail the
+/// frame, exactly as it would for a deformable.
+RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
+    Ogre::Entity* entity,
+    const Ogre::SceneNode* required_parent_node,
+    RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
+    RoR::GfxActorCaptureLifecycle actor_lifecycle,
+    bool renders_into_a_native_render_target,
+    const RoR::Actor* managed_material_owner,
+    const RoR::Render::ManagedMaterialDeclarationSnapshot*
+        managed_material_snapshot,
+    std::vector<RoR::Render::Ogre14ManagedMaterialDeclarationBinding>&
+        projected_managed_material_bindings,
+    RoR::Gfx::Detail::OgreNextDemoMaterialSource& material_source,
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+             std::less<>>& mesh_cache,
+    Ogre14RigidActorCaptureCounters& counters,
+    std::vector<RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>&
+        sections,
+    bool& admitted)
+{
+    admitted = false;
+    ++counters.considered_entities;
+    if (renders_into_a_native_render_target)
+    {
+        // Mirror and video-camera props are textured by an OGRE RenderTexture
+        // the combined runtime never draws. Publishing the mesh would show a
+        // frozen or blank pane presented as a live reflection.
+        ++counters.refused_render_target_material;
+        counters.last_refusal = "render_target_material";
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (entity == nullptr || !entity->isAttached() ||
+        entity->getName().empty() || entity->getMesh().isNull())
+    {
+        ++counters.refused_detached_entity;
+        counters.last_refusal = "detached_or_unnamed_entity";
+        return RoR::Render::ValidationResult::Success();
+    }
+    const Ogre::MeshPtr mesh = entity->getMesh();
+    if (entity->hasSkeleton() || entity->hasVertexAnimation() ||
+        mesh->hasSkeleton() || mesh->hasVertexAnimation())
+    {
+        ++counters.refused_animated_entity;
+        counters.last_refusal = "skeletal_or_vertex_animation";
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (entity->getRenderingDistance() != 0.0F)
+    {
+        ++counters.refused_rendering_distance;
+        counters.last_refusal = "native_rendering_distance_culling";
+        return RoR::Render::ValidationResult::Success();
+    }
+    const std::size_t section_count = entity->getNumSubEntities();
+    if (section_count == 0U ||
+        section_count != mesh->getNumSubMeshes() ||
+        section_count > (std::numeric_limits<std::uint32_t>::max)())
+    {
+        ++counters.refused_submesh_inventory;
+        counters.last_refusal = "submesh_inventory_mismatch";
+        return RoR::Render::ValidationResult::Success();
+    }
+    Ogre::SceneNode* const parent_scene_node = entity->getParentSceneNode();
+    if (parent_scene_node == nullptr ||
+        (required_parent_node != nullptr &&
+         parent_scene_node != required_parent_node))
+    {
+        // The rim hangs off the node flexitPrepare() re-poses, never off the
+        // tire's node. Reading the wrong node would park the rim at the origin
+        // or freeze it at spawn, so the expected owner is checked, not assumed.
+        ++counters.refused_unexpected_parent_node;
+        counters.last_refusal = "unexpected_parent_scene_node";
+        return RoR::Render::ValidationResult::Success();
+    }
+    const RoR::Render::Matrix4x4 render_from_object =
+        ToRendererBoundaryMatrix(static_cast<const Ogre::Matrix4&>(
+            entity->_getParentNodeFullTransform()));
+    if (!RoR::Render::HasInvertibleAffineTransform(render_from_object))
+    {
+        ++counters.refused_noncanonical_transform;
+        counters.last_refusal = "noncanonical_or_singular_transform";
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (RoR::Render::LinearDeterminant(render_from_object) < 0.0F)
+    {
+        // The inventory builder fails the whole frame on a mirrored dynamic
+        // transform. Refusing it here keeps one odd prop from blanking the car.
+        ++counters.refused_mirrored_transform;
+        counters.last_refusal = "mirrored_transform";
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (!RoR::Render::HasEffectivelyUniformLinearScale(render_from_object))
+    {
+        // The pinned PBS vertex path cannot carry a correct tangent frame
+        // under non-uniform scale; the presenter drops such an instance too.
+        ++counters.refused_non_uniform_scale;
+        counters.last_refusal = "non_uniform_instance_scale";
+        return RoR::Render::ValidationResult::Success();
+    }
+    const bool parent_in_scene_graph = parent_scene_node->isInSceneGraph();
+
+    std::vector<RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>
+        candidate_sections;
+    candidate_sections.reserve(section_count);
+    for (std::size_t section_index = 0U; section_index < section_count;
+         ++section_index)
+    {
+        Ogre::SubEntity* const sub_entity =
+            entity->getSubEntity(section_index);
+        if (sub_entity == nullptr ||
+            sub_entity->getSubMesh() != mesh->getSubMesh(section_index))
+        {
+            ++counters.refused_submesh_inventory;
+            counters.last_refusal = "submesh_inventory_mismatch";
+            return RoR::Render::ValidationResult::Success();
+        }
+        Ogre::RenderOperation operation;
+        // Authored LOD zero, not the camera-selected LOD the preceding legacy
+        // traversal happened to leave behind on this Entity.
+        sub_entity->getSubMesh()->_getRenderOperation(operation, 0U);
+        if (operation.vertexData == nullptr ||
+            operation.indexData == nullptr ||
+            operation.vertexData->vertexCount == 0U ||
+            operation.vertexData->vertexStart >
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            operation.vertexData->vertexCount >
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            operation.indexData->indexStart >
+                (std::numeric_limits<std::uint32_t>::max)() ||
+            operation.indexData->indexCount >
+                (std::numeric_limits<std::uint32_t>::max)())
+        {
+            ++counters.refused_geometry;
+            counters.last_refusal = "rigid_draw_range";
+            return RoR::Render::ValidationResult::Success();
+        }
+
+        RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput section;
+        identity.section_index = static_cast<std::uint32_t>(section_index);
+        section.identity = identity;
+        section.exact_entity_name = entity->getName();
+        section.render_from_object = render_from_object;
+        section.visibility_mask = entity->getVisibilityFlags();
+        section.visible = RoR::IsGfxActorCaptureEffectivelyVisible(
+            actor_lifecycle, parent_in_scene_graph,
+            entity->getVisible(), sub_entity->isVisible());
+        section.casts_shadows = entity->getCastShadows();
+        section.visible_in_reflections = true;
+        section.has_dynamic_vertex_colors = false;
+
+        bool reverse_winding = false;
+        bool used_demo_matte = false;
+        RoR::Render::ValidationResult validation =
+            CaptureOgreNextDemoMaterialInput(
+                sub_entity->getMaterial(), section.material, reverse_winding,
+                used_demo_matte);
+        if (!validation)
+        {
+            // Legacy pass state this capture cannot reproduce. Refuse the whole
+            // Entity rather than publish a partial mesh.
+            ++counters.refused_material;
+            counters.last_refusal =
+                validation.field + ": " + validation.detail;
+            return RoR::Render::ValidationResult::Success();
+        }
+        section.mesh_reverse_winding = reverse_winding;
+        section.receives_shadows =
+            sub_entity->getMaterial()->getReceiveShadows();
+
+        const bool has_authored_uv0 =
+            operation.vertexData->vertexDeclaration != nullptr &&
+            operation.vertexData->vertexDeclaration->
+                findElementBySemantic(
+                    Ogre::VES_TEXTURE_COORDINATES, 0U) != nullptr;
+        const std::string material_decision_key =
+            "dynamic/" + BuildNativeDynamicMeshCacheKey(identity);
+        RoR::Render::Ogre14ManagedMaterialDeclarationBinding managed_binding;
+        const RoR::Render::Ogre14ManagedMaterialDeclarationBinding*
+            managed_binding_ptr = nullptr;
+        if (managed_material_owner != nullptr &&
+            managed_material_snapshot != nullptr)
+        {
+            bool managed_binding_found = false;
+            validation =
+                managed_material_owner->ResolveManagedMaterialDeclarationBinding(
+                    *managed_material_snapshot, sub_entity->getMaterial(),
+                    managed_binding, managed_binding_found);
+            if (!validation)
+            {
+                validation.field = "dynamic_meshes." + validation.field;
+                return validation;
+            }
+            if (managed_binding_found)
+            {
+                managed_binding_ptr = &managed_binding;
+            }
+        }
+        bool projected = false;
+        validation = material_source.TryProject(
+            material_decision_key, sub_entity->getMaterial(),
+            used_demo_matte, has_authored_uv0, managed_binding_ptr,
+            section.material, projected);
+        if (!validation)
+            return validation;
+        if (projected && managed_binding_ptr != nullptr)
+        {
+            const auto already_reachable = std::find_if(
+                projected_managed_material_bindings.begin(),
+                projected_managed_material_bindings.end(),
+                [&managed_binding](const auto& candidate)
+                {
+                    return candidate.SharesImmutableStateWith(
+                        managed_binding);
+                });
+            if (already_reachable ==
+                projected_managed_material_bindings.end())
+            {
+                projected_managed_material_bindings.push_back(
+                    managed_binding);
+            }
+        }
+
+        std::string cache_key = BuildNativeDynamicMeshCacheKey(identity);
+        cache_key.append("/OgreNextDemoRT4Rigid/v1");
+        auto cached = mesh_cache.find(cache_key);
+        const std::size_t native_state_count = mesh->getStateCount();
+        const std::uint64_t native_mesh_handle =
+            static_cast<std::uint64_t>(mesh->getHandle());
+        const bool cache_matches =
+            cached != mesh_cache.end() &&
+            cached->second.native_mesh_handle == native_mesh_handle &&
+            cached->second.native_state_count == native_state_count &&
+            cached->second.vertex_start == operation.vertexData->vertexStart &&
+            cached->second.vertex_count == operation.vertexData->vertexCount &&
+            cached->second.index_start == operation.indexData->indexStart &&
+            cached->second.index_count == operation.indexData->indexCount &&
+            cached->second.reverse_winding == reverse_winding &&
+            cached->second.payload != nullptr;
+        if (cache_matches)
+        {
+            section.mesh_payload = cached->second.payload;
+        }
+        else
+        {
+            // Rigid geometry is read out of OGRE exactly once per immutable
+            // draw range. Stable frames never touch a hardware buffer again.
+            std::uint64_t topology_revision = 1U;
+            if (cached != mesh_cache.end() && cached->second.payload != nullptr &&
+                std::holds_alternative<RoR::Render::MeshResourceDescriptor>(
+                    *cached->second.payload))
+            {
+                const std::uint64_t previous_revision =
+                    std::get<RoR::Render::MeshResourceDescriptor>(
+                        *cached->second.payload).topology_revision;
+                if (previous_revision ==
+                    (std::numeric_limits<std::uint64_t>::max)())
+                {
+                    ++counters.refused_geometry;
+                    counters.last_refusal = "rigid_topology_revision_overflow";
+                    return RoR::Render::ValidationResult::Success();
+                }
+                topology_revision = previous_revision + 1U;
+            }
+            std::shared_ptr<const RoR::Render::RenderAssetPayload>
+                candidate_payload;
+            validation = ExtractOgre14CpuMeshSection(
+                operation,
+                mesh->getGroup() + "/" + mesh->getName() + "#" +
+                    std::to_string(section_index),
+                reverse_winding, topology_revision, candidate_payload);
+            if (!validation)
+            {
+                ++counters.refused_geometry;
+                counters.last_refusal =
+                    validation.field + ": " + validation.detail;
+                return RoR::Render::ValidationResult::Success();
+            }
+            // ExtractOgre14CpuMeshSection() already normalized the section to
+            // the one RT4 vertex layout; only the dynamic-storage flag differs,
+            // and it is required because this section republishes a full state
+            // every frame just as a deformable does.
+            RoR::Render::MeshResourceDescriptor candidate_mesh =
+                std::get<RoR::Render::MeshResourceDescriptor>(
+                    *candidate_payload);
+            candidate_mesh.dynamic = true;
+            validation =
+                RoR::Render::ValidateMeshResourceDescriptor(candidate_mesh);
+            if (!validation)
+            {
+                ++counters.refused_geometry;
+                counters.last_refusal =
+                    validation.field + ": " + validation.detail;
+                return RoR::Render::ValidationResult::Success();
+            }
+            section.mesh_payload = std::make_shared<
+                const RoR::Render::RenderAssetPayload>(
+                    std::move(candidate_mesh));
+            RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry entry;
+            entry.native_mesh_handle = native_mesh_handle;
+            entry.native_state_count = native_state_count;
+            // Rigid sections own no CPU topology revision; the immutable native
+            // draw range above is the whole cache identity.
+            entry.cpu_topology_revision = 0U;
+            entry.vertex_start = static_cast<std::uint32_t>(
+                operation.vertexData->vertexStart);
+            entry.vertex_count = static_cast<std::uint32_t>(
+                operation.vertexData->vertexCount);
+            entry.index_start = static_cast<std::uint32_t>(
+                operation.indexData->indexStart);
+            entry.index_count = static_cast<std::uint32_t>(
+                operation.indexData->indexCount);
+            entry.reverse_winding = reverse_winding;
+            entry.payload = section.mesh_payload;
+            mesh_cache[cache_key] = std::move(entry);
+        }
+
+        // The per-frame state is the immutable object-space geometry itself.
+        // Republishing it byte-identically is what lets the inventory builder
+        // hand the presenter the previous deformation owner unchanged, so a
+        // parked vehicle produces no dynamic update at all.
+        const RoR::Render::MeshResourceDescriptor& published_mesh =
+            std::get<RoR::Render::MeshResourceDescriptor>(
+                *section.mesh_payload);
+        auto state = std::make_shared<
+            RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>();
+        state->topology_revision = published_mesh.topology_revision;
+        state->positions = published_mesh.positions;
+        state->normals = published_mesh.normals;
+        state->tangents = published_mesh.tangents;
+        state->updated_local_bounds = published_mesh.local_bounds;
+        section.state = std::move(state);
+        candidate_sections.push_back(std::move(section));
+    }
+
+    counters.captured_sections += candidate_sections.size();
+    ++counters.captured_entities;
+    admitted = true;
+    sections.insert(sections.end(),
+                    std::make_move_iterator(candidate_sections.begin()),
+                    std::make_move_iterator(candidate_sections.end()));
+    return RoR::Render::ValidationResult::Success();
+}
+
+/// Component-level (not section-level) identity of one rigid actor draw owner.
+std::string BuildOgre14RigidActorComponentKey(
+    const RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity& identity)
+{
+    return std::to_string(identity.actor_instance_id) + "/" +
+        std::to_string(static_cast<unsigned int>(identity.component_kind)) +
+        "/" + std::to_string(identity.component_id);
+}
+
+/// Captures one rigid actor component under a decision frozen for the producer
+/// lifetime. Admission is decided the first time the component is seen and
+/// never revisited, because a published section identity may never disappear
+/// and return: re-deciding per frame would let one transient legacy state
+/// retire an identity the next frame resurrects, which the inventory builder
+/// rejects outright.
+RoR::Render::ValidationResult CaptureOgre14FrozenRigidActorComponent(
+    Ogre::Entity* entity,
+    const Ogre::SceneNode* required_parent_node,
+    RoR::Render::Ogre14GraphicsSceneDynamicSectionIdentity identity,
+    RoR::GfxActorCaptureLifecycle actor_lifecycle,
+    bool renders_into_a_native_render_target,
+    const RoR::Actor* managed_material_owner,
+    const RoR::Render::ManagedMaterialDeclarationSnapshot*
+        managed_material_snapshot,
+    std::vector<RoR::Render::Ogre14ManagedMaterialDeclarationBinding>&
+        projected_managed_material_bindings,
+    RoR::Gfx::Detail::OgreNextDemoMaterialSource& material_source,
+    std::map<std::string,
+             RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
+             std::less<>>& mesh_cache,
+    std::map<std::string, bool, std::less<>>& frozen_decisions,
+    Ogre14RigidActorCaptureCounters& counters,
+    std::vector<RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>&
+        sections)
+{
+    const std::string decision_key =
+        BuildOgre14RigidActorComponentKey(identity);
+    const auto frozen = frozen_decisions.find(decision_key);
+    if (frozen != frozen_decisions.end() && !frozen->second)
+    {
+        ++counters.frozen_refusals;
+        return RoR::Render::ValidationResult::Success();
+    }
+    bool admitted = false;
+    RoR::Render::ValidationResult validation =
+        CaptureOgre14RigidActorEntitySections(
+            entity, required_parent_node, identity, actor_lifecycle,
+            renders_into_a_native_render_target, managed_material_owner,
+            managed_material_snapshot, projected_managed_material_bindings,
+            material_source, mesh_cache, counters, sections, admitted);
+    if (!validation)
+        return validation;
+    if (frozen == frozen_decisions.end())
+    {
+        frozen_decisions.emplace(decision_key, admitted);
+        return validation;
+    }
+    if (!admitted)
+    {
+        return RoR::Render::ValidationResult::Failure(
+            RoR::Render::ValidationCode::REVISION_MISMATCH,
+            "dynamic_meshes.rigid_actor_component",
+            "an admitted rigid actor component stopped being capturable");
+    }
+    return validation;
+}
+
+/// Emits the rigid-capture ledger whenever it changes. Every entity the
+/// capture declined is on this line under its own reason, so missing vehicle
+/// geometry is a named refusal in the log rather than an unexplained absence.
+void ReportOgre14RigidActorCaptureCoverage(
+    const Ogre14RigidActorCaptureCounters& counters, std::string& snapshot)
+{
+    const std::string candidate = fmt::format(
+        "considered_entities={} captured_entities={} captured_sections={} "
+        "frozen_refusals={} refused_detached_entity={} "
+        "refused_animated_entity={} refused_rendering_distance={} "
+        "refused_submesh_inventory={} refused_unexpected_parent_node={} "
+        "refused_noncanonical_transform={} refused_mirrored_transform={} "
+        "refused_non_uniform_scale={} refused_render_target_material={} "
+        "refused_geometry={} refused_material={} last_refusal='{}'",
+        counters.considered_entities, counters.captured_entities,
+        counters.captured_sections, counters.frozen_refusals,
+        counters.refused_detached_entity, counters.refused_animated_entity,
+        counters.refused_rendering_distance,
+        counters.refused_submesh_inventory,
+        counters.refused_unexpected_parent_node,
+        counters.refused_noncanonical_transform,
+        counters.refused_mirrored_transform,
+        counters.refused_non_uniform_scale,
+        counters.refused_render_target_material, counters.refused_geometry,
+        counters.refused_material, counters.last_refusal);
+    if (candidate == snapshot)
+        return;
+    LOG(fmt::format(
+        "[RoR|OgreNextDemo|RigidActorCapture] {}", candidate));
+    snapshot = candidate;
+}
+
 RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
     RoR::TerrainObjectManager* object_manager,
     const RoR::Render::Float3& camera_position,
@@ -2973,6 +3459,8 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre_next_demo_material_source.Reset();
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
     m_ogre14_actor_capture_coverage_log_snapshots.clear();
+    m_ogre14_rigid_actor_capture_decisions.clear();
+    m_ogre14_rigid_actor_capture_log_snapshot.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
     m_ogre14_automatic_reflection_probe_state = {};
     // The retained GUI readback belongs to the closing generation; the next
@@ -3578,6 +4066,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
 {
     std::vector<Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>
         sections;
+    Ogre14RigidActorCaptureCounters rigid_counters;
     for (const auto& actor_record : m_gfx_actor_inventory.Records())
     {
         GfxActor* const actor = actor_record.second.owner;
@@ -3780,6 +4269,31 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     mesh_cache, sections);
             if (!validation)
                 return validation;
+            if (kOgre14CaptureEnumeratesMeshWheelRims)
+            {
+                // The other half of a mesh wheel. The tire above is the
+                // deformable band; this is the authored rim disc that fills
+                // it, a rigid mesh whose motion lives in its own scene node.
+                FlexMeshWheel* const meshwheel =
+                    dynamic_cast<FlexMeshWheel*>(wheel.wx_flex_mesh);
+                if (meshwheel != nullptr)
+                {
+                    identity.component_kind = Render::
+                        Ogre14GraphicsSceneDynamicComponentKind::MESHWHEEL_RIM;
+                    validation = CaptureOgre14FrozenRigidActorComponent(
+                        meshwheel->GetRimEntity(),
+                        meshwheel->GetRimSceneNode(), identity,
+                        actor_record.second.lifecycle, false,
+                        managed_material_owner.GetRef(),
+                        &managed_material_snapshot,
+                        projected_managed_material_bindings,
+                        m_ogre_next_demo_material_source, mesh_cache,
+                        m_ogre14_rigid_actor_capture_decisions,
+                        rigid_counters, sections);
+                    if (!validation)
+                        return validation;
+                }
+            }
         }
         managed_snapshot_validation =
             managed_material_owner->
@@ -3794,6 +4308,8 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
         }
     }
 
+    ReportOgre14RigidActorCaptureCoverage(
+        rigid_counters, m_ogre14_rigid_actor_capture_log_snapshot);
     return Render::BuildOgre14GraphicsSceneDynamicInventory(
         sections, identity_registry, assets, dynamic_meshes);
 }

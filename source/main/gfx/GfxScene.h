@@ -200,6 +200,15 @@ private:
     // unhide of an unchanged actor does not repeat itself. Bounded by the live
     // actor count and released with the map generation.
     std::map<std::int64_t, std::string> m_ogre14_actor_capture_coverage_log_snapshots;
+    // Frozen admission decision per rigid actor component (mesh-wheel rims,
+    // prop meshes), keyed actor/kind/component. A published section identity
+    // may never disappear and return, so admission is decided the first time a
+    // component is seen and is permanent for this producer lifetime.
+    std::map<std::string, bool, std::less<>>
+                                       m_ogre14_rigid_actor_capture_decisions;
+    // Stable digest of the rigid-capture ledger, so identical frames do not
+    // flood the log and any new refusal is emitted exactly once.
+    std::string                        m_ogre14_rigid_actor_capture_log_snapshot;
     // Last committed policy-v1 sky descriptor telemetry. The candidate text
     // is staged with the joined capture and swapped only from Commit(), so a
     // rejected capture cannot advertise unpresented sky authority.

@@ -483,11 +483,22 @@ struct Ogre14GraphicsSceneDynamicMeshCacheEntry {
   std::shared_ptr<const RenderAssetPayload> payload;
 };
 
+/// Every actor-owned draw family the dynamic inventory can carry. The value is
+/// one byte of the section identity key, so a family added here can never
+/// collide with an existing one; values are permanent and must not be reused.
+///
+/// CAB, FLEXBODY, FLEXMESH_WHEEL and MESHWHEEL_TIRE are deformables: their
+/// motion lives in per-frame CPU staging and their scene node never moves.
+/// MESHWHEEL_RIM, PROP and PROP_STEERING_WHEEL are rigid authored meshes whose
+/// motion lives entirely in the scene node the actor re-poses each frame.
 enum class Ogre14GraphicsSceneDynamicComponentKind : std::uint8_t {
   CAB = 0U,
   FLEXBODY = 1U,
   FLEXMESH_WHEEL = 2U,
   MESHWHEEL_TIRE = 3U,
+  MESHWHEEL_RIM = 4U,
+  PROP = 5U,
+  PROP_STEERING_WHEEL = 6U,
 };
 
 /// Stable source identity of one actor-owned deformable draw section. Actor,
