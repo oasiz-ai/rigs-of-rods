@@ -15,6 +15,7 @@
 #include "RenderMath.h"
 #include "RenderValidation.h"
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -26,12 +27,18 @@ struct TextureResourceDescriptor;
 
 // Version 4 adds an explicit PBR workflow and authored linear-RGB specular
 // texture/factor. Version 5 is an additive native-only profile for an authored
-// thin parallel glass slab. The cross-process V2 transport remains fixed to
-// material v4; a v5 material can enter only through a versioned native package
-// until a future wire kind is reviewed.
+// thin parallel glass slab. Version 6 is an additive native-only profile for
+// weighted detail maps, which carry their own per-binding UV scale instead of
+// the material-wide UV0 affine. The cross-process V2 transport remains fixed
+// to material v4; a v5 or v6 material can enter only through a versioned
+// native package until a future wire kind is reviewed.
 constexpr std::uint32_t kMaterialDescriptorVersion = 4U;
 constexpr std::uint32_t kMaterialDescriptorTransmissionVersion = 5U;
+constexpr std::uint32_t kMaterialDescriptorDetailVersion = 6U;
 constexpr std::size_t kMaximumMaterialDebugNameBytes = 255U;
+/// Weighted detail layers a v6 material may carry. This matches the pinned
+/// HLMS PBS detail budget exactly; there is no fifth channel to grow into.
+constexpr std::size_t kMaterialDetailMapCount = 4U;
 
 enum class MaterialModel : std::uint8_t {
   PBR_METALLIC_ROUGHNESS = 0,
@@ -97,6 +104,14 @@ enum class MaterialTextureSlot : std::uint8_t {
   OCCLUSION = 3,
   EMISSIVE = 4,
   SPECULAR = 5,
+  /// Linear RGBA weights selecting DETAIL0..DETAIL3 respectively. Sampled at
+  /// unscaled UV0 so one page-wide mask can drive layers that each repeat at
+  /// their own authored rate.
+  DETAIL_WEIGHT = 6,
+  DETAIL0 = 7,
+  DETAIL1 = 8,
+  DETAIL2 = 9,
+  DETAIL3 = 10,
 };
 
 struct TextureBinding {
@@ -179,6 +194,22 @@ struct MaterialDescriptor {
   TextureBinding occlusion_texture;
   TextureBinding emissive_texture;
   TextureBinding specular_texture;
+
+  /// Weighted detail layers, v6 only.
+  ///
+  /// Unlike every slot above, each detail binding keeps its OWN scale/offset
+  /// rather than joining the material-wide UV0 affine. That is the whole point
+  /// of the profile: a page-sized surface can carry one unscaled weight mask
+  /// while each layer repeats at the rate its texture was authored for.
+  /// detail_weight_texture must therefore stay at identity scale.
+  ///
+  /// Layer i is composited over the running result as
+  /// `lerp(result, detail_i, weight_channel_i * detail_weights[i])`, matching
+  /// the sequential blend the legacy terrain material performed.
+  TextureBinding detail_weight_texture;
+  std::array<TextureBinding, kMaterialDetailMapCount> detail_textures;
+  std::array<float, kMaterialDetailMapCount> detail_weights{1.0F, 1.0F, 1.0F,
+                                                            1.0F};
 };
 
 [[nodiscard]] bool IsKnownMaterialModel(MaterialModel model) noexcept;
