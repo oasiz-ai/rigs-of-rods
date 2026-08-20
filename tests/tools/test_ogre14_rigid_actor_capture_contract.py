@@ -203,6 +203,18 @@ class RigidActorCaptureContractTests(unittest.TestCase):
         self.assertIn(
             "state->updated_local_bounds = published_mesh.local_bounds;", body
         )
+        # That state is constant, so it is built once per immutable payload
+        # and only reused while the payload owner it came from is the one
+        # being published.
+        self.assertIn("state_cache.find(cache_key)", body)
+        self.assertIn(
+            "cached_state->second.payload != section.mesh_payload", body
+        )
+        self.assertIn("section.state = cached_state->second.state;", body)
+        self.assertIn(
+            "m_ogre14_rigid_actor_state_cache.clear();", self.scene
+        )
+        self.assertIn("m_ogre14_rigid_actor_state_cache", self.header)
 
     def test_the_spawn_probe_shares_its_coverage_flags_with_the_capture(
         self,

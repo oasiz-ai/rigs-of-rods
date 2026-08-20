@@ -48,6 +48,18 @@ namespace RoR {
 /// @addtogroup Gfx
 /// @{
 
+/// The per-frame republished state of one rigid actor section (a mesh-wheel
+/// rim or a prop mesh). Rigid geometry never deforms, so the state a
+/// deformable rebuilds every frame is constant here and is built once per
+/// immutable payload instead. The payload owner it was derived from is kept
+/// beside it: reuse requires that exact owner, so a rebuilt mesh can never be
+/// published carrying a state that describes the geometry it replaced.
+struct Ogre14RigidActorSectionState
+{
+    std::shared_ptr<const Render::RenderAssetPayload> payload;
+    std::shared_ptr<const Render::Ogre14GraphicsSceneJoinedDynamicState> state;
+};
+
 /// Provides a 3D graphical representation of the simulation
 /// Idea: simulation runs at it's own constant rate, scene updates and rendering run asynchronously.
 class GfxScene: public Render::IOgre14GraphicsSceneCaptureProvider
@@ -206,6 +218,12 @@ private:
     // component is seen and is permanent for this producer lifetime.
     std::map<std::string, bool, std::less<>>
                                        m_ogre14_rigid_actor_capture_decisions;
+    // Constant per-frame state owners for admitted rigid sections. Rebuilding
+    // them every frame would copy the same bytes back for geometry that cannot
+    // change; the payload identity stored with each one keeps a stale state
+    // from surviving a mesh rebuild.
+    std::map<std::string, Ogre14RigidActorSectionState, std::less<>>
+                                       m_ogre14_rigid_actor_state_cache;
     // Stable digest of the rigid-capture ledger, so identical frames do not
     // flood the log and any new refusal is emitted exactly once.
     std::string                        m_ogre14_rigid_actor_capture_log_snapshot;

@@ -2665,6 +2665,8 @@ RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
              std::less<>>& mesh_cache,
+    std::map<std::string, RoR::Ogre14RigidActorSectionState, std::less<>>&
+        state_cache,
     Ogre14RigidActorCaptureCounters& counters,
     std::vector<RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>&
         sections,
@@ -2981,17 +2983,32 @@ RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
         // Republishing it byte-identically is what lets the inventory builder
         // hand the presenter the previous deformation owner unchanged, so a
         // parked vehicle produces no dynamic update at all.
-        const RoR::Render::MeshResourceDescriptor& published_mesh =
-            std::get<RoR::Render::MeshResourceDescriptor>(
-                *section.mesh_payload);
-        auto state = std::make_shared<
-            RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>();
-        state->topology_revision = published_mesh.topology_revision;
-        state->positions = published_mesh.positions;
-        state->normals = published_mesh.normals;
-        state->tangents = published_mesh.tangents;
-        state->updated_local_bounds = published_mesh.local_bounds;
-        section.state = std::move(state);
+        // It is also constant, so it is built once per immutable payload and
+        // handed out unchanged afterwards. The payload owner is stored beside
+        // it, and reuse requires that exact owner, so a rebuilt mesh can never
+        // be published with a state describing the geometry it replaced.
+        auto cached_state = state_cache.find(cache_key);
+        if (cached_state == state_cache.end() ||
+            cached_state->second.payload != section.mesh_payload ||
+            cached_state->second.state == nullptr)
+        {
+            const RoR::Render::MeshResourceDescriptor& published_mesh =
+                std::get<RoR::Render::MeshResourceDescriptor>(
+                    *section.mesh_payload);
+            auto state = std::make_shared<
+                RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>();
+            state->topology_revision = published_mesh.topology_revision;
+            state->positions = published_mesh.positions;
+            state->normals = published_mesh.normals;
+            state->tangents = published_mesh.tangents;
+            state->updated_local_bounds = published_mesh.local_bounds;
+            RoR::Ogre14RigidActorSectionState entry;
+            entry.payload = section.mesh_payload;
+            entry.state = std::move(state);
+            cached_state = state_cache.insert_or_assign(
+                cache_key, std::move(entry)).first;
+        }
+        section.state = cached_state->second.state;
         candidate_sections.push_back(std::move(section));
     }
 
@@ -3035,6 +3052,8 @@ RoR::Render::ValidationResult CaptureOgre14FrozenRigidActorComponent(
     std::map<std::string,
              RoR::Render::Ogre14GraphicsSceneDynamicMeshCacheEntry,
              std::less<>>& mesh_cache,
+    std::map<std::string, RoR::Ogre14RigidActorSectionState, std::less<>>&
+        state_cache,
     std::map<std::string, bool, std::less<>>& frozen_decisions,
     Ogre14RigidActorCaptureCounters& counters,
     std::vector<RoR::Render::Ogre14GraphicsSceneDynamicSectionCaptureInput>&
@@ -3055,7 +3074,8 @@ RoR::Render::ValidationResult CaptureOgre14FrozenRigidActorComponent(
             renders_into_a_native_render_target, runtime_mutated_materials,
             managed_material_owner,
             managed_material_snapshot, projected_managed_material_bindings,
-            material_source, mesh_cache, counters, sections, admitted);
+            material_source, mesh_cache, state_cache, counters, sections,
+            admitted);
     if (!validation)
         return validation;
     if (frozen == frozen_decisions.end())
@@ -3482,6 +3502,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre_next_demo_material_coverage_log_snapshot.clear();
     m_ogre14_actor_capture_coverage_log_snapshots.clear();
     m_ogre14_rigid_actor_capture_decisions.clear();
+    m_ogre14_rigid_actor_state_cache.clear();
     m_ogre14_rigid_actor_capture_log_snapshot.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
     m_ogre14_automatic_reflection_probe_state = {};
@@ -4326,6 +4347,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                         &managed_material_snapshot,
                         projected_managed_material_bindings,
                         m_ogre_next_demo_material_source, mesh_cache,
+                        m_ogre14_rigid_actor_state_cache,
                         m_ogre14_rigid_actor_capture_decisions,
                         rigid_counters, sections);
                     if (!validation)
@@ -4398,6 +4420,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                         &managed_material_snapshot,
                         projected_managed_material_bindings,
                         m_ogre_next_demo_material_source, mesh_cache,
+                        m_ogre14_rigid_actor_state_cache,
                         m_ogre14_rigid_actor_capture_decisions,
                         rigid_counters, sections);
                 if (!validation)
@@ -4421,6 +4444,7 @@ Render::ValidationResult GfxScene::CaptureOgre14DynamicActorInventory(
                     &managed_material_snapshot,
                     projected_managed_material_bindings,
                     m_ogre_next_demo_material_source, mesh_cache,
+                    m_ogre14_rigid_actor_state_cache,
                     m_ogre14_rigid_actor_capture_decisions,
                     rigid_counters, sections);
                 if (!validation)
