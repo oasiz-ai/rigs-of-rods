@@ -593,12 +593,26 @@ Render::ValidationResult CaptureNativePage(
       }
     }
     std::string layer_textures;
+    std::string layer_world_sizes;
     for (std::uint8_t layer = 0U; layer < terrain->getLayerCount();
          ++layer) {
       if (!layer_textures.empty())
         layer_textures += "|";
       layer_textures += terrain->getLayerTextureName(layer, 0U);
+      if (!layer_world_sizes.empty())
+        layer_world_sizes += "|";
+      layer_world_sizes += Ogre::StringConverter::toString(
+          static_cast<float>(terrain->getLayerWorldSize(layer)));
     }
+    // Texture density is the whole reason this composite reads as a flat
+    // wash: one baked page-wide map covers getWorldSize() metres, while the
+    // authored layers repeat every getLayerWorldSize() metres. Report the
+    // composite's metres-per-texel so the regression is measurable from the
+    // log rather than argued from screenshots.
+    const float page_world_size = static_cast<float>(terrain->getWorldSize());
+    const float composite_metres_per_texel =
+        mip.width == 0U ? 0.0F
+                        : page_world_size / static_cast<float>(mip.width);
     Ogre::LogManager::getSingleton().logMessage(
         "[RoR|SceneSource|TerrainComposite] page=" +
         Ogre::StringConverter::toString(slot_x) + "," +
@@ -620,6 +634,11 @@ Render::ValidationResult CaptureNativePage(
         " layers=" +
         Ogre::StringConverter::toString(
             static_cast<unsigned int>(terrain->getLayerCount())) +
+        " page_world_size=" +
+        Ogre::StringConverter::toString(page_world_size) +
+        " composite_m_per_texel=" +
+        Ogre::StringConverter::toString(composite_metres_per_texel) +
+        " layer_world_sizes=" + layer_world_sizes +
         " layer_textures=" + layer_textures);
   }
   output_texture.mip_levels.push_back(std::move(mip));
@@ -1077,9 +1096,16 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     owner.instance.render_from_object.elements[13U] = page.page_world_position.y;
     owner.instance.render_from_object.elements[14U] = page.page_world_position.z;
     owner.instance.visibility_mask = page.visible ? page.visibility_mask : 0U;
-    // The exact display-domain Unlit bootstrap neither casts nor receives
-    // shadows. Native terrain/shadow integration replaces this demo source.
-    owner.instance.flags = Render::MESH_INSTANCE_VISIBLE_IN_REFLECTIONS;
+    // The page is a lit PBS surface with authored normals and tangents, so it
+    // takes the analytic sun's cascaded shadows like any other opaque ground.
+    // Without this the buildings and vehicles standing on the terrain cast
+    // onto nothing, and unshadowed ground reads flatter than it is.
+    //
+    // The page deliberately does not CAST: it is a single ground plane under
+    // everything else, so it can only self-shadow its own skirt and would
+    // otherwise pay a full extra cascade draw for no visible occluder.
+    owner.instance.flags = Render::MESH_INSTANCE_VISIBLE_IN_REFLECTIONS |
+                           Render::MESH_INSTANCE_RECEIVES_SHADOW;
 
     for (const Render::GraphicsSceneAssetInput &asset : owner.assets) {
       candidate_capture.assets.push_back(asset);
