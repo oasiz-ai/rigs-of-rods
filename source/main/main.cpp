@@ -913,7 +913,16 @@ int main(int argc, char *argv[])
     // so expensive to diagnose. These count the recurrence and re-report it on
     // a bounded schedule instead.
     std::uint64_t renderer_combined_scene_failure_occurrences = 0U;
-    std::uint64_t renderer_combined_scene_failure_next_report = 1U;
+    // Re-reporting is scheduled on wall-clock, NOT on an occurrence count. A
+    // rejection that fails cheaply lets the frame loop spin far faster than a
+    // rendering one does: verifying this path live produced 59,759 rejections
+    // in 23 seconds, where a count-based schedule firing every 600 became four
+    // log lines and four notifications per second. Seconds are also what the
+    // reader actually wants to know.
+    std::chrono::steady_clock::time_point
+        renderer_combined_scene_failure_last_log{};
+    std::chrono::steady_clock::time_point
+        renderer_combined_scene_failure_last_notice{};
     std::uint64_t renderer_combined_scene_publication_recoveries = 0U;
     std::uint64_t renderer_combined_scene_frames_dropped_total = 0U;
     // True while the last capture did not reach the presenter, so the window
@@ -4173,22 +4182,29 @@ int main(int argc, char *argv[])
                         {
                             renderer_combined_scene_failure_signature =
                                 failure_signature;
+                            // A new signature always reports immediately: the
+                            // occurrence counter resets to 1, which the gate
+                            // below treats as the start of an episode.
                             renderer_combined_scene_failure_occurrences = 1U;
-                            renderer_combined_scene_failure_next_report = 1U;
                         }
-                        // Report the first occurrence, then back off
-                        // geometrically to a 600-frame (~10s) ceiling, always
-                        // carrying the recurrence count. Logging every
-                        // occurrence floods at frame rate; logging once ever
-                        // -- the historic behaviour -- goes silent precisely
-                        // when the failure is persistent enough to matter,
-                        // and makes a recurring rejection indistinguishable
-                        // from a log that simply stopped.
+                        // Report the first occurrence of an episode, then at
+                        // most one line every two seconds, always carrying the
+                        // recurrence count. Logging every occurrence floods;
+                        // logging once ever -- the historic behaviour -- goes
+                        // silent precisely when the failure is persistent
+                        // enough to matter, and makes a recurring rejection
+                        // indistinguishable from a log that simply stopped.
+                        const auto failure_observed_at =
+                            std::chrono::steady_clock::now();
                         const bool report_this_occurrence =
-                            renderer_combined_scene_failure_occurrences >=
-                            renderer_combined_scene_failure_next_report;
+                            renderer_combined_scene_failure_occurrences == 1U ||
+                            (failure_observed_at -
+                             renderer_combined_scene_failure_last_log) >=
+                                std::chrono::seconds(2);
                         if (report_this_occurrence)
                         {
+                            renderer_combined_scene_failure_last_log =
+                                failure_observed_at;
                             LOG(fmt::format(
                                 "[RoR|RendererCombined|Scene] Snapshot not "
                                 "presented (x{}, {} frames dropped this "
@@ -4204,13 +4220,6 @@ int main(int argc, char *argv[])
                                 scene_result.validation.field,
                                 scene_result.validation.detail,
                                 scene_result.frontend_detail.c_str()));
-                            renderer_combined_scene_failure_next_report =
-                                renderer_combined_scene_failure_occurrences >=
-                                        600U
-                                    ? renderer_combined_scene_failure_occurrences +
-                                          600U
-                                    : renderer_combined_scene_failure_occurrences *
-                                          4U;
                         }
                         // A terminal rejection used to end the process
                         // outright, whatever caused it -- one rejected
@@ -4283,14 +4292,20 @@ int main(int argc, char *argv[])
                             // the degrade, then re-announce on the same
                             // bounded schedule as the log so a persistent one
                             // stays visible instead of scrolling away.
+                            // Re-announce no faster than the on-screen message
+                            // lifetime, so a persistent degrade stays visible
+                            // without the notification area becoming a wall of
+                            // identical lines.
                             const bool announce_degrade =
                                 !renderer_combined_scene_publication_degraded ||
-                                (report_this_occurrence &&
-                                 renderer_combined_scene_failure_occurrences >
-                                     1U);
+                                (failure_observed_at -
+                                 renderer_combined_scene_failure_last_notice) >=
+                                    std::chrono::seconds(10);
                             renderer_combined_scene_publication_degraded = true;
                             if (announce_degrade)
                             {
+                                renderer_combined_scene_failure_last_notice =
+                                    failure_observed_at;
                                 renderer_combined_scene_degrade_notified = true;
                                 try
                                 {
@@ -4336,9 +4351,17 @@ int main(int argc, char *argv[])
                             {
                                 try
                                 {
+                                    // NOTICE, not REPLY: GameChatBox maps
+                                    // CONSOLE_SYSTEM_REPLY onto its "commands"
+                                    // filter and disables that filter in its
+                                    // constructor, so a REPLY reaches the log
+                                    // and the console window but is never
+                                    // drawn in the in-game notification area
+                                    // -- exactly where the user needs to see
+                                    // that the renderer came back.
                                     App::GetConsole()->putMessage(
                                         Console::CONSOLE_MSGTYPE_INFO,
-                                        Console::CONSOLE_SYSTEM_REPLY,
+                                        Console::CONSOLE_SYSTEM_NOTICE,
                                         fmt::format(
                                             _L("Renderer recovered after {} "
                                                "dropped frame(s)."),
@@ -4351,7 +4374,6 @@ int main(int argc, char *argv[])
                             renderer_combined_scene_degrade_notified = false;
                         }
                         renderer_combined_scene_failure_occurrences = 0U;
-                        renderer_combined_scene_failure_next_report = 1U;
                         // Retained-section reuse is invisible in the frame
                         // timings alone: identical costs can come from a fast
                         // path or from silent re-adoption churn. These
