@@ -67,6 +67,63 @@ static size_t CurlWriteFunc(void *ptr, size_t size, size_t nmemb, std::string* d
     return size * nmemb;
 }
 
+// The repository payload arrives from a remote server, so it is untrusted
+// input. RapidJSON compiles its own assertions out in release builds: a
+// missing member yields a static null value whose GetString() returns a
+// garbage pointer, and a malformed row therefore reads wild memory instead of
+// failing. Every field below is read through these checked accessors so a
+// server that omits or retypes a field produces a defaulted entry rather than
+// a segmentation fault.
+static std::string JsonStringOr(const rapidjson::Value& row, const char* key,
+                                const char* fallback = "")
+{
+    if (!row.IsObject() || !row.HasMember(key) || !row[key].IsString())
+    {
+        return fallback;
+    }
+    return row[key].GetString();
+}
+
+static int JsonIntOr(const rapidjson::Value& row, const char* key,
+                     int fallback = 0)
+{
+    if (!row.IsObject() || !row.HasMember(key) || !row[key].IsInt())
+    {
+        return fallback;
+    }
+    return row[key].GetInt();
+}
+
+static float JsonFloatOr(const rapidjson::Value& row, const char* key,
+                         float fallback = 0.0F)
+{
+    if (!row.IsObject() || !row.HasMember(key) || !row[key].IsNumber())
+    {
+        return fallback;
+    }
+    return row[key].GetFloat();
+}
+
+// Largest repository listing we will parse. The public listing is a few MB;
+// anything past this is a malfunctioning or hostile endpoint, and parsing it
+// would commit unbounded memory on a worker thread.
+static const size_t REPO_PAYLOAD_LIMIT_BYTES = 64 * 1024 * 1024;
+
+// RapidJSON's string parse walks to the terminator, so an embedded NUL would
+// silently truncate and a non-terminated buffer would run past the end.
+static bool RepoPayloadIsParseable(const std::string& payload, const char* what)
+{
+    if (payload.empty() || payload.size() > REPO_PAYLOAD_LIMIT_BYTES ||
+        payload.find('\0') != std::string::npos)
+    {
+        Ogre::LogManager::getSingleton().stream()
+            << "[RoR|Repository] Refusing unparseable " << what
+            << " payload; bytes: " << payload.size();
+        return false;
+    }
+    return true;
+}
+
 struct RepoProgressContext
 {
     std::string filename;
@@ -124,6 +181,12 @@ std::vector<GUI::ResourceCategories> GetResourceCategories(std::string portal_ur
     // The CURL* handle is not multithreaded, see https://curl.se/libcurl/c/threadsafe.html
     // For simplicity we avoid any reuse during OGRE14 migration.
     CURL *curl = curl_easy_init();
+    if (curl == nullptr)
+    {
+        Ogre::LogManager::getSingleton().stream()
+            << "[RoR|Repository] Could not initialise a CURL handle";
+        return std::vector<GUI::ResourceCategories>();
+    }
     curl_easy_setopt(curl, CURLOPT_URL, repolist_url.c_str());
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 #ifdef _WIN32
@@ -179,6 +242,12 @@ void GetResources(std::string portal_url)
     std::string user_agent = fmt::format("{}/{}", "Rigs of Rods Client", ROR_VERSION_STRING);
 
     CURL *curl = curl_easy_init();
+    if (curl == nullptr)
+    {
+        Ogre::LogManager::getSingleton().stream()
+            << "[RoR|Repository] Could not initialise a CURL handle";
+        return;
+    }
     curl_easy_setopt(curl, CURLOPT_URL, repolist_url.c_str());
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 #ifdef _WIN32
@@ -212,12 +281,30 @@ void GetResources(std::string portal_url)
         return;
     }
 
+    if (!RepoPayloadIsParseable(response_payload, "repolist"))
+    {
+        App::GetGameContext()->PushMessage(
+                Message(MSG_NET_REFRESH_REPOLIST_FAILURE, _LC("RepositorySelector", "Received malformed data. Please try again.")));
+        return;
+    }
+
     rapidjson::Document j_data_doc;
     j_data_doc.Parse(response_payload.c_str());
     if (j_data_doc.HasParseError() || !j_data_doc.IsObject())
     {
         Ogre::LogManager::getSingleton().stream()
                 << "[RoR|Repository] Error parsing repolist JSON, code: " << j_data_doc.GetParseError();
+        App::GetGameContext()->PushMessage(
+                Message(MSG_NET_REFRESH_REPOLIST_FAILURE, _LC("RepositorySelector", "Received malformed data. Please try again.")));
+        return;
+    }
+    // A well-formed document that simply lacks "resources" must not reach
+    // operator[]: in release builds that returns a static null whose GetArray()
+    // then reinterprets unrelated memory as an array header.
+    if (!j_data_doc.HasMember("resources") || !j_data_doc["resources"].IsArray())
+    {
+        Ogre::LogManager::getSingleton().stream()
+                << "[RoR|Repository] Repolist JSON has no 'resources' array";
         App::GetGameContext()->PushMessage(
                 Message(MSG_NET_REFRESH_REPOLIST_FAILURE, _LC("RepositorySelector", "Received malformed data. Please try again.")));
         return;
@@ -234,20 +321,23 @@ void GetResources(std::string portal_url)
     {
         rapidjson::Value& j_row = j_resp_body[static_cast<rapidjson::SizeType>(i)];
 
-        resc[i].title = j_row["title"].GetString();
-        resc[i].tag_line = j_row["tag_line"].GetString();
-        resc[i].resource_id = j_row["resource_id"].GetInt();
-        resc[i].download_count = j_row["download_count"].GetInt();
-        resc[i].last_update = j_row["last_update"].GetInt();
-        resc[i].resource_category_id = j_row["resource_category_id"].GetInt();
-        resc[i].icon_url = j_row["icon_url"].GetString();
-        resc[i].rating_avg = j_row["rating_avg"].GetFloat();
-        resc[i].rating_count = j_row["rating_count"].GetInt();
-        resc[i].version = j_row["version"].GetString();
-        resc[i].authors = j_row["custom_fields"]["authors"].GetString();
-        resc[i].view_url = j_row["view_url"].GetString();
-        resc[i].resource_date = j_row["resource_date"].GetInt();
-        resc[i].view_count = j_row["view_count"].GetInt();
+        resc[i].title = JsonStringOr(j_row, "title");
+        resc[i].tag_line = JsonStringOr(j_row, "tag_line");
+        resc[i].resource_id = JsonIntOr(j_row, "resource_id");
+        resc[i].download_count = JsonIntOr(j_row, "download_count");
+        resc[i].last_update = JsonIntOr(j_row, "last_update");
+        resc[i].resource_category_id = JsonIntOr(j_row, "resource_category_id");
+        resc[i].icon_url = JsonStringOr(j_row, "icon_url");
+        resc[i].rating_avg = JsonFloatOr(j_row, "rating_avg");
+        resc[i].rating_count = JsonIntOr(j_row, "rating_count");
+        resc[i].version = JsonStringOr(j_row, "version");
+        resc[i].authors =
+            (j_row.IsObject() && j_row.HasMember("custom_fields"))
+                ? JsonStringOr(j_row["custom_fields"], "authors")
+                : "";
+        resc[i].view_url = JsonStringOr(j_row, "view_url");
+        resc[i].resource_date = JsonIntOr(j_row, "resource_date");
+        resc[i].view_count = JsonIntOr(j_row, "view_count");
         resc[i].preview_tex = Ogre::TexturePtr(); // null
         // NOTE: description is stripped here for bandwidth reasons - fetched separately from individual resources.
     }
@@ -267,6 +357,12 @@ void GetResourceFiles(std::string portal_url, int resource_id)
     long response_code = 0;
 
     CURL *curl = curl_easy_init();
+    if (curl == nullptr)
+    {
+        Ogre::LogManager::getSingleton().stream()
+            << "[RoR|Repository] Could not initialise a CURL handle";
+        return;
+    }
     curl_easy_setopt(curl, CURLOPT_URL, resource_url.c_str());
     curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 #ifdef _WIN32
