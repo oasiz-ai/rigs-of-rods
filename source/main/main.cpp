@@ -4604,17 +4604,27 @@ int main(int argc, char *argv[])
                                 render_boundary_degrade_audit =
                                     renderer_combined_presenter
                                         .RenderBoundaryDegradeAudit();
+                            const std::uint64_t render_boundary_degrade_total =
+                                render_boundary_degrade_audit.total() +
+                                scene_result.dispatch_rejected_frames +
+                                scene_result
+                                    .dispatch_recoverable_frame_failures;
                             if (render_boundary_degrade_audit.available &&
-                                render_boundary_degrade_audit.total() !=
+                                render_boundary_degrade_total !=
                                     renderer_combined_render_boundary_degrades_logged)
                             {
                                 LOG(fmt::format(
                                     "[RoR|RendererCombined|Degrade] "
+                                    "rejected_frames={} "
+                                    "recoverable_frame_failures={} "
                                     "post_submit_recoverable_failures={} "
                                     "hud_extent_mismatch_frames={} "
                                     "particle_basis_rejections={} "
                                     "pssm_pose_renormalizations={} "
                                     "non_uniform_scale_instance_rejections={}",
+                                    scene_result.dispatch_rejected_frames,
+                                    scene_result
+                                        .dispatch_recoverable_frame_failures,
                                     render_boundary_degrade_audit
                                         .post_submit_recoverable_failures,
                                     render_boundary_degrade_audit
@@ -4626,7 +4636,7 @@ int main(int argc, char *argv[])
                                     render_boundary_degrade_audit
                                         .non_uniform_scale_instance_rejections));
                                 renderer_combined_render_boundary_degrades_logged =
-                                    render_boundary_degrade_audit.total();
+                                    render_boundary_degrade_total;
                             }
                             const RendererNativeSunVisibilityV2Audit
                                 sun_visibility_audit =

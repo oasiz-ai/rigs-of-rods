@@ -70,6 +70,16 @@ struct RendererFrontendDirectDispatchResult final {
   /// A silent degrade trades a crash for a wrong picture; this is how the
   /// wrong picture becomes visible.
   std::uint64_t rejected_frames = 0U;
+  /// Process-lifetime count of frontend render failures that arrived carrying
+  /// RenderOperationRecovery::RETRY_NEXT_FRAME -- the frontend's own verdict
+  /// that its reverse-abort walk left nothing committed.
+  ///
+  /// Counted, NOT yet honoured: these still poison. The counter exists so a
+  /// full session can show whether the verdict fires only on frames that also
+  /// verified a clean rollback, before a follow-up routes them to Reject().
+  /// Landing the behaviour change unmeasured would trade a crash for silent
+  /// corruption on any misclassified partial commit.
+  std::uint64_t recoverable_frame_failures = 0U;
   bool terminal = false;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -172,6 +182,9 @@ public:
   [[nodiscard]] std::uint64_t rejected_frames() const noexcept {
     return rejected_frames_;
   }
+  [[nodiscard]] std::uint64_t recoverable_frame_failures() const noexcept {
+    return recoverable_frame_failures_;
+  }
   [[nodiscard]] bool terminal() const noexcept { return terminal_; }
   [[nodiscard]] RendererFrontendDirectDispatchStatus terminal_cause() const
       noexcept {
@@ -231,8 +244,9 @@ private:
   std::uint64_t last_consumed_scene_snapshot_id_ = 0U;
   std::uint64_t last_scene_snapshot_id_ = 0U;
   std::uint64_t last_scene_asset_sequence_ = 0U;
-  /// Named degrade counter for the invariant above. Never reset.
+  /// Named degrade counters for the invariant above. Never reset.
   std::uint64_t rejected_frames_ = 0U;
+  std::uint64_t recoverable_frame_failures_ = 0U;
   bool last_scene_was_empty_ = false;
   bool terminal_ = false;
 };

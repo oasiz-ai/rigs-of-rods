@@ -10650,6 +10650,22 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->faulted = true;
       return FrameCleanupFailure();
     }
+    // F2. The frontend has always computed the true recoverability verdict
+    // here and then thrown it away: `clean` is the conjunction of eight
+    // reverse aborts, and `!impl_->faulted` says the frame left no
+    // half-written HDR history. Publish that verdict on the result instead of
+    // discarding it, so ~165 frontend Failure( sites stop being indistinguish-
+    // able from unrecoverable ones.
+    //
+    // This is deliberately NOT a new judgement: both terms are already
+    // decided above, and both must hold. The dispatcher currently only counts
+    // this recovery -- see RenderOperationRecovery::RETRY_NEXT_FRAME -- and
+    // still poisons, because a misclassified partial commit would become
+    // silent corruption, which is worse than the crash it replaces.
+    if (failure.recovery == RenderOperationRecovery::NONE &&
+        !impl_->faulted) {
+      failure.recovery = RenderOperationRecovery::RETRY_NEXT_FRAME;
+    }
     return failure;
   };
 

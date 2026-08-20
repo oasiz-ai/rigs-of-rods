@@ -129,6 +129,10 @@ public:
         dispatcher != nullptr ? dispatcher->asset_sequence() : 0U;
     result.frontend_frame_id =
         dispatcher != nullptr ? dispatcher->last_frontend_frame_id() : 0U;
+    result.dispatch_rejected_frames =
+        dispatcher != nullptr ? dispatcher->rejected_frames() : 0U;
+    result.dispatch_recoverable_frame_failures =
+        dispatcher != nullptr ? dispatcher->recoverable_frame_failures() : 0U;
     result.event_polls = event_polls;
     result.pending_frame = pending.has_value();
     result.shutdown_requested = shutdown_requested;

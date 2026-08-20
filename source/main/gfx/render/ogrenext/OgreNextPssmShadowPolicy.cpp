@@ -276,6 +276,17 @@ ValidationResult TryBuildOgreNextPssmShadowFramePlan(
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
+    // An instance the RT4/V1 presenter will not draw casts and receives
+    // nothing. It is skipped there because the pinned PBS tangent path cannot
+    // carry a non-uniform scale; counting it here would leave the plan's
+    // aggregates permanently disagreeing with the retained scene, which the
+    // frontend treats as a hard invariant violation. The severity split must
+    // not turn one undrawable object into a different fatal error.
+    if (raster_feature_tier ==
+            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+        !HasEffectivelyUniformLinearScale(instance.render_from_object)) {
+      continue;
+    }
     const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
     if (mesh == nullptr) {
       return ValidationResult::Failure(

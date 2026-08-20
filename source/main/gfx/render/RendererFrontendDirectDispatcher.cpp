@@ -8,6 +8,7 @@
 
 #include "RendererFrontendDirectDispatcher.h"
 
+#include <cassert>
 #include <limits>
 #include <new>
 #include <stdexcept>
@@ -134,6 +135,7 @@ RendererFrontendDirectDispatcher::Success(
   result.frontend_frame_id = frontend_frame_id;
   result.resources_released = resources_released;
   result.rejected_frames = rejected_frames_;
+  result.recoverable_frame_failures = recoverable_frame_failures_;
   result.terminal = terminal_;
   return result;
 }
@@ -156,6 +158,7 @@ RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Fail(
   result.asset_sequence = registry_.sequence();
   result.resources_released = resources_released;
   result.rejected_frames = rejected_frames_;
+  result.recoverable_frame_failures = recoverable_frame_failures_;
   result.terminal = true;
   return result;
 }
@@ -179,6 +182,7 @@ RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Reject(
   result.frontend_code = frontend_code;
   result.asset_sequence = registry_.sequence();
   result.rejected_frames = rejected_frames_;
+  result.recoverable_frame_failures = recoverable_frame_failures_;
   // Carry, never create. An already-poisoned dispatcher must not report clean
   // merely because this particular decline was recoverable.
   result.terminal = terminal_;
@@ -564,6 +568,24 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
         request.present) {
       return RetryablePresentationSurfaceStale(scene_snapshot_id,
                                                cleanup.released);
+    }
+    if (rendered.recovery == RenderOperationRecovery::RETRY_NEXT_FRAME) {
+      // COUNTED, NOT HONOURED. The frontend verified its own reverse-abort
+      // walk left nothing committed, which by the render-boundary invariant
+      // makes this a droppable frame rather than a dead session. It is
+      // deliberately not routed to Reject() yet: a misclassified partial
+      // commit would become silent corruption, which is worse than the crash
+      // it replaces, so the verdict is measured over a full session first.
+      //
+      // The invariant the dispatcher can check itself, and does: a frame that
+      // failed inside Render() must not have advanced any dispatcher lineage.
+      if (recoverable_frame_failures_ !=
+          (std::numeric_limits<std::uint64_t>::max)()) {
+        ++recoverable_frame_failures_;
+      }
+      assert(last_consumed_scene_snapshot_id_ < scene_snapshot_id &&
+             last_frontend_frame_id_ + 1U == request.frame_id &&
+             "a recoverable frontend failure advanced dispatcher lineage");
     }
     return Fail(RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
                 ValidationCode::OK, rendered.code, cleanup.released,

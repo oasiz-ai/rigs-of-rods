@@ -407,7 +407,8 @@ public:
     }
     if (fail_render) {
       return RenderOperationResult::Failure(
-          RenderOperationCode::BACKEND_FAILURE, "injected render failure");
+          RenderOperationCode::BACKEND_FAILURE, "injected render failure",
+          render_failure_recovery);
     }
     simulation_lineage_initialized = true;
     last_simulation_time_seconds =
@@ -465,6 +466,8 @@ public:
   bool fail_synchronize = false;
   bool throw_bad_alloc_synchronize = false;
   bool fail_render = false;
+  RenderOperationRecovery render_failure_recovery =
+      RenderOperationRecovery::NONE;
   bool populate_before_render_failure = false;
   bool throw_bad_alloc_render = false;
   bool fail_retire_frame_state = false;
@@ -1656,6 +1659,51 @@ void TestDirectDispatcherPrologueValidatorsRejectWithoutPoisoning() {
   }
 }
 
+/// F2 lands COUNTED BUT NOT HONOURED on purpose. A frontend failure carrying
+/// RenderOperationRecovery::RETRY_NEXT_FRAME must increment the named counter
+/// and must still poison, until a full session shows the frontend's verdict
+/// firing only where its rollback verified clean. Landing the behaviour change
+/// unmeasured would trade a crash for silent corruption.
+void TestDirectDispatcherCountsButDoesNotHonourRetryNextFrame() {
+  FakeFrontend frontend;
+  frontend.fail_render = true;
+  frontend.populate_before_render_failure = true;
+  frontend.render_failure_recovery = RenderOperationRecovery::RETRY_NEXT_FRAME;
+  constexpr std::uint64_t registry_id = 0xD1EC700000000200ULL;
+  RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+  Require(dispatcher.SynchronizeAssets(AssetDelta(registry_id, 1U, true)).ok(),
+          "retry-next-frame fixture did not synchronize assets");
+
+  const RendererFrontendDirectDispatchResult failed = dispatcher.RenderScene(
+      Scene(600U, registry_id, 1U), Camera(), PresentedPolicy());
+  RequireDirectStatus(
+      failed.status,
+      RendererFrontendDirectDispatchStatus::FAILED_FRONTEND_RENDER,
+      "a recoverable frontend render failure changed its primary status");
+  Require(failed.recoverable_frame_failures == 1U &&
+              dispatcher.recoverable_frame_failures() == 1U,
+          "a recoverable frontend render failure was not counted");
+  Require(failed.terminal && dispatcher.terminal(),
+          "RETRY_NEXT_FRAME was honoured before it was measured");
+  Require(failed.rejected_frames == 0U,
+          "a frontend failure was miscounted as a prologue rejection");
+  Require(dispatcher.last_consumed_scene_snapshot_id() == 0U &&
+              dispatcher.last_frontend_frame_id() == 0U,
+          "a failed frontend render advanced dispatcher lineage");
+
+  // A plain failure carrying no recovery must not touch the counter.
+  FakeFrontend plain_frontend;
+  plain_frontend.fail_render = true;
+  plain_frontend.populate_before_render_failure = true;
+  RendererFrontendDirectDispatcher plain(plain_frontend, registry_id + 1U);
+  Require(plain.SynchronizeAssets(AssetDelta(registry_id + 1U, 1U, true)).ok(),
+          "plain render-failure fixture did not synchronize assets");
+  const RendererFrontendDirectDispatchResult plain_failed = plain.RenderScene(
+      Scene(600U, registry_id + 1U, 1U), Camera(), PresentedPolicy());
+  Require(!plain_failed && plain_failed.recoverable_frame_failures == 0U,
+          "a failure with no recovery verdict was counted as recoverable");
+}
+
 void TestDirectDispatcherFailuresAreTerminal() {
   {
     FakeFrontend frontend;
@@ -1837,6 +1885,7 @@ int main() {
   TestDirectDispatcherTypedLifecycle();
   TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce();
   TestDirectDispatcherPrologueValidatorsRejectWithoutPoisoning();
+  TestDirectDispatcherCountsButDoesNotHonourRetryNextFrame();
   TestDirectDispatcherFailuresAreTerminal();
   std::cout << "frontend direct and transport dispatcher tests passed\n";
   return EXIT_SUCCESS;

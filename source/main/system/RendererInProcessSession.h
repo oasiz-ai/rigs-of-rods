@@ -132,6 +132,14 @@ struct RendererInProcessSessionResult final {
   std::uint64_t asset_sequence = 0U;
   std::uint64_t scene_snapshot_id = 0U;
   std::uint64_t frontend_frame_id = 0U;
+  /// Render-boundary degrade counters relayed from the dispatcher. Monotonic
+  /// for the session lifetime. `dispatch_rejected_frames` counts frames a
+  /// prologue validator dropped without poisoning;
+  /// `dispatch_recoverable_frame_failures` counts frontend render failures
+  /// that carried a verified-clean rollback verdict (counted, not yet
+  /// honoured). A degrade nobody can see is not a fix.
+  std::uint64_t dispatch_rejected_frames = 0U;
+  std::uint64_t dispatch_recoverable_frame_failures = 0U;
   std::uint32_t event_polls = 0U;
   /// Wall-clock nanoseconds this frame spent converting the joined scene on
   /// the CPU, up to and including snapshot production.

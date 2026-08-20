@@ -575,7 +575,7 @@ RT4_EXPECTED_TEXTURE_ALLOCATIONS = {
 }
 RT4_EXPECTED_LIFECYCLE = {
     "unsupported_depth_failed_before_submission": True,
-    "non_uniform_scale_rejected_before_submission": True,
+    "non_uniform_scale_skips_instance_not_frame": True,
     "double_sided_pbs_readback": True,
     "lifetime_snapshot_identity_replay": True,
     "lifetime_completed_frame_queries": True,
