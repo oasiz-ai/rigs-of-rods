@@ -14,6 +14,7 @@
 #include <cstring>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <new>
 #include <thread>
 #include <utility>
@@ -2256,6 +2257,94 @@ void TestRetainedStaticSectionReuseIsByteStableAndFailsClosed() {
   Require(destroyed_any, "omitted retained assets were not tombstoned");
 }
 
+void TestRetainedBlockSurvivesDeformableInterleaving() {
+  using namespace RoR::Render;
+
+  // The cached deformable positions are indices into a block whose entries
+  // merge two identity domains. Identities below, between, and above the
+  // retained static range each move those positions differently, so drive
+  // every arrangement through spawn, steady state, and despawn.
+  GraphicsSceneSnapshotProducer producer = MakeProducer(902U);
+  GraphicsSceneFrameInput base = MakeFrame();
+  base.assets.push_back(DynamicMeshAsset());
+  SplitFrameIntoRetainedOwners(base);
+  Require(base.retained_static_meshes->size() == 2U &&
+              base.retained_static_meshes->front().source_object_id == 100U &&
+              base.retained_static_meshes->back().source_object_id == 200U,
+          "interleaving fixture does not straddle the static identity range");
+
+  // Below the range, between the two statics, and above the range.
+  const std::uint64_t kArrangements[][2U] = {
+      {50U, 0U}, {150U, 0U}, {250U, 0U}, {50U, 150U},
+      {150U, 250U}, {50U, 250U}, {0U, 0U},
+  };
+  std::map<std::uint64_t, std::uint64_t> live_revisions;
+  // Simulation time may never move backwards, so it accumulates across every
+  // arrangement rather than restarting from the fixture.
+  std::uint64_t tick = base.simulation_tick;
+  double seconds = base.simulation_time_seconds;
+  const auto advance = [&](GraphicsSceneFrameInput &target) {
+    ++tick;
+    seconds += 1.0;
+    target.simulation_tick = tick;
+    target.simulation_time_seconds = seconds;
+  };
+  for (const auto &arrangement : kArrangements) {
+    // Identities are permanent, so an arrangement may only introduce ones
+    // never used before; each pass therefore adds a fresh generation.
+    static std::uint64_t identity_generation = 0U;
+    ++identity_generation;
+    GraphicsSceneFrameInput frame = base;
+    for (const std::uint64_t slot : arrangement) {
+      if (slot == 0U) {
+        continue;
+      }
+      const std::uint64_t identity = slot + (identity_generation * 1000U);
+      const std::uint64_t revision = ++live_revisions[identity] + 1U;
+      frame.dynamic_meshes.push_back(
+          DynamicObject(identity, DynamicState(revision)));
+    }
+    std::size_t expected_dynamics = frame.dynamic_meshes.size();
+    for (std::size_t repeat = 0U; repeat < 3U; ++repeat) {
+      advance(frame);
+      const GraphicsSceneSnapshotProduceResult produced =
+          producer.Produce(frame);
+      Require(produced.ok(),
+              "a deformable arrangement around the retained range was "
+              "rejected");
+      Require(produced.production.scene_snapshot->mesh_instances().size() ==
+                  2U + expected_dynamics,
+              "interleaved deformables lost or duplicated an instance");
+      Require(produced.production.scene_snapshot->dynamic_mesh_updates()
+                      .size() == expected_dynamics,
+              "interleaved deformables lost a complete update");
+      const std::vector<MeshInstanceDescriptor> &instances =
+          produced.production.scene_snapshot->mesh_instances();
+      for (std::size_t index = 1U; index < instances.size(); ++index) {
+        Require(instances[index - 1U].instance_id <
+                    instances[index].instance_id,
+                "republished block is not strictly ordered by identity");
+      }
+      // Every static entry must still carry its own transform, whichever
+      // slots the deformables took around it.
+      for (const MeshInstanceDescriptor &instance : instances) {
+        if (instance.instance_id != 100U && instance.instance_id != 200U) {
+          continue;
+        }
+        Require(instance.render_from_object.elements[12U] ==
+                    (instance.instance_id == 100U ? 1.0F : 5.0F),
+                "a retained static entry was patched by a deformable");
+      }
+    }
+    // Retire the arrangement so the next one starts from the static-only set.
+    frame.dynamic_meshes.clear();
+    expected_dynamics = 0U;
+    advance(frame);
+    Require(producer.Produce(frame).ok(),
+            "retiring an interleaved deformable arrangement was rejected");
+  }
+}
+
 void TestHudOverlayAssetLifecycleAndRevisions() {
   using namespace RoR::Render;
 
@@ -2464,6 +2553,7 @@ int main() {
   TestDeterministicAcrossAdapterTraversalOrders();
   TestSceneGenerationFinalizationAndTickReset();
   TestRetainedStaticSectionReuseIsByteStableAndFailsClosed();
+  TestRetainedBlockSurvivesDeformableInterleaving();
   TestHudOverlayAssetLifecycleAndRevisions();
   return EXIT_SUCCESS;
 }
