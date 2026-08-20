@@ -3439,6 +3439,32 @@ ValidationResult BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
       simulation_time_seconds *
           static_cast<double>(kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond),
       kTwoPi));
+  // Policy v4 aerial perspective. Koschmieder: the 2% contrast threshold puts
+  // extinction at ln(0.02) / -visibility = 3.912 / visibility. Night keeps a
+  // fixed fraction of the daytime coefficient, interpolated by the same
+  // smoothstepped daylight term the gradient and clouds use, so the haze
+  // strengthens and weakens with the sun in lockstep with the sky it converges
+  // onto. All three values are provably in the contract's ranges: the
+  // extinction is a positive constant (9.78e-5) scaled by a factor in
+  // [kHazeNightFraction, 1], the inverse scale height is the reciprocal of a
+  // positive constant (8.33e-4), and the base height is exactly zero - so no
+  // binary32 overflow check is required beyond the descriptor validation.
+  constexpr double kKoschmiederContrastThresholdLog = 3.912;
+  const double haze_night_fraction =
+      static_cast<double>(kOgre14ModernAnalyticSkyHazeNightFraction);
+  const double haze_sigma_day =
+      kKoschmiederContrastThresholdLog /
+      static_cast<double>(kOgre14ModernAnalyticSkyHazeVisibilityMeters);
+  sky.haze_extinction_per_meter = static_cast<float>(
+      haze_sigma_day *
+      (haze_night_fraction + (1.0 - haze_night_fraction) * daylight));
+  sky.haze_inverse_scale_height_per_meter = static_cast<float>(
+      1.0 / static_cast<double>(kOgre14ModernAnalyticSkyHazeScaleHeightMeters));
+  // Render-relative baseline. The OGRE 14 producer publishes render space at
+  // the zero origin and the validation terrains sit at y ~= 0, so the layer
+  // base is the render origin. A later terrain-aware producer can derive the
+  // real ground baseline here without any further contract change.
+  sky.haze_base_height_meters = 0.0F;
   candidate.analytic_sky = sky;
   candidate.exposure_compensation_ev =
       kOgre14ModernAnalyticSkyExposureCompensationEv;

@@ -892,13 +892,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
 
     def test_rt4_v1_analytic_sky_is_live_native_and_transactional(self) -> None:
         for token in (
-            "kOgre14ModernAnalyticSkyPolicyVersion = 3U",
+            "kOgre14ModernAnalyticSkyPolicyVersion = 4U",
             "SkyX's native shader is azimuth-dependent",
             "BuildOgre14GraphicsSceneAnalyticSkyEnvironment",
             "joined live",
             "kOgre14ModernAnalyticSunAngularRadiusRadians",
             "kOgre14ModernAnalyticSkyCloudCoverageDaylightFraction",
             "kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond",
+            "kOgre14ModernAnalyticSkyHazeVisibilityMeters",
+            "kOgre14ModernAnalyticSkyHazeNightFraction",
+            "kOgre14ModernAnalyticSkyHazeScaleHeightMeters",
         ):
             self.assertIn(token, self.ogre14_scene_source_header)
         for token in (
@@ -909,6 +912,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "kSunDiskScale",
             "candidate.analytic_sky = sky",
             "environment = candidate",
+            "kKoschmiederContrastThresholdLog",
+            "sky.haze_extinction_per_meter",
+            "sky.haze_inverse_scale_height_per_meter",
+            "sky.haze_base_height_meters = 0.0F",
         ):
             self.assertIn(token, self.ogre14_scene_source)
         capture = self.gfx_scene[
@@ -1020,6 +1027,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "joined_live_ambient_and_exact_converted_main_light",
             "m_ogre_next_demo_analytic_sky_log_snapshot",
             "pending->analytic_sky_log_snapshot",
+            "haze_extinction_per_meter={:.9g}",
+            "haze_inverse_scale_height_per_meter={:.9g}",
+            "haze_base_height_meters={:.9g}",
         ):
             self.assertIn(
                 token,
@@ -1059,8 +1069,25 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "native_gpu_content_readbacks={}",
             "gpu_readback_scope=",
             "production_disabled_test_artifact_only",
+            # Aerial-perspective runtime evidence. constants_bound_verified is
+            # the per-frame _readRawConstants readback, so the live-runner
+            # validator can treat it as a hard gate.
+            "[RoR|RendererCombined|AerialHaze|",
+            "node=RoRAerialHazeNodeV1",
+            "depth=RoROpaqueDepth",
+            "constants_bound_verified={}",
+            "extinction_per_meter={:.9g}",
         ):
             self.assertIn(token, main_source)
+        for token in (
+            "aerial_haze_applied",
+            "aerial_haze_workspace_verified",
+            "aerial_haze_constants_bound",
+            "aerial_haze_depth_export_verified",
+            "aerial_haze_extinction_per_meter",
+            "aerial_haze_inscatter_r",
+        ):
+            self.assertIn(token, presenter + presenter_header)
 
     def test_display_domain_unlit_runs_after_filter_in_full32_unorm(self) -> None:
         for token in (
@@ -1339,8 +1366,37 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "Samples/Media/2.0/scripts/Compositors",
             "Samples/Media/2.0/scripts/materials/Common",
             "Samples/Media/2.0/scripts/materials/HDR",
+            # The RoR aerial-haze media joins the SAME manifest, staging, and
+            # provenance chain. Every link below must move together or the
+            # runtime media gate silently stops covering the haze shader.
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK",
+            "verify_aerial_haze_shader.py",
+            "ror-aerial-haze-v1.lock.json",
+            '"2.0/scripts/materials/RoRHaze")',
+            "/RoRAerialHaze.material",
+            "/GLSL/RoRAerialHaze_ps.glsl",
+            "/HLSL/RoRAerialHaze_ps.hlsl",
+            "/Metal/RoRAerialHaze_ps.metal",
+            "_ror_n1_aerial_haze_package_commands",
         ):
             self.assertIn(token, self.entry_cmake)
+        media_integrity = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/ogrenext/OgreNextN1MediaIntegrity.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"2.0/scripts/materials/RoRHaze"', media_integrity)
+        for token in (
+            '"2.0/scripts/materials/RoRHaze"',
+            '"2.0/scripts/materials/RoRHaze/GLSL"',
+            '"2.0/scripts/materials/RoRHaze/HLSL"',
+            '"2.0/scripts/materials/RoRHaze/Metal"',
+            "std::array<const char *, 15U> relative_locations",
+        ):
+            self.assertIn(token, self.frontend)
         self.assertIn("RunHdrCompositorProof", self.smoke)
         self.assertIn("ror.ogre_next_hdr_compositor.v6", self.smoke)
         self.assertIn("ror.ogre_next_hdr_compositor_visual.v2", self.smoke)
@@ -1383,10 +1439,17 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.hdr_topology_header)
         for token in (
-            "std::uint32_t version = 4U;",
+            # Compositor audit v5 adds the depth-export and aerial-haze
+            # evidence; the lighting-pass audit moves to v5 with it.
+            "std::uint32_t version = 5U;",
+            "kOgreNextNativeLightingPassAuditVersion = 5U",
             "OgreNextHdrSceneTopology scene_topology",
             "OgreNextHdrSceneTopology hdr_scene_topology",
             "pssm_finalized_with_populated_scene",
+            "bool opaque_depth_export_verified = false;",
+            "bool aerial_haze_workspace_verified = false;",
+            "bool aerial_haze_constants_bound = false;",
+            "bool aerial_haze_applied = false;",
         ):
             self.assertIn(token, self.header)
 
@@ -1398,11 +1461,24 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
         topology = self.frontend[topology_start:topology_end]
         for token in (
-            "node->setNumLocalTextureDefinitions(2U);",
+            "node->setNumLocalTextureDefinitions(3U);",
             "scene_texture->format = Ogre::PFG_RGBA16_FLOAT;",
             "scene_texture->width = 0U;",
             "scene_texture->height = 0U;",
-            "scene_texture->depthBufferId = 1U;",
+            # The scene owns an explicit D32 depth texture instead of a pooled
+            # depth buffer so the aerial-haze pass can sample it. Every token
+            # below is part of that export and must move together.
+            "scene_texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "scene_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "opaque_depth->format = Ogre::PFG_D32_FLOAT;",
+            "opaque_depth->width = 0U;",
+            "opaque_depth->height = 0U;",
+            "opaque_depth->textureFlags = Ogre::TextureFlags::RenderToTexture;",
+            "opaque_depth->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "scene_view->depthAttachment.textureName = "
+            "kOgreNextHdrOpaqueDepthTexture;",
+            "scene->mClearDepth = 1.0F;",
+            "scene->mStoreActionDepth = Ogre::StoreAction::Store;",
             "history->format = Ogre::PFG_R16_FLOAT;",
             "history->width = 1U;",
             "history->height = 1U;",
@@ -1417,15 +1493,21 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "history_target->setNumPasses(1U);",
             "history_target->addPass(Ogre::PASS_CLEAR)",
             "clear_history->mNumInitialPasses = 1U;",
-            "node->setNumOutputChannels(2U);",
+            "node->setNumOutputChannels(3U);",
             "node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);",
             "node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);",
+            "node->mapOutputChannel(2U, kOgreNextHdrOpaqueDepthTexture);",
             "verified_scene->mShadowNode != Ogre::IdString()",
+            # Depth adds a texture and a channel but no pass.
+            "textures.size() != 3U",
+            "node->getNumOutputChannels() != 3U",
             "node->calculateNumPasses() != 2U",
+            "textures[2U].format != Ogre::PFG_D32_FLOAT",
+            "verified_scene->mStoreActionDepth != Ogre::StoreAction::Store",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, topology)
-        self.assertEqual(topology.count("node->addTextureDefinition("), 2)
+        self.assertEqual(topology.count("node->addTextureDefinition("), 3)
         self.assertEqual(topology.count("node->addTargetPass("), 2)
         self.assertEqual(topology.count("addPass(Ogre::PASS_SCENE)"), 1)
         self.assertEqual(topology.count("addPass(Ogre::PASS_CLEAR)"), 1)
@@ -1452,7 +1534,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "current_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT",
             "definition->getNumTargetPasses() == 2U",
             "definition->calculateNumPasses() == 2U",
-            "definition->getNumOutputChannels() == 2U",
+            "definition->getNumOutputChannels() == 3U",
+            # recreateAllNodes() during PSSM finalize/rollback replaces every
+            # TextureGpu, so the refresh must re-resolve and re-verify the
+            # exported depth instead of keeping a stale pointer.
+            "opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT",
+            "hdr_opaque_depth_target = opaque_depth;",
             "hdr_auto_exposure_graph_verified",
             "hdr_bloom_graph_verified",
             "hdr_tone_map_graph_verified",
@@ -1486,7 +1573,15 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
 
         for token in (
             "RunSingleSceneHdrPssmTopologyProof",
-            "ror.ogre_next_hdr_pssm_single_scene.v1",
+            # v2 adds the aerial-perspective evidence. The DIRECTIONAL_SPLIT_V2
+            # schemas (hdr_compositor.v6 / hdr_compositor_visual.v2) stay
+            # frozen: haze is single-scene only.
+            "ror.ogre_next_hdr_pssm_single_scene.v2",
+            '\\"depth_export_verified\\"',
+            '\\"haze_node_verified\\"',
+            '\\"haze_constants_bound\\"',
+            '\\"haze_identity_when_sky_disabled\\"',
+            '\\"haze_applied\\"',
             '\\"topology\\": \\"SINGLE_EVALUATION_PSSM_V1\\"',
             '\\"pssm_deferred_until_populated_scene\\"',
             '\\"zero_light_pssm_warmup_avoided\\"',
@@ -2302,6 +2397,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "2.0/scripts/Compositors/HDR.compositor": b"compositor",
                 "2.0/scripts/materials/Common/Metal/Quad_vs.metal": b"metal",
                 "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl": b"hlsl",
+                # RoRHaze is a required manifest root: the RoR-owned aerial
+                # haze material and shaders are inside the same byte-exact
+                # closure the runtime verifier enforces.
+                (
+                    "2.0/scripts/materials/RoRHaze/RoRAerialHaze.material"
+                ): b"haze-material",
+                (
+                    "2.0/scripts/materials/RoRHaze/Metal/"
+                    "RoRAerialHaze_ps.metal"
+                ): b"haze-metal",
             }
             for relative, payload in files.items():
                 path = root / relative

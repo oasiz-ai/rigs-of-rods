@@ -4345,10 +4345,14 @@ def shader_media_manifest(root: Path) -> dict[str, Any]:
 
 
 def hdr_media_manifest(media_root: Path) -> dict[str, Any]:
+    # These roots must stay identical to the CMake HDR manifest roots and to
+    # VerifyOgreNextN1HdrMedia's scan roots; RoRHaze carries the RoR-owned
+    # aerial-haze material and shader siblings.
     roots = (
         Path("2.0/scripts/Compositors"),
         Path("2.0/scripts/materials/Common"),
         Path("2.0/scripts/materials/HDR"),
+        Path("2.0/scripts/materials/RoRHaze"),
     )
     entries_by_path: dict[str, tuple[str, int, str]] = {}
     for relative_root in roots:

@@ -912,7 +912,7 @@ bool DecomposeTrs(const Matrix4x4 &source, Ogre::Vector3 &position,
 /// must not silently diverge. Float aggregates compare by bits (memcmp of
 /// each member, never the whole struct, to keep padding bytes out), so -0.0
 /// differs from 0.0 and a NaN equals only its own bit pattern.
-static_assert(kSceneSnapshotVersion == 6U,
+static_assert(kSceneSnapshotVersion == 7U,
               "review SameMeshInstanceDescriptor whenever the snapshot "
               "contract changes MeshInstanceDescriptor state");
 static_assert(sizeof(MeshInstanceDescriptor) == 248U,
@@ -1666,6 +1666,11 @@ constexpr const char kOgreNextThinSlabBackgroundTexture[] =
     "RoRThinSlabBackgroundHdr";
 constexpr const char kOgreNextThinSlabOutputTexture[] =
     "RoRThinSlabOutputHdr";
+constexpr const char kOgreNextAerialHazeNode[] = "RoRAerialHazeNodeV1";
+constexpr const char kOgreNextAerialHazeInputTexture[] = "RoRHazeInputHdr";
+constexpr const char kOgreNextAerialHazeDepthInput[] = "RoRHazeOpaqueDepth";
+constexpr const char kOgreNextAerialHazeOutputTexture[] = "RoRHazeOutputHdr";
+constexpr const char kOgreNextAerialHazeMaterial[] = "RoR/HDR/AerialHaze";
 constexpr const char kOgreNextHdrSunVisibilityV2ContinuationWorkspace[] =
     "RoRHdrSunVisibilityV2Continuation";
 constexpr const char kOgreNextHdrSubtractMaterial[] =
@@ -2200,6 +2205,101 @@ void CreateAndVerifyThinSlabRefractionNode(
   }
 }
 
+// Aerial perspective. One full-screen quad between the single-evaluation
+// scene node and the stock HDR post node: it consumes the scene's linear
+// RGBA16F radiance on channel 0 and the scene's exported D32 depth on
+// channel 1, and writes the hazed radiance on output channel 0. The pass is
+// still pre-tonemap, so the HUD (which HdrRenderUi composites afterwards) can
+// never be hazed, and the auto-exposure chain measures the hazed image -
+// exactly as it already adapts to the sky dome.
+//
+// Deliberately NOT defined for the DIRECTIONAL_SPLIT_V2 showcase: that
+// topology's node/probe schemas stay frozen.
+void CreateAndVerifyAerialHazeNode(Ogre::CompositorManager2 &compositors) {
+  const Ogre::IdString node_name(kOgreNextAerialHazeNode);
+  if (compositors.hasNodeDefinition(node_name)) {
+    throw std::runtime_error(
+        "Ogre-Next aerial haze node identity is not empty");
+  }
+  Ogre::CompositorNodeDef *node =
+      compositors.addNodeDefinition(kOgreNextAerialHazeNode);
+  node->addTextureSourceName(kOgreNextAerialHazeInputTexture, 0U,
+                             Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+  node->addTextureSourceName(kOgreNextAerialHazeDepthInput, 1U,
+                             Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+
+  node->setNumLocalTextureDefinitions(1U);
+  Ogre::TextureDefinitionBase::TextureDefinition *output =
+      node->addTextureDefinition(kOgreNextAerialHazeOutputTexture);
+  output->textureType = Ogre::TextureTypes::Type2D;
+  output->width = 0U;
+  output->height = 0U;
+  output->depthOrSlices = 1U;
+  output->numMipmaps = 1U;
+  // Same format as the input so the shader's sky / zero-haze early-out is a
+  // bit-exact point copy rather than a re-quantization.
+  output->format = Ogre::PFG_RGBA16_FLOAT;
+  output->fsaa = "1";
+  output->textureFlags = Ogre::TextureFlags::RenderToTexture |
+                         Ogre::TextureFlags::DiscardableContent;
+  output->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  Ogre::RenderTargetViewDef *view =
+      node->addRenderTextureView(kOgreNextAerialHazeOutputTexture);
+  Ogre::RenderTargetViewEntry colour;
+  colour.textureName = kOgreNextAerialHazeOutputTexture;
+  view->colourAttachments.push_back(colour);
+  view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+
+  node->setNumTargetPass(1U);
+  Ogre::CompositorTargetDef *target =
+      node->addTargetPass(kOgreNextAerialHazeOutputTexture);
+  target->setNumPasses(1U);
+  auto *quad = static_cast<Ogre::CompositorPassQuadDef *>(
+      target->addPass(Ogre::PASS_QUAD));
+  quad->mMaterialIsHlms = false;
+  quad->mMaterialName = kOgreNextAerialHazeMaterial;
+  quad->mUseQuad = false;
+  quad->addQuadTextureSource(0U, kOgreNextAerialHazeInputTexture);
+  quad->addQuadTextureSource(1U, kOgreNextAerialHazeDepthInput);
+  quad->setAllLoadActions(Ogre::LoadAction::DontCare);
+  quad->mStoreActionColour[0] = Ogre::StoreAction::Store;
+  // No execution mask: the single-scene workspace runs the full 0xff mask.
+
+  node->setNumOutputChannels(1U);
+  node->mapOutputChannel(0U, kOgreNextAerialHazeOutputTexture);
+
+  const auto &textures = node->getLocalTextureDefinitions();
+  const Ogre::CompositorPassDefVec &passes =
+      node->getTargetPass(0U)->getCompositorPasses();
+  const auto *verified_quad =
+      passes.size() == 1U ? dynamic_cast<const Ogre::CompositorPassQuadDef *>(
+                                passes.front())
+                          : nullptr;
+  const bool exact_quad_sources =
+      verified_quad != nullptr &&
+      verified_quad->getTextureSources().size() == 2U &&
+      verified_quad->getTextureSources()[0U].texUnitIdx == 0U &&
+      verified_quad->getTextureSources()[0U].textureName ==
+          Ogre::IdString(kOgreNextAerialHazeInputTexture) &&
+      verified_quad->getTextureSources()[1U].texUnitIdx == 1U &&
+      verified_quad->getTextureSources()[1U].textureName ==
+          Ogre::IdString(kOgreNextAerialHazeDepthInput);
+  if (textures.size() != 1U || node->getNumTargetPasses() != 1U ||
+      node->getNumOutputChannels() != 1U ||
+      node->calculateNumPasses() != 1U ||
+      textures[0U].getName() !=
+          Ogre::IdString(kOgreNextAerialHazeOutputTexture) ||
+      textures[0U].format != Ogre::PFG_RGBA16_FLOAT ||
+      textures[0U].width != 0U || textures[0U].height != 0U ||
+      textures[0U].depthBufferId != Ogre::DepthBuffer::POOL_NO_DEPTH ||
+      verified_quad == nullptr || verified_quad->mMaterialIsHlms ||
+      verified_quad->mMaterialName != kOgreNextAerialHazeMaterial ||
+      verified_quad->mUseQuad || !exact_quad_sources) {
+    throw std::runtime_error(
+        "Ogre-Next aerial haze node topology failed exact definition readback");
+  }
+}
+
 void CreateAndVerifyHdrSingleSceneNode(
     Ogre::CompositorManager2 &compositors,
     bool &owns_node_definition) {
@@ -2215,7 +2315,7 @@ void CreateAndVerifyHdrSingleSceneNode(
       compositors.addNodeDefinition(kOgreNextHdrRenderingNode);
   owns_node_definition = true;
 
-  node->setNumLocalTextureDefinitions(2U);
+  node->setNumLocalTextureDefinitions(3U);
   Ogre::TextureDefinitionBase::TextureDefinition *scene_texture =
       node->addTextureDefinition(kOgreNextHdrRasterLitTexture);
   scene_texture->textureType = Ogre::TextureTypes::Type2D;
@@ -2227,13 +2327,16 @@ void CreateAndVerifyHdrSingleSceneNode(
   scene_texture->fsaa = "1";
   scene_texture->textureFlags = Ogre::TextureFlags::RenderToTexture |
                                 Ogre::TextureFlags::DiscardableContent;
-  scene_texture->depthBufferId = 1U;
+  // The scene's depth is an explicit node-owned D32 texture rather than a
+  // pooled depth buffer, so a later pass can sample it. This is the same
+  // pattern the DIRECTIONAL_SPLIT_V2 node already uses for RoROpaqueDepth.
+  scene_texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
   Ogre::RenderTargetViewDef *scene_view =
       node->addRenderTextureView(kOgreNextHdrRasterLitTexture);
   Ogre::RenderTargetViewEntry scene_attachment;
   scene_attachment.textureName = kOgreNextHdrRasterLitTexture;
   scene_view->colourAttachments.push_back(scene_attachment);
-  scene_view->depthBufferId = 1U;
+  scene_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
 
   Ogre::TextureDefinitionBase::TextureDefinition *history =
       node->addTextureDefinition(kOgreNextHdrHistoryTexture);
@@ -2253,6 +2356,19 @@ void CreateAndVerifyHdrSingleSceneNode(
   history_view->colourAttachments.push_back(history_attachment);
   history_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
 
+  Ogre::TextureDefinitionBase::TextureDefinition *opaque_depth =
+      node->addTextureDefinition(kOgreNextHdrOpaqueDepthTexture);
+  opaque_depth->textureType = Ogre::TextureTypes::Type2D;
+  opaque_depth->width = 0U;
+  opaque_depth->height = 0U;
+  opaque_depth->depthOrSlices = 1U;
+  opaque_depth->numMipmaps = 1U;
+  opaque_depth->format = Ogre::PFG_D32_FLOAT;
+  opaque_depth->fsaa = "1";
+  opaque_depth->textureFlags = Ogre::TextureFlags::RenderToTexture;
+  opaque_depth->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  scene_view->depthAttachment.textureName = kOgreNextHdrOpaqueDepthTexture;
+
   node->setNumTargetPass(2U);
   Ogre::CompositorTargetDef *scene_target =
       node->addTargetPass(kOgreNextHdrRasterLitTexture);
@@ -2269,9 +2385,14 @@ void CreateAndVerifyHdrSingleSceneNode(
   scene->setLightVisibilityMask(Ogre::VisibilityFlags::RESERVED_VISIBILITY_FLAGS);
   scene->setAllLoadActions(Ogre::LoadAction::Clear);
   scene->setAllClearColours(Ogre::ColourValue(6.667F, 13.333F, 20.0F, 1.0F));
+  // The clear stays exactly 1.0 and the store becomes Store: a later pass
+  // reads this depth, and the sky dome and particles deliberately never write
+  // it (mDepthCheck/mDepthWrite false for the dome), so a background texel is
+  // bit-exactly the 1.0 clear value. That exactness is what lets the aerial
+  // haze pass identify sky pixels with a plain d >= 1.0 test.
   scene->mClearDepth = 1.0F;
   scene->mStoreActionColour[0] = Ogre::StoreAction::Store;
-  scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+  scene->mStoreActionDepth = Ogre::StoreAction::Store;
   scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
 
   Ogre::CompositorTargetDef *history_target =
@@ -2284,9 +2405,10 @@ void CreateAndVerifyHdrSingleSceneNode(
   clear_history->setAllClearColours(
       Ogre::ColourValue(0.01F, 0.01F, 0.01F, 1.0F));
 
-  node->setNumOutputChannels(2U);
+  node->setNumOutputChannels(3U);
   node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);
   node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);
+  node->mapOutputChannel(2U, kOgreNextHdrOpaqueDepthTexture);
 
   const auto &textures = node->getLocalTextureDefinitions();
   const Ogre::CompositorPassDefVec &scene_passes =
@@ -2303,22 +2425,35 @@ void CreateAndVerifyHdrSingleSceneNode(
           ? dynamic_cast<const Ogre::CompositorPassClearDef *>(
                 history_passes.front())
           : nullptr;
-  if (textures.size() != 2U || node->getNumTargetPasses() != 2U ||
-      node->getNumOutputChannels() != 2U || node->calculateNumPasses() != 2U ||
+  // Depth adds a texture and an output channel but no pass, so the target and
+  // pass counts below stay exactly 2.
+  if (textures.size() != 3U || node->getNumTargetPasses() != 2U ||
+      node->getNumOutputChannels() != 3U || node->calculateNumPasses() != 2U ||
       textures[0U].getName() !=
           Ogre::IdString(kOgreNextHdrRasterLitTexture) ||
       textures[0U].format != Ogre::PFG_RGBA16_FLOAT ||
       textures[0U].width != 0U || textures[0U].height != 0U ||
-      textures[0U].depthBufferId != 1U ||
+      textures[0U].depthBufferId != Ogre::DepthBuffer::POOL_NO_DEPTH ||
       textures[1U].getName() != Ogre::IdString(kOgreNextHdrHistoryTexture) ||
       textures[1U].format != Ogre::PFG_R16_FLOAT ||
       textures[1U].width != 1U || textures[1U].height != 1U ||
+      textures[2U].getName() !=
+          Ogre::IdString(kOgreNextHdrOpaqueDepthTexture) ||
+      textures[2U].format != Ogre::PFG_D32_FLOAT ||
+      textures[2U].width != 0U || textures[2U].height != 0U ||
+      textures[2U].textureFlags != Ogre::TextureFlags::RenderToTexture ||
+      textures[2U].depthBufferId != Ogre::DepthBuffer::POOL_NO_DEPTH ||
+      scene_view->depthAttachment.textureName !=
+          Ogre::IdString(kOgreNextHdrOpaqueDepthTexture) ||
       verified_scene == nullptr ||
       verified_scene->mIdentifier != kOgreNextHdrSingleScenePassIdentifier ||
       verified_scene->mVisibilityMask != kOgreNextRt4AuthoredVisibilityMask ||
       verified_scene->mShadowNode != Ogre::IdString() ||
       verified_scene->mIncludeOverlays || !verified_scene->mEnableForwardPlus ||
-      !verified_scene->mUpdateLodLists || verified_history == nullptr ||
+      !verified_scene->mUpdateLodLists ||
+      verified_scene->mClearDepth != 1.0F ||
+      verified_scene->mStoreActionDepth != Ogre::StoreAction::Store ||
+      verified_history == nullptr ||
       verified_history->mNumInitialPasses != 1U) {
     throw std::runtime_error(
         "Ogre-Next single-evaluation HDR node topology failed exact definition readback");
@@ -4476,6 +4611,13 @@ public:
     audit.exact_current_to_old_copy_verified =
         hdr_exact_current_to_old_copy_verified;
     audit.hud_workspace_verified = hdr_hud_workspace_verified;
+    audit.opaque_depth_export_verified = hdr_opaque_depth_export_verified;
+    audit.aerial_haze_workspace_verified = hdr_aerial_haze_workspace_verified;
+    audit.aerial_haze_constants_bound = hdr_aerial_haze_constants_bound;
+    audit.aerial_haze_applied = hdr_aerial_haze_applied;
+    audit.aerial_haze_extinction_per_meter =
+        hdr_aerial_haze_extinction_per_meter;
+    audit.aerial_haze_inscatter = hdr_aerial_haze_inscatter;
     audit.width = hdr_width;
     audit.height = hdr_height;
     audit.warmup_frames = hdr_warmup_frames;
@@ -5095,11 +5237,27 @@ public:
     Ogre::CompositorWorkspaceDef *definition =
         compositors->addWorkspaceDefinition(workspace_name);
     hdr_workspace_definition_created = true;
-    definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
-                        SunVisibilityV2Enabled()
-                            ? Ogre::IdString(kOgreNextThinSlabNode)
-                            : Ogre::IdString(kOgreNextHdrPostprocessingNode),
-                        0U);
+    // Single-scene production inserts the aerial-haze quad between the scene
+    // node and the stock HDR post node: scene radiance on haze channel 0, the
+    // scene's exported D32 depth on haze channel 1, hazed radiance into post
+    // channel 0. Everything downstream of post - including the required
+    // HdrRenderUi edge below - is untouched, so the HUD stays post-tonemap
+    // and unhazed.
+    if (SingleSceneHdrPssmEnabled()) {
+      definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
+                          Ogre::IdString(kOgreNextAerialHazeNode), 0U);
+      definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 2U,
+                          Ogre::IdString(kOgreNextAerialHazeNode), 1U);
+      definition->connect(Ogre::IdString(kOgreNextAerialHazeNode), 0U,
+                          Ogre::IdString(kOgreNextHdrPostprocessingNode), 0U);
+    } else {
+      definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 0U,
+                          SunVisibilityV2Enabled()
+                              ? Ogre::IdString(kOgreNextThinSlabNode)
+                              : Ogre::IdString(
+                                    kOgreNextHdrPostprocessingNode),
+                          0U);
+    }
     definition->connect(Ogre::IdString(kOgreNextHdrRenderingNode), 1U,
                         Ogre::IdString(kOgreNextHdrPostprocessingNode), 1U);
     if (SunVisibilityV2Enabled()) {
@@ -5123,12 +5281,17 @@ public:
         aliases.find(Ogre::IdString(kOgreNextHdrPostprocessingNode)) != aliases.end();
     const bool has_refraction =
         aliases.find(Ogre::IdString(kOgreNextThinSlabNode)) != aliases.end();
+    const bool has_haze =
+        aliases.find(Ogre::IdString(kOgreNextAerialHazeNode)) != aliases.end();
     const bool has_upstream_ui =
         aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
     // The HDR UI node is now a required production member of the closure.
     constexpr bool expected_ui = true;
+    // Haze is single-scene only; DIRECTIONAL_SPLIT_V2 keeps rendering -> post
+    // (or -> thin slab -> post) exactly as before.
     if (!has_rendering || !has_postprocessing ||
         has_refraction != SunVisibilityV2Enabled() ||
+        has_haze != SingleSceneHdrPssmEnabled() ||
         has_upstream_ui != expected_ui) {
       return HdrBackendFailure(
           "programmatic HDR workspace node closure is not exact");
@@ -5300,6 +5463,28 @@ public:
       hdr_refraction_node_definition_created = false;
     }
     if (destroy_definitions_and_resources && root &&
+        hdr_haze_node_definition_created) {
+      try {
+        Ogre::CompositorManager2 *compositors =
+            root->getCompositorManager2();
+        const Ogre::IdString haze_name(kOgreNextAerialHazeNode);
+        if (!compositors->hasNodeDefinition(haze_name)) {
+          clean = false;
+        } else {
+          compositors->removeNodeDefinition(haze_name);
+        }
+        clean = !compositors->hasNodeDefinition(haze_name) && clean;
+      } catch (...) {
+        clean = false;
+      }
+    } else if (destroy_definitions_and_resources &&
+               hdr_haze_node_definition_created) {
+      clean = false;
+    }
+    if (destroy_definitions_and_resources) {
+      hdr_haze_node_definition_created = false;
+    }
+    if (destroy_definitions_and_resources && root &&
         hdr_split_node_definition_created) {
       try {
         Ogre::CompositorManager2 *compositors =
@@ -5400,6 +5585,10 @@ public:
     hdr_visibility_target_verified = false;
     hdr_lit_target_verified = false;
     hdr_gpu_sun_direct_split_verified = false;
+    hdr_opaque_depth_export_verified = false;
+    hdr_aerial_haze_workspace_verified = false;
+    hdr_aerial_haze_constants_bound = false;
+    hdr_aerial_haze_applied = false;
     hdr_auto_exposure_graph_verified = false;
     hdr_bloom_graph_verified = false;
     hdr_tone_map_graph_verified = false;
@@ -5479,6 +5668,185 @@ public:
     }
     hdr_manual_delta_bound = true;
     return RenderOperationResult::Success();
+  }
+
+  /// Per-frame aerial-haze constants, bound exactly like the HDR exposure and
+  /// bloom constants: setNamedConstant followed by a _readRawConstants
+  /// readback, HdrBackendFailure on any mismatch. The caller latches faulted.
+  ///
+  /// Every value is derived here, never in the shader: the presenter consumes
+  /// transported policy, it does not re-derive it. `identity` binds the exact
+  /// canonical no-haze state (extinction zero), which the shader answers with
+  /// a bit-exact RGBA16F point copy - the same payload a disabled sky produces
+  /// on the wire.
+  [[nodiscard]] RenderOperationResult ConfigureAerialHazeParameters(
+      const Ogre::Vector4 &coefficients, const Ogre::Vector4 &inscatter,
+      const Ogre::Vector4 &projection, const Ogre::Vector4 &ray_forward,
+      const Ogre::Vector4 &ray_right_scaled,
+      const Ogre::Vector4 &ray_up_scaled) {
+    const std::array<std::pair<const char *, const Ogre::Vector4 *>, 6U>
+        bindings{{{"hazeCoefficients", &coefficients},
+                  {"hazeInscatter", &inscatter},
+                  {"hazeProjection", &projection},
+                  {"hazeRayForward", &ray_forward},
+                  {"hazeRayRightScaled", &ray_right_scaled},
+                  {"hazeRayUpScaled", &ray_up_scaled}}};
+    for (const auto &binding : bindings) {
+      const Ogre::Vector4 &value = *binding.second;
+      if (!IsFinite(static_cast<float>(value.x)) ||
+          !IsFinite(static_cast<float>(value.y)) ||
+          !IsFinite(static_cast<float>(value.z)) ||
+          !IsFinite(static_cast<float>(value.w))) {
+        return HdrBackendFailure(
+            "aerial haze constant is not representable as finite binary32");
+      }
+    }
+    Ogre::MaterialPtr haze_material =
+        std::static_pointer_cast<Ogre::Material>(
+            Ogre::MaterialManager::getSingleton().load(
+                kOgreNextAerialHazeMaterial, kOgreNextHdrResourceGroup));
+    if (!haze_material || haze_material->getNumTechniques() != 1U ||
+        haze_material->getTechnique(0U) == nullptr ||
+        haze_material->getTechnique(0U)->getNumPasses() != 1U) {
+      return HdrBackendFailure(
+          "aerial haze material lost its exact single-technique quad pass");
+    }
+    Ogre::Pass *haze_pass = haze_material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr haze_parameters =
+        haze_pass->getFragmentProgramParameters();
+    if (!haze_parameters) {
+      return HdrBackendFailure(
+          "aerial haze material exposes no fragment parameters");
+    }
+    for (const auto &binding : bindings) {
+      const Ogre::Vector4 &value = *binding.second;
+      haze_parameters->setNamedConstant(binding.first, value);
+      float observed[4U]{};
+      const Ogre::GpuConstantDefinition &definition =
+          haze_parameters->getConstantDefinition(binding.first);
+      haze_parameters->_readRawConstants(definition.physicalIndex, 4U,
+                                         observed);
+      if (observed[0U] != static_cast<float>(value.x) ||
+          observed[1U] != static_cast<float>(value.y) ||
+          observed[2U] != static_cast<float>(value.z) ||
+          observed[3U] != static_cast<float>(value.w)) {
+        return HdrBackendFailure(
+            "aerial haze constant changed after deterministic binding");
+      }
+    }
+    hdr_aerial_haze_constants_bound = true;
+    return RenderOperationResult::Success();
+  }
+
+  /// The canonical no-haze binding. Used for the warmup frames before any
+  /// snapshot exists and whenever the committed sky is disabled, so the pass
+  /// is an exact pass-through rather than an approximation.
+  [[nodiscard]] RenderOperationResult BindIdentityAerialHazeParameters() {
+    const Ogre::Vector4 zero(0.0F, 0.0F, 0.0F, 0.0F);
+    // A unit forward with zero right/up keeps the ray finite and normalized;
+    // extinction zero makes every other term unreachable in the shader.
+    const RenderOperationResult bound = ConfigureAerialHazeParameters(
+        zero, zero, zero, Ogre::Vector4(0.0F, 0.0F, 1.0F, 0.0F), zero, zero);
+    if (bound) {
+      hdr_aerial_haze_applied = false;
+      hdr_aerial_haze_extinction_per_meter = 0.0F;
+      hdr_aerial_haze_inscatter = Float3{};
+    }
+    return bound;
+  }
+
+  /// Derives this frame's haze constants from the committed environment and
+  /// the validated camera, then binds them with readback verification.
+  ///
+  /// The inscatter color is deliberately NOT a wire field: it is
+  /// horizon_radiance * environment_intensity, the exact product the analytic
+  /// sky dome uses for its horizon ring (OgreNextN1Policy's scaled_radiance),
+  /// and the cloud layer already fades to zero at that ring. A fully
+  /// extinguished pixel therefore equals the dome by construction and no seam
+  /// can open at the horizon.
+  [[nodiscard]] RenderOperationResult ConfigureAerialHazeForFrame(
+      const SceneEnvironmentDescriptor &environment,
+      const CameraViewRequest &view) {
+    const AnalyticSkyDescriptor &sky = environment.analytic_sky;
+    if (!sky.enabled || !(sky.haze_extinction_per_meter > 0.0F)) {
+      // Disabled sky, or the validated canonical-zero / zero-extinction
+      // payload: exactly no haze, not approximately none.
+      return BindIdentityAerialHazeParameters();
+    }
+    // The snapshot passed ValidateSceneSnapshot and the per-frame analytic-sky
+    // admission gate before reaching here; re-check only the derived products,
+    // which are what the binding readback below can actually observe.
+    const Ogre::Matrix4 native_view = ToOgreMatrix(view.view_from_render);
+    const Ogre::Matrix4 render_from_view = native_view.inverseAffine();
+    const Ogre::Vector3 camera_position = render_from_view.getTrans();
+    // Ogre's view basis is right/up/backward, so forward is -Z.
+    const Ogre::Vector3 camera_right(render_from_view[0U][0U],
+                                     render_from_view[1U][0U],
+                                     render_from_view[2U][0U]);
+    const Ogre::Vector3 camera_up(render_from_view[0U][1U],
+                                  render_from_view[1U][1U],
+                                  render_from_view[2U][1U]);
+    const Ogre::Vector3 camera_forward(-render_from_view[0U][2U],
+                                       -render_from_view[1U][2U],
+                                       -render_from_view[2U][2U]);
+    if (!NearlyEqual(camera_right.squaredLength(), 1.0F) ||
+        !NearlyEqual(camera_up.squaredLength(), 1.0F) ||
+        !NearlyEqual(camera_forward.squaredLength(), 1.0F) ||
+        !NearlyEqual(camera_right.dotProduct(camera_up), 0.0F)) {
+      return HdrBackendFailure(
+          "aerial haze camera basis is not rigid and orthonormal");
+    }
+    const float projection_x = view.clip_from_view.elements[0U];
+    const float projection_y = view.clip_from_view.elements[5U];
+    if (!IsFinite(projection_x) || !IsFinite(projection_y) ||
+        projection_x == 0.0F || projection_y == 0.0F) {
+      return HdrBackendFailure(
+          "aerial haze cannot invert a degenerate projection scale");
+    }
+    // Frustum half-extents at unit forward distance, so
+    // fwd + ndc.x*right + ndc.y*up has an exact unit forward component and
+    // view_z * length(ray) is the true slant distance to the sampled pixel.
+    const float tan_half_fov_x = 1.0F / std::fabs(projection_x);
+    const float tan_half_fov_y = 1.0F / std::fabs(projection_y);
+    const float near_plane = view.near_plane;
+    const float far_plane = view.far_plane;
+    const float plane_span = far_plane - near_plane;
+    if (!IsFinite(near_plane) || !IsFinite(far_plane) || near_plane <= 0.0F ||
+        !(plane_span > 0.0F)) {
+      return HdrBackendFailure(
+          "aerial haze cannot linearize a degenerate depth range");
+    }
+    // Non-reversed [0, 1] depth: d = A + B / view_z, so view_z = B / (d - A).
+    const float projection_a = far_plane / plane_span;
+    const float projection_b = -(far_plane * near_plane) / plane_span;
+    const Ogre::Vector4 coefficients(
+        sky.haze_extinction_per_meter,
+        sky.haze_inverse_scale_height_per_meter,
+        static_cast<float>(camera_position.y) - sky.haze_base_height_meters,
+        0.0F);
+    const Ogre::Vector4 inscatter(
+        sky.horizon_radiance.x * environment.environment_intensity,
+        sky.horizon_radiance.y * environment.environment_intensity,
+        sky.horizon_radiance.z * environment.environment_intensity, 0.0F);
+    const RenderOperationResult bound = ConfigureAerialHazeParameters(
+        coefficients, inscatter,
+        Ogre::Vector4(projection_a, projection_b, 0.0F, 0.0F),
+        Ogre::Vector4(camera_forward.x, camera_forward.y, camera_forward.z,
+                      0.0F),
+        Ogre::Vector4(camera_right.x * tan_half_fov_x,
+                      camera_right.y * tan_half_fov_x,
+                      camera_right.z * tan_half_fov_x, 0.0F),
+        Ogre::Vector4(camera_up.x * tan_half_fov_y,
+                      camera_up.y * tan_half_fov_y,
+                      camera_up.z * tan_half_fov_y, 0.0F));
+    if (bound) {
+      hdr_aerial_haze_applied = true;
+      hdr_aerial_haze_extinction_per_meter = sky.haze_extinction_per_meter;
+      hdr_aerial_haze_inscatter = Float3{
+          static_cast<float>(inscatter.x), static_cast<float>(inscatter.y),
+          static_cast<float>(inscatter.z)};
+    }
+    return bound;
   }
 
   [[nodiscard]] bool ReadHdrHistory(HdrR16Float &history) {
@@ -5583,6 +5951,10 @@ public:
         rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrHistoryTexture)
             : nullptr;
+    Ogre::TextureGpu *opaque_depth =
+        rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture)
+            : nullptr;
     Ogre::TextureGpu *iterative_luminance =
         postprocessing != nullptr
             ? postprocessing->getDefinedTexture("rtIter2")
@@ -5611,6 +5983,31 @@ public:
         linear_scene->getHeight() == hdr_height &&
         linear_scene->getDepth() == 1U &&
         linear_scene->getNumMipmaps() == 1U;
+    // PSSM finalize and rollback both call recreateAllNodes(), which replaces
+    // every node instance and therefore every TextureGpu behind it. Re-resolve
+    // and re-verify the exported depth and the haze node here so no stale
+    // pointer can survive into the aerial-haze pass.
+    const bool opaque_depth_verified =
+        opaque_depth != nullptr &&
+        opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
+        opaque_depth->getWidth() == hdr_width &&
+        opaque_depth->getHeight() == hdr_height &&
+        opaque_depth->getDepth() == 1U &&
+        opaque_depth->getNumMipmaps() == 1U;
+    hdr_opaque_depth_export_verified = opaque_depth_verified;
+    Ogre::CompositorNode *haze =
+        hdr_workspace->findNode(kOgreNextAerialHazeNode);
+    Ogre::TextureGpu *haze_output =
+        haze != nullptr
+            ? haze->getDefinedTexture(kOgreNextAerialHazeOutputTexture)
+            : nullptr;
+    hdr_aerial_haze_workspace_verified =
+        haze != nullptr && haze_output != nullptr &&
+        haze_output->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
+        haze_output->getWidth() == hdr_width &&
+        haze_output->getHeight() == hdr_height &&
+        haze_output->getDepth() == 1U &&
+        haze_output->getNumMipmaps() == 1U;
     hdr_base_hdr_target_verified = false;
     hdr_sun_full_hdr_target_verified = false;
     hdr_sun_direct_hdr_target_verified = false;
@@ -5635,24 +6032,25 @@ public:
     const bool exact_topology =
         definition != nullptr && definition->getNumTargetPasses() == 2U &&
         definition->calculateNumPasses() == 2U &&
-        definition->getNumOutputChannels() == 2U;
+        definition->getNumOutputChannels() == 3U;
     const bool exact_shadow_runtime =
         !require_pssm_runtime ||
         (hdr_shadow_node_definition_created &&
          hdr_workspace->findShadowNode(
              Ogre::IdString(kOgreNextHdrShadowNode)) != nullptr);
     if (!hdr_linear_scene_target_verified || !exact_topology ||
+        !opaque_depth_verified || !hdr_aerial_haze_workspace_verified ||
         !hdr_auto_exposure_graph_verified || !hdr_bloom_graph_verified ||
         !hdr_tone_map_graph_verified || !hdr_srgb_output_verified ||
         !exact_shadow_runtime) {
       return HdrBackendFailure(
-          "single-evaluation HDR runtime differs from the reviewed RGBA16F scene, R16F history, exposure, bloom, filmic, sRGB, or staged PSSM topology");
+          "single-evaluation HDR runtime differs from the reviewed RGBA16F scene, D32 opaque depth, aerial-haze node, R16F history, exposure, bloom, filmic, sRGB, or staged PSSM topology");
     }
     hdr_base_hdr_target = nullptr;
     hdr_sun_direct_hdr_target = nullptr;
     hdr_visibility_target = nullptr;
     hdr_lit_target = nullptr;
-    hdr_opaque_depth_target = nullptr;
+    hdr_opaque_depth_target = opaque_depth;
     hdr_history_target = old_luminance;
     return RenderOperationResult::Success();
   }
@@ -5946,7 +6344,7 @@ public:
     // directories by basename, even when recursive enumeration is enabled.
     // Match Ogre-Next's own resources2.cfg/HDR sample registration exactly so
     // every backend can resolve the source selected by the unified program.
-    const std::array<const char *, 11U> relative_locations{{
+    const std::array<const char *, 15U> relative_locations{{
         "2.0/scripts/Compositors",
         "2.0/scripts/materials/Common",
         "2.0/scripts/materials/Common/Any",
@@ -5957,7 +6355,15 @@ public:
         "2.0/scripts/materials/HDR",
         "2.0/scripts/materials/HDR/GLSL",
         "2.0/scripts/materials/HDR/HLSL",
-        "2.0/scripts/materials/HDR/Metal"}};
+        "2.0/scripts/materials/HDR/Metal",
+        // RoR-owned aerial-haze material and its per-backend shader sources.
+        // The same flat-per-directory rule applies: the unified program names
+        // its source by basename, so every backend subdirectory needs its own
+        // FileSystem archive entry.
+        "2.0/scripts/materials/RoRHaze",
+        "2.0/scripts/materials/RoRHaze/GLSL",
+        "2.0/scripts/materials/RoRHaze/HLSL",
+        "2.0/scripts/materials/RoRHaze/Metal"}};
     if (first_resource_initialization) {
       for (const char *relative : relative_locations) {
         resources.addResourceLocation(
@@ -5994,6 +6400,8 @@ public:
         CreateAndVerifyHdrSingleSceneNode(
             *root->getCompositorManager2(),
             hdr_split_node_definition_created);
+        CreateAndVerifyAerialHazeNode(*root->getCompositorManager2());
+        hdr_haze_node_definition_created = true;
       } else {
         CreateAndVerifyHdrLightingSplitNode(
             *root->getCompositorManager2(), hdr_split_node_definition_created,
@@ -6024,7 +6432,11 @@ public:
                 kOgreNextHdrSunVisibilityV2ContinuationWorkspace)) ||
             !hdr_refraction_node_definition_created ||
             !compositors->hasNodeDefinition(
-                Ogre::IdString(kOgreNextThinSlabNode))))) {
+                Ogre::IdString(kOgreNextThinSlabNode)))) ||
+          (SingleSceneHdrPssmEnabled() &&
+           (!hdr_haze_node_definition_created ||
+            !compositors->hasNodeDefinition(
+                Ogre::IdString(kOgreNextAerialHazeNode))))) {
         return HdrBackendFailure(
             "retained HDR definitions disappeared before resize rebuild");
       }
@@ -6040,9 +6452,13 @@ public:
           aliases.end();
       const bool has_ui =
           aliases.find(Ogre::IdString(kOgreNextHdrUiNode)) != aliases.end();
+      const bool has_haze =
+          aliases.find(Ogre::IdString(kOgreNextAerialHazeNode)) !=
+          aliases.end();
       // The HDR UI node is a required production member of the closure.
       constexpr bool expected_ui = true;
-      if (!has_rendering || !has_postprocessing || has_ui != expected_ui) {
+      if (!has_rendering || !has_postprocessing || has_ui != expected_ui ||
+          has_haze != SingleSceneHdrPssmEnabled()) {
         return HdrBackendFailure(
             "retained HDR workspace topology changed before resize rebuild");
       }
@@ -6158,6 +6574,14 @@ public:
         hdr_workspace->findNode(kOgreNextHdrRenderingNode);
     Ogre::CompositorNode *postprocessing =
         hdr_workspace->findNode(kOgreNextHdrPostprocessingNode);
+    Ogre::CompositorNode *haze =
+        SingleSceneHdrPssmEnabled()
+            ? hdr_workspace->findNode(kOgreNextAerialHazeNode)
+            : nullptr;
+    Ogre::TextureGpu *haze_output =
+        haze != nullptr
+            ? haze->getDefinedTexture(kOgreNextAerialHazeOutputTexture)
+            : nullptr;
     Ogre::TextureGpu *linear_scene =
         rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrRasterLitTexture)
@@ -6182,8 +6606,13 @@ public:
         SunVisibilityV2Enabled() && rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrLitTexture)
             : nullptr;
+    // Both production topologies now export RoROpaqueDepth: the V2 split node
+    // for its ray-traced continuation, the single-evaluation node for the
+    // aerial-haze pass. Resolving it for only one of them would leave the
+    // other's depth unverified.
     Ogre::TextureGpu *opaque_depth =
-        SunVisibilityV2Enabled() && rendering != nullptr
+        (SunVisibilityV2Enabled() || SingleSceneHdrPssmEnabled()) &&
+                rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture)
             : nullptr;
     Ogre::TextureGpu *old_luminance = rendering != nullptr
@@ -6237,13 +6666,21 @@ public:
         !SunVisibilityV2Enabled() ||
         (exact_linear_target(lit_hdr) && lit_hdr->isUav());
     const bool opaque_depth_verified =
-        !SunVisibilityV2Enabled() ||
+        (!SunVisibilityV2Enabled() && !SingleSceneHdrPssmEnabled()) ||
         (opaque_depth != nullptr &&
          opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
          opaque_depth->getWidth() == width &&
          opaque_depth->getHeight() == height &&
          opaque_depth->getDepth() == 1U &&
          opaque_depth->getNumMipmaps() == 1U);
+    hdr_opaque_depth_export_verified = opaque_depth_verified;
+    // The haze node instance and its RGBA16F output must exist at the exact
+    // reviewed extent. This is the fail-closed gate for the whole pass: there
+    // is no present-without-haze fallback, so a missing or mismatched node
+    // takes down the workspace.
+    hdr_aerial_haze_workspace_verified =
+        !SingleSceneHdrPssmEnabled() ||
+        (haze != nullptr && exact_linear_target(haze_output));
     if (SunVisibilityV2Enabled()) {
       hdr_base_hdr_target_verified =
           hdr_base_hdr_target_verified && base_hdr->isUav();
@@ -6314,7 +6751,7 @@ public:
                hdr_gpu_sun_direct_split_verified);
     if (!hdr_linear_scene_target_verified || !exact_scene_topology ||
         !hdr_visibility_target_verified || !hdr_lit_target_verified ||
-        !opaque_depth_verified ||
+        !opaque_depth_verified || !hdr_aerial_haze_workspace_verified ||
         (SunVisibilityV2Enabled() &&
          hdr_v2_continuation_workspace == nullptr) ||
         !hdr_auto_exposure_graph_verified || !hdr_bloom_graph_verified ||
@@ -6323,7 +6760,7 @@ public:
          hdr_workspace->findShadowNode(Ogre::IdString(kOgreNextHdrShadowNode)) ==
              nullptr)) {
       return HdrBackendFailure(
-          "native HDR lighting graph differs from the reviewed linear-scene, exposure, bloom, filmic-tone-map, sRGB, or PSSM topology");
+          "native HDR lighting graph differs from the reviewed linear-scene, aerial-haze, exposure, bloom, filmic-tone-map, sRGB, or PSSM topology");
     }
     hdr_base_hdr_target = base_hdr;
     hdr_sun_direct_hdr_target = sun_direct_hdr;
@@ -6360,6 +6797,16 @@ public:
         hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F);
     if (!parameters) {
       return parameters;
+    }
+    if (SingleSceneHdrPssmEnabled()) {
+      // The warmup frames execute the workspace before any snapshot exists.
+      // Bind the canonical identity now so the quad is an exact pass-through
+      // rather than reading whatever the material's defaults happen to be.
+      const RenderOperationResult haze_identity =
+          BindIdentityAerialHazeParameters();
+      if (!haze_identity) {
+        return haze_identity;
+      }
     }
     if (SunVisibilityV2Enabled()) {
       hdr_workspace->setExecutionMask(
@@ -7935,6 +8382,7 @@ public:
   bool hdr_v2_continuation_workspace_definition_created = false;
   bool hdr_split_node_definition_created = false;
   bool hdr_refraction_node_definition_created = false;
+  bool hdr_haze_node_definition_created = false;
   bool hdr_shadow_node_definition_created = false;
   bool hdr_pssm_finalization_prepared = false;
   bool hdr_pssm_finalized_with_populated_scene = false;
@@ -7957,6 +8405,21 @@ public:
   bool hdr_visibility_target_verified = false;
   bool hdr_lit_target_verified = false;
   bool hdr_gpu_sun_direct_split_verified = false;
+  /// The scene node's exported RoROpaqueDepth resolved as D32 at the reviewed
+  /// extent. Vacuously true for topologies that export no depth.
+  bool hdr_opaque_depth_export_verified = false;
+  /// The haze node instance and its RGBA16F output were resolved and matched
+  /// the reviewed extent and format.
+  bool hdr_aerial_haze_workspace_verified = false;
+  /// Every haze named constant survived its per-frame readback.
+  bool hdr_aerial_haze_constants_bound = false;
+  /// The most recent bind carried a live (non-zero-extinction) atmosphere.
+  /// False means the pass ran as an exact pass-through, not that it was
+  /// skipped: there is no present-without-haze fallback.
+  bool hdr_aerial_haze_applied = false;
+  /// Last bound atmosphere, for the presenter's runtime evidence log.
+  float hdr_aerial_haze_extinction_per_meter = 0.0F;
+  Float3 hdr_aerial_haze_inscatter{};
   bool hdr_auto_exposure_graph_verified = false;
   bool hdr_bloom_graph_verified = false;
   bool hdr_tone_map_graph_verified = false;
@@ -9435,6 +9898,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->faulted = true;
       return configured;
     }
+    if (impl_->SingleSceneHdrPssmEnabled()) {
+      const RenderOperationResult haze = impl_->ConfigureAerialHazeForFrame(
+          request.scene_snapshot->environment(), validated_view);
+      if (!haze) {
+        impl_->faulted = true;
+        return haze;
+      }
+    }
   }
   std::uint64_t readback_row_pitch = 0U;
   std::size_t readback_total_bytes = 0U;
@@ -9511,6 +9982,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
   lighting_candidate.calibrated_directional_lighting = false;
   lighting_candidate.ambient_environment_lighting = false;
   lighting_candidate.analytic_sky_contribution = false;
+  lighting_candidate.aerial_haze_applied = false;
   lighting_candidate.emissive_material_response = false;
   lighting_candidate.pssm_shadow_response = false;
   lighting_candidate.hdr_auto_exposure =
@@ -12469,6 +12941,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     lighting_candidate.analytic_sky_contribution =
         analytic_sky_frame_completed;
+    // Only claimed when the pass carried a live atmosphere AND every haze
+    // constant survived its readback this frame.
+    lighting_candidate.aerial_haze_applied =
+        impl_->hdr_aerial_haze_applied &&
+        impl_->hdr_aerial_haze_constants_bound &&
+        impl_->hdr_aerial_haze_workspace_verified;
     lighting_candidate.emissive_material_response =
         lighting_candidate.last_emissive_items > 0U;
     lighting_candidate.native_scene_lighting_pass =

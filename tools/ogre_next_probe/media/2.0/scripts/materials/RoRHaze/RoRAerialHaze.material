@@ -1,0 +1,95 @@
+// RoR aerial perspective (haze).
+//
+// One full-screen quad between the single-evaluation HDR scene node and the
+// stock HDR post node. It consumes the scene's linear RGBA16F radiance and the
+// scene's exported D32 opaque depth, and blends extinguished radiance toward
+// the exact sky-dome horizon color before tonemap.
+//
+// The vertex program is the stock Ogre/Compositor/Quad_vs already carried by
+// the pinned Common media closure; only the fragment programs are RoR-owned.
+// Every named constant is bound per frame by the presenter with a
+// _readRawConstants readback, so a silent binding drift fails closed there.
+
+//------------------------
+//OpenGL GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/AerialHaze_ps_GLSL glsl
+{
+	source RoRAerialHaze_ps.glsl
+	default_params
+	{
+		param_named rt0				int 0
+		param_named depthTexture	int 1
+	}
+}
+
+//------------------------
+//Vulkan GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/AerialHaze_ps_VK glslvk
+{
+	source RoRAerialHaze_ps.glsl
+}
+
+//------------------------
+//HLSL Definitions
+//------------------------
+fragment_program RoR/HDR/AerialHaze_ps_HLSL hlsl
+{
+	source RoRAerialHaze_ps.hlsl
+	entry_point main
+	target ps_5_0 ps_4_0
+}
+
+//------------------------
+//Metal Definitions
+//------------------------
+fragment_program RoR/HDR/AerialHaze_ps_Metal metal
+{
+	source RoRAerialHaze_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+fragment_program RoR/HDR/AerialHaze_ps unified
+{
+	delegate RoR/HDR/AerialHaze_ps_GLSL
+	delegate RoR/HDR/AerialHaze_ps_VK
+	delegate RoR/HDR/AerialHaze_ps_HLSL
+	delegate RoR/HDR/AerialHaze_ps_Metal
+}
+
+material RoR/HDR/AerialHaze
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/AerialHaze_ps
+			{
+			}
+
+			// Point sampling only. The identity path must be a bit-exact
+			// RGBA16F copy, and any depth filtering would blend across
+			// silhouettes and reintroduce the banding the D32 target avoids.
+			texture_unit rt0
+			{
+				tex_address_mode	clamp
+				filtering			none
+			}
+
+			texture_unit depthTexture
+			{
+				tex_address_mode	clamp
+				filtering			none
+			}
+		}
+	}
+}

@@ -1100,7 +1100,7 @@ std::shared_ptr<const SceneSnapshot> MakeScene(std::uint64_t snapshot_id,
     const ValidationResult sky =
         BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
             descriptor.environment.ambient_radiance, captured_sun,
-            descriptor.environment);
+            descriptor.simulation_time_seconds, descriptor.environment);
     Require(sky.ok(), "RT4/V1 policy-v1 analytic sky could not be staged: " +
                           sky.field + ": " + sky.detail);
     if (suppress_sun_disk) {
@@ -2901,8 +2901,41 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
            << (compositor.clean_shutdown ? "true" : "false") << "\n"
            << "  },\n"
            << "  \"hdr_pssm_single_scene\": {\n"
-           << "    \"schema\": \"ror.ogre_next_hdr_pssm_single_scene.v1\",\n"
+           << "    \"schema\": \"ror.ogre_next_hdr_pssm_single_scene.v2\",\n"
            << "    \"topology\": \"SINGLE_EVALUATION_PSSM_V1\",\n"
+           << "    \"depth_export_verified\": "
+           << (compositor.single_scene_pssm.initialized
+                       .opaque_depth_export_verified
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"haze_node_verified\": "
+           << (compositor.single_scene_pssm.initialized
+                       .aerial_haze_workspace_verified
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"haze_constants_bound\": "
+           << (compositor.single_scene_pssm.committed
+                       .aerial_haze_constants_bound
+                   ? "true"
+                   : "false")
+           << ",\n"
+           // The warmup frames run before any snapshot exists, which is the
+           // same identity path a committed disabled sky takes: constants
+           // bound, no atmosphere applied, quad is a bit-exact pass-through.
+           << "    \"haze_identity_when_sky_disabled\": "
+           << ((compositor.single_scene_pssm.initialized
+                        .aerial_haze_constants_bound &&
+                !compositor.single_scene_pssm.initialized.aerial_haze_applied)
+                   ? "true"
+                   : "false")
+           << ",\n"
+           << "    \"haze_applied\": "
+           << (compositor.single_scene_pssm.lighting.aerial_haze_applied
+                   ? "true"
+                   : "false")
+           << ",\n"
            << "    \"hdr_enabled\": "
            << (compositor.single_scene_pssm.committed.enabled ? "true"
                                                               : "false")
@@ -4180,7 +4213,7 @@ void RunSingleSceneHdrPssmTopologyProof(
 
   evidence.initialized = frontend.QueryHdrCompositorAudit();
   const OgreNextHdrCompositorAudit &initialized = evidence.initialized;
-  Require(initialized.version == 4U && initialized.enabled &&
+  Require(initialized.version == 5U && initialized.enabled &&
               initialized.scene_topology ==
                   OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1 &&
               initialized.native_workspace_live &&
@@ -4196,6 +4229,16 @@ void RunSingleSceneHdrPssmTopologyProof(
               !initialized.pssm_finalized_with_populated_scene &&
               initialized.zero_light_pssm_warmup_avoided,
           "single-evaluation HDR/PSSM warmup was not truthfully deferred");
+  // Aerial perspective (audit v5): the scene node exports D32 depth, the haze
+  // node and its RGBA16F output exist at the reviewed extent, and the warmup
+  // frames - which run before any snapshot exists, exactly like a committed
+  // disabled sky - bound the canonical identity so the quad is a bit-exact
+  // pass-through rather than an approximation.
+  Require(initialized.opaque_depth_export_verified &&
+              initialized.aerial_haze_workspace_verified &&
+              initialized.aerial_haze_constants_bound &&
+              !initialized.aerial_haze_applied,
+          "single-evaluation warmup did not export depth or bind identity aerial haze");
   evidence.initialized_shadow = frontend.QueryDirectionalShadowAudit();
   const OgreNextPssmShadowRuntimeAudit &initialized_shadow =
       evidence.initialized_shadow;
@@ -4231,6 +4274,13 @@ void RunSingleSceneHdrPssmTopologyProof(
               committed.native_r16_history_validated &&
               committed.exact_current_to_old_copy_verified,
           "single-evaluation HDR/PSSM did not finalize on the first populated scene");
+  // The populated scene carries the policy-v4 analytic sky, so this frame
+  // binds a live atmosphere and every haze constant survived its readback.
+  Require(committed.opaque_depth_export_verified &&
+              committed.aerial_haze_workspace_verified &&
+              committed.aerial_haze_constants_bound &&
+              committed.aerial_haze_applied,
+          "single-evaluation populated frame did not apply readback-verified aerial haze");
   Require(lighting.version == kOgreNextNativeLightingPassAuditVersion &&
               lighting.completed_frames == 1U &&
               lighting.last_frame_id == 1U &&
@@ -4483,7 +4533,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   HdrR16Float expected_initial;
   Require(QuantizeHdrR16Float(0.01F, expected_initial).ok(),
           "HDR compositor initial R16 fixture is invalid");
-  Require(evidence.initialized.version == 4U &&
+  Require(evidence.initialized.version == 5U &&
               evidence.initialized.enabled &&
               evidence.initialized.native_workspace_live &&
               evidence.initialized.deterministic_delta_bound &&
@@ -4621,7 +4671,7 @@ RunHdrCompositorProof(const std::string &media_root) {
     throw std::runtime_error(detail.str());
   }
   Require(evidence.exposure_changed_pixels >= 512U &&
-              evidence.committed.version == 4U &&
+              evidence.committed.version == 5U &&
               evidence.committed.native_workspace_live &&
               evidence.committed.deterministic_delta_bound &&
               evidence.committed.native_r16_history_validated &&
@@ -4754,7 +4804,7 @@ RunHdrCompositorProof(const std::string &media_root) {
   const OgreNextHdrCompositorAudit resized_audit =
       frontend.QueryHdrCompositorAudit();
   evidence.resize_rebuild_verified =
-      resized_audit.version == 4U && resized_audit.enabled &&
+      resized_audit.version == 5U && resized_audit.enabled &&
       resized_audit.native_workspace_live &&
       resized_audit.hud_workspace_verified &&
       resized_audit.width == kResizedWidth &&
@@ -5118,7 +5168,7 @@ RunHdrCompositorProof(const std::string &media_root) {
                                 failure_stages[index].second);
     const OgreNextHdrCompositorAudit after_failure =
         rollback.QueryHdrCompositorAudit();
-    Require(after_failure.version == 4U && after_failure.enabled &&
+    Require(after_failure.version == 5U && after_failure.enabled &&
                 !after_failure.native_workspace_live && after_failure.width == 0U &&
                 after_failure.height == 0U && after_failure.warmup_frames == 0U &&
                 after_failure.committed_frames == 0U,

@@ -166,7 +166,7 @@ struct RendererOgre14GameHostSession::Impl final {
           });
       if (found == forward_lineage.end() ||
           found->kind != Render::RenderTransportMessageKind::
-                             SCENE_SNAPSHOT_V6_CAMERA_V2 ||
+                             SCENE_SNAPSHOT_V7_CAMERA_V2 ||
           found->snapshot_id != acknowledgement.presented_snapshot_id) {
         return false;
       }
@@ -186,7 +186,7 @@ struct RendererOgre14GameHostSession::Impl final {
             [this](const ForwardLineage &lineage) {
               return lineage.sequence <= last_acknowledged_forward &&
                      (lineage.kind != Render::RenderTransportMessageKind::
-                                          SCENE_SNAPSHOT_V6_CAMERA_V2 ||
+                                          SCENE_SNAPSHOT_V7_CAMERA_V2 ||
                       lineage.sequence <= last_presented_scene_sequence);
             }),
         forward_lineage.end());
@@ -949,7 +949,7 @@ RendererOgre14GameHostSession::PostPhysicsImpl(
     RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
         RendererOgre14GameHostSessionStatus::FAILED_FORWARD_ENCODING, false);
     result.kind =
-        Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
+        Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2;
     result.forward_sequence = sequence;
     result.transport_status = encoded.status;
     return result;
@@ -961,11 +961,11 @@ RendererOgre14GameHostSession::PostPhysicsImpl(
   }
   try {
     impl_->forward_lineage.push_back(
-        {Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2,
+        {Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2,
          sequence, snapshot.snapshot_id()});
     Impl::ForwardMessage queued;
     queued.kind =
-        Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
+        Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2;
     queued.sequence = sequence;
     queued.snapshot_id = snapshot.snapshot_id();
     queued.bytes = std::move(encoded.bytes);
@@ -997,7 +997,7 @@ RendererOgre14GameHostSession::PostPhysicsImpl(
   RendererOgre14GameHostSessionResult result = impl_->ResultLocked(
       RendererOgre14GameHostSessionStatus::SCENE_SNAPSHOT_QUEUED, true);
   result.kind =
-      Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
+      Render::RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2;
   result.forward_sequence = sequence;
   return result;
 }

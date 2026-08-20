@@ -23,8 +23,8 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kSceneSnapshotVersion = 6U;
-constexpr std::uint32_t kSceneLightingHashVersion = 3U;
+constexpr std::uint32_t kSceneSnapshotVersion = 7U;
+constexpr std::uint32_t kSceneLightingHashVersion = 4U;
 constexpr std::uint32_t kSceneReflectionProbeHashVersion = 1U;
 
 class RenderAssetRegistry;
@@ -93,6 +93,20 @@ enum MeshInstanceFlag : std::uint32_t {
 /// pattern in longitude and is produced as fmod(time, 2*pi), which native
 /// admission relies on. All three stay canonical zero while the layer (or
 /// the whole sky) is disabled.
+///
+/// The aerial-perspective (haze) layer is likewise described, not rendered,
+/// here. It is a single-albedo exponential-with-height atmosphere whose
+/// in-scattered radiance is, by construction, the horizon_radiance above:
+/// a backend converges hazed pixels onto the exact dome horizon ring, so no
+/// separate inscatter color rides the wire and no seam can open between the
+/// haze and the sky. haze_extinction_per_meter is the extinction (equal to
+/// the scattering) coefficient at the base height, in 1/m;
+/// haze_inverse_scale_height_per_meter is the reciprocal aerosol scale
+/// height, in 1/m, so density at height h is
+/// exp(-(h - haze_base_height_meters) * haze_inverse_scale_height_per_meter);
+/// haze_base_height_meters is that reference height in render-space meters.
+/// A zero haze_extinction_per_meter with an enabled sky is legal and means
+/// exactly no haze. All three stay canonical zero while the sky is disabled.
 struct AnalyticSkyDescriptor {
   bool enabled = false;
   std::uint64_t sun_light_id = 0U;
@@ -104,6 +118,9 @@ struct AnalyticSkyDescriptor {
   float cloud_coverage = 0.0F;
   Float3 cloud_radiance{};
   float cloud_phase_radians = 0.0F;
+  float haze_extinction_per_meter = 0.0F;
+  float haze_inverse_scale_height_per_meter = 0.0F;
+  float haze_base_height_meters = 0.0F;
 };
 
 /// Optional transported menu/HUD overlay. The material is an ordinary

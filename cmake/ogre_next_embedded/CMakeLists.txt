@@ -535,6 +535,32 @@ if (NOT _ror_sun_visibility_v2_shader_result EQUAL 0)
         "Metal sun-visibility V2 shader verification failed: "
         "${_ror_sun_visibility_v2_shader_error}")
 endif ()
+# RoR-owned aerial-perspective (haze) compositor media. These are 2.0 material
+# scripts, not HLMS pieces, so they join the HDR manifest below; the pinned
+# Ogre-Next glob cannot see them, so each file is appended explicitly.
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE
+    "2.0/scripts/materials/RoRHaze")
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRAerialHaze.material"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRAerialHaze_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRAerialHaze_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRAerialHaze_ps.metal")
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media")
+set(ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ror-aerial-haze-v1.lock.json")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${ROR_OGRE_NEXT_STANDALONE_ROOT}/verify_aerial_haze_shader.py"
+            --root "${ROR_OGRE_NEXT_STANDALONE_ROOT}"
+            --lock "${ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK}"
+    RESULT_VARIABLE _ror_aerial_haze_shader_result
+    ERROR_VARIABLE _ror_aerial_haze_shader_error)
+if (NOT _ror_aerial_haze_shader_result EQUAL 0)
+    message(FATAL_ERROR
+        "RoR aerial-haze media verification failed: "
+        "${_ror_aerial_haze_shader_error}")
+endif ()
 set(_ror_stage_tuples "")
 set(_ror_stage_sources "")
 
@@ -589,6 +615,8 @@ foreach (_ror_hdr_root IN LISTS _ror_n1_hdr_media_roots)
         "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_hdr_root}/*")
     list(APPEND _ror_n1_hdr_media_files ${_ror_hdr_files})
 endforeach ()
+list(APPEND _ror_n1_hdr_media_files
+    ${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE})
 list(REMOVE_DUPLICATES _ror_n1_hdr_media_files)
 list(SORT _ror_n1_hdr_media_files)
 if (NOT _ror_n1_hdr_media_files)
@@ -597,8 +625,19 @@ endif ()
 set(ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES "")
 set(_ror_n1_hdr_media_manifest_serialized "")
 foreach (_ror_hdr_relative IN LISTS _ror_n1_hdr_media_files)
+    # RoR-owned haze media lives in the standalone probe tree, not in the
+    # pinned Ogre-Next media root; everything else resolves as before.
+    list(FIND ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
+        "${_ror_hdr_relative}" _ror_hdr_haze_index)
+    if (_ror_hdr_haze_index GREATER_EQUAL 0)
+        set(_ror_hdr_media_source
+            "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT}/${_ror_hdr_relative}")
+    else ()
+        set(_ror_hdr_media_source
+            "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_hdr_relative}")
+    endif ()
     _ror_record_media_file(
-        "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_hdr_relative}"
+        "${_ror_hdr_media_source}"
         "${_ror_hdr_relative}" "ShaderMedia/${_ror_hdr_relative}"
         ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES
         _ror_n1_hdr_media_manifest_serialized)

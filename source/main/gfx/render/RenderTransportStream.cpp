@@ -107,7 +107,7 @@ bool RenderTransportStreamDecoder::InspectCompleteHeader() noexcept {
   }
   std::uint64_t message_payload_limit = 0U;
   switch (kind) {
-  case RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2:
+  case RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2:
     message_payload_limit = kRenderTransportStreamSceneMaximumPayloadBytes;
     break;
   case RenderTransportMessageKind::RENDER_ASSET_DELTA_V1:
@@ -289,7 +289,7 @@ RenderTransportStreamDecoder::TakeFrame() noexcept {
     frame_.clear();
     expected_frame_bytes_ = 0U;
     sequence_ = 0U;
-    kind_ = RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
+    kind_ = RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2;
     status_ = input_closed_ ? RenderTransportStreamStatus::CLOSED
                             : RenderTransportStreamStatus::NEED_MORE_DATA;
     transport_status_ = RenderTransportStatus::OK;

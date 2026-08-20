@@ -1140,6 +1140,12 @@ class OgreNextArtifactSetTests(unittest.TestCase):
             "2.0/scripts/materials/Common/Metal/Quad_vs.metal": b"common",
             "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl": b"hdr",
             (
+                "2.0/scripts/materials/RoRHaze/RoRAerialHaze.material"
+            ): b"aerial-haze-material",
+            (
+                "2.0/scripts/materials/RoRHaze/Metal/RoRAerialHaze_ps.metal"
+            ): b"aerial-haze-metal",
+            (
                 "2.0/scripts/materials/LocalCubemaps/"
                 "BlendProjectCubemap.material"
             ): b"reflection-local-cubemap",
@@ -1162,6 +1168,7 @@ class OgreNextArtifactSetTests(unittest.TestCase):
                 Path("2.0/scripts/Compositors"),
                 Path("2.0/scripts/materials/Common"),
                 Path("2.0/scripts/materials/HDR"),
+                Path("2.0/scripts/materials/RoRHaze"),
             ),
             "fixture HDR",
         )

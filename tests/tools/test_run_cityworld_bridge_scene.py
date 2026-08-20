@@ -719,6 +719,58 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         with self.assertRaises(SCENE.BridgeSceneFailure):
             SCENE.validate_pssm_log(marker, "none", 2)
 
+    def test_aerial_haze_marker_gate_requires_readback_verified_atmosphere(
+        self,
+    ) -> None:
+        marker = (
+            "[RoR|RendererCombined|AerialHaze|Runtime] enabled=1 "
+            "node=RoRAerialHazeNodeV1 depth=RoROpaqueDepth "
+            "depth_export_verified=1 node_verified=1 "
+            "constants_bound_verified=1 extinction_per_meter=9.78e-05 "
+            "inscatter=[0.0323878,0.0372578,0.0445614] completed_frames=42"
+        )
+        record = SCENE.validate_aerial_haze_log(marker)
+        self.assertIsNotNone(record)
+        self.assertEqual(record["node"], "RoRAerialHazeNodeV1")
+        self.assertEqual(record["depth"], "RoROpaqueDepth")
+        self.assertTrue(record["constants_bound_verified"])
+        self.assertAlmostEqual(record["extinction_per_meter"], 9.78e-05)
+        # A run that never reaches the combined presenter emits no marker at
+        # all; that is reported as absent rather than as a failure.
+        self.assertIsNone(SCENE.validate_aerial_haze_log(""))
+        invalid_markers = (
+            # Identity binding at the end of a daylight run.
+            marker.replace("enabled=1", "enabled=0"),
+            # The per-frame constant readback did not verify.
+            marker.replace("constants_bound_verified=1",
+                           "constants_bound_verified=0"),
+            marker.replace("depth_export_verified=1",
+                           "depth_export_verified=0"),
+            marker.replace("node_verified=1", "node_verified=0"),
+            # Renamed compositor node or depth texture.
+            marker.replace("RoRAerialHazeNodeV1", "RoRSomeOtherNode"),
+            marker.replace("RoROpaqueDepth", "RoRSomeOtherDepth"),
+            # Extinction outside the reviewed policy-v4 Koschmieder band.
+            marker.replace("9.78e-05", "0.005"),
+            marker.replace("9.78e-05", "1e-09"),
+            # Negative inscatter radiance.
+            marker.replace("0.0323878", "-0.0323878"),
+            # Truncated marker: the evidence format drifted.
+            marker.replace(" node_verified=1", ""),
+        )
+        for invalid in invalid_markers:
+            with self.subTest(marker=invalid):
+                with self.assertRaises(SCENE.BridgeSceneFailure):
+                    SCENE.validate_aerial_haze_log(invalid)
+        # Every emitted marker is gated, not only the last one.
+        with self.assertRaises(SCENE.BridgeSceneFailure):
+            SCENE.validate_aerial_haze_log(
+                marker.replace("constants_bound_verified=1",
+                               "constants_bound_verified=0")
+                + "\n"
+                + marker
+            )
+
     def test_postprocess_marker_gate_proves_platform_effective_mode(
         self,
     ) -> None:

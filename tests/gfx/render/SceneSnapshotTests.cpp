@@ -62,6 +62,10 @@ RoR::Render::SceneSnapshotDescriptor MakeValidDescriptor() {
   descriptor.environment.analytic_sky.cloud_radiance = {0.1675F, 0.169375F,
                                                         0.17125F};
   descriptor.environment.analytic_sky.cloud_phase_radians = 0.4F;
+  descriptor.environment.analytic_sky.haze_extinction_per_meter = 9.78e-5F;
+  descriptor.environment.analytic_sky.haze_inverse_scale_height_per_meter =
+      8.3333333e-4F;
+  descriptor.environment.analytic_sky.haze_base_height_meters = 0.0F;
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 10U;
@@ -536,6 +540,77 @@ void TestWorldLightAndParticleValidation() {
   RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
                  "disabled analytic sky retained live cloud state");
 
+  // Aerial haze. Zero extinction under an enabled sky is deliberately legal
+  // and means exactly no haze; everything outside the reviewed bounds, and
+  // any live haze state under a disabled sky, must fail closed.
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_extinction_per_meter = 0.0F;
+  Require(ValidateSceneSnapshotDescriptor(descriptor).ok(),
+          "zero haze extinction under an enabled sky was rejected");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_extinction_per_meter = -1.0e-6F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "negative haze extinction was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_extinction_per_meter = 1.1e-2F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "haze extinction above the reviewed bound was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_extinction_per_meter =
+      std::numeric_limits<float>::quiet_NaN();
+  RequireInvalid(descriptor, ValidationCode::NON_FINITE_VALUE,
+                 "non-finite haze extinction was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_inverse_scale_height_per_meter =
+      -1.0e-6F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "negative haze inverse scale height was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_inverse_scale_height_per_meter =
+      1.1e-1F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "haze inverse scale height above the reviewed bound was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_inverse_scale_height_per_meter =
+      std::numeric_limits<float>::infinity();
+  RequireInvalid(descriptor, ValidationCode::NON_FINITE_VALUE,
+                 "non-finite haze inverse scale height was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_base_height_meters = 2.0e5F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "haze base height above the reviewed bound was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky.haze_base_height_meters = -2.0e5F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "haze base height below the reviewed bound was accepted");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky = {};
+  descriptor.environment.analytic_sky.haze_extinction_per_meter = 1.0e-5F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "disabled analytic sky retained live haze extinction");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky = {};
+  descriptor.environment.analytic_sky.haze_inverse_scale_height_per_meter =
+      1.0e-4F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "disabled analytic sky retained live haze scale height");
+
+  descriptor = MakeValidDescriptor();
+  descriptor.environment.analytic_sky = {};
+  descriptor.environment.analytic_sky.haze_base_height_meters = 1.0F;
+  RequireInvalid(descriptor, ValidationCode::VALUE_OUT_OF_RANGE,
+                 "disabled analytic sky retained a live haze base height");
+
   descriptor = MakeValidDescriptor();
   descriptor.particle_events.front().effect = static_cast<ParticleEffect>(255U);
   RequireInvalid(descriptor, ValidationCode::INVALID_ENUM,
@@ -929,6 +1004,25 @@ void TestCanonicalLightingEnvironmentHash() {
   Require(ComputeSceneLightingEnvironmentHash(changed_cloud_phase) !=
               baseline,
           "lighting digest omitted cloud phase");
+
+  SceneSnapshotDescriptor changed_haze_extinction = descriptor;
+  changed_haze_extinction.environment.analytic_sky
+      .haze_extinction_per_meter += 1.0e-5F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_haze_extinction) !=
+              baseline,
+          "lighting digest omitted aerial haze extinction");
+  SceneSnapshotDescriptor changed_haze_scale_height = descriptor;
+  changed_haze_scale_height.environment.analytic_sky
+      .haze_inverse_scale_height_per_meter += 1.0e-5F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_haze_scale_height) !=
+              baseline,
+          "lighting digest omitted aerial haze scale height");
+  SceneSnapshotDescriptor changed_haze_base_height = descriptor;
+  changed_haze_base_height.environment.analytic_sky
+      .haze_base_height_meters += 5.0F;
+  Require(ComputeSceneLightingEnvironmentHash(changed_haze_base_height) !=
+              baseline,
+          "lighting digest omitted aerial haze base height");
 
   SceneSnapshotDescriptor reordered = descriptor;
   std::swap(reordered.lights[0U], reordered.lights[1U]);

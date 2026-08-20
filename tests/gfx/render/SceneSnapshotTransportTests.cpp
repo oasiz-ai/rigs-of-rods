@@ -137,6 +137,10 @@ SceneSnapshotDescriptor MakeRichDescriptor() {
   descriptor.environment.analytic_sky.cloud_radiance = {0.1675F, 0.169375F,
                                                         0.17125F};
   descriptor.environment.analytic_sky.cloud_phase_radians = 0.4F;
+  descriptor.environment.analytic_sky.haze_extinction_per_meter = 9.78e-5F;
+  descriptor.environment.analytic_sky.haze_inverse_scale_height_per_meter =
+      8.3333333e-4F;
+  descriptor.environment.analytic_sky.haze_base_height_meters = -12.5F;
 
   MeshInstanceDescriptor instance;
   instance.instance_id = 10U;
@@ -377,7 +381,7 @@ void TestRichRoundTripAndSignedZeroNormalization() {
   Require(decoded.ok() && decoded.message->sequence() == 44U,
           "rich frame was not decoded");
   Require(decoded.message->kind() ==
-              SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2,
+              SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2,
           "decoded message kind changed");
   const SceneSnapshot &scene = *decoded.message->scene_snapshot();
   Require(scene.version() == kSceneSnapshotVersion &&
@@ -403,7 +407,17 @@ void TestRichRoundTripAndSignedZeroNormalization() {
               scene.environment().analytic_sky.cloud_radiance ==
                   Float3{0.1675F, 0.169375F, 0.17125F} &&
               scene.environment().analytic_sky.cloud_phase_radians == 0.4F,
-          "v6 analytic-sky cloud fields did not round-trip");
+          "v7 analytic-sky cloud fields did not round-trip");
+  // Bit-exact: the haze coefficients drive an exponential in the presenter, so
+  // the wire must preserve every admitted binary32 pattern, signs included.
+  Require(scene.environment().analytic_sky.haze_extinction_per_meter ==
+                  9.78e-5F &&
+              scene.environment()
+                      .analytic_sky.haze_inverse_scale_height_per_meter ==
+                  8.3333333e-4F &&
+              scene.environment().analytic_sky.haze_base_height_meters ==
+                  -12.5F,
+          "v7 analytic-sky aerial-haze fields did not round-trip");
   Require(scene.hud_overlay().enabled &&
               scene.hud_overlay().material ==
                   Asset(RenderAssetKind::MATERIAL, 6U, 7U),

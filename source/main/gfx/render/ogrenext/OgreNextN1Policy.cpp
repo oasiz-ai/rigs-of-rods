@@ -726,10 +726,25 @@ ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
       // their defined domain, so it fails closed here instead.
       sky.cloud_phase_radians < 0.0F ||
       sky.cloud_phase_radians > 6.28318530717958647692F ||
+      // Aerial-haze coefficients ride the same descriptor and are consumed by
+      // the compositor haze pass, not by this mesh. They are admitted here so
+      // one gate covers the whole analytic-sky payload: a corrupt committed
+      // snapshot fails closed per frame exactly like a corrupt cloud state,
+      // and the presenter never binds a haze constant it has not admitted.
+      // The bounds repeat ValidateSceneSnapshot's producer-side contract.
+      !IsFinite(sky.haze_extinction_per_meter) ||
+      sky.haze_extinction_per_meter < 0.0F ||
+      sky.haze_extinction_per_meter > 1.0e-2F ||
+      !IsFinite(sky.haze_inverse_scale_height_per_meter) ||
+      sky.haze_inverse_scale_height_per_meter < 0.0F ||
+      sky.haze_inverse_scale_height_per_meter > 1.0e-1F ||
+      !IsFinite(sky.haze_base_height_meters) ||
+      sky.haze_base_height_meters < -1.0e5F ||
+      sky.haze_base_height_meters > 1.0e5F ||
       !IsFinite(sun.direction)) {
     return Unsupported(
         "environment.analytic_sky",
-        "analytic sky radiance, radius, cloud state, or directional-light geometry is not representable by native binary32 mesh state");
+        "analytic sky radiance, radius, cloud state, aerial-haze coefficients, or directional-light geometry is not representable by native binary32 mesh state");
   }
 
   const auto length = [](const Float3 &value) noexcept {

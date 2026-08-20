@@ -777,6 +777,22 @@ public:
     output.ambient_environment_lighting =
         audit.ambient_environment_lighting;
     output.analytic_sky_contribution = audit.analytic_sky_contribution;
+    output.aerial_haze_applied = audit.aerial_haze_applied;
+    {
+      const OgreNextHdrCompositorAudit compositor =
+          native_frontend->QueryHdrCompositorAudit();
+      output.aerial_haze_workspace_verified =
+          compositor.aerial_haze_workspace_verified;
+      output.aerial_haze_constants_bound =
+          compositor.aerial_haze_constants_bound;
+      output.aerial_haze_depth_export_verified =
+          compositor.opaque_depth_export_verified;
+      output.aerial_haze_extinction_per_meter =
+          compositor.aerial_haze_extinction_per_meter;
+      output.aerial_haze_inscatter_r = compositor.aerial_haze_inscatter.x;
+      output.aerial_haze_inscatter_g = compositor.aerial_haze_inscatter.y;
+      output.aerial_haze_inscatter_b = compositor.aerial_haze_inscatter.z;
+    }
     output.emissive_material_response = audit.emissive_material_response;
     output.pssm_shadow_response = audit.pssm_shadow_response;
     output.thin_parallel_slab_refraction =

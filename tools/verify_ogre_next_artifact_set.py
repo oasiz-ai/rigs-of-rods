@@ -3967,9 +3967,13 @@ def _verify_rt4(
     packaged_hdr = _packaged_media_manifest(
         package_media_root,
         (
+            # Identical to the CMake HDR manifest roots and to
+            # VerifyOgreNextN1HdrMedia's scan roots. RoRHaze carries the
+            # RoR-owned aerial-haze material and shader siblings.
             Path("2.0/scripts/Compositors"),
             Path("2.0/scripts/materials/Common"),
             Path("2.0/scripts/materials/HDR"),
+            Path("2.0/scripts/materials/RoRHaze"),
         ),
         "RT4 HDR",
     )
