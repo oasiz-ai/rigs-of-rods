@@ -1441,6 +1441,29 @@ bool IsManagedTransparentType(
          type == Render::ManagedMaterialSemanticType::MESH_TRANSPARENT;
 }
 
+/// The single roughness derivation for one projected legacy material.
+///
+/// This must stay the only implementation. A capture stores the value it
+/// derives, and every later capture that reuses the cached projection derives
+/// it again and requires the two to be equal; two copies of the rule are two
+/// chances to disagree, and a disagreement reads as "projected native material
+/// authority changed" and stops the scene presenting for the rest of the run.
+float ResolveOgreNextDemoRoughnessFactor(
+    const Ogre::Material &native_material, const Ogre::Pass &pass,
+    const OgreNextDemoCuratedCityWorldMaterial *curated_policy) noexcept {
+  if (curated_policy != nullptr) {
+    return curated_policy->roughness_factor;
+  }
+  float authored_roughness = 0.0F;
+  if (OgreNextDemoResolveAlexisAuthoredRoughness(native_material.getGroup(),
+                                                 native_material.getName(),
+                                                 authored_roughness)) {
+    return authored_roughness;
+  }
+  return static_cast<float>(
+      std::sqrt(2.0 / (static_cast<double>(pass.getShininess()) + 2.0)));
+}
+
 bool IsExactAlexisDiffuseProjection(
     const Ogre::Technique &technique, const Ogre::Pass &base_pass,
     std::string_view exact_material_name,
@@ -4231,17 +4254,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
       }
       material.specular_texture.texture_coordinate_set = 0U;
     }
-    float alexis_authored_roughness = 0.0F;
-    if (allow_curated_cityworld) {
-      captured.roughness_factor = curated_policy->roughness_factor;
-    } else if (OgreNextDemoResolveAlexisAuthoredRoughness(
-                   native_material->getGroup(), native_material->getName(),
-                   alexis_authored_roughness)) {
-      captured.roughness_factor = alexis_authored_roughness;
-    } else {
-      captured.roughness_factor = static_cast<float>(std::sqrt(
-          2.0 / (static_cast<double>(pass->getShininess()) + 2.0)));
-    }
+    captured.roughness_factor = ResolveOgreNextDemoRoughnessFactor(
+        *native_material, *pass,
+        allow_curated_cityworld ? curated_policy : nullptr);
     material.roughness_factor = captured.roughness_factor;
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
     captured.emissive_factor = {static_cast<float>(native_emissive.r),
@@ -4450,12 +4465,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
          static_cast<float>(native_specular.g),
          static_cast<float>(native_specular.b),
          static_cast<float>(native_specular.a)}};
-    const float roughness_factor =
-        allow_curated_cityworld
-            ? curated_policy->roughness_factor
-            : static_cast<float>(std::sqrt(
-                  2.0 /
-                  (static_cast<double>(pass->getShininess()) + 2.0)));
+    const float roughness_factor = ResolveOgreNextDemoRoughnessFactor(
+        *native_material, *pass,
+        allow_curated_cityworld ? curated_policy : nullptr);
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
     const std::array<float, 3U> emissive_factor{
         {static_cast<float>(native_emissive.r),

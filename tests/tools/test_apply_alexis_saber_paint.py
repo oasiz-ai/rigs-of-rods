@@ -35,6 +35,30 @@ TRUCK_FIXTURE = EOL.join([
     b"",
 ])
 
+MATERIAL_FIXTURE = EOL.join([
+    b"material AurigaPaint",
+    b"{",
+    b"\ttechnique",
+    b"\t{",
+    b"\t\tpass",
+    b"\t\t{",
+    b"\t\t\tvertex_program_ref AurigaMatPaint_VP",
+    b"\t\t\t{",
+    b"\t\t\t}",
+    b"\t\t}",
+    b"\t}",
+    b"}",
+    b"",
+    b"",
+    b"material SaberBody : AurigaPaint",
+    b"{",
+    b"",
+    b"\tset_texture_alias diffuseTex\tbodytemp.png",
+    b"\tset_texture_alias specularTex\tbodytempspec.png",
+    b"}",
+    b"",
+])
+
 SKIN_FIXTURE = EOL.join(
     line
     for skin in paint.PAINT_SKINS[1:]
@@ -58,6 +82,7 @@ def build_fixture_archive() -> bytes:
         archive.writestr("AlexisSaber.mesh", b"pretend mesh" * 64)
         archive.writestr(apply_paint.TRUCK_MEMBER, TRUCK_FIXTURE)
         archive.writestr(apply_paint.SKIN_MEMBER, SKIN_FIXTURE)
+        archive.writestr(apply_paint.MATERIAL_MEMBER, MATERIAL_FIXTURE)
         for skin in paint.PAINT_SKINS:
             # The shipped placeholders are tiny flat-colour PNGs; the tool
             # never inspects them, only replaces them.
@@ -93,7 +118,8 @@ class ArchivePatchTests(unittest.TestCase):
 
     def test_untouched_members_are_byte_identical(self) -> None:
         touched = set(paint.paint_member_names()) | {
-            apply_paint.TRUCK_MEMBER, apply_paint.SKIN_MEMBER}
+            apply_paint.TRUCK_MEMBER, apply_paint.SKIN_MEMBER,
+            apply_paint.MATERIAL_MEMBER}
         before = raw_records(self.original)
         after = raw_records(self.patched)
         untouched = [name for name in before if name not in touched]
@@ -133,7 +159,8 @@ class ArchivePatchTests(unittest.TestCase):
         self.assertEqual(
             moved,
             set(paint.paint_member_names()) | {apply_paint.TRUCK_MEMBER,
-                                               apply_paint.SKIN_MEMBER})
+                                               apply_paint.SKIN_MEMBER,
+                                               apply_paint.MATERIAL_MEMBER})
 
     def test_rerunning_is_a_byte_identical_no_op(self) -> None:
         again, report = apply_paint.patch_archive(self.patched)
@@ -203,6 +230,53 @@ class SkinPatchTests(unittest.TestCase):
     def test_a_missing_colour_is_refused(self) -> None:
         with self.assertRaises(apply_paint.ArchivePatchError):
             apply_paint.patch_skin(b"Blue" + EOL + b"{" + EOL + b"}" + EOL)
+
+
+class MaterialScriptPatchTests(unittest.TestCase):
+    """The dead Cg SaberBody block is what makes OGRE warn that the material
+    "has no supportable Techniques and will be blank": it owns the name the
+    spawner wants for its placeholder, so every body submesh resolves to a
+    material that cannot compile without the Cg plugin."""
+
+    def test_the_dead_body_material_is_removed(self) -> None:
+        patched = apply_paint.patch_material_script(MATERIAL_FIXTURE)
+        self.assertNotIn(b"SaberBody", patched)
+
+    def test_the_base_materials_are_left_alone(self) -> None:
+        patched = apply_paint.patch_material_script(MATERIAL_FIXTURE)
+        self.assertIn(b"material AurigaPaint", patched)
+        self.assertIn(b"vertex_program_ref AurigaMatPaint_VP", patched)
+
+    def test_the_remaining_braces_stay_balanced(self) -> None:
+        patched = apply_paint.patch_material_script(MATERIAL_FIXTURE)
+        self.assertEqual(patched.count(b"{"), patched.count(b"}"))
+
+    def test_patching_twice_changes_nothing(self) -> None:
+        once = apply_paint.patch_material_script(MATERIAL_FIXTURE)
+        self.assertEqual(apply_paint.patch_material_script(once), once)
+
+    def test_a_script_that_never_declared_it_is_accepted(self) -> None:
+        plain = EOL.join([b"material AurigaChrome", b"{", b"}", b""])
+        self.assertEqual(apply_paint.patch_material_script(plain), plain)
+
+    def test_another_declaration_of_the_name_is_refused(self) -> None:
+        # Anything still owning "SaberBody" would make the spawner skip its
+        # placeholder again, which is the whole defect being removed.
+        hostile = EOL.join([b"material SaberBody : AurigaChrome", b"{", b"}",
+                            b""])
+        with self.assertRaises(apply_paint.ArchivePatchError):
+            apply_paint.patch_material_script(hostile)
+
+    def test_a_duplicated_declaration_is_refused(self) -> None:
+        with self.assertRaises(apply_paint.ArchivePatchError):
+            apply_paint.patch_material_script(
+                MATERIAL_FIXTURE + MATERIAL_FIXTURE)
+
+    def test_an_unclosed_block_is_refused(self) -> None:
+        truncated = EOL.join([b"material SaberBody : AurigaPaint", b"{",
+                              b"\tset_texture_alias diffuseTex\tx.png", b""])
+        with self.assertRaises(apply_paint.ArchivePatchError):
+            apply_paint.patch_material_script(truncated)
 
 
 class ArchiveReaderTests(unittest.TestCase):

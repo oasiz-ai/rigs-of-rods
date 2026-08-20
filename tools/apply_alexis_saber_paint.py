@@ -58,6 +58,24 @@ class ArchivePatchError(RuntimeError):
 
 TRUCK_MEMBER = "AlexisSaber.truck"
 SKIN_MEMBER = "AlexisSaber.skin"
+MATERIAL_MEMBER = "Auriga327.material"
+
+#: The dead Cg material the body meshes used to resolve to.
+#:
+#: Every SaberBody submesh names the material "SaberBody". The spawner wants to
+#: install a supportable placeholder under that name before the meshes load
+#: (ActorSpawner::ProcessManagedMaterial), but it only does so when nothing
+#: owns the name yet - and this script block owns it, so the spawner logs
+#: "Placeholder already exists: 'SaberBody'" and skips. OGRE then loads this
+#: block for every body submesh, finds AurigaMatPaint_VP unusable because the
+#: Cg plugin is disabled in this build, and warns that the material "has no
+#: supportable Techniques and will be blank".
+#:
+#: The managed material is unaffected - it is created under the spawner's
+#: composed name and swapped in afterwards - so this block is pure dead weight
+#: that can never compile here. Removing it lets the spawner install its own
+#: placeholder and the warning disappears.
+MATERIAL_DEAD_BODY_HEADER = b"material SaberBody : AurigaPaint"
 
 #: The archive uses CRLF for its text members; both patches preserve that.
 _EOL = b"\r\n"
@@ -279,11 +297,63 @@ def patch_skin(payload: bytes) -> bytes:
     return _EOL.join(out)
 
 
+def patch_material_script(payload: bytes) -> bytes:
+    """Removes the dead Cg ``SaberBody`` material block. Idempotent.
+
+    Only that one block: the ``Auriga*`` base materials it derived from are
+    left alone, because nothing resolves to them by name and removing unused
+    definitions is not this tool's business.
+    """
+
+    lines = payload.split(_EOL)
+    header = None
+    for index, line in enumerate(lines):
+        if line.strip() == MATERIAL_DEAD_BODY_HEADER:
+            if header is not None:
+                raise ArchivePatchError(
+                    "material script declares 'SaberBody' more than once")
+            header = index
+    if header is None:
+        # Already patched. Nothing may still own the name, or the placeholder
+        # the spawner installs would be skipped again.
+        for line in lines:
+            if line.strip().startswith(b"material SaberBody"):
+                raise ArchivePatchError(
+                    f"material script still declares SaberBody: {line!r}")
+        return payload
+
+    cursor = header + 1
+    while cursor < len(lines) and not lines[cursor].strip():
+        cursor += 1
+    if cursor >= len(lines) or lines[cursor].strip() != b"{":
+        raise ArchivePatchError(
+            "the SaberBody material block does not open with a brace")
+    depth = 0
+    while cursor < len(lines):
+        stripped = lines[cursor].strip()
+        depth += stripped.count(b"{") - stripped.count(b"}")
+        if depth == 0:
+            break
+        cursor += 1
+    if depth != 0:
+        raise ArchivePatchError("the SaberBody material block never closes")
+
+    start = header
+    while start > 0 and not lines[start - 1].strip():
+        start -= 1
+    return _EOL.join(lines[:start] + lines[cursor + 1:])
+
+
 def patch_archive(archive: bytes) -> tuple[bytes, dict[str, str]]:
     """Returns the rewritten archive and a name -> action report."""
 
     entries = _read_entries(archive)
     authored = alexis_saber_paint.build_paint_members()
+    text_patches = {
+        TRUCK_MEMBER: patch_truck,
+        SKIN_MEMBER: patch_skin,
+        MATERIAL_MEMBER: patch_material_script,
+    }
     report: dict[str, str] = {}
     seen = set()
 
@@ -294,22 +364,14 @@ def patch_archive(archive: bytes) -> tuple[bytes, dict[str, str]]:
         seen.add(entry.name)
         if entry.name in authored:
             payload = authored[entry.name]
-            if _member_payload(entry) == payload:
-                report[entry.name] = "unchanged"
-            else:
-                report[entry.name] = "replaced"
+            report[entry.name] = (
+                "unchanged" if _member_payload(entry) == payload
+                else "replaced")
             rebuilt.append(_authored_entry(entry.name, payload))
-        elif entry.name == TRUCK_MEMBER:
-            payload = patch_truck(_member_payload(entry))
-            if payload == _member_payload(entry):
-                report[entry.name] = "unchanged"
-                rebuilt.append(entry)
-            else:
-                report[entry.name] = "patched"
-                rebuilt.append(_authored_entry(entry.name, payload))
-        elif entry.name == SKIN_MEMBER:
-            payload = patch_skin(_member_payload(entry))
-            if payload == _member_payload(entry):
+        elif entry.name in text_patches:
+            original = _member_payload(entry)
+            payload = text_patches[entry.name](original)
+            if payload == original:
                 report[entry.name] = "unchanged"
                 rebuilt.append(entry)
             else:
@@ -324,8 +386,7 @@ def patch_archive(archive: bytes) -> tuple[bytes, dict[str, str]]:
             report[name] = "added"
             rebuilt.append(_authored_entry(name, payload))
 
-    missing = [name for name in (TRUCK_MEMBER, SKIN_MEMBER)
-               if name not in seen]
+    missing = [name for name in text_patches if name not in seen]
     if missing:
         raise ArchivePatchError(f"archive is missing {missing}")
     return _rebuild(rebuilt), report
