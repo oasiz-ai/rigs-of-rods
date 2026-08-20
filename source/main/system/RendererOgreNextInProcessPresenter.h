@@ -273,6 +273,29 @@ struct RendererRetainedSceneAudit final {
   bool available = false;
 };
 
+/// Evidence for scene-free GUI-only presentation (the main menu and any other
+/// application state that draws a GUI without a world). `presented_frames`
+/// counts window swaps that carried only the GUI overlay; `image_uploads`
+/// counts the GPU uploads those frames needed, so uploads far below presents
+/// proves the content-hash gate is working. None of these advance any scene
+/// identity - `scene_presented_frames` is relayed beside them so a reader can
+/// see the two lineages are disjoint.
+struct RendererUiOverlayPresentationAudit final {
+  std::uint32_t version = 0U;
+  std::uint64_t presented_frames = 0U;
+  std::uint64_t render_one_frame_calls = 0U;
+  std::uint64_t image_uploads = 0U;
+  std::uint64_t image_creates = 0U;
+  std::uint64_t image_destroys = 0U;
+  std::uint64_t workspace_creates = 0U;
+  std::uint64_t workspace_destroys = 0U;
+  std::uint64_t scene_presented_frames = 0U;
+  std::uint64_t bootstrap_clear_passes = 0U;
+  std::uint32_t last_width = 0U;
+  std::uint32_t last_height = 0U;
+  bool available = false;
+};
+
 /// Renderer-neutral receipt for the actual product-owned Metal V2 dispatch.
 /// It is published only after the backend completed its same-device GPU work,
 /// continued the LitHdr presentation, and the reusable V2 contract validated.
@@ -364,6 +387,8 @@ public:
   RetainedSceneAudit() const noexcept;
   [[nodiscard]] RendererNativeSunVisibilityV2Audit
   NativeSunVisibilityV2Audit() const noexcept;
+  [[nodiscard]] RendererUiOverlayPresentationAudit
+  UiOverlayPresentationAudit() const noexcept;
 
   [[nodiscard]] Render::ValidationResult PollEvents(
       RendererInProcessEventPollPoint point,

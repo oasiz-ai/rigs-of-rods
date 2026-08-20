@@ -232,6 +232,47 @@ RenderOperationResult IRendererFrontend::PresentBootstrapFrame() {
       "frontend does not support scene-free startup presentation");
 }
 
+RenderOperationResult
+IRendererFrontend::PresentUiOverlayFrame(const UiOverlayFrameRequest &) {
+  return RenderOperationResult::Failure(
+      RenderOperationCode::UNSUPPORTED,
+      "frontend does not support scene-free GUI-only presentation");
+}
+
+ValidationResult
+ValidateUiOverlayFrameRequest(const UiOverlayFrameRequest &request) {
+  if (request.version != kRendererFrontendContractVersion) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_VERSION, "ui_overlay.version",
+        "GUI-only presentation requires the exact frontend contract version");
+  }
+  if (request.width == 0U || request.height == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "ui_overlay.extent",
+        "GUI-only presentation requires a nonzero image extent");
+  }
+  if (request.content_hash == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "ui_overlay.content_hash",
+        "zero is reserved as the never-published GUI content hash");
+  }
+  if (request.rgba8_bytes == nullptr) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "ui_overlay.rgba8_bytes",
+        "GUI-only presentation requires borrowed RGBA8 rows");
+  }
+  const std::uint64_t expected = static_cast<std::uint64_t>(request.width) *
+                                 static_cast<std::uint64_t>(request.height) *
+                                 UINT64_C(4);
+  if (static_cast<std::uint64_t>(request.rgba8_byte_count) != expected) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "ui_overlay.rgba8_byte_count",
+        "GUI-only presentation requires tight RGBA8 rows for the declared "
+        "extent");
+  }
+  return ValidationResult::Success();
+}
+
 bool IsKnownRendererFrontendKind(RendererFrontendKind kind) noexcept {
   switch (kind) {
   case RendererFrontendKind::OGRE14:

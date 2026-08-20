@@ -382,6 +382,12 @@ void GameSettings::DrawUiSettings()
     DrawGCheckbox(App::ui_always_show_fullsize, _LC("GameSettings", "Always show full size help image"));
 
 
+    // Ordinals match SurveyMap::SurveyMapMode. The value is also what
+    // SURVEY_MAP_CYCLE/TOGGLE writes back, so this box always shows the mode
+    // the map will open in on the next terrain load.
+    DrawGCombo(App::gfx_surveymap_mode, _LC("GameSettings", "Overview map"),
+        m_combo_items_surveymap_mode.c_str());
+
     DrawGCheckbox(App::gfx_surveymap_icons,  _LC("GameSettings", "Overview map icons"));
     if (App::gfx_surveymap_icons->getBool())
     {
@@ -576,6 +582,14 @@ void GameSettings::SetVisible(bool v)
         ImAddItemToComboboxString(m_combo_items_light_sources, ToLocalizedString(GfxFlaresMode::ALL_VEHICLES_HEAD_ONLY));
         ImAddItemToComboboxString(m_combo_items_light_sources, ToLocalizedString(GfxFlaresMode::ALL_VEHICLES_ALL_LIGHTS));
         ImTerminateComboboxString(m_combo_items_light_sources);
+    }
+
+    if (m_combo_items_surveymap_mode == "")
+    {
+        ImAddItemToComboboxString(m_combo_items_surveymap_mode, _LC("GameSettings", "Hidden"));
+        ImAddItemToComboboxString(m_combo_items_surveymap_mode, _LC("GameSettings", "Small"));
+        ImAddItemToComboboxString(m_combo_items_surveymap_mode, _LC("GameSettings", "Big"));
+        ImTerminateComboboxString(m_combo_items_surveymap_mode);
     }
 
     if (m_combo_items_shadow_type == "")

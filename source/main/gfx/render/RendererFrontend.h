@@ -252,6 +252,25 @@ struct FrontendSurfaceUpdate {
   bool suspended = false;
 };
 
+/// One complete display-referred GUI image for a scene-free presentation.
+///
+/// Bytes are tight RGBA8 rows (row pitch = width * 4) of premultiplied
+/// source-over GUI pixels with union coverage in alpha, exactly as published by
+/// GraphicsSceneHudOverlayInput; they are never re-encoded. The pointer is
+/// BORROWED for the duration of the call only - the frontend copies whatever it
+/// keeps. `content_hash` identifies the exact pixel content so an unchanged
+/// image consumes no native upload; zero is reserved as "never published" and
+/// is rejected. The extent must equal the presented drawable extent exactly:
+/// the frontend composites this image over a cleared window without scaling.
+struct UiOverlayFrameRequest {
+  std::uint32_t version = kRendererFrontendContractVersion;
+  std::uint32_t width = 0U;
+  std::uint32_t height = 0U;
+  std::uint64_t content_hash = 0U;
+  const std::uint8_t *rgba8_bytes = nullptr;
+  std::size_t rgba8_byte_count = 0U;
+};
+
 /// Normalized capabilities used by policy and acceptance gates.
 ///
 /// Ray-tracing fields default false and are independent proofs. In particular,
@@ -571,6 +590,11 @@ ValidateFrontendSurfaceTransition(const FrontendSurfaceUpdate &current_surface,
 [[nodiscard]] ValidationResult
 ValidateRenderFramePresentation(const RenderFrameRequest &request,
                                 const FrontendSurfaceUpdate &current_surface);
+/// Shape-only validation of a GUI-only presentation request. Extent agreement
+/// with the live surface is a frontend responsibility because only the frontend
+/// knows its adopted revision.
+[[nodiscard]] ValidationResult
+ValidateUiOverlayFrameRequest(const UiOverlayFrameRequest &request);
 [[nodiscard]] ValidationResult
 ValidateNativeContextExport(const NativeContextExport &context);
 [[nodiscard]] ValidationResult
@@ -703,6 +727,26 @@ public:
   /// but this operation consumed no portable or frontend identity. The caller
   /// must adopt that exact surface before retrying.
   virtual RenderOperationResult PresentBootstrapFrame();
+  /// Presents one renderer-owned GUI-only frame: a clear plus the supplied
+  /// display-referred overlay image, composited over the borrowed window.
+  ///
+  /// This exists because a GUI-only application state (the main menu, a loading
+  /// screen, a settings page) has no world to capture, and an empty scene
+  /// cannot be rendered: every shadow-enabled raster policy refuses a snapshot
+  /// without exactly one shadow-casting directional light. Unlike
+  /// PresentBootstrapFrame this operation stays legal for the whole session,
+  /// including after scenes have rendered and after a generation reset.
+  ///
+  /// It consumes no asset, snapshot, camera, particle, output-lease, or
+  /// frontend-frame identity, and evaluates no temporal history, so it can
+  /// never perturb the scene lineage it interleaves with. Implementations must
+  /// leave every scene presentation graph in exactly the enabled state they
+  /// found it. The default fails closed.
+  ///
+  /// RESOURCE_STALE with RETRY_AFTER_PRESENTATION_SURFACE_UPDATE has the same
+  /// meaning as Render(): the caller must adopt the newer surface and retry.
+  virtual RenderOperationResult
+  PresentUiOverlayFrame(const UiOverlayFrameRequest &request);
   /// Recreates/resizes the presentation surface without invalidating portable
   /// resources. The headless argument must match initialization. Suspended
   /// surfaces skip presentation until a later active revision. Before success,

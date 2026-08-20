@@ -367,6 +367,10 @@ void Ogre14GuiOverlayCapture::CaptureIfDirty(
         readback.height = height;
         readback.content_hash = content_hash;
         readback.rgba8_bytes = std::move(rgba8);
+        // Retain before publishing: both copies share the same immutable byte
+        // owner, so the GUI-only present path and the joined scene capture see
+        // byte-identical pixels for one content hash.
+        m_last_published = readback;
         App::GetGfxScene()->SetOgre14HudOverlayReadback(std::move(readback));
         m_last_published_hash = content_hash;
         m_last_capture_time = now;

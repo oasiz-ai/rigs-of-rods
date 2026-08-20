@@ -139,11 +139,108 @@ class OgreNextWindowPresentationContractTests(unittest.TestCase):
         self.assertLess(commit, retry)
         self.assertLess(retry, render)
 
-    def test_clear_only_bootstrap_precedes_scene_and_replaces_transactionally(self) -> None:
-        bootstrap = self.frontend[
-            self.frontend.index("RebindBootstrapPresentationWorkspace(") :
-            self.frontend.index("DestroyProductionPresentationGraph()")
+    def test_gui_only_presentation_is_overlay_only_and_restores_scene_graphs(
+        self,
+    ) -> None:
+        """A GUI-only frame renders overlays, needs no light, and leaves no trace.
+
+        An empty scene cannot be rendered - OgreNextPssmShadowPolicy demands
+        exactly one shadow-casting directional light - so the GUI-only graph
+        must never contain a scene's worth of anything: no shadow node, no
+        source texture, no quad copy, and a render-queue window that only
+        overlays live in.
+        """
+        graph_start = self.frontend.index("EnsureMenuPresentationGraph()")
+        graph = self.frontend[
+            graph_start :
+            self.frontend.index(
+                "RebindBootstrapPresentationWorkspace(", graph_start
+            )
         ]
+        for token in (
+            '"PresentationRT", 0U',
+            "node->setNumTargetPass(1U)",
+            "target->setNumPasses(1U)",
+            "target->addPass(Ogre::PASS_SCENE)",
+            "scene->mFirstRQ = kOgreNextOverlayFirstRenderQueue;",
+            "scene->mLastRQ = kOgreNextOverlayLastRenderQueue;",
+            "scene->mIncludeOverlays = true;",
+            "scene->setVisibilityMask(0U);",
+            "scene->mLoadActionColour[0U] = Ogre::LoadAction::Clear;",
+            "scene->mLoadActionDepth = Ogre::LoadAction::DontCare;",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, graph)
+        for forbidden in (
+            "ShadowNode",
+            "PASS_QUAD",
+            "MainRT",
+            "authored_view_visibility",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, graph)
+
+        rebind_start = self.frontend.index("RebindMenuPresentationWorkspace(")
+        rebind = self.frontend[
+            rebind_start : self.frontend.index("EnsureMenuPresentationGraph()")
+        ]
+        # Created disabled: renderOneFrame() runs every enabled workspace, so a
+        # GUI-only workspace left enabled would execute inside a scene frame.
+        self.assertIn(
+            "kMenuPresentationWorkspaceName, false)", rebind
+        )
+        self.assertIn("menu_workspace->getEnabled() || observed.size() != 1U", rebind)
+
+        present = self.frontend[
+            self.frontend.index(
+                "OgreNextN1Frontend::PresentUiOverlayFrame("
+            ) : self.frontend.index("OgreNextN1Frontend::UpdateSurface(")
+        ]
+        for token in (
+            # Every scene graph is suspended for the frame and restored to the
+            # exact state it was found in.
+            "suspend(impl_->bootstrap_workspace)",
+            "suspend(impl_->production_workspace)",
+            "suspend(impl_->hdr_workspace)",
+            "suspend(impl_->hdr_v2_continuation_workspace)",
+            "impl_->root->renderOneFrame()",
+            # Identity post-condition, mirroring the clear-only bootstrap.
+            "TrackedSnapshotIdentityCount()",
+            "tracked_snapshots_before",
+            "presented_frames_before",
+            "impl_->registry.get() != registry_before",
+            "production_output_handles.live_count() != 0U",
+            "scene-free GUI-only presentation changed portable renderer state",
+            "ui_overlay_presented_frames",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, present)
+        # No frame identity is consumed, so no HDR temporal accounting may run.
+        for forbidden in (
+            "SynchronizeAssets(",
+            "hdr_temporal_state",
+            "AccountRetiredFrame",
+            "PrepareFrame",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, present)
+
+    def test_clear_only_bootstrap_precedes_scene_and_replaces_transactionally(self) -> None:
+        # The end anchor must be searched FROM the start anchor: the first
+        # DestroyProductionPresentationGraph() call in the file is inside the
+        # HDR compositor teardown, far above the bootstrap graph, which sliced
+        # this window down to the empty string and made every assertion below
+        # unreachable.
+        bootstrap_start = self.frontend.index(
+            "RebindBootstrapPresentationWorkspace("
+        )
+        bootstrap = self.frontend[
+            bootstrap_start :
+            self.frontend.index(
+                "DestroyProductionPresentationGraph()", bootstrap_start
+            )
+        ]
+        self.assertNotEqual(bootstrap, "")
         for token in (
             '"PresentationRT", 0U',
             "node->setNumTargetPass(1U)",

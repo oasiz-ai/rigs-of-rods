@@ -346,6 +346,7 @@ void Console::cVarSetupBuiltins()
     App::gfx_enable_videocams    = this->cVarCreate("gfx_enable_videocams",    "gfx_enable_videocams",       CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
     App::gfx_window_videocams    = this->cVarCreate("gfx_window_videocams",    "UseVideocameraWindows",      CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "false");
     App::gfx_surveymap_icons     = this->cVarCreate("gfx_surveymap_icons",     "Overview map icons",         CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "true");
+    App::gfx_surveymap_mode      = this->cVarCreate("gfx_surveymap_mode",      "Overview map",               CVAR_ARCHIVE | CVAR_TYPE_INT,     "0"/*(int)SurveyMapMode::NONE*/);
     App::gfx_declutter_map       = this->cVarCreate("gfx_declutter_map",       "Declutter overview map",     CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "true");
     App::gfx_envmap_enabled      = this->cVarCreate("gfx_envmap_enabled",      "Reflections",                CVAR_ARCHIVE | CVAR_TYPE_BOOL,    "true");
     App::gfx_envmap_rate         = this->cVarCreate("gfx_envmap_rate",         "ReflectionUpdateRate",       CVAR_ARCHIVE | CVAR_TYPE_INT,     "1");

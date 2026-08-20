@@ -418,6 +418,13 @@ public:
   }
 
   RenderOperationResult
+  PresentUiOverlayFrame(const UiOverlayFrameRequest &request) override {
+    // No registry_ bookkeeping: a GUI-only present consumes no portable asset,
+    // snapshot, or frame identity, so this wrapper has nothing to mirror.
+    return frontend_->PresentUiOverlayFrame(request);
+  }
+
+  RenderOperationResult
   UpdateSurface(const FrontendSurfaceUpdate &update, bool headless,
                 std::uint64_t timeout_nanoseconds) override {
     return frontend_->UpdateSurface(update, headless, timeout_nanoseconds);
@@ -698,6 +705,30 @@ public:
     output.exact_native_geometry_readback =
         audit.exact_native_geometry_readback;
     output.separate_sun_alpha_replace = audit.separate_sun_alpha_replace;
+    output.available = true;
+    return output;
+  }
+
+  [[nodiscard]] RendererUiOverlayPresentationAudit
+  UiOverlayPresentationAudit() const noexcept {
+    RendererUiOverlayPresentationAudit output;
+    if (native_frontend == nullptr) {
+      return output;
+    }
+    const OgreNextN1PresentationAudit audit =
+        native_frontend->QueryPresentationAudit();
+    output.version = audit.version;
+    output.presented_frames = audit.ui_overlay_presented_frames;
+    output.render_one_frame_calls = audit.ui_overlay_render_one_frame_calls;
+    output.image_uploads = audit.ui_overlay_image_uploads;
+    output.image_creates = audit.ui_overlay_image_creates;
+    output.image_destroys = audit.ui_overlay_image_destroys;
+    output.workspace_creates = audit.ui_overlay_workspace_creates;
+    output.workspace_destroys = audit.ui_overlay_workspace_destroys;
+    output.scene_presented_frames = audit.presented_frames;
+    output.bootstrap_clear_passes = audit.bootstrap_clear_passes;
+    output.last_width = audit.ui_overlay_last_width;
+    output.last_height = audit.ui_overlay_last_height;
     output.available = true;
     return output;
   }
@@ -2219,6 +2250,12 @@ RendererNativeSunVisibilityV2Audit
 RendererOgreNextInProcessPresenter::NativeSunVisibilityV2Audit() const
     noexcept {
   return impl_->NativeSunVisibilityAudit();
+}
+
+RendererUiOverlayPresentationAudit
+RendererOgreNextInProcessPresenter::UiOverlayPresentationAudit() const
+    noexcept {
+  return impl_->UiOverlayPresentationAudit();
 }
 
 ValidationResult RendererOgreNextInProcessPresenter::PollEvents(
