@@ -808,6 +808,12 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.unpresented_legacy_layer_units =
       SaturatingAdd(candidate.unpresented_legacy_layer_units,
                     increment.unpresented_legacy_layer_units);
+  candidate.additive_overlay_legacy_material_projections =
+      SaturatingAdd(candidate.additive_overlay_legacy_material_projections,
+                    increment.additive_overlay_legacy_material_projections);
+  candidate.unpresented_legacy_additive_overlay_passes =
+      SaturatingAdd(candidate.unpresented_legacy_additive_overlay_passes,
+                    increment.unpresented_legacy_additive_overlay_passes);
   candidate.authored_specular_source_decodes =
       SaturatingAdd(candidate.authored_specular_source_decodes,
                     increment.authored_specular_source_decodes);

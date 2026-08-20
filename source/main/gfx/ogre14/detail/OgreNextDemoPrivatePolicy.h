@@ -120,14 +120,14 @@ constexpr std::size_t kOgreNextDemoMaximumLegacyTechniquePasses = 4U;
 /// member of the family, is mean RGB 209 over the 87% of its texels the
 /// authored `alpha_rejection greater 128` discards), so an emissive lowering
 /// would light the whole lamp instead of its lens.
-constexpr bool kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses = false;
+constexpr bool kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses = true;
 
 /// Separately switchable arm of the widening above: admit additive-overlay
 /// materials whose pass 0 also declares alpha rejection. These become
 /// discarding shadow casters across every PSSM cascade, so the cost is
 /// isolated behind its own constant and its own named refusal reason.
 constexpr bool kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials =
-    false;
+    true;
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
@@ -335,6 +335,13 @@ struct OgreNextDemoTextureSourceCounters final {
   /// are observed, counted, and deliberately not presented.
   std::size_t layered_legacy_material_projections = 0U;
   std::size_t unpresented_legacy_layer_units = 0U;
+  /// Distinct new projections admitted through the additive-overlay shape: one
+  /// canonical base-colour pass plus one or more purely additive overlay passes
+  /// that are observed, counted, and deliberately not presented. A projection
+  /// counted here is authored brighter than it is drawn; it is never a
+  /// different colour.
+  std::size_t additive_overlay_legacy_material_projections = 0U;
+  std::size_t unpresented_legacy_additive_overlay_passes = 0U;
   std::size_t authored_specular_source_decodes = 0U;
   /// New managed linear-specular decode activity. These buckets are also
   /// included in the common modern normalization/mip totals above; the
