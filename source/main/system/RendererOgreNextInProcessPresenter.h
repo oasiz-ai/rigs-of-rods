@@ -187,6 +187,11 @@ struct RendererNativeLightingAudit final {
   std::uint64_t reflection_native_execution_evidence = 0U;
   std::uint64_t reflection_last_capture_frame_id = 0U;
   std::uint64_t reflection_last_capture_simulation_tick = 0U;
+  /// Probe lifecycle completed because a generation's final scene was retired
+  /// instead of rendered. This is the diagnostic that replaces the reset
+  /// refusal the retire path used to hit.
+  std::uint64_t reflection_scene_reset_retired_probe_count = 0U;
+  std::uint32_t reflection_scene_reset_teardowns = 0U;
   bool reflection_initialized = false;
   bool reflection_exact_resources_loaded = false;
   bool reflection_pcc_enabled = false;
@@ -261,6 +266,7 @@ struct RendererRetainedSceneAudit final {
   std::uint64_t verify_window = 0U;
   std::uint64_t verify_cursor = 0U;
   std::uint64_t recovery_teardowns = 0U;
+  std::uint64_t retired_light_teardowns = 0U;
   std::uint64_t last_light_phase_microseconds = 0U;
   std::uint64_t last_instance_phase_microseconds = 0U;
   std::uint64_t last_cleanup_phase_microseconds = 0U;

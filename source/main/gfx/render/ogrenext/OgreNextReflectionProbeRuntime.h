@@ -56,7 +56,7 @@ struct OgreNextReflectionProbeItemBinding final {
 };
 
 struct OgreNextReflectionProbeAudit final {
-  std::uint32_t version = 3U;
+  std::uint32_t version = 4U;
   std::uint64_t committed_state_digest = 0U;
   std::uint64_t successful_capture_count = 0U;
   std::uint64_t failed_capture_count = 0U;
@@ -73,6 +73,13 @@ struct OgreNextReflectionProbeAudit final {
   std::uint64_t filtered_nonzero_rgb_component_count = 0U;
   float filtered_max_absolute_rgb = 0.0F;
   std::uint32_t live_probe_count = 0U;
+  /// Probes torn down by RetireProbesForSceneGeneration because the
+  /// generation's final scene was RETIRED rather than rendered. Monotonic for
+  /// the runtime lifetime. Nonzero is expected at every terrain unload, map
+  /// change, bundle reload and shutdown that took the retire path; it is the
+  /// diagnostic that replaces what the reset refusal used to signal.
+  std::uint64_t scene_reset_retired_probe_count = 0U;
+  std::uint32_t scene_reset_teardowns = 0U;
   std::uint32_t completed_face_count = 0U;
   std::uint16_t last_probe_resolution = 0U;
   std::uint16_t blend_resolution = 0U;
@@ -175,9 +182,25 @@ public:
   QueryNativeOwnershipEvidence() const noexcept;
 #endif
 
-  /// Called only after the final empty scene has committed. Destroys deferred
-  /// probes and resets scheduler/tick/tombstone lineage while retaining the
-  /// initialized Ogre owners, compositor definitions, and global device.
+  /// Completes probe lifecycle for a generation whose final scene was RETIRED
+  /// instead of rendered. Unbinds HlmsPbs, moves every committed native probe
+  /// onto the deferred list, and empties the live set: exactly the state
+  /// PrepareFrame+FinalizeFrame reach from an empty descriptor list, minus the
+  /// scheduler/capture transaction they cannot legitimately open outside a
+  /// render. Idempotent -- returns Success without touching native state when
+  /// the live set is already empty and PBS already unbound, so a rendered
+  /// final scene behaves byte-identically to today. Native destruction is NOT
+  /// performed here: it stays with the deferred drain inside
+  /// ResetSceneGeneration, so both paths converge on one destruction site.
+  /// Call immediately before ResetSceneGeneration, which still re-queries the
+  /// native binding and refuses if this did not achieve the required state.
+  [[nodiscard]] RenderOperationResult RetireProbesForSceneGeneration();
+
+  /// Called only after the final empty scene has committed -- and, when that
+  /// scene was retired without a render, only after
+  /// RetireProbesForSceneGeneration. Destroys deferred probes and resets
+  /// scheduler/tick/tombstone lineage while retaining the initialized Ogre
+  /// owners, compositor definitions, and global device.
   [[nodiscard]] RenderOperationResult ResetSceneGeneration();
 
   /// Quiesces captures, unbinds PBS, and destroys probes while Root,

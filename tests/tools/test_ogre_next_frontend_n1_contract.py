@@ -111,7 +111,7 @@ def reflection_fixture(
                 "resolution": RUNNER.RT4_REFLECTION_RESOLUTION,
             },
             "runtime_audit": {
-                "version": 3,
+                "version": 4,
                 "successful_capture_count": 1,
                 "failed_capture_count": 0,
                 "live_probe_count": 1,
@@ -556,6 +556,41 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend,
         )
         self.assertNotIn("createBasicWorkspaceDef(", self.frontend)
+        # Lifecycle completion must precede the runtime's own reset.
+        self.assertLess(
+            self.frontend.index("RetireProbesForSceneGeneration()"),
+            self.frontend.index("reflection_probe_runtime->ResetSceneGeneration()"),
+        )
+        # The fail-closed post-condition must not be deleted.
+        self.assertIn(
+            "final empty scene did not retire all reflection probes",
+            self.reflection_runtime,
+        )
+        # Native destruction stays at the single deferred-drain site.
+        self.assertLess(
+            self.reflection_runtime.index("RetireProbesForSceneGeneration()"),
+            self.reflection_runtime.index(
+                "retired probes could not be destroyed at scene reset"
+            ),
+        )
+        # Black-capture guard: the retirement entry point must open no scheduler
+        # frame, take no capture, and require no camera.
+        start = self.reflection_runtime.index(
+            "RenderOperationResult RetireProbesForSceneGeneration()"
+        )
+        end = self.reflection_runtime.index(
+            "RenderOperationResult ResetSceneGeneration()", start
+        )
+        body = self.reflection_runtime[start:end]
+        for forbidden in (
+            "scheduler.BeginFrame",
+            "pcc->updateAllDirtyProbes",
+            "tracking_camera",
+        ):
+            self.assertNotIn(forbidden, body)
+        # HDR frame identity must be both checked and applied on the retire path.
+        self.assertIn("CanAccountRetiredFrame", self.frontend)
+        self.assertIn("AccountRetiredFrame", self.frontend)
 
     def test_native_mesh_path_uses_v2_vao_not_manual_object(self) -> None:
         create_mesh = self.frontend[

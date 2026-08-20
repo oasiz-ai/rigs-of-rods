@@ -1865,7 +1865,7 @@ def _verify_rt4_reflection_semantics(
         "RT4 reflection runtime audit",
     )
     runtime_checks = {
-        "version": _json_exact(runtime.get("version"), 3),
+        "version": _json_exact(runtime.get("version"), 4),
         "success": _json_exact(runtime.get("successful_capture_count"), 1),
         "failure": _json_exact(runtime.get("failed_capture_count"), 0),
         "live": _json_exact(runtime.get("live_probe_count"), 1),

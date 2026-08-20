@@ -2365,7 +2365,7 @@ def validate_rt4_reflection_evidence(
     if not isinstance(runtime, dict) or set(runtime) != expected_runtime_keys:
         raise ProbeError("RT4/V1 reflection runtime-audit schema drifted")
     if not (
-        _is_exact_int(runtime.get("version"), 3)
+        _is_exact_int(runtime.get("version"), 4)
         and _is_exact_int(runtime.get("successful_capture_count"), 1)
         and _is_exact_int(runtime.get("failed_capture_count"), 0)
         and _is_exact_int(runtime.get("live_probe_count"), 1)

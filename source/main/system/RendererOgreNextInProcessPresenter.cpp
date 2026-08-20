@@ -748,6 +748,10 @@ public:
         reflection.last_capture_frame_id;
     output.reflection_last_capture_simulation_tick =
         reflection.last_capture_simulation_tick;
+    output.reflection_scene_reset_retired_probe_count =
+        reflection.scene_reset_retired_probe_count;
+    output.reflection_scene_reset_teardowns =
+        reflection.scene_reset_teardowns;
     output.reflection_initialized = reflection.initialized;
     output.reflection_exact_resources_loaded =
         reflection.exact_resources_loaded;
@@ -841,6 +845,7 @@ public:
     output.verify_window = audit.verify_window;
     output.verify_cursor = audit.verify_cursor;
     output.recovery_teardowns = audit.recovery_teardowns;
+    output.retired_light_teardowns = audit.retired_light_teardowns;
     output.last_light_phase_microseconds =
         audit.last_light_phase_microseconds;
     output.last_instance_phase_microseconds =
