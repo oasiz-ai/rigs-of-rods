@@ -422,6 +422,9 @@ struct OgreNextHdrCompositorAudit final {
   bool aerial_haze_workspace_verified = false;
   bool aerial_haze_constants_bound = false;
   bool aerial_haze_applied = false;
+  /// Frames presented with identity haze because the camera basis was not
+  /// rigid and orthonormal. Zero in a healthy session.
+  std::uint64_t aerial_haze_basis_rejections = 0U;
   /// The atmosphere the last bind actually carried, so a live run can prove
   /// the presenter consumed the producer's transported policy rather than
   /// re-deriving one. Zero while the identity binding is in force.

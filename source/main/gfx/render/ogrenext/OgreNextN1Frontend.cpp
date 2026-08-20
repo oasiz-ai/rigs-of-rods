@@ -554,6 +554,38 @@ bool NearlyEqual(const Ogre::Vector3 &lhs,
          NearlyEqual(lhs.z, rhs.z);
 }
 
+/// A camera basis reaches the frame consumers through
+/// Matrix4::inverseAffine(), which inverts by cofactors rather than by
+/// transposing the rotation, so even an exactly rigid view matrix comes back
+/// orthonormal only to a few float32 ulps. The generic 1.0e-6 NearlyEqual
+/// bound sits right at that noise floor: a live session held it for 3,194
+/// consecutive frames and then rejected one, which killed the renderer. This
+/// bound stays far below any deviation a real defect produces (shear, mirror,
+/// non-unit scale, or a stale basis all move these products by >= 1e-2) while
+/// admitting pure rounding.
+constexpr float kCameraBasisOrthonormalTolerance = 1.0e-4F;
+
+/// True when the basis is orthonormal within float32 inverse-affine rounding.
+/// Non-finite components are never admitted.
+[[nodiscard]] bool IsRigidOrthonormalCameraBasis(
+    const Ogre::Vector3 &right, const Ogre::Vector3 &up,
+    const Ogre::Vector3 &forward) noexcept {
+  const auto finite = [](const Ogre::Vector3 &v) noexcept {
+    return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+  };
+  if (!finite(right) || !finite(up) || !finite(forward)) {
+    return false;
+  }
+  return std::fabs(right.squaredLength() - 1.0F) <=
+             kCameraBasisOrthonormalTolerance &&
+         std::fabs(up.squaredLength() - 1.0F) <=
+             kCameraBasisOrthonormalTolerance &&
+         std::fabs(forward.squaredLength() - 1.0F) <=
+             kCameraBasisOrthonormalTolerance &&
+         std::fabs(right.dotProduct(up)) <=
+             kCameraBasisOrthonormalTolerance;
+}
+
 bool NearlyEqual(const Ogre::Aabb &lhs, const Ogre::Aabb &rhs) noexcept {
   return NearlyEqual(lhs.mCenter, rhs.mCenter) &&
          NearlyEqual(lhs.mHalfSize, rhs.mHalfSize);
@@ -4615,6 +4647,7 @@ public:
     audit.aerial_haze_workspace_verified = hdr_aerial_haze_workspace_verified;
     audit.aerial_haze_constants_bound = hdr_aerial_haze_constants_bound;
     audit.aerial_haze_applied = hdr_aerial_haze_applied;
+    audit.aerial_haze_basis_rejections = hdr_aerial_haze_basis_rejections;
     audit.aerial_haze_extinction_per_meter =
         hdr_aerial_haze_extinction_per_meter;
     audit.aerial_haze_inscatter = hdr_aerial_haze_inscatter;
@@ -5789,12 +5822,15 @@ public:
     const Ogre::Vector3 camera_forward(-render_from_view[0U][2U],
                                        -render_from_view[1U][2U],
                                        -render_from_view[2U][2U]);
-    if (!NearlyEqual(camera_right.squaredLength(), 1.0F) ||
-        !NearlyEqual(camera_up.squaredLength(), 1.0F) ||
-        !NearlyEqual(camera_forward.squaredLength(), 1.0F) ||
-        !NearlyEqual(camera_right.dotProduct(camera_up), 0.0F)) {
-      return HdrBackendFailure(
-          "aerial haze camera basis is not rigid and orthonormal");
+    if (!IsRigidOrthonormalCameraBasis(camera_right, camera_up,
+                                       camera_forward)) {
+      // Haze needs a rigid basis to build its view ray, but a basis this
+      // frame cannot justify tearing the renderer down: identity is an exact,
+      // fully defined state (bit-identical to a haze-free frame), so the
+      // frame presents unhazed and the next frame re-derives normally. Only
+      // the derived haze is skipped; nothing else in the scene is affected.
+      ++hdr_aerial_haze_basis_rejections;
+      return BindIdentityAerialHazeParameters();
     }
     const float projection_x = view.clip_from_view.elements[0U];
     const float projection_y = view.clip_from_view.elements[5U];
@@ -8417,6 +8453,10 @@ public:
   /// False means the pass ran as an exact pass-through, not that it was
   /// skipped: there is no present-without-haze fallback.
   bool hdr_aerial_haze_applied = false;
+  /// Frames whose camera basis failed the rigid/orthonormal admission and
+  /// were therefore presented with identity (exactly no) haze. A healthy
+  /// session reports zero; a nonzero count is a real signal, not a fault.
+  std::uint64_t hdr_aerial_haze_basis_rejections = 0U;
   /// Last bound atmosphere, for the presenter's runtime evidence log.
   float hdr_aerial_haze_extinction_per_meter = 0.0F;
   Float3 hdr_aerial_haze_inscatter{};
