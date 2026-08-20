@@ -12213,9 +12213,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
       const Ogre::Vector3 camera_up(render_from_view[0U][1U],
                                     render_from_view[1U][1U],
                                     render_from_view[2U][1U]);
-      if (!NearlyEqual(camera_right.squaredLength(), 1.0F) ||
-          !NearlyEqual(camera_up.squaredLength(), 1.0F) ||
-          !NearlyEqual(camera_right.dotProduct(camera_up), 0.0F)) {
+      // Same inverse-affine rounding as the haze basis: admit float32 noise,
+      // reject a genuinely broken basis. Particle billboards have no defined
+      // no-op state the way haze does, so this one still fails the frame.
+      if (!IsRigidOrthonormalCameraBasis(
+              camera_right, camera_up,
+              camera_right.crossProduct(camera_up))) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::UNSUPPORTED,
             "N1 particle camera basis is not rigid and orthonormal"));
