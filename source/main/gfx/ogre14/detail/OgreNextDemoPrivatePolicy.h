@@ -151,6 +151,17 @@ constexpr std::string_view
     kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256 =
         "54305f5c7f99fa6a9628337508d230f588e60d1d410f6d6fe56be3186790a57e";
 
+/// Reviewed repair state the curated CityWorld script is allowed to carry.
+/// `asia.material` ships a source-controlled three-edit repair plan from the
+/// overlay texture-replacement work, so demanding an unrepaired script forbids
+/// the only state that ever occurs at runtime and silently kills every curated
+/// row. Admission therefore pins the exact reviewed repair instead of
+/// forbidding repair.
+constexpr std::uint32_t
+    kOgreNextDemoCuratedCityWorldRepairPlanVersion = 1U;
+constexpr std::uint64_t
+    kOgreNextDemoCuratedCityWorldAppliedEditCount = 3U;
+
 struct OgreNextDemoCuratedCityWorldSourceObservation final {
   std::string_view archive_sha256;
   std::string_view exact_script_member;
@@ -158,6 +169,29 @@ struct OgreNextDemoCuratedCityWorldSourceObservation final {
   const std::uint8_t *source_script_bytes = nullptr;
   std::size_t source_script_size = 0U;
 };
+
+/// Observed repair facts for one authenticated curated CityWorld script.
+/// `reviewed_repair_plan_sha256` is the caller's independent recomputation from
+/// the source-controlled plan table; it is never read from the receipt.
+struct OgreNextDemoCuratedCityWorldScriptRepairObservation final {
+  bool repair_applied = false;
+  std::uint64_t applied_edit_count = 0U;
+  std::uint32_t repair_plan_version = 0U;
+  std::string_view repair_plan_sha256;
+  std::string_view reviewed_repair_plan_sha256;
+  std::string_view original_sha256;
+  std::string_view effective_sha256;
+  bool effective_bytes_equal_original = false;
+};
+
+/// Authenticates the script state a curated row is lowered from. The
+/// unrepaired script and the exact reviewed repair are both admissible; every
+/// other state - an unreviewed plan digest, a different edit count, a repair
+/// that changed nothing, or effective bytes that drifted from the declared
+/// repair state - is refused.
+[[nodiscard]] Render::ValidationResult
+AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(
+    const OgreNextDemoCuratedCityWorldScriptRepairObservation &observation);
 
 /// Name-only lookup for telemetry/candidate routing. The returned row confers
 /// no authority; callers must pass it to Authenticate... before lowering.

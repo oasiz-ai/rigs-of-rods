@@ -475,6 +475,62 @@ Render::ValidationResult AuthenticateOgreNextDemoCuratedCityWorldMaterial(
   }
 }
 
+Render::ValidationResult
+AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(
+    const OgreNextDemoCuratedCityWorldScriptRepairObservation &observation) {
+  if (observation.original_sha256 !=
+          kOgreNextDemoCuratedCityWorldScriptSha256 ||
+      !IsLowercaseSha256(observation.original_sha256) ||
+      !IsLowercaseSha256(observation.effective_sha256)) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.identity",
+        "authenticated script is not the reviewed CityWorld source script");
+  }
+  if (observation.repair_plan_version !=
+      kOgreNextDemoCuratedCityWorldRepairPlanVersion) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.plan_version",
+        "authenticated script carries an unreviewed repair-plan version");
+  }
+  // The receipt's own repair-plan digest must equal the digest the caller
+  // recomputed from the source-controlled plan table. That is what makes a
+  // repaired script reviewed rather than merely modified: an unreviewed or
+  // tampered plan produces a different canonical digest and is refused, in
+  // both the repaired and the unrepaired arm.
+  if (!IsLowercaseSha256(observation.repair_plan_sha256) ||
+      !IsLowercaseSha256(observation.reviewed_repair_plan_sha256) ||
+      observation.repair_plan_sha256 !=
+          observation.reviewed_repair_plan_sha256) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.plan_sha256",
+        "authenticated repair plan is not the reviewed source-controlled plan");
+  }
+  if (!observation.repair_applied) {
+    if (observation.applied_edit_count != 0U ||
+        observation.effective_sha256 != observation.original_sha256 ||
+        !observation.effective_bytes_equal_original) {
+      return Failure(
+          Render::ValidationCode::REVISION_MISMATCH,
+          "ogre_next_demo.curated_cityworld.script_repair.unrepaired",
+          "script reports no repair while its effective bytes differ");
+    }
+    return Render::ValidationResult::Success();
+  }
+  if (observation.applied_edit_count !=
+          kOgreNextDemoCuratedCityWorldAppliedEditCount ||
+      observation.effective_sha256 == observation.original_sha256 ||
+      observation.effective_bytes_equal_original) {
+    return Failure(
+        Render::ValidationCode::REVISION_MISMATCH,
+        "ogre_next_demo.curated_cityworld.script_repair.applied",
+        "applied repair is not the reviewed edit count or changed nothing");
+  }
+  return Render::ValidationResult::Success();
+}
+
 bool IsOgreNextDemoAuthenticatedTextureSourceMode(
     OgreNextDemoTextureSourceMode mode) noexcept {
   return mode == OgreNextDemoTextureSourceMode::

@@ -17,6 +17,7 @@
 #include "gfx/render/Ogre14SourceTextureDecoder.h"
 #include "gfx/render/RenderAssetRegistry.h"
 #include "gfx/render/RenderResourceDescriptors.h"
+#include "resources/LegacyMaterialScriptSanitizer.h"
 
 #include <OgreBuildSettings.h>
 #include <OgreMaterialManager.h>
@@ -1626,17 +1627,10 @@ bool ResolveReviewedCuratedCityWorldScript(
             kOgreNextDemoCuratedCityWorldScriptMember ||
         source->original_sha256 !=
             kOgreNextDemoCuratedCityWorldScriptSha256 ||
-        source->effective_sha256 != source->original_sha256 ||
-        source->repair_state !=
-            Render::Ogre14MaterialScriptRepairState::NONE ||
-        source->applied_edit_count != 0U ||
         source->original_byte_count != receipt->original_size() ||
         source->effective_byte_count != receipt->effective_size() ||
         receipt->original_bytes() == nullptr ||
         receipt->effective_bytes() == nullptr ||
-        receipt->original_size() != receipt->effective_size() ||
-        std::memcmp(receipt->original_bytes(), receipt->effective_bytes(),
-                    receipt->original_size()) != 0 ||
         binding->material_pointer_token !=
             reinterpret_cast<std::uintptr_t>(material.get()) ||
         binding->material_handle !=
@@ -1645,6 +1639,50 @@ bool ResolveReviewedCuratedCityWorldScript(
         binding->exact_group != material->getGroup()) {
       return false;
     }
+    // Independently recompute the reviewed repair-plan digest from the
+    // source-controlled plan table. The receipt's own digest must equal it, so
+    // a repaired script is admitted only when the repair is exactly the
+    // reviewed one, and never merely because a repair was declared.
+    std::string reviewed_repair_plan_sha256;
+    const bool repair_applied =
+        source->repair_state ==
+        Render::Ogre14MaterialScriptRepairState::APPLIED;
+    const std::string archive_sha256(source->archive_sha256);
+    const std::string exact_member_name(source->exact_member_name);
+    const std::string original_sha256(source->original_sha256);
+    const LegacyMaterialScriptEditPlan *const reviewed_plan =
+        FindLegacyMaterialScriptEditPlan(archive_sha256, exact_member_name);
+    if (repair_applied) {
+      if (reviewed_plan == nullptr ||
+          !ComputeLegacyMaterialScriptAppliedRepairPlanSha256(
+              *reviewed_plan, exact_member_name, original_sha256,
+              reviewed_repair_plan_sha256)) {
+        return false;
+      }
+    } else if (!ComputeLegacyMaterialScriptNoRepairPlanSha256(
+                   archive_sha256, exact_member_name, original_sha256,
+                   reviewed_repair_plan_sha256)) {
+      return false;
+    }
+    OgreNextDemoCuratedCityWorldScriptRepairObservation repair;
+    repair.repair_applied = repair_applied;
+    repair.applied_edit_count = source->applied_edit_count;
+    repair.repair_plan_version = source->repair_plan_version;
+    repair.repair_plan_sha256 = source->repair_plan_sha256;
+    repair.reviewed_repair_plan_sha256 = reviewed_repair_plan_sha256;
+    repair.original_sha256 = source->original_sha256;
+    repair.effective_sha256 = source->effective_sha256;
+    repair.effective_bytes_equal_original =
+        receipt->original_size() == receipt->effective_size() &&
+        std::memcmp(receipt->original_bytes(), receipt->effective_bytes(),
+                    receipt->original_size()) == 0;
+    if (!AuthenticateOgreNextDemoCuratedCityWorldScriptRepair(repair)) {
+      return false;
+    }
+
+    // The reviewed declaration span stays pinned to the original archive
+    // bytes: that is the text the row was reviewed against, and the receipt
+    // retains it verbatim beside the repaired effective bytes.
     const OgreNextDemoCuratedCityWorldSourceObservation observation{
         source->archive_sha256, source->exact_member_name,
         source->original_sha256, receipt->original_bytes(),
