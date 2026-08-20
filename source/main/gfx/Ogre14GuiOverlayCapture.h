@@ -68,6 +68,21 @@ public:
     void CaptureIfDirty(std::uint32_t target_width,
                         std::uint32_t target_height);
 
+    /// The most recent successful publication, retained here so a GUI-only
+    /// application state can present it without a GfxScene round trip: in the
+    /// main menu no joined scene is captured at all, so the readback would
+    /// otherwise never leave GfxScene. The immutable byte owner is shared with
+    /// what was published, so retaining it costs one shared_ptr. Null until the
+    /// first successful capture; the extent and hash describe exactly these
+    /// bytes, so a caller can check them against its own presented extent
+    /// rather than trusting the last CaptureIfDirty argument.
+    [[nodiscard]] const Render::GraphicsSceneHudOverlayInput*
+    LastPublishedOverlay() const noexcept
+    {
+        return m_last_published.rgba8_bytes != nullptr ? &m_last_published
+                                                       : nullptr;
+    }
+
 private:
     bool EnsureRenderResources(std::uint32_t width, std::uint32_t height);
     void DestroyRenderResources() noexcept;
@@ -83,6 +98,7 @@ private:
     std::uint32_t m_width = 0U;
     std::uint32_t m_height = 0U;
     std::uint64_t m_last_published_hash = 0U;
+    Render::GraphicsSceneHudOverlayInput m_last_published;
     std::chrono::steady_clock::time_point m_last_capture_time{};
     bool m_has_last_capture_time = false;
     std::string m_failure_log_signature;

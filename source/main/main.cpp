@@ -925,6 +925,11 @@ int main(int argc, char *argv[])
     std::uint64_t renderer_combined_producer_retained_payload_full = 0U;
     std::uint64_t renderer_combined_producer_retained_compat_full = 0U;
     std::uint64_t renderer_combined_producer_retained_instances = 0U;
+    // Scene-free GUI-only presentation (the main menu). Counted here rather
+    // than only in the frontend audit so the heartbeat proves the GAME asked
+    // for the frame, not just that the renderer could have served one.
+    std::uint64_t renderer_combined_ui_overlay_presents = 0U;
+    std::string renderer_combined_ui_overlay_failure_signature;
 #else
     std::unique_ptr<RendererGameInputEngineTarget>
         renderer_bridge_input_target;
@@ -3996,6 +4001,28 @@ int main(int argc, char *argv[])
                 )
             {
                 App::GetGuiManager()->DrawMainMenuGui();
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                // MAIN_MENU captures no joined scene, so this GUI would never
+                // reach the presenter through the scene snapshot's HUD
+                // overlay. Capture it here, at the same point in the tick the
+                // SIMULATION branch does, and present it below through the
+                // scene-free GUI-only path. The capture is hash-gated and
+                // rate-capped, so a static menu costs nothing after the first
+                // frame.
+                if (renderer_combined_hud_capture != nullptr &&
+                    renderer_combined_session != nullptr &&
+                    renderer_combined_session->active())
+                {
+                    const Render::FrontendSurfaceUpdate menu_surface =
+                        renderer_combined_presenter.CurrentSurface();
+                    if (!menu_surface.suspended)
+                    {
+                        renderer_combined_hud_capture->CaptureIfDirty(
+                            menu_surface.pixel_width,
+                            menu_surface.pixel_height);
+                    }
+                }
+#endif
             }
             else if (
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
@@ -4731,22 +4758,132 @@ int main(int argc, char *argv[])
             if (renderer_combined_simulation_granted)
             {
                 // Ordinary MAIN_MENU has no valid joined terrain light/camera
-                // capture. Consume any unmatched grant without manufacturing
-                // an invalid empty PSSM scene; the next iteration polls anew.
-                const RendererInProcessSessionResult skipped =
-                    renderer_combined_session->SkipUpdatedScene();
-                renderer_combined_simulation_granted = false;
-                if (!skipped)
+                // capture, and an empty scene cannot be rendered: the PSSM
+                // admission gate requires exactly one shadow-casting
+                // directional light. So this grant is never spent on a scene.
+                // It is spent instead on a scene-free GUI-only present, which
+                // shows the menu the frame already built. Only when no GUI
+                // image exists yet (or its extent no longer matches the
+                // presented drawable) does the grant fall back to the historic
+                // skip, which manufactures nothing.
+                const Render::FrontendSurfaceUpdate ui_surface =
+                    renderer_combined_presenter.CurrentSurface();
+                const Render::GraphicsSceneHudOverlayInput* const ui_overlay =
+                    renderer_combined_hud_capture != nullptr
+                        ? renderer_combined_hud_capture->LastPublishedOverlay()
+                        : nullptr;
+                const bool ui_overlay_presentable =
+                    ui_overlay != nullptr && !ui_surface.suspended &&
+                    ui_overlay->rgba8_bytes != nullptr &&
+                    ui_overlay->content_hash != 0U &&
+                    ui_overlay->width == ui_surface.pixel_width &&
+                    ui_overlay->height == ui_surface.pixel_height;
+                RendererInProcessSessionResult ui_result;
+                if (ui_overlay_presentable)
                 {
-                    LOG(fmt::format(
-                        "[RoR|RendererCombined|Scene] Could not consume "
-                        "non-simulation grant: status='{}', field='{}', "
-                        "detail='{}'",
-                        ToString(skipped.status),
-                        skipped.validation.field,
-                        skipped.validation.detail));
-                    App::GetGameContext()->PushMessage(
-                        Message(MSG_APP_SHUTDOWN_REQUESTED));
+                    Render::UiOverlayFrameRequest ui_request;
+                    ui_request.width = ui_overlay->width;
+                    ui_request.height = ui_overlay->height;
+                    ui_request.content_hash = ui_overlay->content_hash;
+                    ui_request.rgba8_bytes = ui_overlay->rgba8_bytes->data();
+                    ui_request.rgba8_byte_count =
+                        ui_overlay->rgba8_bytes->size();
+                    ui_result =
+                        renderer_combined_session->PresentUiOverlayFrame(
+                            ui_request);
+                }
+                else
+                {
+                    // Unchanged historic path, including its fatal handling: a
+                    // grant that can be neither spent nor consumed means the
+                    // one-shot contract itself broke.
+                    ui_result = renderer_combined_session->SkipUpdatedScene();
+                    if (!ui_result)
+                    {
+                        LOG(fmt::format(
+                            "[RoR|RendererCombined|Scene] Could not consume "
+                            "non-simulation grant: status='{}', field='{}', "
+                            "detail='{}'",
+                            ToString(ui_result.status),
+                            ui_result.validation.field,
+                            ui_result.validation.detail));
+                        App::GetGameContext()->PushMessage(
+                            Message(MSG_APP_SHUTDOWN_REQUESTED));
+                    }
+                }
+                renderer_combined_simulation_granted = false;
+                if (ui_result.status ==
+                    RendererInProcessSessionStatus::UI_OVERLAY_PRESENTED)
+                {
+                    ++renderer_combined_ui_overlay_presents;
+                    renderer_combined_ui_overlay_failure_signature.clear();
+                    if ((renderer_combined_ui_overlay_presents % 300U) == 0U)
+                    {
+                        const RendererUiOverlayPresentationAudit ui_audit =
+                            renderer_combined_presenter
+                                .UiOverlayPresentationAudit();
+                        LOG(fmt::format(
+                            "[RoR|RendererCombined|UiOverlay] schema_version=1 "
+                            "presents={} audit_version={} presented_frames={} "
+                            "render_one_frame_calls={} image_uploads={} "
+                            "image_creates={} image_destroys={} "
+                            "workspace_creates={} workspace_destroys={} "
+                            "scene_presented_frames={} extent={}x{}",
+                            renderer_combined_ui_overlay_presents,
+                            ui_audit.version,
+                            ui_audit.presented_frames,
+                            ui_audit.render_one_frame_calls,
+                            ui_audit.image_uploads,
+                            ui_audit.image_creates,
+                            ui_audit.image_destroys,
+                            ui_audit.workspace_creates,
+                            ui_audit.workspace_destroys,
+                            ui_audit.scene_presented_frames,
+                            ui_audit.last_width,
+                            ui_audit.last_height));
+                    }
+                }
+                else if (ui_overlay_presentable && !ui_result &&
+                         ui_result.status !=
+                             RendererInProcessSessionStatus::
+                                 PENDING_FRONTEND_SURFACE)
+                {
+                    const std::string ui_failure_signature =
+                        ToString(ui_result.status) + std::string("\n") +
+                        std::to_string(static_cast<unsigned int>(
+                            ui_result.frontend_code)) + "\n" +
+                        ui_result.validation.field + "\n" +
+                        ui_result.validation.detail + "\n" +
+                        ui_result.frontend_detail.c_str();
+                    if (ui_failure_signature !=
+                        renderer_combined_ui_overlay_failure_signature)
+                    {
+                        renderer_combined_ui_overlay_failure_signature =
+                            ui_failure_signature;
+                        LOG(fmt::format(
+                            "[RoR|RendererCombined|UiOverlay] GUI-only frame "
+                            "not presented: status='{}', frontend={}, "
+                            "field='{}', detail='{}', backend='{}'",
+                            ToString(ui_result.status),
+                            static_cast<unsigned int>(
+                                ui_result.frontend_code),
+                            ui_result.validation.field,
+                            ui_result.validation.detail,
+                            ui_result.frontend_detail.c_str()));
+                    }
+                    if (ui_result.terminal)
+                    {
+                        App::GetGameContext()->PushMessage(
+                            Message(MSG_APP_SHUTDOWN_REQUESTED));
+                        const RendererInProcessSessionResult ui_shutdown =
+                            CloseCombinedRendererSession(
+                                *renderer_combined_session);
+                        if (ui_shutdown.status !=
+                            RendererInProcessSessionStatus::CLOSED)
+                        {
+                            FailStopApplication(EXIT_FAILURE);
+                        }
+                    }
                 }
             }
 #endif
