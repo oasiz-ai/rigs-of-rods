@@ -1437,11 +1437,24 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
         topology = self.frontend[topology_start:topology_end]
         for token in (
-            "node->setNumLocalTextureDefinitions(2U);",
+            "node->setNumLocalTextureDefinitions(3U);",
             "scene_texture->format = Ogre::PFG_RGBA16_FLOAT;",
             "scene_texture->width = 0U;",
             "scene_texture->height = 0U;",
-            "scene_texture->depthBufferId = 1U;",
+            # The scene owns an explicit D32 depth texture instead of a pooled
+            # depth buffer so the aerial-haze pass can sample it. Every token
+            # below is part of that export and must move together.
+            "scene_texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "scene_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "opaque_depth->format = Ogre::PFG_D32_FLOAT;",
+            "opaque_depth->width = 0U;",
+            "opaque_depth->height = 0U;",
+            "opaque_depth->textureFlags = Ogre::TextureFlags::RenderToTexture;",
+            "opaque_depth->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;",
+            "scene_view->depthAttachment.textureName = "
+            "kOgreNextHdrOpaqueDepthTexture;",
+            "scene->mClearDepth = 1.0F;",
+            "scene->mStoreActionDepth = Ogre::StoreAction::Store;",
             "history->format = Ogre::PFG_R16_FLOAT;",
             "history->width = 1U;",
             "history->height = 1U;",
@@ -1456,15 +1469,21 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "history_target->setNumPasses(1U);",
             "history_target->addPass(Ogre::PASS_CLEAR)",
             "clear_history->mNumInitialPasses = 1U;",
-            "node->setNumOutputChannels(2U);",
+            "node->setNumOutputChannels(3U);",
             "node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);",
             "node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);",
+            "node->mapOutputChannel(2U, kOgreNextHdrOpaqueDepthTexture);",
             "verified_scene->mShadowNode != Ogre::IdString()",
+            # Depth adds a texture and a channel but no pass.
+            "textures.size() != 3U",
+            "node->getNumOutputChannels() != 3U",
             "node->calculateNumPasses() != 2U",
+            "textures[2U].format != Ogre::PFG_D32_FLOAT",
+            "verified_scene->mStoreActionDepth != Ogre::StoreAction::Store",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, topology)
-        self.assertEqual(topology.count("node->addTextureDefinition("), 2)
+        self.assertEqual(topology.count("node->addTextureDefinition("), 3)
         self.assertEqual(topology.count("node->addTargetPass("), 2)
         self.assertEqual(topology.count("addPass(Ogre::PASS_SCENE)"), 1)
         self.assertEqual(topology.count("addPass(Ogre::PASS_CLEAR)"), 1)
@@ -1491,7 +1510,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "current_luminance->getPixelFormat() == Ogre::PFG_R16_FLOAT",
             "definition->getNumTargetPasses() == 2U",
             "definition->calculateNumPasses() == 2U",
-            "definition->getNumOutputChannels() == 2U",
+            "definition->getNumOutputChannels() == 3U",
+            # recreateAllNodes() during PSSM finalize/rollback replaces every
+            # TextureGpu, so the refresh must re-resolve and re-verify the
+            # exported depth instead of keeping a stale pointer.
+            "opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT",
+            "hdr_opaque_depth_target = opaque_depth;",
             "hdr_auto_exposure_graph_verified",
             "hdr_bloom_graph_verified",
             "hdr_tone_map_graph_verified",

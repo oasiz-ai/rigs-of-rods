@@ -2215,7 +2215,7 @@ void CreateAndVerifyHdrSingleSceneNode(
       compositors.addNodeDefinition(kOgreNextHdrRenderingNode);
   owns_node_definition = true;
 
-  node->setNumLocalTextureDefinitions(2U);
+  node->setNumLocalTextureDefinitions(3U);
   Ogre::TextureDefinitionBase::TextureDefinition *scene_texture =
       node->addTextureDefinition(kOgreNextHdrRasterLitTexture);
   scene_texture->textureType = Ogre::TextureTypes::Type2D;
@@ -2227,13 +2227,16 @@ void CreateAndVerifyHdrSingleSceneNode(
   scene_texture->fsaa = "1";
   scene_texture->textureFlags = Ogre::TextureFlags::RenderToTexture |
                                 Ogre::TextureFlags::DiscardableContent;
-  scene_texture->depthBufferId = 1U;
+  // The scene's depth is an explicit node-owned D32 texture rather than a
+  // pooled depth buffer, so a later pass can sample it. This is the same
+  // pattern the DIRECTIONAL_SPLIT_V2 node already uses for RoROpaqueDepth.
+  scene_texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
   Ogre::RenderTargetViewDef *scene_view =
       node->addRenderTextureView(kOgreNextHdrRasterLitTexture);
   Ogre::RenderTargetViewEntry scene_attachment;
   scene_attachment.textureName = kOgreNextHdrRasterLitTexture;
   scene_view->colourAttachments.push_back(scene_attachment);
-  scene_view->depthBufferId = 1U;
+  scene_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
 
   Ogre::TextureDefinitionBase::TextureDefinition *history =
       node->addTextureDefinition(kOgreNextHdrHistoryTexture);
@@ -2253,6 +2256,19 @@ void CreateAndVerifyHdrSingleSceneNode(
   history_view->colourAttachments.push_back(history_attachment);
   history_view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
 
+  Ogre::TextureDefinitionBase::TextureDefinition *opaque_depth =
+      node->addTextureDefinition(kOgreNextHdrOpaqueDepthTexture);
+  opaque_depth->textureType = Ogre::TextureTypes::Type2D;
+  opaque_depth->width = 0U;
+  opaque_depth->height = 0U;
+  opaque_depth->depthOrSlices = 1U;
+  opaque_depth->numMipmaps = 1U;
+  opaque_depth->format = Ogre::PFG_D32_FLOAT;
+  opaque_depth->fsaa = "1";
+  opaque_depth->textureFlags = Ogre::TextureFlags::RenderToTexture;
+  opaque_depth->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
+  scene_view->depthAttachment.textureName = kOgreNextHdrOpaqueDepthTexture;
+
   node->setNumTargetPass(2U);
   Ogre::CompositorTargetDef *scene_target =
       node->addTargetPass(kOgreNextHdrRasterLitTexture);
@@ -2269,9 +2285,14 @@ void CreateAndVerifyHdrSingleSceneNode(
   scene->setLightVisibilityMask(Ogre::VisibilityFlags::RESERVED_VISIBILITY_FLAGS);
   scene->setAllLoadActions(Ogre::LoadAction::Clear);
   scene->setAllClearColours(Ogre::ColourValue(6.667F, 13.333F, 20.0F, 1.0F));
+  // The clear stays exactly 1.0 and the store becomes Store: a later pass
+  // reads this depth, and the sky dome and particles deliberately never write
+  // it (mDepthCheck/mDepthWrite false for the dome), so a background texel is
+  // bit-exactly the 1.0 clear value. That exactness is what lets the aerial
+  // haze pass identify sky pixels with a plain d >= 1.0 test.
   scene->mClearDepth = 1.0F;
   scene->mStoreActionColour[0] = Ogre::StoreAction::Store;
-  scene->mStoreActionDepth = Ogre::StoreAction::DontCare;
+  scene->mStoreActionDepth = Ogre::StoreAction::Store;
   scene->mStoreActionStencil = Ogre::StoreAction::DontCare;
 
   Ogre::CompositorTargetDef *history_target =
@@ -2284,9 +2305,10 @@ void CreateAndVerifyHdrSingleSceneNode(
   clear_history->setAllClearColours(
       Ogre::ColourValue(0.01F, 0.01F, 0.01F, 1.0F));
 
-  node->setNumOutputChannels(2U);
+  node->setNumOutputChannels(3U);
   node->mapOutputChannel(0U, kOgreNextHdrRasterLitTexture);
   node->mapOutputChannel(1U, kOgreNextHdrHistoryTexture);
+  node->mapOutputChannel(2U, kOgreNextHdrOpaqueDepthTexture);
 
   const auto &textures = node->getLocalTextureDefinitions();
   const Ogre::CompositorPassDefVec &scene_passes =
@@ -2303,22 +2325,35 @@ void CreateAndVerifyHdrSingleSceneNode(
           ? dynamic_cast<const Ogre::CompositorPassClearDef *>(
                 history_passes.front())
           : nullptr;
-  if (textures.size() != 2U || node->getNumTargetPasses() != 2U ||
-      node->getNumOutputChannels() != 2U || node->calculateNumPasses() != 2U ||
+  // Depth adds a texture and an output channel but no pass, so the target and
+  // pass counts below stay exactly 2.
+  if (textures.size() != 3U || node->getNumTargetPasses() != 2U ||
+      node->getNumOutputChannels() != 3U || node->calculateNumPasses() != 2U ||
       textures[0U].getName() !=
           Ogre::IdString(kOgreNextHdrRasterLitTexture) ||
       textures[0U].format != Ogre::PFG_RGBA16_FLOAT ||
       textures[0U].width != 0U || textures[0U].height != 0U ||
-      textures[0U].depthBufferId != 1U ||
+      textures[0U].depthBufferId != Ogre::DepthBuffer::POOL_NO_DEPTH ||
       textures[1U].getName() != Ogre::IdString(kOgreNextHdrHistoryTexture) ||
       textures[1U].format != Ogre::PFG_R16_FLOAT ||
       textures[1U].width != 1U || textures[1U].height != 1U ||
+      textures[2U].getName() !=
+          Ogre::IdString(kOgreNextHdrOpaqueDepthTexture) ||
+      textures[2U].format != Ogre::PFG_D32_FLOAT ||
+      textures[2U].width != 0U || textures[2U].height != 0U ||
+      textures[2U].textureFlags != Ogre::TextureFlags::RenderToTexture ||
+      textures[2U].depthBufferId != Ogre::DepthBuffer::POOL_NO_DEPTH ||
+      scene_view->depthAttachment.textureName !=
+          Ogre::IdString(kOgreNextHdrOpaqueDepthTexture) ||
       verified_scene == nullptr ||
       verified_scene->mIdentifier != kOgreNextHdrSingleScenePassIdentifier ||
       verified_scene->mVisibilityMask != kOgreNextRt4AuthoredVisibilityMask ||
       verified_scene->mShadowNode != Ogre::IdString() ||
       verified_scene->mIncludeOverlays || !verified_scene->mEnableForwardPlus ||
-      !verified_scene->mUpdateLodLists || verified_history == nullptr ||
+      !verified_scene->mUpdateLodLists ||
+      verified_scene->mClearDepth != 1.0F ||
+      verified_scene->mStoreActionDepth != Ogre::StoreAction::Store ||
+      verified_history == nullptr ||
       verified_history->mNumInitialPasses != 1U) {
     throw std::runtime_error(
         "Ogre-Next single-evaluation HDR node topology failed exact definition readback");
@@ -5583,6 +5618,10 @@ public:
         rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrHistoryTexture)
             : nullptr;
+    Ogre::TextureGpu *opaque_depth =
+        rendering != nullptr
+            ? rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture)
+            : nullptr;
     Ogre::TextureGpu *iterative_luminance =
         postprocessing != nullptr
             ? postprocessing->getDefinedTexture("rtIter2")
@@ -5611,6 +5650,17 @@ public:
         linear_scene->getHeight() == hdr_height &&
         linear_scene->getDepth() == 1U &&
         linear_scene->getNumMipmaps() == 1U;
+    // PSSM finalize and rollback both call recreateAllNodes(), which replaces
+    // every node instance and therefore every TextureGpu behind it. Re-resolve
+    // and re-verify the exported depth here so no stale pointer can survive
+    // into the aerial-haze pass.
+    const bool opaque_depth_verified =
+        opaque_depth != nullptr &&
+        opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
+        opaque_depth->getWidth() == hdr_width &&
+        opaque_depth->getHeight() == hdr_height &&
+        opaque_depth->getDepth() == 1U &&
+        opaque_depth->getNumMipmaps() == 1U;
     hdr_base_hdr_target_verified = false;
     hdr_sun_full_hdr_target_verified = false;
     hdr_sun_direct_hdr_target_verified = false;
@@ -5635,24 +5685,25 @@ public:
     const bool exact_topology =
         definition != nullptr && definition->getNumTargetPasses() == 2U &&
         definition->calculateNumPasses() == 2U &&
-        definition->getNumOutputChannels() == 2U;
+        definition->getNumOutputChannels() == 3U;
     const bool exact_shadow_runtime =
         !require_pssm_runtime ||
         (hdr_shadow_node_definition_created &&
          hdr_workspace->findShadowNode(
              Ogre::IdString(kOgreNextHdrShadowNode)) != nullptr);
     if (!hdr_linear_scene_target_verified || !exact_topology ||
+        !opaque_depth_verified ||
         !hdr_auto_exposure_graph_verified || !hdr_bloom_graph_verified ||
         !hdr_tone_map_graph_verified || !hdr_srgb_output_verified ||
         !exact_shadow_runtime) {
       return HdrBackendFailure(
-          "single-evaluation HDR runtime differs from the reviewed RGBA16F scene, R16F history, exposure, bloom, filmic, sRGB, or staged PSSM topology");
+          "single-evaluation HDR runtime differs from the reviewed RGBA16F scene, D32 opaque depth, R16F history, exposure, bloom, filmic, sRGB, or staged PSSM topology");
     }
     hdr_base_hdr_target = nullptr;
     hdr_sun_direct_hdr_target = nullptr;
     hdr_visibility_target = nullptr;
     hdr_lit_target = nullptr;
-    hdr_opaque_depth_target = nullptr;
+    hdr_opaque_depth_target = opaque_depth;
     hdr_history_target = old_luminance;
     return RenderOperationResult::Success();
   }
@@ -6190,8 +6241,13 @@ public:
         SunVisibilityV2Enabled() && rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrLitTexture)
             : nullptr;
+    // Both production topologies now export RoROpaqueDepth: the V2 split node
+    // for its ray-traced continuation, the single-evaluation node for the
+    // aerial-haze pass. Resolving it for only one of them would leave the
+    // other's depth unverified.
     Ogre::TextureGpu *opaque_depth =
-        SunVisibilityV2Enabled() && rendering != nullptr
+        (SunVisibilityV2Enabled() || SingleSceneHdrPssmEnabled()) &&
+                rendering != nullptr
             ? rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture)
             : nullptr;
     Ogre::TextureGpu *old_luminance = rendering != nullptr
@@ -6245,7 +6301,7 @@ public:
         !SunVisibilityV2Enabled() ||
         (exact_linear_target(lit_hdr) && lit_hdr->isUav());
     const bool opaque_depth_verified =
-        !SunVisibilityV2Enabled() ||
+        (!SunVisibilityV2Enabled() && !SingleSceneHdrPssmEnabled()) ||
         (opaque_depth != nullptr &&
          opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
          opaque_depth->getWidth() == width &&
