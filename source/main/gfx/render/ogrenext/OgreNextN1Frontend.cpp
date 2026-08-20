@@ -912,7 +912,7 @@ bool DecomposeTrs(const Matrix4x4 &source, Ogre::Vector3 &position,
 /// must not silently diverge. Float aggregates compare by bits (memcmp of
 /// each member, never the whole struct, to keep padding bytes out), so -0.0
 /// differs from 0.0 and a NaN equals only its own bit pattern.
-static_assert(kSceneSnapshotVersion == 6U,
+static_assert(kSceneSnapshotVersion == 7U,
               "review SameMeshInstanceDescriptor whenever the snapshot "
               "contract changes MeshInstanceDescriptor state");
 static_assert(sizeof(MeshInstanceDescriptor) == 248U,

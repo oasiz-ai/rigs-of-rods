@@ -892,13 +892,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
 
     def test_rt4_v1_analytic_sky_is_live_native_and_transactional(self) -> None:
         for token in (
-            "kOgre14ModernAnalyticSkyPolicyVersion = 3U",
+            "kOgre14ModernAnalyticSkyPolicyVersion = 4U",
             "SkyX's native shader is azimuth-dependent",
             "BuildOgre14GraphicsSceneAnalyticSkyEnvironment",
             "joined live",
             "kOgre14ModernAnalyticSunAngularRadiusRadians",
             "kOgre14ModernAnalyticSkyCloudCoverageDaylightFraction",
             "kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond",
+            "kOgre14ModernAnalyticSkyHazeVisibilityMeters",
+            "kOgre14ModernAnalyticSkyHazeNightFraction",
+            "kOgre14ModernAnalyticSkyHazeScaleHeightMeters",
         ):
             self.assertIn(token, self.ogre14_scene_source_header)
         for token in (
@@ -909,6 +912,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "kSunDiskScale",
             "candidate.analytic_sky = sky",
             "environment = candidate",
+            "kKoschmiederContrastThresholdLog",
+            "sky.haze_extinction_per_meter",
+            "sky.haze_inverse_scale_height_per_meter",
+            "sky.haze_base_height_meters = 0.0F",
         ):
             self.assertIn(token, self.ogre14_scene_source)
         capture = self.gfx_scene[
@@ -1020,6 +1027,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "joined_live_ambient_and_exact_converted_main_light",
             "m_ogre_next_demo_analytic_sky_log_snapshot",
             "pending->analytic_sky_log_snapshot",
+            "haze_extinction_per_meter={:.9g}",
+            "haze_inverse_scale_height_per_meter={:.9g}",
+            "haze_base_height_meters={:.9g}",
         ):
             self.assertIn(
                 token,

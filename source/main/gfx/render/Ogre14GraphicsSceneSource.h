@@ -827,7 +827,7 @@ constexpr std::uint32_t kOgre14LightCompatibilityCalibrationVersion = 1U;
 /// deliberately derives a bounded-shape modern sky from only the joined live
 /// ambient value and the exact captured main-light direction/chromaticity/
 /// power. Changing any coefficient is therefore a reviewed policy revision.
-constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 3U;
+constexpr std::uint32_t kOgre14ModernAnalyticSkyPolicyVersion = 4U;
 constexpr float kOgre14ModernAnalyticSunAngularRadiusRadians = 0.00465047F;
 /// Policy v2: the pinned Ogre-Next HDR tonemap was reviewed against scenes
 /// several stops brighter than the native OGRE 14 lighting domain, so the
@@ -856,6 +856,21 @@ constexpr float kOgre14ModernAnalyticSkyCloudCoverageDaylightFraction = 0.45F;
 constexpr float kOgre14ModernAnalyticSkyCloudHorizonFraction = 0.5F;
 constexpr float kOgre14ModernAnalyticSkyCloudSunFraction = 0.10F;
 constexpr float kOgre14ModernAnalyticSkyCloudPhaseRadiansPerSecond = 0.004F;
+/// Policy v4 adds aerial perspective. The camera far plane reaches 12 km, so
+/// every admitted city block is visible and - without an atmosphere - reads as
+/// an unhazed cutout against the sky gradient. Visibility is the Koschmieder
+/// meteorological range for a clear day: extinction = 3.912 / visibility, so
+/// 40 km gives sigma ~= 9.78e-5 /m and transmittance 0.91 at 1 km, 0.46 at
+/// 8 km, 0.31 at the far plane. The night fraction keeps 55% of that daytime
+/// extinction so distant lit content stays readable after dark instead of
+/// dissolving into an unlit horizon. The scale height is the standard aerosol
+/// value; it makes an elevated camera exponentially clearer and re-accumulates
+/// haze on the closed-form slant path when looking back down into the layer.
+/// These three numbers are the whole aerial-perspective policy - the presenter
+/// derives nothing and there is no user-facing configuration.
+constexpr float kOgre14ModernAnalyticSkyHazeVisibilityMeters = 40000.0F;
+constexpr float kOgre14ModernAnalyticSkyHazeNightFraction = 0.55F;
+constexpr float kOgre14ModernAnalyticSkyHazeScaleHeightMeters = 1200.0F;
 
 enum class Ogre14GraphicsSceneLightKind : std::uint8_t {
   POINT = 0U,

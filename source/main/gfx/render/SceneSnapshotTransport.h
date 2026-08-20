@@ -25,7 +25,7 @@ namespace RoR::Render {
 constexpr std::uint16_t kSceneSnapshotTransportVersion =
     kRenderTransportEnvelopeVersion;
 constexpr std::uint32_t kSceneSnapshotPayloadVersion = 1U;
-constexpr std::uint32_t kSceneSnapshotTransportSceneVersion = 6U;
+constexpr std::uint32_t kSceneSnapshotTransportSceneVersion = 7U;
 constexpr std::uint32_t kSceneSnapshotTransportCameraVersion = 2U;
 constexpr std::size_t kSceneSnapshotTransportHeaderBytes =
     kRenderTransportEnvelopeHeaderBytes;
@@ -97,7 +97,7 @@ private:
 
   std::uint64_t sequence_ = 0U;
   SceneSnapshotTransportMessageKind kind_ =
-      SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2;
+      SceneSnapshotTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2;
   std::shared_ptr<const SceneSnapshot> scene_snapshot_;
   CameraViewRequest camera_;
 
@@ -155,7 +155,7 @@ private:
   std::shared_ptr<const DecodedSceneSnapshotTransportMessage> published_;
 };
 
-/// Encodes exactly one current SceneSnapshot v6 and CameraViewRequest under
+/// Encodes exactly one current SceneSnapshot v7 and CameraViewRequest under
 /// the render-frame v2 camera contract. Every admitted signed zero becomes
 /// positive zero; every other finite IEEE-754 bit pattern is preserved.
 [[nodiscard]] SceneSnapshotTransportEncodeResult

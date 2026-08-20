@@ -610,7 +610,26 @@ void TestConstantEnvironmentConversionIsExactAndTransactional() {
 
 void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
   using namespace RoR::Render;
-  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 3U);
+  static_assert(kOgre14ModernAnalyticSkyPolicyVersion == 4U);
+  // Policy-v4 aerial-haze oracles, evaluated exactly as the producer does so a
+  // constant edit moves the expectation instead of silently passing a loose
+  // tolerance (Near's 1e-5 absolute band is coarser than the coefficients).
+  const double haze_sigma_day =
+      3.912 /
+      static_cast<double>(kOgre14ModernAnalyticSkyHazeVisibilityMeters);
+  const float expected_haze_extinction_day =
+      static_cast<float>(haze_sigma_day);
+  const float expected_haze_extinction_night = static_cast<float>(
+      haze_sigma_day *
+      static_cast<double>(kOgre14ModernAnalyticSkyHazeNightFraction));
+  const float expected_haze_inverse_scale_height = static_cast<float>(
+      1.0 /
+      static_cast<double>(kOgre14ModernAnalyticSkyHazeScaleHeightMeters));
+  Require(expected_haze_extinction_day > 9.7e-5F &&
+              expected_haze_extinction_day < 9.9e-5F &&
+              expected_haze_inverse_scale_height > 8.3e-4F &&
+              expected_haze_inverse_scale_height < 8.4e-4F,
+          "policy-v4 haze constants left their reviewed Koschmieder band");
   GraphicsSceneLightInput sun;
   sun.source_light_id = 0xA51U;
   sun.type = LightType::DIRECTIONAL;
@@ -648,6 +667,16 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
               Near(environment.analytic_sky.cloud_radiance.z, 0.17125F) &&
               Near(environment.analytic_sky.cloud_phase_radians, 0.4F),
           "policy-v3 daylight cloud layer did not preserve its reviewed coefficients");
+  // Policy v4 haze: daylight == 1 here, so the night fraction and its
+  // complement sum to exactly one and the extinction is the pure Koschmieder
+  // daytime coefficient. Base height is the render origin.
+  Require(environment.analytic_sky.haze_extinction_per_meter ==
+                  expected_haze_extinction_day &&
+              environment.analytic_sky
+                      .haze_inverse_scale_height_per_meter ==
+                  expected_haze_inverse_scale_height &&
+              environment.analytic_sky.haze_base_height_meters == 0.0F,
+          "policy-v4 daylight aerial haze did not match its exact derivation");
 
   Require(NormalizePhotometricColorLinear({1.0F, 0.92F, 0.82F},
                                           sun.color_linear),
@@ -718,6 +747,16 @@ void TestModernAnalyticSkyPolicyIsLiveMatchedAndTransactional() {
               Near(environment.analytic_sky.cloud_phase_radians,
                    1.71681469F),
           "policy-v3 night cloud state did not collapse deterministically");
+  // Night keeps the reviewed fraction of the daytime extinction so distant lit
+  // content stays readable; the scale height and base height are daylight
+  // independent.
+  Require(environment.analytic_sky.haze_extinction_per_meter ==
+                  expected_haze_extinction_night &&
+              environment.analytic_sky
+                      .haze_inverse_scale_height_per_meter ==
+                  expected_haze_inverse_scale_height &&
+              environment.analytic_sky.haze_base_height_meters == 0.0F,
+          "policy-v4 night aerial haze did not collapse to its night fraction");
 }
 
 void TestLightIdentityIsStableExactAndTransactional() {

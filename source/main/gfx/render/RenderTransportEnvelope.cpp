@@ -51,7 +51,7 @@ bool DigestsEqual(const std::uint8_t *encoded,
 bool IsKnownRenderTransportMessageKind(
     RenderTransportMessageKind kind) noexcept {
   switch (kind) {
-  case RenderTransportMessageKind::SCENE_SNAPSHOT_V6_CAMERA_V2:
+  case RenderTransportMessageKind::SCENE_SNAPSHOT_V7_CAMERA_V2:
   case RenderTransportMessageKind::RENDER_ASSET_DELTA_V1:
   case RenderTransportMessageKind::INPUT_EVENT_BATCH_V1:
   case RenderTransportMessageKind::RENDER_BRIDGE_ACKNOWLEDGEMENT_V1:

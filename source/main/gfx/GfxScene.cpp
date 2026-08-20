@@ -5231,7 +5231,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 "sun_angular_radius_radians={:.9g} "
                 "cloud_coverage={:.9g} "
                 "cloud_radiance=[{:.9g},{:.9g},{:.9g}] "
-                "cloud_phase_radians={:.9g}",
+                "cloud_phase_radians={:.9g} "
+                "haze_extinction_per_meter={:.9g} "
+                "haze_inverse_scale_height_per_meter={:.9g} "
+                "haze_base_height_meters={:.9g}",
                 Render::kOgre14ModernAnalyticSkyPolicyVersion,
                 sky.enabled, sky.sun_light_id,
                 committed_sun.direction.x, committed_sun.direction.y,
@@ -5245,7 +5248,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 sky.sun_disk_radiance.y, sky.sun_disk_radiance.z,
                 sky.sun_angular_radius_radians, sky.cloud_coverage,
                 sky.cloud_radiance.x, sky.cloud_radiance.y,
-                sky.cloud_radiance.z, sky.cloud_phase_radians);
+                sky.cloud_radiance.z, sky.cloud_phase_radians,
+                sky.haze_extinction_per_meter,
+                sky.haze_inverse_scale_height_per_meter,
+                sky.haze_base_height_meters);
             candidate.available_fields |=
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::ENVIRONMENT);

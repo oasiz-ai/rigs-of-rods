@@ -414,6 +414,10 @@ std::uint64_t ComputeSceneLightingEnvironmentHash(
   hasher.AddFloat(environment.analytic_sky.cloud_coverage);
   hasher.AddFloat3(environment.analytic_sky.cloud_radiance);
   hasher.AddFloat(environment.analytic_sky.cloud_phase_radians);
+  hasher.AddFloat(environment.analytic_sky.haze_extinction_per_meter);
+  hasher.AddFloat(
+      environment.analytic_sky.haze_inverse_scale_height_per_meter);
+  hasher.AddFloat(environment.analytic_sky.haze_base_height_meters);
   hasher.AddFloat(environment.exposure_compensation_ev);
 
   hasher.AddU64(static_cast<std::uint64_t>(descriptor.lights.size()));
@@ -521,7 +525,10 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
       !IsFinite(sky.sun_disk_radiance) ||
       !IsFinite(sky.sun_angular_radius_radians) ||
       !IsFinite(sky.cloud_coverage) || !IsFinite(sky.cloud_radiance) ||
-      !IsFinite(sky.cloud_phase_radians)) {
+      !IsFinite(sky.cloud_phase_radians) ||
+      !IsFinite(sky.haze_extinction_per_meter) ||
+      !IsFinite(sky.haze_inverse_scale_height_per_meter) ||
+      !IsFinite(sky.haze_base_height_meters)) {
     return ValidationResult::Failure(
         ValidationCode::NON_FINITE_VALUE, "environment.analytic_sky",
         "all analytic sky numeric fields must be finite");
@@ -534,7 +541,10 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
         sky.sun_angular_radius_radians != 0.0F ||
         sky.cloud_coverage != 0.0F ||
         !IsCanonicalZero(sky.cloud_radiance) ||
-        sky.cloud_phase_radians != 0.0F) {
+        sky.cloud_phase_radians != 0.0F ||
+        sky.haze_extinction_per_meter != 0.0F ||
+        sky.haze_inverse_scale_height_per_meter != 0.0F ||
+        sky.haze_base_height_meters != 0.0F) {
       return ValidationResult::Failure(
           ValidationCode::VALUE_OUT_OF_RANGE, "environment.analytic_sky",
           "disabled analytic sky state must use its canonical zero payload");
@@ -547,13 +557,27 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
              sky.sun_angular_radius_radians <= 0.0F ||
              sky.sun_angular_radius_radians > kHalfPi ||
              sky.cloud_coverage < 0.0F || sky.cloud_coverage > 1.0F ||
-             !IsNonNegative(sky.cloud_radiance)) {
+             !IsNonNegative(sky.cloud_radiance) ||
+             // Aerial haze bounds. Zero extinction is deliberately legal and
+             // means exactly no haze; the upper bounds are two decades above
+             // any physical atmosphere (1e-2 /m is ~400 m visibility, 1e-1 /m
+             // a 10 m scale height) so an out-of-range payload can only be
+             // corruption and fails closed here rather than saturating a
+             // backend's exponential.
+             sky.haze_extinction_per_meter < 0.0F ||
+             sky.haze_extinction_per_meter > 1.0e-2F ||
+             sky.haze_inverse_scale_height_per_meter < 0.0F ||
+             sky.haze_inverse_scale_height_per_meter > 1.0e-1F ||
+             sky.haze_base_height_meters < -1.0e5F ||
+             sky.haze_base_height_meters > 1.0e5F) {
     return ValidationResult::Failure(
         sky.sun_light_id == 0U ? ValidationCode::INVALID_IDENTIFIER
                                : ValidationCode::VALUE_OUT_OF_RANGE,
         "environment.analytic_sky",
         "enabled sky requires a sun identity, nonnegative radiance, a sun "
-        "half-angle in (0, pi/2], and cloud coverage in [0, 1]");
+        "half-angle in (0, pi/2], cloud coverage in [0, 1], haze extinction "
+        "in [0, 1e-2] /m, haze inverse scale height in [0, 1e-1] /m, and a "
+        "haze base height within +/-1e5 m");
   }
   const bool environment_texture_absent = IsAbsentRenderAssetReference(
       descriptor.environment.environment_texture);
