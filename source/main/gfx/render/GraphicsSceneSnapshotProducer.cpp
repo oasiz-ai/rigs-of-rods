@@ -535,6 +535,31 @@ public:
     std::uint32_t height = 0U;
   };
 
+  /// Facts derived from one retained static owner pair while it was last
+  /// admitted in full, plus the residue and catalog state that admission was
+  /// proven against. Owner pointer identity is the validity key: the adapter
+  /// contract requires a new owner for any change, so a matching pair means
+  /// the bytes behind these facts are the exact bytes already validated.
+  /// Every field is written only inside the nonthrowing commit block, so a
+  /// rejected frame can neither advance nor poison the cache.
+  struct RetainedStaticSectionCache {
+    std::shared_ptr<const std::vector<GraphicsSceneAssetInput>> assets_owner;
+    std::shared_ptr<const std::vector<GraphicsSceneStaticMeshInput>>
+        meshes_owner;
+    /// Exact AddPayloadBytes sum over assets_owner, for the frame cap check.
+    std::uint64_t assets_payload_bytes = 0U;
+    /// The exact non-retained asset inputs the catalog below was proven
+    /// against, in canonical order. Index-aligned across the three vectors.
+    std::vector<std::uint64_t> residue_ids;
+    std::vector<const RenderAssetPayload *> residue_payloads;
+    std::vector<std::array<GraphicsSceneAssetBinding,
+                           kGraphicsSceneMaterialTextureSlotCount>>
+        residue_bindings;
+    /// asset_catalog owner at that proof. The catalog is copy-on-write, so
+    /// an unchanged pointer means no transaction has been applied since.
+    const void *catalog_identity = nullptr;
+  };
+
   explicit Impl(GraphicsSceneSnapshotProducerConfiguration producer_config)
       : configuration(std::move(producer_config)),
         asset_catalog(std::make_shared<const AssetCatalog>(
@@ -949,21 +974,100 @@ public:
         return result;
       }
     }
-    for (std::size_t index = 0U; index < retained_asset_count; ++index) {
-      if (!admit_source_asset((*retained_assets)[index],
-                              retained_asset_index_base + index)) {
-        return result;
+    const auto compare_sorted_assets = [](const IndexedAssetInput &lhs,
+                                          const IndexedAssetInput &rhs) {
+      if (lhs.input->source_asset_id != rhs.input->source_asset_id) {
+        return lhs.input->source_asset_id < rhs.input->source_asset_id;
+      }
+      return lhs.original_index < rhs.original_index;
+    };
+    const std::size_t residue_asset_count = sorted_assets.size();
+    const std::uint64_t residue_payload_bytes = payload_bytes;
+    std::sort(sorted_assets.begin(), sorted_assets.end(),
+              compare_sorted_assets);
+
+    // Owner-scoped admission facts were derived when this exact owner pair
+    // was last admitted in full. The vectors are immutable and their identity
+    // is the adapter's declared change signal, so re-deriving metadata,
+    // payload byte sums, and catalog identity for every retained asset would
+    // recompute a constant. Any owner the cache has not seen takes the
+    // ordinary full admission below.
+    const bool retained_owner_present =
+        retained_assets != nullptr && retained_meshes != nullptr;
+    const bool retained_owner_matches =
+        retained_owner_present && initialized &&
+        frame.retained_static_assets == retained_static.assets_owner &&
+        frame.retained_static_meshes == retained_static.meshes_owner;
+    // Anchor comparison for catalog identity-match induction. It must be read
+    // while sorted_assets still holds exactly this frame's residue.
+    bool retained_residue_matches =
+        retained_owner_matches &&
+        asset_catalog.get() == retained_static.catalog_identity &&
+        retained_static.residue_ids.size() == residue_asset_count;
+    if (retained_residue_matches) {
+      for (std::size_t index = 0U; index < residue_asset_count; ++index) {
+        const GraphicsSceneAssetInput &input = *sorted_assets[index].input;
+        if (retained_static.residue_ids[index] != input.source_asset_id ||
+            retained_static.residue_payloads[index] != input.payload.get() ||
+            retained_static.residue_bindings[index] !=
+                input.material_bindings) {
+          retained_residue_matches = false;
+          break;
+        }
       }
     }
-    std::sort(sorted_assets.begin(), sorted_assets.end(),
-              [](const IndexedAssetInput &lhs,
-                 const IndexedAssetInput &rhs) {
-                if (lhs.input->source_asset_id != rhs.input->source_asset_id) {
-                  return lhs.input->source_asset_id <
-                         rhs.input->source_asset_id;
-                }
-                return lhs.original_index < rhs.original_index;
-              });
+    // Rebuilt only when the anchor must move. Allocating it here, while the
+    // residue is still contiguous at the head of sorted_assets, keeps the
+    // commit block free of anything that can throw.
+    std::vector<std::uint64_t> candidate_residue_ids;
+    std::vector<const RenderAssetPayload *> candidate_residue_payloads;
+    std::vector<std::array<GraphicsSceneAssetBinding,
+                           kGraphicsSceneMaterialTextureSlotCount>>
+        candidate_residue_bindings;
+    if (retained_owner_present && !retained_residue_matches) {
+      candidate_residue_ids.reserve(residue_asset_count);
+      candidate_residue_payloads.reserve(residue_asset_count);
+      candidate_residue_bindings.reserve(residue_asset_count);
+      for (std::size_t index = 0U; index < residue_asset_count; ++index) {
+        const GraphicsSceneAssetInput &input = *sorted_assets[index].input;
+        candidate_residue_ids.push_back(input.source_asset_id);
+        candidate_residue_payloads.push_back(input.payload.get());
+        candidate_residue_bindings.push_back(input.material_bindings);
+      }
+    }
+    std::uint64_t retained_owner_payload_bytes = 0U;
+    if (retained_asset_count != 0U) {
+      if (retained_owner_matches) {
+        retained_owner_payload_bytes = retained_static.assets_payload_bytes;
+        if (!AddByteCount(retained_owner_payload_bytes, payload_bytes) ||
+            payload_bytes > configuration.maximum_asset_payload_bytes) {
+          result.validation = Failure(
+              ValidationCode::SIZE_MISMATCH, "assets.payload_bytes",
+              "asset payload byte count overflowed or exceeded its bound",
+              retained_asset_index_base);
+          return result;
+        }
+        for (std::size_t index = 0U; index < retained_asset_count; ++index) {
+          sorted_assets.push_back(IndexedAssetInput{
+              &(*retained_assets)[index], retained_asset_index_base + index});
+        }
+      } else {
+        result.production.diagnostics.retained_static_adoptions = 1U;
+        for (std::size_t index = 0U; index < retained_asset_count; ++index) {
+          if (!admit_source_asset((*retained_assets)[index],
+                                  retained_asset_index_base + index)) {
+            return result;
+          }
+        }
+        retained_owner_payload_bytes = payload_bytes - residue_payload_bytes;
+      }
+      // Both halves are sorted: the residue by the sort above, the owner by
+      // the strictly-increasing proof at the top of this frame.
+      std::inplace_merge(sorted_assets.begin(),
+                         sorted_assets.begin() +
+                             static_cast<std::ptrdiff_t>(residue_asset_count),
+                         sorted_assets.end(), compare_sorted_assets);
+    }
     for (std::size_t index = 1U; index < sorted_assets.size(); ++index) {
       if (sorted_assets[index - 1U].input->source_asset_id ==
           sorted_assets[index].input->source_asset_id) {
@@ -1226,7 +1330,13 @@ public:
     std::shared_ptr<AssetCatalog> staged_asset_catalog;
     std::shared_ptr<const AssetCatalog> candidate_asset_catalog = asset_catalog;
     std::optional<RenderAssetDelta> asset_delta;
-    if (!initialized || !AssetCatalogSourceIdentitiesMatch(sorted_assets)) {
+    // Catalog identity-match by induction: the catalog owner is unchanged
+    // since the frame that proved it against this exact retained owner and
+    // this exact residue, and both are unchanged now. Running the walk again
+    // would re-lock one weak_ptr per live asset to re-derive that.
+    if (!initialized ||
+        (!retained_residue_matches &&
+         !AssetCatalogSourceIdentitiesMatch(sorted_assets))) {
       staged_asset_catalog = std::make_shared<AssetCatalog>(*asset_catalog);
       AssetCatalog &candidate = *staged_asset_catalog;
       const auto &assets = asset_catalog->assets;
@@ -2457,6 +2567,21 @@ public:
                                        ? ValidatedEnvironmentAssets{}
                                        : candidate_environment_assets;
     asset_compatibility_cache_initialized = !finalize_scene_generation;
+    if (finalize_scene_generation || !retained_owner_present) {
+      // A generation boundary tombstones everything, and a frame without
+      // owners is the adapter declaring the retained section gone.
+      retained_static = RetainedStaticSectionCache{};
+    } else if (!retained_residue_matches) {
+      retained_static.assets_owner = frame.retained_static_assets;
+      retained_static.meshes_owner = frame.retained_static_meshes;
+      retained_static.assets_payload_bytes = retained_owner_payload_bytes;
+      retained_static.residue_ids = std::move(candidate_residue_ids);
+      retained_static.residue_payloads =
+          std::move(candidate_residue_payloads);
+      retained_static.residue_bindings =
+          std::move(candidate_residue_bindings);
+      retained_static.catalog_identity = asset_catalog.get();
+    }
     if (finalize_scene_generation) {
       camera_state = {};
       last_simulation_tick = 0U;
@@ -2530,6 +2655,7 @@ public:
   std::uint64_t next_dynamic_update_sequence = 1U;
   bool dynamic_update_sequence_exhausted = false;
   bool asset_compatibility_cache_initialized = false;
+  RetainedStaticSectionCache retained_static;
   std::shared_ptr<const SceneSnapshot> published_snapshot;
   HudOverlayAssetCache hud_overlay_cache;
   Ogre14ParticleCaptureSource particle_capture_source;
