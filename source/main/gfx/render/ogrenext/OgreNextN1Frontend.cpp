@@ -5461,8 +5461,10 @@ public:
 
   /// Per-frame HUD commit: binds the validated display-domain HUD texture to
   /// the panel only when its reference (id + revision) changed and toggles
-  /// overlay visibility. Fail-closed: an enabled HUD whose native state is
-  /// absent, mis-shaped, or extent-mismatched rejects the frame.
+  /// overlay visibility. Fail-closed on absent or mis-shaped native state.
+  /// An extent mismatch is deliberately NOT fatal: it is the ordinary
+  /// transient of a rate-capped HUD readback against a per-frame camera
+  /// extent, and it degrades to a hidden overlay -- see the counted branch.
   [[nodiscard]] RenderOperationResult CommitHudOverlay(
       const SceneSnapshot &snapshot, const CameraViewRequest &view) {
     if (HudOverlayControlSelected()) {
@@ -5512,9 +5514,20 @@ public:
     }
     if (texture->second.sampled->getWidth() != view.width ||
         texture->second.sampled->getHeight() != view.height) {
-      return RenderOperationResult::Failure(
-          RenderOperationCode::UNSUPPORTED,
-          "HUD overlay texture extent must equal the presented view extent");
+      // F4. This is not a corrupt frame, it is a stale HUD readback. The HUD
+      // capture is rate-capped at 30 Hz while the camera extent re-normalizes
+      // every frame, so for ~33 ms after ANY window resize the old-extent HUD
+      // arrives with a new-extent camera. Failing here ended the session:
+      // resizing the window killed the game.
+      //
+      // The correct response is the no-op this function already implements
+      // for a disabled HUD a few lines above -- hide the overlay and present
+      // the frame. Stretching the stale texture over the new extent would be
+      // the wrong picture; one HUD-less frame is not. The next capture at the
+      // new extent rebinds and shows it again.
+      ++degrade_audit.hud_extent_mismatch_frames;
+      hud_overlay->hide();
+      return RenderOperationResult::Success();
     }
     if (hud_overlay_bound_texture !=
         portable_material->base_color_texture.texture) {
@@ -8871,6 +8884,9 @@ public:
   OgreNextPssmShadowRuntimeAudit shadow_audit;
   OgreNextNativeLightingPassAudit lighting_audit;
   OgreNextRetainedSceneAudit retained_audit;
+  /// Named counters for the render-boundary severity invariant. Every gate
+  /// that degrades instead of ending the session lands one of these.
+  OgreNextN1RenderBoundaryDegradeAudit degrade_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
@@ -9173,6 +9189,11 @@ OgreNextN1Frontend::QueryPresentationAudit() const noexcept {
 OgreNextRetainedSceneAudit
 OgreNextN1Frontend::QueryRetainedSceneAudit() const noexcept {
   return impl_->retained_audit;
+}
+
+OgreNextN1RenderBoundaryDegradeAudit
+OgreNextN1Frontend::QueryRenderBoundaryDegradeAudit() const noexcept {
+  return impl_->degrade_audit;
 }
 
 OgreNextAnalyticSkyRuntimeAudit
@@ -11297,12 +11318,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     return true;
   };
+  // Returns a VERIFIED rollback rather than an unconditional true: after
+  // AbortPrepared the state must hold no committable candidate. `terminal` is
+  // reserved for a rollback that demonstrably failed, so this verdict has to
+  // be derived rather than assumed.
   const auto abort_hdr_commit = [&]() noexcept {
-    if (hdr_commit_prepared) {
-      impl_->hdr_temporal_state.AbortPrepared();
-      hdr_commit_prepared = false;
+    if (!hdr_commit_prepared) {
+      return true;
     }
-    return true;
+    impl_->hdr_temporal_state.AbortPrepared();
+    hdr_commit_prepared = false;
+    return !impl_->hdr_temporal_state.CanCommitPrepared();
   };
   const auto abort_hdr_pssm_finalization = [&]() noexcept {
     if (!impl_->hdr_pssm_finalization_prepared) {
@@ -11324,7 +11350,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     clean = abort_reflection_frame() && clean;
     clean = abort_submission_commit() && clean;
     clean = abort_interop_commit() && clean;
-    clean = abort_hdr_commit() && clean;
+    const bool hdr_prepared_rollback_verified = abort_hdr_commit();
+    clean = hdr_prepared_rollback_verified && clean;
     clean = abort_hdr_pssm_finalization() && clean;
     clean = abort_production_output() && clean;
     clean = cleanup_scene() && clean;
@@ -11337,12 +11364,56 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->shadow_audit.last_native_bounds_observations.clear();
     }
     clean = destroy_retained_target() && clean;
-    if (hdr_native_frame_executed) {
+    // F3. This latch used to read `if (hdr_native_frame_executed)`, and the
+    // flag itself used to be raised BEFORE renderOneFrame ran. Every failure
+    // in the back half of Render therefore became a permanent frontend fault
+    // -- including a Metal drawable timeout thrown out of renderOneFrame,
+    // where the GPU advanced no HDR history at all. A frontend that faults
+    // permanently ends the session, which the render-boundary invariant
+    // reserves for state proven unrecoverable.
+    //
+    // Terminal now requires HDR history that is genuinely half-written:
+    //   * the native frame must actually have COMPLETED (the flag is raised
+    //     after renderOneFrame returns true, so a frame that threw or refused
+    //     to run advances nothing and latches nothing), and
+    //   * the CPU must keep a mirror of that native history
+    //     (`retain_native_lighting_content_evidence`). On the zero-readback
+    //     path the compositor owns oldLumRt across frames and the CPU value
+    //     is only a sequencing token -- "neither compared with nor presented
+    //     as the live GPU history value" (OgreNextHdrTemporalContract.cpp,
+    //     PrepareGpuOnlyCommit) -- so discarding it leaves nothing divergent.
+    //     Frame identity also stays contiguous, because the dispatcher does
+    //     not advance frontend frame identity on a failed frame.
+    //   * or the prepared CPU transaction must have failed to roll back,
+    //     which is the general "rollback demonstrably failed" case.
+    if (hdr_native_frame_executed &&
+        (impl_->retain_native_lighting_content_evidence ||
+         !hdr_prepared_rollback_verified)) {
       impl_->faulted = true;
+    } else if (hdr_native_frame_executed) {
+      // A post-submit failure this frontend can survive. Counted, never
+      // silent: a degrade nobody can see is not a fix.
+      ++impl_->degrade_audit.post_submit_recoverable_failures;
     }
     if (!clean) {
       impl_->faulted = true;
       return FrameCleanupFailure();
+    }
+    // F2. The frontend has always computed the true recoverability verdict
+    // here and then thrown it away: `clean` is the conjunction of eight
+    // reverse aborts, and `!impl_->faulted` says the frame left no
+    // half-written HDR history. Publish that verdict on the result instead of
+    // discarding it, so ~165 frontend Failure( sites stop being indistinguish-
+    // able from unrecoverable ones.
+    //
+    // This is deliberately NOT a new judgement: both terms are already
+    // decided above, and both must hold. The dispatcher currently only counts
+    // this recovery -- see RenderOperationRecovery::RETRY_NEXT_FRAME -- and
+    // still poisons, because a misclassified partial commit would become
+    // silent corruption, which is worse than the crash it replaces.
+    if (failure.recovery == RenderOperationRecovery::NONE &&
+        !impl_->faulted) {
+      failure.recovery = RenderOperationRecovery::RETRY_NEXT_FRAME;
     }
     return failure;
   };
@@ -12210,6 +12281,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     std::vector<const MeshInstanceDescriptor *> incoming_instances;
     std::vector<const MeshInstanceDescriptor *> deforming_instances;
     std::vector<const MeshInstanceDescriptor *> changed_instances;
+    std::size_t skipped_non_drawable_instances = 0U;
     {
       auto retained = impl_->retained_instances.begin();
       for (const MeshInstanceDescriptor &instance :
@@ -12218,6 +12290,31 @@ RenderOperationResult OgreNextN1Frontend::Render(
                retained->first < instance.instance_id) {
           stale_instances.push_back(retained->first);
           ++retained;
+        }
+        // F7. The pinned PBS vertex path multiplies authored normals AND
+        // tangents by worldViewMat with no inverse-transpose equivalent, so a
+        // non-uniformly scaled instance cannot carry a correct tangent frame.
+        // Refusing to draw it is right; refusing to draw anything ever again
+        // is not. Drop the object, keep the frame, count the drop. The
+        // producer filters these out upstream; this is the backstop for an
+        // instance that reaches the presenter anyway.
+        //
+        // Scoped to the RT4/V1 tier exactly as the retired scene-level policy
+        // check was: no other tier ever refused a non-uniform scale, and this
+        // must not start dropping instances those tiers render correctly.
+        if (impl_->raster_feature_tier ==
+                OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+            !HasEffectivelyUniformLinearScale(instance.render_from_object)) {
+          ++impl_->degrade_audit.non_uniform_scale_instance_rejections;
+          ++skipped_non_drawable_instances;
+          // Retire it if an earlier frame retained it, so it leaves the
+          // picture rather than freezing at its last drawable transform.
+          if (retained != impl_->retained_instances.end() &&
+              retained->first == instance.instance_id) {
+            stale_instances.push_back(retained->first);
+            ++retained;
+          }
+          continue;
         }
         if (retained == impl_->retained_instances.end() ||
             retained->first > instance.instance_id) {
@@ -12326,7 +12423,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->AddRetainedContribution(record->second);
     }
     impl_->retained_scene_shadow_enabled = shadow_plan.enabled;
-    if (impl_->retained_instances.size() !=
+    // Instances skipped for a non-drawable transform are deliberately absent
+    // from the retained scene, so they are subtracted from the expected total
+    // rather than allowed to trip this invariant.
+    if (impl_->retained_instances.size() +
+            skipped_non_drawable_instances !=
         snapshot.mesh_instances().size()) {
       throw std::logic_error(
           "retained native scene diverged from the admitted snapshot after its diff");
@@ -12486,13 +12587,43 @@ RenderOperationResult OgreNextN1Frontend::Render(
       Ogre::Vector3 camera_position;
       Ogre::Vector3 camera_scale;
       Ogre::Quaternion camera_orientation;
-      native_view.inverseAffine().decomposition(
-          camera_position, camera_scale, camera_orientation);
-      if (!NearlyEqual(camera_scale, Ogre::Vector3::UNIT_SCALE)) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
-            RenderOperationCode::UNSUPPORTED,
-            "PSSM_3_CASCADE_V1 requires an exactly rigid native camera pose"));
+      const Ogre::Matrix4 pssm_render_from_view = native_view.inverseAffine();
+      pssm_render_from_view.decomposition(camera_position, camera_scale,
+                                          camera_orientation);
+      // F5. This site had two defects, and they compounded.
+      //
+      // It bounded `native_view.inverseAffine().decomposition(...)` with the
+      // generic 1.0e-6 NearlyEqual -- the same datum whose noise floor is
+      // documented at kCameraBasisOrthonormalTolerance, which exists precisely
+      // because inverseAffine inverts by cofactors and returns an orthonormal
+      // basis only to a few float32 ulps. And on the very frame where
+      // ConfigureAerialHazeForFrame correctly DEGRADES on that basis, this
+      // check then ended the session anyway, defeating the degrade path added
+      // for the bug it exists for.
+      //
+      // Reuse the calibrated bound (never a new constant) and, on rejection,
+      // renormalize the pose to the nearest rigid frame instead of failing.
+      // The camera's derived pose only feeds Ogre's focused shadow-camera
+      // setup; setCustomViewMatrix below is applied unconditionally and is
+      // what actually transforms the scene, so a renormalized pose cannot move
+      // the rendered image -- it only keeps the shadow-camera setup coherent.
+      const Ogre::Vector3 pssm_camera_right(pssm_render_from_view[0U][0U],
+                                            pssm_render_from_view[1U][0U],
+                                            pssm_render_from_view[2U][0U]);
+      const Ogre::Vector3 pssm_camera_up(pssm_render_from_view[0U][1U],
+                                         pssm_render_from_view[1U][1U],
+                                         pssm_render_from_view[2U][1U]);
+      const Ogre::Vector3 pssm_camera_forward(pssm_render_from_view[0U][2U],
+                                              pssm_render_from_view[1U][2U],
+                                              pssm_render_from_view[2U][2U]);
+      if (!IsRigidOrthonormalCameraBasis(pssm_camera_right, pssm_camera_up,
+                                         pssm_camera_forward)) {
+        ++impl_->degrade_audit.pssm_pose_renormalizations;
       }
+      // A no-op for a basis already rigid within the calibrated bound, and the
+      // nearest rigid frame otherwise. Ogre's shadow-camera setup requires a
+      // unit orientation either way.
+      camera_orientation.normalise();
       impl_->camera->setPosition(camera_position);
       impl_->camera->setOrientation(camera_orientation);
       if (!NearlyEqual(impl_->camera->getDerivedPosition(), camera_position)) {
@@ -12861,7 +12992,35 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       visible_particle_count += system->particles.size();
     }
-    if (particle_texture != nullptr && visible_particle_count != 0U) {
+    // F6. Billboard quads are built directly from the camera basis, so a basis
+    // that is not rigid-orthonormal within the calibrated inverse-affine
+    // rounding bound cannot produce correct particles. The tolerance here is
+    // already the calibrated one; only the response was wrong. Failing the
+    // frame ended the session -- during heavy driving, which is exactly when
+    // dust is on screen.
+    //
+    // The comment this replaces claimed particles "have no defined no-op state
+    // the way haze does". They do, and it is the state every frame with no
+    // visible system already takes: emit no batch. particle_batches stays
+    // empty, particle_native_particles_submitted stays where it was, one frame
+    // ships without dust, and the degrade is counted rather than silent.
+    const Ogre::Matrix4 particle_render_from_view =
+        native_view.inverseAffine();
+    const Ogre::Vector3 particle_camera_right(particle_render_from_view[0U][0U],
+                                              particle_render_from_view[1U][0U],
+                                              particle_render_from_view[2U][0U]);
+    const Ogre::Vector3 particle_camera_up(particle_render_from_view[0U][1U],
+                                           particle_render_from_view[1U][1U],
+                                           particle_render_from_view[2U][1U]);
+    const bool particle_camera_basis_rigid = IsRigidOrthonormalCameraBasis(
+        particle_camera_right, particle_camera_up,
+        particle_camera_right.crossProduct(particle_camera_up));
+    if (particle_texture != nullptr && visible_particle_count != 0U &&
+        !particle_camera_basis_rigid) {
+      ++impl_->degrade_audit.particle_basis_rejections;
+    }
+    if (particle_texture != nullptr && visible_particle_count != 0U &&
+        particle_camera_basis_rigid) {
       if (impl_->particle_native_batch_creates ==
               (std::numeric_limits<std::uint64_t>::max)() ||
           impl_->particle_native_batch_destroys ==
@@ -12955,23 +13114,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       ++particle_native_state_verifications;
 
-      const Ogre::Matrix4 render_from_view = native_view.inverseAffine();
-      const Ogre::Vector3 camera_right(render_from_view[0U][0U],
-                                       render_from_view[1U][0U],
-                                       render_from_view[2U][0U]);
-      const Ogre::Vector3 camera_up(render_from_view[0U][1U],
-                                    render_from_view[1U][1U],
-                                    render_from_view[2U][1U]);
-      // Same inverse-affine rounding as the haze basis: admit float32 noise,
-      // reject a genuinely broken basis. Particle billboards have no defined
-      // no-op state the way haze does, so this one still fails the frame.
-      if (!IsRigidOrthonormalCameraBasis(
-              camera_right, camera_up,
-              camera_right.crossProduct(camera_up))) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
-            RenderOperationCode::UNSUPPORTED,
-            "N1 particle camera basis is not rigid and orthonormal"));
-      }
+      // Verified rigid-orthonormal above; this block is not entered otherwise.
+      const Ogre::Vector3 &camera_right = particle_camera_right;
+      const Ogre::Vector3 &camera_up = particle_camera_up;
 
       // Establish the rollback record before allocating any native object.
       // If vector growth fails there is nothing native to release; every later
@@ -13364,13 +13509,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->hdr_directional_split_listener.BeginFrame(retained_light_pairs);
     }
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
-      if (persistent_hdr) {
-        hdr_native_frame_executed = true;
-      }
+      // Raised only after the native frame COMPLETED. A frame that threw a
+      // recoverable backend exception on the way in, or that Ogre refused to
+      // run, advanced no HDR history: nothing is half-written, so nothing may
+      // latch a permanent frontend fault (see fail_after_cleanup).
       if (!impl_->root->renderOneFrame()) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::BACKEND_FAILURE,
             "Ogre-Next ended the N1 frame loop before readback"));
+      }
+      if (persistent_hdr) {
+        hdr_native_frame_executed = true;
       }
     }
     if (persistent_hdr && !impl_->SingleSceneHdrPssmEnabled() &&

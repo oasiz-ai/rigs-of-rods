@@ -2908,6 +2908,8 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
   std::map<std::string, std::uint64_t, std::less<>> terrain_page_ids;
   std::uint64_t resolved_source_sequence = 0U;
   std::uint64_t resolved_catalog_sequence = 0U;
+  std::uint64_t candidate_non_uniform_scale_sections_filtered =
+      identity_registry.non_uniform_scale_sections_filtered();
   bool injected_after_dependency = false;
 
   for (std::size_t input_index = 0U; input_index < inputs.size();
@@ -3013,6 +3015,19 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
           "static_meshes.render_from_object.mirrored",
           "mirrored MeshObject transforms require canonical mesh rebasing",
           input_index);
+    }
+    // F7. A non-uniformly scaled section is a FILTER, not a rejection.
+    //
+    // TerrainObjectManager applies `odef->header.scale` verbatim, so any
+    // stretched .odef reaches this builder. The pinned PBS tangent path cannot
+    // represent it, but the other seven thousand objects on the terrain can:
+    // drop this one section and count it. Placed here so the instance never
+    // enters a snapshot at all; the presenter keeps an equivalent counted skip
+    // as a backstop. Nothing native has been claimed for this section yet --
+    // the registry, asset, and mesh candidates are all built below.
+    if (!HasEffectivelyUniformLinearScale(input.render_from_object)) {
+      ++candidate_non_uniform_scale_sections_filtered;
+      continue;
     }
 
     const std::string mesh_key = BuildMeshAssetKey(input.mesh_identity);
@@ -3315,6 +3330,10 @@ ValidationResult BuildOgre14GraphicsSceneStaticInventory(
   candidate_registry.live_object_keys_ = std::move(current_object_keys);
   candidate_registry.live_terrain_page_keys_ =
       std::move(current_terrain_page_keys);
+  // Published with the inventory, so an abandoned candidate never inflates the
+  // degrade count.
+  candidate_registry.non_uniform_scale_sections_filtered_ =
+      candidate_non_uniform_scale_sections_filtered;
 
   identity_registry = std::move(candidate_registry);
   assets = std::move(candidate_assets);

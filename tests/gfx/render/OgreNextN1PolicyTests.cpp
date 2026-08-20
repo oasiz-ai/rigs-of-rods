@@ -1212,17 +1212,24 @@ void TestModernPbrAssetPolicy() {
               kModern)
               .ok(),
           "uniform RT4/V1 scale was rejected");
+  // A non-uniformly scaled instance is a per-OBJECT rejection, never a frame
+  // verdict: the pinned PBS tangent path cannot draw that one mesh, but the
+  // rest of the scene is unaffected. The producer filters it out of the
+  // capture and the presenter skips it with a counter; scene admission must
+  // no longer refuse the whole frame over it. The predicate both of those use
+  // is asserted directly here so the severity split cannot silently become a
+  // correctness relaxation.
   Matrix4x4 non_uniform_scale;
   non_uniform_scale.elements[0U] = 2.0F;
-  const ValidationResult non_uniform_scale_validation =
-      ValidateOgreNextN1Scene(
-          *make_lit_scene({directional}, non_uniform_scale), registry, false,
-          kModern);
-  Require(non_uniform_scale_validation.code ==
-              ValidationCode::UNSUPPORTED_FEATURE &&
-              non_uniform_scale_validation.field ==
-                  "mesh_instances.render_from_object",
-          "non-uniform RT4/V1 scale escaped tangent-frame admission");
+  Require(!HasEffectivelyUniformLinearScale(non_uniform_scale),
+          "the shared uniform-scale predicate admitted a stretched transform");
+  Require(HasEffectivelyUniformLinearScale(uniform_scale),
+          "the shared uniform-scale predicate rejected a uniform transform");
+  Require(ValidateOgreNextN1Scene(
+              *make_lit_scene({directional}, non_uniform_scale), registry,
+              false, kModern)
+              .ok(),
+          "non-uniform RT4/V1 scale still ends the whole frame");
   LightDescriptor point = directional;
   point.type = LightType::POINT;
   point.position = {1.0F, 2.0F, 3.0F};

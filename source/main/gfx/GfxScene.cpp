@@ -548,16 +548,48 @@ RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
             light->getVisible() && light->getCastShadows() &&
             light->getVisibilityFlags() != 0U && light->getLightMask() != 0U)
         {
-            candidate = light;
+            if (light == terrain_main_light)
+            {
+                candidate = light;
+            }
             ++candidate_count;
         }
     }
-    if (candidate_count != 1U || candidate != terrain_main_light)
+    // F9. This required the terrain main light to be the ONLY visible
+    // directional shadow caster in the whole OGRE inventory, and rejected the
+    // capture otherwise. A rejected capture is non-terminal, so nothing
+    // crashes -- the picture simply stops updating behind a live input,
+    // physics, and audio loop, with one deduplicated log line. For a solo
+    // developer that is worse than a clean kill.
+    //
+    // And it fires today: SkyXManager clears castShadows on mLight0 only,
+    // while mLight1 is a directional light with OGRE's default
+    // castShadows == true. Setting gfx_sky_mode=SKYX freezes the game.
+    //
+    // The gate already knows which light is authoritative. Capture that one
+    // and ignore the extras, logging a census so an unexpected caster is
+    // visible rather than silent. Only the authoritative light's absence is
+    // still fatal, because that genuinely is unrecoverable load-time state.
+    if (candidate == nullptr)
     {
         return RoR::Render::ValidationResult::Failure(
             RoR::Render::ValidationCode::SIZE_MISMATCH,
             "ogre_next_demo.lights.main_shadow",
-            "demo capture requires exactly the terrain main light as its one visible directional shadow caster");
+            "demo capture requires the terrain main light to be a visible directional shadow caster");
+    }
+    if (candidate_count != 1U)
+    {
+        // Main-thread-only capture boundary; see the quiescence note above.
+        static std::size_t last_logged_directional_caster_census = 1U;
+        if (candidate_count != last_logged_directional_caster_census)
+        {
+            last_logged_directional_caster_census = candidate_count;
+            LOG(fmt::format(
+                "[RoR|GfxScene|Degrade] visible directional shadow casters={} "
+                "(capturing only the terrain main light '{}'; the rest are "
+                "ignored for this scene)",
+                candidate_count, candidate->getName()));
+        }
     }
 
 #ifndef OGRE_NODELESS_POSITIONING

@@ -308,40 +308,10 @@ bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
   return true;
 }
 
+/// Single definition lives in RenderMath.h so the producer's filter and the
+/// presenter's skip can never disagree about which instances are drawable.
 bool HasEffectivelyUniformScale(const Matrix4x4 &matrix) noexcept {
-  const Float3 columns[] = {
-      {matrix.elements[0U], matrix.elements[1U], matrix.elements[2U]},
-      {matrix.elements[4U], matrix.elements[5U], matrix.elements[6U]},
-      {matrix.elements[8U], matrix.elements[9U], matrix.elements[10U]},
-  };
-  const auto length_squared = [](const Float3 &value) noexcept {
-    return value.x * value.x + value.y * value.y + value.z * value.z;
-  };
-  const float lengths_squared[] = {length_squared(columns[0U]),
-                                   length_squared(columns[1U]),
-                                   length_squared(columns[2U])};
-  const float largest = (std::max)(
-      lengths_squared[0U],
-      (std::max)(lengths_squared[1U], lengths_squared[2U]));
-  // A composed float rotation can leave mathematically identical column
-  // lengths a handful of ULPs apart. This bound admits that representation
-  // noise while rejecting a material scale difference. The pinned PBS vertex
-  // path multiplies both authored normals and tangents by worldViewMat; it
-  // does not enable accurate_non_uniform_scaled_normals, and its tangent path
-  // has no inverse-transpose equivalent.
-  constexpr float kRelativeUniformScaleTolerance =
-      64.0F * (std::numeric_limits<float>::epsilon)();
-  if (!IsFinite(largest) || largest <= 0.0F) {
-    return false;
-  }
-  for (const float candidate : lengths_squared) {
-    if (!IsFinite(candidate) ||
-        std::fabs(candidate - largest) >
-            kRelativeUniformScaleTolerance * largest) {
-      return false;
-    }
-  }
-  return true;
+  return HasEffectivelyUniformLinearScale(matrix);
 }
 
 ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
@@ -1815,14 +1785,19 @@ ValidationResult ValidateOgreNextN1Scene(
           "mesh_instances.render_from_object",
           "N1 scene nodes cannot represent affine shear", index);
     }
-    if (raster_feature_tier ==
-            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
-        !HasEffectivelyUniformScale(instance.render_from_object)) {
-      return Unsupported(
-          "mesh_instances.render_from_object",
-          "RT4/V1 rejects non-uniform scale because pinned PBS does not preserve an authored tangent frame under that transform",
-          index);
-    }
+    // F7. Non-uniform scale is deliberately NOT a frame verdict.
+    //
+    // Refusing to DRAW a non-uniformly scaled mesh is right: the pinned PBS
+    // tangent path genuinely cannot carry one. Refusing to draw anything ever
+    // again is not, and that is what a scene-level Unsupported did --
+    // TerrainObjectManager applies `odef->header.scale` verbatim with no
+    // uniformity filter anywhere upstream, so the first stretched .odef ended
+    // the session on the frame it became visible.
+    //
+    // The instance is filtered producer-side before it can enter a snapshot
+    // (Ogre14GraphicsSceneSource) and skipped presenter-side with a counter if
+    // one arrives anyway, both through HasEffectivelyUniformLinearScale. Both
+    // paths are per-object; the rest of the scene renders.
     if (modern_pbr) {
       const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
       const MaterialDescriptor *material =

@@ -194,6 +194,49 @@ inline bool HasInvertibleAffineTransform(const Matrix4x4 &value) noexcept {
          HasInvertibleLinearTransform(value);
 }
 
+/// True when the upper-left 3x3 scales all three axes by the same factor.
+///
+/// A composed float rotation can leave mathematically identical column lengths
+/// a handful of ULPs apart. This bound admits that representation noise while
+/// rejecting a material scale difference. The pinned PBS vertex path
+/// multiplies both authored normals and tangents by worldViewMat; it does not
+/// enable accurate_non_uniform_scaled_normals, and its tangent path has no
+/// inverse-transpose equivalent, so a non-uniformly scaled instance cannot
+/// carry a correct tangent frame.
+///
+/// Shared by the producer, which filters such an instance out of the capture,
+/// and by the presenter, which skips it if one arrives anyway. Both count the
+/// drop; neither may fail the frame over it.
+inline bool HasEffectivelyUniformLinearScale(const Matrix4x4 &value) noexcept {
+  const Float3 columns[] = {
+      {value.elements[0U], value.elements[1U], value.elements[2U]},
+      {value.elements[4U], value.elements[5U], value.elements[6U]},
+      {value.elements[8U], value.elements[9U], value.elements[10U]},
+  };
+  const auto length_squared = [](const Float3 &axis) noexcept {
+    return axis.x * axis.x + axis.y * axis.y + axis.z * axis.z;
+  };
+  const float lengths_squared[] = {length_squared(columns[0U]),
+                                   length_squared(columns[1U]),
+                                   length_squared(columns[2U])};
+  const float largest = (std::max)(
+      lengths_squared[0U],
+      (std::max)(lengths_squared[1U], lengths_squared[2U]));
+  constexpr float kRelativeUniformScaleTolerance =
+      64.0F * (std::numeric_limits<float>::epsilon)();
+  if (!IsFinite(largest) || largest <= 0.0F) {
+    return false;
+  }
+  for (const float candidate : lengths_squared) {
+    if (!IsFinite(candidate) ||
+        std::fabs(candidate - largest) >
+            kRelativeUniformScaleTolerance * largest) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// A camera view transform must preserve metric distances and handedness.
 /// Translation is unrestricted; the upper-left 3x3 must be an orthonormal
 /// right-handed basis. This rejects scale, shear, and reflection before they

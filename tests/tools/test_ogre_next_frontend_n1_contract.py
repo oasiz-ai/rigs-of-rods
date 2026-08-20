@@ -213,6 +213,9 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         cls.policy_header = (
             RENDER_ROOT / "ogrenext" / "OgreNextN1Policy.h"
         ).read_text(encoding="utf-8")
+        cls.render_math = (
+            RENDER_ROOT / "RenderMath.h"
+        ).read_text(encoding="utf-8")
         cls.ogre14_scene_source = (
             RENDER_ROOT / "Ogre14GraphicsSceneSource.cpp"
         ).read_text(encoding="utf-8")
@@ -1243,12 +1246,32 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
 
     def test_normal_map_audit_remediation_is_native_and_fail_closed(self) -> None:
+        self.assertIn("HasEffectivelyUniformScale", self.policy)
+        # The uniformity predicate and its reason live in exactly one place so
+        # the producer's filter and the presenter's skip cannot disagree about
+        # which instances are drawable.
         for token in (
-            "HasEffectivelyUniformScale",
-            "rejects non-uniform scale",
+            "HasEffectivelyUniformLinearScale",
             "accurate_non_uniform_scaled_normals",
         ):
-            self.assertIn(token, self.policy)
+            self.assertIn(token, self.render_math)
+        # A non-uniform scale rejects the INSTANCE, never the frame. The
+        # producer drops the section before it can enter a snapshot and the
+        # presenter skips it as a backstop; both count the drop, and neither
+        # may return a frame verdict. Terrain .odef scale is applied verbatim
+        # upstream, so this is the difference between one missing object and a
+        # dead session.
+        self.assertIn(
+            "non_uniform_scale_sections_filtered",
+            self.ogre14_scene_source_header,
+        )
+        self.assertIn(
+            "HasEffectivelyUniformLinearScale", self.ogre14_scene_source
+        )
+        self.assertIn(
+            "degrade_audit.non_uniform_scale_instance_rejections",
+            self.frontend,
+        )
         for token in (
             "OgreNextN1NormalUploadAudit",
             "QueryNormalUploadAudit",
@@ -1260,7 +1283,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "RunTangentHandednessProof",
             "positive tangent-w HDR Render",
             "negative tangent-w HDR Render",
-            "non_uniform_scale_rejected_before_submission",
+            "non_uniform_scale_skips_instance_not_frame",
             "ror.ogre_next_rt4_tangent_handedness.v1",
         ):
             self.assertIn(token, self.smoke)
@@ -1281,7 +1304,12 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "UnbindHudOverlayTextureBeforeAssetReplacement",
             "RoRDisplayDomainUnlit_HudOverlayPanelV1",
             "hud_workspace_verified",
-            "HUD overlay texture extent must equal the presented view extent",
+            # The HUD extent mismatch is the ordinary transient of a 30 Hz
+            # rate-capped HUD readback against a per-frame camera extent -- any
+            # window resize produces it for ~33 ms. It degrades to the same
+            # hidden overlay a disabled HUD already uses, and is counted; it
+            # must never return a frame verdict again.
+            "degrade_audit.hud_extent_mismatch_frames",
             "PFG_RGBA16_FLOAT",
             "PFG_R16_FLOAT",
             "PFG_RGBA8_UNORM_SRGB",

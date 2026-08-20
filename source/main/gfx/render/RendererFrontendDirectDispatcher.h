@@ -64,6 +64,22 @@ struct RendererFrontendDirectDispatchResult final {
   std::uint64_t scene_snapshot_id = 0U;
   std::uint64_t frontend_frame_id = 0U;
   std::uint32_t resources_released = 0U;
+  /// Process-lifetime count of frames this dispatcher declined without
+  /// poisoning itself. Surfaced on every result -- success or failure -- so a
+  /// heartbeat can observe the degrade without polling a second interface.
+  /// A silent degrade trades a crash for a wrong picture; this is how the
+  /// wrong picture becomes visible.
+  std::uint64_t rejected_frames = 0U;
+  /// Process-lifetime count of frontend render failures that arrived carrying
+  /// RenderOperationRecovery::RETRY_NEXT_FRAME -- the frontend's own verdict
+  /// that its reverse-abort walk left nothing committed.
+  ///
+  /// Counted, NOT yet honoured: these still poison. The counter exists so a
+  /// full session can show whether the verdict fires only on frames that also
+  /// verified a clean rollback, before a follow-up routes them to Reject().
+  /// Landing the behaviour change unmeasured would trade a crash for silent
+  /// corruption on any misclassified partial commit.
+  std::uint64_t recoverable_frame_failures = 0U;
   bool terminal = false;
 
   [[nodiscard]] bool ok() const noexcept {
@@ -93,11 +109,30 @@ ToString(RendererFrontendDirectDispatchStatus status) noexcept;
 /// The referenced freshly initialized and otherwise unused frontend must
 /// outlive the dispatcher; this object then spans that frontend's complete
 /// asset, scene-generation, and frame-identity lifetime. One caller serializes
-/// all methods on the frontend owner thread. Any validation or frontend failure
-/// permanently poisons this object because the frontend may already have
-/// committed an asset transaction or native work, except the explicitly typed
-/// presentation-surface recovery above. That result advances no dispatcher
-/// scene/frame identity and leaves the exact scene eligible for retirement.
+/// all methods on the frontend owner thread.
+///
+/// GOVERNING INVARIANT for every validation at this boundary:
+///
+///   A per-frame validation may reject a frame or an object, but may not end
+///   a session and may not permanently stop publication. Terminal is reserved
+///   for load-time-unrecoverable state, or a rollback that demonstrably
+///   failed. Every degrade increments a named counter -- a silent degrade
+///   trades a crash for a wrong picture.
+///
+/// Rejection and poisoning are therefore two distinct outcomes here:
+///   * `Reject()` -- the failure was observed strictly before this dispatcher
+///     mutated any of its own lineage (`last_consumed_scene_snapshot_id_`,
+///     `last_frontend_frame_id_`, the registry) and strictly before the first
+///     `frontend_->` call of the operation, so nothing has committed. The
+///     frame is dropped, `rejected_frames` increments, and the NEXT frame is
+///     accepted normally. All five `RenderSceneImpl` prologue validators use
+///     this path.
+///   * `Fail()` -- the frontend may already have committed an asset
+///     transaction or native work, so the dispatcher latches terminal. This
+///     is the only path that ends a session.
+/// The explicitly typed presentation-surface recovery above is a third,
+/// narrower shape: it advances no dispatcher scene/frame identity and leaves
+/// the exact scene eligible for retirement.
 class RendererFrontendDirectDispatcher final {
 public:
   RendererFrontendDirectDispatcher(IRendererFrontend &frontend,
@@ -144,6 +179,12 @@ public:
       noexcept {
     return last_consumed_scene_snapshot_id_;
   }
+  [[nodiscard]] std::uint64_t rejected_frames() const noexcept {
+    return rejected_frames_;
+  }
+  [[nodiscard]] std::uint64_t recoverable_frame_failures() const noexcept {
+    return recoverable_frame_failures_;
+  }
   [[nodiscard]] bool terminal() const noexcept { return terminal_; }
   [[nodiscard]] RendererFrontendDirectDispatchStatus terminal_cause() const
       noexcept {
@@ -167,6 +208,14 @@ private:
       RenderOperationCode frontend_code = RenderOperationCode::OK,
       std::uint32_t resources_released = 0U,
       const char *frontend_detail = nullptr) noexcept;
+  /// Declines this frame without latching `terminal_`. Legal only where the
+  /// dispatcher has provably committed nothing yet -- see the invariant above.
+  /// Carries any pre-existing latch through `result.terminal`, exactly as
+  /// `Success()` does, so an already-poisoned dispatcher never reports clean.
+  [[nodiscard]] RendererFrontendDirectDispatchResult Reject(
+      RendererFrontendDirectDispatchStatus status,
+      ValidationCode validation_code = ValidationCode::OK,
+      RenderOperationCode frontend_code = RenderOperationCode::OK) noexcept;
   [[nodiscard]] RendererFrontendDirectDispatchResult
   RetryablePresentationSurfaceStale(
       std::uint64_t scene_snapshot_id,
@@ -195,6 +244,9 @@ private:
   std::uint64_t last_consumed_scene_snapshot_id_ = 0U;
   std::uint64_t last_scene_snapshot_id_ = 0U;
   std::uint64_t last_scene_asset_sequence_ = 0U;
+  /// Named degrade counters for the invariant above. Never reset.
+  std::uint64_t rejected_frames_ = 0U;
+  std::uint64_t recoverable_frame_failures_ = 0U;
   bool last_scene_was_empty_ = false;
   bool terminal_ = false;
 };

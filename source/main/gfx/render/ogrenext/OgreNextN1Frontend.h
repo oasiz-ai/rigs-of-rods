@@ -95,6 +95,44 @@ struct OgreNextRetainedSceneAudit final {
   std::uint64_t last_cleanup_phase_microseconds = 0U;
 };
 
+constexpr std::uint32_t kOgreNextRenderBoundaryDegradeAuditVersion = 1U;
+
+/// Named counters for the render-boundary severity invariant:
+///
+///   A per-frame validation may reject a frame or an object, but may not end
+///   a session and may not permanently stop publication. Terminal is reserved
+///   for load-time-unrecoverable state, or a rollback that demonstrably
+///   failed. Every degrade increments a named counter -- a silent degrade
+///   trades a crash for a wrong picture.
+///
+/// Each counter below is the observable half of one gate that used to end the
+/// session and now degrades instead. They are monotonic for the frontend
+/// lifetime. A degrade nobody can see is not a fix, so every one of these is
+/// relayed to the combined heartbeat.
+struct OgreNextN1RenderBoundaryDegradeAudit final {
+  std::uint32_t version = kOgreNextRenderBoundaryDegradeAuditVersion;
+  /// Frames that failed after the native frame executed but left no
+  /// half-written HDR history, so the frontend stayed usable instead of
+  /// latching a permanent fault.
+  std::uint64_t post_submit_recoverable_failures = 0U;
+  /// Frames presented with the HUD overlay hidden because the rate-capped HUD
+  /// readback extent did not match the freshly re-normalized view extent --
+  /// what a window resize produces for ~33 ms. Previously fatal.
+  std::uint64_t hud_extent_mismatch_frames = 0U;
+  /// Frames that shipped without their particle batch because the camera
+  /// basis was not rigid-orthonormal within the calibrated bound. One frame
+  /// without dust is invisible; ending the session mid-drive is not.
+  std::uint64_t particle_basis_rejections = 0U;
+  /// Frames whose PSSM shadow-camera pose was renormalized to the nearest
+  /// rigid frame instead of failing on a decomposition noise floor that is
+  /// documented to exceed the generic 1.0e-6 bound.
+  std::uint64_t pssm_pose_renormalizations = 0U;
+  /// Mesh instances skipped for this frame because their transform carries a
+  /// non-uniform scale the pinned PBS tangent path cannot represent. The
+  /// instance is dropped; the frame still renders.
+  std::uint64_t non_uniform_scale_instance_rejections = 0U;
+};
+
 /// The exact one-frame gate remains the default and is deliberately unchanged.
 /// The production run loop is a separate opt-in lifetime contract that reuses
 /// its source target and Compositor2 graph across presented frames.
@@ -766,6 +804,8 @@ public:
   QueryNativeLightingPassAudit() const noexcept;
   [[nodiscard]] OgreNextRetainedSceneAudit
   QueryRetainedSceneAudit() const noexcept;
+  [[nodiscard]] OgreNextN1RenderBoundaryDegradeAudit
+  QueryRenderBoundaryDegradeAudit() const noexcept;
   [[nodiscard]] OgreNextN1PresentationAudit
   QueryPresentationAudit() const noexcept;
   [[nodiscard]] OgreNextAnalyticSkyRuntimeAudit

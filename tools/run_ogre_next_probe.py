@@ -3615,7 +3615,7 @@ def validate_n1_checkpoint(
                     "exact_usage": True,
                 },
                 "rt4_non_uniform_scale_closed": lifecycle.get(
-                    "non_uniform_scale_rejected_before_submission"
+                    "non_uniform_scale_skips_instance_not_frame"
                 )
                 is True,
                 "rt4_normal_upload_rollback": texture_upload_rollback.get(

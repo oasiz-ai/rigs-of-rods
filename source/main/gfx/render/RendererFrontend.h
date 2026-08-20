@@ -92,6 +92,19 @@ enum class RenderOperationCode : std::uint8_t {
 enum class RenderOperationRecovery : std::uint8_t {
   NONE = 0,
   RETRY_AFTER_PRESENTATION_SURFACE_UPDATE,
+  /// The frontend's own reverse-abort walk verified that this failure left no
+  /// prepared transaction and no half-written native state, so the frame can
+  /// simply be dropped and the next one submitted normally.
+  ///
+  /// A frontend may only set this from a verdict it already computes over its
+  /// complete rollback -- never from a fresh judgement at the failure site. A
+  /// misclassified partial commit here becomes silent corruption, which is
+  /// strictly worse than the session kill it replaces, so this enumerator is
+  /// deliberately landed COUNTED BUT NOT HONOURED: the dispatcher records it
+  /// and still poisons. A follow-up flips it to Reject() once a full session
+  /// shows the counter firing only on frames that also verified a clean
+  /// rollback.
+  RETRY_NEXT_FRAME,
 };
 
 /// A backend failure carries a message, but the dispatch and session results

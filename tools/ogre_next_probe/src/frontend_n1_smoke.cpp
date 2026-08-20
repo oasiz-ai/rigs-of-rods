@@ -168,7 +168,7 @@ struct SmokeResult final {
     bool visible_sun_alpha_exact_one = false;
     bool production_default_gpu_content_readbacks_zero = false;
   } analytic_sky;
-  bool non_uniform_scale_rejected_before_submission = false;
+  bool non_uniform_scale_skips_instance_not_frame = false;
   struct HdrCompositorEvidence final {
     struct SingleScenePssmEvidence final {
       OgreNextHdrCompositorAudit initialized;
@@ -3148,8 +3148,8 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << "    \"process_global_root_exclusion\": true,\n"
          ;
   if (modern_pbr) {
-    report << "    \"non_uniform_scale_rejected_before_submission\": "
-           << (result.non_uniform_scale_rejected_before_submission ? "true"
+    report << "    \"non_uniform_scale_skips_instance_not_frame\": "
+           << (result.non_uniform_scale_skips_instance_not_frame ? "true"
                                                                     : "false")
            << ",\n"
            << "    \"live_texture_replacement_retirement\": "
@@ -5384,21 +5384,29 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
               untouched.frame_id == 777U && !frontend.IsFrameComplete(1U),
           "unsupported depth request mutated output or consumed frame identity");
   if (modern_pbr) {
+    // A non-uniformly scaled instance rejects the INSTANCE, never the frame.
+    // The pinned PBS vertex path multiplies authored normals and tangents by
+    // worldViewMat with no inverse-transpose equivalent, so it cannot draw
+    // that one mesh -- but terrain .odef scale is applied verbatim upstream,
+    // and failing the frame ended the session on the first stretched object.
+    // The producer filters such a section out of the capture and the presenter
+    // skips it with a counter.
+    //
+    // Asserted without submitting: a negative case must not consume a frontend
+    // frame identity, and every native count below is pinned to frame 1.
     Matrix4x4 non_uniform_scale;
     non_uniform_scale.elements[0U] = 2.0F;
-    const auto non_uniform_scene =
-        MakeScene(700U, false, true, 1U, 1U, non_uniform_scale);
-    RenderFrameOutput non_uniform_output;
-    non_uniform_output.frame_id = 778U;
-    const RenderOperationResult non_uniform_result = frontend.Render(
-        MakeFrame(1U, non_uniform_scene, PixelFormat::RGBA16_FLOAT),
-        non_uniform_output);
-    result.non_uniform_scale_rejected_before_submission =
-        non_uniform_result.code == RenderOperationCode::UNSUPPORTED &&
-        non_uniform_output.frame_id == 778U &&
-        !frontend.IsFrameComplete(1U);
-    Require(result.non_uniform_scale_rejected_before_submission,
-            "non-uniform RT4/V1 scale mutated output or reached native submission");
+    Matrix4x4 uniform_scale;
+    uniform_scale.elements[0U] = 2.0F;
+    uniform_scale.elements[5U] = 2.0F;
+    uniform_scale.elements[10U] = 2.0F;
+    result.non_uniform_scale_skips_instance_not_frame =
+        !HasEffectivelyUniformLinearScale(non_uniform_scale) &&
+        HasEffectivelyUniformLinearScale(uniform_scale) &&
+        frontend.QueryRenderBoundaryDegradeAudit()
+                .non_uniform_scale_instance_rejections == 0U;
+    Require(result.non_uniform_scale_skips_instance_not_frame,
+            "the shared uniform-scale predicate or its degrade counter is missing");
   }
 
   RenderFrameOutput hdr_output;

@@ -887,6 +887,26 @@ public:
     return output;
   }
 
+  [[nodiscard]] RendererRenderBoundaryDegradeAudit
+  RenderBoundaryDegradeAudit() const noexcept {
+    RendererRenderBoundaryDegradeAudit output;
+    if (native_frontend == nullptr) {
+      return output;
+    }
+    const OgreNextN1RenderBoundaryDegradeAudit audit =
+        native_frontend->QueryRenderBoundaryDegradeAudit();
+    output.version = audit.version;
+    output.post_submit_recoverable_failures =
+        audit.post_submit_recoverable_failures;
+    output.hud_extent_mismatch_frames = audit.hud_extent_mismatch_frames;
+    output.particle_basis_rejections = audit.particle_basis_rejections;
+    output.pssm_pose_renormalizations = audit.pssm_pose_renormalizations;
+    output.non_uniform_scale_instance_rejections =
+        audit.non_uniform_scale_instance_rejections;
+    output.available = true;
+    return output;
+  }
+
   [[nodiscard]] RendererNativeSunVisibilityV2Audit
   NativeSunVisibilityAudit() const noexcept {
 #if defined(__APPLE__)
@@ -2244,6 +2264,12 @@ RendererOgreNextInProcessPresenter::NativeLightingAudit() const noexcept {
 RendererRetainedSceneAudit
 RendererOgreNextInProcessPresenter::RetainedSceneAudit() const noexcept {
   return impl_->RetainedSceneAudit();
+}
+
+RendererRenderBoundaryDegradeAudit
+RendererOgreNextInProcessPresenter::RenderBoundaryDegradeAudit() const
+    noexcept {
+  return impl_->RenderBoundaryDegradeAudit();
 }
 
 RendererNativeSunVisibilityV2Audit
