@@ -12,16 +12,26 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <limits>
 #include <map>
+#include <string_view>
 #include <utility>
 
 namespace RoR::Render {
 namespace {
 
 constexpr std::uint64_t kFirstAssetSequence = 1U;
+/// Rotating re-verification budget for a reused retained static section.
+/// Full coverage of a 7,400-instance CityWorld section takes 58 frames, well
+/// under a second at any playable rate, and costs under 0.1 ms a frame. The
+/// inputs cannot legitimately change under an unchanged owner; this insures
+/// against a host that later edits a published owner in place, which the
+/// adapter contract forbids and this is the only thing that would catch.
+constexpr std::size_t kRetainedStaticVerifyInstanceWindow = 128U;
+constexpr std::size_t kRetainedStaticVerifyAssetWindow = 64U;
 static_assert(static_cast<std::size_t>(MaterialTextureSlot::BASE_COLOR) == 0U);
 static_assert(
     static_cast<std::size_t>(MaterialTextureSlot::METALLIC_ROUGHNESS) == 1U);
@@ -217,6 +227,30 @@ bool EquivalentDynamicMeshStateContents(
          lhs.tangents == rhs.tangents && lhs.velocities == rhs.velocities &&
          lhs.updated_local_bounds.minimum == rhs.updated_local_bounds.minimum &&
          lhs.updated_local_bounds.maximum == rhs.updated_local_bounds.maximum;
+}
+
+/// Field-wise rather than byte-wise: one side is freshly constructed, and a
+/// fresh descriptor's structure padding is indeterminate, so a memcmp here
+/// would compare bytes no contract owns. The snapshot attestation compares
+/// bytes because both of its sides come from the same published storage.
+bool EqualMeshInstanceContents(const MeshInstanceDescriptor &lhs,
+                               const MeshInstanceDescriptor &rhs) noexcept {
+  for (std::size_t element = 0U; element < 16U; ++element) {
+    if (lhs.render_from_object.elements[element] !=
+            rhs.render_from_object.elements[element] ||
+        lhs.previous_render_from_object.elements[element] !=
+            rhs.previous_render_from_object.elements[element]) {
+      return false;
+    }
+  }
+  return lhs.instance_id == rhs.instance_id && lhs.mesh == rhs.mesh &&
+         lhs.material == rhs.material &&
+         lhs.topology_revision == rhs.topology_revision &&
+         lhs.deformation_revision == rhs.deformation_revision &&
+         lhs.local_bounds.minimum == rhs.local_bounds.minimum &&
+         lhs.local_bounds.maximum == rhs.local_bounds.maximum &&
+         lhs.visibility_mask == rhs.visibility_mask &&
+         lhs.flags == rhs.flags;
 }
 
 bool HasExactTightBounds(const GraphicsSceneDynamicMeshState &state) noexcept {
@@ -581,6 +615,9 @@ public:
     /// asset_catalog owner at that proof. The catalog is copy-on-write, so
     /// an unchanged pointer means no transaction has been applied since.
     const void *catalog_identity = nullptr;
+    /// Rotating re-verification cursors into meshes_owner and assets_owner.
+    std::size_t verify_instance_cursor = 0U;
+    std::size_t verify_asset_cursor = 0U;
   };
 
   explicit Impl(GraphicsSceneSnapshotProducerConfiguration producer_config)
@@ -2615,6 +2652,122 @@ public:
       }
     }
 
+    // Rotating drift audit. The link this closes is owner bytes -> canonical
+    // block: the snapshot attestation proves the block is what the previous
+    // snapshot held, and this proves the previous snapshot still describes
+    // the owners. A mismatch is a contract violation, so it rejects the frame
+    // rather than repairing anything; the next frame's full path then
+    // re-validates the changed content under the ordinary lineage rules.
+    std::size_t candidate_verify_instance_cursor =
+        retained_static.verify_instance_cursor;
+    std::size_t candidate_verify_asset_cursor =
+        retained_static.verify_asset_cursor;
+    if (retained_block_reused) {
+      static const bool audit_everything = [] {
+        const char *const setting = std::getenv("ROR_PRODUCER_RETAINED_AUDIT");
+        return setting != nullptr && std::string_view(setting) == "full";
+      }();
+      const std::vector<MeshInstanceDescriptor> &verified_instances =
+          created.snapshot->mesh_instances();
+      const std::size_t instance_window =
+          audit_everything
+              ? retained_mesh_count
+              : (std::min)(kRetainedStaticVerifyInstanceWindow,
+                           retained_mesh_count);
+      const std::size_t asset_window =
+          audit_everything ? retained_asset_count
+                           : (std::min)(kRetainedStaticVerifyAssetWindow,
+                                        retained_asset_count);
+      for (std::size_t step = 0U; step < instance_window; ++step) {
+        const std::size_t owner_index =
+            (candidate_verify_instance_cursor + step) % retained_mesh_count;
+        const GraphicsSceneStaticMeshInput &input =
+            (*retained_meshes)[owner_index];
+        // Statics and deformables merge by identity, so a static's block
+        // position is its owner index plus the deformables ordered before it.
+        const std::size_t position =
+            owner_index +
+            static_cast<std::size_t>(
+                std::lower_bound(retained_static.dynamic_ids.begin(),
+                                 retained_static.dynamic_ids.end(),
+                                 input.source_object_id) -
+                retained_static.dynamic_ids.begin());
+        const auto mesh_asset =
+            candidate_catalog.assets.find(input.mesh_source_asset_id);
+        const auto material_asset =
+            candidate_catalog.assets.find(input.material_source_asset_id);
+        const MeshResourceDescriptor *mesh =
+            mesh_asset != candidate_catalog.assets.end() &&
+                    mesh_asset->second.live &&
+                    mesh_asset->second.payload != nullptr
+                ? std::get_if<MeshResourceDescriptor>(
+                      mesh_asset->second.payload.get())
+                : nullptr;
+        if (position >= verified_instances.size() || mesh == nullptr ||
+            material_asset == candidate_catalog.assets.end() ||
+            !material_asset->second.live) {
+          result.validation = Failure(
+              ValidationCode::REVISION_MISMATCH, "retained_static.window",
+              "a retained static instance no longer resolves against the "
+              "catalog it was canonicalized with",
+              owner_index);
+          return result;
+        }
+        MeshInstanceDescriptor expected;
+        expected.instance_id = input.source_object_id;
+        expected.mesh = mesh_asset->second.asset;
+        expected.material = material_asset->second.asset;
+        expected.topology_revision = mesh->topology_revision;
+        expected.deformation_revision = 1U;
+        expected.render_from_object = input.render_from_object;
+        // Settled history is a reuse precondition, so a static entry's
+        // previous transform is its current one.
+        expected.previous_render_from_object = input.render_from_object;
+        expected.local_bounds = mesh->local_bounds;
+        expected.visibility_mask = input.visibility_mask;
+        expected.flags = input.flags;
+        if (!EqualMeshInstanceContents(expected,
+                                       verified_instances[position])) {
+          result.validation = Failure(
+              ValidationCode::REVISION_MISMATCH, "retained_static.window",
+              "a retained static instance no longer matches the block "
+              "republished for it",
+              owner_index);
+          return result;
+        }
+      }
+      for (std::size_t step = 0U; step < asset_window; ++step) {
+        const std::size_t owner_index =
+            (candidate_verify_asset_cursor + step) % retained_asset_count;
+        const GraphicsSceneAssetInput &input = (*retained_assets)[owner_index];
+        ValidationResult metadata;
+        std::uint64_t audited_bytes = 0U;
+        if (!ValidateSourceAssetMetadata(input, owner_index, metadata) ||
+            !HasValidatedSourceIdentity(input) ||
+            !AddPayloadBytes(*input.payload, audited_bytes) ||
+            audited_bytes > retained_static.assets_payload_bytes) {
+          result.validation = Failure(
+              ValidationCode::REVISION_MISMATCH, "retained_static.window",
+              "a retained asset no longer matches the admission facts cached "
+              "for its owner",
+              owner_index);
+          return result;
+        }
+      }
+      if (retained_mesh_count != 0U) {
+        candidate_verify_instance_cursor =
+            (candidate_verify_instance_cursor + instance_window) %
+            retained_mesh_count;
+      }
+      if (retained_asset_count != 0U) {
+        candidate_verify_asset_cursor =
+            (candidate_verify_asset_cursor + asset_window) %
+            retained_asset_count;
+      }
+      result.production.diagnostics.retained_static_window_verifications =
+          static_cast<std::uint64_t>(instance_window + asset_window);
+    }
+
     CameraViewRequest camera;
     camera.view_id = frame.camera.view_id;
     camera.width = frame.camera.width;
@@ -2889,6 +3042,8 @@ public:
         retained_static.history_settled = candidate_history_settled;
       }
       retained_static.catalog_stable_for_section = true;
+      retained_static.verify_instance_cursor = candidate_verify_instance_cursor;
+      retained_static.verify_asset_cursor = candidate_verify_asset_cursor;
     }
     if (finalize_scene_generation) {
       camera_state = {};

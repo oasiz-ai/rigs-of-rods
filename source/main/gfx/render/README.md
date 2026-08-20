@@ -118,8 +118,42 @@ camera together. Calls into a producer, including observer loads, must quiesce
 before producer destruction starts; immutable snapshot owners already acquired by
 readers remain valid independently.
 
+Producer input version 7 adds the optional retained static section:
+`retained_static_assets` and `retained_static_meshes` are immutable owners
+whose contents join the flat `assets`/`static_meshes` vectors as one disjoint
+union. Omission semantics are unchanged - an identity in neither the owners nor
+the flat vectors is still permanently destroyed - so sharing an owner can never
+mask a removal. The adapter must hand the exact same owner for as long as the
+section is byte-identical and must mint a new vector for any change; mutating a
+vector that has ever been submitted is a contract violation, not a supported
+update path. That rule is what makes owner identity a truthful change signal
+and lets the producer skip re-deriving admission facts, the catalog
+identity-match walk, and instance canonicalization for content it has already
+validated. Frames without owners behave exactly as version 6.
+
+Reuse never weakens the snapshot gate. `CreateSceneSnapshotWithRetainedBlock`
+proves by segmented `memcmp` that every instance entry outside the patched
+positions is byte-identical to the same position of an already-validated
+immutable snapshot, then validates the patched entries, the ordering seams
+around them, and every non-instance section in full. Nothing enters a snapshot
+without either fresh validation or byte-level proof.
+`ValidateSceneSnapshotAssetsScoped` narrows the registry compatibility pass to
+a named instance subset using the same validators, so a frame with live
+deformables no longer forces a whole-scene revalidation.
+
+Any signalled change disables reuse for that frame: a new owner, a missing
+owner, a changed deformable set, a moved render origin, a static residue, an
+unsettled transform history, or an asset transaction touching an identity
+inside the retained section. Unsignalled change - bytes moving under an
+unchanged owner - is a contract violation and is caught by a rotating
+re-verification window that re-derives a bounded slice of the section each
+frame and rejects the frame with `retained_static.window` on any mismatch.
+`ROR_PRODUCER_RETAINED_AUDIT=full` widens that window to the whole section
+every frame for soak runs.
+
 There is no implicit lighting/schema migration. Scene snapshot versions 1, 2, and 3
-and joined-producer input versions 1 and 2 are rejected with `UNSUPPORTED_VERSION`.
+and every joined-producer input version below the current one are rejected with
+`UNSUPPORTED_VERSION`.
 An adapter migrating legacy light colors must normalize its non-black
 linear-sRGB color with `NormalizePhotometricColorLinear`, retain the scalar
 lux/candela value separately, populate all version-4 sky/exposure fields and an
