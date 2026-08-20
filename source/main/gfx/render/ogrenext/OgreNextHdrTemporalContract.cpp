@@ -136,8 +136,12 @@ ValidationResult ValidatePlanBasics(
       committed_frame_id == 0U
           ? 0.0
           : plan.simulation_time_seconds - committed_simulation_time_seconds;
-  if (expected_delta > kHdrMaximumFrameDeltaSeconds ||
-      plan.delta_seconds != static_cast<float>(expected_delta)) {
+  // Saturated exactly as Prepare saturates it, so a plan built across a long
+  // suspension still matches its own lineage bit-for-bit.
+  const double bounded_expected_delta =
+      std::min(expected_delta, kHdrMaximumFrameDeltaSeconds);
+  if (!std::isfinite(expected_delta) ||
+      plan.delta_seconds != static_cast<float>(bounded_expected_delta)) {
     return Invalid(
         "plan.delta_seconds",
         "HDR frame delta must exactly match bounded simulation-time lineage");
@@ -253,15 +257,23 @@ ValidationResult OgreNextHdrTemporalState::PrepareFrame(
     return Invalid("scene_snapshot.simulation_time_seconds",
                    "HDR temporal simulation time must be finite, nonnegative, and monotonic");
   }
-  const double delta =
+  const double raw_delta =
       committed_frame_id_ == 0U
           ? 0.0
           : simulation_time - committed_simulation_time_seconds_;
-  if (delta > kHdrMaximumFrameDeltaSeconds ||
-      delta > static_cast<double>((std::numeric_limits<float>::max)())) {
+  if (!std::isfinite(raw_delta)) {
     return Invalid("scene_snapshot.simulation_time_seconds",
-                   "HDR temporal delta exceeds the pinned shader envelope");
+                   "HDR temporal delta must be finite");
   }
+  // The envelope bounds what the temporal shader may blend, not what the
+  // simulation is allowed to do. A map load, a breakpoint, or a suspended
+  // window legitimately advances simulation time past it, and rejecting the
+  // first frame afterwards fails the whole present - which killed a live
+  // session on the frame after a terrain load. Saturating is also the
+  // physically correct answer: past the envelope the eye-adaptation blend has
+  // fully converged, so clamping and converging are the same image.
+  const double delta = std::min(raw_delta, kHdrMaximumFrameDeltaSeconds);
+  saturated_frame_deltas_ += (raw_delta > delta) ? 1U : 0U;
 
   const CameraViewRequest &view = request.views.front();
   float effective_exposure = 0.0F;

@@ -188,6 +188,13 @@ private:
   OgreNextHdrHistoryComparison last_history_comparison_{};
   std::uint64_t committed_frame_id_ = 0U;
   double committed_simulation_time_seconds_ = 0.0;
+  /// Frames whose simulation-time delta ran past the shader envelope and were
+  /// saturated to it. Nonzero after a map load or a suspended window; the
+  /// adaptation has fully converged at that point, so the image is unchanged.
+  /// Purely observational: PrepareFrame is const because it publishes no
+  /// durable state, and this counter is not durable state - it records that a
+  /// saturation happened and is never read back into any validated value.
+  mutable std::uint64_t saturated_frame_deltas_ = 0U;
 
   // The pending transaction is deliberately POD-only: preparing a renderer
   // frame must not retain handles, allocate, or expose partially committed
