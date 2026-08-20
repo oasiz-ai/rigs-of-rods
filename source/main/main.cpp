@@ -4228,15 +4228,23 @@ int main(int argc, char *argv[])
                                 renderer_combined_session->
                                     RecoverPublication();
                             renderer_publication_lost = !resumed;
-                            LOG(fmt::format(
-                                "[RoR|RendererCombined|Scene] Terminal "
-                                "snapshot failure: cause='{}', "
-                                "publication={} (x{})",
-                                ToString(scene_result.terminal_cause),
-                                renderer_publication_lost
-                                    ? "unrecoverable, ending session"
-                                    : "resumed, frame dropped",
-                                renderer_combined_scene_failure_occurrences));
+                            // Share the bounded schedule above: a terminal
+                            // cause that recurs every frame must not flood the
+                            // log either. An unrecoverable one is logged
+                            // regardless, because it happens exactly once.
+                            if (report_this_occurrence ||
+                                renderer_publication_lost)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|Scene] Terminal "
+                                    "snapshot failure: cause='{}', "
+                                    "publication={} (x{})",
+                                    ToString(scene_result.terminal_cause),
+                                    renderer_publication_lost
+                                        ? "unrecoverable, ending session"
+                                        : "resumed, frame dropped",
+                                    renderer_combined_scene_failure_occurrences));
+                            }
                         }
                         if (renderer_publication_lost)
                         {

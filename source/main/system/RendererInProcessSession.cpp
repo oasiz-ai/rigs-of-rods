@@ -964,7 +964,7 @@ public:
     case InjectedFaultKind::RECOVERABLE:
       return Poison(RendererInProcessSessionStatus::CAPTURE_REJECTED,
                     Render::ValidationResult::Failure(
-                        Render::ValidationCode::OUT_OF_RANGE,
+                        Render::ValidationCode::VALUE_OUT_OF_RANGE,
                         "injected.fault.recoverable",
                         "synthetic terminal capture rejection"),
                     Render::RenderOperationCode::INVALID_ARGUMENT,
@@ -972,7 +972,7 @@ public:
     case InjectedFaultKind::FATAL:
       return Poison(RendererInProcessSessionStatus::FAILED_SURFACE_UPDATE,
                     Render::ValidationResult::Failure(
-                        Render::ValidationCode::OUT_OF_RANGE,
+                        Render::ValidationCode::VALUE_OUT_OF_RANGE,
                         "injected.fault.device",
                         "synthetic device-class surface failure"),
                     Render::RenderOperationCode::BACKEND_FAILURE,
