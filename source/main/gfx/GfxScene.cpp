@@ -6829,6 +6829,24 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             Gfx::Detail::
                 kOgreNextDemoCuratedCityWorldAcceptanceConfigSha256,
             Gfx::Detail::kOgreNextDemoCuratedCityWorldEnvironmentPolicy));
+        // Diagnostic per-material section census. The aggregate histogram above
+        // says how many sections each reason claimed but not which materials
+        // they belong to, which is exactly what is needed to say how matte one
+        // authoring district is. Emitted only when the distinct-material count
+        // has grown, so it converges to silence once the map is fully admitted
+        // instead of repeating every capture.
+        const std::size_t material_census_size =
+            m_ogre_next_demo_material_source.MaterialSectionCensusSize();
+        if (material_census_size >
+            m_ogre_next_demo_material_census_log_size)
+        {
+            m_ogre_next_demo_material_census_log_size = material_census_size;
+            LOG(fmt::format(
+                "[RoR|OgreNextDemo|MaterialSectionCensus] materials={}\n{}",
+                material_census_size,
+                m_ogre_next_demo_material_source
+                    .FormatMaterialSectionCensus()));
+        }
         m_ogre_next_demo_material_coverage_log_snapshot = coverage_snapshot;
     }
     const Ogre14ContinuousParticleCaptureState& particles =

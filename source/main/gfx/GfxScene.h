@@ -227,6 +227,9 @@ private:
     // Stable digest of the rigid-capture ledger, so identical frames do not
     // flood the log and any new refusal is emitted exactly once.
     std::string                        m_ogre14_rigid_actor_capture_log_snapshot;
+    // Distinct-material count at the last per-material section census log, so
+    // that diagnostic body is emitted only while it is still growing.
+    std::size_t                        m_ogre_next_demo_material_census_log_size = 0U;
     // Last committed policy-v1 sky descriptor telemetry. The candidate text
     // is staged with the joined capture and swapped only from Commit(), so a
     // rejected capture cannot advertise unpresented sky authority.

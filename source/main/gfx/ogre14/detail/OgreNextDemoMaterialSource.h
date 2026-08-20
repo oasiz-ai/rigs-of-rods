@@ -17,6 +17,8 @@
 #include <OgreMaterial.h>
 
 #include <cstddef>
+#include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -131,6 +133,25 @@ public:
   [[nodiscard]] OgreNextDemoCuratedCityWorldCoverage
   CurrentCuratedCityWorldCoverage() const noexcept;
 
+  /// Diagnostic per-material section census, accumulated for the whole session
+  /// and never cleared by capture commit/discard.
+  ///
+  /// The aggregate `matte_by_reason` histogram says how many sections each
+  /// refusal reason claimed, but not WHICH materials they were, so it cannot
+  /// answer "how matte is this district" - districts are a property of the
+  /// authoring material script, not of the counters. This returns one line per
+  /// distinct material name with its projected/matte section split and its
+  /// last refusal reason, which attributes every matte section to the script
+  /// that declared it. Observation only: it records outcomes and never
+  /// influences them.
+  ///
+  /// Returns an empty string when nothing has been observed yet.
+  [[nodiscard]] std::string FormatMaterialSectionCensus() const noexcept;
+
+  /// Number of distinct materials in the census above; lets a caller log the
+  /// body only when it has actually grown.
+  [[nodiscard]] std::size_t MaterialSectionCensusSize() const noexcept;
+
   void Commit() noexcept;
   void Discard() noexcept;
   void Reset() noexcept;
@@ -147,6 +168,14 @@ private:
       OgreNextDemoTextureProjectionExclusion &exclusion,
       Render::ValidationResult &failure);
 
+  /// One row of the diagnostic census above.
+  struct MaterialSectionCensusEntry final {
+    std::size_t projected_sections = 0U;
+    std::size_t matte_sections = 0U;
+    OgreNextDemoTextureProjectionExclusion last_exclusion =
+        OgreNextDemoTextureProjectionExclusion::NONE;
+  };
+
   struct State;
   std::unique_ptr<State> committed_;
   std::unique_ptr<State> pending_;
@@ -159,6 +188,8 @@ private:
   const Render::IOgre14AuthenticatedMaterialScriptResolver
       *material_script_resolver_ = nullptr;
   OgreNextDemoMaterialSourceCounters lifetime_counters_;
+  std::map<std::string, MaterialSectionCensusEntry, std::less<>>
+      material_section_census_;
 };
 
 } // namespace RoR::Gfx::Detail

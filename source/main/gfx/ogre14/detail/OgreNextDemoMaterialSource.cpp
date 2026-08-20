@@ -758,11 +758,41 @@ LegacyUnpresentedLayerKind ClassifyLegacyUnpresentedLayer(
       return LegacyUnpresentedLayerKind::UNSUPPORTED;
     }
     const auto effect = effects.begin();
+    // An OGRE environment-map subtype names the same thing for this
+    // projection whichever spelling it uses: a trailing layer whose texels
+    // come from the reflection probe, not from an authored source file. The
+    // projection presents unit 0 only, so the subtype selects a UV derivation
+    // this code never evaluates - it cannot change the presented result, only
+    // the name of what is being withheld.
+    //
+    // ENV_REFLECTION is admitted here for a second, stronger reason. The one
+    // shape that reaches it is self-inflicted: LegacyMaterialScriptSanitizer
+    // rewrites `cubic_texture EnvironmentTexture combinedUVW` / `env_map
+    // planar` into `texture EnvironmentTexture cubic ...` / `env_map
+    // cubic_reflection` so the declaration matches the cube RTT main.cpp
+    // creates. That rewrite turned an ENV_PLANAR layer this predicate already
+    // accepted into an ENV_REFLECTION layer it refused, which is a refusal of
+    // our own edit rather than of anything the author wrote. Refusing the
+    // rewritten spelling while accepting the original one is not a policy, it
+    // is a gap.
+    //
+    // And `EnvironmentTexture` carries nothing to withhold in this runtime:
+    // the combined session force-disables the environment-map RTT
+    // (gfx_envmap_enabled=false, gfx_envmap_rate=0 in main.cpp) because the
+    // hidden producer's envmap passes cost 15.4 ms/frame rendering into
+    // textures the presenter never reads. The cube is created and never
+    // written, so the authored sample would read undefined contents. Omitting
+    // this layer is therefore not an approximation of a reflection - there is
+    // no reflection in this runtime to approximate.
     if (effect->first != Ogre::TextureUnitState::ET_ENVIRONMENT_MAP ||
         effect->second.type !=
             Ogre::TextureUnitState::ET_ENVIRONMENT_MAP ||
+        // ENV_NORMAL is deliberately still refused: no shipping section
+        // declares it, so admitting it would widen the gate past anything this
+        // corpus exercises.
         (effect->second.subtype != Ogre::TextureUnitState::ENV_CURVED &&
-         effect->second.subtype != Ogre::TextureUnitState::ENV_PLANAR)) {
+         effect->second.subtype != Ogre::TextureUnitState::ENV_PLANAR &&
+         effect->second.subtype != Ogre::TextureUnitState::ENV_REFLECTION)) {
       return LegacyUnpresentedLayerKind::UNSUPPORTED;
     }
     return LegacyUnpresentedLayerKind::ENVIRONMENT_REFLECTION;
@@ -1350,7 +1380,22 @@ bool ClassifyCanonicalPass(
       observation.depth_bias_constant != 0.0F ||
       observation.depth_bias_slope_scale != 0.0F ||
       observation.iteration_depth_bias != 0.0F ||
-      observation.manual_cull_mode != Ogre::MANUAL_CULL_BACK ||
+      // `cull_software` (Pass::getManualCullingMode) is deliberately NOT gated
+      // here. Manual culling is a CPU-side hint that OGRE 14 consults only
+      // when it processes geometry in software - shadow-volume extrusion and
+      // the BSP/patch scene managers. It never reaches a rasterizer state, and
+      // this projection carries no field for it: the capture input this
+      // classification feeds (Ogre14GraphicsSceneMaterialCaptureInput) declares
+      // `cull` (the hardware winding, which IS gated, observed, and lowered)
+      // and no manual-cull member at all. Admitting `cull_software none` means
+      // ignoring a token that had no consumer, not approximating a raster state
+      // we cannot reproduce - the presented pixels are bit-identical either
+      // way.
+      //
+      // The token stays part of the frozen identity key regardless
+      // (AppendExactPassObservation appends manual_cull_mode), so two passes
+      // that differ only in software culling still hash apart and cannot share
+      // a projection.
       observation.polygon_mode != Ogre::PM_SOLID ||
       !observation.polygon_mode_overrideable ||
       (observation.vertex_colour_tracking != Ogre::TVC_NONE &&
@@ -4593,6 +4638,35 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
     const auto record_candidate_outcome =
         [&](bool selected, OgreNextDemoTextureProjectionExclusion reason)
         -> Render::ValidationResult {
+      // Diagnostic only. This mirrors the aggregate accounting into a
+      // per-material split so a matte section can be attributed back to the
+      // script that declared it; it never gates anything. Bounded by the
+      // number of distinct material names in the map.
+      const auto record_census =
+          [this, &native_material](
+              bool census_selected,
+              OgreNextDemoTextureProjectionExclusion census_reason) noexcept {
+            try {
+              auto entry =
+                  material_section_census_.find(native_material->getName());
+              if (entry == material_section_census_.end()) {
+                entry = material_section_census_
+                            .emplace(native_material->getName(),
+                                     MaterialSectionCensusEntry{})
+                            .first;
+              }
+              if (census_selected) {
+                ++entry->second.projected_sections;
+                return;
+              }
+              ++entry->second.matte_sections;
+              entry->second.last_exclusion = census_reason;
+            } catch (...) {
+              // An observation-only ledger must never be able to fail a
+              // capture, so a bad_alloc here is swallowed deliberately.
+            }
+          };
+      record_census(selected, reason);
       if (!selected) {
         if (reason == OgreNextDemoTextureProjectionExclusion::NONE) {
           return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
@@ -5421,6 +5495,32 @@ OgreNextDemoMaterialSource::CurrentCuratedCityWorldCoverage() const noexcept {
 OgreNextDemoMaterialSourceCounters
 OgreNextDemoMaterialSource::LifetimeCounters() const noexcept {
   return lifetime_counters_;
+}
+
+std::size_t
+OgreNextDemoMaterialSource::MaterialSectionCensusSize() const noexcept {
+  return material_section_census_.size();
+}
+
+std::string
+OgreNextDemoMaterialSource::FormatMaterialSectionCensus() const noexcept {
+  try {
+    std::ostringstream stream;
+    for (const auto &entry : material_section_census_) {
+      // One record per material: name, how many of its sections reached the
+      // projected path, how many stayed matte, and the reason the last matte
+      // one carried. `reason` is `none` exactly when nothing was refused.
+      stream << "material=" << entry.first
+             << " projected=" << entry.second.projected_sections
+             << " matte=" << entry.second.matte_sections << " reason="
+             << OgreNextDemoTextureProjectionExclusionName(
+                    entry.second.last_exclusion)
+             << '\n';
+    }
+    return stream.str();
+  } catch (...) {
+    return std::string{};
+  }
 }
 
 void OgreNextDemoMaterialSource::Commit() noexcept {
