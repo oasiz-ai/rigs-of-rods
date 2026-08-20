@@ -436,14 +436,24 @@ ValidationResult ValidateMaterialPolicy(const MaterialDescriptor &material,
       material.attenuation_color == Float3{1.0F, 1.0F, 1.0F} &&
       material.attenuation_distance_m == 1.0F &&
       material.slab_thickness_m == 0.0F;
+  // v6 carries weighted detail layers. Like v5 it is a native-only additive
+  // profile, so it is admitted on the same terms: RT4/V1 only, and with the
+  // transmission state left canonically inactive.
+  const bool canonical_detail_v6 =
+      material.version == kMaterialDescriptorDetailVersion &&
+      material.transmission_mode == MaterialTransmissionMode::NONE &&
+      material.transmission_factor == 0.0F &&
+      material.attenuation_color == Float3{1.0F, 1.0F, 1.0F} &&
+      material.attenuation_distance_m == 1.0F &&
+      material.slab_thickness_m == 0.0F;
   if (!thin_slab_transmission &&
       material.version != kMaterialDescriptorVersion &&
       !(raster_feature_tier ==
             OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
-        canonical_inactive_transmission_v5)) {
+        (canonical_inactive_transmission_v5 || canonical_detail_v6))) {
     return Unsupported(
         "assets.material.version",
-        "N1 admits material v5 only in RT4/V1 with either canonical inactive transmission or the exact thin-slab profile",
+        "N1 admits material v5/v6 only in RT4/V1 with either canonical inactive transmission or the exact thin-slab profile",
         index);
   }
   if (thin_slab_transmission &&
