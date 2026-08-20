@@ -25,7 +25,7 @@
 
 namespace RoR::Render {
 
-constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 6U;
+constexpr std::uint32_t kGraphicsSceneSnapshotProducerVersion = 7U;
 constexpr std::size_t kGraphicsSceneMaterialTextureSlotCount = 6U;
 
 /// Reserved joined-graphics source identities for the producer-synthesized
@@ -179,6 +179,21 @@ struct GraphicsSceneFrameInput {
   std::uint64_t environment_sampler_source_asset_id = 0U;
   std::vector<GraphicsSceneAssetInput> assets;
   std::vector<GraphicsSceneStaticMeshInput> static_meshes;
+  /// Optional immutable owners for the retained static section. When present,
+  /// this frame's complete authoritative content is the disjoint union
+  /// (*retained_static_assets + assets) and
+  /// (*retained_static_meshes + static_meshes). Both owners are sorted by
+  /// source identity and internally duplicate-free. An adapter must hand the
+  /// exact same owners for as long as the section is byte-identical, and MUST
+  /// mint new owner vectors for any change - mutating a vector that has ever
+  /// been submitted is a contract violation the producer is entitled to
+  /// detect and fail closed on. Omission semantics are unchanged: an identity
+  /// in neither the owners nor the flat vectors is permanently destroyed.
+  /// Frames without owners behave exactly as version 6.
+  std::shared_ptr<const std::vector<GraphicsSceneAssetInput>>
+      retained_static_assets;
+  std::shared_ptr<const std::vector<GraphicsSceneStaticMeshInput>>
+      retained_static_meshes;
   std::vector<GraphicsSceneDynamicMeshInput> dynamic_meshes;
   /// May arrive in any order. analytic_sky.sun_light_id names one of these
   /// stable source identities directly.
@@ -257,6 +272,9 @@ struct GraphicsSceneSnapshotProduction {
     std::uint64_t asset_payload_candidate_bytes_validated = 0U;
     /// Full scene-to-registry compatibility passes. Exact previously validated
     /// mesh/material and environment revisions let stable frames report zero.
+    /// A frame carrying live deformables no longer forces one; it reports a
+    /// dynamic-only pass in scene_asset_compatibility_scoped_validations
+    /// instead, so this counts only pair or environment changes.
     std::uint64_t scene_asset_compatibility_full_validations = 0U;
     /// Deep source-payload equivalence fallbacks after immutable-owner
     /// identity misses. Same-owner stable frames report zero exactly.
@@ -264,6 +282,23 @@ struct GraphicsSceneSnapshotProduction {
     /// Sum of descriptor-owned candidate bytes presented to those fallbacks.
     /// This is an upper bound on bytes equality may inspect, not a timer.
     std::uint64_t asset_payload_candidate_bytes_compared = 0U;
+    /// One when this frame republished a retained static instance block
+    /// instead of re-canonicalizing it, else zero.
+    std::uint64_t retained_static_block_reuses = 0U;
+    /// Instance entries covered by that frame's byte-identity claim.
+    std::uint64_t retained_static_instances_reused = 0U;
+    /// One when this frame (re)anchored the retained-section cache from a
+    /// complete full-pipeline pass, else zero.
+    std::uint64_t retained_static_adoptions = 0U;
+    /// One when the retained owners matched but a reuse precondition failed,
+    /// so the frame took the full path anyway.
+    std::uint64_t retained_static_precondition_misses = 0U;
+    /// Rotating re-derivations performed this frame against the retained
+    /// owners. A mismatch fails the frame closed; it never repairs silently.
+    std::uint64_t retained_static_window_verifications = 0U;
+    /// Dynamic-only scene-to-registry compatibility passes. A live vehicle
+    /// reports one here instead of forcing a full pass.
+    std::uint64_t scene_asset_compatibility_scoped_validations = 0U;
   };
 
   /// Present on first production (a full snapshot) and whenever the logical
@@ -304,8 +339,11 @@ struct GraphicsSceneAssetRecoveryResult {
 /// owners and exact asset-revision pairs also bypass repeated payload scans.
 /// Produce() is fail-closed and transactional: allocation, validation, asset
 /// application, snapshot creation, and camera validation all complete before
-/// any producer state advances. One graphics thread owns an instance; callers
-/// serialize Produce(), recovery, and destruction.
+/// any producer state advances. A rejected frame may still withdraw the
+/// retained static section's reuse cache, which is a memoization rather than
+/// state: dropping it changes only that the next frame revalidates in full,
+/// never what any frame publishes. One graphics thread owns an instance;
+/// callers serialize Produce(), recovery, and destruction.
 class GraphicsSceneSnapshotProducer final {
 public:
   explicit GraphicsSceneSnapshotProducer(

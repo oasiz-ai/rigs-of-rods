@@ -2837,8 +2837,9 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_static_retention_cache_size = 0U;
     m_ogre14_static_retention_frozen_decisions = 0U;
     m_ogre14_static_retention_projections = 0U;
-    m_ogre14_static_retention_assets.clear();
-    m_ogre14_static_retention_meshes.clear();
+    m_ogre14_static_retention_assets_owner.reset();
+    m_ogre14_static_retention_meshes_owner.reset();
+    m_ogre14_static_retention_object_ids.reset();
     m_ogre14_static_retention_unadmitted.clear();
     m_ogre14_static_retention_road_live = 0U;
     m_ogre14_static_retention_road_cached = 0U;
@@ -3598,6 +3599,13 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
     const std::chrono::steady_clock::time_point ogre14_capture_started =
         std::chrono::steady_clock::now();
     auto pending = std::make_unique<Ogre14PendingCaptureState>();
+    // Disjoint per-section spans measured beside the capture-struct sections.
+    // They are locals rather than capture fields so the joined-scene capture
+    // contract stays untouched; commit copies them onto the transaction.
+    std::uint64_t section_retained_copy_ns = 0U;
+    std::uint64_t section_asset_merge_ns = 0U;
+    std::uint64_t section_object_union_ns = 0U;
+    std::uint64_t section_particle_walk_ns = 0U;
     OgreNextDemoMaterialPendingGuard material_pending_guard(
         m_ogre_next_demo_material_source);
     Ogre14RoadMaterialFramePendingGuard road_material_frame_guard(
@@ -3632,7 +3640,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             m_ogre14_static_retention_miss_stage = 1U;
         else if (retention_objects == nullptr)
             m_ogre14_static_retention_miss_stage = 2U;
-        else if (m_ogre14_static_retention_meshes.empty())
+        else if (m_ogre14_static_retention_meshes_owner == nullptr ||
+                 m_ogre14_static_retention_meshes_owner->empty() ||
+                 m_ogre14_static_retention_assets_owner == nullptr ||
+                 m_ogre14_static_retention_object_ids == nullptr)
             m_ogre14_static_retention_miss_stage = 3U;
         else if (m_ogre14_static_retention_inventory !=
                  retention_objects->GetStaticGraphicsObjects().size())
@@ -3685,6 +3696,26 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         break;
                     }
                 }
+            }
+        }
+        if (retention_hit)
+        {
+            // The map-generation terrain is folded into the retained owners,
+            // so its native slot identity must still hold before those owners
+            // may be handed on. This is the copy-free half of what
+            // CaptureCommitted performs on a miss frame.
+            TerrainGeometryManager* const retention_geometry =
+                retention_terrain != nullptr
+                    ? retention_terrain->getGeometryManager()
+                    : nullptr;
+            if (!m_ogre_next_demo_terrain_source.HasCommittedCapture() ||
+                !m_ogre_next_demo_terrain_source.VerifyCommittedIdentity(
+                    retention_geometry != nullptr
+                        ? retention_geometry->getTerrainGroup()
+                        : nullptr))
+            {
+                retention_hit = false;
+                m_ogre14_static_retention_miss_stage = 13U;
             }
         }
         pending->static_state_retained = retention_hit;
@@ -3785,7 +3816,14 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     ? geometry_manager->getTerrainGroup()
                     : nullptr;
             Render::ValidationResult static_validation;
-            if (m_ogre_next_demo_terrain_source.HasCommittedCapture())
+            if (pending->static_state_retained)
+            {
+                // Terrain lives inside the retained owners and its native
+                // identity was proven by gate stage 13. Rebuilding the
+                // committed capture here would copy and re-sort every page
+                // asset and instance for a set that is already published.
+            }
+            else if (m_ogre_next_demo_terrain_source.HasCommittedCapture())
             {
                 static_validation =
                     m_ogre_next_demo_terrain_source.CaptureCommitted(
@@ -3851,23 +3889,39 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             {
                 LOG(fmt::format(
                     "[RoR|SceneSource|Retention] hits={} misses={} "
-                    "admitted={} inventory={} cache={} miss_stage={}",
+                    "admitted={} inventory={} cache={} miss_stage={} "
+                    "owner_reuse={} owner_assets={} owner_meshes={}",
                     m_ogre14_static_retention_hits,
                     m_ogre14_static_retention_misses,
                     m_ogre_next_demo_admitted_static_objects.size(),
                     object_manager->GetStaticGraphicsObjects().size(),
                     m_ogre14_static_mesh_cache.size(),
-                    m_ogre14_static_retention_miss_stage));
+                    m_ogre14_static_retention_miss_stage,
+                    m_ogre14_static_retention_owner_handoffs,
+                    m_ogre14_static_retention_assets_owner != nullptr
+                        ? m_ogre14_static_retention_assets_owner->size()
+                        : 0U,
+                    m_ogre14_static_retention_meshes_owner != nullptr
+                        ? m_ogre14_static_retention_meshes_owner->size()
+                        : 0U));
             }
             if (pending->static_state_retained)
             {
                 // The retained capture is byte-equivalent to what the walk
-                // below would produce under the conditions verified above.
-                Ogre14CaptureSectionTimer static_timer(
-                    candidate.static_meshes_ns);
-                static_assets = m_ogre14_static_retention_assets;
-                candidate.frame.static_meshes =
-                    m_ogre14_static_retention_meshes;
+                // below would produce under the conditions verified above,
+                // so the producer receives the exact immutable owners rather
+                // than a copy of them. static_assets and frame.static_meshes
+                // stay empty: they are the residue vectors now, and the
+                // frame's authoritative set is their disjoint union with the
+                // owners. Charged to its own section so `static` keeps
+                // meaning the full walk.
+                Ogre14CaptureSectionTimer retained_timer(
+                    section_retained_copy_ns);
+                candidate.frame.retained_static_assets =
+                    m_ogre14_static_retention_assets_owner;
+                candidate.frame.retained_static_meshes =
+                    m_ogre14_static_retention_meshes_owner;
+                ++m_ogre14_static_retention_owner_handoffs;
             }
             else
             {
@@ -4449,8 +4503,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 const Gfx::Detail::OgreNextDemoMaterialSourceCounters
                     retention_lifetime =
                         m_ogre_next_demo_material_source.LifetimeCounters();
-                pending->retention_assets = static_assets;
-                pending->retention_meshes = candidate.frame.static_meshes;
+                // The owners themselves are built after terrain has joined
+                // the union below; only the walk-scoped facts are stashed
+                // here, where walk_unadmitted is still in scope.
                 pending->retention_unadmitted = std::move(walk_unadmitted);
                 pending->retention_inventory = object_manager != nullptr
                     ? object_manager->GetStaticGraphicsObjects().size()
@@ -4477,23 +4532,35 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             // transaction.
 
             std::vector<Render::GraphicsSceneAssetInput> dynamic_assets;
-            Ogre14CaptureSectionTimer dynamic_timer(
-                candidate.dynamic_meshes_ns);
-            Render::ValidationResult dynamic_validation =
-                CaptureOgre14DynamicActorInventory(
+            Render::ValidationResult dynamic_validation;
+            {
+                // The section timer must end with the joined staging copy it
+                // names. Left unbraced it lived to the end of the enclosing
+                // scene-manager block, so `dynamic=` also billed the merges,
+                // the particle walk, the duplicate set, the terrain append,
+                // the sort, lights, and the environment.
+                Ogre14CaptureSectionTimer dynamic_timer(
+                    candidate.dynamic_meshes_ns);
+                dynamic_validation = CaptureOgre14DynamicActorInventory(
                     pending->dynamic_registry,
                     pending->dynamic_mesh_cache,
                     dynamic_assets, candidate.frame.dynamic_meshes);
+            }
             if (!dynamic_validation)
                 return dynamic_validation;
             std::vector<Render::GraphicsSceneAssetInput> nonterrain_assets;
             const std::vector<Render::GraphicsSceneAssetInput> empty_assets;
-            dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
-                static_assets, dynamic_assets, empty_assets,
-                nonterrain_assets);
+            {
+                Ogre14CaptureSectionTimer merge_timer(section_asset_merge_ns);
+                dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
+                    static_assets, dynamic_assets, empty_assets,
+                    nonterrain_assets);
+            }
             if (!dynamic_validation)
                 return dynamic_validation;
 
+            const std::chrono::steady_clock::time_point
+                particle_walk_started = std::chrono::steady_clock::now();
             std::vector<Render::Ogre14ParticleSourceSystemCapture>
                 captured_dust_systems;
             std::uint64_t dust_material_source_id = 0U;
@@ -5122,12 +5189,21 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             ++pending->particle_capture_state.next_source_sequence;
             candidate.frame.continuous_particles =
                 std::move(particle_frame);
-            dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
-                nonterrain_assets, empty_assets, terrain_capture.assets,
-                candidate.frame.assets);
+            section_particle_walk_ns = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - particle_walk_started)
+                    .count());
+            {
+                Ogre14CaptureSectionTimer merge_timer(section_asset_merge_ns);
+                dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
+                    nonterrain_assets, empty_assets, terrain_capture.assets,
+                    candidate.frame.assets);
+            }
             if (!dynamic_validation)
                 return dynamic_validation;
 
+            {
+            Ogre14CaptureSectionTimer union_timer(section_object_union_ns);
             std::set<std::uint64_t> object_ids;
             for (const Render::GraphicsSceneStaticMeshInput& instance :
                  candidate.frame.static_meshes)
@@ -5150,6 +5226,20 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         "ogre_next_demo.dynamic_meshes.source_object_id",
                         "static and deformable object source IDs collide");
                 }
+                // On a retained-hit frame the static domain is not in this
+                // set at all, so its disjointness from the dynamic domain is
+                // proven against the owner's sorted identities instead.
+                if (pending->static_state_retained &&
+                    std::binary_search(
+                        m_ogre14_static_retention_object_ids->begin(),
+                        m_ogre14_static_retention_object_ids->end(),
+                        instance.source_object_id))
+                {
+                    return Render::ValidationResult::Failure(
+                        Render::ValidationCode::DUPLICATE_IDENTIFIER,
+                        "ogre_next_demo.dynamic_meshes.source_object_id",
+                        "retained static and deformable object source IDs collide");
+                }
             }
             for (const Render::GraphicsSceneStaticMeshInput& instance :
                  terrain_capture.static_meshes)
@@ -5169,6 +5259,43 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 {
                     return first.source_object_id < second.source_object_id;
                 });
+            }
+
+            if (!pending->static_state_retained)
+            {
+                // Mint the next generation of retained owners from this
+                // walk's complete static union, terrain included. New
+                // vectors every time: a published owner is immutable, and
+                // its identity is the only change signal the producer has.
+                Ogre14CaptureSectionTimer refresh_timer(
+                    section_retained_copy_ns);
+                auto refreshed_assets = std::make_shared<
+                    std::vector<Render::GraphicsSceneAssetInput>>();
+                const Render::ValidationResult refreshed_asset_merge =
+                    Render::MergeOgre14GraphicsSceneAssets(
+                        static_assets, empty_assets, terrain_capture.assets,
+                        *refreshed_assets);
+                if (!refreshed_asset_merge)
+                    return refreshed_asset_merge;
+                auto refreshed_meshes = std::make_shared<
+                    std::vector<Render::GraphicsSceneStaticMeshInput>>(
+                        candidate.frame.static_meshes);
+                auto refreshed_object_ids =
+                    std::make_shared<std::vector<std::uint64_t>>();
+                refreshed_object_ids->reserve(refreshed_meshes->size());
+                for (const Render::GraphicsSceneStaticMeshInput& instance :
+                     *refreshed_meshes)
+                {
+                    refreshed_object_ids->push_back(
+                        instance.source_object_id);
+                }
+                pending->retention_assets_owner =
+                    std::move(refreshed_assets);
+                pending->retention_meshes_owner =
+                    std::move(refreshed_meshes);
+                pending->retention_object_ids =
+                    std::move(refreshed_object_ids);
+            }
 
             // These bits stage together only after coverage, native CPU
             // extraction, material translation, identity/lifecycle auditing,
@@ -5277,10 +5404,17 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             // GfxEnvmap remains a vehicle-local compatibility effect and is
             // never promoted. The combined-runtime visual policy instead
             // authors one explicitly labelled project-owned PCC probe.
+            // The probe policy reads the complete static inventory. On a
+            // retained-hit frame that inventory is the owner, not the empty
+            // residue vector; handing it the residue would read as the whole
+            // static scene having disappeared.
             Render::ValidationResult probe_validation =
                 Render::BuildOgre14AutomaticReflectionProbe(
                     automatic_probe_camera_position,
-                    candidate.frame.static_meshes,
+                    pending->static_state_retained &&
+                            m_ogre14_static_retention_meshes_owner != nullptr
+                        ? *m_ogre14_static_retention_meshes_owner
+                        : candidate.frame.static_meshes,
                     m_ogre14_automatic_reflection_probe_state,
                     pending->automatic_reflection_probe_state,
                     candidate.frame.reflection_probes);
@@ -5300,10 +5434,16 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                     std::chrono::steady_clock::now() -
                     ogre14_capture_started).count());
         const std::uint64_t section_sum_ns = candidate.terrain_ns +
-            candidate.static_meshes_ns + candidate.dynamic_meshes_ns;
+            candidate.static_meshes_ns + candidate.dynamic_meshes_ns +
+            section_retained_copy_ns + section_asset_merge_ns +
+            section_object_union_ns + section_particle_walk_ns;
         pending->section_terrain_ns = candidate.terrain_ns;
         pending->section_static_ns = candidate.static_meshes_ns;
         pending->section_dynamic_ns = candidate.dynamic_meshes_ns;
+        pending->section_retained_ns = section_retained_copy_ns;
+        pending->section_merge_ns = section_asset_merge_ns;
+        pending->section_union_ns = section_object_union_ns;
+        pending->section_particles_ns = section_particle_walk_ns;
         pending->section_other_ns = capture_total_ns > section_sum_ns
             ? capture_total_ns - section_sum_ns
             : 0U;
@@ -5334,10 +5474,12 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
              m_ogre14_pending_capture->procedural_road_inventory);
         if (m_ogre14_pending_capture->has_retention_refresh)
         {
-            m_ogre14_static_retention_assets =
-                std::move(m_ogre14_pending_capture->retention_assets);
-            m_ogre14_static_retention_meshes =
-                std::move(m_ogre14_pending_capture->retention_meshes);
+            m_ogre14_static_retention_assets_owner =
+                std::move(m_ogre14_pending_capture->retention_assets_owner);
+            m_ogre14_static_retention_meshes_owner =
+                std::move(m_ogre14_pending_capture->retention_meshes_owner);
+            m_ogre14_static_retention_object_ids =
+                std::move(m_ogre14_pending_capture->retention_object_ids);
             m_ogre14_static_retention_unadmitted =
                 std::move(m_ogre14_pending_capture->retention_unadmitted);
             m_ogre14_static_retention_inventory =
@@ -5410,17 +5552,29 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_pending_capture->section_static_ns;
     m_ogre14_section_log_dynamic_ns +=
         m_ogre14_pending_capture->section_dynamic_ns;
+    m_ogre14_section_log_retained_ns +=
+        m_ogre14_pending_capture->section_retained_ns;
+    m_ogre14_section_log_merge_ns +=
+        m_ogre14_pending_capture->section_merge_ns;
+    m_ogre14_section_log_union_ns +=
+        m_ogre14_pending_capture->section_union_ns;
+    m_ogre14_section_log_particles_ns +=
+        m_ogre14_pending_capture->section_particles_ns;
     m_ogre14_section_log_other_ns +=
         m_ogre14_pending_capture->section_other_ns;
     if ((m_ogre14_section_log_captures % 300U) == 0U)
     {
         LOG(fmt::format(
             "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "
-            "dynamic={} other={}",
+            "dynamic={} retained={} merge={} union={} particles={} other={}",
             m_ogre14_section_log_captures,
             m_ogre14_section_log_terrain_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_static_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_dynamic_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_retained_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_merge_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_union_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_particles_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_other_ns / m_ogre14_section_log_captures));
     }
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =

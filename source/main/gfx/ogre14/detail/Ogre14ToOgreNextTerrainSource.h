@@ -62,6 +62,14 @@ public:
       const std::vector<OgreNextDemoTerrainPageMesh> &pages,
       OgreNextDemoTerrainCapture &capture);
   [[nodiscard]] bool HasCommittedCapture() const noexcept;
+  /// Non-blocking proof that the committed capture still describes the live
+  /// TerrainGroup: same group, slot inventory, packed keys, and loaded native
+  /// page identities. It copies nothing, so a caller holding an immutable
+  /// terrain owner can re-establish that owner's validity every frame at
+  /// slot-count cost. CaptureCommitted runs exactly this check before it
+  /// rebuilds its capture.
+  [[nodiscard]] Render::ValidationResult VerifyCommittedIdentity(
+      Ogre::TerrainGroup *terrain_group) const;
   [[nodiscard]] Render::ValidationResult CaptureCommitted(
       Ogre::TerrainGroup *terrain_group,
       OgreNextDemoTerrainCapture &capture);

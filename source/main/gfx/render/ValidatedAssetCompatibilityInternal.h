@@ -13,6 +13,9 @@
 
 #include "RenderValidation.h"
 
+#include <cstdint>
+#include <vector>
+
 namespace RoR::Render {
 
 struct DynamicMeshUpdateDescriptor;
@@ -39,6 +42,10 @@ ValidationResult ValidateEnvironmentTextureCompatibility(
 ValidationResult ValidateSceneSnapshotAssets(
     const SceneSnapshotDescriptor &descriptor,
     const RenderAssetRegistry &registry);
+ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids);
 
 class ValidatedAssetCompatibilityAccess final {
 private:
@@ -65,6 +72,13 @@ private:
   friend ValidationResult ValidateSceneSnapshotAssets(
       const SceneSnapshotDescriptor &descriptor,
       const RenderAssetRegistry &registry);
+  /// Same validators over a named subset. The token still means "the
+  /// descriptor carries its own validation proof"; the scoped pass takes that
+  /// proof from the snapshot it was created with instead of re-deriving it.
+  friend ValidationResult ValidateSceneSnapshotAssetsScoped(
+      const SceneSnapshotDescriptor &descriptor,
+      const RenderAssetRegistry &registry,
+      const std::vector<std::uint64_t> &instance_ids);
 };
 
 namespace Detail {

@@ -760,9 +760,9 @@ bool Ogre14ToOgreNextTerrainSource::HasCommittedCapture() const noexcept {
   return committed_ != nullptr && committed_->captured;
 }
 
-Render::ValidationResult Ogre14ToOgreNextTerrainSource::CaptureCommitted(
-    Ogre::TerrainGroup *terrain_group,
-    OgreNextDemoTerrainCapture &capture) try {
+Render::ValidationResult
+Ogre14ToOgreNextTerrainSource::VerifyCommittedIdentity(
+    Ogre::TerrainGroup *terrain_group) const try {
   if (pending_ != nullptr) {
     return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                    "ogre_next_demo.terrain.pending",
@@ -823,6 +823,29 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::CaptureCommitted(
     }
   }
 
+  return Render::ValidationResult::Success();
+} catch (const Ogre::Exception &) {
+  return Failure(Render::ValidationCode::MISSING_REFERENCE,
+                 "ogre_next_demo.terrain.ogre_exception",
+                 "OGRE failed before the frozen terrain capture was published");
+} catch (const std::bad_alloc &) {
+  return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
+                 "ogre_next_demo.terrain.allocation",
+                 "allocation failed before the frozen terrain capture was published");
+} catch (...) {
+  return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                 "ogre_next_demo.terrain.exception",
+                 "unexpected exception before the frozen terrain capture was published");
+}
+
+Render::ValidationResult Ogre14ToOgreNextTerrainSource::CaptureCommitted(
+    Ogre::TerrainGroup *terrain_group,
+    OgreNextDemoTerrainCapture &capture) try {
+  const Render::ValidationResult identity =
+      VerifyCommittedIdentity(terrain_group);
+  if (!identity) {
+    return identity;
+  }
   return BuildCommittedCapture(*committed_, capture);
 } catch (const Ogre::Exception &) {
   return Failure(Render::ValidationCode::MISSING_REFERENCE,

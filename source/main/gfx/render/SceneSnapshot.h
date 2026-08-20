@@ -428,8 +428,15 @@ private:
 
   friend SceneSnapshotCreateResult
   CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
+  friend SceneSnapshotCreateResult CreateSceneSnapshotWithRetainedBlock(
+      SceneSnapshotDescriptor descriptor,
+      const std::shared_ptr<const SceneSnapshot> &previous,
+      const std::vector<std::uint32_t> &patched_indices);
   friend ValidationResult ValidateSceneSnapshotAssets(
       const SceneSnapshot &snapshot, const RenderAssetRegistry &registry);
+  friend ValidationResult ValidateSceneSnapshotAssetsScoped(
+      const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+      const std::vector<std::uint64_t> &instance_ids);
 };
 
 struct SceneSnapshotCreateResult {
@@ -455,7 +462,35 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor);
 [[nodiscard]] ValidationResult
 ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
                             const RenderAssetRegistry &registry);
+/// Registry compatibility for only `instance_ids` (nonzero, strictly
+/// increasing) and their dynamic updates, using the same Detail validators as
+/// the full pass so no compatibility rule is forked. It deliberately does not
+/// re-run ValidateSceneSnapshotDescriptor: the snapshot already carries that
+/// proof. A caller must have validated every other instance against this exact
+/// registry revision on a previously accepted frame; an identity absent from
+/// the snapshot fails closed rather than being skipped.
+[[nodiscard]] ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids);
+[[nodiscard]] ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids);
 [[nodiscard]] SceneSnapshotCreateResult
 CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
+/// Creates a snapshot whose mesh_instances claim byte-identity with
+/// `previous` everywhere except `patched_indices` (in range, strictly
+/// increasing). The claim is verified here by segmented memcmp against
+/// previous->mesh_instances(); MeshInstanceDescriptor is trivially copyable,
+/// so a caller must fill the unpatched region by copying those exact bytes
+/// rather than reconstructing equal values. Per-entry instance validation
+/// then runs for the patched entries and the ordering seams around them, and
+/// in full for every non-instance section. Any mismatch fails closed, so
+/// nothing enters a snapshot without either fresh validation or byte-level
+/// proof against an already-validated immutable snapshot.
+[[nodiscard]] SceneSnapshotCreateResult CreateSceneSnapshotWithRetainedBlock(
+    SceneSnapshotDescriptor descriptor,
+    const std::shared_ptr<const SceneSnapshot> &previous,
+    const std::vector<std::uint32_t> &patched_indices);
 
 } // namespace RoR::Render

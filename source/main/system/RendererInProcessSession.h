@@ -148,6 +148,10 @@ struct RendererInProcessSessionResult final {
   /// Wall-clock nanoseconds this frame spent dispatching to the frontend,
   /// rendering, and waiting for completion.
   std::uint64_t scene_dispatch_ns = 0U;
+  /// This frame's producer diagnostics, relayed so the host can audit the
+  /// retained-section reuse decisions it cannot otherwise observe. Zero on
+  /// every frame that did not reach Produce().
+  Render::GraphicsSceneSnapshotProduction::Diagnostics producer_diagnostics;
   bool pending_frame = false;
   bool shutdown_requested = false;
   bool simulation_may_advance = false;

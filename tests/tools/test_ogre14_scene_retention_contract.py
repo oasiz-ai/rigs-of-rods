@@ -29,7 +29,9 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         for condition in (
             "m_ogre14_static_retention_valid",
             "retention_objects == nullptr",
-            "m_ogre14_static_retention_meshes.empty()",
+            "m_ogre14_static_retention_meshes_owner->empty()",
+            "m_ogre14_static_retention_assets_owner == nullptr",
+            "m_ogre14_static_retention_object_ids == nullptr",
             "m_ogre14_static_retention_inventory",
             "m_ogre14_static_retention_cache_size",
             "new_frozen_material_decisions",
@@ -37,6 +39,35 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
             "cached_mesh_count()",
         ):
             self.assertIn(condition, gate, condition)
+
+    def test_gate_verifies_the_folded_terrain_identity(self) -> None:
+        # Terrain is folded into the retained owners, so a hit frame never
+        # rebuilds the committed terrain capture. Its native slot identity
+        # must therefore be proven copy-free before the owners are handed on.
+        anchor = "m_ogre14_static_retention_miss_stage = 13U;"
+        self.assertIn(anchor, self.scene)
+        start = self.scene.index("VerifyCommittedIdentity(")
+        window = self.scene[start - 600 : start + 400]
+        self.assertIn("HasCommittedCapture()", window)
+        self.assertIn("retention_hit = false", window)
+
+    def test_hit_frames_hand_owners_instead_of_copying(self) -> None:
+        anchor = "candidate.frame.retained_static_assets ="
+        start = self.scene.index(anchor)
+        window = self.scene[start : start + 400]
+        self.assertIn("m_ogre14_static_retention_assets_owner;", window)
+        self.assertIn("candidate.frame.retained_static_meshes =", window)
+        self.assertIn("m_ogre14_static_retention_meshes_owner;", window)
+
+    def test_refresh_mints_new_owner_vectors(self) -> None:
+        # Owner identity is the producer's only change signal, so a refresh
+        # must allocate fresh vectors rather than edit a published owner.
+        anchor = "pending->retention_assets_owner ="
+        start = self.scene.index(anchor)
+        window = self.scene[start - 1600 : start + 400]
+        self.assertIn("std::make_shared<", window)
+        self.assertIn("pending->retention_meshes_owner =", window)
+        self.assertIn("pending->retention_object_ids =", window)
 
     def test_gate_scans_unadmitted_bounds_against_the_camera(self) -> None:
         # Full admission is unreachable on a 12 km map, so the gate must be a
@@ -82,8 +113,9 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
         block = self.scene[start : start + 2200]
         for cleared in (
             "m_ogre14_static_retention_valid = false;",
-            "m_ogre14_static_retention_assets.clear();",
-            "m_ogre14_static_retention_meshes.clear();",
+            "m_ogre14_static_retention_assets_owner.reset();",
+            "m_ogre14_static_retention_meshes_owner.reset();",
+            "m_ogre14_static_retention_object_ids.reset();",
             "m_ogre14_static_retention_unadmitted.clear();",
             "m_ogre14_procedural_road_inventory =",
         ):
@@ -128,6 +160,9 @@ class RetainedStaticSceneContractTests(unittest.TestCase):
             "m_ogre14_static_retention_road_live",
             "m_ogre14_static_retention_road_cached",
             "m_ogre14_static_retention_unadmitted",
+            "m_ogre14_static_retention_assets_owner",
+            "m_ogre14_static_retention_meshes_owner",
+            "m_ogre14_static_retention_object_ids",
             "m_ogre14_procedural_road_inventory",
         ):
             self.assertIn(member, self.header, member)

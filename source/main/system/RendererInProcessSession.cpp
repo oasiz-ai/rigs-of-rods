@@ -847,6 +847,8 @@ public:
           std::is_nothrow_move_assignable<
               std::optional<PendingProduction>>::value,
           "pending direct production retention must not throw");
+      const Render::GraphicsSceneSnapshotProduction::Diagnostics
+          produced_diagnostics = produced.production.diagnostics;
       PendingProduction retained;
       retained.production = std::move(produced.production);
       retained.captured_surface_revision = current_surface.surface_revision;
@@ -877,6 +879,7 @@ public:
           static_cast<std::uint64_t>(
               std::chrono::duration_cast<std::chrono::nanoseconds>(
                   dispatch_ended - capture_ended).count());
+      dispatched.producer_diagnostics = produced_diagnostics;
       return dispatched;
     } catch (const std::bad_alloc &) {
       return Failure(RendererInProcessSessionStatus::FAILED_ALLOCATION,

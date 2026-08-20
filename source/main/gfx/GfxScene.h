@@ -225,10 +225,20 @@ private:
     std::size_t m_ogre14_static_retention_cache_size = 0U;
     std::uint64_t m_ogre14_static_retention_frozen_decisions = 0U;
     std::uint64_t m_ogre14_static_retention_projections = 0U;
-    std::vector<Render::GraphicsSceneAssetInput>
-        m_ogre14_static_retention_assets;
-    std::vector<Render::GraphicsSceneStaticMeshInput>
-        m_ogre14_static_retention_meshes;
+    /// Immutable owners for the retained static section, including the
+    /// map-generation terrain. A retention hit hands these exact owners to the
+    /// producer instead of copying them, so owner identity is the producer's
+    /// change signal: a refresh always builds new vectors and never mutates a
+    /// published one. The object IDs are the meshes' identities in the same
+    /// strictly increasing order, kept so a per-frame collision check against
+    /// the dynamic domain costs a binary search instead of a rebuild.
+    std::shared_ptr<const std::vector<Render::GraphicsSceneAssetInput>>
+        m_ogre14_static_retention_assets_owner;
+    std::shared_ptr<const std::vector<Render::GraphicsSceneStaticMeshInput>>
+        m_ogre14_static_retention_meshes_owner;
+    std::shared_ptr<const std::vector<std::uint64_t>>
+        m_ogre14_static_retention_object_ids;
+    std::uint64_t m_ogre14_static_retention_owner_handoffs = 0U;
     /// Bounds of every not-yet-admitted static object, refreshed by each
     /// committed full walk. Static objects do not move, so scanning these
     /// against the camera decides in microseconds whether a walk could admit
@@ -256,10 +266,17 @@ private:
     std::map<std::string, Ogre14RoadMaterialObservationCacheEntry,
              std::less<>> m_ogre14_road_observation_cache;
     // Committed-capture section cost accounting, logged every 300 commits.
+    // Each accumulator names one disjoint span of the capture; `other` is the
+    // measured remainder, so a section that grows can never hide inside a
+    // neighbour's number.
     std::uint64_t m_ogre14_section_log_captures = 0U;
     std::uint64_t m_ogre14_section_log_terrain_ns = 0U;
     std::uint64_t m_ogre14_section_log_static_ns = 0U;
     std::uint64_t m_ogre14_section_log_dynamic_ns = 0U;
+    std::uint64_t m_ogre14_section_log_retained_ns = 0U;
+    std::uint64_t m_ogre14_section_log_merge_ns = 0U;
+    std::uint64_t m_ogre14_section_log_union_ns = 0U;
+    std::uint64_t m_ogre14_section_log_particles_ns = 0U;
     std::uint64_t m_ogre14_section_log_other_ns = 0U;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
@@ -347,8 +364,15 @@ private:
         /// commit, so a frame a later section discards can never leave the
         /// retained scene describing state that was never published.
         bool has_retention_refresh = false;
-        std::vector<Render::GraphicsSceneAssetInput> retention_assets;
-        std::vector<Render::GraphicsSceneStaticMeshInput> retention_meshes;
+        /// Freshly built owners for this walk. Never an in-place edit of a
+        /// published owner: identity is the producer's only change signal.
+        std::shared_ptr<const std::vector<Render::GraphicsSceneAssetInput>>
+            retention_assets_owner;
+        std::shared_ptr<
+            const std::vector<Render::GraphicsSceneStaticMeshInput>>
+            retention_meshes_owner;
+        std::shared_ptr<const std::vector<std::uint64_t>>
+            retention_object_ids;
         std::vector<std::pair<std::uint64_t, Render::Bounds3>>
             retention_unadmitted;
         std::size_t retention_inventory = 0U;
@@ -374,10 +398,16 @@ private:
         Render::Ogre14LegacyPreparedMaterialFrame road_material_frame;
         bool has_road_material_frame = false;
         /// This capture's per-section traversal cost, logged from commit so
-        /// only accepted exposures are counted.
+        /// only accepted exposures are counted. `static` is the full static
+        /// walk and `retained` the retained-hit copy, so exactly one of the
+        /// two is nonzero per capture.
         std::uint64_t section_terrain_ns = 0U;
         std::uint64_t section_static_ns = 0U;
         std::uint64_t section_dynamic_ns = 0U;
+        std::uint64_t section_retained_ns = 0U;
+        std::uint64_t section_merge_ns = 0U;
+        std::uint64_t section_union_ns = 0U;
+        std::uint64_t section_particles_ns = 0U;
         std::uint64_t section_other_ns = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;

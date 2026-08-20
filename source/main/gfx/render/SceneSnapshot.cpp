@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #include <utility>
 
 namespace RoR::Render {
@@ -458,8 +459,74 @@ std::uint64_t ComputeSceneReflectionProbeHash(
   return hasher.value();
 }
 
-ValidationResult
-ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
+namespace {
+
+/// Every per-instance rule except the strictly-increasing identity relation,
+/// which needs the instance's neighbours rather than the instance alone.
+bool ValidateMeshInstanceEntry(const MeshInstanceDescriptor &instance,
+                               std::size_t index,
+                               ValidationResult &validation) {
+  if (!ValidateAssetReference(instance.mesh, RenderAssetKind::MESH,
+                              "mesh_instances.mesh", index, validation)) {
+    return false;
+  }
+  if (!ValidateAssetReference(instance.material, RenderAssetKind::MATERIAL,
+                              "mesh_instances.material", index, validation)) {
+    return false;
+  }
+  if (instance.topology_revision == 0U ||
+      instance.deformation_revision == 0U) {
+    validation = ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "mesh_instances.revision",
+        "topology and deformation revisions must be nonzero", index);
+    return false;
+  }
+  if (!HasInvertibleAffineTransform(instance.render_from_object) ||
+      !HasInvertibleAffineTransform(instance.previous_render_from_object)) {
+    validation = ValidationResult::Failure(
+        IsFinite(instance.render_from_object) &&
+                IsFinite(instance.previous_render_from_object)
+            ? ValidationCode::VALUE_OUT_OF_RANGE
+            : ValidationCode::NON_FINITE_VALUE,
+        "mesh_instances.transform",
+        "current and previous transforms must be canonical affine and "
+        "invertible",
+        index);
+    return false;
+  }
+  if (!IsValid(instance.local_bounds)) {
+    validation = ValidationResult::Failure(
+        ValidationCode::INVALID_BOUNDS, "mesh_instances.local_bounds",
+        "mesh bounds must be finite and ordered", index);
+    return false;
+  }
+  if (instance.visibility_mask == 0U) {
+    validation = ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "mesh_instances.visibility_mask",
+        "visibility mask must contain at least one bit", index);
+    return false;
+  }
+  constexpr std::uint32_t kKnownMeshFlags =
+      MESH_INSTANCE_CASTS_SHADOW | MESH_INSTANCE_RECEIVES_SHADOW |
+      MESH_INSTANCE_VISIBLE_IN_REFLECTIONS;
+  if ((instance.flags & ~kKnownMeshFlags) != 0U) {
+    validation = ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "mesh_instances.flags",
+        "mesh instance contains unknown flag bits", index);
+    return false;
+  }
+  return true;
+}
+
+/// `scoped_instance_indices`, when present, names the only instance entries
+/// this call may assume nothing about. Every other entry has already been
+/// proven byte-identical to an entry of a previously validated snapshot at
+/// the same position, so its own rules and its internal ordering carry over;
+/// only the ordering seams around the scoped entries still need checking.
+/// Every non-instance section is validated in full either way.
+ValidationResult ValidateSceneSnapshotDescriptorInternal(
+    const SceneSnapshotDescriptor &descriptor,
+    const std::vector<std::uint32_t> *scoped_instance_indices) {
   if (descriptor.version != kSceneSnapshotVersion) {
     return ValidationResult::Failure(ValidationCode::UNSUPPORTED_VERSION,
                                      "version",
@@ -632,60 +699,52 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   // would otherwise allocate two std::string proxies for every scene element.
   ValidationResult validation;
   std::uint64_t previous_identifier = 0U;
-  for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
-       ++index) {
-    const MeshInstanceDescriptor &instance = descriptor.mesh_instances[index];
-    if (!ValidateIncreasingIdentifier(
-            instance.instance_id, previous_identifier, index != 0U,
-            "mesh_instances.instance_id", index, validation)) {
-      return validation;
+  if (scoped_instance_indices == nullptr) {
+    for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
+         ++index) {
+      const MeshInstanceDescriptor &instance =
+          descriptor.mesh_instances[index];
+      if (!ValidateIncreasingIdentifier(
+              instance.instance_id, previous_identifier, index != 0U,
+              "mesh_instances.instance_id", index, validation)) {
+        return validation;
+      }
+      previous_identifier = instance.instance_id;
+      if (!ValidateMeshInstanceEntry(instance, index, validation)) {
+        return validation;
+      }
     }
-    previous_identifier = instance.instance_id;
-
-    if (!ValidateAssetReference(instance.mesh, RenderAssetKind::MESH,
-                                "mesh_instances.mesh", index, validation)) {
-      return validation;
-    }
-    if (!ValidateAssetReference(instance.material, RenderAssetKind::MATERIAL,
-                                "mesh_instances.material", index,
-                                validation)) {
-      return validation;
-    }
-    if (instance.topology_revision == 0U ||
-        instance.deformation_revision == 0U) {
-      return ValidationResult::Failure(
-          ValidationCode::INVALID_IDENTIFIER, "mesh_instances.revision",
-          "topology and deformation revisions must be nonzero", index);
-    }
-    if (!HasInvertibleAffineTransform(instance.render_from_object) ||
-        !HasInvertibleAffineTransform(instance.previous_render_from_object)) {
-      return ValidationResult::Failure(
-          IsFinite(instance.render_from_object) &&
-                  IsFinite(instance.previous_render_from_object)
-              ? ValidationCode::VALUE_OUT_OF_RANGE
-              : ValidationCode::NON_FINITE_VALUE,
-          "mesh_instances.transform",
-          "current and previous transforms must be canonical affine and "
-          "invertible",
-          index);
-    }
-    if (!IsValid(instance.local_bounds)) {
-      return ValidationResult::Failure(
-          ValidationCode::INVALID_BOUNDS, "mesh_instances.local_bounds",
-          "mesh bounds must be finite and ordered", index);
-    }
-    if (instance.visibility_mask == 0U) {
-      return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "mesh_instances.visibility_mask",
-          "visibility mask must contain at least one bit", index);
-    }
-    constexpr std::uint32_t kKnownMeshFlags =
-        MESH_INSTANCE_CASTS_SHADOW | MESH_INSTANCE_RECEIVES_SHADOW |
-        MESH_INSTANCE_VISIBLE_IN_REFLECTIONS;
-    if ((instance.flags & ~kKnownMeshFlags) != 0U) {
-      return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "mesh_instances.flags",
-          "mesh instance contains unknown flag bits", index);
+  } else {
+    for (const std::uint32_t scoped : *scoped_instance_indices) {
+      const std::size_t index = static_cast<std::size_t>(scoped);
+      if (index >= descriptor.mesh_instances.size()) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE,
+            "retained_block.patched_indices",
+            "patched instance index is outside this snapshot", index);
+      }
+      const MeshInstanceDescriptor &instance =
+          descriptor.mesh_instances[index];
+      if (!ValidateIncreasingIdentifier(instance.instance_id, 0U, false,
+                                        "mesh_instances.instance_id", index,
+                                        validation)) {
+        return validation;
+      }
+      // Both seams: the run before and the run after are internally ordered
+      // by the byte-identity proof, so ordering can only break here.
+      if ((index != 0U &&
+           descriptor.mesh_instances[index - 1U].instance_id >=
+               instance.instance_id) ||
+          (index + 1U < descriptor.mesh_instances.size() &&
+           instance.instance_id >=
+               descriptor.mesh_instances[index + 1U].instance_id)) {
+        return ValidationResult::Failure(
+            ValidationCode::SEQUENCE_MISMATCH, "mesh_instances.instance_id",
+            "identifiers must be nonzero and strictly increasing", index);
+      }
+      if (!ValidateMeshInstanceEntry(instance, index, validation)) {
+        return validation;
+      }
     }
   }
 
@@ -959,6 +1018,51 @@ ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
   return ValidationResult::Success();
 }
 
+} // namespace
+
+ValidationResult
+ValidateSceneSnapshotDescriptor(const SceneSnapshotDescriptor &descriptor) {
+  return ValidateSceneSnapshotDescriptorInternal(descriptor, nullptr);
+}
+
+namespace {
+
+/// One update per deformed instance, and far fewer instances, so
+/// an identity-ordered index turns the per-instance lookup from a linear scan
+/// of every update into a binary search. Descriptor validation guarantees at
+/// most one update per instance but orders the vector by update sequence, so
+/// the identity order is established here rather than assumed.
+std::vector<const DynamicMeshUpdateDescriptor *>
+BuildDynamicMeshUpdateIndex(const SceneSnapshotDescriptor &descriptor) {
+  std::vector<const DynamicMeshUpdateDescriptor *> index;
+  index.reserve(descriptor.dynamic_mesh_updates.size());
+  for (const DynamicMeshUpdateDescriptor &update :
+       descriptor.dynamic_mesh_updates) {
+    index.push_back(&update);
+  }
+  std::sort(index.begin(), index.end(),
+            [](const DynamicMeshUpdateDescriptor *lhs,
+               const DynamicMeshUpdateDescriptor *rhs) {
+              return lhs->instance_id < rhs->instance_id;
+            });
+  return index;
+}
+
+const DynamicMeshUpdateDescriptor *FindDynamicMeshUpdate(
+    const std::vector<const DynamicMeshUpdateDescriptor *> &index,
+    std::uint64_t instance_id) noexcept {
+  const auto found = std::lower_bound(
+      index.begin(), index.end(), instance_id,
+      [](const DynamicMeshUpdateDescriptor *candidate, std::uint64_t id) {
+        return candidate->instance_id < id;
+      });
+  return found == index.end() || (*found)->instance_id != instance_id
+             ? nullptr
+             : *found;
+}
+
+} // namespace
+
 ValidationResult ValidateSceneSnapshotAssets(
     const SceneSnapshotDescriptor &descriptor,
     const RenderAssetRegistry &registry) {
@@ -1041,6 +1145,8 @@ ValidationResult ValidateSceneSnapshotAssets(
     }
   }
 
+  const std::vector<const DynamicMeshUpdateDescriptor *> update_index =
+      BuildDynamicMeshUpdateIndex(descriptor);
   for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
        ++index) {
     const MeshInstanceDescriptor &instance = descriptor.mesh_instances[index];
@@ -1059,16 +1165,9 @@ ValidationResult ValidateSceneSnapshotAssets(
       return validation;
     }
 
-    const auto update = std::find_if(
-        descriptor.dynamic_mesh_updates.begin(),
-        descriptor.dynamic_mesh_updates.end(),
-        [&instance](const DynamicMeshUpdateDescriptor &candidate) {
-          return candidate.instance_id == instance.instance_id;
-        });
-    const DynamicMeshUpdateDescriptor *update_ptr =
-        update == descriptor.dynamic_mesh_updates.end() ? nullptr : &*update;
     validation = Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
-        validated_assets, *mesh, instance, update_ptr);
+        validated_assets, *mesh, instance,
+        FindDynamicMeshUpdate(update_index, instance.instance_id));
     if (!validation) {
       validation.element_index = index;
       return validation;
@@ -1084,10 +1183,167 @@ ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
   return ValidateSceneSnapshotAssets(snapshot.descriptor_, registry);
 }
 
+ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshotDescriptor &descriptor,
+    const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids) {
+  if (descriptor.asset_registry_id != registry.registry_id()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "asset_registry_id",
+        "scene references a different renderer-neutral asset registry");
+  }
+  if (descriptor.asset_sequence != registry.sequence()) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "asset_sequence",
+        "scene requires a different asset registry sequence");
+  }
+
+  const ValidatedAssetCompatibilityAccess validated_assets;
+  const std::vector<const DynamicMeshUpdateDescriptor *> update_index =
+      BuildDynamicMeshUpdateIndex(descriptor);
+  std::uint64_t previous_identifier = 0U;
+  std::size_t instance_scan = 0U;
+  for (std::size_t index = 0U; index < instance_ids.size(); ++index) {
+    const std::uint64_t instance_id = instance_ids[index];
+    if (instance_id == 0U ||
+        (index != 0U && instance_id <= previous_identifier)) {
+      return ValidationResult::Failure(
+          instance_id == 0U ? ValidationCode::INVALID_IDENTIFIER
+                            : ValidationCode::SEQUENCE_MISMATCH,
+          "scoped_instances.instance_id",
+          "scoped instance identities must be nonzero and strictly increasing",
+          index);
+    }
+    previous_identifier = instance_id;
+    // mesh_instances is strictly increasing by identity, so one shared cursor
+    // resolves the whole sorted scope in a single pass.
+    while (instance_scan < descriptor.mesh_instances.size() &&
+           descriptor.mesh_instances[instance_scan].instance_id <
+               instance_id) {
+      ++instance_scan;
+    }
+    if (instance_scan >= descriptor.mesh_instances.size() ||
+        descriptor.mesh_instances[instance_scan].instance_id != instance_id) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "scoped_instances.instance_id",
+          "scoped instance identity is absent from this snapshot", index);
+    }
+    const MeshInstanceDescriptor &instance =
+        descriptor.mesh_instances[instance_scan];
+    const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+    const MaterialDescriptor *material =
+        registry.ResolveMaterial(instance.material);
+    if (mesh == nullptr || material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
+          "instance references a missing, stale, or tombstoned asset",
+          instance_scan);
+    }
+    ValidationResult validation =
+        Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+            validated_assets, *material, *mesh);
+    if (!validation) {
+      validation.element_index = instance_scan;
+      return validation;
+    }
+    validation = Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
+        validated_assets, *mesh, instance,
+        FindDynamicMeshUpdate(update_index, instance_id));
+    if (!validation) {
+      validation.element_index = instance_scan;
+      return validation;
+    }
+  }
+
+  return ValidationResult::Success();
+}
+
+ValidationResult ValidateSceneSnapshotAssetsScoped(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    const std::vector<std::uint64_t> &instance_ids) {
+  return ValidateSceneSnapshotAssetsScoped(snapshot.descriptor_, registry,
+                                           instance_ids);
+}
+
 SceneSnapshotCreateResult
 CreateSceneSnapshot(SceneSnapshotDescriptor descriptor) {
   SceneSnapshotCreateResult result;
   result.validation = ValidateSceneSnapshotDescriptor(descriptor);
+  if (!result.validation) {
+    return result;
+  }
+  result.snapshot = std::shared_ptr<const SceneSnapshot>(
+      new SceneSnapshot(std::move(descriptor)));
+  return result;
+}
+
+SceneSnapshotCreateResult CreateSceneSnapshotWithRetainedBlock(
+    SceneSnapshotDescriptor descriptor,
+    const std::shared_ptr<const SceneSnapshot> &previous,
+    const std::vector<std::uint32_t> &patched_indices) {
+  static_assert(std::is_trivially_copyable<MeshInstanceDescriptor>::value,
+                "byte-identity attestation requires a trivially copyable "
+                "instance descriptor");
+  SceneSnapshotCreateResult result;
+  if (previous == nullptr) {
+    result.validation = ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "retained_block.previous",
+        "a retained instance block requires the validated snapshot whose "
+        "bytes it claims");
+    return result;
+  }
+  const std::vector<MeshInstanceDescriptor> &prior =
+      previous->mesh_instances();
+  if (prior.size() != descriptor.mesh_instances.size()) {
+    result.validation = ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "retained_block.mesh_instances",
+        "a retained instance block must keep the previous instance count");
+    return result;
+  }
+
+  // Prove the claim before anything trusts it: every entry outside
+  // patched_indices must be byte-identical to the same position of an
+  // already-validated immutable snapshot. Nothing can therefore enter a
+  // snapshot without either fresh validation or byte-level proof.
+  std::uint32_t previous_patched = 0U;
+  std::size_t cursor = 0U;
+  const auto attest = [&](std::size_t begin, std::size_t end) {
+    return begin >= end ||
+           std::memcmp(prior.data() + begin,
+                       descriptor.mesh_instances.data() + begin,
+                       (end - begin) * sizeof(MeshInstanceDescriptor)) == 0;
+  };
+  for (std::size_t entry = 0U; entry < patched_indices.size(); ++entry) {
+    const std::uint32_t patched = patched_indices[entry];
+    if (static_cast<std::size_t>(patched) >=
+            descriptor.mesh_instances.size() ||
+        (entry != 0U && patched <= previous_patched)) {
+      result.validation = ValidationResult::Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "retained_block.patched_indices",
+          "patched instance indices must be in range and strictly increasing",
+          entry);
+      return result;
+    }
+    previous_patched = patched;
+    if (!attest(cursor, static_cast<std::size_t>(patched))) {
+      result.validation = ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH, "retained_block.attestation",
+          "retained instance entries are not byte-identical to the snapshot "
+          "they claim");
+      return result;
+    }
+    cursor = static_cast<std::size_t>(patched) + 1U;
+  }
+  if (!attest(cursor, prior.size())) {
+    result.validation = ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, "retained_block.attestation",
+        "retained instance entries are not byte-identical to the snapshot "
+        "they claim");
+    return result;
+  }
+
+  result.validation =
+      ValidateSceneSnapshotDescriptorInternal(descriptor, &patched_indices);
   if (!result.validation) {
     return result;
   }
