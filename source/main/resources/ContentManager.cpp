@@ -6830,10 +6830,10 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
                     reviewed_member)
             {
                 LOG(fmt::format(
-                    "[RoR|ContentManager|SelectedTextureSource] Ordinary "
-                    "stage refused for '{}' group='{}': OGRE offered no exact "
-                    "archive record and the reviewed member policy resolved "
-                    "no single member",
+                    "[RoR|ContentManager|SelectedTextureSource] "
+                    "Ordinary stage refused for '{}' group='{}': OGRE "
+                    "offered no exact archive record and the reviewed "
+                    "member policy resolved no single member",
                     name, group));
                 return Ogre::DataStreamPtr();
             }
