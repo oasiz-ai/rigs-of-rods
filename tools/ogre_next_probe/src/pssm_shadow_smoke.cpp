@@ -748,13 +748,16 @@ RenderOperationResult RunShadow(const std::string &media_root,
               result.audit.workspace_node_definition_creates == 10U &&
               result.audit.workspace_node_definition_creates ==
                   result.audit.workspace_node_definition_destroys &&
-              result.audit.receiver_datablock_creates == 10U &&
+              // The non-receiver clone now lives for its instance's
+              // retained lifetime: one create when the occluder instance is
+              // admitted, one destroy (plus absence proof) at shutdown.
+              result.audit.receiver_datablock_creates == 1U &&
               result.audit.receiver_datablock_creates ==
                   result.audit.receiver_datablock_destroys &&
               result.audit.workspace_definition_cleanup_absence_checks == 10U &&
               result.audit.workspace_node_cleanup_absence_checks == 10U &&
               result.audit.shadow_node_cleanup_absence_checks == 10U &&
-              result.audit.receiver_datablock_cleanup_absence_checks == 10U &&
+              result.audit.receiver_datablock_cleanup_absence_checks == 1U &&
               result.audit.target_texture_cleanup_absence_checks == 10U &&
               result.audit.last_frame.enabled &&
               result.audit.last_frame.static_caster_count == 2U &&
@@ -867,10 +870,6 @@ bool ProveCleanupLookupRetry(const std::string &media_root,
       frontend.QueryDirectionalShadowAudit();
   bool missing_expected_absence_proof = false;
   switch (stage) {
-  case OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP:
-    missing_expected_absence_proof =
-        failed_audit.receiver_datablock_cleanup_absence_checks == 0U;
-    break;
   case OgreNextN1PssmFailureStage::DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP:
     missing_expected_absence_proof =
         failed_audit.workspace_definition_cleanup_absence_checks == 0U;
@@ -907,10 +906,6 @@ bool ProveCleanupLookupRetry(const std::string &media_root,
       frontend.QueryDirectionalShadowAudit();
   bool recovered_absence_proven = false;
   switch (stage) {
-  case OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP:
-    recovered_absence_proven =
-        recovered_audit.receiver_datablock_cleanup_absence_checks == 1U;
-    break;
   case OgreNextN1PssmFailureStage::DURING_WORKSPACE_DEFINITION_CLEANUP_LOOKUP:
     recovered_absence_proven =
         recovered_audit.workspace_definition_cleanup_absence_checks == 1U;
@@ -939,6 +934,55 @@ bool ProveCleanupLookupRetry(const std::string &media_root,
               recovered_audit.receiver_datablock_creates ==
                   recovered_audit.receiver_datablock_destroys,
           "PSSM cleanup lookup retry leaked a named native resource");
+  return true;
+}
+
+// The PSSM non-receiver clone lives for its retained instance's lifetime, so
+// its cleanup absence lookup runs when the retained scene is torn down —
+// here at shutdown — instead of during a presented frame. The injected
+// lookup fault must fail that teardown closed, and the same frontend
+// instance must re-initialize, re-present, and prove the absence cleanly.
+bool ProveRetainedCloneCleanupLookupRetry(const std::string &media_root) {
+  OgreNextN1Configuration configuration{
+      media_root, OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1};
+  configuration.directional_shadow_mode =
+      OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+  configuration.retain_native_lighting_content_evidence = true;
+  configuration.pssm_failure_stage =
+      OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP;
+  OgreNextN1Frontend frontend(std::move(configuration));
+  RequireSuccess(InitializeAndSync(frontend),
+                 "retained-clone cleanup-lookup Initialize/sync");
+  const RenderFrameRequest request =
+      Frame(1U, Scene(351U, true), PixelFormat::RGBA8_SRGB);
+  RenderFrameOutput rendered;
+  RequireSuccess(frontend.Render(request, rendered),
+                 "retained-clone cleanup-lookup first Render");
+  const RenderOperationResult injected =
+      frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds);
+  Require(injected.code == RenderOperationCode::BACKEND_FAILURE,
+          "retained-clone teardown absence-lookup fault did not fail closed");
+  const OgreNextPssmShadowRuntimeAudit failed_audit =
+      frontend.QueryDirectionalShadowAudit();
+  Require(failed_audit.receiver_datablock_cleanup_absence_checks == 0U &&
+              failed_audit.receiver_datablock_creates == 1U &&
+              failed_audit.receiver_datablock_destroys == 1U &&
+              failed_audit.shadow_frames_completed == 1U,
+          "retained-clone teardown fault was incorrectly recorded as proven absent");
+  RequireSuccess(InitializeAndSync(frontend),
+                 "retained-clone same-instance reinitialize/sync");
+  RenderFrameOutput recovered;
+  RequireSuccess(frontend.Render(request, recovered),
+                 "retained-clone same-frame retry");
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "retained-clone retry Shutdown");
+  const OgreNextPssmShadowRuntimeAudit recovered_audit =
+      frontend.QueryDirectionalShadowAudit();
+  Require(recovered_audit.receiver_datablock_cleanup_absence_checks == 1U &&
+              recovered_audit.receiver_datablock_creates ==
+                  recovered_audit.receiver_datablock_destroys &&
+              recovered_audit.shadow_frames_completed == 2U,
+          "retained-clone cleanup retry leaked a named native resource");
   return true;
 }
 #endif
@@ -986,7 +1030,7 @@ std::string UnsupportedReport(
           "PSSM unsupported result was not exact native capability evidence");
   std::ostringstream report;
   report << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v4\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v5\",\n"
          << "  \"status\": \"unsupported\",\n"
          << "  \"execution\": {\"schema\": "
             "\"ror.ogre_next_pssm_shadow_execution_challenge.v1\", "
@@ -1065,7 +1109,7 @@ std::string PassReport(const SmokeResult &result,
       result.off_center_tight_bounds.occluder.size();
   std::ostringstream report;
   report << std::setprecision(9) << "{\n"
-         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v4\",\n"
+         << "  \"schema\": \"ror.ogre_next_pssm_shadow_smoke.v5\",\n"
          << "  \"status\": \"pass\",\n"
          << "  \"execution\": {\"schema\": "
             "\"ror.ogre_next_pssm_shadow_execution_challenge.v1\", "
@@ -1319,9 +1363,8 @@ int main(int argc, char **argv) {
     result.workspace_node_retry_verified = ProveTransactionalRetry(
         arguments.media_root,
         OgreNextN1PssmFailureStage::AFTER_WORKSPACE_NODE_DEFINITION);
-    result.receiver_cleanup_lookup_retry_verified = ProveCleanupLookupRetry(
-        arguments.media_root,
-        OgreNextN1PssmFailureStage::DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP);
+    result.receiver_cleanup_lookup_retry_verified =
+        ProveRetainedCloneCleanupLookupRetry(arguments.media_root);
     result.workspace_definition_cleanup_lookup_retry_verified =
         ProveCleanupLookupRetry(
             arguments.media_root,

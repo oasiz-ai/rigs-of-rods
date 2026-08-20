@@ -225,6 +225,35 @@ struct RendererNativeLightingAudit final {
   bool available = false;
 };
 
+/// Renderer-neutral copy of the combined frontend's retained-native-scene
+/// lifecycle evidence. `last_*` fields describe the most recent completed
+/// present; cumulative counters are monotonic for the frontend lifetime.
+struct RendererRetainedSceneAudit final {
+  std::uint32_t version = 0U;
+  std::uint64_t generation = 0U;
+  std::uint64_t frames_diffed = 0U;
+  std::uint64_t retained_instances = 0U;
+  std::uint64_t retained_lights = 0U;
+  std::uint64_t bounds_entries = 0U;
+  std::uint64_t created = 0U;
+  std::uint64_t updated = 0U;
+  std::uint64_t destroyed = 0U;
+  std::uint64_t dynamic_updates = 0U;
+  std::uint64_t verified = 0U;
+  std::uint64_t last_created = 0U;
+  std::uint64_t last_updated = 0U;
+  std::uint64_t last_destroyed = 0U;
+  std::uint64_t last_dynamic_updates = 0U;
+  std::uint64_t last_verified = 0U;
+  std::uint64_t verify_window = 0U;
+  std::uint64_t verify_cursor = 0U;
+  std::uint64_t recovery_teardowns = 0U;
+  std::uint64_t last_light_phase_microseconds = 0U;
+  std::uint64_t last_instance_phase_microseconds = 0U;
+  std::uint64_t last_cleanup_phase_microseconds = 0U;
+  bool available = false;
+};
+
 /// Renderer-neutral receipt for the actual product-owned Metal V2 dispatch.
 /// It is published only after the backend completed its same-device GPU work,
 /// continued the LitHdr presentation, and the reusable V2 contract validated.
@@ -312,6 +341,8 @@ public:
   [[nodiscard]] RendererAnalyticSkyAudit AnalyticSkyAudit() const noexcept;
   [[nodiscard]] RendererNativeLightingAudit
   NativeLightingAudit() const noexcept;
+  [[nodiscard]] RendererRetainedSceneAudit
+  RetainedSceneAudit() const noexcept;
   [[nodiscard]] RendererNativeSunVisibilityV2Audit
   NativeSunVisibilityV2Audit() const noexcept;
 

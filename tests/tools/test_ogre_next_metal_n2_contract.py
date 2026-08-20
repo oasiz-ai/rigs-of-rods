@@ -98,7 +98,14 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
         self.assertIn("READ_ONLY_ACCELERATION_STRUCTURE_BUILD", self.state)
         self.assertIn("render_mesh->vertex_buffer", self.frontend)
         self.assertIn("render_mesh->index_buffer", self.frontend)
-        self.assertIn("submitted_frame_meshes", self.frontend)
+        # Deformed meshes are owned by their retained instance records and
+        # retire through the interop frame-mesh list after the next
+        # published-frame discard.
+        self.assertIn("record.deformed_mesh", self.frontend)
+        self.assertIn(
+            "frame_meshes.push_back(std::move(record.deformed_mesh))",
+            self.frontend,
+        )
 
     def test_timeline_order_is_explicit_and_cpu_wait_follows_commit(self) -> None:
         self.assertLess(

@@ -905,6 +905,39 @@ bool DecomposeTrs(const Matrix4x4 &source, Ogre::Vector3 &position,
   return true;
 }
 
+/// Bit-exact retained-scene comparator. Every descriptor field participates:
+/// asset references embed revisions so content changes are visible here, and
+/// previous_render_from_object is compared even though the N1 raster path
+/// does not consume it natively — it is forwarded to the interop side and
+/// must not silently diverge. Float aggregates compare by bits (memcmp of
+/// each member, never the whole struct, to keep padding bytes out), so -0.0
+/// differs from 0.0 and a NaN equals only its own bit pattern.
+static_assert(kSceneSnapshotVersion == 6U,
+              "review SameMeshInstanceDescriptor whenever the snapshot "
+              "contract changes MeshInstanceDescriptor state");
+static_assert(sizeof(MeshInstanceDescriptor) == 248U,
+              "MeshInstanceDescriptor changed size; review the retained-scene "
+              "field-by-field comparator before accepting the new layout");
+bool SameMeshInstanceDescriptor(const MeshInstanceDescriptor &lhs,
+                                const MeshInstanceDescriptor &rhs) noexcept {
+  return lhs.instance_id == rhs.instance_id && lhs.mesh == rhs.mesh &&
+         lhs.material == rhs.material &&
+         lhs.topology_revision == rhs.topology_revision &&
+         lhs.deformation_revision == rhs.deformation_revision &&
+         std::memcmp(lhs.render_from_object.elements.data(),
+                     rhs.render_from_object.elements.data(),
+                     sizeof(lhs.render_from_object.elements)) == 0 &&
+         std::memcmp(lhs.previous_render_from_object.elements.data(),
+                     rhs.previous_render_from_object.elements.data(),
+                     sizeof(lhs.previous_render_from_object.elements)) == 0 &&
+         std::memcmp(&lhs.local_bounds.minimum, &rhs.local_bounds.minimum,
+                     sizeof(lhs.local_bounds.minimum)) == 0 &&
+         std::memcmp(&lhs.local_bounds.maximum, &rhs.local_bounds.maximum,
+                     sizeof(lhs.local_bounds.maximum)) == 0 &&
+         lhs.visibility_mask == rhs.visibility_mask &&
+         lhs.flags == rhs.flags;
+}
+
 RenderOperationResult ResolveShaderMediaRoot(const std::string &configured,
                                              std::string &resolved) {
   if (configured.empty() || configured.find('\0') != std::string::npos) {
@@ -2682,6 +2715,50 @@ public:
     }
   };
 
+  /// One retained native directional light. The descriptor is re-applied and
+  /// read back every present; the record exists so set changes and teardown
+  /// have exactly one owner per native Light/SceneNode pair.
+  struct RetainedLight final {
+    LightDescriptor descriptor;
+    Ogre::Light *light = nullptr;
+    Ogre::SceneNode *node = nullptr;
+  };
+
+  /// One retained native mesh instance keyed by instance_id. The record is
+  /// the single owner of every native allocation it names: the per-present
+  /// diff mutates records in place, and the failure path tears the whole map
+  /// down to the empty state so a half-applied diff is never observable.
+  struct RetainedInstance final {
+    /// Exact descriptor bytes this native state was built from.
+    MeshInstanceDescriptor descriptor;
+    Ogre::Item *item = nullptr;
+    Ogre::SceneNode *node = nullptr;
+    /// PSSM non-receiver clone, retained for the instance lifetime.
+    Ogre::HlmsPbsDatablock *receiver_clone = nullptr;
+    std::string receiver_clone_name;
+    /// Deformed native mesh owned while deformation_revision > 1.
+    NativeMesh deformed_mesh;
+    /// Item render queue before any thin-slab override.
+    std::uint8_t base_render_queue = 0U;
+    /// Cached audit contributions for O(changed) aggregate maintenance.
+    /// Shadow flags are stored plan-conditioned (PBS and plan enabled).
+    bool pbs = false;
+    bool transmission = false;
+    bool normal_mapped = false;
+    bool emissive = false;
+    bool casts_shadow = false;
+    bool receives_shadow = false;
+    bool dynamic_mesh = false;
+    std::uint32_t material_descriptor_version = 0U;
+    /// Retained PSSM evidence, refreshed on create, update, and native
+    /// re-verification.
+    OgreNextPssmNativeBoundsObservation bounds;
+    bool bounds_valid = false;
+    /// Present id of the last native mutation or verification of this
+    /// record, so one present never verifies the same state twice.
+    std::uint64_t verified_frame_id = 0U;
+  };
+
   struct NativeTexture {
     RenderAssetReference asset;
     NativeTextureUsage usage;
@@ -4165,6 +4242,209 @@ public:
       clean = DestroyMesh(native) && clean;
     }
     frame_meshes.clear();
+    return clean;
+  }
+
+  [[nodiscard]] bool DestroyRetainedLights() noexcept {
+    bool clean = true;
+    for (auto iterator = retained_lights.rbegin();
+         iterator != retained_lights.rend(); ++iterator) {
+      if (iterator->node != nullptr && iterator->light != nullptr) {
+        try {
+          iterator->node->detachObject(iterator->light);
+        } catch (...) {
+          clean = false;
+        }
+      }
+      if (iterator->light != nullptr) {
+        try {
+          scene_manager->destroyLight(iterator->light);
+        } catch (...) {
+          clean = false;
+        }
+        iterator->light = nullptr;
+      }
+      if (iterator->node != nullptr) {
+        try {
+          scene_manager->destroySceneNode(iterator->node);
+        } catch (...) {
+          clean = false;
+        }
+        iterator->node = nullptr;
+      }
+    }
+    retained_lights.clear();
+    retained_audit.retained_lights = 0U;
+    return clean;
+  }
+
+  void AddRetainedContribution(const RetainedInstance &record) noexcept {
+    retained_pbs_items += record.pbs ? 1U : 0U;
+    retained_transmission_items += record.transmission ? 1U : 0U;
+    retained_normal_mapped_items += record.normal_mapped ? 1U : 0U;
+    retained_emissive_items += record.emissive ? 1U : 0U;
+    retained_shadow_casters += record.casts_shadow ? 1U : 0U;
+    retained_shadow_receivers += record.receives_shadow ? 1U : 0U;
+  }
+
+  void SubtractRetainedContribution(const RetainedInstance &record) noexcept {
+    retained_pbs_items -= record.pbs ? 1U : 0U;
+    retained_transmission_items -= record.transmission ? 1U : 0U;
+    retained_normal_mapped_items -= record.normal_mapped ? 1U : 0U;
+    retained_emissive_items -= record.emissive ? 1U : 0U;
+    retained_shadow_casters -= record.casts_shadow ? 1U : 0U;
+    retained_shadow_receivers -= record.receives_shadow ? 1U : 0U;
+  }
+
+  void ResetRetainedContributions() noexcept {
+    retained_pbs_items = 0U;
+    retained_transmission_items = 0U;
+    retained_normal_mapped_items = 0U;
+    retained_emissive_items = 0U;
+    retained_shadow_casters = 0U;
+    retained_shadow_receivers = 0U;
+  }
+
+  /// Destroys a retained instance's PSSM non-receiver clone and proves its
+  /// native absence. The clone pointer is nulled before the fallible absence
+  /// lookup so a later full teardown never double-destroys the datablock.
+  [[nodiscard]] bool
+  DestroyRetainedReceiverClone(RetainedInstance &record) noexcept {
+    if (record.receiver_clone == nullptr) {
+      return true;
+    }
+    bool clean = true;
+    const Ogre::IdString clone_name(record.receiver_clone_name);
+    record.receiver_clone = nullptr;
+    record.receiver_clone_name.clear();
+    bool destroy_returned = false;
+    try {
+      pbs->destroyDatablock(clone_name);
+      ++shadow_audit.receiver_datablock_destroys;
+      destroy_returned = true;
+    } catch (...) {
+      clean = false;
+    }
+    try {
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+      MaybeInjectPssmFailureStage(
+          pssm_failure_stage, pssm_failure_pending,
+          OgreNextN1PssmFailureStage::
+              DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
+          "injected PSSM receiver-datablock cleanup absence-lookup failure");
+#endif
+      if (!destroy_returned || pbs->getDatablock(clone_name) != nullptr) {
+        clean = false;
+      } else {
+        ++shadow_audit.receiver_datablock_cleanup_absence_checks;
+      }
+    } catch (...) {
+      clean = false;
+    }
+    return clean;
+  }
+
+  /// Reverse-order native teardown of one retained instance: Item before
+  /// SceneNode before receiver clone before deformed mesh — a datablock must
+  /// never die while a live renderable links to it, and a mesh never while an
+  /// Item holds its MeshPtr. With native interop the deformed mesh is parked
+  /// on the retiring list and destroyed after the next published-frame
+  /// discard; without interop Ogre's VaoManager already defers the actual GPU
+  /// free by frame count.
+  [[nodiscard]] bool
+  DestroyRetainedInstanceNative(RetainedInstance &record) noexcept {
+    bool clean = true;
+    if (record.node != nullptr && record.item != nullptr) {
+      try {
+        record.node->detachObject(record.item);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (record.item != nullptr) {
+      try {
+        scene_manager->destroyItem(record.item);
+      } catch (...) {
+        clean = false;
+      }
+      record.item = nullptr;
+    }
+    if (record.node != nullptr) {
+      try {
+        scene_manager->destroySceneNode(record.node);
+      } catch (...) {
+        clean = false;
+      }
+      record.node = nullptr;
+    }
+    clean = DestroyRetainedReceiverClone(record) && clean;
+    if (record.deformed_mesh.mesh) {
+      if (native_interop) {
+        try {
+          frame_meshes.push_back(std::move(record.deformed_mesh));
+        } catch (...) {
+          clean = DestroyMesh(record.deformed_mesh) && clean;
+        }
+      } else {
+        clean = DestroyMesh(record.deformed_mesh) && clean;
+      }
+      record.deformed_mesh = NativeMesh{};
+    }
+    if (record.bounds_valid) {
+      record.bounds_valid = false;
+      if (retained_audit.bounds_entries != 0U) {
+        --retained_audit.bounds_entries;
+      }
+    }
+    return clean;
+  }
+
+  /// Destroys every retained instance whose mesh or material the candidate
+  /// catalog retires or replaces, so no datablock or mesh is ever destroyed
+  /// while a live Item still links to it. The next present's diff recreates
+  /// the instances from the new catalog.
+  [[nodiscard]] bool DestroyRetainedInstancesForAssetReplacement(
+      const std::map<RenderAssetId, NativeMesh> &candidate_meshes,
+      const std::map<RenderAssetId, NativeMaterial> &candidate_materials)
+      noexcept {
+    bool clean = true;
+    for (auto iterator = retained_instances.begin();
+         iterator != retained_instances.end();) {
+      const MeshInstanceDescriptor &descriptor = iterator->second.descriptor;
+      const auto mesh = candidate_meshes.find(descriptor.mesh.id);
+      const auto material = candidate_materials.find(descriptor.material.id);
+      if (mesh != candidate_meshes.end() &&
+          mesh->second.asset == descriptor.mesh &&
+          material != candidate_materials.end() &&
+          material->second.asset == descriptor.material) {
+        ++iterator;
+        continue;
+      }
+      clean = DestroyRetainedInstanceNative(iterator->second) && clean;
+      SubtractRetainedContribution(iterator->second);
+      ++retained_audit.destroyed;
+      iterator = retained_instances.erase(iterator);
+    }
+    retained_audit.retained_instances =
+        static_cast<std::uint64_t>(retained_instances.size());
+    return clean;
+  }
+
+  /// Tears the retained native scene down to the empty state. Used by the
+  /// present failure path, asset retirement, generation reset, and shutdown;
+  /// the next present rebuilds it from scratch at first-frame cost.
+  [[nodiscard]] bool DestroyRetainedScene() noexcept {
+    bool clean = true;
+    for (auto iterator = retained_instances.rbegin();
+         iterator != retained_instances.rend(); ++iterator) {
+      clean = DestroyRetainedInstanceNative(iterator->second) && clean;
+    }
+    retained_instances.clear();
+    retained_audit.retained_instances = 0U;
+    retained_audit.bounds_entries = 0U;
+    ResetRetainedContributions();
+    clean = DestroyRetainedLights() && clean;
+    clean = DestroyFrameMeshes() && clean;
     return clean;
   }
 
@@ -7495,6 +7775,9 @@ public:
     clean = DestroyBootstrapPresentationGraph() && clean;
     clean = DestroyRetainedOutputTarget() && clean;
     clean = DestroyHdrCompositor() && clean;
+    // Retained Items and receiver clones must die before the datablocks,
+    // textures, and meshes they link to.
+    clean = DestroyRetainedScene() && clean;
     clean = DestroyFrameMeshes() && clean;
     clean = DestroyCatalog() && clean;
     if (root && scene_manager != nullptr) {
@@ -7554,6 +7837,26 @@ public:
   std::map<RenderAssetId, NativeMaterial> materials;
   std::map<RenderAssetId, NativeTexture> textures;
   std::vector<NativeMesh> frame_meshes;
+  /// Retained native lights in snapshot order (strictly increasing light_id).
+  std::vector<RetainedLight> retained_lights;
+  /// Retained native scene keyed by instance_id, so the per-present diff is a
+  /// merge-join against the strictly increasing snapshot instance vector.
+  std::map<std::uint64_t, RetainedInstance> retained_instances;
+  /// Shadow-plan state the retained scene was built under. A flip forces a
+  /// full update pass instead of trusting bit-equal descriptors.
+  bool retained_scene_shadow_enabled = false;
+  /// Uniquifies deformed-mesh names across deferred retirement so a live
+  /// mesh name can never collide with one awaiting destruction.
+  std::uint64_t deformed_mesh_sequence = 0U;
+  // Live aggregate contributions of retained_instances, maintained
+  // O(changed) and cross-checked against the snapshot-derived shadow plan
+  // every present before they are published.
+  std::uint32_t retained_pbs_items = 0U;
+  std::uint32_t retained_transmission_items = 0U;
+  std::uint32_t retained_normal_mapped_items = 0U;
+  std::uint32_t retained_emissive_items = 0U;
+  std::uint32_t retained_shadow_casters = 0U;
+  std::uint32_t retained_shadow_receivers = 0U;
   /// N3/N4 retain their last HDR target until the native image publication
   /// is discarded, or until frontend shutdown first revokes every token.
   Ogre::TextureGpu *retained_output_target = nullptr;
@@ -7578,6 +7881,7 @@ public:
       OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2;
   OgreNextPssmShadowRuntimeAudit shadow_audit;
   OgreNextNativeLightingPassAudit lighting_audit;
+  OgreNextRetainedSceneAudit retained_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
@@ -7832,6 +8136,11 @@ OgreNextN1Frontend::QueryNativeLightingPassAudit() const noexcept {
 OgreNextN1PresentationAudit
 OgreNextN1Frontend::QueryPresentationAudit() const noexcept {
   return impl_->PresentationAudit();
+}
+
+OgreNextRetainedSceneAudit
+OgreNextN1Frontend::QueryRetainedSceneAudit() const noexcept {
+  return impl_->retained_audit;
 }
 
 OgreNextAnalyticSkyRuntimeAudit
@@ -8806,6 +9115,18 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
       impl_->faulted = true;
       return NativeTeardownFailure("Ogre-Next HUD overlay texture unbind");
     }
+    // Retained instances referencing an asset the retire loops below will
+    // destroy or replace must die first: a datablock or mesh must never be
+    // destroyed while a live Item still links to it. If a later rollback
+    // keeps the old assets live, the destroyed instances stay destroyed and
+    // the next present's diff recreates them against the old catalog.
+    if (!impl_->DestroyRetainedInstancesForAssetReplacement(
+            candidate_meshes, candidate_materials)) {
+      static_cast<void>(impl_->RollbackCandidateAllocations(
+          candidate_meshes, candidate_materials, candidate_textures));
+      impl_->faulted = true;
+      return NativeTeardownFailure("Ogre-Next retained scene asset unbind");
+    }
     bool retired_cleanly = true;
     for (auto &entry : impl_->materials) {
       const auto replacement = candidate_materials.find(entry.first);
@@ -8853,6 +9174,23 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
     impl_->materials.swap(candidate_materials);
     impl_->textures.swap(candidate_textures);
     impl_->registry.swap(candidate);
+    // Every surviving retained instance must resolve in the swapped catalog;
+    // anything else means the unbind step above missed a replacement.
+    for (const auto &entry : impl_->retained_instances) {
+      const MeshInstanceDescriptor &descriptor = entry.second.descriptor;
+      const auto mesh = impl_->meshes.find(descriptor.mesh.id);
+      const auto material = impl_->materials.find(descriptor.material.id);
+      if (mesh == impl_->meshes.end() ||
+          mesh->second.asset != descriptor.mesh ||
+          material == impl_->materials.end() ||
+          material->second.asset != descriptor.material) {
+        if (!impl_->DestroyRetainedScene()) {
+          impl_->faulted = true;
+        }
+        return NativeTeardownFailure(
+            "Ogre-Next retained scene catalog consistency");
+      }
+    }
     return RenderOperationResult::Success();
   } catch (const std::bad_alloc &) {
     if (impl_->faulted) {
@@ -8947,6 +9285,27 @@ OgreNextN1Frontend::ResetSceneGeneration(std::uint64_t next_generation) {
     }
     impl_->hdr_exact_current_to_old_copy_verified = false;
   }
+  // The dispatcher gates generation reset on a committed final empty scene,
+  // which empties the retained scene through the diff (rendered) or the
+  // asset-retirement unbind (retired without render). Anything still
+  // retained here is an anomaly: tear it down to empty rather than leak it
+  // into the next generation.
+  if (!impl_->retained_instances.empty() || !impl_->retained_lights.empty()) {
+    ++impl_->retained_audit.recovery_teardowns;
+    if (!impl_->DestroyRetainedScene()) {
+      impl_->faulted = true;
+      return NativeTeardownFailure(
+          "Ogre-Next retained scene generation reset");
+    }
+    impl_->shadow_audit.last_native_bounds_observations.clear();
+  }
+  impl_->retained_audit.generation = next_generation;
+  impl_->retained_audit.last_created = 0U;
+  impl_->retained_audit.last_updated = 0U;
+  impl_->retained_audit.last_destroyed = 0U;
+  impl_->retained_audit.last_dynamic_updates = 0U;
+  impl_->retained_audit.last_verified = 0U;
+  impl_->retained_audit.verify_cursor = 0U;
   impl_->scene_generation = next_generation;
   return RenderOperationResult::Success();
 }
@@ -9233,7 +9592,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
   bool hdr_native_frame_executed = false;
   bool hdr_commit_prepared = false;
   bool particle_frame_prepared = false;
-  std::vector<std::pair<Ogre::Item *, Ogre::SceneNode *>> items;
   std::vector<std::pair<Ogre::ManualObject *, Ogre::SceneNode *>>
       particle_batches;
   Impl::NativeAnalyticSkySection analytic_sky_background_section;
@@ -9266,13 +9624,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
   std::uint64_t particle_native_particles_submitted = 0U;
   std::uint64_t particle_native_state_verifications = 0U;
   std::vector<OgreNextReflectionProbeItemBinding> reflection_items;
-  std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>> lights;
-  struct ReceiverDatablock final {
-    Ogre::IdString name;
-  };
-  std::vector<ReceiverDatablock> receiver_datablocks;
+  // True once the retained native scene may have been mutated this present.
+  // Failures before this point return without touching retained state; any
+  // later failure tears the retained scene down to empty (§fail_after_cleanup)
+  // so a half-applied diff is never observable.
+  bool scene_mutation_started = false;
   std::vector<OgreNextPssmNativeBoundsObservation> native_bounds_observations;
-  std::vector<Impl::NativeMesh> submitted_frame_meshes;
   std::vector<OgreNextN2FrameGeometryBinding> interop_geometry;
   std::vector<OgreNextN3FrameImageBinding> interop_images;
   auto *sun_visibility_v2_interop =
@@ -9287,15 +9644,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
         RenderOperationCode::BACKEND_FAILURE,
         "sun-visibility V2 interop disappeared before frame preparation");
   }
-  const auto destroy_submitted_frame_meshes = [&]() noexcept {
-    bool clean = true;
-    for (Impl::NativeMesh &native : submitted_frame_meshes) {
-      clean = impl_->DestroyMesh(native) && clean;
-    }
-    submitted_frame_meshes.clear();
-    return clean;
-  };
-  const auto cleanup_scene = [&](bool destroy_frame_geometry) noexcept {
+  const auto cleanup_scene = [&]() noexcept {
     bool clean = true;
     if (impl_->hdr_directional_split_listener.active()) {
       clean = impl_->hdr_directional_split_listener.AbortFrame() && clean;
@@ -9608,87 +9957,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
       particle_datablock = nullptr;
       particle_datablock_name.clear();
     }
-    for (auto iterator = items.rbegin(); iterator != items.rend(); ++iterator) {
-      if (iterator->second != nullptr) {
-        try {
-          iterator->second->detachObject(iterator->first);
-        } catch (...) {
-          clean = false;
-        }
-      }
-      if (iterator->first != nullptr) {
-        try {
-          impl_->scene_manager->destroyItem(iterator->first);
-        } catch (...) {
-          clean = false;
-        }
-      }
-      if (iterator->second != nullptr) {
-        try {
-          impl_->scene_manager->destroySceneNode(iterator->second);
-        } catch (...) {
-          clean = false;
-        }
-      }
-    }
-    items.clear();
-    for (auto iterator = receiver_datablocks.rbegin();
-         iterator != receiver_datablocks.rend(); ++iterator) {
-      bool destroy_returned = false;
-      try {
-        impl_->pbs->destroyDatablock(iterator->name);
-        ++impl_->shadow_audit.receiver_datablock_destroys;
-        destroy_returned = true;
-      } catch (...) {
-        clean = false;
-      }
-      try {
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-        MaybeInjectPssmFailureStage(
-            impl_->pssm_failure_stage, impl_->pssm_failure_pending,
-            OgreNextN1PssmFailureStage::
-                DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
-            "injected PSSM receiver-datablock cleanup absence-lookup failure");
-#endif
-        if (!destroy_returned ||
-            impl_->pbs->getDatablock(iterator->name) != nullptr) {
-          clean = false;
-        } else {
-          ++impl_->shadow_audit.receiver_datablock_cleanup_absence_checks;
-        }
-      } catch (...) {
-        clean = false;
-      }
-    }
-    receiver_datablocks.clear();
-    for (auto iterator = lights.rbegin(); iterator != lights.rend();
-         ++iterator) {
-      if (iterator->second != nullptr && iterator->first != nullptr) {
-        try {
-          iterator->second->detachObject(iterator->first);
-        } catch (...) {
-          clean = false;
-        }
-      }
-      if (iterator->first != nullptr) {
-        try {
-          impl_->scene_manager->destroyLight(iterator->first);
-        } catch (...) {
-          clean = false;
-        }
-      }
-      if (iterator->second != nullptr) {
-        try {
-          impl_->scene_manager->destroySceneNode(iterator->second);
-        } catch (...) {
-          clean = false;
-        }
-      }
-    }
-    lights.clear();
-    if (destroy_frame_geometry) {
-      clean = destroy_submitted_frame_meshes() && clean;
-    }
     return clean;
   };
   const auto destroy_retained_target = [&]() noexcept {
@@ -9768,9 +10036,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
     clean = abort_hdr_commit() && clean;
     clean = abort_hdr_pssm_finalization() && clean;
     clean = abort_production_output() && clean;
-    clean = cleanup_scene(false) && clean;
+    clean = cleanup_scene() && clean;
+    if (scene_mutation_started) {
+      // A failed present must never leave a half-mutated retained scene:
+      // tear down to empty and let the next present rebuild from scratch.
+      // The retained PSSM evidence dies with the scene it observed.
+      ++impl_->retained_audit.recovery_teardowns;
+      clean = impl_->DestroyRetainedScene() && clean;
+      impl_->shadow_audit.last_native_bounds_observations.clear();
+    }
     clean = destroy_retained_target() && clean;
-    clean = destroy_submitted_frame_meshes() && clean;
     if (hdr_native_frame_executed) {
       impl_->faulted = true;
     }
@@ -9869,7 +10144,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->shadow_audit.native_projection_extents_verified = false;
       impl_->shadow_audit.native_readback_verified = false;
       impl_->shadow_audit.native_bounds_readback_verified = false;
-      impl_->shadow_audit.last_native_bounds_observations.clear();
+      // The committed observation set is not cleared here: it stays the
+      // evidence of the last completed shadow present until this present
+      // commits its own retained set, or a mutation failure tears the
+      // retained scene (and its evidence) down with it.
       impl_->scene_manager->setShadowFarDistance(kOgreNextPssmFarMeters);
       impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
           kOgreNextPssmFarMeters);
@@ -9916,14 +10194,51 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
 
-    lights.reserve(snapshot.lights().size());
+    // The retained light set is keyed by light_id; set changes (generation
+    // boundaries) destroy and recreate. Every present re-applies the full
+    // setter set and reads it back: the HDR directional split listener
+    // rewrites directional power inside the compositor each frame, so the
+    // retained light has the highest drift exposure in the scene.
+    const auto light_phase_start = std::chrono::steady_clock::now();
+    scene_mutation_started = true;
+    bool retained_light_set_matches =
+        impl_->retained_lights.size() == snapshot.lights().size();
+    for (std::size_t index = 0U;
+         retained_light_set_matches && index < snapshot.lights().size();
+         ++index) {
+      retained_light_set_matches =
+          impl_->retained_lights[index].descriptor.light_id ==
+          snapshot.lights()[index].light_id;
+    }
+    if (!retained_light_set_matches) {
+      if (!impl_->DestroyRetainedLights()) {
+        impl_->faulted = true;
+        return fail_after_cleanup(
+            NativeTeardownFailure("Ogre-Next retained light replacement"));
+      }
+      impl_->retained_lights.reserve(snapshot.lights().size());
+      for (const LightDescriptor &descriptor : snapshot.lights()) {
+        // Establish the ownership record before native allocation so a
+        // partial light set has exactly one teardown target.
+        impl_->retained_lights.emplace_back();
+        Impl::RetainedLight &record = impl_->retained_lights.back();
+        record.descriptor = descriptor;
+        record.light = impl_->scene_manager->createLight();
+        record.node =
+            impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
+        record.node->attachObject(record.light);
+      }
+      impl_->retained_audit.retained_lights =
+          static_cast<std::uint64_t>(impl_->retained_lights.size());
+    }
     bool positive_calibrated_directional_light = false;
-    for (const LightDescriptor &descriptor : snapshot.lights()) {
-      Ogre::Light *light = impl_->scene_manager->createLight();
-      lights.emplace_back(light, nullptr);
-      Ogre::SceneNode *node =
-          impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
-      lights.back().second = node;
+    for (std::size_t light_index = 0U;
+         light_index < snapshot.lights().size(); ++light_index) {
+      const LightDescriptor &descriptor = snapshot.lights()[light_index];
+      Impl::RetainedLight &retained_light =
+          impl_->retained_lights[light_index];
+      retained_light.descriptor = descriptor;
+      Ogre::Light *light = retained_light.light;
       light->setType(Ogre::Light::LT_DIRECTIONAL);
       if (persistent_hdr) {
         light->setVisibilityFlags(kOgreNextRt4AuthoredVisibilityMask);
@@ -9936,7 +10251,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                descriptor.color_linear.z);
       light->setPowerScale(
           descriptor.intensity * kOgreNextRt4LuxToNativePowerScale);
-      node->attachObject(light);
       light->setDirection(Ogre::Vector3(descriptor.direction.x,
                                         descriptor.direction.y,
                                         descriptor.direction.z));
@@ -9975,19 +10289,191 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     lighting_candidate.calibrated_directional_lighting =
         positive_calibrated_directional_light;
+    impl_->retained_audit.last_light_phase_microseconds =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - light_phase_start)
+                .count());
 
-    items.reserve(snapshot.mesh_instances().size());
+    const auto instance_phase_start = std::chrono::steady_clock::now();
     reflection_items.reserve(snapshot.mesh_instances().size());
-    if (shadow_plan.enabled) {
-      // Allocate tracking storage before any Ogre datablock is registered.
-      receiver_datablocks.reserve(snapshot.mesh_instances().size());
-      native_bounds_observations.reserve(snapshot.mesh_instances().size());
-    }
-    submitted_frame_meshes.reserve(snapshot.dynamic_mesh_updates().size());
     if (impl_->native_interop) {
       interop_geometry.reserve(snapshot.mesh_instances().size());
     }
-    for (const MeshInstanceDescriptor &instance : snapshot.mesh_instances()) {
+    std::uint64_t diff_created = 0U;
+    std::uint64_t diff_updated = 0U;
+    std::uint64_t diff_destroyed = 0U;
+    std::uint64_t diff_dynamic_updates = 0U;
+    std::uint64_t diff_verified = 0U;
+
+    const auto resolve_retained_render_mesh =
+        [&](const Impl::RetainedInstance &record)
+        -> const Impl::NativeMesh * {
+      if (record.descriptor.deformation_revision > 1U) {
+        return record.deformed_mesh.mesh ? &record.deformed_mesh : nullptr;
+      }
+      const auto mesh = impl_->meshes.find(record.descriptor.mesh.id);
+      return mesh != impl_->meshes.end() &&
+                     mesh->second.asset == record.descriptor.mesh
+                 ? &mesh->second
+                 : nullptr;
+    };
+
+    // Refreshes the retained PSSM bounds evidence for one instance from a
+    // fresh native readback of its node transform and Mesh/Item AABBs.
+    // Throws on any mismatch against the admitted descriptor.
+    const auto observe_instance_bounds =
+        [&](Impl::RetainedInstance &record,
+            const Impl::NativeMesh &render_mesh,
+            const Ogre::Matrix4 &reconstructed, bool casts_shadow,
+            bool receives_shadow) {
+      OgreNextN1NativeMeshBounds expected_bounds;
+      if (!TryBuildOgreNextN1NativeMeshBounds(
+              record.descriptor.local_bounds, expected_bounds)) {
+        throw std::logic_error(
+            "validated PSSM bounds became non-finite before native readback");
+      }
+      const Ogre::Aabb expected_local(
+          Ogre::Vector3(expected_bounds.center.x, expected_bounds.center.y,
+                        expected_bounds.center.z),
+          Ogre::Vector3(expected_bounds.half_size.x,
+                        expected_bounds.half_size.y,
+                        expected_bounds.half_size.z));
+      const Ogre::Matrix4 native_world_transform =
+          record.node->_getFullTransformUpdated();
+      const bool native_transform_matches =
+          NearlyEqualNativeTransform(reconstructed, native_world_transform);
+      Ogre::Aabb expected_world = expected_local;
+      expected_world.transformAffine(native_world_transform);
+      const Ogre::Aabb mesh_local = render_mesh.mesh->getAabb();
+      const Ogre::Aabb item_local = record.item->getLocalAabb();
+      const Ogre::Aabb item_world = record.item->getWorldAabbUpdated();
+      const bool item_world_matches =
+          NearlyEqualNativeTransformedAabb(expected_world, item_world);
+      if (!native_transform_matches ||
+          !NearlyEqual(mesh_local, expected_local) ||
+          !NearlyEqual(item_local, expected_local) ||
+          !item_world_matches) {
+        std::ostringstream detail;
+        detail << "Ogre-Next PSSM AABB failed native readback for instance "
+               << record.descriptor.instance_id << " (node-world-transform="
+               << native_transform_matches << ", mesh-local="
+               << NearlyEqual(mesh_local, expected_local)
+               << ", item-local="
+               << NearlyEqual(item_local, expected_local)
+               << ", item-world="
+               << item_world_matches
+               << ", expected-world-center=" << expected_world.mCenter.x
+               << ',' << expected_world.mCenter.y << ','
+               << expected_world.mCenter.z << ", observed-world-center="
+               << item_world.mCenter.x << ',' << item_world.mCenter.y << ','
+               << item_world.mCenter.z << ", expected-world-half="
+               << expected_world.mHalfSize.x << ','
+               << expected_world.mHalfSize.y << ','
+               << expected_world.mHalfSize.z << ", observed-world-half="
+               << item_world.mHalfSize.x << ',' << item_world.mHalfSize.y
+               << ',' << item_world.mHalfSize.z << ')';
+        throw std::runtime_error(detail.str());
+      }
+      OgreNextPssmNativeBoundsObservation observation;
+      observation.instance_id = record.descriptor.instance_id;
+      observation.casts_shadow = casts_shadow;
+      observation.receives_shadow = receives_shadow;
+      observation.expected_local = ObserveNativeAabb(expected_local);
+      observation.ogre_mesh_local = ObserveNativeAabb(mesh_local);
+      observation.ogre_item_local = ObserveNativeAabb(item_local);
+      observation.expected_world = ObserveNativeAabb(expected_world);
+      observation.ogre_item_world = ObserveNativeAabb(item_world);
+      record.bounds = observation;
+      if (!record.bounds_valid) {
+        record.bounds_valid = true;
+        ++impl_->retained_audit.bounds_entries;
+      }
+      ++impl_->shadow_audit.bounds_observations_refreshed;
+    };
+
+    // Cloned non-receiver datablocks must stay inside the same reviewed
+    // RoR PBS shader domain as their source. The custom UV0 affine piece
+    // is deliberately selected by this reserved prefix in both the
+    // normal and shadow-caster hashes; dropping it here would change the
+    // authored texture coordinates on every non-receiver. The clone lives
+    // for the instance lifetime, so its name carries the instance id and
+    // no frame id.
+    const auto create_receiver_clone =
+        [&](Impl::RetainedInstance &record,
+            Ogre::HlmsPbsDatablock *pbs_datablock) {
+      const std::string receiver_name =
+          std::string(kOgreNextUvAffinePbsDatablockPrefix) +
+          "PssmNonReceiver_i" +
+          std::to_string(record.descriptor.instance_id);
+      Ogre::HlmsDatablock *cloned = nullptr;
+      bool creation_counted = false;
+      bool tracked = false;
+      try {
+        cloned = pbs_datablock->clone(receiver_name);
+        ++impl_->shadow_audit.receiver_datablock_creates;
+        creation_counted = true;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+        if (impl_->pssm_failure_pending &&
+            impl_->pssm_failure_stage ==
+                OgreNextN1PssmFailureStage::
+                    AFTER_RECEIVER_DATABLOCK_CLONE) {
+          impl_->pssm_failure_pending = false;
+          throw std::runtime_error(
+              "injected PSSM receiver datablock rollback failure");
+        }
+#endif
+        Ogre::HlmsPbsDatablock *receiver_datablock =
+            dynamic_cast<Ogre::HlmsPbsDatablock *>(cloned);
+        if (receiver_datablock == nullptr) {
+          throw std::runtime_error(
+              "Ogre-Next PSSM receiver clone changed HLMS type");
+        }
+        record.receiver_clone = receiver_datablock;
+        record.receiver_clone_name = receiver_name;
+        tracked = true;
+      } catch (...) {
+        const std::exception_ptr failure = std::current_exception();
+        try {
+          Ogre::HlmsDatablock *orphan =
+              cloned != nullptr
+                  ? cloned
+                  : impl_->pbs->getDatablock(Ogre::IdString(receiver_name));
+          if (!tracked && orphan != nullptr) {
+            if (!creation_counted) {
+              ++impl_->shadow_audit.receiver_datablock_creates;
+            }
+            const Ogre::IdString orphan_name = orphan->getName();
+            impl_->pbs->destroyDatablock(orphan_name);
+            ++impl_->shadow_audit.receiver_datablock_destroys;
+#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
+            MaybeInjectPssmFailureStage(
+                impl_->pssm_failure_stage, impl_->pssm_failure_pending,
+                OgreNextN1PssmFailureStage::
+                    DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
+                "injected PSSM receiver rollback absence-lookup failure");
+#endif
+            if (impl_->pbs->getDatablock(orphan_name) != nullptr) {
+              throw std::runtime_error(
+                  "Ogre-Next PSSM receiver rollback retained its datablock");
+            }
+            ++impl_->shadow_audit.receiver_datablock_cleanup_absence_checks;
+          }
+        } catch (...) {
+          throw std::runtime_error(
+              "Ogre-Next PSSM receiver datablock transactional rollback failed");
+        }
+        std::rethrow_exception(failure);
+      }
+      record.receiver_clone->setReceiveShadows(false);
+    };
+
+    // Builds the complete native state for one admitted instance. The record
+    // exists in retained_instances before the first native allocation so a
+    // mid-create failure has exactly one teardown target; readback
+    // verification is centralized in the per-present verification pass.
+    const auto create_retained_instance =
+        [&](const MeshInstanceDescriptor &instance) -> RenderOperationResult {
       const auto mesh = impl_->meshes.find(instance.mesh.id);
       const auto material = impl_->materials.find(instance.material.id);
       const MeshResourceDescriptor *base_mesh =
@@ -9996,10 +10482,19 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->registry->ResolveMaterial(instance.material);
       if (mesh == impl_->meshes.end() || material == impl_->materials.end() ||
           base_mesh == nullptr || portable_material == nullptr) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
+        return RenderOperationResult::Failure(
             RenderOperationCode::RESOURCE_STALE,
-            "N1 native asset allocation is missing for a validated scene"));
+            "N1 native asset allocation is missing for a validated scene");
       }
+      const auto inserted = impl_->retained_instances.emplace(
+          instance.instance_id, Impl::RetainedInstance{});
+      if (!inserted.second) {
+        throw std::logic_error(
+            "retained-scene diff scheduled a duplicate instance creation");
+      }
+      Impl::RetainedInstance &record = inserted.first->second;
+      record.descriptor = instance;
+      record.dynamic_mesh = base_mesh->dynamic;
       const Impl::NativeMesh *render_mesh = &mesh->second;
       if (instance.deformation_revision > 1U) {
         const auto update = std::find_if(
@@ -10008,12 +10503,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
             [&instance](const DynamicMeshUpdateDescriptor &candidate) {
               return candidate.instance_id == instance.instance_id;
             });
-        if (base_mesh == nullptr ||
-            update == snapshot.dynamic_mesh_updates().end() ||
+        if (update == snapshot.dynamic_mesh_updates().end() ||
             update->instance_id != instance.instance_id) {
-          return fail_after_cleanup(RenderOperationResult::Failure(
+          return RenderOperationResult::Failure(
               RenderOperationCode::RESOURCE_STALE,
-              "N2 could not resolve the validated full deformation update"));
+              "N2 could not resolve the validated full deformation update");
         }
         MeshResourceDescriptor deformed = *base_mesh;
         deformed.positions = update->positions;
@@ -10022,12 +10516,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
         deformed.velocities = update->velocities;
         deformed.local_bounds = update->updated_local_bounds;
         const std::string suffix =
-            "_f" + std::to_string(request.frame_id) + "_i" +
-            std::to_string(instance.instance_id) + "_d" +
-            std::to_string(instance.deformation_revision);
-        submitted_frame_meshes.push_back(
-            impl_->CreateMesh(instance.mesh, deformed, suffix));
-        render_mesh = &submitted_frame_meshes.back();
+            "_i" + std::to_string(instance.instance_id) + "_d" +
+            std::to_string(instance.deformation_revision) + "_q" +
+            std::to_string(++impl_->deformed_mesh_sequence);
+        record.deformed_mesh =
+            impl_->CreateMesh(instance.mesh, deformed, suffix);
+        render_mesh = &record.deformed_mesh;
       }
       Ogre::Vector3 position;
       Ogre::Vector3 scale;
@@ -10035,19 +10529,18 @@ RenderOperationResult OgreNextN1Frontend::Render(
       Ogre::Matrix4 reconstructed;
       if (!DecomposeTrs(instance.render_from_object, position, scale,
                         orientation, reconstructed)) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
+        return RenderOperationResult::Failure(
             RenderOperationCode::UNSUPPORTED,
-            "N1 transform did not survive exact Ogre TRS decomposition"));
+            "N1 transform did not survive exact Ogre TRS decomposition");
       }
       if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
-                                              FromOgreMatrix(reconstructed))) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
+                                             FromOgreMatrix(reconstructed))) {
+        return RenderOperationResult::Failure(
             RenderOperationCode::UNSUPPORTED,
-            "N1 reconstructed Ogre TRS can overflow native world bounds"));
+            "N1 reconstructed Ogre TRS can overflow native world bounds");
       }
-      Ogre::Item *item = impl_->scene_manager->createItem(
-          render_mesh->mesh, Ogre::SCENE_DYNAMIC);
-      items.emplace_back(item, nullptr);
+      record.item = impl_->scene_manager->createItem(render_mesh->mesh,
+                                                     Ogre::SCENE_DYNAMIC);
       const std::uint32_t authored_instance_visibility =
           instance.visibility_mask & native_authored_visibility_mask;
       const bool pbs_material =
@@ -10073,88 +10566,263 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       Ogre::HlmsDatablock *instance_datablock =
           material->second.Datablock();
-      Ogre::HlmsPbsDatablock *instance_pbs_datablock = pbs_datablock;
       const bool thin_slab_transmission =
           portable_material->transmission_mode ==
           MaterialTransmissionMode::THIN_PARALLEL_SLAB;
-      if (pbs_material && thin_slab_transmission) {
-        Ogre::Vector4 parameters = pbs_datablock->getUserValue(2U);
-        parameters.w = std::fabs(validated_view.clip_from_view.elements[5U]);
-        pbs_datablock->setUserValue(2U, parameters);
-      }
       if (pbs_material && shadow_plan.enabled && !receives_shadow) {
-        // Cloned non-receiver datablocks must stay inside the same reviewed
-        // RoR PBS shader domain as their source. The custom UV0 affine piece
-        // is deliberately selected by this reserved prefix in both the
-        // normal and shadow-caster hashes; dropping it here would change the
-        // authored texture coordinates on every non-receiver.
-        const std::string receiver_name =
-            std::string(kOgreNextUvAffinePbsDatablockPrefix) +
-            "PssmNonReceiver_f" + std::to_string(request.frame_id) + "_i" +
-            std::to_string(instance.instance_id);
-        Ogre::HlmsDatablock *cloned = nullptr;
-        bool creation_counted = false;
-        bool tracked = false;
-        try {
-          cloned = pbs_datablock->clone(receiver_name);
-          ++impl_->shadow_audit.receiver_datablock_creates;
-          creation_counted = true;
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-          if (impl_->pssm_failure_pending &&
-              impl_->pssm_failure_stage ==
-                  OgreNextN1PssmFailureStage::
-                      AFTER_RECEIVER_DATABLOCK_CLONE) {
-            impl_->pssm_failure_pending = false;
-            throw std::runtime_error(
-                "injected PSSM receiver datablock rollback failure");
-          }
-#endif
-          Ogre::HlmsPbsDatablock *receiver_datablock =
-              dynamic_cast<Ogre::HlmsPbsDatablock *>(cloned);
-          if (receiver_datablock == nullptr) {
-            throw std::runtime_error(
-                "Ogre-Next PSSM receiver clone changed HLMS type");
-          }
-          instance_datablock = receiver_datablock;
-          instance_pbs_datablock = receiver_datablock;
-          receiver_datablocks.push_back(
-              ReceiverDatablock{receiver_datablock->getName()});
-          tracked = true;
-        } catch (...) {
-          const std::exception_ptr failure = std::current_exception();
-          try {
-            Ogre::HlmsDatablock *orphan =
-                cloned != nullptr
-                    ? cloned
-                    : impl_->pbs->getDatablock(Ogre::IdString(receiver_name));
-            if (!tracked && orphan != nullptr) {
-              if (!creation_counted) {
-                ++impl_->shadow_audit.receiver_datablock_creates;
-              }
-              const Ogre::IdString orphan_name = orphan->getName();
-              impl_->pbs->destroyDatablock(orphan_name);
-              ++impl_->shadow_audit.receiver_datablock_destroys;
-#if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
-              MaybeInjectPssmFailureStage(
-                  impl_->pssm_failure_stage, impl_->pssm_failure_pending,
-                  OgreNextN1PssmFailureStage::
-                      DURING_RECEIVER_DATABLOCK_CLEANUP_LOOKUP,
-                  "injected PSSM receiver rollback absence-lookup failure");
-#endif
-              if (impl_->pbs->getDatablock(orphan_name) != nullptr) {
-                throw std::runtime_error(
-                    "Ogre-Next PSSM receiver rollback retained its datablock");
-              }
-              ++impl_->shadow_audit.receiver_datablock_cleanup_absence_checks;
-            }
-          } catch (...) {
-            throw std::runtime_error(
-                "Ogre-Next PSSM receiver datablock transactional rollback failed");
-          }
-          std::rethrow_exception(failure);
-        }
-        instance_pbs_datablock->setReceiveShadows(false);
+        create_receiver_clone(record, pbs_datablock);
+        instance_datablock = record.receiver_clone;
       }
+      record.item->setDatablock(instance_datablock);
+      record.base_render_queue = record.item->getRenderQueueGroup();
+      if (thin_slab_transmission) {
+        record.item->setRenderQueueGroup(kOgreNextThinSlabRenderQueue);
+      }
+      record.item->setVisibilityFlags(authored_instance_visibility);
+      const bool casts_shadow =
+          pbs_material && shadow_plan.enabled &&
+          MeshInstanceCastsShadowForLight(snapshot.lights().front(),
+                                          instance, *base_mesh);
+      record.item->setCastShadows(casts_shadow);
+      record.node = impl_->scene_manager
+                        ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
+                        ->createChildSceneNode(Ogre::SCENE_DYNAMIC);
+      record.node->setPosition(position);
+      record.node->setScale(scale);
+      record.node->setOrientation(orientation);
+      record.node->attachObject(record.item);
+      ++diff_created;
+      return RenderOperationResult::Success();
+    };
+
+    // Re-applies material, flag, visibility, and transform state to a
+    // retained instance whose descriptor changed without changing its mesh
+    // identity, topology, or deformation revision.
+    const auto update_retained_instance =
+        [&](Impl::RetainedInstance &record,
+            const MeshInstanceDescriptor &instance) -> RenderOperationResult {
+      const auto material = impl_->materials.find(instance.material.id);
+      const MeshResourceDescriptor *base_mesh =
+          impl_->registry->ResolveMesh(instance.mesh);
+      const MaterialDescriptor *portable_material =
+          impl_->registry->ResolveMaterial(instance.material);
+      if (material == impl_->materials.end() || base_mesh == nullptr ||
+          portable_material == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "N1 native asset allocation is missing for a validated scene");
+      }
+      // A clone is a copy of its source material's contents: when the
+      // instance moves to a different material reference, the retained clone
+      // must be recreated from the new source, not merely rebound.
+      const bool material_reference_changed =
+          record.descriptor.material != instance.material;
+      record.descriptor = instance;
+      record.dynamic_mesh = base_mesh->dynamic;
+      const bool pbs_material =
+          material->second.kind == Impl::NativeMaterial::Kind::PBS;
+      Ogre::HlmsPbsDatablock *pbs_datablock =
+          material->second.pbs_datablock;
+      Ogre::HlmsUnlitDatablock *unlit_datablock =
+          material->second.display_domain_unlit_datablock;
+      if ((pbs_material &&
+           (pbs_datablock == nullptr || unlit_datablock != nullptr)) ||
+          (!pbs_material &&
+           (pbs_datablock != nullptr || unlit_datablock == nullptr))) {
+        throw std::logic_error(
+            "Ogre-Next native material lifetime lost its exact HLMS type");
+      }
+      const bool receives_shadow =
+          (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
+      const bool authored_casts_shadow =
+          (instance.flags & MESH_INSTANCE_CASTS_SHADOW) != 0U;
+      if (!pbs_material && (receives_shadow || authored_casts_shadow)) {
+        throw std::logic_error(
+            "Ogre-Next display-domain Unlit reached submission with shadow flags");
+      }
+      const bool thin_slab_transmission =
+          portable_material->transmission_mode ==
+          MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+      const bool needs_receiver_clone =
+          pbs_material && shadow_plan.enabled && !receives_shadow;
+      if ((!needs_receiver_clone || material_reference_changed) &&
+          record.receiver_clone != nullptr &&
+          !impl_->DestroyRetainedReceiverClone(record)) {
+        throw std::runtime_error(
+            "Ogre-Next PSSM receiver clone retirement failed its native absence check");
+      }
+      if (needs_receiver_clone && record.receiver_clone == nullptr) {
+        create_receiver_clone(record, pbs_datablock);
+      }
+      Ogre::HlmsDatablock *instance_datablock =
+          record.receiver_clone != nullptr
+              ? static_cast<Ogre::HlmsDatablock *>(record.receiver_clone)
+              : material->second.Datablock();
+      if (record.receiver_clone != nullptr) {
+        record.receiver_clone->setReceiveShadows(false);
+      }
+      record.item->setDatablock(instance_datablock);
+      record.item->setRenderQueueGroup(
+          thin_slab_transmission ? kOgreNextThinSlabRenderQueue
+                                 : record.base_render_queue);
+      record.item->setVisibilityFlags(instance.visibility_mask &
+                                      native_authored_visibility_mask);
+      const bool casts_shadow =
+          pbs_material && shadow_plan.enabled &&
+          MeshInstanceCastsShadowForLight(snapshot.lights().front(),
+                                          instance, *base_mesh);
+      record.item->setCastShadows(casts_shadow);
+      Ogre::Vector3 position;
+      Ogre::Vector3 scale;
+      Ogre::Quaternion orientation;
+      Ogre::Matrix4 reconstructed;
+      if (!DecomposeTrs(instance.render_from_object, position, scale,
+                        orientation, reconstructed)) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 transform did not survive exact Ogre TRS decomposition");
+      }
+      if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
+                                             FromOgreMatrix(reconstructed))) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 reconstructed Ogre TRS can overflow native world bounds");
+      }
+      record.node->setPosition(position);
+      record.node->setScale(scale);
+      record.node->setOrientation(orientation);
+      return RenderOperationResult::Success();
+    };
+
+    // Deformable content changed: Items cannot rebind meshes, so the item is
+    // recreated against a freshly uploaded deformed mesh while the retained
+    // SceneNode, receiver clone, and record identity survive. The prior
+    // deformed mesh retires through the interop frame-mesh list (destroyed
+    // after the next published-frame discard); on the immediate path Ogre's
+    // VaoManager already defers the actual GPU free by frame count.
+    const auto rebuild_deformed_instance =
+        [&](Impl::RetainedInstance &record,
+            const MeshInstanceDescriptor &instance) -> RenderOperationResult {
+      const MeshResourceDescriptor *base_mesh =
+          impl_->registry->ResolveMesh(instance.mesh);
+      if (base_mesh == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "N1 native asset allocation is missing for a validated scene");
+      }
+      if (record.item != nullptr) {
+        record.node->detachObject(record.item);
+        impl_->scene_manager->destroyItem(record.item);
+        record.item = nullptr;
+      }
+      if (record.deformed_mesh.mesh) {
+        if (impl_->native_interop) {
+          impl_->frame_meshes.push_back(std::move(record.deformed_mesh));
+        } else if (!impl_->DestroyMesh(record.deformed_mesh)) {
+          throw std::runtime_error(
+              "Ogre-Next retained deformed-mesh retirement failed");
+        }
+        record.deformed_mesh = Impl::NativeMesh{};
+      }
+      // Snapshots may back frames in any order, so a revision transition
+      // back to one legitimately restores the undeformed catalog mesh.
+      const Impl::NativeMesh *render_mesh = nullptr;
+      if (instance.deformation_revision > 1U) {
+        const auto update = std::find_if(
+            snapshot.dynamic_mesh_updates().begin(),
+            snapshot.dynamic_mesh_updates().end(),
+            [&instance](const DynamicMeshUpdateDescriptor &candidate) {
+              return candidate.instance_id == instance.instance_id;
+            });
+        if (update == snapshot.dynamic_mesh_updates().end() ||
+            update->instance_id != instance.instance_id) {
+          return RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N2 could not resolve the validated full deformation update");
+        }
+        MeshResourceDescriptor deformed = *base_mesh;
+        deformed.positions = update->positions;
+        deformed.normals = update->normals;
+        deformed.tangents = update->tangents;
+        deformed.velocities = update->velocities;
+        deformed.local_bounds = update->updated_local_bounds;
+        const std::string suffix =
+            "_i" + std::to_string(instance.instance_id) + "_d" +
+            std::to_string(instance.deformation_revision) + "_q" +
+            std::to_string(++impl_->deformed_mesh_sequence);
+        record.deformed_mesh =
+            impl_->CreateMesh(instance.mesh, deformed, suffix);
+        render_mesh = &record.deformed_mesh;
+      } else {
+        const auto mesh = impl_->meshes.find(instance.mesh.id);
+        if (mesh == impl_->meshes.end() ||
+            mesh->second.asset != instance.mesh) {
+          return RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N1 native asset allocation is missing for a validated scene");
+        }
+        render_mesh = &mesh->second;
+      }
+      record.item = impl_->scene_manager->createItem(render_mesh->mesh,
+                                                     Ogre::SCENE_DYNAMIC);
+      record.node->attachObject(record.item);
+      ++diff_dynamic_updates;
+      return RenderOperationResult::Success();
+    };
+
+    // Full native verification of one retained instance: exactly the
+    // creation readbacks. Runs for every created and updated instance in
+    // the present that changed it, and for untouched instances on the
+    // rotating window schedule. Any mismatch fails the present closed.
+    const auto verify_retained_instance =
+        [&](Impl::RetainedInstance &record) -> RenderOperationResult {
+      const MeshInstanceDescriptor &instance = record.descriptor;
+      const auto material = impl_->materials.find(instance.material.id);
+      const MeshResourceDescriptor *base_mesh =
+          impl_->registry->ResolveMesh(instance.mesh);
+      const MaterialDescriptor *portable_material =
+          impl_->registry->ResolveMaterial(instance.material);
+      const Impl::NativeMesh *render_mesh =
+          resolve_retained_render_mesh(record);
+      if (material == impl_->materials.end() ||
+          material->second.asset != instance.material ||
+          base_mesh == nullptr || portable_material == nullptr ||
+          render_mesh == nullptr) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "N1 retained instance lost its synchronized native assets");
+      }
+      const bool pbs_material =
+          material->second.kind == Impl::NativeMaterial::Kind::PBS;
+      Ogre::HlmsPbsDatablock *pbs_datablock =
+          material->second.pbs_datablock;
+      Ogre::HlmsUnlitDatablock *unlit_datablock =
+          material->second.display_domain_unlit_datablock;
+      if ((pbs_material &&
+           (pbs_datablock == nullptr || unlit_datablock != nullptr)) ||
+          (!pbs_material &&
+           (pbs_datablock != nullptr || unlit_datablock == nullptr))) {
+        throw std::logic_error(
+            "Ogre-Next native material lifetime lost its exact HLMS type");
+      }
+      const bool receives_shadow =
+          (instance.flags & MESH_INSTANCE_RECEIVES_SHADOW) != 0U;
+      const bool authored_casts_shadow =
+          (instance.flags & MESH_INSTANCE_CASTS_SHADOW) != 0U;
+      if (!pbs_material && (receives_shadow || authored_casts_shadow)) {
+        throw std::logic_error(
+            "Ogre-Next display-domain Unlit reached submission with shadow flags");
+      }
+      const bool thin_slab_transmission =
+          portable_material->transmission_mode ==
+          MaterialTransmissionMode::THIN_PARALLEL_SLAB;
+      Ogre::HlmsDatablock *instance_datablock =
+          record.receiver_clone != nullptr
+              ? static_cast<Ogre::HlmsDatablock *>(record.receiver_clone)
+              : material->second.Datablock();
+      Ogre::HlmsPbsDatablock *instance_pbs_datablock =
+          record.receiver_clone != nullptr ? record.receiver_clone
+                                           : pbs_datablock;
       if (pbs_material && shadow_plan.enabled &&
           (instance_pbs_datablock->getReceiveShadows() != receives_shadow ||
            pbs_datablock->mShadowConstantBias !=
@@ -10165,136 +10833,283 @@ RenderOperationResult OgreNextN1Frontend::Render(
       if (pbs_material) {
         VerifyPbsMapping(*instance_pbs_datablock, *portable_material);
       }
-      item->setDatablock(instance_datablock);
-      const std::uint8_t original_render_queue = item->getRenderQueueGroup();
-      if (thin_slab_transmission) {
-        item->setRenderQueueGroup(kOgreNextThinSlabRenderQueue);
-      }
-      item->setVisibilityFlags(authored_instance_visibility);
+      const std::uint32_t authored_instance_visibility =
+          instance.visibility_mask & native_authored_visibility_mask;
       const bool casts_shadow =
           pbs_material && shadow_plan.enabled &&
-          MeshInstanceCastsShadowForLight(snapshot.lights().front(), instance,
-                                          *base_mesh);
-      item->setCastShadows(casts_shadow);
-      if (item->getCastShadows() != casts_shadow ||
-          item->getRenderQueueGroup() !=
+          MeshInstanceCastsShadowForLight(snapshot.lights().front(),
+                                          instance, *base_mesh);
+      if (record.item == nullptr || record.node == nullptr ||
+          record.item->getCastShadows() != casts_shadow ||
+          record.item->getRenderQueueGroup() !=
               (thin_slab_transmission ? kOgreNextThinSlabRenderQueue
-                                      : original_render_queue) ||
+                                      : record.base_render_queue) ||
           (!thin_slab_transmission &&
-           original_render_queue >= kOgreNextThinSlabRenderQueue) ||
-          item->getVisibilityFlags() != authored_instance_visibility ||
-          item->getNumSubItems() != 1U ||
-          item->getSubItem(0U)->getDatablock() != instance_datablock) {
+           record.base_render_queue >= kOgreNextThinSlabRenderQueue) ||
+          record.item->getVisibilityFlags() != authored_instance_visibility ||
+          record.item->getNumSubItems() != 1U ||
+          record.item->getSubItem(0U)->getDatablock() != instance_datablock) {
         throw std::runtime_error(
             "Ogre-Next PBS datablock, caster, or visibility state failed native readback");
       }
+      record.pbs = pbs_material;
+      record.transmission = pbs_material && thin_slab_transmission;
+      record.normal_mapped =
+          pbs_material && portable_material->normal_texture.texture.valid();
+      const Float3 &emissive = portable_material->emissive_factor;
+      record.emissive = pbs_material &&
+                        portable_material->emissive_strength > 0.0F &&
+                        (emissive.x > 0.0F || emissive.y > 0.0F ||
+                         emissive.z > 0.0F);
+      record.casts_shadow = casts_shadow;
+      record.receives_shadow =
+          pbs_material && shadow_plan.enabled && receives_shadow;
+      record.material_descriptor_version =
+          pbs_material ? portable_material->version : 0U;
       if (pbs_material) {
-        lighting_candidate.last_material_descriptor_version = std::max(
-            lighting_candidate.last_material_descriptor_version,
-            portable_material->version);
-        ++lighting_candidate.last_pbs_items;
-        if (thin_slab_transmission) {
-          ++lighting_candidate.last_transmission_items;
-        }
-        if (portable_material->normal_texture.texture.valid()) {
-          ++lighting_candidate.last_normal_mapped_items;
-        }
-        const Float3 &emissive = portable_material->emissive_factor;
-        if (portable_material->emissive_strength > 0.0F &&
-            (emissive.x > 0.0F || emissive.y > 0.0F ||
-             emissive.z > 0.0F)) {
-          ++lighting_candidate.last_emissive_items;
-        }
-        if (shadow_plan.enabled && casts_shadow) {
-          ++lighting_candidate.last_shadow_casters;
-        }
-        if (shadow_plan.enabled && receives_shadow) {
-          ++lighting_candidate.last_shadow_receivers;
-        }
         ++lighting_candidate.native_state_verifications;
       }
-      Ogre::SceneNode *node = impl_->scene_manager
-                                  ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
-                                  ->createChildSceneNode(Ogre::SCENE_DYNAMIC);
-      items.back().second = node;
-      node->setPosition(position);
-      node->setScale(scale);
-      node->setOrientation(orientation);
-      node->attachObject(item);
-      reflection_items.push_back(OgreNextReflectionProbeItemBinding{
-          reinterpret_cast<std::uintptr_t>(item),
-          authored_instance_visibility,
-          instance.flags, base_mesh->dynamic});
-
-      if (shadow_plan.enabled) {
-        OgreNextN1NativeMeshBounds expected_bounds;
-        if (!TryBuildOgreNextN1NativeMeshBounds(instance.local_bounds,
-                                                expected_bounds)) {
-          throw std::logic_error(
-              "validated PSSM bounds became non-finite before native readback");
-        }
-        const Ogre::Aabb expected_local(
-            Ogre::Vector3(expected_bounds.center.x, expected_bounds.center.y,
-                          expected_bounds.center.z),
-            Ogre::Vector3(expected_bounds.half_size.x,
-                          expected_bounds.half_size.y,
-                          expected_bounds.half_size.z));
-        const Ogre::Matrix4 native_world_transform =
-            node->_getFullTransformUpdated();
-        const bool native_transform_matches =
-            NearlyEqualNativeTransform(reconstructed, native_world_transform);
-        Ogre::Aabb expected_world = expected_local;
-        expected_world.transformAffine(native_world_transform);
-        const Ogre::Aabb mesh_local = render_mesh->mesh->getAabb();
-        const Ogre::Aabb item_local = item->getLocalAabb();
-        const Ogre::Aabb item_world = item->getWorldAabbUpdated();
-        const bool item_world_matches =
-            NearlyEqualNativeTransformedAabb(expected_world, item_world);
-        if (!native_transform_matches ||
-            !NearlyEqual(mesh_local, expected_local) ||
-            !NearlyEqual(item_local, expected_local) ||
-            !item_world_matches) {
-          std::ostringstream detail;
-          detail << "Ogre-Next PSSM AABB failed native readback for instance "
-                 << instance.instance_id << " (node-world-transform="
-                 << native_transform_matches << ", mesh-local="
-                 << NearlyEqual(mesh_local, expected_local)
-                 << ", item-local="
-                 << NearlyEqual(item_local, expected_local)
-                 << ", item-world="
-                 << item_world_matches
-                 << ", expected-world-center=" << expected_world.mCenter.x
-                 << ',' << expected_world.mCenter.y << ','
-                 << expected_world.mCenter.z << ", observed-world-center="
-                 << item_world.mCenter.x << ',' << item_world.mCenter.y << ','
-                 << item_world.mCenter.z << ", expected-world-half="
-                 << expected_world.mHalfSize.x << ','
-                 << expected_world.mHalfSize.y << ','
-                 << expected_world.mHalfSize.z << ", observed-world-half="
-                 << item_world.mHalfSize.x << ',' << item_world.mHalfSize.y
-                 << ',' << item_world.mHalfSize.z << ')';
-          throw std::runtime_error(detail.str());
-        }
-        OgreNextPssmNativeBoundsObservation observation;
-        observation.instance_id = instance.instance_id;
-        observation.casts_shadow = casts_shadow;
-        observation.receives_shadow = receives_shadow;
-        observation.expected_local = ObserveNativeAabb(expected_local);
-        observation.ogre_mesh_local = ObserveNativeAabb(mesh_local);
-        observation.ogre_item_local = ObserveNativeAabb(item_local);
-        observation.expected_world = ObserveNativeAabb(expected_world);
-        observation.ogre_item_world = ObserveNativeAabb(item_world);
-        native_bounds_observations.push_back(observation);
+      Ogre::Vector3 position;
+      Ogre::Vector3 scale;
+      Ogre::Quaternion orientation;
+      Ogre::Matrix4 reconstructed;
+      if (!DecomposeTrs(instance.render_from_object, position, scale,
+                        orientation, reconstructed)) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::UNSUPPORTED,
+            "N1 transform did not survive exact Ogre TRS decomposition");
       }
+      if (shadow_plan.enabled) {
+        observe_instance_bounds(record, *render_mesh, reconstructed,
+                                casts_shadow, receives_shadow);
+      }
+      record.verified_frame_id = request.frame_id;
+      ++diff_verified;
+      return RenderOperationResult::Success();
+    };
 
+    // The thin-slab parameter block stores the projection's vertical scale,
+    // which is frame state shared per material rather than per instance:
+    // refresh every thin-slab PBS datablock once per present, before the
+    // diff so a receiver clone created this present inherits the fresh
+    // value. Retained clones are refreshed in the post-diff walk below.
+    for (const auto &material_entry : impl_->materials) {
+      if (material_entry.second.kind != Impl::NativeMaterial::Kind::PBS) {
+        continue;
+      }
+      const MaterialDescriptor *portable_material =
+          impl_->registry->ResolveMaterial(material_entry.second.asset);
+      if (portable_material == nullptr ||
+          portable_material->transmission_mode !=
+              MaterialTransmissionMode::THIN_PARALLEL_SLAB) {
+        continue;
+      }
+      Ogre::Vector4 parameters =
+          material_entry.second.pbs_datablock->getUserValue(2U);
+      parameters.w = std::fabs(validated_view.clip_from_view.elements[5U]);
+      material_entry.second.pbs_datablock->setUserValue(2U, parameters);
+    }
+
+    // Merge-join of the sorted snapshot instance vector against the retained
+    // map. A bit-identical descriptor — including a parked deformable whose
+    // deformation_revision did not advance — costs no native work.
+    const bool retained_shadow_state_changed =
+        impl_->retained_scene_shadow_enabled != shadow_plan.enabled;
+    std::vector<std::uint64_t> stale_instances;
+    std::vector<const MeshInstanceDescriptor *> incoming_instances;
+    std::vector<const MeshInstanceDescriptor *> deforming_instances;
+    std::vector<const MeshInstanceDescriptor *> changed_instances;
+    {
+      auto retained = impl_->retained_instances.begin();
+      for (const MeshInstanceDescriptor &instance :
+           snapshot.mesh_instances()) {
+        while (retained != impl_->retained_instances.end() &&
+               retained->first < instance.instance_id) {
+          stale_instances.push_back(retained->first);
+          ++retained;
+        }
+        if (retained == impl_->retained_instances.end() ||
+            retained->first > instance.instance_id) {
+          incoming_instances.push_back(&instance);
+          continue;
+        }
+        const MeshInstanceDescriptor &previous = retained->second.descriptor;
+        if (previous.mesh != instance.mesh ||
+            previous.topology_revision != instance.topology_revision) {
+          // An Item cannot rebind its mesh: mesh identity and topology
+          // changes go through destroy + create.
+          stale_instances.push_back(retained->first);
+          incoming_instances.push_back(&instance);
+        } else if (previous.deformation_revision !=
+                   instance.deformation_revision) {
+          deforming_instances.push_back(&instance);
+        } else if (retained_shadow_state_changed ||
+                   !SameMeshInstanceDescriptor(previous, instance)) {
+          changed_instances.push_back(&instance);
+        }
+        ++retained;
+      }
+      for (; retained != impl_->retained_instances.end(); ++retained) {
+        stale_instances.push_back(retained->first);
+      }
+    }
+    // Destroys run first: they free receiver-clone names and interop slots
+    // that the updates and creates below may reclaim.
+    for (const std::uint64_t stale_instance : stale_instances) {
+      const auto record = impl_->retained_instances.find(stale_instance);
+      if (record == impl_->retained_instances.end()) {
+        throw std::logic_error(
+            "retained-scene diff lost a scheduled instance retirement");
+      }
+      if (!impl_->DestroyRetainedInstanceNative(record->second)) {
+        throw std::runtime_error(
+            "Ogre-Next retained instance retirement failed its native absence check");
+      }
+      impl_->SubtractRetainedContribution(record->second);
+      impl_->retained_instances.erase(record);
+      ++diff_destroyed;
+    }
+    for (const MeshInstanceDescriptor *instance : deforming_instances) {
+      const auto record =
+          impl_->retained_instances.find(instance->instance_id);
+      if (record == impl_->retained_instances.end()) {
+        throw std::logic_error(
+            "retained-scene diff lost a scheduled deformation update");
+      }
+      impl_->SubtractRetainedContribution(record->second);
+      const RenderOperationResult rebuilt =
+          rebuild_deformed_instance(record->second, *instance);
+      if (!rebuilt) {
+        return fail_after_cleanup(rebuilt);
+      }
+      const RenderOperationResult updated =
+          update_retained_instance(record->second, *instance);
+      if (!updated) {
+        return fail_after_cleanup(updated);
+      }
+      const RenderOperationResult verified =
+          verify_retained_instance(record->second);
+      if (!verified) {
+        return fail_after_cleanup(verified);
+      }
+      impl_->AddRetainedContribution(record->second);
+    }
+    for (const MeshInstanceDescriptor *instance : changed_instances) {
+      const auto record =
+          impl_->retained_instances.find(instance->instance_id);
+      if (record == impl_->retained_instances.end()) {
+        throw std::logic_error(
+            "retained-scene diff lost a scheduled instance update");
+      }
+      impl_->SubtractRetainedContribution(record->second);
+      const RenderOperationResult updated =
+          update_retained_instance(record->second, *instance);
+      if (!updated) {
+        return fail_after_cleanup(updated);
+      }
+      const RenderOperationResult verified =
+          verify_retained_instance(record->second);
+      if (!verified) {
+        return fail_after_cleanup(verified);
+      }
+      impl_->AddRetainedContribution(record->second);
+      ++diff_updated;
+    }
+    for (const MeshInstanceDescriptor *instance : incoming_instances) {
+      const RenderOperationResult created =
+          create_retained_instance(*instance);
+      if (!created) {
+        return fail_after_cleanup(created);
+      }
+      const auto record =
+          impl_->retained_instances.find(instance->instance_id);
+      if (record == impl_->retained_instances.end()) {
+        throw std::logic_error(
+            "retained-scene diff lost a just-created instance");
+      }
+      const RenderOperationResult verified =
+          verify_retained_instance(record->second);
+      if (!verified) {
+        return fail_after_cleanup(verified);
+      }
+      impl_->AddRetainedContribution(record->second);
+    }
+    impl_->retained_scene_shadow_enabled = shadow_plan.enabled;
+    if (impl_->retained_instances.size() !=
+        snapshot.mesh_instances().size()) {
+      throw std::logic_error(
+          "retained native scene diverged from the admitted snapshot after its diff");
+    }
+    // Rotating fail-closed re-verification: retained native state is not
+    // provably immutable between presents (the HDR split listener rewrites
+    // directional power, reflection capture rewrites visibility flags, and
+    // Ogre itself is a large mutable engine), so up to
+    // kOgreNextRetainedVerifyWindow untouched instances are re-read from
+    // Ogre each present. Every retained instance is therefore re-verified
+    // at least once every ceil(N / window) presents.
+    if (!impl_->retained_instances.empty()) {
+      const std::size_t retained_total = impl_->retained_instances.size();
+      std::uint64_t window_budget = kOgreNextRetainedVerifyWindow;
+      auto window_cursor = impl_->retained_instances.upper_bound(
+          impl_->retained_audit.verify_cursor);
+      std::size_t window_visited = 0U;
+      while (window_budget != 0U && window_visited < retained_total) {
+        if (window_cursor == impl_->retained_instances.end()) {
+          window_cursor = impl_->retained_instances.begin();
+        }
+        Impl::RetainedInstance &record = window_cursor->second;
+        const std::uint64_t cursor_id = window_cursor->first;
+        ++window_visited;
+        ++window_cursor;
+        impl_->retained_audit.verify_cursor = cursor_id;
+        if (record.verified_frame_id == request.frame_id) {
+          // Created or updated this present: already verified above.
+          continue;
+        }
+        const RenderOperationResult verified =
+            verify_retained_instance(record);
+        if (!verified) {
+          return fail_after_cleanup(verified);
+        }
+        --window_budget;
+      }
+    }
+    // Rebuild the per-present views and publish the retained aggregates.
+    // This walk is CPU-only POD work: no native scene calls.
+    std::uint32_t retained_material_descriptor_version = 0U;
+    for (auto &entry : impl_->retained_instances) {
+      Impl::RetainedInstance &record = entry.second;
+      retained_material_descriptor_version =
+          std::max(retained_material_descriptor_version,
+                   record.material_descriptor_version);
+      if (record.receiver_clone != nullptr && record.transmission) {
+        Ogre::Vector4 clone_parameters =
+            record.receiver_clone->getUserValue(2U);
+        clone_parameters.w =
+            std::fabs(validated_view.clip_from_view.elements[5U]);
+        record.receiver_clone->setUserValue(2U, clone_parameters);
+      }
+      reflection_items.push_back(OgreNextReflectionProbeItemBinding{
+          reinterpret_cast<std::uintptr_t>(record.item),
+          record.descriptor.visibility_mask &
+              native_authored_visibility_mask,
+          record.descriptor.flags, record.dynamic_mesh});
       if (impl_->native_interop) {
+        const Impl::NativeMesh *render_mesh =
+            resolve_retained_render_mesh(record);
+        if (render_mesh == nullptr) {
+          return fail_after_cleanup(RenderOperationResult::Failure(
+              RenderOperationCode::RESOURCE_STALE,
+              "N1 retained instance lost its synchronized native mesh"));
+        }
         OgreNextN2FrameGeometryBinding binding;
         binding.frame_id = request.frame_id;
         binding.snapshot_id = snapshot.snapshot_id();
-        binding.instance_id = instance.instance_id;
-        binding.mesh = instance.mesh;
-        binding.topology_revision = instance.topology_revision;
-        binding.deformation_revision = instance.deformation_revision;
+        binding.instance_id = record.descriptor.instance_id;
+        binding.mesh = record.descriptor.mesh;
+        binding.topology_revision = record.descriptor.topology_revision;
+        binding.deformation_revision =
+            record.descriptor.deformation_revision;
         binding.native_storage_generation =
             render_mesh->native_storage_generation;
         binding.topology = MeshPrimitiveTopology::TRIANGLE_LIST;
@@ -10317,12 +11132,55 @@ RenderOperationResult OgreNextN1Frontend::Render(
         interop_geometry.push_back(binding);
       }
     }
-
-    if (shadow_plan.enabled && native_bounds_observations.size() !=
-                                   snapshot.mesh_instances().size()) {
+    lighting_candidate.last_material_descriptor_version =
+        retained_material_descriptor_version;
+    lighting_candidate.last_pbs_items = impl_->retained_pbs_items;
+    lighting_candidate.last_transmission_items =
+        impl_->retained_transmission_items;
+    lighting_candidate.last_normal_mapped_items =
+        impl_->retained_normal_mapped_items;
+    lighting_candidate.last_emissive_items = impl_->retained_emissive_items;
+    lighting_candidate.last_shadow_casters = impl_->retained_shadow_casters;
+    lighting_candidate.last_shadow_receivers =
+        impl_->retained_shadow_receivers;
+    // The retained aggregates must agree with the plan the policy recomputed
+    // from this snapshot alone. Non-PBS instances with shadow flags are
+    // rejected above, so the plan's counts and the PBS-only aggregates
+    // describe the same population.
+    if (shadow_plan.enabled &&
+        (impl_->retained_shadow_receivers != shadow_plan.receiver_count ||
+         impl_->retained_shadow_casters !=
+             shadow_plan.static_caster_count +
+                 shadow_plan.dynamic_caster_count)) {
       throw std::runtime_error(
-          "Ogre-Next PSSM native bounds observation set is incomplete");
+          "retained shadow aggregates diverged from the snapshot-derived PSSM plan");
     }
+    if (!shadow_plan.enabled &&
+        (impl_->retained_shadow_receivers != 0U ||
+         impl_->retained_shadow_casters != 0U)) {
+      throw std::runtime_error(
+          "retained shadow aggregates survived a disabled shadow plan");
+    }
+    // The committed bounds evidence stays a complete per-instance set: it is
+    // materialized from the retained records (sorted by instance_id, like
+    // the snapshot) into a frame-local vector here, and moved into the
+    // shadow audit only after every publication stage has prepared.
+    if (shadow_plan.enabled) {
+      if (impl_->retained_audit.bounds_entries !=
+          static_cast<std::uint64_t>(impl_->retained_instances.size())) {
+        throw std::runtime_error(
+            "Ogre-Next PSSM native bounds observation set is incomplete");
+      }
+      native_bounds_observations.reserve(impl_->retained_instances.size());
+      for (const auto &entry : impl_->retained_instances) {
+        native_bounds_observations.push_back(entry.second.bounds);
+      }
+    }
+    impl_->retained_audit.last_instance_phase_microseconds =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - instance_phase_start)
+                .count());
 
     impl_->camera->setNearClipDistance(view.near_plane);
     impl_->camera->setFarClipDistance(view.far_plane);
@@ -11203,7 +12061,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const std::size_t render_iterations =
         request.present || persistent_hdr ? 1U : 3U;
     if (persistent_hdr && !impl_->SingleSceneHdrPssmEnabled()) {
-      impl_->hdr_directional_split_listener.BeginFrame(lights);
+      std::vector<std::pair<Ogre::Light *, Ogre::SceneNode *>>
+          retained_light_pairs;
+      retained_light_pairs.reserve(impl_->retained_lights.size());
+      for (const Impl::RetainedLight &record : impl_->retained_lights) {
+        retained_light_pairs.emplace_back(record.light, record.node);
+      }
+      impl_->hdr_directional_split_listener.BeginFrame(retained_light_pairs);
     }
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
       if (persistent_hdr) {
@@ -11404,13 +12268,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
         sun_visibility_v2_commit_prepared = true;
       }
     }
-    // Keep only the N3/N4 target and its frame geometry alive across ordinary
-    // scene cleanup. Every fallible publication stage is now prepared, so a
+    // Ordinary end-of-present cleanup covers only per-present state: the
+    // analytic sky, the particle batch, and the non-persistent test-path
+    // graph. The retained instance/light scene survives into the next
+    // present. Every fallible publication stage is now prepared, so a
     // teardown failure can abort all pending transactions through one path.
-    if (!cleanup_scene(false)) {
+    const auto cleanup_phase_start = std::chrono::steady_clock::now();
+    if (!cleanup_scene()) {
       impl_->faulted = true;
       return fail_after_cleanup(FrameCleanupFailure());
     }
+    impl_->retained_audit.last_cleanup_phase_microseconds =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - cleanup_phase_start)
+                .count());
     if (analytic_sky_frame_completed) {
       const OgreNextAnalyticSkyRuntimeAudit &after =
           impl_->analytic_sky_audit;
@@ -11458,10 +12330,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
             RenderOperationCode::BACKEND_FAILURE,
             "N1 analytic-sky frame did not close its exact v2 resource ownership, metadata, and optional test-artifact content transaction"));
       }
-    }
-    if (!impl_->native_interop && !destroy_submitted_frame_meshes()) {
-      impl_->faulted = true;
-      return fail_after_cleanup(FrameCleanupFailure());
     }
     if (persistent_hdr && !deferred_sun_visibility_v2 &&
         (!hdr_commit_prepared ||
@@ -11526,7 +12394,6 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
       impl_->retained_output_target = retained_target;
       retained_target = nullptr;
-      impl_->frame_meshes.swap(submitted_frame_meshes);
     }
     if (persistent_hdr && !deferred_sun_visibility_v2) {
       impl_->hdr_temporal_state.CommitPrepared();
@@ -11691,6 +12558,28 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->presentation_audit.last_width = validated_view.width;
       impl_->presentation_audit.last_height = validated_view.height;
     }
+    // Commit this present's retained-scene lifecycle evidence. Failed
+    // presents never reach this point, so last_* always describes a
+    // completed diff against a coherent retained scene.
+    {
+      OgreNextRetainedSceneAudit &retained = impl_->retained_audit;
+      retained.generation = impl_->scene_generation;
+      ++retained.frames_diffed;
+      retained.last_created = diff_created;
+      retained.last_updated = diff_updated;
+      retained.last_destroyed = diff_destroyed;
+      retained.last_dynamic_updates = diff_dynamic_updates;
+      retained.last_verified = diff_verified;
+      retained.created += diff_created;
+      retained.updated += diff_updated;
+      retained.destroyed += diff_destroyed;
+      retained.dynamic_updates += diff_dynamic_updates;
+      retained.verified += diff_verified;
+      retained.retained_instances =
+          static_cast<std::uint64_t>(impl_->retained_instances.size());
+      retained.retained_lights =
+          static_cast<std::uint64_t>(impl_->retained_lights.size());
+    }
     output = std::move(candidate);
     // Ownership of this live token moved to the caller's attachment. The
     // frontend retires it only through ReleaseResource().
@@ -11708,6 +12597,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
   }
 }
 
+// State-only frame retirement performs no native scene work: the retained
+// scene may therefore be older than the last retired snapshot. Correctness
+// holds because the present-path diff always compares against retained
+// native state, never against snapshot lineage.
 RenderOperationResult
 OgreNextN1Frontend::RetireFrameState(const RenderFrameRequest &request) {
   if (!impl_->initialized) {

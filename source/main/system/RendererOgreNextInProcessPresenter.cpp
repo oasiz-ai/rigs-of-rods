@@ -798,6 +798,43 @@ public:
     return output;
   }
 
+  [[nodiscard]] RendererRetainedSceneAudit
+  RetainedSceneAudit() const noexcept {
+    RendererRetainedSceneAudit output;
+    if (native_frontend == nullptr) {
+      return output;
+    }
+    const OgreNextRetainedSceneAudit audit =
+        native_frontend->QueryRetainedSceneAudit();
+    output.version = audit.version;
+    output.generation = audit.generation;
+    output.frames_diffed = audit.frames_diffed;
+    output.retained_instances = audit.retained_instances;
+    output.retained_lights = audit.retained_lights;
+    output.bounds_entries = audit.bounds_entries;
+    output.created = audit.created;
+    output.updated = audit.updated;
+    output.destroyed = audit.destroyed;
+    output.dynamic_updates = audit.dynamic_updates;
+    output.verified = audit.verified;
+    output.last_created = audit.last_created;
+    output.last_updated = audit.last_updated;
+    output.last_destroyed = audit.last_destroyed;
+    output.last_dynamic_updates = audit.last_dynamic_updates;
+    output.last_verified = audit.last_verified;
+    output.verify_window = audit.verify_window;
+    output.verify_cursor = audit.verify_cursor;
+    output.recovery_teardowns = audit.recovery_teardowns;
+    output.last_light_phase_microseconds =
+        audit.last_light_phase_microseconds;
+    output.last_instance_phase_microseconds =
+        audit.last_instance_phase_microseconds;
+    output.last_cleanup_phase_microseconds =
+        audit.last_cleanup_phase_microseconds;
+    output.available = true;
+    return output;
+  }
+
   [[nodiscard]] RendererNativeSunVisibilityV2Audit
   NativeSunVisibilityAudit() const noexcept {
 #if defined(__APPLE__)
@@ -2150,6 +2187,11 @@ RendererOgreNextInProcessPresenter::AnalyticSkyAudit() const noexcept {
 RendererNativeLightingAudit
 RendererOgreNextInProcessPresenter::NativeLightingAudit() const noexcept {
   return impl_->NativeLightingAudit();
+}
+
+RendererRetainedSceneAudit
+RendererOgreNextInProcessPresenter::RetainedSceneAudit() const noexcept {
+  return impl_->RetainedSceneAudit();
 }
 
 RendererNativeSunVisibilityV2Audit
