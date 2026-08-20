@@ -48,6 +48,18 @@ namespace RoR {
 /// @addtogroup Gfx
 /// @{
 
+/// The per-frame republished state of one rigid actor section (a mesh-wheel
+/// rim or a prop mesh). Rigid geometry never deforms, so the state a
+/// deformable rebuilds every frame is constant here and is built once per
+/// immutable payload instead. The payload owner it was derived from is kept
+/// beside it: reuse requires that exact owner, so a rebuilt mesh can never be
+/// published carrying a state that describes the geometry it replaced.
+struct Ogre14RigidActorSectionState
+{
+    std::shared_ptr<const Render::RenderAssetPayload> payload;
+    std::shared_ptr<const Render::Ogre14GraphicsSceneJoinedDynamicState> state;
+};
+
 /// Provides a 3D graphical representation of the simulation
 /// Idea: simulation runs at it's own constant rate, scene updates and rendering run asynchronously.
 class GfxScene: public Render::IOgre14GraphicsSceneCaptureProvider
@@ -142,6 +154,12 @@ private:
     /// as the authenticated texture resolver and authority provider.
     Render::ValidationResult EnsureOgre14RoadMaterialCoordinator();
 
+    /// Diagnostics only: logs, once per actor spawn, how many named attached
+    /// OGRE Entities the actor owns versus how many the joined dynamic
+    /// capture enumerates. Reads the same owners the capture reads and
+    /// mutates none of them. Silent unless demo capture is enabled.
+    void ProbeOgre14ActorCaptureCoverage(RoR::GfxActor* gfx_actor);
+
     Render::ValidationResult CaptureOgre14DynamicActorInventory(
         Render::Ogre14GraphicsSceneDynamicIdentityRegistry& identity_registry,
         std::map<std::string,
@@ -190,6 +208,25 @@ private:
     // do not flood the log; the first accepted inventory and any promotion or
     // denominator/reason change are still emitted exactly once.
     std::string                        m_ogre_next_demo_material_coverage_log_snapshot;
+    // Last spawn-time capture-coverage line emitted per actor identity, so an
+    // unhide of an unchanged actor does not repeat itself. Bounded by the live
+    // actor count and released with the map generation.
+    std::map<std::int64_t, std::string> m_ogre14_actor_capture_coverage_log_snapshots;
+    // Frozen admission decision per rigid actor component (mesh-wheel rims,
+    // prop meshes), keyed actor/kind/component. A published section identity
+    // may never disappear and return, so admission is decided the first time a
+    // component is seen and is permanent for this producer lifetime.
+    std::map<std::string, bool, std::less<>>
+                                       m_ogre14_rigid_actor_capture_decisions;
+    // Constant per-frame state owners for admitted rigid sections. Rebuilding
+    // them every frame would copy the same bytes back for geometry that cannot
+    // change; the payload identity stored with each one keeps a stale state
+    // from surviving a mesh rebuild.
+    std::map<std::string, Ogre14RigidActorSectionState, std::less<>>
+                                       m_ogre14_rigid_actor_state_cache;
+    // Stable digest of the rigid-capture ledger, so identical frames do not
+    // flood the log and any new refusal is emitted exactly once.
+    std::string                        m_ogre14_rigid_actor_capture_log_snapshot;
     // Last committed policy-v1 sky descriptor telemetry. The candidate text
     // is staged with the joined capture and swapped only from Commit(), so a
     // rejected capture cannot advertise unpresented sky authority.
