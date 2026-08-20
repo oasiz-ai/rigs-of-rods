@@ -218,13 +218,23 @@ bool ResolveLiveArchiveManagerPointer(
 /// and only then may fall back to the explicit Zip basename rule. Ambiguity,
 /// an oversized index, or an absent member all resolve to false, which leaves
 /// the caller with no receipt exactly as a genuine absence does.
+///
+/// When reviewed_file_info is supplied it receives the selected archive's own
+/// index record for that member, so a caller which OGRE handed no record can
+/// still attribute the member it opens to the archive's exact metadata. That
+/// record must exist exactly once in the index or the resolution refuses.
 bool ResolveReviewedSelectedTextureSourceMember(
     const Ogre::Archive& selected_archive,
     bool recursive,
     const Ogre::String& name,
-    Ogre::String& reviewed_member)
+    Ogre::String& reviewed_member,
+    Ogre::FileInfo* reviewed_file_info = nullptr)
 {
     reviewed_member.clear();
+    if (reviewed_file_info != nullptr)
+    {
+        *reviewed_file_info = Ogre::FileInfo();
+    }
     const Ogre::FileInfoListPtr selected_index =
         const_cast<Ogre::Archive&>(selected_archive)
             .findFileInfo("*", recursive, false);
@@ -278,9 +288,29 @@ bool ResolveReviewedSelectedTextureSourceMember(
     if (!Render::SelectOgre14AuthenticatedTextureArchiveMember(
             archive_case_sensitive, allow_zip_basename_fallback,
             member_observations.data(), member_observations.size(),
-            selected_member))
+            selected_member) ||
+        selected_member.empty())
     {
         return false;
+    }
+    if (reviewed_file_info != nullptr)
+    {
+        const Ogre::FileInfo* selected_record = nullptr;
+        std::size_t selected_record_count = 0U;
+        for (const Ogre::FileInfo& indexed_file : *selected_index)
+        {
+            if (indexed_file.archive == &selected_archive &&
+                indexed_file.path + indexed_file.basename == selected_member)
+            {
+                selected_record = &indexed_file;
+                ++selected_record_count;
+            }
+        }
+        if (selected_record == nullptr || selected_record_count != 1U)
+        {
+            return false;
+        }
+        *reviewed_file_info = *selected_record;
     }
     reviewed_member.swap(selected_member);
     return !reviewed_member.empty();
@@ -6610,11 +6640,17 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
     handled = false;
     Ogre::TextureManager* texture_manager =
         Ogre::TextureManager::getSingletonPtr();
+    // A null exact_file_info is not fatal here. OGRE's pre-open seam resolves a
+    // record only when the archive spells the member exactly as the resource
+    // was declared, so a declaration differing only in case arrives with no
+    // record at all. That case is admitted below through the reviewed
+    // member-selection policy, which rebuilds the record from the selected
+    // archive's own index and refuses ambiguity and absence.
     if (resource == nullptr || texture_manager == nullptr ||
         resource->getCreator() != texture_manager ||
         texture_manager->getResourceType() != "Texture" ||
         resource->getName() != name || resource->getGroup() != group ||
-        selected_archive == nullptr || exact_file_info == nullptr)
+        selected_archive == nullptr)
     {
         return Ogre::DataStreamPtr();
     }
@@ -6740,6 +6776,10 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
     std::uint64_t uncompressed_size = 0U;
     std::uint64_t opened_stream_size = 0U;
     bool member_resolved_by_reviewed_selection = false;
+    // Owns the record when OGRE supplied none. Declared at function scope so
+    // effective_file_info stays valid through the final re-verification.
+    Ogre::FileInfo reviewed_file_info;
+    const Ogre::FileInfo* effective_file_info = exact_file_info;
     try
     {
         std::lock_guard<std::mutex> archive_lock(
@@ -6764,8 +6804,43 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
                 ++matching_location_count;
             }
         }
-        if (matching_location_count != 1U ||
-            exact_file_info->archive != selected_archive)
+        if (matching_location_count != 1U)
+        {
+            return Ogre::DataStreamPtr();
+        }
+        if (effective_file_info == nullptr)
+        {
+            // OGRE compares FileInfo path + basename against the requested
+            // resource name byte for byte before offering a record
+            // (OgreResourceGroupManager.cpp, exact-material-script-preopen).
+            // A material that declares 'alexissabergrillesspec.png' against
+            // the archive member 'AlexisSabergrillesspec.png' therefore
+            // reaches this callback with no record, even though the
+            // case-insensitive archive open that follows succeeds. Rebuild the
+            // record from the archive's own index through the reviewed
+            // member-selection policy: it demands one unambiguous member, so a
+            // genuinely absent texture and a case-only member collision both
+            // still leave this ordinary source without a receipt.
+            Ogre::String reviewed_member;
+            if (!ResolveReviewedSelectedTextureSourceMember(
+                    *selected_archive, selected_location_recursive, name,
+                    reviewed_member, &reviewed_file_info) ||
+                reviewed_member.empty() ||
+                reviewed_file_info.path + reviewed_file_info.basename !=
+                    reviewed_member)
+            {
+                LOG(fmt::format(
+                    "[RoR|ContentManager|SelectedTextureSource] Ordinary "
+                    "stage refused for '{}' group='{}': OGRE offered no exact "
+                    "archive record and the reviewed member policy resolved "
+                    "no single member",
+                    name, group));
+                return Ogre::DataStreamPtr();
+            }
+            effective_file_info = &reviewed_file_info;
+            member_resolved_by_reviewed_selection = true;
+        }
+        if (effective_file_info->archive != selected_archive)
         {
             return Ogre::DataStreamPtr();
         }
@@ -6779,14 +6854,14 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
         }
         selected_archive_name = live_archive_name;
         selected_archive_type = selected_archive->getType();
-        file_info_filename = exact_file_info->filename;
-        file_info_path = exact_file_info->path;
-        file_info_basename = exact_file_info->basename;
+        file_info_filename = effective_file_info->filename;
+        file_info_path = effective_file_info->path;
+        file_info_basename = effective_file_info->basename;
         exact_member = file_info_path + file_info_basename;
         compressed_size =
-            static_cast<std::uint64_t>(exact_file_info->compressedSize);
+            static_cast<std::uint64_t>(effective_file_info->compressedSize);
         uncompressed_size =
-            static_cast<std::uint64_t>(exact_file_info->uncompressedSize);
+            static_cast<std::uint64_t>(effective_file_info->uncompressedSize);
         if (selected_archive_name.empty() ||
             selected_archive_type.empty() || exact_member.empty() ||
             compressed_size == 0U ||
@@ -6799,7 +6874,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
         {
             return Ogre::DataStreamPtr();
         }
-        if (exact_member != name)
+        if (exact_member != name && !member_resolved_by_reviewed_selection)
         {
             // OGRE resolved this request through its case-insensitive archive
             // lookup, so the member it opened is spelled differently from the
@@ -6807,6 +6882,12 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             // member-selection policy resolves the identical member without
             // ambiguity; the receipt then names the member actually opened,
             // and a genuinely absent member still mints nothing.
+            //
+            // The pinned OGRE 14.5.2 pre-open seam never reaches this branch,
+            // because it withholds its record entirely when path + basename
+            // differs from the requested name; that case is admitted above
+            // instead. This clause stays as the same guarantee for a record
+            // OGRE offers under a looser future match rule.
             Ogre::String reviewed_member;
             if (!ResolveReviewedSelectedTextureSourceMember(
                     *selected_archive, selected_location_recursive, name,
@@ -6944,14 +7025,20 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             !m_selected_texture_sources.initialized() ||
             selected_archive->getName() != selected_archive_name ||
             selected_archive->getType() != selected_archive_type ||
-            exact_file_info->archive != selected_archive ||
-            exact_file_info->filename != file_info_filename ||
-            exact_file_info->path != file_info_path ||
-            exact_file_info->basename != file_info_basename ||
-            static_cast<std::uint64_t>(exact_file_info->compressedSize) !=
+            effective_file_info == nullptr ||
+            // Re-reads the borrowed OGRE record to catch a mutation during the
+            // archive read. When the record was rebuilt from the archive index
+            // above, effective_file_info owns a private copy and these five
+            // comparisons are necessarily true; nothing is lost, because a
+            // copy has no other writer.
+            effective_file_info->archive != selected_archive ||
+            effective_file_info->filename != file_info_filename ||
+            effective_file_info->path != file_info_path ||
+            effective_file_info->basename != file_info_basename ||
+            static_cast<std::uint64_t>(effective_file_info->compressedSize) !=
                 compressed_size ||
-            static_cast<std::uint64_t>(exact_file_info->uncompressedSize) !=
-                uncompressed_size ||
+            static_cast<std::uint64_t>(
+                effective_file_info->uncompressedSize) != uncompressed_size ||
             exact_member != file_info_path + file_info_basename ||
             (exact_member != name &&
              !member_resolved_by_reviewed_selection) ||
