@@ -360,6 +360,69 @@ void TestRegistryReloadCollisionsAndCaps() {
           "live receipt cap failure changed registry");
 }
 
+void TestCaseMismatchedDeclarationMintsMemberNamedReceipt() {
+  // AlexisSaber.truck declares 'alexissabergrillesspec.png' while the archive
+  // member is 'AlexisSabergrillesspec.png'. OGRE's exact pre-open seam
+  // withholds its FileInfo for that request, so ContentManager rebuilds the
+  // record from the archive index through the reviewed member-selection
+  // policy and stages this capture. The receipt must then name the member it
+  // opened while remaining addressable under the declared resource name, or
+  // the material loses its whole neutral declaration batch to
+  // selected_texture_registry.resource_lookup.
+  const std::vector<std::uint8_t> bytes{'a', 'b', 'c'};
+  Ogre14SelectedTextureSourceRegistryConfiguration configuration;
+  Ogre14SelectedTextureSourceReceiptRegistry registry;
+  RequireOk(InitializeOgre14SelectedTextureSourceRegistry(configuration,
+                                                          registry),
+            "initialize case-mismatch registry");
+  RequireOk(AdvanceOgre14SelectedTextureSourceGroupGeneration(
+                "CityWorld", 1U, registry),
+            "activate case-mismatch group");
+
+  auto folded = MakeInput(bytes);
+  folded.file_info_path.clear();
+  folded.file_info_filename = "AlexisSabergrillesspec.png";
+  folded.file_info_basename = "AlexisSabergrillesspec.png";
+  folded.exact_member_name = "AlexisSabergrillesspec.png";
+  folded.opened_stream_name = "AlexisSabergrillesspec.png";
+  folded.exact_resource_name = "alexissabergrillesspec.png";
+  RequireOk(ValidateOgre14SelectedTextureSourceCaptureInput(folded),
+            "case-only member/resource mismatch was refused at capture");
+
+  const auto receipt = BuildReceipt(configuration, folded, bytes);
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(receipt, registry),
+            "commit case-mismatched selected source");
+  Ogre14SelectedTextureSourceReceipt found;
+  RequireOk(registry.FindResource("CityWorld", 1U, 0x1000U, 7U,
+                                  "alexissabergrillesspec.png", found),
+            "declared lowercase resource name did not resolve its receipt");
+  Require(found.metadata() != nullptr &&
+              found.metadata()->source.exact_member_name ==
+                  "AlexisSabergrillesspec.png" &&
+              found.metadata()->source.file_info_basename ==
+                  "AlexisSabergrillesspec.png" &&
+              found.metadata()->source.exact_resource_name ==
+                  "alexissabergrillesspec.png",
+          "receipt did not name the exact archive member it opened");
+
+  // Authentication is unchanged: the registry key stays the declared resource
+  // name, so a lookup under any other spelling is still absent.
+  Ogre14SelectedTextureSourceReceipt absent;
+  Require(!registry.FindResource("CityWorld", 1U, 0x1000U, 7U,
+                                 "AlexisSabergrillesspec.png", absent),
+          "the archive member spelling laundered a receipt lookup");
+  Require(!registry.FindResource("CityWorld", 1U, 0x1000U, 7U,
+                                 "alexissabergrilles.png", absent),
+          "a genuinely absent texture resolved a neighbouring receipt");
+
+  // A member which is not the FileInfo record actually staged remains
+  // inadmissible, so no receipt can claim bytes from another member.
+  auto substituted = folded;
+  substituted.exact_member_name = "alexissabergrillesspec.png";
+  Require(!ValidateOgre14SelectedTextureSourceCaptureInput(substituted),
+          "a member name detached from its FileInfo record was accepted");
+}
+
 void TestResolutionFreshnessAndLifecycle() {
   const std::vector<std::uint8_t> bytes{'a', 'b', 'c'};
   Ogre14SelectedTextureSourceRegistryConfiguration configuration;
@@ -514,6 +577,7 @@ int main() {
     TestExactObservationAndImmutableBytes();
     TestBuildRollbackAndCaps();
     TestRegistryReloadCollisionsAndCaps();
+    TestCaseMismatchedDeclarationMintsMemberNamedReceipt();
     TestResolutionFreshnessAndLifecycle();
     TestRegistryTransactionalFaultsAndPoison();
   } catch (const std::exception &error) {

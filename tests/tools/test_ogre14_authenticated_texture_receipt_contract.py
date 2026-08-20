@@ -35,6 +35,9 @@ ARCHIVE_SOURCE = (
     / "source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
 )
 CPP_TEST = ROOT / "tests/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"
+SELECTED_SOURCE_TEST = (
+    ROOT / "tests/gfx/ogre14/Ogre14SelectedTextureSourceTests.cpp"
+)
 NATIVE_INTEGRATION_TEST = (
     ROOT
     / "tests/gfx/ogre14/"
@@ -107,6 +110,9 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
         cls.archive_header = ARCHIVE_HEADER.read_text(encoding="utf-8")
         cls.archive_source = ARCHIVE_SOURCE.read_text(encoding="utf-8")
         cls.cpp_test = CPP_TEST.read_text(encoding="utf-8")
+        cls.selected_source_test = SELECTED_SOURCE_TEST.read_text(
+            encoding="utf-8"
+        )
         cls.native_integration_test = NATIVE_INTEGRATION_TEST.read_text(
             encoding="utf-8"
         )
@@ -208,6 +214,75 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             self.cpp_test,
         )
         self.assertIn("Existing authenticated mesh loading keeps", self.content_source)
+
+    def test_case_only_declaration_still_stages_an_ordinary_receipt(self) -> None:
+        # OGRE's exact pre-open seam compares FileInfo path + basename against
+        # the requested resource name byte for byte, so a material declaring
+        # 'alexissabergrillesspec.png' against the archive member
+        # 'AlexisSabergrillesspec.png' arrives with no FileInfo at all. A null
+        # record must therefore not be fatal on entry; the member is rebuilt
+        # from the archive's own index through the one reviewed selection
+        # policy, which still refuses ambiguity and absence.
+        stream_open = self.content_source.split(
+            "Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream",
+            1,
+        )[1].split("bool ContentManager::resourceStreamOpeningEnabled", 1)[0]
+        self.assertNotIn("exact_file_info == nullptr", stream_open)
+        for token in (
+            "const Ogre::FileInfo* effective_file_info = exact_file_info;",
+            "if (effective_file_info == nullptr)",
+            "ResolveReviewedSelectedTextureSourceMember(",
+            "reviewed_member, &reviewed_file_info)",
+            "effective_file_info = &reviewed_file_info;",
+            "member_resolved_by_reviewed_selection = true;",
+            "effective_file_info->archive != selected_archive",
+            "capture_input.exact_member_name = exact_member;",
+            "capture_input.exact_resource_name = name;",
+            "opened_stream = const_cast<Ogre::Archive*>(selected_archive)->open(",
+        ):
+            with self.subTest(stream_open_token=token):
+                self.assertIn(token, stream_open)
+        self.assertLess(
+            stream_open.index("if (effective_file_info == nullptr)"),
+            stream_open.index("file_info_filename = effective_file_info->filename;"),
+        )
+
+        # One policy, not a second one: the reviewed resolver defers to the
+        # authenticated selection rule and demands exactly one index record for
+        # the member it names.
+        resolver = self.content_source.split(
+            "bool ResolveReviewedSelectedTextureSourceMember", 1
+        )[1].split("bool IsAuthenticatedMaterialScriptIdentifier", 1)[0]
+        for token in (
+            "Render::SelectOgre14AuthenticatedTextureArchiveMember(",
+            "selected_archive.isCaseSensitive()",
+            "kOgre14AuthenticatedTextureMaximumArchiveMemberCandidates",
+            "indexed_file.path + indexed_file.basename == selected_member",
+            "selected_record_count != 1U",
+            "*reviewed_file_info = *selected_record;",
+        ):
+            with self.subTest(resolver_token=token):
+                self.assertIn(token, resolver)
+        self.assertNotIn("->open(", resolver)
+
+        for token in (
+            "Ordinary receipt refused for",
+            "Ordinary stage refused for",
+            "Committed ordinary selected-stream receipt",
+            "texture='{}' member='{}'",
+        ):
+            with self.subTest(diagnostic=token):
+                self.assertIn(token, self.content_source)
+
+        for token in (
+            "TestCaseMismatchedDeclarationMintsMemberNamedReceipt",
+            "AlexisSabergrillesspec.png",
+            "receipt did not name the exact archive member it opened",
+            "the archive member spelling laundered a receipt lookup",
+            "a genuinely absent texture resolved a neighbouring receipt",
+        ):
+            with self.subTest(selected_source_test_token=token):
+                self.assertIn(token, self.selected_source_test)
 
     def test_exact_verified_archive_bytes_are_the_only_mounted_source(self) -> None:
         archive_contract = self.archive_header + self.archive_source
