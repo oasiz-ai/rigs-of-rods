@@ -593,8 +593,13 @@ RenderOperationResult VerifyOgreNextN1HdrMedia(
   try {
     return VerifyMediaManifest(
         resolved_media_root,
+        // The RoR-owned aerial-haze tree is a scan root like the pinned Ogre
+        // roots, so the closure is exact in both directions: a missing haze
+        // file fails the manifest lookup and an extra or renamed one fails the
+        // scan. Adding media without adding its root here would silently
+        // weaken the gate, so the two must move together.
         {"2.0/scripts/Compositors", "2.0/scripts/materials/Common",
-         "2.0/scripts/materials/HDR"},
+         "2.0/scripts/materials/HDR", "2.0/scripts/materials/RoRHaze"},
         true, kOgreNextN1HdrMediaManifest,
         kOgreNextN1HdrMediaManifestCount, "HDR compositor");
   } catch (const std::bad_alloc &) {

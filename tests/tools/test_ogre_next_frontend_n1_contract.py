@@ -1349,8 +1349,37 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "Samples/Media/2.0/scripts/Compositors",
             "Samples/Media/2.0/scripts/materials/Common",
             "Samples/Media/2.0/scripts/materials/HDR",
+            # The RoR aerial-haze media joins the SAME manifest, staging, and
+            # provenance chain. Every link below must move together or the
+            # runtime media gate silently stops covering the haze shader.
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES",
+            "ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK",
+            "verify_aerial_haze_shader.py",
+            "ror-aerial-haze-v1.lock.json",
+            '"2.0/scripts/materials/RoRHaze")',
+            "/RoRAerialHaze.material",
+            "/GLSL/RoRAerialHaze_ps.glsl",
+            "/HLSL/RoRAerialHaze_ps.hlsl",
+            "/Metal/RoRAerialHaze_ps.metal",
+            "_ror_n1_aerial_haze_package_commands",
         ):
             self.assertIn(token, self.entry_cmake)
+        media_integrity = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/ogrenext/OgreNextN1MediaIntegrity.cpp"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"2.0/scripts/materials/RoRHaze"', media_integrity)
+        for token in (
+            '"2.0/scripts/materials/RoRHaze"',
+            '"2.0/scripts/materials/RoRHaze/GLSL"',
+            '"2.0/scripts/materials/RoRHaze/HLSL"',
+            '"2.0/scripts/materials/RoRHaze/Metal"',
+            "std::array<const char *, 15U> relative_locations",
+        ):
+            self.assertIn(token, self.frontend)
         self.assertIn("RunHdrCompositorProof", self.smoke)
         self.assertIn("ror.ogre_next_hdr_compositor.v6", self.smoke)
         self.assertIn("ror.ogre_next_hdr_compositor_visual.v2", self.smoke)
@@ -2312,6 +2341,16 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 "2.0/scripts/Compositors/HDR.compositor": b"compositor",
                 "2.0/scripts/materials/Common/Metal/Quad_vs.metal": b"metal",
                 "2.0/scripts/materials/HDR/HLSL/ToneMap.hlsl": b"hlsl",
+                # RoRHaze is a required manifest root: the RoR-owned aerial
+                # haze material and shaders are inside the same byte-exact
+                # closure the runtime verifier enforces.
+                (
+                    "2.0/scripts/materials/RoRHaze/RoRAerialHaze.material"
+                ): b"haze-material",
+                (
+                    "2.0/scripts/materials/RoRHaze/Metal/"
+                    "RoRAerialHaze_ps.metal"
+                ): b"haze-metal",
             }
             for relative, payload in files.items():
                 path = root / relative

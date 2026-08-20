@@ -5946,7 +5946,7 @@ public:
     // directories by basename, even when recursive enumeration is enabled.
     // Match Ogre-Next's own resources2.cfg/HDR sample registration exactly so
     // every backend can resolve the source selected by the unified program.
-    const std::array<const char *, 11U> relative_locations{{
+    const std::array<const char *, 15U> relative_locations{{
         "2.0/scripts/Compositors",
         "2.0/scripts/materials/Common",
         "2.0/scripts/materials/Common/Any",
@@ -5957,7 +5957,15 @@ public:
         "2.0/scripts/materials/HDR",
         "2.0/scripts/materials/HDR/GLSL",
         "2.0/scripts/materials/HDR/HLSL",
-        "2.0/scripts/materials/HDR/Metal"}};
+        "2.0/scripts/materials/HDR/Metal",
+        // RoR-owned aerial-haze material and its per-backend shader sources.
+        // The same flat-per-directory rule applies: the unified program names
+        // its source by basename, so every backend subdirectory needs its own
+        // FileSystem archive entry.
+        "2.0/scripts/materials/RoRHaze",
+        "2.0/scripts/materials/RoRHaze/GLSL",
+        "2.0/scripts/materials/RoRHaze/HLSL",
+        "2.0/scripts/materials/RoRHaze/Metal"}};
     if (first_resource_initialization) {
       for (const char *relative : relative_locations) {
         resources.addResourceLocation(

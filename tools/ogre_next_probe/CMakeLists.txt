@@ -525,6 +525,48 @@ if (NOT _ror_sun_visibility_v2_shader_result EQUAL 0)
         "Metal sun-visibility V2 shader verification failed: "
         "${_ror_sun_visibility_v2_shader_error}")
 endif ()
+# RoR-owned aerial-perspective (haze) compositor media. Unlike the HLMS pieces
+# above these are 2.0 material-script files, so they join the HDR manifest
+# rather than the HLMS one; the roots below are globbed from the pinned
+# Ogre-Next tree, so each RoR file is appended explicitly.
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE
+    "2.0/scripts/materials/RoRHaze")
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRAerialHaze.material"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRAerialHaze_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRAerialHaze_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRAerialHaze_ps.metal")
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/media")
+set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES "")
+foreach (_ror_aerial_haze_relative IN LISTS
+        ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE)
+    set(_ror_aerial_haze_source
+        "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT}/${_ror_aerial_haze_relative}")
+    if (NOT EXISTS "${_ror_aerial_haze_source}" OR
+            IS_SYMLINK "${_ror_aerial_haze_source}")
+        message(FATAL_ERROR
+            "RoR aerial-haze media file is missing or indirect: "
+            "${_ror_aerial_haze_relative}")
+    endif ()
+    list(APPEND ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES
+        "${_ror_aerial_haze_source}")
+endforeach ()
+set(ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK
+    "${CMAKE_CURRENT_SOURCE_DIR}/ror-aerial-haze-v1.lock.json")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_aerial_haze_shader.py"
+            --root "${CMAKE_CURRENT_SOURCE_DIR}"
+            --lock "${ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK}"
+    RESULT_VARIABLE _ror_aerial_haze_shader_result
+    OUTPUT_VARIABLE _ror_aerial_haze_shader_output
+    ERROR_VARIABLE _ror_aerial_haze_shader_error)
+if (NOT _ror_aerial_haze_shader_result EQUAL 0)
+    message(FATAL_ERROR
+        "RoR aerial-haze media verification failed: "
+        "${_ror_aerial_haze_shader_error}")
+endif ()
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_LICENSE_EXPRESSION
     "GPL-3.0-or-later")
 set(ROR_OGRE_NEXT_DISPLAY_DOMAIN_NOTICE_PATH
@@ -626,6 +668,13 @@ foreach (_ror_n1_hdr_root IN LISTS _ror_n1_hdr_media_roots)
         "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_n1_hdr_root}/*")
     list(APPEND _ror_n1_hdr_media_files ${_ror_n1_hdr_root_files})
 endforeach ()
+# The globs above only cover the pinned Ogre-Next roots, so the RoR-owned
+# aerial-haze tree is appended explicitly - exactly the way the HLMS manifest
+# appends the RoR HLMS pieces. Every one of these files is therefore inside the
+# runtime manifest closure: a missing, extra, renamed, or byte-modified haze
+# file fails VerifyOgreNextN1HdrMedia and Initialize, before a device exists.
+list(APPEND _ror_n1_hdr_media_files
+    ${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE})
 list(REMOVE_DUPLICATES _ror_n1_hdr_media_files)
 list(SORT _ror_n1_hdr_media_files)
 if (NOT _ror_n1_hdr_media_files)
@@ -634,8 +683,15 @@ endif ()
 set(ROR_OGRE_NEXT_N1_HDR_MEDIA_MANIFEST_ENTRIES "")
 set(_ror_n1_hdr_media_manifest_serialized "")
 foreach (_ror_n1_hdr_relative IN LISTS _ror_n1_hdr_media_files)
-    set(_ror_n1_hdr_file
-        "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_n1_hdr_relative}")
+    list(FIND ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
+        "${_ror_n1_hdr_relative}" _ror_n1_hdr_haze_index)
+    if (_ror_n1_hdr_haze_index GREATER_EQUAL 0)
+        set(_ror_n1_hdr_file
+            "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT}/${_ror_n1_hdr_relative}")
+    else ()
+        set(_ror_n1_hdr_file
+            "${ROR_OGRE_NEXT_MEDIA_ROOT}/${_ror_n1_hdr_relative}")
+    endif ()
     if (IS_SYMLINK "${_ror_n1_hdr_file}")
         message(FATAL_ERROR
             "Pinned Ogre-Next HDR manifest contains a symbolic link: "
@@ -3690,7 +3746,35 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_MEDIA_SOURCE}"
         "${ROR_OGRE_NEXT_SUN_VISIBILITY_V2_SHADER_LOCK}"
         "${CMAKE_CURRENT_SOURCE_DIR}/verify_sun_visibility_v2_shader.py"
+        ${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES}
+        "${ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/verify_aerial_haze_shader.py"
         "${ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE}")
+    # Stage the RoR-owned aerial-haze tree beside the pinned Compositors,
+    # Common, and HDR copies, then byte-compare every file: the staged package
+    # must reproduce the manifest the runtime verifier enforces.
+    set(_ror_n1_aerial_haze_package_commands "")
+    foreach (_ror_aerial_haze_relative IN LISTS
+            ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE)
+        get_filename_component(_ror_aerial_haze_directory
+            "${_ror_aerial_haze_relative}" DIRECTORY)
+        list(APPEND _ror_n1_aerial_haze_package_commands
+            COMMAND "${CMAKE_COMMAND}" -E make_directory
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/${_ror_aerial_haze_directory}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT}/${_ror_aerial_haze_relative}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/${_ror_aerial_haze_relative}"
+            COMMAND "${CMAKE_COMMAND}" -E compare_files
+                    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT}/${_ror_aerial_haze_relative}"
+                    "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/${_ror_aerial_haze_relative}")
+    endforeach ()
+    list(APPEND _ror_n1_aerial_haze_package_commands
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ror-aerial-haze-v1.lock.json"
+        COMMAND "${CMAKE_COMMAND}" -E compare_files
+                "${ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK}"
+                "${ROR_OGRE_NEXT_N1_PACKAGE_ROOT}/provenance/ror-aerial-haze-v1.lock.json")
     foreach (_ror_reflection_media_relative IN LISTS
             _ror_reflection_media_files)
         get_filename_component(_ror_reflection_media_directory
@@ -3814,6 +3898,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
                 "${ogre_next_SOURCE_DIR}/Samples/Media/2.0/scripts/materials/HDR"
                 "${ROR_OGRE_NEXT_N1_PACKAGE_MEDIA_ROOT}/2.0/scripts/materials/HDR"
+        ${_ror_n1_aerial_haze_package_commands}
         ${_ror_n1_package_commands}
         COMMAND "${CMAKE_COMMAND}" -E touch
                 "${ROR_OGRE_NEXT_N1_PACKAGE_STAMP}"

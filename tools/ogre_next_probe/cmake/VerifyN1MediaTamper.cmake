@@ -22,9 +22,13 @@ if (N1_MODERN_PBR)
     file(MAKE_DIRECTORY "${N1_WORK_ROOT}/2.0/scripts/materials")
     file(COPY "${N1_MEDIA_ROOT}/2.0/scripts/Compositors"
         DESTINATION "${N1_WORK_ROOT}/2.0/scripts")
+    # RoRHaze is a manifest scan root like Common and HDR, so the fixture must
+    # copy it too: otherwise the run would fail on a missing file instead of on
+    # the single byte this test deliberately tampers with.
     file(COPY
         "${N1_MEDIA_ROOT}/2.0/scripts/materials/Common"
         "${N1_MEDIA_ROOT}/2.0/scripts/materials/HDR"
+        "${N1_MEDIA_ROOT}/2.0/scripts/materials/RoRHaze"
         DESTINATION "${N1_WORK_ROOT}/2.0/scripts/materials")
     set(_ror_tampered_file "${N1_WORK_ROOT}/${N1_TAMPER_RELATIVE}")
 else ()
