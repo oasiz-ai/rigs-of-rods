@@ -8365,6 +8365,9 @@ public:
   OgreNextPssmShadowRuntimeAudit shadow_audit;
   OgreNextNativeLightingPassAudit lighting_audit;
   OgreNextRetainedSceneAudit retained_audit;
+  /// Named counters for the render-boundary severity invariant. Every gate
+  /// that degrades instead of ending the session lands one of these.
+  OgreNextN1RenderBoundaryDegradeAudit degrade_audit;
   std::thread::id owner_thread;
   std::string configured_shader_media_root;
   OgreNextN1PresentationConfiguration presentation_configuration;
@@ -8644,6 +8647,11 @@ OgreNextN1Frontend::QueryPresentationAudit() const noexcept {
 OgreNextRetainedSceneAudit
 OgreNextN1Frontend::QueryRetainedSceneAudit() const noexcept {
   return impl_->retained_audit;
+}
+
+OgreNextN1RenderBoundaryDegradeAudit
+OgreNextN1Frontend::QueryRenderBoundaryDegradeAudit() const noexcept {
+  return impl_->degrade_audit;
 }
 
 OgreNextAnalyticSkyRuntimeAudit
@@ -10548,12 +10556,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     return true;
   };
+  // Returns a VERIFIED rollback rather than an unconditional true: after
+  // AbortPrepared the state must hold no committable candidate. `terminal` is
+  // reserved for a rollback that demonstrably failed, so this verdict has to
+  // be derived rather than assumed.
   const auto abort_hdr_commit = [&]() noexcept {
-    if (hdr_commit_prepared) {
-      impl_->hdr_temporal_state.AbortPrepared();
-      hdr_commit_prepared = false;
+    if (!hdr_commit_prepared) {
+      return true;
     }
-    return true;
+    impl_->hdr_temporal_state.AbortPrepared();
+    hdr_commit_prepared = false;
+    return !impl_->hdr_temporal_state.CanCommitPrepared();
   };
   const auto abort_hdr_pssm_finalization = [&]() noexcept {
     if (!impl_->hdr_pssm_finalization_prepared) {
@@ -10575,7 +10588,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     clean = abort_reflection_frame() && clean;
     clean = abort_submission_commit() && clean;
     clean = abort_interop_commit() && clean;
-    clean = abort_hdr_commit() && clean;
+    const bool hdr_prepared_rollback_verified = abort_hdr_commit();
+    clean = hdr_prepared_rollback_verified && clean;
     clean = abort_hdr_pssm_finalization() && clean;
     clean = abort_production_output() && clean;
     clean = cleanup_scene() && clean;
@@ -10588,8 +10602,36 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->shadow_audit.last_native_bounds_observations.clear();
     }
     clean = destroy_retained_target() && clean;
-    if (hdr_native_frame_executed) {
+    // F3. This latch used to read `if (hdr_native_frame_executed)`, and the
+    // flag itself used to be raised BEFORE renderOneFrame ran. Every failure
+    // in the back half of Render therefore became a permanent frontend fault
+    // -- including a Metal drawable timeout thrown out of renderOneFrame,
+    // where the GPU advanced no HDR history at all. A frontend that faults
+    // permanently ends the session, which the render-boundary invariant
+    // reserves for state proven unrecoverable.
+    //
+    // Terminal now requires HDR history that is genuinely half-written:
+    //   * the native frame must actually have COMPLETED (the flag is raised
+    //     after renderOneFrame returns true, so a frame that threw or refused
+    //     to run advances nothing and latches nothing), and
+    //   * the CPU must keep a mirror of that native history
+    //     (`retain_native_lighting_content_evidence`). On the zero-readback
+    //     path the compositor owns oldLumRt across frames and the CPU value
+    //     is only a sequencing token -- "neither compared with nor presented
+    //     as the live GPU history value" (OgreNextHdrTemporalContract.cpp,
+    //     PrepareGpuOnlyCommit) -- so discarding it leaves nothing divergent.
+    //     Frame identity also stays contiguous, because the dispatcher does
+    //     not advance frontend frame identity on a failed frame.
+    //   * or the prepared CPU transaction must have failed to roll back,
+    //     which is the general "rollback demonstrably failed" case.
+    if (hdr_native_frame_executed &&
+        (impl_->retain_native_lighting_content_evidence ||
+         !hdr_prepared_rollback_verified)) {
       impl_->faulted = true;
+    } else if (hdr_native_frame_executed) {
+      // A post-submit failure this frontend can survive. Counted, never
+      // silent: a degrade nobody can see is not a fix.
+      ++impl_->degrade_audit.post_submit_recoverable_failures;
     }
     if (!clean) {
       impl_->faulted = true;
@@ -12615,13 +12657,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
       impl_->hdr_directional_split_listener.BeginFrame(retained_light_pairs);
     }
     for (std::size_t warmup = 0U; warmup < render_iterations; ++warmup) {
-      if (persistent_hdr) {
-        hdr_native_frame_executed = true;
-      }
+      // Raised only after the native frame COMPLETED. A frame that threw a
+      // recoverable backend exception on the way in, or that Ogre refused to
+      // run, advanced no HDR history: nothing is half-written, so nothing may
+      // latch a permanent frontend fault (see fail_after_cleanup).
       if (!impl_->root->renderOneFrame()) {
         return fail_after_cleanup(RenderOperationResult::Failure(
             RenderOperationCode::BACKEND_FAILURE,
             "Ogre-Next ended the N1 frame loop before readback"));
+      }
+      if (persistent_hdr) {
+        hdr_native_frame_executed = true;
       }
     }
     if (persistent_hdr && !impl_->SingleSceneHdrPssmEnabled() &&

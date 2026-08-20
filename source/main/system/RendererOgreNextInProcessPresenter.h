@@ -273,6 +273,28 @@ struct RendererRetainedSceneAudit final {
   bool available = false;
 };
 
+/// Renderer-neutral copy of the render-boundary degrade counters.
+///
+/// The invariant they exist to make observable: a per-frame validation may
+/// reject a frame or an object, but may not end a session and may not
+/// permanently stop publication. Every degrade increments a named counter --
+/// a silent degrade trades a crash for a wrong picture. These are the names.
+struct RendererRenderBoundaryDegradeAudit final {
+  std::uint32_t version = 0U;
+  std::uint64_t post_submit_recoverable_failures = 0U;
+  std::uint64_t hud_extent_mismatch_frames = 0U;
+  std::uint64_t particle_basis_rejections = 0U;
+  std::uint64_t pssm_pose_renormalizations = 0U;
+  std::uint64_t non_uniform_scale_instance_rejections = 0U;
+  bool available = false;
+
+  [[nodiscard]] std::uint64_t total() const noexcept {
+    return post_submit_recoverable_failures + hud_extent_mismatch_frames +
+           particle_basis_rejections + pssm_pose_renormalizations +
+           non_uniform_scale_instance_rejections;
+  }
+};
+
 /// Renderer-neutral receipt for the actual product-owned Metal V2 dispatch.
 /// It is published only after the backend completed its same-device GPU work,
 /// continued the LitHdr presentation, and the reusable V2 contract validated.
@@ -362,6 +384,8 @@ public:
   NativeLightingAudit() const noexcept;
   [[nodiscard]] RendererRetainedSceneAudit
   RetainedSceneAudit() const noexcept;
+  [[nodiscard]] RendererRenderBoundaryDegradeAudit
+  RenderBoundaryDegradeAudit() const noexcept;
   [[nodiscard]] RendererNativeSunVisibilityV2Audit
   NativeSunVisibilityV2Audit() const noexcept;
 

@@ -910,6 +910,9 @@ int main(int argc, char *argv[])
     std::string renderer_combined_aerial_haze_audit_signature;
     std::string renderer_combined_native_lighting_audit_signature;
     std::uint64_t renderer_combined_retained_scene_logged_frame = 0U;
+    // Render-boundary degrade counters. A degrade nobody can see is not a fix,
+    // so this logs on every change to the total rather than on a timer.
+    std::uint64_t renderer_combined_render_boundary_degrades_logged = 0U;
     std::string renderer_combined_native_sun_visibility_audit_signature;
     bool renderer_combined_turntable_audit_published = false;
     std::uint64_t renderer_combined_turntable_audit_segment = 0U;
@@ -4596,6 +4599,34 @@ int main(int argc, char *argv[])
                                         .retired_light_teardowns));
                                 renderer_combined_retained_scene_logged_frame =
                                     retained_scene_audit.frames_diffed;
+                            }
+                            const RendererRenderBoundaryDegradeAudit
+                                render_boundary_degrade_audit =
+                                    renderer_combined_presenter
+                                        .RenderBoundaryDegradeAudit();
+                            if (render_boundary_degrade_audit.available &&
+                                render_boundary_degrade_audit.total() !=
+                                    renderer_combined_render_boundary_degrades_logged)
+                            {
+                                LOG(fmt::format(
+                                    "[RoR|RendererCombined|Degrade] "
+                                    "post_submit_recoverable_failures={} "
+                                    "hud_extent_mismatch_frames={} "
+                                    "particle_basis_rejections={} "
+                                    "pssm_pose_renormalizations={} "
+                                    "non_uniform_scale_instance_rejections={}",
+                                    render_boundary_degrade_audit
+                                        .post_submit_recoverable_failures,
+                                    render_boundary_degrade_audit
+                                        .hud_extent_mismatch_frames,
+                                    render_boundary_degrade_audit
+                                        .particle_basis_rejections,
+                                    render_boundary_degrade_audit
+                                        .pssm_pose_renormalizations,
+                                    render_boundary_degrade_audit
+                                        .non_uniform_scale_instance_rejections));
+                                renderer_combined_render_boundary_degrades_logged =
+                                    render_boundary_degrade_audit.total();
                             }
                             const RendererNativeSunVisibilityV2Audit
                                 sun_visibility_audit =
