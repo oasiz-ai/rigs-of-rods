@@ -1507,6 +1507,155 @@ void TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce() {
           "failed particle-state retirement consumed dispatcher lineage");
 }
 
+/// A scene whose descriptor is well-formed but whose environment binding names
+/// a texture/sampler pair that no registry sequence ever created. Descriptor
+/// validation passes; only `ValidateSceneSnapshotAssets` can reject it, which
+/// is exactly the prologue validator under test.
+std::shared_ptr<const SceneSnapshot> SceneWithMissingEnvironmentAssets(
+    std::uint64_t snapshot_id, std::uint64_t registry_id,
+    std::uint64_t asset_sequence) {
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = snapshot_id;
+  descriptor.asset_registry_id = registry_id;
+  descriptor.asset_sequence = asset_sequence;
+  descriptor.simulation_tick = snapshot_id * 10U;
+  descriptor.simulation_time_seconds =
+      static_cast<double>(descriptor.simulation_tick) / 2000.0;
+  LightDescriptor light;
+  light.light_id = snapshot_id;
+  descriptor.lights.push_back(light);
+  descriptor.environment.environment_texture = RenderAssetReference::Create(
+      RenderAssetKind::TEXTURE, RenderAssetId::FromWords(0xE0U, 0x11U), 1U);
+  descriptor.environment.environment_sampler = RenderAssetReference::Create(
+      RenderAssetKind::SAMPLER, RenderAssetId::FromWords(0xE0U, 0x12U), 1U);
+  SceneSnapshotCreateResult created =
+      CreateSceneSnapshot(std::move(descriptor));
+  Require(created.ok(),
+          "missing-environment fixture must still freeze successfully");
+  return created.snapshot;
+}
+
+/// The governing invariant at the render boundary: a per-frame validation may
+/// reject a frame, but may not end a session and may not permanently stop
+/// publication. All five `RenderSceneImpl` prologue validators run before the
+/// dispatcher writes `last_consumed_scene_snapshot_id_` and before the first
+/// `frontend_->` call, so each one must drop its frame, count it, leave the
+/// dispatcher clean, and accept the NEXT frame.
+void TestDirectDispatcherPrologueValidatorsRejectWithoutPoisoning() {
+  struct RejectionCase final {
+    const char *name;
+    // Returns the result of the frame that must be rejected.
+    RendererFrontendDirectDispatchResult (*submit)(
+        RendererFrontendDirectDispatcher &, std::uint64_t);
+    RendererFrontendDirectDispatchStatus expected;
+    /// When non-zero, one scene is rendered before the rejection so the
+    /// replay watermark is already established. Snapshot identity zero is
+    /// unfreezable, so monotonicity can only be violated from above zero.
+    std::uint64_t prime_snapshot_id = 0U;
+  };
+
+  const RejectionCase cases[] = {
+      {"presentation policy",
+       [](RendererFrontendDirectDispatcher &dispatcher,
+          std::uint64_t registry_id) {
+         // Presenting without naming the active surface revision.
+         RendererFrontendPresentationPolicy policy = PresentedPolicy();
+         policy.presentation_surface_revision = 0U;
+         return dispatcher.RenderScene(Scene(500U, registry_id, 1U), Camera(),
+                                       policy);
+       },
+       RendererFrontendDirectDispatchStatus::
+           REJECTED_INVALID_PRESENTATION_POLICY},
+      {"registry sequence",
+       [](RendererFrontendDirectDispatcher &dispatcher,
+          std::uint64_t registry_id) {
+         // A scene cut against an asset sequence the registry never reached.
+         return dispatcher.RenderScene(Scene(500U, registry_id, 9U), Camera(),
+                                       OffscreenPolicy());
+       },
+       RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION},
+      {"snapshot id monotonicity",
+       [](RendererFrontendDirectDispatcher &dispatcher,
+          std::uint64_t registry_id) {
+         // Replays the identity the primed frame already consumed.
+         return dispatcher.RenderScene(Scene(400U, registry_id, 1U), Camera(),
+                                       OffscreenPolicy());
+       },
+       RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION, 400U},
+      {"scene snapshot assets",
+       [](RendererFrontendDirectDispatcher &dispatcher,
+          std::uint64_t registry_id) {
+         return dispatcher.RenderScene(
+             SceneWithMissingEnvironmentAssets(500U, registry_id, 1U),
+             Camera(), OffscreenPolicy());
+       },
+       RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION},
+      {"camera view request",
+       [](RendererFrontendDirectDispatcher &dispatcher,
+          std::uint64_t registry_id) {
+         CameraViewRequest camera = Camera();
+         camera.width = 0U;
+         return dispatcher.RenderScene(Scene(500U, registry_id, 1U), camera,
+                                       OffscreenPolicy());
+       },
+       RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION},
+  };
+
+  std::uint64_t registry_seed = 0xD1EC700000000100ULL;
+  for (const RejectionCase &rejection_case : cases) {
+    FakeFrontend frontend;
+    const std::uint64_t registry_id = ++registry_seed;
+    RendererFrontendDirectDispatcher dispatcher(frontend, registry_id);
+    Require(dispatcher.SynchronizeAssets(AssetDelta(registry_id, 1U, true))
+                .ok(),
+            "prologue rejection fixture did not synchronize assets");
+
+    std::uint64_t primed_frames = 0U;
+    if (rejection_case.prime_snapshot_id != 0U) {
+      Require(dispatcher
+                  .RenderScene(Scene(rejection_case.prime_snapshot_id,
+                                     registry_id, 1U),
+                               Camera(), OffscreenPolicy())
+                  .ok(),
+              "prologue rejection fixture did not prime its watermark");
+      primed_frames = 1U;
+    }
+    const std::uint64_t watermark_before =
+        dispatcher.last_consumed_scene_snapshot_id();
+
+    const RendererFrontendDirectDispatchResult rejected =
+        rejection_case.submit(dispatcher, registry_id);
+    RequireDirectStatus(rejected.status, rejection_case.expected,
+                        rejection_case.name);
+    Require(!rejected.terminal && !dispatcher.terminal(),
+            "a prologue validator poisoned the dispatcher");
+    Require(rejected.rejected_frames == 1U &&
+                dispatcher.rejected_frames() == 1U,
+            "a prologue rejection was not counted");
+    // Nothing may have committed: no new frontend call, no lineage advance.
+    Require(frontend.rendered_requests.size() == primed_frames &&
+                frontend.retired_requests.empty() &&
+                dispatcher.last_frontend_frame_id() == primed_frames,
+            "a prologue rejection reached the frontend");
+    Require(dispatcher.last_consumed_scene_snapshot_id() == watermark_before,
+            "a prologue rejection advanced the snapshot replay watermark");
+
+    // The whole point: the NEXT frame is accepted.
+    const RendererFrontendDirectDispatchResult accepted =
+        dispatcher.RenderScene(Scene(501U, registry_id, 1U), Camera(),
+                               OffscreenPolicy());
+    RequireDirectStatus(
+        accepted.status,
+        RendererFrontendDirectDispatchStatus::SCENE_FRAME_COMPLETED,
+        "the frame after a prologue rejection was refused");
+    Require(accepted.frontend_frame_id == primed_frames + 1U &&
+                dispatcher.last_consumed_scene_snapshot_id() == 501U &&
+                accepted.rejected_frames == 1U,
+            "recovery after a prologue rejection lost or double-counted "
+            "dispatcher lineage");
+  }
+}
+
 void TestDirectDispatcherFailuresAreTerminal() {
   {
     FakeFrontend frontend;
@@ -1529,7 +1678,9 @@ void TestDirectDispatcherFailuresAreTerminal() {
         rejected.status,
         RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
         "typed scene was accepted before its asset catalog");
-    Require(rejected.terminal && frontend.calls.empty(),
+    // A prologue validator drops the frame; it does not end the session.
+    Require(!rejected.terminal && !dispatcher.terminal() &&
+                rejected.rejected_frames == 1U && frontend.calls.empty(),
             "typed scene-before-assets failure touched the frontend");
   }
 
@@ -1587,7 +1738,9 @@ void TestDirectDispatcherFailuresAreTerminal() {
         replayed.status,
         RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
         "retired typed snapshot identity was replayed into the frontend");
-    Require(replayed.terminal && frontend.rendered_requests.empty() &&
+    Require(!replayed.terminal && !dispatcher.terminal() &&
+                replayed.rejected_frames == 1U &&
+                frontend.rendered_requests.empty() &&
                 dispatcher.last_consumed_scene_snapshot_id() == 10U,
             "typed replay advanced or rendered an irreversible retirement");
   }
@@ -1683,6 +1836,7 @@ int main() {
   TestReservedAssetV1KindFailsWithoutMutation();
   TestDirectDispatcherTypedLifecycle();
   TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce();
+  TestDirectDispatcherPrologueValidatorsRejectWithoutPoisoning();
   TestDirectDispatcherFailuresAreTerminal();
   std::cout << "frontend direct and transport dispatcher tests passed\n";
   return EXIT_SUCCESS;

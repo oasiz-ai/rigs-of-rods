@@ -133,6 +133,7 @@ RendererFrontendDirectDispatcher::Success(
   result.scene_snapshot_id = scene_snapshot_id;
   result.frontend_frame_id = frontend_frame_id;
   result.resources_released = resources_released;
+  result.rejected_frames = rejected_frames_;
   result.terminal = terminal_;
   return result;
 }
@@ -154,7 +155,33 @@ RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Fail(
   result.frontend_detail.Assign(frontend_detail);
   result.asset_sequence = registry_.sequence();
   result.resources_released = resources_released;
+  result.rejected_frames = rejected_frames_;
   result.terminal = true;
+  return result;
+}
+
+// A per-frame validation may reject a frame or an object, but may not end a
+// session and may not permanently stop publication. Terminal is reserved for
+// load-time-unrecoverable state, or a rollback that demonstrably failed.
+// Every degrade increments a named counter -- a silent degrade trades a crash
+// for a wrong picture.
+RendererFrontendDirectDispatchResult RendererFrontendDirectDispatcher::Reject(
+    RendererFrontendDirectDispatchStatus status,
+    ValidationCode validation_code,
+    RenderOperationCode frontend_code) noexcept {
+  if (rejected_frames_ != (std::numeric_limits<std::uint64_t>::max)()) {
+    ++rejected_frames_;
+  }
+  RendererFrontendDirectDispatchResult result;
+  result.status = status;
+  result.terminal_cause = terminal_cause_;
+  result.validation_code = validation_code;
+  result.frontend_code = frontend_code;
+  result.asset_sequence = registry_.sequence();
+  result.rejected_frames = rejected_frames_;
+  // Carry, never create. An already-poisoned dispatcher must not report clean
+  // merely because this particular decline was recoverable.
+  result.terminal = terminal_;
   return result;
 }
 
@@ -293,35 +320,47 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
     const RendererFrontendPresentationPolicy &presentation_policy,
     std::shared_ptr<const Ogre14ParticleCapturedFrame>
         continuous_particles) {
+  // ---- Prologue validators -------------------------------------------------
+  // Every validator below runs before the first mutation of dispatcher lineage
+  // (`last_consumed_scene_snapshot_id_`, `last_frontend_frame_id_`) and before
+  // the first `frontend_->` call of this operation (`QueryCapabilities`).
+  // Nothing has committed, so a failure here is a dropped frame, not a dead
+  // session. Keep new prologue checks above the lineage writes and route them
+  // through `Reject()`; anything that must run after them belongs to `Fail()`.
   const ValidationResult policy_validation =
       ValidateRendererFrontendPresentationPolicy(presentation_policy);
   if (!policy_validation) {
-    return Fail(RendererFrontendDirectDispatchStatus::
-                    REJECTED_INVALID_PRESENTATION_POLICY,
-                policy_validation.code);
+    return Reject(RendererFrontendDirectDispatchStatus::
+                      REJECTED_INVALID_PRESENTATION_POLICY,
+                  policy_validation.code);
   }
   if (scene == nullptr || registry_.sequence() == 0U ||
       scene->asset_registry_id() != registry_.registry_id() ||
       scene->asset_sequence() != registry_.sequence()) {
-    return Fail(RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
-                ValidationCode::SEQUENCE_MISMATCH);
+    return Reject(
+        RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
+        ValidationCode::SEQUENCE_MISMATCH);
   }
   const std::uint64_t scene_snapshot_id = scene->snapshot_id();
   if (scene_snapshot_id <= last_consumed_scene_snapshot_id_) {
-    return Fail(RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
-                ValidationCode::SEQUENCE_MISMATCH);
+    return Reject(
+        RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
+        ValidationCode::SEQUENCE_MISMATCH);
   }
   const ValidationResult asset_validation =
       ValidateSceneSnapshotAssets(*scene, registry_);
   if (!asset_validation) {
-    return Fail(RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
-                asset_validation.code);
+    return Reject(
+        RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
+        asset_validation.code);
   }
   const ValidationResult camera_validation = ValidateCameraViewRequest(camera);
   if (!camera_validation) {
-    return Fail(RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
-                camera_validation.code);
+    return Reject(
+        RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
+        camera_validation.code);
   }
+  // ---- End prologue. Everything past here may commit. -----------------------
 
   const bool stale_presentation_extent =
       presentation_policy.retire_scene_on_presentation_extent_mismatch &&

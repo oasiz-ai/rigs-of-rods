@@ -170,11 +170,29 @@ public:
     return result;
   }
 
+  /// The dispatcher owns the severity decision, not this function. A dispatch
+  /// that declined the frame before committing anything reports
+  /// `terminal == false`; per the render-boundary invariant that is a dropped
+  /// frame, not a dead session, so the session must not poison on it. The
+  /// retained production is dropped with it, otherwise the identical rejected
+  /// snapshot would be resubmitted every frame and publication would stop
+  /// permanently -- the failure mode the invariant exists to forbid.
   RendererInProcessSessionResult FailureFromDispatch(
       const Render::RendererFrontendDirectDispatchResult &dispatch,
       std::uint32_t event_polls) noexcept {
     Render::ValidationResult validation;
     validation.code = dispatch.validation_code;
+    if (!dispatch.terminal) {
+      pending.reset();
+      RendererInProcessSessionResult rejected = Failure(
+          RendererInProcessSessionStatus::CAPTURE_REJECTED, validation,
+          dispatch.frontend_code, event_polls);
+      rejected.frontend_detail = dispatch.frontend_detail;
+      rejected.asset_sequence = dispatch.asset_sequence;
+      rejected.scene_snapshot_id = dispatch.scene_snapshot_id;
+      rejected.frontend_frame_id = dispatch.frontend_frame_id;
+      return rejected;
+    }
     RendererInProcessSessionResult result = Poison(
         RendererInProcessSessionStatus::FAILED_DISPATCH, validation,
         dispatch.frontend_code, event_polls);
