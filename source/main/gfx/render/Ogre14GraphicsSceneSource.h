@@ -59,6 +59,24 @@ public:
     std::vector<GraphicsSceneAssetInput> &assets,
     IOgre14GraphicsSceneAssetMergeFaultInjector *fault_injector = nullptr);
 
+/// Removes from `assets` every identity `retained` already carries, so the two
+/// can be submitted as one disjoint union.
+///
+/// A source identity legitimately appears in more than one scene domain - the
+/// merge above exists to collapse exactly that - so a domain inventory handed
+/// beside a retained section still repeats identities the section owns. This
+/// applies the merge's own rule to that pair: an identity in both must be the
+/// same immutable asset, and a conflicting redefinition fails closed rather
+/// than picking a winner. The resulting identity set is unchanged, so nothing
+/// is omitted and nothing is tombstoned by the removal.
+///
+/// `retained` must be strictly increasing by source identity, which is proven
+/// here rather than assumed. `assets` keeps its order and is untouched on
+/// failure.
+[[nodiscard]] ValidationResult SubtractRetainedOgre14GraphicsSceneAssets(
+    const std::vector<GraphicsSceneAssetInput> &retained,
+    std::vector<GraphicsSceneAssetInput> &assets);
+
 /// Every bit names state which must come from the same completed
 /// GfxScene::BufferSimulationData() boundary. An adapter may expose a partial
 /// capture for diagnostics, but IJoinedGraphicsSceneSource publishes only when

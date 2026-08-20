@@ -2119,6 +2119,72 @@ ValidationResult MergeOgre14GraphicsSceneAssets(
       "unexpected exception occurred before the joined asset inventory was published");
 }
 
+ValidationResult SubtractRetainedOgre14GraphicsSceneAssets(
+    const std::vector<GraphicsSceneAssetInput> &retained,
+    std::vector<GraphicsSceneAssetInput> &assets) try {
+  for (std::size_t index = 1U; index < retained.size(); ++index) {
+    if (retained[index - 1U].source_asset_id >=
+        retained[index].source_asset_id) {
+      return ValidationResult::Failure(
+          ValidationCode::SEQUENCE_MISMATCH, "assets.retained.order",
+          "the retained asset section must be strictly increasing by source "
+          "identity",
+          index);
+    }
+  }
+
+  std::vector<GraphicsSceneAssetInput> candidate;
+  candidate.reserve(assets.size());
+  for (std::size_t index = 0U; index < assets.size(); ++index) {
+    const GraphicsSceneAssetInput &asset = assets[index];
+    if (asset.source_asset_id == 0U) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_IDENTIFIER, "assets.retained.source_asset_id",
+          "joined scene asset requires a nonzero stable source identity",
+          index);
+    }
+    const auto found = std::lower_bound(
+        retained.begin(), retained.end(), asset.source_asset_id,
+        [](const GraphicsSceneAssetInput &entry, std::uint64_t identity) {
+          return entry.source_asset_id < identity;
+        });
+    if (found == retained.end() ||
+        found->source_asset_id != asset.source_asset_id) {
+      candidate.push_back(asset);
+      continue;
+    }
+    // The common case is the exact same immutable owner under the exact same
+    // bindings, which needs no byte comparison at all. Bindings live beside
+    // the payload rather than inside it, so a shared owner alone proves
+    // nothing; the deep rule is the fallback the merge already uses.
+    const bool same_owner_and_bindings =
+        found->payload == asset.payload && found->payload != nullptr &&
+        found->material_bindings == asset.material_bindings;
+    if (!same_owner_and_bindings &&
+        !EquivalentGraphicsSceneAssetInput(*found, asset)) {
+      // Deliberately its own field rather than the merge's: a live failure
+      // here means the retained section and this frame describe one identity
+      // differently, which is a different thing to look at than two domains
+      // disagreeing inside one frame.
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH, "assets.retained.source_asset_id",
+          "the retained section and this frame describe one source identity "
+          "with conflicting payload bytes or material bindings",
+          index);
+    }
+  }
+  assets = std::move(candidate);
+  return ValidationResult::Success();
+} catch (const std::bad_alloc &) {
+  return ValidationResult::Failure(
+      ValidationCode::EMPTY_PAYLOAD, "assets.merge.allocation",
+      "allocation failed before the joined asset inventory was published");
+} catch (...) {
+  return ValidationResult::Failure(
+      ValidationCode::UNSUPPORTED_FEATURE, "assets.merge.exception",
+      "unexpected exception occurred before the joined asset inventory was published");
+}
+
 ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
     const std::vector<Ogre14GraphicsSceneDynamicSectionCaptureInput> &inputs,
     Ogre14GraphicsSceneDynamicIdentityRegistry &identity_registry,

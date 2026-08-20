@@ -5198,6 +5198,25 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 dynamic_validation = Render::MergeOgre14GraphicsSceneAssets(
                     nonterrain_assets, empty_assets, terrain_capture.assets,
                     candidate.frame.assets);
+                if (dynamic_validation &&
+                    pending->static_state_retained)
+                {
+                    // A source identity legitimately spans scene domains: a
+                    // material, texture, or sampler an actor shares with the
+                    // static world gets one identity from the shared source,
+                    // and the merge above is what used to collapse the two
+                    // copies. On a retained-hit frame the static half never
+                    // enters that merge - it is handed on as the owner - so
+                    // the copy the actor domain still carries would reach the
+                    // producer as a second entry for one identity, which it
+                    // rejects. Subtract what the owner already carries so the
+                    // pair stays the disjoint union the producer requires,
+                    // with the identity set unchanged.
+                    dynamic_validation =
+                        Render::SubtractRetainedOgre14GraphicsSceneAssets(
+                            *m_ogre14_static_retention_assets_owner,
+                            candidate.frame.assets);
+                }
             }
             if (!dynamic_validation)
                 return dynamic_validation;
@@ -5269,14 +5288,43 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 // its identity is the only change signal the producer has.
                 Ogre14CaptureSectionTimer refresh_timer(
                     section_retained_copy_ns);
+                // The owner must carry the assets exactly as this frame
+                // publishes them, not as the static walk first captured
+                // them. The material source rewrites the walk's placeholder
+                // material payloads into their projected form and appends the
+                // resolved textures and samplers, and it republishes every
+                // cached projection into the per-frame vector on every
+                // capture. Minting the owner from the pre-projection walk
+                // would therefore describe one identity two different ways -
+                // placeholder in the owner, projected in the residue - which
+                // is exactly what the producer rejects. Take the published
+                // union instead and hold back only the actor domain, whose
+                // assets are per-frame by nature.
+                std::vector<std::uint64_t> actor_asset_ids;
+                actor_asset_ids.reserve(dynamic_assets.size());
+                for (const Render::GraphicsSceneAssetInput& asset :
+                     dynamic_assets)
+                {
+                    actor_asset_ids.push_back(asset.source_asset_id);
+                }
+                std::sort(actor_asset_ids.begin(), actor_asset_ids.end());
+                actor_asset_ids.erase(
+                    std::unique(actor_asset_ids.begin(),
+                                actor_asset_ids.end()),
+                    actor_asset_ids.end());
                 auto refreshed_assets = std::make_shared<
                     std::vector<Render::GraphicsSceneAssetInput>>();
-                const Render::ValidationResult refreshed_asset_merge =
-                    Render::MergeOgre14GraphicsSceneAssets(
-                        static_assets, empty_assets, terrain_capture.assets,
-                        *refreshed_assets);
-                if (!refreshed_asset_merge)
-                    return refreshed_asset_merge;
+                refreshed_assets->reserve(candidate.frame.assets.size());
+                for (const Render::GraphicsSceneAssetInput& asset :
+                     candidate.frame.assets)
+                {
+                    if (!std::binary_search(actor_asset_ids.begin(),
+                                            actor_asset_ids.end(),
+                                            asset.source_asset_id))
+                    {
+                        refreshed_assets->push_back(asset);
+                    }
+                }
                 auto refreshed_meshes = std::make_shared<
                     std::vector<Render::GraphicsSceneStaticMeshInput>>(
                         candidate.frame.static_meshes);
