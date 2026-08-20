@@ -2218,6 +2218,66 @@ bool OgreNextDemoRequiresMatte(std::size_t texture_unit_count,
   return texture_unit_count != 0U || has_authored_program;
 }
 
+namespace {
+
+constexpr float kOgreNextDemoMatteTintSteps =
+    static_cast<float>(kOgreNextDemoMatteTintLevels - 1U);
+
+std::uint32_t QuantizeOgreNextDemoMatteTintChannel(float value) noexcept {
+  const float scaled = value * kOgreNextDemoMatteTintSteps;
+  float level = std::floor(scaled + 0.5F);
+  if (level < 0.0F) {
+    level = 0.0F;
+  }
+  if (level > kOgreNextDemoMatteTintSteps) {
+    level = kOgreNextDemoMatteTintSteps;
+  }
+  return static_cast<std::uint32_t>(level);
+}
+
+} // namespace
+
+OgreNextDemoMatteTint
+OgreNextDemoResolveMatteTint(float authored_red, float authored_green,
+                             float authored_blue) noexcept {
+  const OgreNextDemoMatteTint neutral;
+  if (!std::isfinite(authored_red) || !std::isfinite(authored_green) ||
+      !std::isfinite(authored_blue)) {
+    return neutral;
+  }
+  // Fail closed rather than clamp: a legacy script that authors a channel
+  // outside unit range is not describing a base-colour modulator this matte
+  // can represent, so it keeps the reviewed neutral stand-in.
+  if (authored_red < 0.0F || authored_red > 1.0F || authored_green < 0.0F ||
+      authored_green > 1.0F || authored_blue < 0.0F || authored_blue > 1.0F) {
+    return neutral;
+  }
+  const std::uint32_t red_level =
+      QuantizeOgreNextDemoMatteTintChannel(authored_red);
+  const std::uint32_t green_level =
+      QuantizeOgreNextDemoMatteTintChannel(authored_green);
+  const std::uint32_t blue_level =
+      QuantizeOgreNextDemoMatteTintChannel(authored_blue);
+  const std::uint32_t white_level = kOgreNextDemoMatteTintLevels - 1U;
+  // The OGRE pass default diffuse is opaque white, which the overwhelming
+  // majority of legacy scripts never override. White carries no tint
+  // information, so it keeps the untinted matte identity byte-for-byte.
+  if (red_level == white_level && green_level == white_level &&
+      blue_level == white_level) {
+    return neutral;
+  }
+  OgreNextDemoMatteTint tint;
+  tint.red = static_cast<float>(red_level) / kOgreNextDemoMatteTintSteps;
+  tint.green = static_cast<float>(green_level) / kOgreNextDemoMatteTintSteps;
+  tint.blue = static_cast<float>(blue_level) / kOgreNextDemoMatteTintSteps;
+  tint.token =
+      (red_level * kOgreNextDemoMatteTintLevels + green_level) *
+          kOgreNextDemoMatteTintLevels +
+      blue_level;
+  tint.tinted = true;
+  return tint;
+}
+
 bool OgreNextDemoDropsDynamicBlendColors(
     bool has_dynamic_texture_blend) noexcept {
   return has_dynamic_texture_blend;

@@ -675,6 +675,38 @@ private:
 [[nodiscard]] bool
 OgreNextDemoRequiresMatte(std::size_t texture_unit_count,
                           bool has_authored_program) noexcept;
+
+/// Quantisation lattice for the demo matte tint. Every matte section stands in
+/// for exactly one texture the projection path declined to admit, so the matte
+/// colour is the legacy pass's own diffuse modulator applied to the neutral
+/// stand-in rather than one scene-wide constant. The token is a pure function
+/// of the quantised tint, so a matte material name and its emitted factors stay
+/// in exact bijection: the identity registry can never observe two different
+/// colours under one material key, and the realised matte material count is
+/// hard-bounded by 3 cull modes x (kOgreNextDemoMatteTintTokenCount + 1).
+constexpr std::uint32_t kOgreNextDemoMatteTintLevels = 16U;
+constexpr std::uint32_t kOgreNextDemoMatteTintTokenCount =
+    kOgreNextDemoMatteTintLevels * kOgreNextDemoMatteTintLevels *
+    kOgreNextDemoMatteTintLevels;
+
+/// Resolved matte tint. `tinted` is false for every material that carries no
+/// usable authored diffuse, in which case the channel factors are exactly one
+/// and the caller must keep the untinted matte identity byte-for-byte.
+struct OgreNextDemoMatteTint {
+  float red = 1.0F;
+  float green = 1.0F;
+  float blue = 1.0F;
+  std::uint32_t token = 0U;
+  bool tinted = false;
+};
+
+/// Fail-closed reduction of one authored legacy diffuse to a matte tint. A
+/// non-finite or out-of-unit-range channel, and the untinted white the OGRE
+/// pass default reports for the overwhelming majority of legacy scripts, both
+/// resolve to the neutral (untinted) result.
+[[nodiscard]] OgreNextDemoMatteTint
+OgreNextDemoResolveMatteTint(float authored_red, float authored_green,
+                             float authored_blue) noexcept;
 [[nodiscard]] bool
 OgreNextDemoDropsDynamicBlendColors(bool has_dynamic_texture_blend) noexcept;
 [[nodiscard]] bool

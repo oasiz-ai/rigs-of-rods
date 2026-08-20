@@ -1591,6 +1591,49 @@ void CheckMatteFallbackPolicy() {
           "Alexis opaque TUS0 approximation escaped its exact content scope");
 }
 
+void CheckMatteTintPolicy() {
+  const OgreNextDemoMatteTint white = OgreNextDemoResolveMatteTint(
+      1.0F, 1.0F, 1.0F);
+  Require(!white.tinted && white.red == 1.0F && white.green == 1.0F &&
+              white.blue == 1.0F,
+          "the OGRE default white diffuse no longer keeps the neutral matte");
+  const OgreNextDemoMatteTint nearly_white =
+      OgreNextDemoResolveMatteTint(0.999F, 0.999F, 0.999F);
+  Require(!nearly_white.tinted,
+          "a diffuse that quantizes to white left the neutral matte");
+  for (const float bad : {-0.01F, 1.01F,
+                          (std::numeric_limits<float>::quiet_NaN)(),
+                          (std::numeric_limits<float>::infinity)()}) {
+    Require(!OgreNextDemoResolveMatteTint(bad, 0.5F, 0.5F).tinted &&
+                !OgreNextDemoResolveMatteTint(0.5F, bad, 0.5F).tinted &&
+                !OgreNextDemoResolveMatteTint(0.5F, 0.5F, bad).tinted,
+            "an unrepresentable authored diffuse was not failed closed");
+  }
+  const OgreNextDemoMatteTint dark = OgreNextDemoResolveMatteTint(
+      0.1F, 0.1F, 0.1F);
+  Require(dark.tinted && dark.red == dark.green && dark.green == dark.blue &&
+              dark.red > 0.0F && dark.red < 0.2F,
+          "an authored dark foliage diffuse lost its matte tint");
+  const OgreNextDemoMatteTint green = OgreNextDemoResolveMatteTint(
+      0.0785F, 0.4F, 0.0785F);
+  Require(green.tinted && green.green > green.red &&
+              green.red == green.blue,
+          "an authored chromatic diffuse lost its matte hue");
+  Require(green.token != dark.token && green.token != white.token,
+          "distinct matte tints collapsed onto one material identity");
+  Require(green.token < kOgreNextDemoMatteTintTokenCount &&
+              dark.token < kOgreNextDemoMatteTintTokenCount,
+          "a matte tint token escaped its declared bound");
+  // The token must stay a pure function of the emitted factors so one matte
+  // material key can never describe two different colours.
+  const OgreNextDemoMatteTint replayed =
+      OgreNextDemoResolveMatteTint(green.red, green.green, green.blue);
+  Require(replayed.tinted && replayed.token == green.token &&
+              replayed.red == green.red && replayed.green == green.green &&
+              replayed.blue == green.blue,
+          "matte tint quantization is not idempotent");
+}
+
 void CheckMatteMeshNormalization() {
   MeshResourceDescriptor mesh;
   mesh.debug_name = "demo matte triangle";
@@ -1698,6 +1741,7 @@ int main() {
   CheckIdentityCollisionAndRollback();
   CheckStaticCaptureAdmission();
   CheckMatteFallbackPolicy();
+  CheckMatteTintPolicy();
   CheckMatteMeshNormalization();
   std::cout << "OgreNext demo private policy tests passed\n";
   return EXIT_SUCCESS;
