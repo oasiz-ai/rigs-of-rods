@@ -80,6 +80,9 @@ constexpr char kCuratedCityWorldPbrLoweringPolicy[] =
     "RoR/OgreNextDemo/CuratedCityWorldAsia/ReviewedSpecularWorkflow/v1";
 constexpr char kAlexisAuthoredRoughnessPolicy[] =
     "RoR/OgreNextDemo/AlexisAuthoredBodyPaint/ReviewedRoughness/v1";
+constexpr char kOgreNextDemoAdditiveEquivalentGlowOverlayPolicy[] =
+    "RoR/OgreNextDemo/LegacyOverlay/AdditiveEquivalentGlowAuthoredTexelProof/"
+    "v1";
 constexpr std::uint32_t kMaximumTextureDimension = 8192U;
 constexpr std::uint64_t kMaximumTextureBaseBytes = 256ULL * 1024ULL * 1024ULL;
 
@@ -818,6 +821,24 @@ enum class LegacyOverlayPassKind : std::uint8_t {
   UNSUPPORTED = 0U,
   ADDITIVE = 1U,
   DESTINATION_MODIFYING = 2U,
+  /// A `scene_blend alpha_blend` overlay whose *declared* shape is the
+  /// CityWorld glow shape: alpha-rejected, exactly one canonical texture unit,
+  /// and a self-illumination term. Only the declaration has been checked here;
+  /// the authored texels still have to prove the additive equivalence before
+  /// this may be traded for pass 0's base colour.
+  ADDITIVE_EQUIVALENT_GLOW_CANDIDATE = 3U,
+};
+
+/// Contract for the authored-source proof behind
+/// `kOgreNextDemoAdmitsAdditiveEquivalentGlowOverlayPasses`. Kept abstract so
+/// the structural predicate stays a free function while the decode, the
+/// selected-source receipts, and their per-capture revalidation stay owned by
+/// the material source.
+class LegacyGlowOverlayContentVerifier {
+public:
+  virtual ~LegacyGlowOverlayContentVerifier() = default;
+  [[nodiscard]] virtual bool VerifyAdditiveEquivalentGlowOverlay(
+      const Ogre::Pass &base_pass, const Ogre::Pass &overlay_pass) noexcept = 0;
 };
 
 LegacyOverlayPassKind ClassifyLegacyOverlayPass(
@@ -963,17 +984,52 @@ bool HasAuthoredProgram(const Ogre::Pass &pass) noexcept {
          pass.hasTessellationDomainProgram() || pass.hasComputeProgram();
 }
 
+/// True when a trailing overlay pass would shade an identical texel to exactly
+/// the same colour pass 0 would, plus some non-negative self-illumination.
+///
+/// Both passes run the same fixed-function lighting equation, so equal
+/// material colours, equal shininess, equal vertex-colour tracking and equal
+/// lighting state make the lit term a pure function of the sampled texel. The
+/// self-illumination is the only term allowed to differ, and only upward: that
+/// difference is precisely the "added light" the additive bound permits us to
+/// drop. Alpha is deliberately not compared - the overlay's alpha selects
+/// which fragments survive and is verified against the authored texels
+/// instead, while pass 0's alpha is governed by its own canonical blend.
+bool HasAddedLightOnlyShadingResponse(const Ogre::Pass &base,
+                                      const Ogre::Pass &overlay) noexcept {
+  const Ogre::ColourValue base_emissive = base.getSelfIllumination();
+  const Ogre::ColourValue overlay_emissive = overlay.getSelfIllumination();
+  return base.getDiffuse() == overlay.getDiffuse() &&
+         base.getAmbient() == overlay.getAmbient() &&
+         base.getSpecular() == overlay.getSpecular() &&
+         base.getShininess() == overlay.getShininess() &&
+         base.getVertexColourTracking() ==
+             overlay.getVertexColourTracking() &&
+         base.getLightingEnabled() == overlay.getLightingEnabled() &&
+         overlay_emissive.r >= base_emissive.r &&
+         overlay_emissive.g >= base_emissive.g &&
+         overlay_emissive.b >= base_emissive.b;
+}
+
 /// Single structural gate for an ordinary (uncurated, non-Alexis) legacy
 /// material. No GPU program, pass 0 unit 0 as base colour, every further unit a
 /// recognised legacy layer, and every further pass a recognised additive
 /// overlay - all of which are observed and counted but never presented. Both
 /// the admission decision and its later revalidation call this so the two can
 /// never drift apart.
+///
+/// `glow_verifier` supplies the authored-source proof for an alpha-blended
+/// overlay that only *declares* the additive-equivalent glow shape. Admission
+/// always passes one. Revalidation passes null and re-checks the declaration
+/// only: a projection exists solely because admission already discharged the
+/// texel proof, and the proof is bound to immutable authored source bytes
+/// whose selected-source receipts the verifier revalidates on every reuse.
 bool HasAdmissibleLegacyShape(
     const Ogre::Technique &technique, const Ogre::Pass &pass,
     std::size_t &unpresented_layer_units,
     std::size_t &unpresented_additive_overlay_passes,
-    OgreNextDemoTextureProjectionExclusion &exclusion) noexcept {
+    OgreNextDemoTextureProjectionExclusion &exclusion,
+    LegacyGlowOverlayContentVerifier *glow_verifier = nullptr) noexcept {
   unpresented_layer_units = 0U;
   unpresented_additive_overlay_passes = 0U;
   if (HasAuthoredProgram(pass)) {
@@ -1011,6 +1067,24 @@ bool HasAdmissibleLegacyShape(
       exclusion = OgreNextDemoTextureProjectionExclusion::
           MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED;
       return false;
+    }
+    if (kind == LegacyOverlayPassKind::ADDITIVE_EQUIVALENT_GLOW_CANDIDATE) {
+      // The declaration alone never earns the additive bound. Require that the
+      // overlay could only ever add light to an identical texel, then require
+      // the authored texels themselves to prove they ARE identical wherever
+      // the overlay's own alpha rejection keeps them. A candidate that fails
+      // either clause is exactly what the destination-modifying refusal is
+      // for: presenting pass 0 alone would show colour the author covered.
+      if (!HasAddedLightOnlyShadingResponse(pass, *overlay) ||
+          (glow_verifier != nullptr &&
+           !glow_verifier->VerifyAdditiveEquivalentGlowOverlay(pass,
+                                                               *overlay))) {
+        exclusion = OgreNextDemoTextureProjectionExclusion::
+            MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED;
+        return false;
+      }
+      ++additive_overlay_passes;
+      continue;
     }
     if (kind != LegacyOverlayPassKind::ADDITIVE) {
       exclusion = OgreNextDemoTextureProjectionExclusion::
@@ -1216,7 +1290,36 @@ LegacyOverlayPassKind ClassifyLegacyOverlayPass(
          observation.destination_color == Ogre::SBF_ZERO &&
          observation.source_alpha == Ogre::SBF_DEST_COLOUR &&
          observation.destination_alpha == Ogre::SBF_ZERO);
-    if (alpha_blend_overlay || modulate_overlay) {
+    if (alpha_blend_overlay) {
+      // Separate the declared CityWorld glow shape from every other
+      // alpha-blended decal. A glow overlay rejects its own transparent
+      // texels rather than compositing them, carries exactly one canonical
+      // UV0 texture unit (a second unit is how the `ventanas` sky-reflection
+      // decals are built), declares self-illumination it means to add, and
+      // leaves lighting and vertex colour alone. Everything that survives is
+      // still only a candidate: `HasAdmissibleLegacyShape` must compare it
+      // against pass 0 and then prove the texels.
+      Ogre::Pass &mutable_overlay = const_cast<Ogre::Pass &>(pass);
+      const Ogre::TextureUnitState *const overlay_unit =
+          mutable_overlay.getNumTextureUnitStates() == 1U
+              ? mutable_overlay.getTextureUnitState(0U)
+              : nullptr;
+      const bool declares_added_light =
+          observation.emissive[0U] > 0.0F || observation.emissive[1U] > 0.0F ||
+          observation.emissive[2U] > 0.0F;
+      if (kOgreNextDemoAdmitsAdditiveEquivalentGlowOverlayPasses &&
+          observation.alpha_reject != Ogre::CMPF_ALWAYS_PASS &&
+          overlay_unit != nullptr && declares_added_light &&
+          observation.lighting_enabled &&
+          observation.vertex_colour_tracking == Ogre::TVC_NONE &&
+          observation.depth_check &&
+          IsCanonicalTextureUnitSemantic(*overlay_unit) &&
+          HasAvailableNamedTextureSource(*overlay_unit)) {
+        return LegacyOverlayPassKind::ADDITIVE_EQUIVALENT_GLOW_CANDIDATE;
+      }
+      return LegacyOverlayPassKind::DESTINATION_MODIFYING;
+    }
+    if (modulate_overlay) {
       return LegacyOverlayPassKind::DESTINATION_MODIFYING;
     }
     return LegacyOverlayPassKind::UNSUPPORTED;
@@ -2824,6 +2927,16 @@ struct CapturedManagedSpecularTexture final {
   OgreNextDemoTextureNormalizationObservation normalization_observation;
 };
 
+/// Memoised outcome of one authored-texel glow proof. `verified` is only ever
+/// stored for a pair that passed; the two resolutions are retained so a later
+/// reuse can re-assert that the very bytes the proof ran over are still the
+/// bytes the resolver would hand out today.
+struct GlowOverlayContentVerdict final {
+  bool verified = false;
+  Render::Ogre14SelectedTextureSourceResolution base_resolution;
+  Render::Ogre14SelectedTextureSourceResolution overlay_resolution;
+};
+
 struct MaterialCache final {
   OgreNextDemoIdentityRegistry identities;
   std::map<std::string, CapturedTexture, std::less<>> textures;
@@ -2832,7 +2945,95 @@ struct MaterialCache final {
       managed_specular_textures;
   std::map<std::string, Projection, std::less<>> projections;
   std::map<std::string, ProjectionDecision, std::less<>> decisions;
+  std::map<std::string, GlowOverlayContentVerdict, std::less<>>
+      glow_overlay_verdicts;
 };
+
+/// Per-texel discharge of clauses 1 and 3 of the additive-equivalence
+/// argument. `reject_function`/`reject_value` are the overlay pass's own
+/// authored alpha rejection, so this walks exactly the fragments the overlay
+/// would have drawn and ignores the ones it discards.
+///
+/// Only mip 0 is compared, and only at equal dimensions. Both sources are
+/// decoded to canonical tightly packed RGBA8, so equal dimensions make the
+/// texel correspondence exact and remove any resampling judgement from the
+/// proof. Every further mip either side would use is generated from the mip 0
+/// proved here by the same box filter, and a filter that is a convex
+/// combination cannot widen a bound its inputs already satisfy.
+bool AuthoredTexelsProveAddedLightOnly(
+    const Render::Ogre14DecodedSourceTexture &base,
+    const Render::Ogre14DecodedSourceTexture &overlay,
+    Ogre::CompareFunction reject_function,
+    std::uint8_t reject_value) noexcept {
+  try {
+    if (reject_function != Ogre::CMPF_GREATER &&
+        reject_function != Ogre::CMPF_GREATER_EQUAL) {
+      return false;
+    }
+    if (base.mip_levels.empty() || overlay.mip_levels.empty()) {
+      return false;
+    }
+    const Render::Ogre14DecodedSourceTextureMip &base_mip = base.mip_levels[0U];
+    const Render::Ogre14DecodedSourceTextureMip &overlay_mip =
+        overlay.mip_levels[0U];
+    if (base_mip.width == 0U || base_mip.height == 0U ||
+        base_mip.width != overlay_mip.width ||
+        base_mip.height != overlay_mip.height) {
+      return false;
+    }
+    const std::uint64_t required = static_cast<std::uint64_t>(base_mip.width) *
+                                   4U;
+    if (base_mip.row_pitch_bytes < required ||
+        overlay_mip.row_pitch_bytes < required) {
+      return false;
+    }
+    const std::uint64_t base_span =
+        base_mip.row_pitch_bytes * static_cast<std::uint64_t>(base_mip.height);
+    const std::uint64_t overlay_span =
+        overlay_mip.row_pitch_bytes *
+        static_cast<std::uint64_t>(overlay_mip.height);
+    if (base_mip.rgba8_unorm.size() < base_span ||
+        overlay_mip.rgba8_unorm.size() < overlay_span) {
+      return false;
+    }
+    const int limit =
+        static_cast<int>(kOgreNextDemoGlowOverlayMaximumKeptTexelDelta);
+    for (std::uint32_t row = 0U; row < base_mip.height; ++row) {
+      const std::uint8_t *const base_row =
+          base_mip.rgba8_unorm.data() +
+          static_cast<std::size_t>(row * base_mip.row_pitch_bytes);
+      const std::uint8_t *const overlay_row =
+          overlay_mip.rgba8_unorm.data() +
+          static_cast<std::size_t>(row * overlay_mip.row_pitch_bytes);
+      for (std::uint32_t column = 0U; column < base_mip.width; ++column) {
+        const std::size_t texel = static_cast<std::size_t>(column) * 4U;
+        const std::uint8_t alpha = overlay_row[texel + 3U];
+        const bool kept = reject_function == Ogre::CMPF_GREATER
+                              ? alpha > reject_value
+                              : alpha >= reject_value;
+        if (!kept) {
+          continue;
+        }
+        // Clause 1: a surviving fragment must be fully opaque, or
+        // `src*a + dst*(1-a)` is a real composite and not a cutout replace.
+        if (overlay_row[texel + 3U] != 255U) {
+          return false;
+        }
+        // Clause 3: the surviving artwork must be pass 0's own.
+        for (std::size_t channel = 0U; channel < 3U; ++channel) {
+          const int delta = static_cast<int>(overlay_row[texel + channel]) -
+                            static_cast<int>(base_row[texel + channel]);
+          if (delta > limit || delta < -limit) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 
 struct PendingNativeTextureOwner final {
   Ogre::MaterialPtr native_material;
@@ -3093,6 +3294,144 @@ bool OgreNextDemoMaterialSource::BeginCapture() noexcept {
   }
 }
 
+bool OgreNextDemoMaterialSource::VerifyAdditiveEquivalentGlowOverlayContent(
+    const Ogre::Pass &base_pass, const Ogre::Pass &overlay_pass) noexcept {
+  try {
+    if (pending_ == nullptr || !pending_->capture_open || !pending_->cache ||
+        ordinary_texture_source_resolver_ == nullptr ||
+        texture_resolver_ == nullptr) {
+      return false;
+    }
+    Ogre::Pass &mutable_base = const_cast<Ogre::Pass &>(base_pass);
+    Ogre::Pass &mutable_overlay = const_cast<Ogre::Pass &>(overlay_pass);
+    if (mutable_base.getNumTextureUnitStates() == 0U ||
+        mutable_overlay.getNumTextureUnitStates() != 1U) {
+      return false;
+    }
+    const Ogre::TextureUnitState *const base_unit =
+        mutable_base.getTextureUnitState(0U);
+    const Ogre::TextureUnitState *const overlay_unit =
+        mutable_overlay.getTextureUnitState(0U);
+    if (base_unit == nullptr || overlay_unit == nullptr) {
+      return false;
+    }
+    const Ogre::TexturePtr base_texture = base_unit->_getTexturePtr();
+    const Ogre::TexturePtr overlay_texture = overlay_unit->_getTexturePtr();
+    if (!base_texture || !overlay_texture ||
+        base_texture->getName().empty() ||
+        overlay_texture->getName().empty()) {
+      return false;
+    }
+    // Same UV0 texel for the same fragment is what makes a texel-by-texel
+    // comparison meaningful at all. The canonical-semantic gate already fixed
+    // both units to coordinate set 0 with an identity transform; matching the
+    // sampler addressing closes the remaining way two identical UVs could
+    // still fetch different texels outside the unit square.
+    const Ogre::SamplerPtr base_sampler = base_unit->getSampler();
+    const Ogre::SamplerPtr overlay_sampler = overlay_unit->getSampler();
+    if (!base_sampler || !overlay_sampler ||
+        !MatchOgreNextDemoExactSamplerObservation(
+            ObserveExactSampler(*base_sampler),
+            ObserveExactSampler(*overlay_sampler))) {
+      return false;
+    }
+    const Ogre::CompareFunction reject_function =
+        overlay_pass.getAlphaRejectFunction();
+    const std::uint8_t reject_value = overlay_pass.getAlphaRejectValue();
+
+    std::string verdict_key;
+    AppendField(verdict_key, kOgreNextDemoAdditiveEquivalentGlowOverlayPolicy);
+    AppendNumber(verdict_key,
+                 kOgreNextDemoGlowOverlayMaximumKeptTexelDelta);
+    AppendField(verdict_key, base_texture->getGroup());
+    AppendField(verdict_key, base_texture->getName());
+    AppendField(verdict_key, overlay_texture->getGroup());
+    AppendField(verdict_key, overlay_texture->getName());
+    AppendNumber(verdict_key, static_cast<std::uint64_t>(reject_function));
+    AppendNumber(verdict_key, static_cast<std::uint64_t>(reject_value));
+
+    const auto cached = pending_->cache->glow_overlay_verdicts.find(verdict_key);
+    if (cached != pending_->cache->glow_overlay_verdicts.end()) {
+      // A stored refusal is never retried. It can only ever be
+      // over-conservative - the material stays matte under its truthful
+      // reason - and re-decoding a pair that already failed once per capture
+      // would be the single most expensive thing this projection does.
+      if (!cached->second.verified) {
+        return false;
+      }
+      // A stored proof is only as good as the bytes it ran over, so re-assert
+      // that the resolver still hands out those exact selected sources.
+      return ordinary_texture_source_resolver_->RevalidateSelectedTextureSource(
+                 *base_texture, cached->second.base_resolution) &&
+             ordinary_texture_source_resolver_->RevalidateSelectedTextureSource(
+                 *overlay_texture, cached->second.overlay_resolution);
+    }
+
+    GlowOverlayContentVerdict verdict;
+    const auto resolve =
+        [this](const Ogre::TexturePtr &texture,
+               Render::Ogre14SelectedTextureSourceResolution &resolution,
+               Render::Ogre14DecodedSourceTexture &decoded) {
+          // The authenticated domain owns its own authority and its own
+          // lowering; this proof deliberately reads only the ordinary
+          // selected-source domain and refuses rather than crossing over.
+          if (texture_resolver_->RequiresAuthenticatedTextureSource(*texture)) {
+            return false;
+          }
+          if (!ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
+                  *texture, resolution) ||
+              !resolution.initialized()) {
+            return false;
+          }
+          const Render::Ogre14SelectedTextureSourceReceipt *const receipt =
+              resolution.source_receipt();
+          if (receipt == nullptr || !receipt->initialized() ||
+              receipt->metadata() == nullptr ||
+              receipt->source_bytes() == nullptr ||
+              receipt->source_size() == 0U) {
+            return false;
+          }
+          // PRESERVE_STRAIGHT, not the FORCE_OPAQUE policy an opaque
+          // projection would use: the overlay's authored alpha IS the mask
+          // this proof is about, and forcing it opaque would destroy the very
+          // evidence being weighed. Nothing decoded here is published.
+          const Render::Ogre14SourceTextureDecodeOptions options =
+              BuildOrdinaryDecodeOptions(
+                  *receipt, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT);
+          if (receipt->source_size() > options.maximum_encoded_bytes) {
+            return false;
+          }
+          try {
+            const std::vector<std::uint8_t> encoded(
+                receipt->source_bytes(),
+                receipt->source_bytes() + receipt->source_size());
+            return static_cast<bool>(Render::DecodeOgre14SourceTexture(
+                encoded, options, decoded, nullptr));
+          } catch (...) {
+            return false;
+          }
+        };
+
+    Render::Ogre14DecodedSourceTexture base_decoded;
+    Render::Ogre14DecodedSourceTexture overlay_decoded;
+    verdict.verified =
+        resolve(base_texture, verdict.base_resolution, base_decoded) &&
+        resolve(overlay_texture, verdict.overlay_resolution,
+                overlay_decoded) &&
+        // An overlay with no alpha channel at all keeps every texel, so this
+        // still requires it to be pass 0's artwork before admitting it.
+        AuthoredTexelsProveAddedLightOnly(base_decoded, overlay_decoded,
+                                          reject_function, reject_value);
+    const bool result = verdict.verified;
+    EnsurePendingCacheWritable();
+    pending_->cache->glow_overlay_verdicts.emplace(std::move(verdict_key),
+                                                   std::move(verdict));
+    return result;
+  } catch (...) {
+    return false;
+  }
+}
+
 void OgreNextDemoMaterialSource::EnsurePendingCacheWritable() {
   if (pending_ == nullptr || !pending_->capture_open || !pending_->cache) {
     throw std::logic_error("material projection has no writable transaction");
@@ -3186,10 +3525,25 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   }
   std::size_t unpresented_layer_units = 0U;
   std::size_t unpresented_additive_overlay_passes = 0U;
+  // Admission - and only admission - carries the authored-texel proof for an
+  // alpha-blended overlay that merely declares the additive-equivalent glow
+  // shape.
+  struct AdmissionGlowVerifier final : LegacyGlowOverlayContentVerifier {
+    OgreNextDemoMaterialSource *owner = nullptr;
+    bool VerifyAdditiveEquivalentGlowOverlay(
+        const Ogre::Pass &base_pass,
+        const Ogre::Pass &overlay_pass) noexcept override {
+      return owner != nullptr &&
+             owner->VerifyAdditiveEquivalentGlowOverlayContent(base_pass,
+                                                               overlay_pass);
+    }
+  };
+  AdmissionGlowVerifier glow_verifier;
+  glow_verifier.owner = this;
   if (!allow_alexis_approximation && !allow_curated_cityworld &&
       !HasAdmissibleLegacyShape(*technique, *pass, unpresented_layer_units,
-                                unpresented_additive_overlay_passes,
-                                exclusion)) {
+                                unpresented_additive_overlay_passes, exclusion,
+                                &glow_verifier)) {
     return false;
   }
   Ogre::TextureUnitState *const unit = pass->getTextureUnitState(0U);

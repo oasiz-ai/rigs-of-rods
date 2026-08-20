@@ -129,6 +129,64 @@ constexpr bool kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses = true;
 constexpr bool kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials =
     true;
 
+/// Admits a legacy material whose trailing `scene_blend alpha_blend` overlay is
+/// *proved from the authored source bytes* to be additive-equivalent, so it
+/// falls under the identical bound as a declared `scene_blend add` overlay
+/// rather than under the destination-modifying refusal.
+///
+/// CityWorld's NeoQuerétaro facades declare their night-time window glow this
+/// way: a trailing alpha-blended pass with `alpha_rejection greater N`, one
+/// texture unit holding the "-E" (encendidas / lit) variant of pass 0's own
+/// facade artwork, and a self-illumination term pass 0 does not declare.
+///
+/// The equivalence argument, which the runtime verifier discharges texel by
+/// texel and never assumes:
+///
+///   1. Every surviving texel has alpha exactly 255, so the `alpha_blend`
+///      equation `src*a + dst*(1-a)` collapses to `src`. The overlay is a
+///      cutout replace, not a partial composite.
+///   2. The overlay's lit response is declared identical to pass 0's (same
+///      diffuse, ambient, specular, shininess, vertex-colour tracking, and
+///      lighting state), and its self-illumination is componentwise >= pass
+///      0's.
+///   3. At every surviving texel the overlay's authored RGB equals pass 0's
+///      authored RGB to within `kOgreNextDemoGlowOverlayMaximumKeptTexelDelta`.
+///
+/// Under 1-3 the overlay's output is `pass0_output + (overlay_emissive -
+/// base_emissive) +- delta`: it can only ADD light to what pass 0 already
+/// wrote. Presenting pass 0 alone is therefore the authored image minus some
+/// added light and never a different colour - word for word the bound
+/// `kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses` already rests on.
+///
+/// Overlays that fail any clause keep the destination-modifying refusal:
+/// CityWorld's `ventanas1-7` (a planar sky-reflection decal in a second
+/// texture unit), `NQ-Sky-Clouds` (genuinely translucent, alpha 136), the
+/// `postes-alumbrado-publico-E` street-lamp lenses (the lit lens is different
+/// artwork, and its texture is half pass 0's resolution), and the handful of
+/// facades whose "-E" variant repaints its windows a different hue. For those,
+/// dropping the overlay would show colour the author deliberately covered.
+///
+/// Presenting the glow instead of dropping it was investigated first and does
+/// not work for the same reason the additive family documents above: the mask
+/// lives exclusively in the alpha channel that the PBS emissive slot ignores,
+/// and these "-E" maps are white (255,255,255) across every texel their
+/// authored `alpha_rejection` discards, so an emissive lowering would light
+/// the entire facade instead of its windows.
+constexpr bool kOgreNextDemoAdmitsAdditiveEquivalentGlowOverlayPasses = true;
+
+/// Maximum per-channel difference, in 8-bit UNORM steps, allowed between an
+/// admitted glow overlay's authored texel and pass 0's authored texel at the
+/// same coordinate, over the texels the overlay's own alpha rejection keeps.
+///
+/// This is a content-calibrated constant, not a free tolerance. Across the 46
+/// same-resolution CityWorld candidates the two populations are disjoint and
+/// separated: every overlay that is pass 0's artwork re-encoded (PNG carrying
+/// what pass 0 stores as JPEG) differs by at most 15 steps, while the smallest
+/// genuinely-repainted overlay differs by 18 and the largest by 84. 16 sits in
+/// that gap. Raising it past 17 would begin admitting overlays whose windows
+/// are painted a different colour, which the bound above does not cover.
+constexpr std::uint32_t kOgreNextDemoGlowOverlayMaximumKeptTexelDelta = 16U;
+
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);
 

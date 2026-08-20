@@ -24,6 +24,10 @@
 #include <string_view>
 #include <vector>
 
+namespace Ogre {
+class Pass;
+} // namespace Ogre
+
 namespace RoR::Render {
 class IOgre14AuthenticatedTextureResolver;
 class IOgre14AuthenticatedTextureAuthorityProvider;
@@ -158,6 +162,21 @@ public:
 
 private:
   void EnsurePendingCacheWritable();
+
+  /// Discharges the authored-texel clause of
+  /// `kOgreNextDemoAdmitsAdditiveEquivalentGlowOverlayPasses`: decodes both
+  /// passes' authored base-colour sources and proves that, over every texel the
+  /// overlay's own alpha rejection keeps, the overlay is pass 0's artwork with
+  /// alpha exactly 255 and RGB within
+  /// `kOgreNextDemoGlowOverlayMaximumKeptTexelDelta`. The decode exists only
+  /// for this comparison and is discarded; neither source is published,
+  /// retained, or given an asset, so an admitted glow material costs no extra
+  /// texture memory. The verdict is memoised per authored source pair and
+  /// re-proved through the selected-source receipts on every reuse, so it can
+  /// never outlive the bytes it was derived from. Fail-closed: any resolver,
+  /// decode, container, or dimension surprise answers false.
+  [[nodiscard]] bool VerifyAdditiveEquivalentGlowOverlayContent(
+      const Ogre::Pass &base_pass, const Ogre::Pass &overlay_pass) noexcept;
 
   [[nodiscard]] bool TryProjectCurrent(
       const Ogre::MaterialPtr &native_material, bool has_authored_uv0,
