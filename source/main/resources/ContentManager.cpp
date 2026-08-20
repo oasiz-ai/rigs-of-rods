@@ -7028,7 +7028,7 @@ Ogre::DataStreamPtr ContentManager::OpenSelectedTextureSourceStream(
             effective_file_info == nullptr ||
             // Re-reads the borrowed OGRE record to catch a mutation during the
             // archive read. When the record was rebuilt from the archive index
-            // above, effective_file_info owns a private copy and these five
+            // above, effective_file_info owns a private copy and the next six
             // comparisons are necessarily true; nothing is lost, because a
             // copy has no other writer.
             effective_file_info->archive != selected_archive ||
