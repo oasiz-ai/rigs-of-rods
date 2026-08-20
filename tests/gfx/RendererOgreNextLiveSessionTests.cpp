@@ -293,9 +293,13 @@ RenderBridgeSurfaceState SuspendedSurface(std::uint64_t revision) {
   return surface;
 }
 
+/// `final_empty` selects the generation-finalizing shape the transport
+/// dispatcher retires without entering the frontend. Ordinary renderable
+/// scenes must carry the asset-free directional light, or they would be
+/// retired too and stop exercising the render path they mean to test.
 std::shared_ptr<const SceneSnapshot> Scene(
     std::uint64_t registry_id, std::uint64_t snapshot_id = 1U,
-    double simulation_time_seconds = 1.0 / 48.0) {
+    double simulation_time_seconds = 1.0 / 48.0, bool final_empty = false) {
   SceneSnapshotDescriptor descriptor;
   descriptor.snapshot_id = snapshot_id;
   descriptor.asset_registry_id = registry_id;
@@ -303,6 +307,11 @@ std::shared_ptr<const SceneSnapshot> Scene(
   descriptor.simulation_tick =
       static_cast<std::uint64_t>(simulation_time_seconds * 2000.0);
   descriptor.simulation_time_seconds = simulation_time_seconds;
+  if (!final_empty) {
+    LightDescriptor light;
+    light.light_id = snapshot_id;
+    descriptor.lights.push_back(light);
+  }
   SceneSnapshotCreateResult created =
       CreateSceneSnapshot(std::move(descriptor));
   Require(created.ok(), "scene fixture invalid");
@@ -329,11 +338,13 @@ std::vector<std::uint8_t> SceneFrame(std::uint64_t registry_id) {
 
 std::vector<std::uint8_t> SceneFrame(
     std::uint64_t envelope_sequence, std::uint64_t registry_id,
-    std::uint64_t snapshot_id, double simulation_time_seconds) {
+    std::uint64_t snapshot_id, double simulation_time_seconds,
+    bool final_empty = false) {
   const SceneSnapshotTransportEncodeResult encoded =
       EncodeSceneSnapshotTransportFrame(
           envelope_sequence,
-          *Scene(registry_id, snapshot_id, simulation_time_seconds),
+          *Scene(registry_id, snapshot_id, simulation_time_seconds,
+                 final_empty),
           Camera());
   Require(encoded.ok(), "generation scene frame fixture did not encode");
   return encoded.bytes;
@@ -665,7 +676,7 @@ void TestLiveSceneGenerationBoundaryAdmitsReloadTickZero() {
       DeriveRenderAssetRegistryIdFromBridgeSession(endpoint.session_id);
   const std::array<std::vector<std::uint8_t>, 4U> frames{{
       AssetFrame(registry_id),
-      SceneFrame(2U, registry_id, 10U, 5.0),
+      SceneFrame(2U, registry_id, 10U, 5.0, true),
       BoundaryFrame(registry_id, 10U),
       SceneFrame(4U, registry_id, 11U, 0.0),
   }};
@@ -685,18 +696,24 @@ void TestLiveSceneGenerationBoundaryAdmitsReloadTickZero() {
   CloseNative(forward.write_handle);
   worker.join();
 
+  // The final empty scene is now RETIRED by the transport dispatcher instead
+  // of rendered: the child session cannot see generation finalization, and a
+  // lightless scene can never pass a shadow-enabled raster policy. It still
+  // counts as a scene frame and still authorizes the boundary, but it consumes
+  // no frontend frame identity and is never acknowledged as presented.
   Require(session.status ==
               RendererOgreNextLiveSessionStatus::COMPLETED_PEER_EOF &&
               session.completed && session.asset_frames == 1U &&
               session.scene_frames == 2U &&
-              session.presented_scene_frames == 2U &&
+              session.retired_scene_frames == 1U &&
+              session.presented_scene_frames == 1U &&
               session.last_forward_sequence == 4U &&
               session.last_acknowledged_forward_sequence == 4U &&
               frontend.scene_generation_resets == 1U &&
-              frontend.render_calls == 2U && frontend.wait_calls == 2U &&
-              frontend.frame_ids == std::vector<std::uint64_t>({1U, 2U}) &&
+              frontend.render_calls == 1U && frontend.wait_calls == 1U &&
+              frontend.frame_ids == std::vector<std::uint64_t>({1U}) &&
               frontend.last_simulation_time_seconds == 0.0,
-          "live dispatch did not consume final empty before tick-zero reload");
+          "live dispatch did not retire final empty before tick-zero reload");
   Require(poll.observed_forward_sequences ==
               std::vector<std::uint64_t>({1U, 2U, 3U, 4U}),
           "live generation boundary changed forward polling lineage");

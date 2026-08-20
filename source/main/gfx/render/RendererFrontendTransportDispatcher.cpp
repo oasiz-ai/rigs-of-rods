@@ -348,10 +348,26 @@ RendererFrontendTransportDispatcher::DispatchScene(
   }
   const std::uint64_t scene_snapshot_id =
       decoded.message->scene_snapshot()->snapshot_id();
+  // The child session cannot see generation finalization: it sets
+  // retire_scene_without_render only for surface_changed/suspended
+  // (RendererOgreNextLiveSession.cpp:530-534). A final empty scene has no
+  // directional light, which every shadow-enabled raster policy refuses to
+  // render (OgreNextPssmShadowPolicy.cpp:216), so presenting it could never
+  // succeed. Retire it here, exactly as the in-process session's policy does
+  // at RendererInProcessSession.cpp:507.
+  RendererFrontendPresentationPolicy effective_policy = presentation_policy;
+  if (IsFinalEmptyScene(*decoded.message->scene_snapshot())) {
+    effective_policy.retire_scene_without_render = true;
+    effective_policy.present = false;
+    effective_policy.presentation_surface_revision = 0U;
+    effective_policy.presentation_drawable_width = 0U;
+    effective_policy.presentation_drawable_height = 0U;
+    effective_policy.retire_scene_on_presentation_extent_mismatch = false;
+  }
   const RendererFrontendDirectDispatchResult dispatched =
       direct_dispatcher_.RenderScene(decoded.message->scene_snapshot(),
                                      decoded.message->camera(),
-                                     presentation_policy);
+                                     effective_policy);
   if (!dispatched) {
     return FailFromDirect(dispatched, frame);
   }
