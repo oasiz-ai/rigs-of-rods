@@ -190,6 +190,9 @@ private:
     // do not flood the log; the first accepted inventory and any promotion or
     // denominator/reason change are still emitted exactly once.
     std::string                        m_ogre_next_demo_material_coverage_log_snapshot;
+    // Distinct-material count at the last per-material section census log, so
+    // that diagnostic body is emitted only while it is still growing.
+    std::size_t                        m_ogre_next_demo_material_census_log_size = 0U;
     // Last committed policy-v1 sky descriptor telemetry. The candidate text
     // is staged with the joined capture and swapped only from Commit(), so a
     // rejected capture cannot advertise unpresented sky authority.
