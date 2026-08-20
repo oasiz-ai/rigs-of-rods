@@ -76,13 +76,58 @@ enum class OgreNextDemoTextureProjectionExclusion : std::uint8_t {
   MATERIAL_MULTI_PASS_UNSUPPORTED = 26U,
   MATERIAL_AUTHORED_PROGRAM_UNSUPPORTED = 27U,
   MATERIAL_TEXTURE_UNIT_LAYER_UNSUPPORTED = 28U,
-  COUNT = 29U,
+  /// A trailing pass that modifies what pass 0 already wrote - an alpha-blended
+  /// lit decal, or a modulate darkening layer. Presenting pass 0 alone would
+  /// show colour the author deliberately covered, so the whole material stays
+  /// matte under this name instead.
+  MATERIAL_BLENDED_OVERLAY_PASS_UNSUPPORTED = 29U,
+  /// A trailing pass that is purely additive, refused only because
+  /// `kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses` is off. Keeping its own
+  /// name lets the whole widening be switched off without collapsing the
+  /// census back into one bucket.
+  MATERIAL_ADDITIVE_OVERLAY_PASS_UNSUPPORTED = 30U,
+  /// An otherwise admissible additive-overlay material whose pass 0 declares
+  /// alpha rejection, refused only because
+  /// `kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials` is off.
+  /// Alpha-tested admissions are separable because a discarding fragment
+  /// shader is evaluated once per PSSM cascade as well as in the main pass.
+  MATERIAL_ALPHA_TESTED_OVERLAY_PASS_UNSUPPORTED = 31U,
+  COUNT = 32U,
 };
 
 /// Hard cap on the texture units one admitted legacy pass may declare. Unit 0
 /// is the projected base colour; every further unit must classify as a
 /// recognised legacy layer and contributes no texel.
 constexpr std::size_t kOgreNextDemoMaximumLegacyLayeredTextureUnits = 4U;
+
+/// Hard cap on the technique passes one admitted legacy material may declare.
+/// Pass 0 is the projected base colour; every further pass must classify as a
+/// recognised legacy overlay.
+constexpr std::size_t kOgreNextDemoMaximumLegacyTechniquePasses = 4U;
+
+/// Admits a legacy material whose every trailing pass is a purely additive
+/// overlay (`scene_blend add`, add operation, all-write colour mask, no depth
+/// or raster-state override), presenting pass 0's base colour while the
+/// overlay itself stays observed, counted, and deliberately not presented.
+///
+/// The bound this rests on is that an additive overlay can only ever add to
+/// what pass 0 wrote: the presented image is the authored image minus some
+/// added light, never a different colour. Destination-modifying overlays carry
+/// no such bound and are refused separately. Lowering the overlay into the PBS
+/// emissive slot is deliberately NOT attempted: the shipping CityWorld glow
+/// maps carry their mask exclusively in the alpha channel that the emissive
+/// slot ignores (`luminariaconboteparabasuraluz.png`, which serves the largest
+/// member of the family, is mean RGB 209 over the 87% of its texels the
+/// authored `alpha_rejection greater 128` discards), so an emissive lowering
+/// would light the whole lamp instead of its lens.
+constexpr bool kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses = false;
+
+/// Separately switchable arm of the widening above: admit additive-overlay
+/// materials whose pass 0 also declares alpha rejection. These become
+/// discarding shadow casters across every PSSM cascade, so the cost is
+/// isolated behind its own constant and its own named refusal reason.
+constexpr bool kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials =
+    false;
 
 constexpr std::size_t kOgreNextDemoTextureProjectionExclusionCount =
     static_cast<std::size_t>(OgreNextDemoTextureProjectionExclusion::COUNT);

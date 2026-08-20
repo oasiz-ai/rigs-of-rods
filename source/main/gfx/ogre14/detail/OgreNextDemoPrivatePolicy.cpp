@@ -651,7 +651,10 @@ std::string_view OgreNextDemoTextureProjectionExclusionName(
                "ambiguous_bc1_alpha_semantic",
                "material_multi_pass_unsupported",
                "material_authored_program_unsupported",
-               "material_texture_unit_layer_unsupported"};
+               "material_texture_unit_layer_unsupported",
+               "material_blended_overlay_pass_unsupported",
+               "material_additive_overlay_pass_unsupported",
+               "material_alpha_tested_overlay_pass_unsupported"};
   const std::size_t index = static_cast<std::size_t>(exclusion);
   return index < names.size() ? names[index] : std::string_view{"invalid"};
 }
