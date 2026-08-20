@@ -11822,13 +11822,43 @@ RenderOperationResult OgreNextN1Frontend::Render(
       Ogre::Vector3 camera_position;
       Ogre::Vector3 camera_scale;
       Ogre::Quaternion camera_orientation;
-      native_view.inverseAffine().decomposition(
-          camera_position, camera_scale, camera_orientation);
-      if (!NearlyEqual(camera_scale, Ogre::Vector3::UNIT_SCALE)) {
-        return fail_after_cleanup(RenderOperationResult::Failure(
-            RenderOperationCode::UNSUPPORTED,
-            "PSSM_3_CASCADE_V1 requires an exactly rigid native camera pose"));
+      const Ogre::Matrix4 pssm_render_from_view = native_view.inverseAffine();
+      pssm_render_from_view.decomposition(camera_position, camera_scale,
+                                          camera_orientation);
+      // F5. This site had two defects, and they compounded.
+      //
+      // It bounded `native_view.inverseAffine().decomposition(...)` with the
+      // generic 1.0e-6 NearlyEqual -- the same datum whose noise floor is
+      // documented at kCameraBasisOrthonormalTolerance, which exists precisely
+      // because inverseAffine inverts by cofactors and returns an orthonormal
+      // basis only to a few float32 ulps. And on the very frame where
+      // ConfigureAerialHazeForFrame correctly DEGRADES on that basis, this
+      // check then ended the session anyway, defeating the degrade path added
+      // for the bug it exists for.
+      //
+      // Reuse the calibrated bound (never a new constant) and, on rejection,
+      // renormalize the pose to the nearest rigid frame instead of failing.
+      // The camera's derived pose only feeds Ogre's focused shadow-camera
+      // setup; setCustomViewMatrix below is applied unconditionally and is
+      // what actually transforms the scene, so a renormalized pose cannot move
+      // the rendered image -- it only keeps the shadow-camera setup coherent.
+      const Ogre::Vector3 pssm_camera_right(pssm_render_from_view[0U][0U],
+                                            pssm_render_from_view[1U][0U],
+                                            pssm_render_from_view[2U][0U]);
+      const Ogre::Vector3 pssm_camera_up(pssm_render_from_view[0U][1U],
+                                         pssm_render_from_view[1U][1U],
+                                         pssm_render_from_view[2U][1U]);
+      const Ogre::Vector3 pssm_camera_forward(pssm_render_from_view[0U][2U],
+                                              pssm_render_from_view[1U][2U],
+                                              pssm_render_from_view[2U][2U]);
+      if (!IsRigidOrthonormalCameraBasis(pssm_camera_right, pssm_camera_up,
+                                         pssm_camera_forward)) {
+        ++impl_->degrade_audit.pssm_pose_renormalizations;
       }
+      // A no-op for a basis already rigid within the calibrated bound, and the
+      // nearest rigid frame otherwise. Ogre's shadow-camera setup requires a
+      // unit orientation either way.
+      camera_orientation.normalise();
       impl_->camera->setPosition(camera_position);
       impl_->camera->setOrientation(camera_orientation);
       if (!NearlyEqual(impl_->camera->getDerivedPosition(), camera_position)) {
