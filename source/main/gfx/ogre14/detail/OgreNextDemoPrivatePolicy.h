@@ -818,12 +818,17 @@ OgreNextDemoOmitsInvisibleCab(std::string_view exact_material_name,
     std::string_view exact_mesh_name,
     const Render::Float3 &derived_scale) noexcept;
 
-/// Exact content-scoped exception for the first macOS demo. Only the four
-/// reviewed opaque Alexis bases (Chassis, ChassisM, Wheels, Grilles) may lower
-/// their authenticated two-pass declaration to diffuse plus authored linear
-/// specular PBS inputs. Lens, Winds, and Winds_int remain excluded, so this is
-/// deliberately reported as 4/7 authored Alexis specular declarations rather
-/// than full bundle coverage. No other material receives this shortcut.
+/// Exact content-scoped exception for the first macOS demo. Only the five
+/// reviewed opaque Alexis bases (Chassis, ChassisM, Wheels, Grilles, Body) may
+/// lower their authenticated two-pass declaration to diffuse plus authored
+/// linear specular PBS inputs. Lens, Winds, and Winds_int remain excluded, so
+/// this is deliberately reported as 5/8 authored Alexis specular declarations
+/// rather than full bundle coverage. No other material receives this shortcut.
+///
+/// Body joined the scope when the archive's 5x5 body-paint placeholders were
+/// replaced with an authored paint set (tools/alexis_saber_paint.py) and its
+/// managedmaterial declaration was restored; it is opaque flexmesh_standard
+/// with a specular map, exactly the shape Chassis already used.
 [[nodiscard]] bool OgreNextDemoAllowsAlexisTUS0Approximation(
     std::string_view exact_resource_group,
     std::string_view exact_material_name) noexcept;

@@ -2377,8 +2377,9 @@ bool OgreNextDemoAllowsAlexisTUS0Approximation(
   if (exact_resource_group != "{bundle USER:/mods/AlexisSaber.zip}") {
     return false;
   }
-  constexpr std::array<std::string_view, 4U> kOpaqueManagedNames{
-      {"SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles"}};
+  constexpr std::array<std::string_view, 5U> kOpaqueManagedNames{
+      {"SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles",
+       "SaberBody"}};
   constexpr std::string_view kSuffixPrefix =
       " (AlexisSaber.truck [Instance ID ";
   constexpr std::string_view kSuffixEnd = "])";

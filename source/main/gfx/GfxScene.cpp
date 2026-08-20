@@ -5753,7 +5753,7 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             "managed_specular_lowering="
             "linear_rgb_specular_workflow_dielectric_ior1p5_f0p04_"
             "no_metallic_synthesis_v1 "
-            "managed_specular_scope=alexis_opaque_4_of_7_v1 "
+            "managed_specular_scope=alexis_opaque_5_of_8_v2 "
             "capture_v4=[{}] lifetime_v4=[{}] "
             "committed_new_projections={} active_projections={} capture "
             "new_frozen_material_decisions={} candidate_sections={} "

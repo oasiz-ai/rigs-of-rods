@@ -1623,12 +1623,13 @@ void CheckMatteFallbackPolicy() {
           !OgreNextDemoOmitsNonUniformSpeedBump("other.mesh",
                                                 {1.0F, 0.5F, 0.5F}),
       "CityWorld speed-bump omission broadened beyond its exact identity");
-  constexpr std::array<std::pair<std::string_view, bool>, 7U>
+  constexpr std::array<std::pair<std::string_view, bool>, 8U>
       kAlexisAuthoredSpecularScope{{
           {"SaberChassis (AlexisSaber.truck [Instance ID 17])", true},
           {"SaberChassisM (AlexisSaber.truck [Instance ID 18])", true},
           {"SaberWheels (AlexisSaber.truck [Instance ID 19])", true},
           {"SaberGrilles (AlexisSaber.truck [Instance ID 0])", true},
+          {"SaberBody (AlexisSaber.truck [Instance ID 16])", true},
           {"SaberLens (AlexisSaber.truck [Instance ID 20])", false},
           {"SaberWinds (AlexisSaber.truck [Instance ID 21])", false},
           {"SaberWinds_int (AlexisSaber.truck [Instance ID 22])", false},
@@ -1638,10 +1639,10 @@ void CheckMatteFallbackPolicy() {
     const bool admitted = OgreNextDemoAllowsAlexisTUS0Approximation(
         "{bundle USER:/mods/AlexisSaber.zip}", name);
     Require(admitted == expected,
-            "Alexis authored specular 4/7 scope changed");
+            "Alexis authored specular 5/8 scope changed");
     alexis_projection_count += admitted ? 1U : 0U;
   }
-  Require(alexis_projection_count == 4U &&
+  Require(alexis_projection_count == 5U &&
               !OgreNextDemoAllowsAlexisTUS0Approximation(
                   "{bundle USER:/mods/AlexisSaber.zip}", "SaberLens") &&
               !OgreNextDemoAllowsAlexisTUS0Approximation(

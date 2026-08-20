@@ -1462,6 +1462,31 @@ bool IsExactAlexisDiffuseProjection(
   } else if (base == "SaberGrilles") {
     expected_diffuse = "AlexisSabergrilles.png";
     expected_specular = "alexissabergrillesspec.png";
+  } else if (base == "SaberBody") {
+    // The body paint is the one Alexis base whose texture names move at
+    // runtime: AlexisSaber.skin replaces both the base colour and its paired
+    // specular member when a colour skin is selected, and the replacement
+    // rewrites the texture unit names this predicate reads. Enumerating the
+    // authored pairs keeps the gate exact - an unpaired or unknown pair is
+    // still refused - while letting all six skins project.
+    constexpr std::array<std::pair<std::string_view, std::string_view>, 6U>
+        kAuthoredBodyPaint{{{"bodytemp.png", "bodytempspec.png"},
+                            {"body_black.png", "body_blackspec.png"},
+                            {"body_blue.png", "body_bluespec.png"},
+                            {"body_green.png", "body_greenspec.png"},
+                            {"body_purple.png", "body_purplespec.png"},
+                            {"body_white.png", "body_whitespec.png"}}};
+    for (const auto &[authored_diffuse, authored_specular] :
+         kAuthoredBodyPaint) {
+      if (exact_diffuse_texture_name == authored_diffuse) {
+        expected_diffuse = authored_diffuse;
+        expected_specular = authored_specular;
+        break;
+      }
+    }
+    if (expected_diffuse.empty()) {
+      return false;
+    }
   } else {
     return false;
   }
