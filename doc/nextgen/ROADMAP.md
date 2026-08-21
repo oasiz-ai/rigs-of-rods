@@ -460,8 +460,19 @@ savegame continuation import reconstructs that prefix from authenticated trace
 bytes rather than trusting a serialized internal cursor. The comparator reports
 input-prefix divergence separately from resulting-state divergence.
 
-The clean native save/load continuation run, runtime TSan soak, and actor-source
-broad-phase churn remain open D0 work.
+The point-collision actor source now rebuilds from an exact transactional
+`(actor ID, node ID, position)` snapshot instead of treating partner IDs and an
+aggregate node count as source identity. Equal-count contactability, linkage,
+actor replacement, node-index, add/remove, and empty-source transitions cannot
+reuse stale point IDs; unchanged topology refreshes the already-partitioned
+KD-tree by stable point identity. Invalid/non-finite live snapshots fail closed
+to an empty source, zero-node velocity probes are guarded, and empty broad-phase
+queries are safe. The production-oracle test drives the same private source
+transaction through 10,000 equal-cardinality topology replacements after
+position refresh, removal, and repopulation.
+
+The clean native save/load continuation run and runtime TSan soak remain open
+D0 work.
 
 The contact-order slice now updates inter-actor detectors in stable actor-ID
 order, canonicalizes collision-partner and KD-hit lists, discovers narrow-phase

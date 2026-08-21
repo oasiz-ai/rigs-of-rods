@@ -235,8 +235,6 @@ void TestInvalidFixtureReplacementIsTransactional()
 
     RoR::PointColDetector detector;
     CHECK(detector.LoadProductionOracleFixture(valid));
-    CHECK(!detector.LoadProductionOracleFixture(
-        std::vector<RoR::PointColDetector::oracle_point_t>()));
 
     RoR::PointColDetector::oracle_point_t invalid = valid_point;
     invalid.actorid = RoR::ACTORINSTANCEID_INVALID;
@@ -257,6 +255,96 @@ void TestInvalidFixtureReplacementIsTransactional()
     CHECK(detector.hit_list.size() == 1);
 }
 
+void TestActorSourceMutationChurn()
+{
+    typedef RoR::PointColDetector::oracle_point_t Point;
+    auto make_point = [](RoR::ActorInstanceID_t actor_id,
+                         RoR::NodeNum_t node_id,
+                         float x,
+                         float y,
+                         float z)
+        {
+            Point point;
+            point.actorid = actor_id;
+            point.nodenum = node_id;
+            point.point = {{x, y, z}};
+            return point;
+        };
+
+    RoR::PointColDetector detector;
+    std::vector<Point> points = {
+        make_point(1, 0, -4.f, 0.f, 0.f),
+        make_point(2, 3, 0.f, 0.f, 0.f),
+        make_point(2, 8, 4.f, 0.f, 0.f)};
+    CHECK(detector.LoadProductionOracleFixture(points));
+    CheckQuery(detector, points, {{-5.f, -1.f, -1.f}},
+        {{5.f, 1.f, 1.f}}, 0.f);
+
+    // Same topology, new positions: exercise the production position-refresh
+    // branch after the KD tree has already been lazily partitioned.
+    points[0].point = {{40.f, 0.f, 0.f}};
+    points[1].point = {{41.f, 0.f, 0.f}};
+    points[2].point = {{42.f, 0.f, 0.f}};
+    CHECK(detector.LoadProductionOracleFixture(points));
+    CheckQuery(detector, points, {{-5.f, -1.f, -1.f}},
+        {{5.f, 1.f, 1.f}}, 0.f);
+    CHECK(detector.hit_list.empty());
+    CheckQuery(detector, points, {{39.f, -1.f, -1.f}},
+        {{43.f, 1.f, 1.f}}, 0.f);
+
+    // Same aggregate count and one reused actor ID, but a completely changed
+    // node topology. The old count-only cache incorrectly retained node 8.
+    points = {
+        make_point(1, 5, -3.f, 0.f, 0.f),
+        make_point(2, 1, 0.f, 0.f, 0.f),
+        make_point(7, 0, 3.f, 0.f, 0.f)};
+    CHECK(detector.LoadProductionOracleFixture(points));
+    CheckQuery(detector, points, {{-4.f, -1.f, -1.f}},
+        {{4.f, 1.f, 1.f}}, 0.f);
+    CHECK(detector.hit_pointid_list.size() == 3);
+    if (detector.hit_pointid_list.size() == 3)
+    {
+        CHECK(detector.hit_pointid_list[0].nodenum == 5);
+        CHECK(detector.hit_pointid_list[1].nodenum == 1);
+        CHECK(detector.hit_pointid_list[2].actorid == 7);
+    }
+
+    // Removal to zero sources and repopulation must be query-safe and must not
+    // leak prior hits or stale KD-tree leaves.
+    const std::vector<Point> empty;
+    CHECK(detector.LoadProductionOracleFixture(empty));
+    CheckQuery(detector, empty, {{-100.f, -100.f, -100.f}},
+        {{100.f, 100.f, 100.f}}, 0.f);
+    CHECK(detector.hit_list.empty());
+    CHECK(detector.hit_pointid_list.empty());
+
+    points = {make_point(11, 2, 1.f, 2.f, 3.f)};
+    CHECK(detector.LoadProductionOracleFixture(points));
+    CheckQuery(detector, points, {{1.f, 2.f, 3.f}},
+        {{1.f, 2.f, 3.f}}, 0.f);
+    CHECK(detector.hit_list.size() == 1);
+
+    // Repeated equal-cardinality replacement catches stale-source retention
+    // under long-lived actor add/remove/reuse churn.
+    for (int generation = 0; generation < 10000; ++generation)
+    {
+        points[0] = make_point(
+            20 + (generation % 5),
+            static_cast<RoR::NodeNum_t>(generation % 97),
+            static_cast<float>(generation),
+            static_cast<float>(-generation),
+            static_cast<float>(generation % 13));
+        CHECK(detector.LoadProductionOracleFixture(points));
+        CheckQuery(
+            detector,
+            points,
+            points[0].point,
+            points[0].point,
+            0.f);
+        CHECK(detector.hit_list.size() == 1);
+    }
+}
+
 } // namespace
 
 int main()
@@ -264,6 +352,7 @@ int main()
     TestRandomizedProductionKdTreeAgainstBruteForce();
     TestInclusiveBoundsAndStableDuplicateTieBreak();
     TestInvalidFixtureReplacementIsTransactional();
+    TestActorSourceMutationChurn();
 
     if (g_failures != 0)
     {

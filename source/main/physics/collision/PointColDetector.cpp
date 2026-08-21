@@ -53,9 +53,20 @@ bool IsFiniteBinary32(float value)
 bool PointColDetector::LoadProductionOracleFixture(
     const std::vector<oracle_point_t>& points)
 {
-    if (points.empty() ||
-            points.size() > static_cast<std::size_t>(
-                std::numeric_limits<int>::max()))
+    if (!replace_actor_source_snapshot(points))
+    {
+        return false;
+    }
+
+    m_collision_partners.clear();
+    return true;
+}
+
+bool PointColDetector::replace_actor_source_snapshot(
+    const std::vector<oracle_point_t>& points)
+{
+    if (points.size() > static_cast<std::size_t>(
+            std::numeric_limits<int>::max()))
     {
         return false;
     }
@@ -70,6 +81,48 @@ bool PointColDetector::LoadProductionOracleFixture(
         {
             return false;
         }
+    }
+
+    const bool same_topology =
+        points.size() == hit_pointid_list.size() &&
+        std::equal(
+            points.begin(),
+            points.end(),
+            hit_pointid_list.begin(),
+            [](const oracle_point_t& point, const pointid_t& point_id)
+            {
+                return point.actorid == point_id.actorid &&
+                    point.nodenum == point_id.nodenum;
+            });
+
+    if (same_topology && m_ref_list.size() == points.size())
+    {
+        for (const refelem_t& ref_element : m_ref_list)
+        {
+            if (ref_element.pidrefid < 0 ||
+                    static_cast<std::size_t>(ref_element.pidrefid) >=
+                        points.size())
+            {
+                return false;
+            }
+        }
+        if (m_kdtree.empty())
+        {
+            std::vector<kdnode_t> kdtree(1);
+            m_kdtree.swap(kdtree);
+        }
+        for (refelem_t& ref_element : m_ref_list)
+        {
+            ref_element.point =
+                points[static_cast<std::size_t>(
+                    ref_element.pidrefid)].point;
+        }
+        m_object_list_size = static_cast<int>(points.size());
+        m_kdtree[0].refid = REFELEMID_INVALID;
+        m_kdtree[0].begin = 0;
+        m_kdtree[0].end = -m_object_list_size;
+        hit_list.clear();
+        return true;
     }
 
     std::size_t leaf_capacity = 1;
@@ -93,7 +146,6 @@ bool PointColDetector::LoadProductionOracleFixture(
         ref_list[index].point = points[index].point;
     }
 
-    m_collision_partners.clear();
     m_ref_list.swap(ref_list);
     hit_pointid_list.swap(point_ids);
     m_kdtree.swap(kdtree);
@@ -134,6 +186,8 @@ void PointColDetector::query(const Vector3 &vec1, const Vector3 &vec2, const Vec
     m_bbmax += enlargeBB;
 
     hit_list.clear();
+    if (m_object_list_size <= 0 || m_kdtree.empty())
+        return;
     queryrec(0, 0);
     DeterministicContactOrder::SortByKey(
         hit_list,

@@ -66,9 +66,12 @@ public:
     void UpdateInterPoint(bool ignorestate = false);
     void query(const Ogre::Vector3& vec1, const Ogre::Vector3& vec2, const Ogre::Vector3& vec3, const float enlargeBB);
 
-    /// Replaces the cached production broad-phase points transactionally.
-    /// Empty fixtures and invalid actor/node identities are rejected without
-    /// changing the previously loaded fixture.
+    /// Replaces the cached production broad-phase source transactionally.
+    /// Empty fixtures model a legitimate no-source frame. Invalid actor/node
+    /// identities and non-finite positions are rejected without changing the
+    /// previously loaded fixture. The same private transaction is used by
+    /// live actor discovery, so mutation/churn tests exercise the production
+    /// source-cache behavior rather than a second KD-tree implementation.
     bool LoadProductionOracleFixture(
         const std::vector<oracle_point_t>& points);
 
@@ -91,8 +94,17 @@ private:
         int begin;
     };
 
+    struct actor_source_t
+    {
+        Actor* actor = nullptr; //!< Borrowed from ActorManager only during UpdateInterPoint().
+        bool linked = false;
+    };
+
     Actor*                   m_actor = nullptr; //!< Non-owning; owning Actor deletes both detectors.
     std::vector<ActorInstanceID_t>    m_collision_partners; //!< IntraPoint: always just owning actor; InterPoint: all colliding actors
+    std::vector<ActorInstanceID_t>    m_collision_partners_scratch;
+    std::vector<actor_source_t>       m_actor_sources_scratch;
+    std::vector<oracle_point_t>       m_actor_source_scratch; //!< Retained staging; never authoritative until transaction commit
     std::vector<refelem_t> m_ref_list;
     
     std::vector<kdnode_t>  m_kdtree;
@@ -103,8 +115,8 @@ private:
     void queryrec(int kdindex, int axis);
     void build_kdtree_incr(int axis, int index);
     void partintwo(const int start, const int median, const int end, const int axis, float& minex, float& maxex);
-    void update_structures_for_contacters(bool ignoreinternal);
-    void refresh_node_positions();
+    bool replace_actor_source_snapshot(
+        const std::vector<oracle_point_t>& points);
 };
 
 /// @} // addtogroup Collisions
