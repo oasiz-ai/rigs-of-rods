@@ -37,6 +37,26 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_input_live_runtime_contract.py"
 )
 
+add_test(
+    NAME calibrated_beam_soak_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_calibrated_beam_soak.py"
+)
+add_test(
+    NAME agora_impact_regression_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_agora_impact_regression.py"
+)
+set_tests_properties(
+    calibrated_beam_soak_tool
+    agora_impact_regression_tool
+    PROPERTIES
+        LABELS "physics;integration;python"
+        TIMEOUT 120
+)
+
 add_executable(
     ror_renderer_combined_application_mode_tests
     "${CMAKE_CURRENT_LIST_DIR}/system/RendererCombinedApplicationModeTests.cpp"

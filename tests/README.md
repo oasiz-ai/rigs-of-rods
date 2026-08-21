@@ -522,6 +522,35 @@ plastic strain or damage. The derived material values are deliberately a
 numerical integration fixture, not physically calibrated DAF data or a new
 legacy-content default.
 
+## Calibrated Agora full-vehicle impact regression
+
+`tools/run_agora_impact_regression.py` authenticates the pinned Agora L source
+and derives one local-only `P1CalibratedAgoraImpact.truck`. Exactly the 675
+ordinary authored beams are opted into a numerical calibrated-material
+fixture; hydro, shock, wheel, and generated beams retain their existing paths.
+While the simulation is paused, the runner applies one transactional
+`(0, -12, 0) m/s` velocity to every movable node, then records every exact
+`0.5 ms` step for three simulated seconds.
+
+The AngelScript scenario measures mass-weighted center-of-mass acceleration,
+mechanical energy including gravity, all 11,325 pair distances between the 151
+authored nodes, calibrated fractures, disabled beams, and total broken beams.
+One-worker and eight-worker state traces must match for all 6,000 records and
+their complete telemetry receipts must be identical:
+
+```sh
+python3 tools/run_agora_impact_regression.py \
+  --executable BUILD/bin/RoR-Combined \
+  --trace-tool BUILD/bin/ror_state_trace \
+  --runtime-content BUILD/bin/content \
+  --artifact-dir ARTIFACTS \
+  --runs 1 --workers 1 8
+```
+
+This is a versioned deterministic impact fixture. It does not claim that its
+material parameters are measured Agora construction data; physical calibration
+and approval of the emitted regression numbers remain separate gates.
+
 ## Playable frame-time budget
 
 The playable frame-time budget is the measurement seam behind the CityWorld
