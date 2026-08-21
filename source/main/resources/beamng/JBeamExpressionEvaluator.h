@@ -151,8 +151,10 @@ struct JBeamExpressionResult
 ///   * Lua-style and/or/not (including their short-circuit, operand-returning
 ///     ternary idiom), string-string "..", and byte length "#";
 ///   * the documented Boolean case(selector, trueValue, falseValue) form.
-///   * numeric abs(value), square(value), clamp(value, lower, upper), and
-///     one-to-64-argument min(...) and max(...) calls.
+///   * numeric abs(value), square(value), round(value), floor(value),
+///     ceil(value), smoothstep(value), smootherstep(value),
+///     smootheststep(value), clamp(value, lower, upper), and one-to-64-argument
+///     min(...) and max(...) calls.
 ///
 /// The evaluator is not Lua. Dotted component paths perform no dynamic lookup:
 /// they are opaque keys in the caller-provided environment. The evaluator
@@ -164,7 +166,9 @@ struct JBeamExpressionResult
 /// To keep canonical binary64 identities independent of the host C library,
 /// `%` only accepts exact integers in the inclusive range [-2^53, 2^53], and
 /// `^` only accepts exact integer exponents in the inclusive range
-/// [-1024, 1024].
+/// [-1024, 1024]. The rounding functions use explicit IEEE-754 bit operations;
+/// round() resolves exact halves away from zero. The smooth-step family clamps
+/// its input to [0, 1] and evaluates one pinned polynomial operation order.
 JBeamExpressionResult EvaluateJBeamExpression(
     const std::string& expression,
     const JBeamExpressionEnvironment& environment =

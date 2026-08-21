@@ -64,9 +64,11 @@ physics lowering remains a separate J2 gate.
 requires the documented `$=` prefix and supports finite decimal arithmetic,
 comparisons, Lua-style `and`/`or`/`not` with short-circuit operand-returning
 semantics, Boolean three-argument `case`, string concatenation/byte length,
-numeric `abs`, `square`, `clamp`, and bounded variadic `min`/`max`, typed
-variables, and flattened scalar `$components` paths. Missing variables evaluate
-to `nil`, duplicate environment assignments use last-write semantics, and
+numeric `abs`, `square`, `round`, `floor`, `ceil`, clamped
+`smoothstep`/`smootherstep`/`smootheststep`, `clamp`, and bounded variadic
+`min`/`max`, typed variables, and flattened scalar `$components` paths. Missing
+variables evaluate to `nil`, duplicate environment assignments use last-write
+semantics, and
 canonical results normalize the sign of zero and length-prefix strings.
 
 The clean-room suite covers precedence, variables, eager `case` versus

@@ -117,10 +117,13 @@ front end must support and test:
 The dependency-light expression-evaluator core now accepts a documented pure
 scalar subset behind the mandatory `$=` prefix: finite decimal arithmetic,
 comparisons, Lua-style `and`/`or`/`not`, the Boolean three-argument `case`
-form, string concatenation/length, numeric `abs`, `square`, `clamp`, and
-one-to-64-argument `min`/`max`, typed `$variables`, and flattened scalar
-[`$components`][components] paths. Scalar-call arguments are eager and
-numeric-only. `clamp` rejects reversed bounds, and `square` rejects overflow.
+form, string concatenation/length, numeric `abs`, `square`, `round`, `floor`,
+`ceil`, the clamped `smoothstep`/`smootherstep`/`smootheststep` family,
+`clamp`, and one-to-64-argument `min`/`max`, typed `$variables`, and flattened
+scalar [`$components`][components] paths. Scalar-call arguments are eager and
+numeric-only. `clamp` rejects reversed bounds, `square` rejects overflow,
+`round` resolves exact halves away from zero, and all rounding and interpolation
+operations use pinned IEEE-754 binary64 operation order rather than host Lua.
 Missing variables evaluate to `nil`. Expression bytes, tokens, recursion,
 function arguments, deterministic work, strings, output, and environment size
 are bounded. Non-finite input or output fails closed even under the game's
@@ -128,8 +131,12 @@ fast-math mode, and canonical values are independent of source spelling.
 
 This core is not a Lua interpreter and exposes no host, filesystem, network,
 clock, or random functions. Numeric-selector `case`, every function outside
-Boolean `case` and the five-name numeric allowlist, numeric-to-string
-concatenation, component tables, indexing, and method calls remain unsupported.
+Boolean `case` and the eleven-name deterministic numeric allowlist,
+numeric-to-string concatenation, component tables, indexing, and method calls
+remain unsupported. In particular, transcendental, host-libm-dependent,
+multi-result, and random functions stay fail-closed until their cross-platform
+numeric and state contracts are versioned.
+
 The functions above are an independent implementation of public format
 behavior; they do not reuse BeamNG code or assets. `ParseJBeam` and
 `JBeamPartResolver` retain authored

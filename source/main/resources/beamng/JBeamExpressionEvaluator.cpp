@@ -94,6 +94,116 @@ double NormalizeNumber(double value)
         : value;
 }
 
+double AddNumbers(double left, double right);
+double SubtractNumbers(double left, double right);
+double MultiplyNumbers(double left, double right);
+
+double NumberFromBits(std::uint64_t bits)
+{
+    double value = 0.0;
+    std::memcpy(&value, &bits, sizeof(value));
+    volatile double observed = value;
+    return observed;
+}
+
+double TruncateNumber(double value)
+{
+    const std::uint64_t bits = DoubleBits(value);
+    const std::uint64_t exponent_bits =
+        (bits >> 52U) & UINT64_C(0x7ff);
+    if (exponent_bits < UINT64_C(1023))
+    {
+        return 0.0;
+    }
+
+    const std::uint64_t integral_exponent =
+        exponent_bits - UINT64_C(1023);
+    if (integral_exponent >= UINT64_C(52))
+    {
+        return value;
+    }
+
+    const unsigned int fractional_bits =
+        static_cast<unsigned int>(UINT64_C(52) - integral_exponent);
+    const std::uint64_t fractional_mask =
+        (UINT64_C(1) << fractional_bits) - UINT64_C(1);
+    return NumberFromBits(bits & ~fractional_mask);
+}
+
+double FloorNumber(double value)
+{
+    const double truncated = TruncateNumber(value);
+    return value < truncated
+        ? SubtractNumbers(truncated, 1.0)
+        : truncated;
+}
+
+double CeilNumber(double value)
+{
+    const double truncated = TruncateNumber(value);
+    return value > truncated
+        ? AddNumbers(truncated, 1.0)
+        : truncated;
+}
+
+double RoundNumber(double value)
+{
+    const double truncated = TruncateNumber(value);
+    const double fractional = SubtractNumbers(value, truncated);
+    if (fractional >= 0.5)
+    {
+        return AddNumbers(truncated, 1.0);
+    }
+    if (fractional <= -0.5)
+    {
+        return SubtractNumbers(truncated, 1.0);
+    }
+    return truncated;
+}
+
+double ClampUnitInterval(double value)
+{
+    return value < 0.0 ? 0.0 : (value > 1.0 ? 1.0 : value);
+}
+
+double SmoothstepNumber(double value)
+{
+    const double x = ClampUnitInterval(value);
+    return MultiplyNumbers(
+        MultiplyNumbers(x, x),
+        SubtractNumbers(3.0, MultiplyNumbers(2.0, x)));
+}
+
+double SmootherstepNumber(double value)
+{
+    const double x = ClampUnitInterval(value);
+    const double x_squared = MultiplyNumbers(x, x);
+    const double x_cubed = MultiplyNumbers(x_squared, x);
+    const double polynomial = AddNumbers(
+        MultiplyNumbers(
+            x,
+            SubtractNumbers(MultiplyNumbers(6.0, x), 15.0)),
+        10.0);
+    return MultiplyNumbers(x_cubed, polynomial);
+}
+
+double SmootheststepNumber(double value)
+{
+    const double x = ClampUnitInterval(value);
+    const double x_squared = MultiplyNumbers(x, x);
+    const double x_fourth = MultiplyNumbers(x_squared, x_squared);
+    const double polynomial = AddNumbers(
+        35.0,
+        MultiplyNumbers(
+            x,
+            AddNumbers(
+                -84.0,
+                MultiplyNumbers(
+                    x,
+                    SubtractNumbers(70.0, MultiplyNumbers(20.0, x))))));
+    return MultiplyNumbers(x_fourth, polynomial);
+}
+
 bool IsValidUtf8(const std::string& value)
 {
     std::size_t index = 0U;
@@ -1462,6 +1572,12 @@ private:
     {
         return name == "abs" ||
             name == "square" ||
+            name == "round" ||
+            name == "floor" ||
+            name == "ceil" ||
+            name == "smoothstep" ||
+            name == "smootherstep" ||
+            name == "smootheststep" ||
             name == "clamp" ||
             name == "min" ||
             name == "max";
@@ -1487,7 +1603,14 @@ private:
                 ? m_limits.max_function_arguments
                 : MAX_ALLOWLISTED_FUNCTION_ARGUMENTS;
         const bool unary =
-            function.text == "abs" || function.text == "square";
+            function.text == "abs" ||
+            function.text == "square" ||
+            function.text == "round" ||
+            function.text == "floor" ||
+            function.text == "ceil" ||
+            function.text == "smoothstep" ||
+            function.text == "smootherstep" ||
+            function.text == "smootheststep";
         const bool variadic =
             function.text == "min" || function.text == "max";
         std::size_t argument_count = 0U;
@@ -1616,6 +1739,33 @@ private:
                     function.begin,
                     "JBeam square function produced a non-finite value");
             }
+        }
+        else if (function.text == "round")
+        {
+            result = RoundNumber(fixed_arguments[0].number_value);
+        }
+        else if (function.text == "floor")
+        {
+            result = FloorNumber(fixed_arguments[0].number_value);
+        }
+        else if (function.text == "ceil")
+        {
+            result = CeilNumber(fixed_arguments[0].number_value);
+        }
+        else if (function.text == "smoothstep")
+        {
+            result = SmoothstepNumber(
+                fixed_arguments[0].number_value);
+        }
+        else if (function.text == "smootherstep")
+        {
+            result = SmootherstepNumber(
+                fixed_arguments[0].number_value);
+        }
+        else if (function.text == "smootheststep")
+        {
+            result = SmootheststepNumber(
+                fixed_arguments[0].number_value);
         }
         else if (function.text == "clamp")
         {

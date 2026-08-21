@@ -279,6 +279,27 @@ void TestDeterministicScalarFunctions()
     CheckNumber("$=abs(-3)", 3.0);
     CheckNumber("$=abs(3)", 3.0);
     CheckNumber("$=square(-3)", 9.0);
+    CheckNumber("$=round(1.4)", 1.0);
+    CheckNumber("$=round(1.5)", 2.0);
+    CheckNumber("$=round(-1.4)", -1.0);
+    CheckNumber("$=round(-1.5)", -2.0);
+    CheckNumber("$=round(4503599627370495.5)", 4503599627370496.0);
+    CheckNumber("$=floor(1.9)", 1.0);
+    CheckNumber("$=floor(-1.1)", -2.0);
+    CheckNumber("$=ceil(1.1)", 2.0);
+    CheckNumber("$=ceil(-1.9)", -1.0);
+    CheckNumber("$=smoothstep(-1)", 0.0);
+    CheckNumber("$=smoothstep(0.25)", 0.15625);
+    CheckNumber("$=smoothstep(2)", 1.0);
+    CheckNumber("$=smootherstep(-1)", 0.0);
+    CheckNumber("$=smootherstep(0.25)", 0.103515625);
+    CheckNumber("$=smootherstep(2)", 1.0);
+    CheckNumber("$=smootheststep(-1)", 0.0);
+    CheckNumber("$=smootheststep(0.25)", 0.070556640625);
+    CheckNumber("$=smootheststep(2)", 1.0);
+    CheckNumber(
+        "$=smootheststep(smootherstep(smoothstep(0.5)))",
+        0.5);
     CheckNumber("$=clamp(-2,-1,1)", -1.0);
     CheckNumber("$=clamp(0,-1,1)", 0.0);
     CheckNumber("$=clamp(2,-1,1)", 1.0);
@@ -310,6 +331,13 @@ void TestDeterministicScalarFunctions()
         "$=abs(1,2)",
         "$=square()",
         "$=square(1,2)",
+        "$=round()",
+        "$=round(1,2)",
+        "$=floor()",
+        "$=ceil(1,2)",
+        "$=smoothstep()",
+        "$=smootherstep(1,2)",
+        "$=smootheststep()",
         "$=clamp(1,2)",
         "$=clamp(1,2,3,4)",
         "$=min()",
@@ -332,6 +360,12 @@ void TestDeterministicScalarFunctions()
     const char* invalid_types[] = {
         "$=abs('x')",
         "$=square(true)",
+        "$=round(nil)",
+        "$=floor('x')",
+        "$=ceil(false)",
+        "$=smoothstep('x')",
+        "$=smootherstep(true)",
+        "$=smootheststep(nil)",
         "$=clamp(1,0,'x')",
         "$=min(1,'x',2)",
         "$=max(nil,2)"
@@ -440,6 +474,24 @@ void TestDeterministicScalarFunctions()
     CheckCanonicalNumber(
         "$=clamp(-0,-1,1)",
         "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=round(-0)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=floor(-0)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=ceil(-0)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=smoothstep(0.25)",
+        "jbeam-expression-value-v1:number:3fc4000000000000");
+    CheckCanonicalNumber(
+        "$=smootherstep(0.25)",
+        "jbeam-expression-value-v1:number:3fba800000000000");
+    CheckCanonicalNumber(
+        "$=smootheststep(0.25)",
+        "jbeam-expression-value-v1:number:3fb2100000000000");
 
     const std::string repeated_source =
         "$=max(abs(-3),square(2),clamp(9,0,5))";
@@ -459,8 +511,8 @@ void TestDeterministicScalarFunctions()
     }
 
     const char* unsupported[] = {
-        "$=floor(1)",
-        "$=round(1)",
+        "$=sqrt(1)",
+        "$=sin(1)",
         "$=randomseed(1)",
         "$=load(1)",
         "$=Abs(1)"
@@ -499,6 +551,58 @@ void TestDeterministicScalarFunctions()
                 JBeamExpressionDiagnosticCode::
                     INVALID_FUNCTION_ARGUMENT)) ==
         "invalid-function-argument");
+}
+
+void TestRoundingAndInterpolationBoundaries()
+{
+    for (int numerator = -4096; numerator <= 4096; ++numerator)
+    {
+        const std::string operand =
+            std::to_string(numerator) + "/4";
+        const int truncated = numerator / 4;
+        const int remainder = numerator % 4;
+        const int rounded = truncated +
+            (remainder >= 2 ? 1 : (remainder <= -2 ? -1 : 0));
+        const int floored = numerator >= 0
+            ? numerator / 4
+            : -((-numerator + 3) / 4);
+        const int ceiled = numerator <= 0
+            ? numerator / 4
+            : (numerator + 3) / 4;
+        CheckNumber("$=round(" + operand + ")", rounded);
+        CheckNumber("$=floor(" + operand + ")", floored);
+        CheckNumber("$=ceil(" + operand + ")", ceiled);
+    }
+
+    const char* functions[] = {
+        "smoothstep", "smootherstep", "smootheststep"};
+    for (std::size_t function_index = 0U;
+         function_index < sizeof(functions) / sizeof(functions[0]);
+         ++function_index)
+    {
+        double previous = -1.0;
+        for (int numerator = 0; numerator <= 1024; ++numerator)
+        {
+            const JBeamExpressionResult result = EvaluateJBeamExpression(
+                std::string("$=") + functions[function_index] + "(" +
+                std::to_string(numerator) + "/1024)");
+            CHECK(result.IsValid());
+            if (result.IsValid())
+            {
+                CHECK(result.value.type == JBeamExpressionValueType::NUMBER);
+                CHECK(result.value.number_value >= 0.0);
+                CHECK(result.value.number_value <= 1.0);
+                CHECK(result.value.number_value >= previous);
+                previous = result.value.number_value;
+            }
+        }
+        CHECK(previous == 1.0);
+    }
+
+    CheckNumber("$=ceil(2.2250738585072014e-308)", 1.0);
+    CheckNumber("$=floor(2.2250738585072014e-308)", 0.0);
+    CheckNumber("$=ceil(-2.2250738585072014e-308)", 0.0);
+    CheckNumber("$=floor(-2.2250738585072014e-308)", -1.0);
 }
 
 void TestStrings()
@@ -972,6 +1076,7 @@ int main()
     TestDeterministicPowerAndModuloIdentities();
     TestLogicalTernaryAndCase();
     TestDeterministicScalarFunctions();
+    TestRoundingAndInterpolationBoundaries();
     TestStrings();
     TestTypedEnvironment();
     TestMalformedAndHostileSyntax();
