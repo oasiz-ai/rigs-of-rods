@@ -2596,6 +2596,17 @@ add_executable(
 )
 
 add_executable(
+    ror_jbeam_wheel2_approximation_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamWheel2ApproximationTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamWheel2Approximation.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPressureWheelIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
+add_executable(
     ror_jbeam_structural_ir_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamStructuralIRTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
@@ -2610,9 +2621,11 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPressureWheelIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamWheel2Approximation.cpp"
 )
 
 add_executable(
@@ -2623,10 +2636,12 @@ add_executable(
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPressureWheelIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamVehicleImporter.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamWheel2Approximation.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
 )
 
@@ -2723,6 +2738,12 @@ target_include_directories(
 
 target_include_directories(
     ror_jbeam_pressure_wheel_ir_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+)
+
+target_include_directories(
+    ror_jbeam_wheel2_approximation_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
@@ -3063,6 +3084,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_expression_evaluator_tests
     ror_jbeam_part_resolver_tests
     ror_jbeam_pressure_wheel_ir_tests
+    ror_jbeam_wheel2_approximation_tests
     ror_jbeam_structural_ir_tests
     ror_jbeam_syntax_tests
     ror_jbeam_to_rigdef_tests
@@ -4037,6 +4059,11 @@ add_test(
 add_test(
     NAME jbeam_pressure_wheel_ir
     COMMAND ror_jbeam_pressure_wheel_ir_tests
+)
+
+add_test(
+    NAME jbeam_wheel2_approximation
+    COMMAND ror_jbeam_wheel2_approximation_tests
 )
 
 add_test(

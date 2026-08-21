@@ -2203,16 +2203,21 @@ rights-cleared third-party spawned actor remain open. The original fixture has
 now supplied the narrower all-or-none end-to-end spawn and actuator execution
 proof.
 
-The first pressure-wheel pass now provides a bounded, deterministic inventory
+The pressure-wheel source pass now provides a bounded, deterministic inventory
 of literal `pressureWheels` rows and every relevant source section. It preserves
 exact documented fields, unknowns, duplicate history, source-order `scale*`
-modifiers, controllers, powertrain data, and Lua without executing or lowering
-them. Schema-admissible rows remain explicitly
-`inventory-only-never-lower`; generated topology, pressure, friction, brakes,
-thermals, ABS, and drivetrain behavior are still absent. Hard record, retained
-byte, value depth/work, diagnostic, topology-reservation, and canonical-output
-ceilings plus strict, fast-math, and sanitizer fixtures close this inventory
-boundary without implying J3 driveability.
+modifiers, controllers, powertrain data, and Lua without executing them. A
+second all-or-none J3 transaction may lower only a strict literal subset to
+ordinary native `RigDef::Wheel2` rows after revalidating exact resolved geometry
+and the combined ActorSpawner node/beam ceilings. Admitted rows require centred
+tyres, no stabilizer, 10-through-20 even rays, explicit positive weights and
+spring/damping, external node collision only, no triangle collision, and zero
+source brake, parking-brake, and propulsion behavior. The resulting native rows
+are deliberately unbraked and unpropelled, and the importer receipt retains the
+canonical plan SHA-256, count, and declared ignored-semantics mask. Pressure,
+friction, thermals, ABS, drivetrain behavior, actor spawn, rolling contact,
+steering, settle, and driveability remain unproven; this is a bounded topology
+adapter, not J3 completion.
 
 The advanced-structure inventory now covers the documented `hydros`, legacy
 `rails`, `rails2`, `slidenodes`, `thrusters`, and `torsionbars` sections under

@@ -22,6 +22,7 @@
 #include "BeamRestLengthScale.h"
 #include "JBeamAdvancedStructureIR.h"
 #include "JBeamCoordinateTransform.h"
+#include "JBeamWheel2Approximation.h"
 
 #if !defined(ROR_JBEAM_TO_RIGDEF_PREFLIGHT_ONLY)
 #include "RigDef_File.h"
@@ -37,6 +38,7 @@
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -2433,6 +2435,184 @@ bool ValidateHydroRuntimePlans(
     return true;
 }
 
+bool ValidateWheel2ApproximationPlans(
+    const JBeamStructuralIR& ir,
+    const JBeamToRigDefPreflightResult& structural,
+    const JBeamHydroRuntimePlanSet* hydro_plans,
+    const JBeamWheel2ApproximationPlanSet& plan_set,
+    const JBeamToRigDefLimits& limits,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics)
+{
+    const JBeamStructuralProvenance document_provenance =
+        ir.has_ref_frame
+            ? ir.ref_frame.provenance
+            : JBeamStructuralProvenance();
+    const std::string canonical =
+        SerializeCanonicalJBeamWheel2ApproximationPlanSet(plan_set);
+    if (!plan_set.IsAdmitted() || canonical.empty() ||
+        plan_set.plans.size() > 64U)
+    {
+        PushDiagnostic(
+            diagnostics,
+            JBeamToRigDefDiagnosticCode::INVALID_WHEEL2_APPROXIMATION_PLAN,
+            JBeamToRigDefEntityKind::DOCUMENT,
+            INVALID_SOURCE_INDEX,
+            document_provenance,
+            "Wheel2 plan set is not an admitted canonical transaction");
+        return false;
+    }
+
+    std::size_t expected_nodes = 0U;
+    std::size_t expected_beams = 0U;
+    std::set<std::string> names;
+    std::set<std::pair<std::size_t, std::size_t>> source_rows;
+    for (std::size_t i = 0U; i < plan_set.plans.size(); ++i)
+    {
+        const JBeamWheel2ApproximationPlan& plan = plan_set.plans[i];
+        std::size_t node1_index = INVALID_SOURCE_INDEX;
+        std::size_t node2_index = INVALID_SOURCE_INDEX;
+        std::size_t arm_index = INVALID_SOURCE_INDEX;
+        for (std::size_t node_index = 0U;
+             node_index < ir.nodes.size(); ++node_index)
+        {
+            const std::string& id = ir.nodes[node_index].id;
+            if (id == plan.node1)
+            {
+                if (node1_index != INVALID_SOURCE_INDEX)
+                {
+                    node1_index = INVALID_SOURCE_INDEX;
+                    break;
+                }
+                node1_index = node_index;
+            }
+            if (id == plan.node2)
+            {
+                if (node2_index != INVALID_SOURCE_INDEX)
+                {
+                    node2_index = INVALID_SOURCE_INDEX;
+                    break;
+                }
+                node2_index = node_index;
+            }
+            if (id == plan.node_arm)
+            {
+                if (arm_index != INVALID_SOURCE_INDEX)
+                {
+                    arm_index = INVALID_SOURCE_INDEX;
+                    break;
+                }
+                arm_index = node_index;
+            }
+        }
+        const JBeamStructuralProvenance provenance =
+            node1_index < ir.nodes.size()
+                ? ir.nodes[node1_index].provenance
+                : document_provenance;
+        bool valid =
+            plan.source_wheel_index == i &&
+            names.insert(plan.name).second && !plan.name.empty() &&
+            source_rows.insert(std::make_pair(
+                plan.source_record_index,
+                plan.source_entry_index)).second &&
+            (plan.wheel_direction == -1 || plan.wheel_direction == 1) &&
+            plan.num_rays >= 10U && plan.num_rays <= 20U &&
+            plan.num_rays % 2U == 0U &&
+            plan.approximated_semantics ==
+                JBEAM_WHEEL2_APPROXIMATION_SEMANTICS &&
+            node1_index < ir.nodes.size() &&
+            node2_index < ir.nodes.size() &&
+            arm_index < ir.nodes.size() &&
+            node1_index != node2_index &&
+            node1_index != arm_index && node2_index != arm_index &&
+            IsFiniteBinary32(plan.rim_radius) &&
+            IsFiniteBinary32(plan.tyre_radius) &&
+            IsFiniteBinary32(plan.width) &&
+            IsFiniteBinary32(plan.mass) &&
+            IsFiniteBinary32(plan.rim_spring) &&
+            IsFiniteBinary32(plan.rim_damping) &&
+            IsFiniteBinary32(plan.tyre_spring) &&
+            IsFiniteBinary32(plan.tyre_damping) &&
+            plan.rim_radius > 0.0f &&
+            plan.tyre_radius > plan.rim_radius &&
+            plan.width > 0.0f && plan.mass > 0.0f &&
+            plan.rim_spring > 0.0f && plan.rim_damping >= 0.0f &&
+            plan.tyre_spring > 0.0f && plan.tyre_damping >= 0.0f;
+        if (valid)
+        {
+            float axis_length = 0.0f;
+            valid = TryRuntimeLength(
+                    structural.transformed_nodes[node1_index],
+                    structural.transformed_nodes[node2_index],
+                    &axis_length) &&
+                SameBinary32(axis_length, plan.width) &&
+                IsRuntimeTriangleNondegenerate(
+                    structural.transformed_nodes[node1_index],
+                    structural.transformed_nodes[node2_index],
+                    structural.transformed_nodes[arm_index]);
+        }
+        const std::size_t nodes =
+            static_cast<std::size_t>(plan.num_rays) * 4U;
+        const std::size_t beams =
+            static_cast<std::size_t>(plan.num_rays) * 24U;
+        if (valid)
+        {
+            valid = TryAddSize(nodes, &expected_nodes) &&
+                TryAddSize(beams, &expected_beams);
+        }
+        if (!valid)
+        {
+            PushDiagnostic(
+                diagnostics,
+                JBeamToRigDefDiagnosticCode::INVALID_WHEEL2_APPROXIMATION_PLAN,
+                JBeamToRigDefEntityKind::WHEEL,
+                i,
+                provenance,
+                "Wheel2 plan does not exactly match structural identity, "
+                "binary32 geometry, or the bounded J3 profile");
+            return false;
+        }
+    }
+    if (expected_nodes != plan_set.generated_node_count ||
+        expected_beams != plan_set.generated_beam_count)
+    {
+        PushDiagnostic(
+            diagnostics,
+            JBeamToRigDefDiagnosticCode::INVALID_WHEEL2_APPROXIMATION_PLAN,
+            JBeamToRigDefEntityKind::DOCUMENT,
+            INVALID_SOURCE_INDEX,
+            document_provenance,
+            "Wheel2 generated topology receipt does not match its rows");
+        return false;
+    }
+
+    const std::size_t node_limit = std::min(
+        limits.max_nodes, JBEAM_RIGDEF_RUNTIME_NODE_LIMIT);
+    const std::size_t beam_limit = std::min(
+        std::min(limits.max_beams, JBEAM_RIGDEF_RUNTIME_BEAM_LIMIT),
+        static_cast<std::size_t>(
+            std::numeric_limits<std::uint16_t>::max()));
+    const std::size_t hydro_count =
+        hydro_plans == NULL ? 0U : hydro_plans->plans.size();
+    if (structural.node_source_order.size() > node_limit ||
+        expected_nodes > node_limit - structural.node_source_order.size() ||
+        structural.beams.size() > beam_limit ||
+        hydro_count > beam_limit - structural.beams.size() ||
+        expected_beams >
+            beam_limit - structural.beams.size() - hydro_count)
+    {
+        PushDiagnostic(
+            diagnostics,
+            JBeamToRigDefDiagnosticCode::WHEEL2_RUNTIME_LIMIT,
+            JBeamToRigDefEntityKind::DOCUMENT,
+            INVALID_SOURCE_INDEX,
+            document_provenance,
+            "Structural, hydro, and generated Wheel2 topology exceed native "
+            "ActorSpawner limits");
+        return false;
+    }
+    return true;
+}
+
 #endif
 
 } // namespace AdapterDetail
@@ -2555,6 +2735,7 @@ namespace {
 RigDef::DocumentPtr ConvertJBeamToRigDefImpl(
     const JBeamStructuralIR& ir,
     const JBeamHydroRuntimePlanSet* hydro_plans,
+    const JBeamWheel2ApproximationPlanSet* wheel_plans,
     const std::string& document_name,
     std::vector<JBeamToRigDefDiagnostic>& diagnostics,
     const JBeamToRigDefLimits& limits)
@@ -2570,6 +2751,12 @@ RigDef::DocumentPtr ConvertJBeamToRigDefImpl(
     if (hydro_plans != NULL &&
         !AdapterDetail::ValidateHydroRuntimePlans(
             ir, preflight, *hydro_plans, limits, diagnostics))
+    {
+        return RigDef::DocumentPtr();
+    }
+    if (wheel_plans != NULL &&
+        !AdapterDetail::ValidateWheel2ApproximationPlans(
+            ir, preflight, hydro_plans, *wheel_plans, limits, diagnostics))
     {
         return RigDef::DocumentPtr();
     }
@@ -2593,6 +2780,10 @@ RigDef::DocumentPtr ConvertJBeamToRigDefImpl(
         if (hydro_plans != NULL)
         {
             module.hydros.reserve(hydro_plans->plans.size());
+        }
+        if (wheel_plans != NULL)
+        {
+            module.wheels2.reserve(wheel_plans->plans.size());
         }
         module.cameras.reserve(1U);
         module.globals.reserve(1U);
@@ -2722,6 +2913,75 @@ RigDef::DocumentPtr ConvertJBeamToRigDefImpl(
             }
         }
 
+        if (wheel_plans != NULL)
+        {
+            for (std::size_t plan_index = 0U;
+                 plan_index < wheel_plans->plans.size(); ++plan_index)
+            {
+                const JBeamWheel2ApproximationPlan& plan =
+                    wheel_plans->plans[plan_index];
+                const JBeamStructuralNode* node1 = NULL;
+                const JBeamStructuralNode* node2 = NULL;
+                const JBeamStructuralNode* arm = NULL;
+                for (std::size_t node_index = 0U;
+                     node_index < ir.nodes.size(); ++node_index)
+                {
+                    if (ir.nodes[node_index].id == plan.node1)
+                    {
+                        node1 = &ir.nodes[node_index];
+                    }
+                    if (ir.nodes[node_index].id == plan.node2)
+                    {
+                        node2 = &ir.nodes[node_index];
+                    }
+                    if (ir.nodes[node_index].id == plan.node_arm)
+                    {
+                        arm = &ir.nodes[node_index];
+                    }
+                }
+                if (node1 == NULL || node2 == NULL || arm == NULL)
+                {
+                    throw std::runtime_error(
+                        "Validated Wheel2 node identity disappeared");
+                }
+
+                RigDef::Wheel2 wheel;
+                wheel.rim_radius = plan.rim_radius;
+                wheel.tyre_radius = plan.tyre_radius;
+                wheel.width = plan.width;
+                wheel.num_rays = plan.num_rays;
+                wheel.nodes[0] = AdapterDetail::NamedReference(
+                    plan.node1, node1->provenance);
+                wheel.nodes[1] = AdapterDetail::NamedReference(
+                    plan.node2, node2->provenance);
+                wheel.braking = RoR::WheelBraking::NONE;
+                wheel.propulsion = RoR::WheelPropulsion::NONE;
+                wheel.reference_arm_node = AdapterDetail::NamedReference(
+                    plan.node_arm, arm->provenance);
+                wheel.mass = plan.mass;
+                wheel.rim_springiness = plan.rim_spring;
+                wheel.rim_damping = plan.rim_damping;
+                wheel.tyre_springiness = plan.tyre_spring;
+                wheel.tyre_damping = plan.tyre_damping;
+                wheel.node_defaults = node_defaults;
+                wheel.beam_defaults =
+                    std::make_shared<RigDef::BeamDefaults>();
+                wheel.beam_defaults->springiness = plan.rim_spring;
+                wheel.beam_defaults->damping_constant = plan.rim_damping;
+                wheel.beam_defaults->deformation_threshold =
+                    JBEAM_RIGDEF_DEFAULT_BEAM_DEFORM;
+                wheel.beam_defaults->breaking_threshold = 1000000.0f;
+                wheel.beam_defaults->visual_beam_diameter = 0.0f;
+                wheel.beam_defaults->plastic_deform_coef =
+                    BEAM_PLASTIC_COEF_DEFAULT;
+                wheel.beam_defaults->
+                    _is_plastic_deform_coef_user_defined = true;
+                wheel.beam_defaults->_is_user_defined = true;
+                wheel.beam_defaults->_enable_advanced_deformation = true;
+                module.wheels2.push_back(std::move(wheel));
+            }
+        }
+
         if (!preflight.triangle_source_indices.empty())
         {
             RigDef::Submesh submesh;
@@ -2821,7 +3081,7 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
     const JBeamToRigDefLimits& limits)
 {
     return ConvertJBeamToRigDefImpl(
-        ir, NULL, document_name, diagnostics, limits);
+        ir, NULL, NULL, document_name, diagnostics, limits);
 }
 
 RigDef::DocumentPtr ConvertJBeamToRigDefWithHydroRuntimePlans(
@@ -2832,7 +3092,24 @@ RigDef::DocumentPtr ConvertJBeamToRigDefWithHydroRuntimePlans(
     const JBeamToRigDefLimits& limits)
 {
     return ConvertJBeamToRigDefImpl(
-        ir, &hydro_plans, document_name, diagnostics, limits);
+        ir, &hydro_plans, NULL, document_name, diagnostics, limits);
+}
+
+RigDef::DocumentPtr ConvertJBeamToRigDefWithRuntimePlans(
+    const JBeamStructuralIR& ir,
+    const JBeamHydroRuntimePlanSet& hydro_plans,
+    const JBeamWheel2ApproximationPlanSet& wheel_plans,
+    const std::string& document_name,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics,
+    const JBeamToRigDefLimits& limits)
+{
+    return ConvertJBeamToRigDefImpl(
+        ir,
+        &hydro_plans,
+        &wheel_plans,
+        document_name,
+        diagnostics,
+        limits);
 }
 
 #endif
@@ -2907,6 +3184,10 @@ const char* ToString(JBeamToRigDefDiagnosticCode code)
         return "invalid-hydro-runtime-plan";
     case JBeamToRigDefDiagnosticCode::HYDRO_RUNTIME_LIMIT:
         return "hydro-runtime-limit";
+    case JBeamToRigDefDiagnosticCode::INVALID_WHEEL2_APPROXIMATION_PLAN:
+        return "invalid-wheel2-approximation-plan";
+    case JBeamToRigDefDiagnosticCode::WHEEL2_RUNTIME_LIMIT:
+        return "wheel2-runtime-limit";
     case JBeamToRigDefDiagnosticCode::ALLOCATION_FAILURE:
         return "allocation-failure";
     case JBeamToRigDefDiagnosticCode::RIGDEF_CONSTRUCTION_FAILURE:
@@ -2929,6 +3210,8 @@ const char* ToString(JBeamToRigDefEntityKind kind)
         return "beam";
     case JBeamToRigDefEntityKind::HYDRO:
         return "hydro";
+    case JBeamToRigDefEntityKind::WHEEL:
+        return "wheel";
     case JBeamToRigDefEntityKind::TRIANGLE:
         return "triangle";
     case JBeamToRigDefEntityKind::REF_FRAME:

@@ -35,6 +35,7 @@ namespace RoR {
 namespace BeamNG {
 
 struct JBeamHydroRuntimePlanSet;
+struct JBeamWheel2ApproximationPlanSet;
 
 /// BeamNG's defaults for ordinary structural beams. These are deliberately
 /// adapter-owned rather than inherited from RoR's truck parser.
@@ -94,6 +95,8 @@ enum class JBeamToRigDefDiagnosticCode
     MISALIGNED_REF_CORNERS,
     INVALID_HYDRO_RUNTIME_PLAN,
     HYDRO_RUNTIME_LIMIT,
+    INVALID_WHEEL2_APPROXIMATION_PLAN,
+    WHEEL2_RUNTIME_LIMIT,
     ALLOCATION_FAILURE,
     RIGDEF_CONSTRUCTION_FAILURE
 };
@@ -105,6 +108,7 @@ enum class JBeamToRigDefEntityKind
     NODE,
     BEAM,
     HYDRO,
+    WHEEL,
     TRIANGLE,
     REF_FRAME
 };
@@ -233,6 +237,19 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
 RigDef::DocumentPtr ConvertJBeamToRigDefWithHydroRuntimePlans(
     const JBeamStructuralIR& ir,
     const JBeamHydroRuntimePlanSet& hydro_plans,
+    const std::string& document_name,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics,
+    const JBeamToRigDefLimits& limits = JBeamToRigDefLimits());
+
+/// Converts the structural IR plus exact hydro and pressure-wheel plans in one
+/// all-or-none transaction. Wheel plans are revalidated against the final
+/// binary32 structural geometry and native ActorSpawner node/beam ceilings
+/// before any RigDef object is allocated. The first J3 profile intentionally
+/// publishes unpropelled, unbraked Wheel2 rows only.
+RigDef::DocumentPtr ConvertJBeamToRigDefWithRuntimePlans(
+    const JBeamStructuralIR& ir,
+    const JBeamHydroRuntimePlanSet& hydro_plans,
+    const JBeamWheel2ApproximationPlanSet& wheel_plans,
     const std::string& document_name,
     std::vector<JBeamToRigDefDiagnostic>& diagnostics,
     const JBeamToRigDefLimits& limits = JBeamToRigDefLimits());

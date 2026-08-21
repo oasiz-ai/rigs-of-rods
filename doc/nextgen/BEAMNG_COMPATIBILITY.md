@@ -155,8 +155,10 @@ and the exact report SHA-256 is
 This is not
 evidence that a third-party vehicle spawned, drove, rendered correctly,
 replayed, or synchronized over multiplayer.
-Configuration selection (`.pc`), pressure wheels, powertrain/electrics,
-visual resources, and every unsupported active section remain fail-closed.
+Configuration selection (`.pc`), powertrain/electrics, visual resources, and
+every unsupported active section remain fail-closed. Pressure wheels are
+admitted only by the narrow J3 `Wheel2` approximation described below; this is
+not pressure-tyre, brake, propulsion, spawn, or driveability evidence.
 The native application integration test now executes the production cache
 scanner over a generated ZIP, proves exact virtual-root metadata and idempotent
 rescan, and proves that an uppercase hostile `.MATERIAL` sibling publishes no
@@ -562,17 +564,30 @@ cannot be advertised as native. Unequal per-wheel brake torque, separate
 brake/drivetrain reaction arms, fractional parking-brake input, and per-wheel
 ABS remain disabled until dedicated native systems exist.
 
-The first pressure-wheel implementation is deliberately an inventory boundary,
-not a wheel generator. It retains duplicate-preserving source tables,
-source-order `scale*` process modifiers, controller/powertrain sections, and Lua
-as inert data; validates the required literal geometry and exact documented
-field families; records topology reservations for a possible RoR approximation;
-and labels every accepted row `inventory-only-never-lower`. Immutable
-part/row/field/value-depth/work/byte/diagnostic/canonical-output ceilings apply
-even when a caller requests larger limits. Its canonical identity includes the
-documentation profile and is independent of archive order and container
-capacity. No pressure, friction, brake, powertrain, controller, or generated
-topology behavior is activated by this pass.
+The pressure-wheel source pass remains the duplicate-preserving inventory for
+all documented rows, `scale*` process modifiers, controller/powertrain
+sections, and Lua. A second all-or-none J3 transaction may now lower only a
+strict literal subset to the existing native `RigDef::Wheel2` generator. It
+requires one exact resolved graph, unique wheels, a centred tyre, `hasTire`, no
+stabilizer node, 10-through-20 even rays, zero source brake/parking/propulsion,
+external node collision with generated triangle collision disabled, explicit
+positive tyre/hub node weights and spring/damping values, finite nondegenerate
+axle geometry, an off-axis reaction arm, and authored tyre/hub widths that
+match the exact binary32 axle length. Unknown fields, pressure/friction/brake
+behavior, controllers, powertrain, Lua, scaling sections, nonzero offset, and
+every other collision mode reject the whole plan.
+
+The native adapter then revalidates every plan against the final transformed
+binary32 structural geometry and combined structural/hydro/generated
+ActorSpawner node/beam ceilings before allocating a `RigDef::Document`. It
+publishes ordinary unpropelled, unbraked `Wheel2` rows with no BeamNG-specific
+runtime branch. The opaque importer receipt version 2 retains the canonical
+plan SHA-256, plan count, and declared ignored-semantics mask. Authenticated ZIP
+tests prove admitted publication and fail-closed nonzero-offset rejection; the
+full macOS product target compiles and links this path. No actor spawn, static
+load, rolling, contact, pressure, steering, braking, propulsion, settle,
+driveability, replay, or third-party vehicle evidence exists yet, so the J3
+behavioral gate remains open.
 
 ## Powertrain, electrics, and controllers
 

@@ -1,5 +1,6 @@
 #include "JBeamToRigDef.h"
 #include "JBeamAdvancedStructureIR.h"
+#include "JBeamWheel2Approximation.h"
 
 #if defined(ROR_JBEAM_TO_RIGDEF_FULL_TEST)
 // Keep this focused target independent from Actor/CacheSystem. The layout and
@@ -162,6 +163,8 @@ using RoR::BeamNG::JBeamToRigDefDiagnostic;
 using RoR::BeamNG::JBeamToRigDefDiagnosticCode;
 using RoR::BeamNG::JBeamToRigDefLimits;
 using RoR::BeamNG::JBeamToRigDefPreflightResult;
+using RoR::BeamNG::JBeamWheel2ApproximationPlan;
+using RoR::BeamNG::JBeamWheel2ApproximationPlanSet;
 
 JBeamStructuralProvenance Provenance(
     const std::string& source_name,
@@ -1154,6 +1157,38 @@ JBeamHydroRuntimePlanSet ValidHydroPlanSet(
     return plans;
 }
 
+JBeamWheel2ApproximationPlanSet ValidWheelPlanSet()
+{
+    JBeamWheel2ApproximationPlanSet plans;
+    plans.code = RoR::BeamNG::JBeamWheel2ApproximationCode::ADMITTED;
+    plans.rejected_wheel_index =
+        (std::numeric_limits<std::size_t>::max)();
+    plans.generated_node_count = 64U;
+    plans.generated_beam_count = 384U;
+    JBeamWheel2ApproximationPlan plan;
+    plan.source_wheel_index = 0U;
+    plan.source_record_index = 4U;
+    plan.source_entry_index = 1U;
+    plan.name = "FL";
+    plan.node1 = "ref";
+    plan.node2 = "left";
+    plan.node_arm = "extra";
+    plan.wheel_direction = -1;
+    plan.rim_radius = 0.25f;
+    plan.tyre_radius = 0.5f;
+    plan.width = 1.0f;
+    plan.num_rays = 16U;
+    plan.mass = 24.0f;
+    plan.rim_spring = 1000000.0f;
+    plan.rim_damping = 100.0f;
+    plan.tyre_spring = 500000.0f;
+    plan.tyre_damping = 50.0f;
+    plan.approximated_semantics =
+        RoR::BeamNG::JBEAM_WHEEL2_APPROXIMATION_SEMANTICS;
+    plans.plans.push_back(plan);
+    return plans;
+}
+
 float MirrorActorSpawnerDeformationThreshold(
     const RigDef::BeamDefaults& defaults)
 {
@@ -1583,6 +1618,74 @@ void TestHydroPlansPublishAllOrNone()
         JBeamToRigDefDiagnosticCode::HYDRO_RUNTIME_LIMIT);
 }
 
+void TestWheel2PlansPublishThroughNativeRigDef()
+{
+    const JBeamStructuralIR ir = ValidIR();
+    const JBeamHydroRuntimePlanSet hydros = ValidHydroPlanSet(ir);
+    JBeamWheel2ApproximationPlanSet wheels = ValidWheelPlanSet();
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    RigDef::DocumentPtr document =
+        RoR::BeamNG::ConvertJBeamToRigDefWithRuntimePlans(
+            ir, hydros, wheels, "wheel2-runtime", diagnostics);
+    CHECK(document != nullptr);
+    CHECK(diagnostics.empty());
+    CHECK(document->root_module != nullptr);
+    CHECK(document->root_module->wheels2.size() == 1U);
+    if (document && document->root_module &&
+        document->root_module->wheels2.size() == 1U)
+    {
+        const RigDef::Wheel2& wheel = document->root_module->wheels2[0];
+        CHECK(wheel.nodes[0].Str() == "ref");
+        CHECK(wheel.nodes[1].Str() == "left");
+        CHECK(!wheel.rigidity_node.IsValidAnyState());
+        CHECK(wheel.reference_arm_node.Str() == "extra");
+        CHECK(wheel.braking == RoR::WheelBraking::NONE);
+        CHECK(wheel.propulsion == RoR::WheelPropulsion::NONE);
+        CHECK(wheel.rim_radius == 0.25f);
+        CHECK(wheel.tyre_radius == 0.5f);
+        CHECK(wheel.width == 1.0f);
+        CHECK(wheel.num_rays == 16U);
+        CHECK(wheel.mass == 24.0f);
+        CHECK(wheel.rim_springiness == 1000000.0f);
+        CHECK(wheel.rim_damping == 100.0f);
+        CHECK(wheel.tyre_springiness == 500000.0f);
+        CHECK(wheel.tyre_damping == 50.0f);
+        CHECK(wheel.node_defaults != nullptr);
+        CHECK(wheel.beam_defaults != nullptr);
+        CHECK(wheel.beam_defaults->_is_user_defined);
+        CHECK(wheel.beam_defaults->_enable_advanced_deformation);
+    }
+
+    wheels.plans[0].width = 2.0f;
+    document = RoR::BeamNG::ConvertJBeamToRigDefWithRuntimePlans(
+        ir, hydros, wheels, "wrong-wheel-width", diagnostics);
+    CHECK(document == nullptr);
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::INVALID_WHEEL2_APPROXIMATION_PLAN);
+    CHECK(diagnostics[0].entity_kind ==
+        RoR::BeamNG::JBeamToRigDefEntityKind::WHEEL);
+
+    wheels = ValidWheelPlanSet();
+    wheels.generated_beam_count = 383U;
+    document = RoR::BeamNG::ConvertJBeamToRigDefWithRuntimePlans(
+        ir, hydros, wheels, "wrong-wheel-topology", diagnostics);
+    CHECK(document == nullptr);
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::INVALID_WHEEL2_APPROXIMATION_PLAN);
+
+    wheels = ValidWheelPlanSet();
+    JBeamToRigDefLimits limits;
+    limits.max_nodes = 70U;
+    document = RoR::BeamNG::ConvertJBeamToRigDefWithRuntimePlans(
+        ir, hydros, wheels, "wheel-node-limit", diagnostics, limits);
+    CHECK(document == nullptr);
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::WHEEL2_RUNTIME_LIMIT);
+}
+
 #endif
 
 } // namespace
@@ -1608,6 +1711,7 @@ int main()
     TestTriangleTypeLowering();
     TestSupportBeamLowering();
     TestHydroPlansPublishAllOrNone();
+    TestWheel2PlansPublishThroughNativeRigDef();
 #endif
     if (g_failures != 0)
     {

@@ -1,4 +1,5 @@
 #include "JBeamVehicleImporter.h"
+#include "JBeamWheel2Approximation.h"
 
 // Keep this focused importer target independent from Actor/CacheSystem while
 // using the production RigDef layout consumed by JBeamVehicleImporter.cpp.
@@ -387,6 +388,130 @@ std::string SupportedVehicle()
     })JBEAM";
 }
 
+std::string PressureWheelVehicle()
+{
+    return R"JBEAM({
+        "pressure_vehicle": {
+            "slotType": "main",
+            "nodes": [
+                ["id", "posX", "posY", "posZ", "nodeWeight"],
+                ["ref", 0, 0, 1, 20],
+                ["back", 0, 1, 1, 20],
+                ["left", 1, 0, 1, 20],
+                ["up", 0, 0, 2, 20],
+                ["leftCorner", 1, -1, 1, 20],
+                ["rightCorner", -1, -1, 1, 20],
+                ["axle1", 0.125, 0, 1, 5],
+                ["axle2", -0.125, 0, 1, 5],
+                ["arm", 0, 0.25, 1, 5]
+            ],
+            "refNodes": [
+                ["ref:", "back:", "left:", "up:",
+                 "leftCorner:", "rightCorner:"],
+                ["ref", "back", "left", "up",
+                 "leftCorner", "rightCorner"]
+            ],
+            "beams": [
+                ["id1:", "id2:", "beamSpring", "beamDamp"],
+                ["ref", "back", 4300000, 580],
+                ["ref", "left", 4300000, 580],
+                ["ref", "up", 4300000, 580],
+                ["ref", "leftCorner", 4300000, 580],
+                ["ref", "rightCorner", 4300000, 580],
+                ["ref", "axle1", 4300000, 580],
+                ["ref", "axle2", 4300000, 580],
+                ["ref", "arm", 4300000, 580]
+            ],
+            "pressureWheels": [
+                ["name", "hubGroup", "group", "node1:",
+                 "node2:", "nodeS", "nodeArm:", "wheelDir"],
+                {"radius": 0.5, "hubRadius": 0.25,
+                 "wheelOffset": 0, "tireWidth": 0.25,
+                 "hubWidth": 0.25, "hasTire": true, "numRays": 16,
+                 "nodeWeight": 0.5, "hubNodeWeight": 0.25,
+                 "hubBeamSpring": 1000000, "hubBeamDamp": 100,
+                 "wheelSideBeamSpring": 500000,
+                 "wheelSideBeamDamp": 50},
+                ["FL", "hub_FL", "tire_FL", "axle1",
+                 "axle2", 9999, "arm", -1]
+            ]
+        }
+    })JBEAM";
+}
+
+void TestPressureWheelProductImport()
+{
+    const std::vector<std::uint8_t> archive = BuildArchive({
+        {"vehicles/pressure/main.jbeam",
+         PressureWheelVehicle(), 8U, false}});
+    const TempArchive file(archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot snapshot =
+        LoadSnapshot(archive, file);
+    const RoR::BeamNG::JBeamVehicleImportResult imported =
+        RoR::BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+            snapshot, "beamng-wheel-group", "pressure_vehicle");
+    if (!imported.IsAdmitted())
+    {
+        std::cerr << "pressure-wheel fixture returned "
+                  << RoR::BeamNG::JBeamVehicleImportCodeToString(
+                         imported.code)
+                  << ": " << imported.detail << '\n';
+    }
+    CHECK(imported.IsAdmitted());
+    CHECK(imported.authority != nullptr);
+    CHECK(imported.authority &&
+        imported.authority->wheel2_plan_sha256().size() == 64U);
+    CHECK(imported.authority &&
+        imported.authority->wheel2_plan_count() == 1U);
+    CHECK(imported.authority &&
+        imported.authority->wheel2_approximated_semantics() ==
+            RoR::BeamNG::JBEAM_WHEEL2_APPROXIMATION_SEMANTICS);
+    CHECK(imported.document != nullptr);
+    CHECK(imported.document && imported.document->root_module != nullptr);
+    if (imported.document && imported.document->root_module)
+    {
+        CHECK(imported.document->root_module->wheels2.size() == 1U);
+        if (imported.document->root_module->wheels2.size() == 1U)
+        {
+            const RigDef::Wheel2& wheel =
+                imported.document->root_module->wheels2[0];
+            CHECK(wheel.nodes[0].Str() == "axle1");
+            CHECK(wheel.nodes[1].Str() == "axle2");
+            CHECK(wheel.reference_arm_node.Str() == "arm");
+            CHECK(wheel.rim_radius == 0.25f);
+            CHECK(wheel.tyre_radius == 0.5f);
+            CHECK(wheel.width == 0.25f);
+            CHECK(wheel.num_rays == 16U);
+            CHECK(wheel.mass == 24.0f);
+            CHECK(wheel.braking == RoR::WheelBraking::NONE);
+            CHECK(wheel.propulsion == RoR::WheelPropulsion::NONE);
+        }
+    }
+
+    std::string unsupported = PressureWheelVehicle();
+    const std::string needle = "\"wheelOffset\": 0";
+    const std::size_t offset = unsupported.find(needle);
+    CHECK(offset != std::string::npos);
+    if (offset != std::string::npos)
+    {
+        unsupported.replace(offset, needle.size(),
+            "\"wheelOffset\": 0.125");
+    }
+    const std::vector<std::uint8_t> rejected_archive = BuildArchive({
+        {"vehicles/pressure/main.jbeam", unsupported, 0U, false}});
+    const TempArchive rejected_file(rejected_archive);
+    const RoR::TerrainBundleAuthenticatedArchiveSnapshot rejected_snapshot =
+        LoadSnapshot(rejected_archive, rejected_file);
+    const RoR::BeamNG::JBeamVehicleImportResult rejected =
+        RoR::BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+            rejected_snapshot, "beamng-wheel-group", "pressure_vehicle");
+    CHECK(!rejected.IsAdmitted());
+    CHECK(rejected.code ==
+        RoR::BeamNG::JBeamVehicleImportCode::WHEEL2_PLAN_REJECTED);
+    CHECK(rejected.document == nullptr);
+    CHECK(rejected.authority == nullptr);
+}
+
 void TestAdmissionAndAuthority()
 {
     const std::vector<std::uint8_t> archive = BuildArchive({
@@ -427,6 +552,9 @@ void TestAdmissionAndAuthority()
     CHECK(imported.authority->package_index_sha256() ==
         inspection.package_index_sha256);
     CHECK(imported.authority->resolved_graph_sha256().size() == 64U);
+    CHECK(imported.authority->wheel2_plan_sha256().size() == 64U);
+    CHECK(imported.authority->wheel2_plan_count() == 0U);
+    CHECK(imported.authority->wheel2_approximated_semantics() == 0U);
     CHECK(imported.authority->jbeam_member_count() == 1U);
     CHECK(imported.authority->retained_jbeam_bytes() ==
         SupportedVehicle().size());
@@ -579,6 +707,7 @@ void TestHostileArchives()
 int main()
 {
     TestAdmissionAndAuthority();
+    TestPressureWheelProductImport();
     TestHostileArchives();
     if (g_failures != 0)
     {

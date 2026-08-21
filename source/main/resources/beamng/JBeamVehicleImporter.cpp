@@ -13,6 +13,7 @@
 #include "JBeamStructuralIR.h"
 #include "JBeamSyntax.h"
 #include "JBeamToRigDef.h"
+#include "JBeamWheel2Approximation.h"
 #include "resources/rig_def_fileformat/RigDef_File.h"
 
 #include <openssl/evp.h>
@@ -370,7 +371,8 @@ bool IsAllowedActiveField(const std::string& field)
         field == "slots2" || field == "variables" ||
         field == "information" || field == "refNodes" ||
         field == "nodes" || field == "beams" ||
-        field == "triangles" || field == "hydros";
+        field == "triangles" || field == "hydros" ||
+        field == "pressureWheels";
 }
 
 bool ValidateActiveSections(
@@ -449,6 +451,9 @@ struct JBeamVehicleImportAuthorityReceipt::State
     std::string root_part_name;
     std::string package_index_sha256;
     std::string resolved_graph_sha256;
+    std::string wheel2_plan_sha256;
+    std::size_t wheel2_plan_count = 0U;
+    std::uint32_t wheel2_approximated_semantics = 0U;
     std::size_t jbeam_member_count = 0U;
     std::size_t retained_jbeam_bytes = 0U;
 };
@@ -466,6 +471,7 @@ bool JBeamVehicleImportAuthorityReceipt::initialized() const noexcept
         !m_state->root_part_name.empty() &&
         m_state->package_index_sha256.size() == 64U &&
         m_state->resolved_graph_sha256.size() == 64U &&
+        m_state->wheel2_plan_sha256.size() == 64U &&
         m_state->jbeam_member_count != 0U &&
         m_state->retained_jbeam_bytes != 0U;
 }
@@ -503,6 +509,25 @@ const std::string&
 JBeamVehicleImportAuthorityReceipt::resolved_graph_sha256() const noexcept
 {
     return m_state ? m_state->resolved_graph_sha256 : EMPTY_STRING;
+}
+
+const std::string&
+JBeamVehicleImportAuthorityReceipt::wheel2_plan_sha256() const noexcept
+{
+    return m_state ? m_state->wheel2_plan_sha256 : EMPTY_STRING;
+}
+
+std::size_t
+JBeamVehicleImportAuthorityReceipt::wheel2_plan_count() const noexcept
+{
+    return m_state ? m_state->wheel2_plan_count : 0U;
+}
+
+std::uint32_t
+JBeamVehicleImportAuthorityReceipt::wheel2_approximated_semantics() const
+    noexcept
+{
+    return m_state ? m_state->wheel2_approximated_semantics : 0U;
 }
 
 std::size_t
@@ -655,12 +680,31 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
                 JBeamHydroRuntimePlanSetCodeToString(hydro_plans.code);
             return result;
         }
+        const JBeamWheel2ApproximationPlanSet wheel_plans =
+            BuildJBeamWheel2ApproximationPlanSet(graph);
+        if (!wheel_plans.IsAdmitted())
+        {
+            result.code = JBeamVehicleImportCode::WHEEL2_PLAN_REJECTED;
+            result.detail = std::string("Wheel2 plan set rejected: ") +
+                JBeamWheel2ApproximationCodeToString(wheel_plans.code);
+            return result;
+        }
+        const std::string canonical_wheel_plans =
+            SerializeCanonicalJBeamWheel2ApproximationPlanSet(wheel_plans);
+        const std::string wheel_plan_sha256 = Sha256(canonical_wheel_plans);
+        if (canonical_wheel_plans.empty() || wheel_plan_sha256.empty())
+        {
+            result.code = JBeamVehicleImportCode::INTERNAL_FAILURE;
+            result.detail = "Could not hash canonical Wheel2 plans";
+            return result;
+        }
 
         std::vector<JBeamToRigDefDiagnostic> diagnostics;
         RigDef::DocumentPtr document =
-            ConvertJBeamToRigDefWithHydroRuntimePlans(
+            ConvertJBeamToRigDefWithRuntimePlans(
                 structural,
                 hydro_plans,
+                wheel_plans,
                 root_part_name,
                 diagnostics);
         if (!document || !diagnostics.empty())
@@ -692,6 +736,12 @@ JBeamVehicleImportResult ImportJBeamVehicleFromArchiveSnapshot(
         state->root_part_name = root_part_name;
         state->package_index_sha256 = parsed.package_index_sha256;
         state->resolved_graph_sha256 = graph_sha256;
+        state->wheel2_plan_sha256 = wheel_plan_sha256;
+        state->wheel2_plan_count = wheel_plans.plans.size();
+        state->wheel2_approximated_semantics =
+            wheel_plans.plans.empty()
+                ? 0U
+                : JBEAM_WHEEL2_APPROXIMATION_SEMANTICS;
         state->jbeam_member_count = parsed.sources.size();
         state->retained_jbeam_bytes = parsed.retained_jbeam_bytes;
         const std::shared_ptr<const JBeamVehicleImportAuthorityReceipt>
@@ -764,6 +814,8 @@ const char* JBeamVehicleImportCodeToString(JBeamVehicleImportCode code)
         return "structural-ir-rejected";
     case JBeamVehicleImportCode::HYDRO_PLAN_REJECTED:
         return "hydro-plan-rejected";
+    case JBeamVehicleImportCode::WHEEL2_PLAN_REJECTED:
+        return "wheel2-plan-rejected";
     case JBeamVehicleImportCode::RIGDEF_CONVERSION_REJECTED:
         return "rigdef-conversion-rejected";
     case JBeamVehicleImportCode::ALLOCATION_FAILURE:

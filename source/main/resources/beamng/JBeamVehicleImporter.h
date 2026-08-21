@@ -26,7 +26,7 @@ typedef std::shared_ptr<Document> DocumentPtr;
 namespace RoR {
 namespace BeamNG {
 
-constexpr std::uint32_t JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION = 1U;
+constexpr std::uint32_t JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION = 2U;
 
 struct JBeamVehicleImportLimits
 {
@@ -51,6 +51,7 @@ enum class JBeamVehicleImportCode
     UNSUPPORTED_ACTIVE_SECTION,
     STRUCTURAL_IR_REJECTED,
     HYDRO_PLAN_REJECTED,
+    WHEEL2_PLAN_REJECTED,
     RIGDEF_CONVERSION_REJECTED,
     ALLOCATION_FAILURE,
     INTERNAL_FAILURE
@@ -79,6 +80,9 @@ public:
     const std::string& archive_sha256() const noexcept;
     const std::string& package_index_sha256() const noexcept;
     const std::string& resolved_graph_sha256() const noexcept;
+    const std::string& wheel2_plan_sha256() const noexcept;
+    std::size_t wheel2_plan_count() const noexcept;
+    std::uint32_t wheel2_approximated_semantics() const noexcept;
     std::size_t jbeam_member_count() const noexcept;
     std::size_t retained_jbeam_bytes() const noexcept;
     const TerrainBundleAuthenticatedArchiveSnapshot*
