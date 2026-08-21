@@ -1613,11 +1613,15 @@ void CheckAlexisAuthoredRoughnessPolicy() {
   Require(kOgreNextDemoAlexisGlassRoughness > 0.0F &&
               kOgreNextDemoAlexisGlassRoughness < 1.0F,
           "the reviewed glass roughness left the open unit interval");
-  // Glass is the smoother of the two authored dielectrics; if that ordering
-  // ever inverts the windows would read as duller than the paint beside them.
-  Require(kOgreNextDemoAlexisGlassRoughness <
+  // The glass lobe is deliberately the broader of the two. It stands in for a
+  // pane-wide environment reflection this runtime cannot sample, on flat
+  // panes that never find the mirror angle by their own curvature; a lobe as
+  // tight as the curved body paint's leaves the windows black. If that
+  // ordering ever inverts, the authored specular member goes back to being
+  // invisible.
+  Require(kOgreNextDemoAlexisGlassRoughness >
               kOgreNextDemoAlexisBodyPaintRoughness,
-          "the reviewed glass roughness stopped being sharper than the paint");
+          "the reviewed glass roughness stopped being broader than the paint");
   float roughness = -1.0F;
   Require(OgreNextDemoResolveAlexisAuthoredRoughness(
               "{bundle USER:/mods/AlexisSaber.zip}",

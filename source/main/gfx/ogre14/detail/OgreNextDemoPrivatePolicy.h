@@ -938,26 +938,40 @@ constexpr float kOgreNextDemoAlexisBodyPaintRoughness = 0.22F;
 
 /// Reviewed roughness for the Alexis window glass (Winds and Winds_int).
 ///
-/// Same defect, same remedy as the body paint above, and for glass the
-/// shininess derivation is not merely coarse but actively wrong. What the
-/// legacy declaration puts in the SpecularMapping1 overlay is a cube
-/// environment reflection (`env_map cubic_reflection`) modulated by
-/// AlexisSaberWindss.png - a mirror term with no Blinn-Phong exponent
-/// anywhere in it. Deriving a lobe width from the base pass's shininess
-/// therefore reads a field the author never used for this surface, and it
-/// reads 0, which lands on roughness 1.0: a fully rough dielectric, which is
-/// frosted glass. The authored specular member would be shipped into a lobe
-/// too broad to show it, and the windows would present as flat black.
+/// Same defect as the body paint above - no managed template authors a live
+/// shininess, so the derivation lands on 1.0 - but the correct remedy is the
+/// opposite end of the scale, and the reason is worth stating because the
+/// obvious value is wrong.
 ///
-/// 0.08 rather than a physical near-zero: this presenter mounts no reflection
-/// probe or IBL for the vehicle (main.cpp force-disables the environment-map
-/// RTT), so the only thing a mirror lobe can reflect is the analytic sun disk,
-/// whose angular radius is about 0.0047 rad. Below roughly 0.05 the highlight
-/// collapses to a few pixels that vanish at any distance; 0.08 keeps a tight,
-/// clearly specular streak that travels across the curved windshield as the
-/// camera moves, and stays visibly sharper than the 0.22 paint beside it -
-/// which is the authored relationship between glass and clearcoat.
-constexpr float kOgreNextDemoAlexisGlassRoughness = 0.08F;
+/// What the legacy declaration puts in the SpecularMapping1 overlay is not a
+/// Blinn-Phong highlight at all. It is a cube environment reflection
+/// (`env_map cubic_reflection`, blended 0.5) modulated by
+/// AlexisSaberWindss.png: a term that covers the whole pane, comes from the
+/// surroundings, and carries no exponent anywhere. This runtime has no
+/// environment to sample - main.cpp force-disables the environment-map RTT -
+/// so that term cannot be reproduced as written; the sun is the only specular
+/// source left, and the only question is how wide its lobe should be.
+///
+/// A physical glass roughness answers that question badly, and the arithmetic
+/// says so rather than taste. The pinned PBS squares perceptual roughness
+/// before the GGX NDF (Hlms/Pbs: pixelData.roughness = perceptual^2), so the
+/// lobe's half-power half-angle is about 0.64 * perceptual^2 radians. At 0.08
+/// that is 0.23 degrees. The Alexis glass is six nearly flat panes, so a lobe
+/// that narrow is all-or-nothing per facet: the pane is black until the eye
+/// crosses a sub-degree window and then flashes. That was measured, not
+/// assumed - a 56-sample camera ring at the sun's own elevation (6.4 degrees
+/// per step) produced a pure black pane in every single frame. A constant
+/// nothing can see is not a reviewed value, it is a dead knob.
+///
+/// 0.40 gives about 5.9 degrees of half-angle, which is what makes the
+/// authored specular member do the job it was authored for: a sheen that
+/// covers a flat pane, appears across a usable range of viewpoints, and
+/// travels as the camera moves - broad and pane-wide, exactly the shape of
+/// the environment term it stands in for. It is deliberately blurrier than
+/// the 0.22 body paint next to it, because the paint is a curved panel that
+/// finds the mirror angle somewhere along its own curvature and glass here
+/// has no curvature to do that with.
+constexpr float kOgreNextDemoAlexisGlassRoughness = 0.40F;
 
 /// True, with `out_roughness` set, only for the Alexis body-paint and window
 /// glass materials in their own bundle. Every other material keeps the
