@@ -708,9 +708,9 @@ void TestNativeDirectionalShadowScenePolicy() {
           "sun-visibility V2 and native N4 were admitted together");
 
   request.views.front().near_plane = kOgreNextPssmNearMeters;
-  request.views.front().far_plane = kOgreNextPssmFarMeters;
+  request.views.front().far_plane = kOgreNextExpectedViewFarMeters;
   request.views.front().clip_from_view =
-      Projection(kOgreNextPssmNearMeters, kOgreNextPssmFarMeters);
+      Projection(kOgreNextPssmNearMeters, kOgreNextExpectedViewFarMeters);
   request.views.front().previous_clip_from_view =
       request.views.front().clip_from_view;
   request.color_format = PixelFormat::RGBA8_SRGB;
