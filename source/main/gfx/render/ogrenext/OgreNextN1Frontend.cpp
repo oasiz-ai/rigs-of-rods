@@ -11579,14 +11579,59 @@ RenderOperationResult OgreNextN1Frontend::Render(
             snapshot.environment().environment_intensity,
         snapshot.environment().ambient_radiance.z *
             snapshot.environment().environment_intensity);
-    impl_->scene_manager->setAmbientLight(expected_ambient, expected_ambient,
+    // Split the ambient across the hemisphere instead of handing Ogre one flat
+    // colour twice.
+    //
+    // A fully shadowed surface receives only this term, so a single grey value
+    // makes every shadow read as an unlit void. Real shadow is lit by the sky
+    // from above and by bounce off ground and facades from below, and both
+    // carry colour. The analytic sky already computes exactly those two
+    // quantities for its dome and they are validated before they arrive here,
+    // so the split costs nothing to source.
+    //
+    // Magnitude is preserved: the two hemispheres are normalized so their mean
+    // luminance is still the sun-relative ambient the producer chose. This
+    // changes the colour and direction of the shadow fill, never its level, so
+    // it cannot on its own wash out a sunlit surface.
+    Ogre::ColourValue expected_upper = expected_ambient;
+    Ogre::ColourValue expected_lower = expected_ambient;
+    {
+      const AnalyticSkyDescriptor &sky = snapshot.environment().analytic_sky;
+      const auto luminance = [](const Float3 &value) {
+        return 0.2126F * value.x + 0.7152F * value.y + 0.0722F * value.z;
+      };
+      const float mean_luminance =
+          0.5F * (luminance(sky.zenith_radiance) +
+                  luminance(sky.ground_radiance));
+      if (sky.enabled && std::isfinite(mean_luminance) &&
+          mean_luminance > 0.0F) {
+        const auto tint = [&](const Float3 &radiance) {
+          return Ogre::ColourValue(
+              expected_ambient.r * (radiance.x / mean_luminance),
+              expected_ambient.g * (radiance.y / mean_luminance),
+              expected_ambient.b * (radiance.z / mean_luminance));
+        };
+        const Ogre::ColourValue upper = tint(sky.zenith_radiance);
+        const Ogre::ColourValue lower = tint(sky.ground_radiance);
+        const auto usable = [](const Ogre::ColourValue &value) {
+          return std::isfinite(value.r) && std::isfinite(value.g) &&
+                 std::isfinite(value.b) && value.r >= 0.0F &&
+                 value.g >= 0.0F && value.b >= 0.0F;
+        };
+        if (usable(upper) && usable(lower)) {
+          expected_upper = upper;
+          expected_lower = lower;
+        }
+      }
+    }
+    impl_->scene_manager->setAmbientLight(expected_upper, expected_lower,
                                           Ogre::Vector3::UNIT_Y);
     if (!NearlyEqual(
             impl_->scene_manager->getAmbientLightUpperHemisphere(),
-            expected_ambient) ||
+            expected_upper) ||
         !NearlyEqual(
             impl_->scene_manager->getAmbientLightLowerHemisphere(),
-            expected_ambient) ||
+            expected_lower) ||
         !NearlyEqual(
             impl_->scene_manager->getAmbientLightHemisphereDir(),
             Ogre::Vector3::UNIT_Y)) {
@@ -11595,8 +11640,9 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     ++lighting_candidate.native_state_verifications;
     lighting_candidate.ambient_environment_lighting =
-        expected_ambient.r > 0.0F || expected_ambient.g > 0.0F ||
-        expected_ambient.b > 0.0F;
+        expected_upper.r > 0.0F || expected_upper.g > 0.0F ||
+        expected_upper.b > 0.0F || expected_lower.r > 0.0F ||
+        expected_lower.g > 0.0F || expected_lower.b > 0.0F;
     const std::uint32_t authored_view_visibility =
         view.visibility_mask & native_authored_visibility_mask;
     if (shadow_plan.enabled &&
