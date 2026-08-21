@@ -2034,9 +2034,16 @@ rest-length-ratio state. Factor mode has the documented precedence over
 separate travel/input scaling. Invalid configuration, input, state, timestep,
 or resolved rest length fails closed under strict and fast-math builds.
 Golden examples and 50,000 fixed-seed property cases cover target progress,
-rate bounds, and finite positive output. Structural `hydros` table lowering,
-native input wiring, save/replay state, force integration, and source-engine
-calibration remain open before the adapter can advertise native behavior.
+rate bounds, and finite positive output. Literal advanced-structure hydro rows
+can now enter this kernel through a fail-closed product API: the admission
+requires a valid source IR, exact row bounds, inventory-only literal behavior,
+no row-local diagnostic, and a second validation of the copied
+`HydroActuatorConfig`. The receipt retains the exact node pair, input source,
+steering lock, limits, scaling, and rates. This closes source-row-to-kernel
+configuration mapping only. Physical beam construction and node-index joining,
+native electrics/input wiring, save/replay state, force integration, runtime
+spawn publication, and source-engine calibration remain open before the
+adapter can advertise native behavior.
 
 The first pressure-wheel pass now provides a bounded, deterministic inventory
 of literal `pressureWheels` rows and every relevant source section. It preserves
@@ -2059,9 +2066,10 @@ inventory-only, or inert-expression classification. Duplicate sections and
 rail names, malformed tables, non-finite values, unresolved references, cyclic
 resolved graphs, and quota overflow fail closed. Canonical identity is stable
 across package enumeration order and container capacity, with strict,
-fast-math, and sanitizer fixtures. No actuator, rail constraint, thrust, or
-torsion force is enabled by this inventory pass; runtime lowering and
-behavioral conformance remain open.
+fast-math, and sanitizer fixtures. Validated literal hydro rows may produce the
+configuration-only admission described above, but no actuator force, rail
+constraint, thrust, or torsion force is enabled by this inventory pass;
+runtime lowering and behavioral conformance remain open.
 
 Imported vehicle Lua and controllers are untrusted data. They never run inside
 the game, editor, converter, tests, or build. A requested behavior becomes

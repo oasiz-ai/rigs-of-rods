@@ -301,7 +301,7 @@ RoR state contract, not yet a parity claim. A package remains
 `preserved-but-disabled` until table lowering and behavioral comparison show
 that its relied-upon source behavior fits that declared interpretation.
 
-The first advanced-structure semantic pass is an inert, bounded inventory of
+The first advanced-structure semantic pass is a bounded inventory of
 `hydros`, legacy `rails`, `rails2`, `slidenodes`, `thrusters`, and
 `torsionbars`. It locks the official defaults and dependent defaults in this
 documentation profile, including hydro input/rate behavior, rail cap/loop
@@ -309,9 +309,17 @@ flags, slidenode attachment flags, the thruster factor and `FLT_MAX` limit, and
 torsion-bar secondary spring/damping inheritance. Exact source values,
 modifier order, unknown fields, source spans, and disabled expressions remain
 identity material. Static rail geometry can be classified as ready for a
-future native adapter, but all actuated or force-producing rows remain
-inventory-only. This pass does not execute electrics, apply forces, create
-constraints, or authorize runtime lowering.
+future native adapter. A dedicated fail-closed admission step may now copy one
+literal, diagnostic-free hydro row into the actual deterministic
+`HydroActuatorConfig` response contract. It preserves the exact node pair,
+input source, steering lock, factor/limit/scaling fields, and rate fields, then
+reruns the response-kernel configuration validator before admission. Unknown
+fields, expressions, invalid source IR, invalid limit ordering, or a row-local
+diagnostic reject the admission transaction. This is configuration admission,
+not runtime lowering: it does not execute electrics, resolve live inputs,
+construct a beam, apply forces, create constraints, publish replay state, or
+authorize vehicle spawning. Rails, slidenodes, thrusters, torsion bars, and
+all other force-producing paths remain inventory-only.
 
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,

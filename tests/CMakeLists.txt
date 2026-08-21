@@ -2664,6 +2664,7 @@ target_include_directories(
     ror_jbeam_advanced_structure_ir_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+        "${ROR_REPOSITORY_ROOT}/source/main/physics"
 )
 
 target_include_directories(

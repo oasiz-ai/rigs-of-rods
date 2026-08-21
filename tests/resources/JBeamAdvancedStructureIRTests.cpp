@@ -32,6 +32,8 @@ using RoR::BeamNG::JBeamAdvancedFieldOrigin;
 using RoR::BeamNG::JBeamAdvancedLimits;
 using RoR::BeamNG::JBeamAdvancedSectionKind;
 using RoR::BeamNG::JBeamAdvancedStructureIR;
+using RoR::BeamNG::JBeamHydroActuatorAdmission;
+using RoR::BeamNG::JBeamHydroActuatorAdmissionCode;
 using RoR::BeamNG::JBeamObjectField;
 using RoR::BeamNG::JBeamPackageIndex;
 using RoR::BeamNG::JBeamPackageSource;
@@ -314,6 +316,97 @@ void TestDefaultsAndDependentDefaults()
     CHECK(ir.thrusters[0].thrust_limit_is_flt_max);
     CHECK(ir.torsionbars[0].spring2 == 12.0);
     CHECK(ir.torsionbars[0].damp2 == 3.0);
+}
+
+void TestHydroActuatorAdmission()
+{
+    const JBeamAdvancedStructureIR documented =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "[\"n1\",\"n2\",{\"factor\":0.14,"
+            "\"steeringWheelLock\":510,\"inRate\":1.25,"
+            "\"outRate\":1.5,\"autoCenterRate\":0.75}]]"));
+    CHECK(documented.IsValid());
+    const JBeamHydroActuatorAdmission admitted =
+        RoR::BeamNG::AdmitJBeamHydroActuator(documented, 0U);
+    CHECK(admitted.IsAdmitted());
+    CHECK(admitted.code == JBeamHydroActuatorAdmissionCode::ADMITTED);
+    CHECK(admitted.source_hydro_index == 0U);
+    CHECK(admitted.node1 == "n1");
+    CHECK(admitted.node2 == "n2");
+    CHECK(admitted.input_source == "steering_input");
+    CHECK(admitted.has_steering_wheel_lock);
+    CHECK(admitted.steering_wheel_lock == 510.0);
+    CHECK(admitted.config.has_factor);
+    CHECK(admitted.config.factor == 0.14);
+    CHECK(admitted.config.in_rate == 1.25);
+    CHECK(admitted.config.out_rate == 1.5);
+    CHECK(admitted.config.auto_center_rate == 0.75);
+
+    const RoR::HydroActuatorStep positive =
+        RoR::ResolveHydroActuatorTarget(admitted.config, 1.0);
+    const RoR::HydroActuatorStep negative =
+        RoR::ResolveHydroActuatorTarget(admitted.config, -1.0);
+    CHECK(positive.valid);
+    CHECK(negative.valid);
+    CHECK(positive.target_ratio == 1.0 + admitted.config.factor);
+    CHECK(negative.target_ratio == 1.0 - admitted.config.factor);
+
+    const JBeamHydroActuatorAdmission missing =
+        RoR::BeamNG::AdmitJBeamHydroActuator(documented, 1U);
+    CHECK(!missing.IsAdmitted());
+    CHECK(missing.code == JBeamHydroActuatorAdmissionCode::
+        HYDRO_INDEX_OUT_OF_RANGE);
+
+    const JBeamAdvancedStructureIR unknown =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\",\"mystery\"],"
+            "[\"n1\",\"n2\",7]]"));
+    CHECK(unknown.IsValid());
+    CHECK(CountDiagnostic(
+        unknown,
+        JBeamAdvancedDiagnosticCode::UNKNOWN_FIELD_PRESERVED) == 1U);
+    CHECK(RoR::BeamNG::AdmitJBeamHydroActuator(unknown, 0U).code ==
+        JBeamHydroActuatorAdmissionCode::SOURCE_HAS_DIAGNOSTIC);
+
+    const JBeamAdvancedStructureIR expression =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\",\"factor\"],"
+            "[\"n1\",\"n2\",\"$=0.5\"]]"));
+    CHECK(expression.IsValid());
+    CHECK(expression.hydros[0].entry.behavior ==
+        JBeamAdvancedBehavior::PRESERVED_DISABLED_INERT_EXPRESSION);
+    CHECK(RoR::BeamNG::AdmitJBeamHydroActuator(expression, 0U).code ==
+        JBeamHydroActuatorAdmissionCode::SOURCE_NOT_LITERAL_INVENTORY);
+
+    const JBeamAdvancedStructureIR invalid_config =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\","
+            "\"inputInLimit\",\"inputCenter\","
+            "\"inputOutLimit\"],[\"n1\",\"n2\",1,0,-1]]"));
+    CHECK(invalid_config.IsValid());
+    CHECK(RoR::BeamNG::AdmitJBeamHydroActuator(
+        invalid_config, 0U).code ==
+        JBeamHydroActuatorAdmissionCode::INVALID_ACTUATOR_CONFIG);
+
+    const JBeamAdvancedStructureIR invalid_source =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "[\"missing\",\"n2\"]]"));
+    CHECK(!invalid_source.IsValid());
+    CHECK(RoR::BeamNG::AdmitJBeamHydroActuator(
+        invalid_source, 0U).code ==
+        JBeamHydroActuatorAdmissionCode::INVALID_ADVANCED_IR);
+
+    CHECK(std::string(
+        RoR::BeamNG::JBeamHydroActuatorAdmissionCodeToString(
+            JBeamHydroActuatorAdmissionCode::INVALID_ACTUATOR_CONFIG)) ==
+        "invalid-actuator-config");
 }
 
 void TestLegacyRailsAndRails2SemanticEquivalence()
@@ -861,6 +954,7 @@ int main()
     TestDocumentationProfile();
     TestOfficialExamplesAndClassification();
     TestDefaultsAndDependentDefaults();
+    TestHydroActuatorAdmission();
     TestLegacyRailsAndRails2SemanticEquivalence();
     TestModifiersUnknownsAndOwnership();
     TestExpressionsArePreservedDisabled();

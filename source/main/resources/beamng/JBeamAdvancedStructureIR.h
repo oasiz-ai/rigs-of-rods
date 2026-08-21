@@ -20,6 +20,7 @@
 #pragma once
 
 #include "JBeamPartResolver.h"
+#include "HydroActuatorResponse.h"
 
 #include <cstddef>
 #include <memory>
@@ -274,6 +275,44 @@ struct JBeamAdvancedHydro
 
     JBeamAdvancedHydro();
 };
+
+struct JBeamAdvancedStructureIR;
+
+/// Result of bridging one literal, validated source hydro into the independent
+/// deterministic response kernel. Admission covers only command-to-length
+/// response parameters. It does not authorize beam construction, electrics
+/// lookup, input wiring, save/replay publication, or runtime spawning.
+enum class JBeamHydroActuatorAdmissionCode
+{
+    ADMITTED,
+    INVALID_ADVANCED_IR,
+    HYDRO_INDEX_OUT_OF_RANGE,
+    SOURCE_NOT_LITERAL_INVENTORY,
+    SOURCE_HAS_DIAGNOSTIC,
+    INVALID_ACTUATOR_CONFIG
+};
+
+struct JBeamHydroActuatorAdmission
+{
+    JBeamHydroActuatorAdmissionCode code;
+    std::size_t source_hydro_index;
+    std::string node1;
+    std::string node2;
+    std::string input_source;
+    bool has_steering_wheel_lock;
+    double steering_wheel_lock;
+    HydroActuatorConfig config;
+
+    JBeamHydroActuatorAdmission();
+    bool IsAdmitted() const;
+};
+
+JBeamHydroActuatorAdmission AdmitJBeamHydroActuator(
+    const JBeamAdvancedStructureIR& ir,
+    std::size_t hydro_index);
+
+const char* JBeamHydroActuatorAdmissionCodeToString(
+    JBeamHydroActuatorAdmissionCode code);
 
 struct JBeamAdvancedRail
 {

@@ -3327,6 +3327,109 @@ bool JBeamAdvancedStructureIR::IsValid() const
     return true;
 }
 
+JBeamHydroActuatorAdmission::JBeamHydroActuatorAdmission()
+    : code(JBeamHydroActuatorAdmissionCode::INVALID_ADVANCED_IR)
+    , source_hydro_index(0U)
+    , has_steering_wheel_lock(false)
+    , steering_wheel_lock(0.0)
+{
+}
+
+bool JBeamHydroActuatorAdmission::IsAdmitted() const
+{
+    return code == JBeamHydroActuatorAdmissionCode::ADMITTED;
+}
+
+JBeamHydroActuatorAdmission AdmitJBeamHydroActuator(
+    const JBeamAdvancedStructureIR& ir,
+    std::size_t hydro_index)
+{
+    JBeamHydroActuatorAdmission result;
+    result.source_hydro_index = hydro_index;
+    if (!ir.IsValid())
+    {
+        result.code =
+            JBeamHydroActuatorAdmissionCode::INVALID_ADVANCED_IR;
+        return result;
+    }
+    if (hydro_index >= ir.hydros.size())
+    {
+        result.code =
+            JBeamHydroActuatorAdmissionCode::HYDRO_INDEX_OUT_OF_RANGE;
+        return result;
+    }
+
+    const JBeamAdvancedHydro& hydro = ir.hydros[hydro_index];
+    if (hydro.entry.behavior != JBeamAdvancedBehavior::INVENTORY_ONLY)
+    {
+        result.code = JBeamHydroActuatorAdmissionCode::
+            SOURCE_NOT_LITERAL_INVENTORY;
+        return result;
+    }
+    for (std::size_t i = 0U; i < ir.diagnostics.size(); ++i)
+    {
+        const JBeamAdvancedDiagnostic& diagnostic = ir.diagnostics[i];
+        if (diagnostic.section_kind == JBeamAdvancedSectionKind::HYDROS &&
+            diagnostic.source_record_index ==
+                hydro.entry.source_record_index &&
+            diagnostic.entry_index == hydro.entry.source_entry_index)
+        {
+            result.code =
+                JBeamHydroActuatorAdmissionCode::SOURCE_HAS_DIAGNOSTIC;
+            return result;
+        }
+    }
+
+    HydroActuatorConfig config;
+    config.has_factor = hydro.has_factor;
+    config.factor = hydro.factor;
+    config.in_limit = hydro.in_limit;
+    config.out_limit = hydro.out_limit;
+    config.input_factor = hydro.input_factor;
+    config.input_center = hydro.input_center;
+    config.input_in_limit = hydro.input_in_limit;
+    config.input_out_limit = hydro.input_out_limit;
+    config.in_rate = hydro.in_rate;
+    config.out_rate = hydro.out_rate;
+    config.auto_center_rate = hydro.auto_center_rate;
+    if (!HydroActuatorDetail::IsValidConfig(config))
+    {
+        result.code =
+            JBeamHydroActuatorAdmissionCode::INVALID_ACTUATOR_CONFIG;
+        return result;
+    }
+
+    result.node1 = hydro.node1;
+    result.node2 = hydro.node2;
+    result.input_source = hydro.input_source;
+    result.has_steering_wheel_lock = hydro.has_steering_wheel_lock;
+    result.steering_wheel_lock = hydro.steering_wheel_lock;
+    result.config = config;
+    result.code = JBeamHydroActuatorAdmissionCode::ADMITTED;
+    return result;
+}
+
+const char* JBeamHydroActuatorAdmissionCodeToString(
+    JBeamHydroActuatorAdmissionCode code)
+{
+    switch (code)
+    {
+    case JBeamHydroActuatorAdmissionCode::ADMITTED:
+        return "admitted";
+    case JBeamHydroActuatorAdmissionCode::INVALID_ADVANCED_IR:
+        return "invalid-advanced-ir";
+    case JBeamHydroActuatorAdmissionCode::HYDRO_INDEX_OUT_OF_RANGE:
+        return "hydro-index-out-of-range";
+    case JBeamHydroActuatorAdmissionCode::SOURCE_NOT_LITERAL_INVENTORY:
+        return "source-not-literal-inventory";
+    case JBeamHydroActuatorAdmissionCode::SOURCE_HAS_DIAGNOSTIC:
+        return "source-has-diagnostic";
+    case JBeamHydroActuatorAdmissionCode::INVALID_ACTUATOR_CONFIG:
+        return "invalid-actuator-config";
+    }
+    return "unknown";
+}
+
 JBeamAdvancedStructureIR BuildJBeamAdvancedStructureIR(
     const JBeamResolvedGraph& graph,
     const JBeamAdvancedLimits& limits)
