@@ -876,17 +876,41 @@ OgreNextDemoOmitsInvisibleCab(std::string_view exact_material_name,
     std::string_view exact_mesh_name,
     const Render::Float3 &derived_scale) noexcept;
 
-/// Exact content-scoped exception for the first macOS demo. Only the five
-/// reviewed opaque Alexis bases (Chassis, ChassisM, Wheels, Grilles, Body) may
-/// lower their authenticated two-pass declaration to diffuse plus authored
-/// linear specular PBS inputs. Lens, Winds, and Winds_int remain excluded, so
-/// this is deliberately reported as 5/8 authored Alexis specular declarations
-/// rather than full bundle coverage. No other material receives this shortcut.
+/// Exact content-scoped exception for the first macOS demo. Only the seven
+/// reviewed Alexis bases (Chassis, ChassisM, Wheels, Grilles, Body, Winds,
+/// Winds_int) may lower their authenticated two-pass declaration to diffuse
+/// plus authored linear specular PBS inputs. Lens remains excluded, so this is
+/// deliberately reported as 7/8 authored Alexis specular declarations rather
+/// than full bundle coverage. No other material receives this shortcut.
 ///
 /// Body joined the scope when the archive's 5x5 body-paint placeholders were
 /// replaced with an authored paint set (tools/alexis_saber_paint.py) and its
 /// managedmaterial declaration was restored; it is opaque flexmesh_standard
 /// with a specular map, exactly the shape Chassis already used.
+///
+/// Winds and Winds_int are the vehicle's glass, and they joined on the
+/// transparent side of the same shape: `mesh_transparent AlexisSaberWinds2.png
+/// AlexisSaberWindss.png` instantiates `managed/mesh_transparent/specular`,
+/// which is `managed/mesh_standard/specular` plus `scene_blend alpha_blend`,
+/// `alpha_rejection greater 0` and `depth_write off`. All three lower exactly:
+/// the presenter already carries alpha-blended PBS datablocks (HlmsPbs Fade
+/// transparency over a source-alpha/one-minus-source-alpha blendblock, which
+/// is `scene_blend alpha_blend` term for term), and Ogre-Next's RenderQueue
+/// orders those draws after the opaque ones and sorts them back-to-front by
+/// camera distance every frame, so no new presenter path is involved.
+///
+/// The one bounded loss is shared with the five opaque bases and is smaller
+/// here than the name suggests. The legacy SpecularMapping1 overlay is
+/// additive (`scene_blend add`), so legacy composites it at full strength on
+/// top of the alpha-blended base; the collapsed PBS datablock instead
+/// attenuates the whole shaded result - specular included - by the base
+/// alpha. Every authored texel of AlexisSaberWinds2.png carries alpha >= 241
+/// of 255, so the highlight is dimmed by at most 1 - 241/255 = 5.5%, a bound
+/// that holds texel by texel rather than on average. (Lens is a different
+/// story and stays refused: `flexmesh_transparent` with a damaged-diffuse
+/// member instantiates `speculardamage`, whose base pass carries a second
+/// authored texture unit on UV set 2 that modulates the first. That layer
+/// changes the presented colour and alpha and cannot be dropped.)
 [[nodiscard]] bool OgreNextDemoAllowsAlexisTUS0Approximation(
     std::string_view exact_resource_group,
     std::string_view exact_material_name) noexcept;
@@ -912,8 +936,32 @@ OgreNextDemoOmitsInvisibleCab(std::string_view exact_material_name,
 /// while still reading as polished paint rather than matte plastic.
 constexpr float kOgreNextDemoAlexisBodyPaintRoughness = 0.22F;
 
-/// True, with `out_roughness` set, only for the Alexis body-paint material in
-/// its own bundle. Every other material keeps the shininess derivation.
+/// Reviewed roughness for the Alexis window glass (Winds and Winds_int).
+///
+/// Same defect, same remedy as the body paint above, and for glass the
+/// shininess derivation is not merely coarse but actively wrong. What the
+/// legacy declaration puts in the SpecularMapping1 overlay is a cube
+/// environment reflection (`env_map cubic_reflection`) modulated by
+/// AlexisSaberWindss.png - a mirror term with no Blinn-Phong exponent
+/// anywhere in it. Deriving a lobe width from the base pass's shininess
+/// therefore reads a field the author never used for this surface, and it
+/// reads 0, which lands on roughness 1.0: a fully rough dielectric, which is
+/// frosted glass. The authored specular member would be shipped into a lobe
+/// too broad to show it, and the windows would present as flat black.
+///
+/// 0.08 rather than a physical near-zero: this presenter mounts no reflection
+/// probe or IBL for the vehicle (main.cpp force-disables the environment-map
+/// RTT), so the only thing a mirror lobe can reflect is the analytic sun disk,
+/// whose angular radius is about 0.0047 rad. Below roughly 0.05 the highlight
+/// collapses to a few pixels that vanish at any distance; 0.08 keeps a tight,
+/// clearly specular streak that travels across the curved windshield as the
+/// camera moves, and stays visibly sharper than the 0.22 paint beside it -
+/// which is the authored relationship between glass and clearcoat.
+constexpr float kOgreNextDemoAlexisGlassRoughness = 0.08F;
+
+/// True, with `out_roughness` set, only for the Alexis body-paint and window
+/// glass materials in their own bundle. Every other material keeps the
+/// shininess derivation.
 [[nodiscard]] bool OgreNextDemoResolveAlexisAuthoredRoughness(
     std::string_view exact_resource_group,
     std::string_view exact_material_name, float &out_roughness) noexcept;
