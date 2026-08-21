@@ -102,6 +102,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -151,6 +152,37 @@ bool OgreNextStage0FeatureDisabled(const char *token) noexcept {
     cursor = end + 1U;
   }
   return false;
+}
+
+/// Stage 0 item 7 evidence: every blocking waitForStreamingCompletion() in
+/// this frontend routes through this wrapper, which measures the actual
+/// blocked wall time per site and reports it on stderr (the perf runner
+/// captures stderr as console.txt). The waits fire on asset lifecycle
+/// boundaries, so the line volume is bounded by catalog churn, not frames.
+void OgreNextStage0TimedStreamingWait(Ogre::TextureGpuManager &manager,
+                                      const char *site) {
+  static std::atomic<std::uint64_t> total_microseconds{0U};
+  static std::atomic<std::uint64_t> total_calls{0U};
+  const std::chrono::steady_clock::time_point started =
+      std::chrono::steady_clock::now();
+  manager.waitForStreamingCompletion();
+  const std::uint64_t waited_microseconds = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - started)
+          .count());
+  const std::uint64_t total = total_microseconds.fetch_add(
+                                  waited_microseconds,
+                                  std::memory_order_relaxed) +
+                              waited_microseconds;
+  const std::uint64_t calls =
+      total_calls.fetch_add(1U, std::memory_order_relaxed) + 1U;
+  std::fprintf(stderr,
+               "[RoR|OgreNext|Stage0] streaming_wait site=%s wait_us=%llu "
+               "total_us=%llu calls=%llu\n",
+               site,
+               static_cast<unsigned long long>(waited_microseconds),
+               static_cast<unsigned long long>(total),
+               static_cast<unsigned long long>(calls));
 }
 
 /// Stage 0 items 1 and 3: per-object distance-cull policy derived from the
@@ -1711,7 +1743,7 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
     texture->setNumMipmaps(1U);
     texture->setPixelFormat(Ogre::PFG_D32_FLOAT);
     texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
-    texture_manager.waitForStreamingCompletion();
+    OgreNextStage0TimedStreamingWait(texture_manager, "pssm_atlas_create");
     if (!texture->isDataReady() ||
         texture->getResidencyStatus() != Ogre::GpuResidency::Resident ||
         texture->getWidth() != kOgreNextPssmAtlasWidth ||
@@ -1766,7 +1798,7 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
     try {
       texture_manager.destroyTexture(texture);
       texture = nullptr;
-      texture_manager.waitForStreamingCompletion();
+      OgreNextStage0TimedStreamingWait(texture_manager, "pssm_atlas_destroy");
       destroy_returned = true;
     } catch (...) {
       texture = nullptr;
@@ -4060,7 +4092,7 @@ public:
         // destroy-requested entry before its name has actually left Ogre's
         // registry, so it is not sufficient proof that a same-name retry is
         // safe.  Drain the streaming/task queues before auditing absence.
-        manager->waitForStreamingCompletion();
+        OgreNextStage0TimedStreamingWait(*manager, "texture_retire_drain");
         destroy_returned = true;
       } catch (...) {
         // A throwing destroy is ambiguous. The name lookup below still proves
@@ -8412,7 +8444,8 @@ public:
           Ogre::TextureGpuManager *texture_manager =
               renderer->getTextureGpuManager();
           texture_manager->destroyTexture(production_source_target);
-          texture_manager->waitForStreamingCompletion();
+          OgreNextStage0TimedStreamingWait(*texture_manager,
+                                           "presentation_target_destroy");
           production_source_target = nullptr;
           ++presentation_audit.source_target_destroys;
         } catch (...) {
@@ -10670,7 +10703,9 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
         throw std::logic_error("RT4/V1 texture catalog visitation failed");
       }
       if (!candidate_textures.empty()) {
-        impl_->renderer->getTextureGpuManager()->waitForStreamingCompletion();
+        OgreNextStage0TimedStreamingWait(
+            *impl_->renderer->getTextureGpuManager(),
+            "texture_catalog_upload");
       }
       for (const auto &entry : candidate_textures) {
         const TextureResourceDescriptor *descriptor =
@@ -11475,7 +11510,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       if (registered_target != nullptr) {
         try {
           texture_manager->destroyTexture(registered_target);
-          texture_manager->waitForStreamingCompletion();
+          OgreNextStage0TimedStreamingWait(*texture_manager,
+                                           "presentation_registry_destroy");
           destroy_returned = true;
         } catch (...) {
           clean = false;
