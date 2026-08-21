@@ -102,6 +102,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -111,6 +112,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <new>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -122,6 +124,34 @@ namespace {
 std::atomic<bool> g_ogre_next_n1_root_claimed{false};
 constexpr char kOgreNextPresentationResourceGroup[] =
     "RoROgreNextPresentationCopyV1";
+
+/// Stage 0 measurement kill-switches. Every Stage 0 performance lever is on
+/// by default; naming its token in ROR_STAGE0_DISABLE (comma separated)
+/// restores the exact pre-lever behavior so one binary can attribute each
+/// lever's frame cost in matched A/B runs. The environment is read once.
+bool OgreNextStage0FeatureDisabled(const char *token) noexcept {
+  static const std::string disabled = [] {
+    const char *raw = std::getenv("ROR_STAGE0_DISABLE");
+    return std::string(raw != nullptr ? raw : "");
+  }();
+  if (disabled.empty()) {
+    return false;
+  }
+  const std::size_t token_length = std::strlen(token);
+  std::size_t cursor = 0U;
+  while (cursor < disabled.size()) {
+    std::size_t end = disabled.find(',', cursor);
+    if (end == std::string::npos) {
+      end = disabled.size();
+    }
+    if (end - cursor == token_length &&
+        disabled.compare(cursor, token_length, token) == 0) {
+      return true;
+    }
+    cursor = end + 1U;
+  }
+  return false;
+}
 
 bool TryClaimOgreNextN1Root() noexcept {
   bool expected = false;
@@ -4478,6 +4508,38 @@ public:
       clean = DestroyMesh(native) && clean;
     }
     frame_meshes.clear();
+    return clean;
+  }
+
+  /// Destroys exactly one retained light's native Light/SceneNode pair.
+  /// The record itself stays alive (with null native pointers) so callers
+  /// keep single-owner teardown semantics while diffing the light vector.
+  [[nodiscard]] bool DestroyRetainedLightRecord(RetainedLight &record)
+      noexcept {
+    bool clean = true;
+    if (record.node != nullptr && record.light != nullptr) {
+      try {
+        record.node->detachObject(record.light);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (record.light != nullptr) {
+      try {
+        scene_manager->destroyLight(record.light);
+      } catch (...) {
+        clean = false;
+      }
+      record.light = nullptr;
+    }
+    if (record.node != nullptr) {
+      try {
+        scene_manager->destroySceneNode(record.node);
+      } catch (...) {
+        clean = false;
+      }
+      record.node = nullptr;
+    }
     return clean;
   }
 
@@ -11637,7 +11699,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->retained_lights[index].descriptor.light_id ==
           snapshot.lights()[index].light_id;
     }
-    if (!retained_light_set_matches) {
+    if (!retained_light_set_matches &&
+        OgreNextStage0FeatureDisabled("light_merge")) {
+      // Stage 0 kill-switch: the pre-merge behavior destroyed and recreated
+      // the whole native light set on any id-set change.
       if (!impl_->DestroyRetainedLights()) {
         impl_->faulted = true;
         return fail_after_cleanup(
@@ -11654,6 +11719,57 @@ RenderOperationResult OgreNextN1Frontend::Render(
         record.node =
             impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
         record.node->attachObject(record.light);
+      }
+      impl_->retained_audit.retained_lights =
+          static_cast<std::uint64_t>(impl_->retained_lights.size());
+    } else if (!retained_light_set_matches) {
+      // Stage 0, item 5: diff the retained light set like the instance map
+      // instead of destroy-and-recreate. Both the retained vector and the
+      // snapshot are strictly increasing by light_id, so one merge pass
+      // destroys exactly the removed ids, keeps every surviving native
+      // Light/SceneNode pair untouched, and allocates exactly the added
+      // ids. Ownership stays single-owner at every step: a record is
+      // inserted into retained_lights before its native allocation, so a
+      // mid-merge failure has exactly one teardown target per pair.
+      bool merge_clean = true;
+      auto retained_iterator = impl_->retained_lights.begin();
+      for (const LightDescriptor &descriptor : snapshot.lights()) {
+        while (retained_iterator != impl_->retained_lights.end() &&
+               retained_iterator->descriptor.light_id <
+                   descriptor.light_id) {
+          merge_clean =
+              impl_->DestroyRetainedLightRecord(*retained_iterator) &&
+              merge_clean;
+          retained_iterator = impl_->retained_lights.erase(retained_iterator);
+        }
+        if (retained_iterator != impl_->retained_lights.end() &&
+            retained_iterator->descriptor.light_id == descriptor.light_id) {
+          ++retained_iterator;
+          continue;
+        }
+        retained_iterator = impl_->retained_lights.insert(
+            retained_iterator, Impl::RetainedLight{});
+        retained_iterator->descriptor = descriptor;
+        retained_iterator->light = impl_->scene_manager->createLight();
+        retained_iterator->node =
+            impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
+        retained_iterator->node->attachObject(retained_iterator->light);
+        ++retained_iterator;
+      }
+      while (retained_iterator != impl_->retained_lights.end()) {
+        merge_clean =
+            impl_->DestroyRetainedLightRecord(*retained_iterator) &&
+            merge_clean;
+        retained_iterator = impl_->retained_lights.erase(retained_iterator);
+      }
+      if (!merge_clean) {
+        impl_->faulted = true;
+        return fail_after_cleanup(
+            NativeTeardownFailure("Ogre-Next retained light replacement"));
+      }
+      if (impl_->retained_lights.size() != snapshot.lights().size()) {
+        throw std::logic_error(
+            "Ogre-Next retained light merge diverged from the snapshot set");
       }
       impl_->retained_audit.retained_lights =
           static_cast<std::uint64_t>(impl_->retained_lights.size());
