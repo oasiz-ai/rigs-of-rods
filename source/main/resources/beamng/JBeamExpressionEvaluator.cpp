@@ -1815,7 +1815,12 @@ private:
         {
             return false;
         }
-        if (m_limits.max_function_arguments < 3U)
+        const std::size_t argument_limit =
+            m_limits.max_function_arguments <
+                    MAX_ALLOWLISTED_FUNCTION_ARGUMENTS
+                ? m_limits.max_function_arguments
+                : MAX_ALLOWLISTED_FUNCTION_ARGUMENTS;
+        if (argument_limit < 2U)
         {
             EndDepth();
             return m_runtime.Fail(
@@ -1823,35 +1828,71 @@ private:
                 function.begin,
                 "JBeam case argument count exceeds the configured limit");
         }
+
         JBeamExpressionValue selector;
-        JBeamExpressionValue when_true;
-        JBeamExpressionValue when_false;
         bool parsed = ParseOr(evaluate, selector);
-        if (parsed)
+        std::size_t argument_count = parsed ? 1U : 0U;
+        std::size_t choice_count = 0U;
+        JBeamExpressionValue selected;
+        JBeamExpressionValue last_choice;
+        bool have_selected = false;
+        std::int64_t numeric_selector = 0;
+        const bool numeric_selector_valid =
+            evaluate &&
+            selector.type == JBeamExpressionValueType::NUMBER &&
+            IsExactIntegerInRange(
+                selector.number_value,
+                1.0,
+                9007199254740992.0,
+                numeric_selector);
+
+        while (parsed && Current().kind == TokenKind::COMMA)
         {
-            parsed = Expect(
-                TokenKind::COMMA,
-                "Expected ',' after case selector");
-        }
-        if (parsed)
-        {
-            parsed = ParseOr(evaluate, when_true);
-        }
-        if (parsed)
-        {
-            parsed = Expect(
-                TokenKind::COMMA,
-                "Expected ',' after case true value");
-        }
-        if (parsed)
-        {
-            parsed = ParseOr(evaluate, when_false);
+            if (argument_count >= argument_limit)
+            {
+                parsed = m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        FUNCTION_ARGUMENT_LIMIT,
+                    Current().begin,
+                    "JBeam case argument count exceeds the configured "
+                    "or allowlisted limit");
+                break;
+            }
+            parsed = Consume();
+            JBeamExpressionValue choice;
+            if (parsed)
+            {
+                parsed = ParseOr(evaluate, choice);
+            }
+            if (!parsed)
+            {
+                break;
+            }
+            ++argument_count;
+            ++choice_count;
+            if (evaluate)
+            {
+                last_choice = choice;
+                const bool boolean_selection =
+                    selector.type == JBeamExpressionValueType::BOOLEAN &&
+                    ((selector.boolean_value && choice_count == 1U) ||
+                     (!selector.boolean_value && choice_count == 2U));
+                const bool numeric_selection =
+                    numeric_selector_valid &&
+                    numeric_selector ==
+                        static_cast<std::int64_t>(choice_count);
+                if (boolean_selection || numeric_selection)
+                {
+                    selected = choice;
+                    have_selected = true;
+                }
+            }
         }
         if (parsed)
         {
             parsed = Expect(
                 TokenKind::RIGHT_PAREN,
-                "Expected ')' after three case arguments");
+                "Expected ')' after case arguments");
         }
         EndDepth();
         if (!parsed)
@@ -1863,19 +1904,60 @@ private:
             output = JBeamExpressionValue::Nil();
             return true;
         }
-        if (!m_runtime.Charge(1U, function.begin))
+        if (!m_runtime.Charge(
+                1U + argument_count, function.begin))
         {
             return false;
         }
-        if (selector.type != JBeamExpressionValueType::BOOLEAN)
+        if (selector.type == JBeamExpressionValueType::BOOLEAN)
+        {
+            if (choice_count != 2U)
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::FUNCTION_ARITY,
+                    function.begin,
+                    "Boolean JBeam case requires exactly two choices");
+            }
+        }
+        else if (selector.type == JBeamExpressionValueType::NUMBER)
+        {
+            if (!numeric_selector_valid)
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        INVALID_FUNCTION_ARGUMENT,
+                    function.begin,
+                    "Numeric JBeam case selector must be an exact positive "
+                    "integer in [1, 2^53]");
+            }
+            if (choice_count == 0U)
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::FUNCTION_ARITY,
+                    function.begin,
+                    "Numeric JBeam case requires at least one choice");
+            }
+            if (!have_selected)
+            {
+                selected = last_choice;
+                have_selected = true;
+            }
+        }
+        else
         {
             return m_runtime.Fail(
                 JBeamExpressionDiagnosticCode::UNSUPPORTED_CASE_SIGNATURE,
                 function.begin,
-                "Only Boolean three-argument case is allowlisted");
+                "JBeam case selector must be Boolean or an exact positive "
+                "integer");
         }
-        const JBeamExpressionValue& selected =
-            selector.boolean_value ? when_true : when_false;
+        if (!have_selected)
+        {
+            return m_runtime.Fail(
+                JBeamExpressionDiagnosticCode::FUNCTION_ARITY,
+                function.begin,
+                "JBeam case did not provide the selected choice");
+        }
         if (!ChargeValueCopy(selected, function.begin))
         {
             return false;

@@ -1896,8 +1896,9 @@ in the part resolver.
 The independent J1 expression core now evaluates a strict documented scalar
 subset with typed variables and flattened scalar `$components` paths. It
 implements finite decimal arithmetic, comparisons, Lua-style
-`and`/`or`/`not` and their short-circuit ternary idiom, Boolean
-three-argument `case`, string concatenation/length, numeric `abs`, `square`,
+`and`/`or`/`not` and their short-circuit ternary idiom, Boolean and bounded
+positive-integer-selector `case`, string concatenation/length, numeric `abs`,
+`square`,
 `round`, `floor`, `ceil`, the clamped
 `smoothstep`/`smootherstep`/`smootheststep` family, `clamp`, and bounded
 variadic `min`/`max`, explicit precedence, and
@@ -1906,7 +1907,7 @@ numeric-only; `min`/`max` reduce without argument-proportional storage and have
 a hard 64-argument ceiling. Input, token, recursion, function-argument, work,
 string, output, and environment quotas are deterministic; non-finite values
 fail closed under strict and fast-math builds. It does not execute Lua or expose
-host functions. Numeric-selector `case`, every function outside Boolean `case`
+host functions. Every function outside the two deterministic `case` signatures
 and the eleven-name deterministic numeric allowlist, table-valued components,
 and numeric-to-string concatenation remain unsupported. This is an independent
 implementation of public format behavior and does not reuse BeamNG code or

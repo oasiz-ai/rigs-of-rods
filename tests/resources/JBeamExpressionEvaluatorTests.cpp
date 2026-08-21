@@ -247,12 +247,69 @@ void TestLogicalTernaryAndCase()
     CHECK(HasCode(
         eager, JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
 
-    const JBeamExpressionResult numeric_case =
-        EvaluateJBeamExpression("$=case(1, 'a', 'b')");
-    CHECK(!numeric_case.IsValid());
+    CheckString("$=case(1, 'a', 'b', 'c')", "a");
+    CheckString("$=case(2, 'a', 'b', 'c')", "b");
+    CheckString("$=case(3, 'a', 'b', 'c')", "c");
+    CheckString("$=case(4, 'a', 'b', 'c')", "c");
+    CheckString("$=case(9007199254740992, 'a', 'b')", "b");
+    CheckNumber("$=case(2, 10, 20, 30)", 20.0);
+
+    const char* invalid_numeric_selectors[] = {
+        "$=case(0, 'a')",
+        "$=case(-1, 'a')",
+        "$=case(1.5, 'a')",
+        "$=case(9007199254740994, 'a')"};
+    for (std::size_t index = 0U;
+         index < sizeof(invalid_numeric_selectors) /
+             sizeof(invalid_numeric_selectors[0]);
+         ++index)
+    {
+        const JBeamExpressionResult result = EvaluateJBeamExpression(
+            invalid_numeric_selectors[index]);
+        CHECK(!result.IsValid());
+        CHECK(HasCode(
+            result,
+            JBeamExpressionDiagnosticCode::INVALID_FUNCTION_ARGUMENT));
+    }
+
+    const char* unsupported_selectors[] = {
+        "$=case(nil, 'a', 'b')",
+        "$=case('selector', 'a', 'b')"};
+    for (std::size_t index = 0U;
+         index < sizeof(unsupported_selectors) /
+             sizeof(unsupported_selectors[0]);
+         ++index)
+    {
+        const JBeamExpressionResult result = EvaluateJBeamExpression(
+            unsupported_selectors[index]);
+        CHECK(!result.IsValid());
+        CHECK(HasCode(
+            result,
+            JBeamExpressionDiagnosticCode::UNSUPPORTED_CASE_SIGNATURE));
+    }
+
+    // Numeric case is eager too, including choices after the selected one.
+    const JBeamExpressionResult eager_numeric =
+        EvaluateJBeamExpression("$=case(1, 'selected', 1/0)");
+    CHECK(!eager_numeric.IsValid());
     CHECK(HasCode(
-        numeric_case,
-        JBeamExpressionDiagnosticCode::UNSUPPORTED_CASE_SIGNATURE));
+        eager_numeric, JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
+
+    std::string maximum_case = "$=case(64";
+    for (std::size_t choice = 1U; choice <= 63U; ++choice)
+    {
+        maximum_case.push_back(',');
+        maximum_case.append(std::to_string(choice));
+    }
+    maximum_case.push_back(')');
+    CheckNumber(maximum_case, 63.0);
+    maximum_case.insert(maximum_case.size() - 1U, ",64");
+    const JBeamExpressionResult over_limit =
+        EvaluateJBeamExpression(maximum_case);
+    CHECK(!over_limit.IsValid());
+    CHECK(HasCode(
+        over_limit,
+        JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT));
 }
 
 std::string VariadicCall(
@@ -440,6 +497,13 @@ void TestDeterministicScalarFunctions()
     CHECK(HasCode(
         result,
         JBeamExpressionDiagnosticCode::FUNCTION_ARGUMENT_LIMIT));
+    result = EvaluateJBeamExpression(
+        "$=case(1,9)",
+        JBeamExpressionEnvironment(),
+        limits);
+    CHECK(result.IsValid());
+    CHECK(result.value.type == JBeamExpressionValueType::NUMBER);
+    CHECK(result.value.number_value == 9.0);
     limits = JBeamExpressionLimits();
     limits.max_function_arguments = 1000U;
     result = EvaluateJBeamExpression(
@@ -749,9 +813,10 @@ void TestMalformedAndHostileSyntax()
         {"$={}", JBeamExpressionDiagnosticCode::INVALID_CHARACTER},
         {"$=1e", JBeamExpressionDiagnosticCode::INVALID_NUMBER},
         {"$=.", JBeamExpressionDiagnosticCode::INVALID_CHARACTER},
-        {"$=case(true,1)", JBeamExpressionDiagnosticCode::EXPECTED_TOKEN},
+        {"$=case(true,1)", JBeamExpressionDiagnosticCode::FUNCTION_ARITY},
         {"$=case(true,1,2,3)",
-         JBeamExpressionDiagnosticCode::EXPECTED_TOKEN},
+         JBeamExpressionDiagnosticCode::FUNCTION_ARITY},
+        {"$=case(1)", JBeamExpressionDiagnosticCode::FUNCTION_ARITY},
         {"$=#1", JBeamExpressionDiagnosticCode::TYPE_MISMATCH},
         {"$=nil+1", JBeamExpressionDiagnosticCode::TYPE_MISMATCH}
     };

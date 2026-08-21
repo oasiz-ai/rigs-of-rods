@@ -150,7 +150,9 @@ struct JBeamExpressionResult
 ///   * +, -, *, /, %, ^, unary -, ==, ~=, <, <=, >, >=;
 ///   * Lua-style and/or/not (including their short-circuit, operand-returning
 ///     ternary idiom), string-string "..", and byte length "#";
-///   * the documented Boolean case(selector, trueValue, falseValue) form.
+///   * documented case(selector, ...) forms: exactly two choices for a Boolean
+///     selector, or one-to-63 choices for an exact positive integer selector;
+///     an integer past the available choices returns the last choice.
 ///   * numeric abs(value), square(value), round(value), floor(value),
 ///     ceil(value), smoothstep(value), smootherstep(value),
 ///     smootheststep(value), clamp(value, lower, upper), and one-to-64-argument
@@ -159,10 +161,10 @@ struct JBeamExpressionResult
 /// The evaluator is not Lua. Dotted component paths perform no dynamic lookup:
 /// they are opaque keys in the caller-provided environment. The evaluator
 /// deliberately rejects assignment, table values, bracket indexing, method
-/// calls, numeric-selector case(), every other function, and all host, file,
-/// network, random, clock, and runtime access. Allowlisted function arguments
-/// and case() operands are eager, matching the documentation's warning that
-/// case cannot protect arithmetic on nil arguments. and/or do short-circuit.
+/// calls, every other function, and all host, file, network, random, clock, and
+/// runtime access. Allowlisted function arguments and case() operands are
+/// eager, matching the documentation's warning that case cannot protect
+/// arithmetic on nil arguments. and/or do short-circuit.
 /// To keep canonical binary64 identities independent of the host C library,
 /// `%` only accepts exact integers in the inclusive range [-2^53, 2^53], and
 /// `^` only accepts exact integer exponents in the inclusive range

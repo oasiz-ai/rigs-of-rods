@@ -63,7 +63,8 @@ physics lowering remains a separate J2 gate.
 `JBeamExpressionEvaluator` is an independent C++11 scalar-expression core. It
 requires the documented `$=` prefix and supports finite decimal arithmetic,
 comparisons, Lua-style `and`/`or`/`not` with short-circuit operand-returning
-semantics, Boolean three-argument `case`, string concatenation/byte length,
+semantics, Boolean and bounded positive-integer-selector `case`, string
+concatenation/byte length,
 numeric `abs`, `square`, `round`, `floor`, `ceil`, clamped
 `smoothstep`/`smootherstep`/`smootheststep`, `clamp`, and bounded variadic
 `min`/`max`, typed variables, and flattened scalar `$components` paths. Missing
@@ -83,9 +84,9 @@ argument-proportional storage: `min` and `max` reduce at parse time and accept
 one through 64 numeric arguments.
 
 This evaluator does not execute Lua and has no host, file, network, clock, or
-random access. It rejects numeric-selector `case`, every function outside
-Boolean `case` and the five-name numeric allowlist, numeric-to-string
-concatenation, table values, indexing, and method calls.
+random access. It rejects every function outside the bounded Boolean/integer
+`case` signatures and eleven-name deterministic numeric allowlist,
+numeric-to-string concatenation, table values, indexing, and method calls.
 `ParseJBeam` and `JBeamPartResolver` still preserve expression strings as inert
 data. The structural semantic pass now constructs the scalar environment from
 resolved configuration/slot variables and merged scalar component leaves, then
