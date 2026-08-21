@@ -999,6 +999,9 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
                 Ogre14AuthenticatedTextureRegistryConfiguration{},
                 authenticated_registry),
             "initialize curated-gate authenticated authority");
+  RequireOk(AdvanceOgre14AuthenticatedTextureGroupGeneration(
+                kGroup, 1U, authenticated_registry),
+            "activate curated-gate authenticated group generation");
   AuthenticatedResolver unavailable_texture_resolver;
   unavailable_texture_resolver.registry = &authenticated_registry;
   EmptyAuthorityProvider authority_provider;
@@ -1122,10 +1125,15 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
           "nondefault curated sampler retained reviewed authority");
   input = CaptureInput();
   projected = true;
-  RequireOk(source.TryProject("static/asia/unreviewed",
-                              unreviewed_shape.base.material, true, true,
-                              input, projected),
-            "evaluate unreviewed material with matching native shape");
+  const ValidationResult unreviewed_result = source.TryProject(
+      "static/asia/unreviewed", unreviewed_shape.base.material, true, true,
+      input, projected);
+  Require(!unreviewed_result && !projected &&
+              unreviewed_result.field ==
+                  "ogre_next_demo.material.source_selection."
+                  "texture_registry.resource_lookup" &&
+              unavailable_texture_resolver.resolve_calls == 3U,
+          "unreviewed material did not fail closed at exact source authority");
   const OgreNextDemoCuratedCityWorldCoverage coverage =
       source.CurrentCuratedCityWorldCoverage();
   Require(!projected && coverage.policy_entries == 3U &&
@@ -1136,7 +1144,7 @@ void TestCuratedCityWorldNativeGateStaysSelective() {
               coverage.uncurated_spherical_family_matte_materials == 1U,
           "curated/uncurated native matte coverage lost its exact partition");
   // The widened structural gate admits this layered shape, so the material now
-  // reaches - and is still refused by - the authenticated-source gate. It must
+  // reaches - and fails closed at - the authenticated-source gate. It must
   // never be refused for its topology again, and it must never project without
   // an authenticated source.
   const OgreNextDemoMaterialSourceCounters unreviewed_layered =
