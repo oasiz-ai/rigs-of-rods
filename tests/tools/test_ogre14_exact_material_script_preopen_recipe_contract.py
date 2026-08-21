@@ -58,18 +58,22 @@ class Ogre14ExactMaterialScriptPreopenContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.patch = PATCH.read_text(encoding="utf-8")
 
-    def test_patch_is_last_and_touches_only_the_exact_seam(self) -> None:
+    def test_patch_precedes_dependent_patches_and_touches_exact_seam(self) -> None:
         conandata = CONANDATA.read_text(encoding="utf-8")
         patch_lines = re.findall(
             r"^\s*- patch_file: (\S+)$", conandata, re.MULTILINE
         )
+        exact_patch = PATCH_RELATIVE.split("ogre3d/", 1)[1]
+        exact_index = patch_lines.index(exact_patch)
         self.assertEqual(
-            patch_lines[-2], PATCH_RELATIVE.split("ogre3d/", 1)[1]
-        )
-        self.assertEqual(
-            patch_lines[-1],
+            patch_lines[exact_index + 1],
             "patches/14.5.2/expose-shadow-material-declaration-names.patch",
         )
+        self.assertEqual(
+            patch_lines[exact_index + 2],
+            "patches/14.5.2/bounds-safe-generated-lod-index-buffers.patch",
+        )
+        self.assertEqual(exact_index + 3, len(patch_lines))
         touched = set(re.findall(r"^--- a/(.+)$", self.patch, re.MULTILINE))
         self.assertEqual(
             touched,

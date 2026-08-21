@@ -494,7 +494,7 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             "registered archive A laundered unregistered shadow archive B",
             "after.next_group_generation > before.next_group_generation",
             "failed script parse left a native material behind",
-            'selected_archive_name ==\n                    archive.string()',
+            'selected_archive_name ==\n                    first_archive.string()',
             "UNAUTHENTICATED_PACKAGE_ARCHIVE_MEMBER",
             "current.gpu_readbacks == 0U",
             "current.authenticated_gpu_readbacks == 0U",

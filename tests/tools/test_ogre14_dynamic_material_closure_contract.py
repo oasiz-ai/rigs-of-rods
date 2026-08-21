@@ -213,10 +213,12 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             "ResolveOgre14MaterialFirstPass(material, resolved)",
             "pass->getColourWriteEnabled(",
             "pass->getSceneBlendingOperation() != Ogre::SBO_ADD",
-            "portable fallback supports replace or straight-alpha blending",
+            "portable fallback supports replace, Porter-Duff straight ",
+            "source-over, or exact OGRE legacy straight-alpha blending",
             "CaptureOgre14MaterialSectionReference(resolved, reference)",
             "pass->getAlphaRejectFunction()",
-            "portable fallback supports always-pass or greater-equal alpha",
+            "portable fallback supports always-pass, greater, or ",
+            "greater-equal alpha rejection",
             "output = std::move(candidate)",
             "reverse_winding = reference.reverse_winding",
         ):
@@ -242,7 +244,7 @@ class Ogre14DynamicMaterialClosureContractTests(unittest.TestCase):
             )
         ]
         material_capture = capture.index(
-            "CaptureOgre14MaterialFallbackInput("
+            "CaptureOgreNextDemoMaterialInput("
         )
         section_winding = capture.index(
             "section.mesh_reverse_winding = reverse_winding"
