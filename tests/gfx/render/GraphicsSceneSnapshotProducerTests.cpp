@@ -2320,7 +2320,8 @@ void TestRetainedReuseAcrossEveryLiveAssetCategory() {
   hud.height = 2U;
   hud.content_hash = 0xC0FFEEU;
   hud.rgba8_bytes =
-      std::make_shared<const std::vector<std::uint8_t>>(16U, 0x20U);
+      std::make_shared<const std::vector<std::uint8_t>>(
+          16U, static_cast<std::uint8_t>(0x20U));
   frame.hud_overlay = hud;
 
   GraphicsSceneSnapshotProducer producer = MakeProducer(903U);
@@ -2455,7 +2456,8 @@ void TestHudOverlayAssetLifecycleAndRevisions() {
   hud.height = 2U;
   hud.content_hash = 0xF00DU;
   hud.rgba8_bytes =
-      std::make_shared<const std::vector<std::uint8_t>>(16U, 0x40U);
+      std::make_shared<const std::vector<std::uint8_t>>(
+          16U, static_cast<std::uint8_t>(0x40U));
   frame.hud_overlay = hud;
 
   const GraphicsSceneSnapshotProduceResult first = producer.Produce(frame);
@@ -2537,7 +2539,8 @@ void TestHudOverlayAssetLifecycleAndRevisions() {
   GraphicsSceneHudOverlayInput changed = hud;
   changed.content_hash = 0xBEEFU;
   changed.rgba8_bytes =
-      std::make_shared<const std::vector<std::uint8_t>>(16U, 0x80U);
+      std::make_shared<const std::vector<std::uint8_t>>(
+          16U, static_cast<std::uint8_t>(0x80U));
   frame.hud_overlay = changed;
   frame.simulation_tick += 1U;
   const GraphicsSceneSnapshotProduceResult third = producer.Produce(frame);
@@ -2613,7 +2616,8 @@ void TestHudOverlayAssetLifecycleAndRevisions() {
           "HUD input without a byte owner was accepted");
   bad = hud;
   bad.rgba8_bytes =
-      std::make_shared<const std::vector<std::uint8_t>>(15U, 0x40U);
+      std::make_shared<const std::vector<std::uint8_t>>(
+          15U, static_cast<std::uint8_t>(0x40U));
   malformed.hud_overlay = bad;
   Require(strict.Produce(malformed).validation.code ==
               ValidationCode::SIZE_MISMATCH,
