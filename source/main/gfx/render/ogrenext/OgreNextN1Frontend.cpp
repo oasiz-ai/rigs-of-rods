@@ -11579,73 +11579,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
             snapshot.environment().environment_intensity,
         snapshot.environment().ambient_radiance.z *
             snapshot.environment().environment_intensity);
-    // Split the ambient across the hemisphere instead of handing Ogre one flat
-    // colour twice.
-    //
-    // A fully shadowed surface receives only this term, so a single grey value
-    // makes every shadow read as an unlit void. Real shadow is lit by the sky
-    // from above and by bounce off ground and facades from below, and both
-    // carry colour. The analytic sky already computes exactly those two
-    // quantities for its dome and they are validated before they arrive here,
-    // so the split costs nothing to source.
-    //
-    // Magnitude is preserved: each hemisphere is normalized to unit luminance
-    // on its own, so the split changes the colour and direction of the shadow
-    // fill and never its level, and cannot on its own wash out a sunlit
-    // surface.
-    Ogre::ColourValue expected_upper = expected_ambient;
-    Ogre::ColourValue expected_lower = expected_ambient;
-    {
-      const AnalyticSkyDescriptor &sky = snapshot.environment().analytic_sky;
-      const auto luminance = [](const Float3 &value) {
-        return 0.2126F * value.x + 0.7152F * value.y + 0.0722F * value.z;
-      };
-      // Normalize each hemisphere to unit luminance ON ITS OWN, so the split
-      // changes hue and nothing else. Dividing both by a shared mean instead
-      // lets the brighter hemisphere raise the level: the blue-heavy zenith
-      // then arrives 2.6x up in blue, which washes sunlit ground out and turns
-      // green grass blue-grey. Only kSkyTintSaturation of the hue is applied,
-      // because a fully saturated skylight hue reads as a colour cast rather
-      // than as daylight shadow.
-      constexpr float kSkyTintSaturation = 0.5F;
-      if (sky.enabled) {
-        const auto tint = [&](const Float3 &radiance) {
-          const float radiance_luminance = luminance(radiance);
-          if (!std::isfinite(radiance_luminance) ||
-              radiance_luminance <= 0.0F) {
-            return expected_ambient;
-          }
-          const auto channel = [&](float value, float ambient) {
-            const float hue = value / radiance_luminance;
-            return ambient *
-                   (1.0F + kSkyTintSaturation * (hue - 1.0F));
-          };
-          return Ogre::ColourValue(
-              channel(radiance.x, expected_ambient.r),
-              channel(radiance.y, expected_ambient.g),
-              channel(radiance.z, expected_ambient.b));
-        };
-        const Ogre::ColourValue upper = tint(sky.zenith_radiance);
-        const Ogre::ColourValue lower = tint(sky.ground_radiance);
-        const auto usable = [](const Ogre::ColourValue &value) {
-          return std::isfinite(value.r) && std::isfinite(value.g) &&
-                 std::isfinite(value.b) && value.r >= 0.0F &&
-                 value.g >= 0.0F && value.b >= 0.0F;
-        };
-        if (usable(upper) && usable(lower)) {
-          expected_upper = upper;
-          expected_lower = lower;
-        }
-      }
-    }
-    impl_->scene_manager->setAmbientLight(expected_upper, expected_lower,
+    // Ogre selects AmbientFixed only while both hemispheres match; giving them
+    // different values switches HlmsPbs to AmbientHemisphere, which is a
+    // different shading path with a different effective magnitude. A measured
+    // attempt at the split lifted the canyon but also took sunlit open ground
+    // from 57,65,40 to 92,108,96 - washing out the very terrain this work
+    // exists to show - so the split is left for a pass that can recalibrate
+    // the level against the hemisphere path rather than assume it carries over.
+    impl_->scene_manager->setAmbientLight(expected_ambient, expected_ambient,
                                           Ogre::Vector3::UNIT_Y);
     if (!NearlyEqual(
             impl_->scene_manager->getAmbientLightUpperHemisphere(),
-            expected_upper) ||
+            expected_ambient) ||
         !NearlyEqual(
             impl_->scene_manager->getAmbientLightLowerHemisphere(),
-            expected_lower) ||
+            expected_ambient) ||
         !NearlyEqual(
             impl_->scene_manager->getAmbientLightHemisphereDir(),
             Ogre::Vector3::UNIT_Y)) {
@@ -11654,9 +11602,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
     ++lighting_candidate.native_state_verifications;
     lighting_candidate.ambient_environment_lighting =
-        expected_upper.r > 0.0F || expected_upper.g > 0.0F ||
-        expected_upper.b > 0.0F || expected_lower.r > 0.0F ||
-        expected_lower.g > 0.0F || expected_lower.b > 0.0F;
+        expected_ambient.r > 0.0F || expected_ambient.g > 0.0F ||
+        expected_ambient.b > 0.0F;
     const std::uint32_t authored_view_visibility =
         view.visibility_mask & native_authored_visibility_mask;
     if (shadow_plan.enabled &&
