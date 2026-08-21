@@ -1610,12 +1610,34 @@ void CheckAlexisAuthoredRoughnessPolicy() {
   Require(kOgreNextDemoAlexisBodyPaintRoughness > 0.0F &&
               kOgreNextDemoAlexisBodyPaintRoughness < 1.0F,
           "the reviewed body-paint roughness left the open unit interval");
+  Require(kOgreNextDemoAlexisGlassRoughness > 0.0F &&
+              kOgreNextDemoAlexisGlassRoughness < 1.0F,
+          "the reviewed glass roughness left the open unit interval");
+  // The glass lobe is deliberately the broader of the two. It stands in for a
+  // pane-wide environment reflection this runtime cannot sample, on flat
+  // panes that never find the mirror angle by their own curvature; a lobe as
+  // tight as the curved body paint's leaves the windows black. If that
+  // ordering ever inverts, the authored specular member goes back to being
+  // invisible.
+  Require(kOgreNextDemoAlexisGlassRoughness >
+              kOgreNextDemoAlexisBodyPaintRoughness,
+          "the reviewed glass roughness stopped being broader than the paint");
   float roughness = -1.0F;
   Require(OgreNextDemoResolveAlexisAuthoredRoughness(
               "{bundle USER:/mods/AlexisSaber.zip}",
               "SaberBody (AlexisSaber.truck [Instance ID 16])", roughness) &&
               roughness == kOgreNextDemoAlexisBodyPaintRoughness,
           "the Alexis body paint lost its reviewed roughness");
+  for (const std::string_view glass :
+       {"SaberWinds (AlexisSaber.truck [Instance ID 21])",
+        "SaberWinds_int (AlexisSaber.truck [Instance ID 22])"}) {
+    float glass_roughness = -1.0F;
+    Require(OgreNextDemoResolveAlexisAuthoredRoughness(
+                "{bundle USER:/mods/AlexisSaber.zip}", glass,
+                glass_roughness) &&
+                glass_roughness == kOgreNextDemoAlexisGlassRoughness,
+            "the Alexis window glass lost its reviewed roughness");
+  }
   // Everything else keeps the shininess derivation, so this exception cannot
   // restyle the rest of the vehicle or any other content.
   constexpr std::array<std::pair<std::string_view, std::string_view>, 5U>
@@ -1667,22 +1689,27 @@ void CheckMatteFallbackPolicy() {
           {"SaberGrilles (AlexisSaber.truck [Instance ID 0])", true},
           {"SaberBody (AlexisSaber.truck [Instance ID 16])", true},
           {"SaberLens (AlexisSaber.truck [Instance ID 20])", false},
-          {"SaberWinds (AlexisSaber.truck [Instance ID 21])", false},
-          {"SaberWinds_int (AlexisSaber.truck [Instance ID 22])", false},
+          {"SaberWinds (AlexisSaber.truck [Instance ID 21])", true},
+          {"SaberWinds_int (AlexisSaber.truck [Instance ID 22])", true},
       }};
   std::size_t alexis_projection_count = 0U;
   for (const auto &[name, expected] : kAlexisAuthoredSpecularScope) {
     const bool admitted = OgreNextDemoAllowsAlexisTUS0Approximation(
         "{bundle USER:/mods/AlexisSaber.zip}", name);
     Require(admitted == expected,
-            "Alexis authored specular 5/8 scope changed");
+            "Alexis authored specular 7/8 scope changed");
     alexis_projection_count += admitted ? 1U : 0U;
   }
-  Require(alexis_projection_count == 5U &&
+  Require(alexis_projection_count == 7U &&
               !OgreNextDemoAllowsAlexisTUS0Approximation(
                   "{bundle USER:/mods/AlexisSaber.zip}", "SaberLens") &&
               !OgreNextDemoAllowsAlexisTUS0Approximation(
                   "{bundle USER:/mods/AlexisSaber.zip}", "SaberBody") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}", "SaberWinds") &&
+              !OgreNextDemoAllowsAlexisTUS0Approximation(
+                  "{bundle USER:/mods/AlexisSaber.zip}",
+                  "SaberWinds_int (Other.truck [Instance ID 22])") &&
               !OgreNextDemoAllowsAlexisTUS0Approximation(
                   "{bundle USER:/mods/AlexisSaber.zip}",
                   "SaberChassis (Other.truck [Instance ID 17])") &&
@@ -1692,7 +1719,8 @@ void CheckMatteFallbackPolicy() {
               !OgreNextDemoAllowsAlexisTUS0Approximation(
                   "OtherGroup",
                   "SaberChassis (AlexisSaber.truck [Instance ID 17])"),
-          "Alexis opaque TUS0 approximation escaped its exact content scope");
+          "Alexis reviewed TUS0 approximation escaped its exact content "
+          "scope");
   CheckAlexisAuthoredRoughnessPolicy();
 }
 

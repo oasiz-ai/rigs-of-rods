@@ -1329,9 +1329,21 @@ LegacyOverlayPassKind ClassifyLegacyOverlayPass(
   }
 }
 
-bool IsExactManagedSpecularPass(
-    const ExactPassObservation &observation) noexcept {
-  return observation.diffuse == std::array<float, 4U>{1.0F, 1.0F, 1.0F,
+/// True when `observation` is the managed `Texture/managed/SpecularMapping`
+/// overlay pass exactly as the shipped templates declare it.
+///
+/// `expected_depth_write` is the one field the managed family genuinely
+/// authors two ways. The opaque templates leave the overlay's depth writes at
+/// OGRE's default (on, matching their own base pass); the transparent
+/// templates override BOTH their base pass and this overlay with `depth_write
+/// off`. Passing the base pass's own depth-write state in keeps that pairing
+/// exact instead of admitting either spelling for either family: a transparent
+/// declaration whose overlay still wrote depth, or an opaque one whose overlay
+/// did not, is a shape no shipped template produces and stays refused.
+bool IsExactManagedSpecularPass(const ExactPassObservation &observation,
+                                bool expected_depth_write) noexcept {
+  return observation.depth_write == expected_depth_write &&
+         observation.diffuse == std::array<float, 4U>{1.0F, 1.0F, 1.0F,
                                                        1.0F} &&
          observation.ambient == std::array<float, 4U>{1.0F, 1.0F, 1.0F,
                                                        1.0F} &&
@@ -1350,7 +1362,7 @@ bool IsExactManagedSpecularPass(
          observation.write_red && observation.write_green &&
          observation.write_blue && observation.write_alpha &&
          observation.lighting_enabled && !observation.alpha_to_coverage &&
-         observation.depth_check && observation.depth_write &&
+         observation.depth_check &&
          observation.depth_function == Ogre::CMPF_LESS_EQUAL &&
          observation.depth_bias_constant == 0.0F &&
          observation.depth_bias_slope_scale == 0.0F &&
@@ -1628,6 +1640,16 @@ bool IsExactAlexisDiffuseProjection(
   const std::string_view base = exact_material_name.substr(0U, separator);
   std::string_view expected_diffuse;
   std::string_view expected_specular;
+  // The two managed families this predicate accepts differ in exactly three
+  // authored pass states, and they differ in all three together: the
+  // `managed/*_transparent/*` templates declare `scene_blend alpha_blend`,
+  // `alpha_rejection greater 0` and `depth_write off` on their base pass (and
+  // repeat the depth-write override on the specular overlay), while the
+  // `managed/*_standard/*` templates leave all three at OGRE's opaque
+  // defaults. Deciding the family from the material name and then requiring
+  // the whole triple keeps a half-transparent declaration - one this runtime
+  // has never seen and could not lower faithfully - refused.
+  bool transparent_family = false;
   if (base == "SaberChassis" || base == "SaberChassisM") {
     expected_diffuse = "AlexisSaberChassis.png";
     expected_specular = "AlexisSaberChassisSpec.png";
@@ -1662,7 +1684,27 @@ bool IsExactAlexisDiffuseProjection(
     if (expected_diffuse.empty()) {
       return false;
     }
+  } else if (base == "SaberWinds" || base == "SaberWinds_int") {
+    // The outer and inner window shells. Both declare
+    // `mesh_transparent AlexisSaberWinds2.png AlexisSaberWindss.png`, which
+    // the spawner instantiates as `managed/mesh_transparent/specular` - the
+    // same two-pass BaseRender + SpecularMapping1 shape the opaque bases use,
+    // with the transparent triple applied.
+    expected_diffuse = "AlexisSaberWinds2.png";
+    expected_specular = "AlexisSaberWindss.png";
+    transparent_family = true;
   } else {
+    return false;
+  }
+  if (base_pass.getDepthWriteEnabled() == transparent_family ||
+      base_pass.getSourceBlendFactor() !=
+          (transparent_family ? Ogre::SBF_SOURCE_ALPHA : Ogre::SBF_ONE) ||
+      base_pass.getDestBlendFactor() !=
+          (transparent_family ? Ogre::SBF_ONE_MINUS_SOURCE_ALPHA
+                              : Ogre::SBF_ZERO) ||
+      base_pass.getAlphaRejectFunction() !=
+          (transparent_family ? Ogre::CMPF_GREATER : Ogre::CMPF_ALWAYS_PASS) ||
+      (transparent_family && base_pass.getAlphaRejectValue() != 0U)) {
     return false;
   }
   Ogre::TextureUnitState *const diffuse = base_pass.getTextureUnitState(0U);
@@ -1682,7 +1724,8 @@ bool IsExactAlexisDiffuseProjection(
   return specular_texture != nullptr && environment != nullptr &&
          specular_texture->getName() == "SpecularMapping1_Tex" &&
          specular_texture->getTextureName() == expected_specular &&
-         IsExactManagedSpecularPass(ObserveExactPass(*specular)) &&
+         IsExactManagedSpecularPass(ObserveExactPass(*specular),
+                                    !transparent_family) &&
          IsExactManagedSpecularTextureUnitSemantic(*specular_texture) &&
          IsExactManagedEnvironmentUnit(*environment);
 }

@@ -2409,10 +2409,15 @@ bool OgreNextDemoAllowsAlexisTUS0Approximation(
   if (exact_resource_group != kAlexisBundleGroup) {
     return false;
   }
-  constexpr std::array<std::string_view, 5U> kOpaqueManagedNames{
+  // Five opaque bases plus the two transparent window shells. `SaberLens` is
+  // the one authored specular declaration still outside the scope: its
+  // `flexmesh_transparent` damage variant carries a second authored texture
+  // unit on the base pass that modulates the presented colour and alpha, and
+  // dropping it would show artwork the author did not write.
+  constexpr std::array<std::string_view, 7U> kReviewedManagedNames{
       {"SaberChassis", "SaberChassisM", "SaberWheels", "SaberGrilles",
-       "SaberBody"}};
-  for (const std::string_view base : kOpaqueManagedNames) {
+       "SaberBody", "SaberWinds", "SaberWinds_int"}};
+  for (const std::string_view base : kReviewedManagedNames) {
     if (MatchesAlexisManagedBase(exact_material_name, base)) {
       return true;
     }
@@ -2423,15 +2428,23 @@ bool OgreNextDemoAllowsAlexisTUS0Approximation(
 bool OgreNextDemoResolveAlexisAuthoredRoughness(
     std::string_view exact_resource_group,
     std::string_view exact_material_name, float &out_roughness) noexcept {
-  // Only the body paint. The chassis, wheels and grilles are not clearcoated
-  // surfaces and keep the shininess derivation they ship with today, so this
-  // exception cannot silently restyle the rest of the vehicle.
-  if (exact_resource_group != kAlexisBundleGroup ||
-      !MatchesAlexisManagedBase(exact_material_name, "SaberBody")) {
+  // Only the body paint and the window glass. The chassis, wheels and grilles
+  // are neither clearcoated nor specular dielectrics and keep the shininess
+  // derivation they ship with today, so this exception cannot silently
+  // restyle the rest of the vehicle.
+  if (exact_resource_group != kAlexisBundleGroup) {
     return false;
   }
-  out_roughness = kOgreNextDemoAlexisBodyPaintRoughness;
-  return true;
+  if (MatchesAlexisManagedBase(exact_material_name, "SaberBody")) {
+    out_roughness = kOgreNextDemoAlexisBodyPaintRoughness;
+    return true;
+  }
+  if (MatchesAlexisManagedBase(exact_material_name, "SaberWinds") ||
+      MatchesAlexisManagedBase(exact_material_name, "SaberWinds_int")) {
+    out_roughness = kOgreNextDemoAlexisGlassRoughness;
+    return true;
+  }
+  return false;
 }
 
 } // namespace RoR::Gfx::Detail
