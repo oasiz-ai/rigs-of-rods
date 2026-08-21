@@ -2927,14 +2927,24 @@ struct CapturedManagedSpecularTexture final {
   OgreNextDemoTextureNormalizationObservation normalization_observation;
 };
 
+/// One texture's authored bytes, resolved through whichever domain actually
+/// owns them. CityWorld - the content this widening exists for - ships as an
+/// authenticated package, so restricting the proof to the ordinary
+/// selected-source domain would silently refuse every candidate it targets.
+struct GlowOverlayResolvedSource final {
+  bool authenticated = false;
+  Render::Ogre14AuthenticatedTextureResolution authenticated_resolution;
+  Render::Ogre14SelectedTextureSourceResolution ordinary_resolution;
+};
+
 /// Memoised outcome of one authored-texel glow proof. `verified` is only ever
 /// stored for a pair that passed; the two resolutions are retained so a later
 /// reuse can re-assert that the very bytes the proof ran over are still the
 /// bytes the resolver would hand out today.
 struct GlowOverlayContentVerdict final {
   bool verified = false;
-  Render::Ogre14SelectedTextureSourceResolution base_resolution;
-  Render::Ogre14SelectedTextureSourceResolution overlay_resolution;
+  GlowOverlayResolvedSource base_source;
+  GlowOverlayResolvedSource overlay_source;
 };
 
 struct MaterialCache final {
@@ -3360,69 +3370,121 @@ bool OgreNextDemoMaterialSource::VerifyAdditiveEquivalentGlowOverlayContent(
         return false;
       }
       // A stored proof is only as good as the bytes it ran over, so re-assert
-      // that the resolver still hands out those exact selected sources.
-      return ordinary_texture_source_resolver_->RevalidateSelectedTextureSource(
-                 *base_texture, cached->second.base_resolution) &&
-             ordinary_texture_source_resolver_->RevalidateSelectedTextureSource(
-                 *overlay_texture, cached->second.overlay_resolution);
+      // that the owning resolver still hands out those exact sources.
+      const auto revalidate =
+          [this](const Ogre::TexturePtr &texture,
+                 const GlowOverlayResolvedSource &source) {
+            return source.authenticated
+                       ? texture_resolver_->RevalidateAuthenticatedTexture(
+                             *texture, source.authenticated_resolution)
+                       : ordinary_texture_source_resolver_
+                             ->RevalidateSelectedTextureSource(
+                                 *texture, source.ordinary_resolution);
+          };
+      return revalidate(base_texture, cached->second.base_source) &&
+             revalidate(overlay_texture, cached->second.overlay_source);
+    }
+
+    if (!base_texture->isLoaded() || !overlay_texture->isLoaded()) {
+      // Transient, exactly like every other source-unavailable refusal: say no
+      // for this capture but store nothing, so a later capture that finds both
+      // sources loaded still gets to run the proof.
+      return false;
     }
 
     GlowOverlayContentVerdict verdict;
-    const auto resolve =
-        [this](const Ogre::TexturePtr &texture,
-               Render::Ogre14SelectedTextureSourceResolution &resolution,
-               Render::Ogre14DecodedSourceTexture &decoded) {
-          // The authenticated domain owns its own authority and its own
-          // lowering; this proof deliberately reads only the ordinary
-          // selected-source domain and refuses rather than crossing over.
-          if (texture_resolver_->RequiresAuthenticatedTextureSource(*texture)) {
-            return false;
-          }
-          if (!ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
-                  *texture, resolution) ||
-              !resolution.initialized()) {
-            return false;
-          }
-          const Render::Ogre14SelectedTextureSourceReceipt *const receipt =
-              resolution.source_receipt();
-          if (receipt == nullptr || !receipt->initialized() ||
-              receipt->metadata() == nullptr ||
-              receipt->source_bytes() == nullptr ||
-              receipt->source_size() == 0U) {
-            return false;
-          }
-          // PRESERVE_STRAIGHT, not the FORCE_OPAQUE policy an opaque
-          // projection would use: the overlay's authored alpha IS the mask
-          // this proof is about, and forcing it opaque would destroy the very
-          // evidence being weighed. Nothing decoded here is published.
-          const Render::Ogre14SourceTextureDecodeOptions options =
-              BuildOrdinaryDecodeOptions(
-                  *receipt, OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT);
-          if (receipt->source_size() > options.maximum_encoded_bytes) {
+    bool sources_available = true;
+    // PRESERVE_STRAIGHT, never the FORCE_OPAQUE policy an opaque projection
+    // would use: the overlay's authored alpha IS the mask this proof is about,
+    // and forcing it opaque would destroy the very evidence being weighed.
+    constexpr OgreNextDemoTextureAlphaPolicy kProofAlphaPolicy =
+        OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT;
+    const auto decode_bytes =
+        [](const std::uint8_t *bytes, std::size_t size,
+           const Render::Ogre14SourceTextureDecodeOptions &options,
+           Render::Ogre14DecodedSourceTexture &decoded) {
+          if (bytes == nullptr || size == 0U ||
+              size > options.maximum_encoded_bytes) {
             return false;
           }
           try {
-            const std::vector<std::uint8_t> encoded(
-                receipt->source_bytes(),
-                receipt->source_bytes() + receipt->source_size());
+            const std::vector<std::uint8_t> encoded(bytes, bytes + size);
             return static_cast<bool>(Render::DecodeOgre14SourceTexture(
                 encoded, options, decoded, nullptr));
           } catch (...) {
             return false;
           }
         };
+    // Read whichever domain owns each texture's authored bytes. Both retain
+    // exactly those bytes under their own receipt, and the proof is a
+    // statement about the authored content, not about which registry holds it.
+    const auto resolve =
+        [this, &sources_available, &decode_bytes](
+            const Ogre::TexturePtr &texture,
+            GlowOverlayResolvedSource &resolved,
+            Render::Ogre14DecodedSourceTexture &decoded) {
+          if (texture_resolver_->RequiresAuthenticatedTextureSource(*texture)) {
+            resolved.authenticated = true;
+            if (!texture_resolver_->ResolveAuthenticatedTexture(
+                    *texture, resolved.authenticated_resolution) ||
+                !resolved.authenticated_resolution.initialized()) {
+              sources_available = false;
+              return false;
+            }
+            const Render::Ogre14AuthenticatedTextureReceipt *const receipt =
+                resolved.authenticated_resolution.source_receipt();
+            const Render::Ogre14AuthenticatedTextureReceiptMetadata *const
+                metadata = receipt != nullptr ? receipt->metadata() : nullptr;
+            if (receipt == nullptr || !receipt->initialized() ||
+                metadata == nullptr || receipt->source_bytes() == nullptr ||
+                receipt->source_size() == 0U) {
+              sources_available = false;
+              return false;
+            }
+            return decode_bytes(
+                receipt->source_bytes(), receipt->source_size(),
+                BuildAuthenticatedDecodeOptions(*metadata, kProofAlphaPolicy),
+                decoded);
+          }
+          resolved.authenticated = false;
+          if (!ordinary_texture_source_resolver_->ResolveSelectedTextureSource(
+                  *texture, resolved.ordinary_resolution) ||
+              !resolved.ordinary_resolution.initialized()) {
+            sources_available = false;
+            return false;
+          }
+          const Render::Ogre14SelectedTextureSourceReceipt *const receipt =
+              resolved.ordinary_resolution.source_receipt();
+          if (receipt == nullptr || !receipt->initialized() ||
+              receipt->metadata() == nullptr ||
+              receipt->source_bytes() == nullptr ||
+              receipt->source_size() == 0U) {
+            sources_available = false;
+            return false;
+          }
+          return decode_bytes(
+              receipt->source_bytes(), receipt->source_size(),
+              BuildOrdinaryDecodeOptions(*receipt, kProofAlphaPolicy), decoded);
+        };
 
     Render::Ogre14DecodedSourceTexture base_decoded;
     Render::Ogre14DecodedSourceTexture overlay_decoded;
     verdict.verified =
-        resolve(base_texture, verdict.base_resolution, base_decoded) &&
-        resolve(overlay_texture, verdict.overlay_resolution,
-                overlay_decoded) &&
+        resolve(base_texture, verdict.base_source, base_decoded) &&
+        resolve(overlay_texture, verdict.overlay_source, overlay_decoded) &&
         // An overlay with no alpha channel at all keeps every texel, so this
         // still requires it to be pass 0's artwork before admitting it.
         AuthoredTexelsProveAddedLightOnly(base_decoded, overlay_decoded,
                                           reject_function, reject_value);
     const bool result = verdict.verified;
+    // Only a DEFINITIVE outcome is memoised. A verdict reached because both
+    // authored sources were read and compared is permanent - the bytes decide
+    // it and the bytes are immutable - but one reached because a source could
+    // not be resolved yet is transient, and caching that would freeze a
+    // material matte over a resolver state that later recovers.
+    if (!result && !sources_available) {
+      return false;
+    }
     EnsurePendingCacheWritable();
     pending_->cache->glow_overlay_verdicts.emplace(std::move(verdict_key),
                                                    std::move(verdict));
