@@ -398,11 +398,28 @@ Cyclic mesh objectivity, production-network localization control, selection of
 a physical adapter characteristic length, and calibrated coupon data remain
 open.
 
+The version-1 Agora impact regression harness is also executable. It
+authenticates content commit `34fefdd126784bf87b068fc283f812525d159dd7`
+and the 18,684-byte `95bbUID-agoral.truck` source, derives one deterministic
+`P1CalibratedAgoraImpact.truck`, and opts exactly its 675 ordinary authored
+beams into the numerical material fixture. The actor is armed while paused at
+`(0, -12, 0) m/s` and advanced for 6,000 exact `0.5 ms` steps. The runner
+records mass-weighted centre-of-mass deceleration and energy, all 11,325
+authored-node pair distances, broken/fractured/disabled counts, the ordered
+state trace, fixture/archive digests, and one-worker/eight-worker metadata. It
+fails on a non-finite material state, incomplete collision response, trace
+divergence, or telemetry mismatch. Its normal and optimized Python/CTest
+contract checks pass. A local dirty-development execution produced exact
+one/eight-worker telemetry equality, but that temporary receipt is not the
+versioned clean-build baseline: the clean exact-commit combined-runtime run,
+retained evidence artifact, independent physical calibration, and platform
+tolerance comparison remain required.
+
 No BeamNG lowering rule, UI, or shipped vehicle enables the new model yet.
 Replay injection/ownership, calibrated material datasets, mesh-refinement and
 localization validation beyond the monotonic kernel, starter-content tuning,
-and the versioned Agora impact regression remain open. P1 is not complete and
-cannot become a runtime default until those gates pass.
+and the clean versioned Agora impact receipt remain open. P1 is not complete
+and cannot become a runtime default until those gates pass.
 
 ## D0 — Deterministic collision and replay
 
