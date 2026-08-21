@@ -308,12 +308,6 @@ bool IsTrsRepresentable(const Matrix4x4 &matrix) noexcept {
   return true;
 }
 
-/// Single definition lives in RenderMath.h so the producer's filter and the
-/// presenter's skip can never disagree about which instances are drawable.
-bool HasEffectivelyUniformScale(const Matrix4x4 &matrix) noexcept {
-  return HasEffectivelyUniformLinearScale(matrix);
-}
-
 ValidationResult ValidateMeshPolicy(const MeshResourceDescriptor &mesh,
                                     std::size_t index,
                                     bool allow_dynamic_meshes,

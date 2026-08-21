@@ -1821,8 +1821,8 @@ void CreateAndVerifyHdrLightingSplitNode(
                             (external_uav
                                  ? Ogre::TextureFlags::Uav
                                  : Ogre::TextureFlags::DiscardableContent);
-    texture->depthBufferId =
-        needs_depth ? 1U : Ogre::DepthBuffer::POOL_NO_DEPTH;
+    texture->depthBufferId = static_cast<Ogre::uint16>(
+        needs_depth ? 1U : static_cast<unsigned int>(Ogre::DepthBuffer::POOL_NO_DEPTH));
     Ogre::RenderTargetViewDef *view = node->addRenderTextureView(name);
     Ogre::RenderTargetViewEntry attachment;
     attachment.textureName = name;

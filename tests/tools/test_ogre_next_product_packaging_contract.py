@@ -345,6 +345,14 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         cls.input_event_transport_header = (
             REPOSITORY_ROOT / "source/main/gfx/render/InputEventTransport.h"
         ).read_text(encoding="utf-8")
+        cls.n1_frontend = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/ogrenext/OgreNextN1Frontend.cpp"
+        ).read_text(encoding="utf-8")
+        cls.n1_policy = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/ogrenext/OgreNextN1Policy.cpp"
+        ).read_text(encoding="utf-8")
 
     def test_public_enums_avoid_windows_sdk_macro_tokens(self) -> None:
         self.assertIn(
@@ -364,6 +372,15 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         self.assertIn("RELATIVE_DELTA = 2U", self.input_event_transport_header)
         self.assertNotIn(
             "\n  RELATIVE =", self.input_event_transport_header
+        )
+
+    def test_gcc11_werror_frontend_sources_are_warning_clean(self) -> None:
+        self.assertNotIn(
+            "bool HasEffectivelyUniformScale(", self.n1_policy
+        )
+        self.assertIn(
+            "static_cast<unsigned int>(Ogre::DepthBuffer::POOL_NO_DEPTH)",
+            self.n1_frontend,
         )
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
