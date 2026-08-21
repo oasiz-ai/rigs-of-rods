@@ -357,6 +357,22 @@ void TestDeterministicScalarFunctions()
     CheckNumber(
         "$=smootheststep(smootherstep(smoothstep(0.5)))",
         0.5);
+    CheckCanonicalNumber(
+        "$=pi",
+        "jbeam-expression-value-v1:number:400921fb54442d28");
+    CheckCanonicalNumber(
+        "$=huge",
+        "jbeam-expression-value-v1:number:47efffffe0000000");
+    CheckNumber("$=frexp(6)", 0.75);
+    CheckNumber("$=frexp(-8)", -0.5);
+    CheckNumber("$=frexp(0)", 0.0);
+    CheckNumber("$=modf(3.75)", 3.0);
+    CheckNumber("$=modf(-3.75)", -3.0);
+    CheckNumber("$=rad(180)", 3.1415926535898);
+    CheckNumber("$=deg(pi)", 180.0);
+    CheckNumber("$=pow(2,10)", 1024.0);
+    CheckNumber("$=pow(2,-2)", 0.25);
+    CheckNumber("$=pow(-2,3)", -8.0);
     CheckNumber("$=clamp(-2,-1,1)", -1.0);
     CheckNumber("$=clamp(0,-1,1)", 0.0);
     CheckNumber("$=clamp(2,-1,1)", 1.0);
@@ -395,6 +411,13 @@ void TestDeterministicScalarFunctions()
         "$=smoothstep()",
         "$=smootherstep(1,2)",
         "$=smootheststep()",
+        "$=frexp()",
+        "$=frexp(1,2)",
+        "$=modf()",
+        "$=rad(1,2)",
+        "$=deg()",
+        "$=pow(1)",
+        "$=pow(1,2,3)",
         "$=clamp(1,2)",
         "$=clamp(1,2,3,4)",
         "$=min()",
@@ -423,6 +446,11 @@ void TestDeterministicScalarFunctions()
         "$=smoothstep('x')",
         "$=smootherstep(true)",
         "$=smootheststep(nil)",
+        "$=frexp('x')",
+        "$=modf(true)",
+        "$=rad(nil)",
+        "$=deg('x')",
+        "$=pow(2,'x')",
         "$=clamp(1,0,'x')",
         "$=min(1,'x',2)",
         "$=max(nil,2)"
@@ -458,6 +486,34 @@ void TestDeterministicScalarFunctions()
     CHECK(!square_overflow.IsValid());
     CHECK(HasCode(
         square_overflow,
+        JBeamExpressionDiagnosticCode::NON_FINITE_RESULT));
+
+    const char* invalid_powers[] = {
+        "$=pow(2,0.5)",
+        "$=pow(2,1025)",
+        "$=pow(2,-1025)"};
+    for (std::size_t index = 0U;
+         index < sizeof(invalid_powers) / sizeof(invalid_powers[0]);
+         ++index)
+    {
+        const JBeamExpressionResult invalid_power =
+            EvaluateJBeamExpression(invalid_powers[index]);
+        CHECK(!invalid_power.IsValid());
+        CHECK(HasCode(
+            invalid_power,
+            JBeamExpressionDiagnosticCode::NON_DETERMINISTIC_OPERAND));
+    }
+    const JBeamExpressionResult zero_negative_power =
+        EvaluateJBeamExpression("$=pow(0,-1)");
+    CHECK(!zero_negative_power.IsValid());
+    CHECK(HasCode(
+        zero_negative_power,
+        JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
+    const JBeamExpressionResult power_overflow =
+        EvaluateJBeamExpression("$=pow(2,1024)");
+    CHECK(!power_overflow.IsValid());
+    CHECK(HasCode(
+        power_overflow,
         JBeamExpressionDiagnosticCode::NON_FINITE_RESULT));
 
     // Function calls evaluate every argument before validating the signature
@@ -556,6 +612,28 @@ void TestDeterministicScalarFunctions()
     CheckCanonicalNumber(
         "$=smootheststep(0.25)",
         "jbeam-expression-value-v1:number:3fb2100000000000");
+    CheckCanonicalNumber(
+        "$=modf(-0)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=pow(2,10)",
+        "jbeam-expression-value-v1:number:4090000000000000");
+
+    JBeamExpressionEnvironment subnormal_environment;
+    subnormal_environment.variables.push_back(Variable(
+        "$tiny",
+        JBeamExpressionValue::Number(DoubleFromBits(UINT64_C(1)))));
+    const JBeamExpressionResult subnormal_mantissa =
+        EvaluateJBeamExpression(
+            "$=frexp($tiny)", subnormal_environment);
+    CHECK(subnormal_mantissa.IsValid());
+    if (subnormal_mantissa.IsValid())
+    {
+        CHECK(
+            SerializeCanonicalJBeamExpressionValue(
+                subnormal_mantissa.value) ==
+            "jbeam-expression-value-v1:number:3fe0000000000000");
+    }
 
     const std::string repeated_source =
         "$=max(abs(-3),square(2),clamp(9,0,5))";
@@ -577,6 +655,8 @@ void TestDeterministicScalarFunctions()
     const char* unsupported[] = {
         "$=sqrt(1)",
         "$=sin(1)",
+        "$=pi()",
+        "$=huge()",
         "$=randomseed(1)",
         "$=load(1)",
         "$=Abs(1)"

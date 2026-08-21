@@ -120,8 +120,10 @@ comparisons, Lua-style `and`/`or`/`not`, Boolean and positive-integer-selector
 `case` forms, string concatenation/length, numeric `abs`, `square`, `round`,
 `floor`,
 `ceil`, the clamped `smoothstep`/`smootherstep`/`smootheststep` family,
-`clamp`, and one-to-64-argument `min`/`max`, typed `$variables`, and flattened
-scalar [`$components`][components] paths. Scalar-call arguments are eager and
+`frexp` mantissa, `modf` integral part, `rad`, `deg`, integer-exponent `pow`,
+`clamp`, one-to-64-argument `min`/`max`, and exact `pi`/documented-`FLT_MAX`
+`huge` constants, typed `$variables`, and flattened scalar
+[`$components`][components] paths. Scalar-call arguments are eager and
 numeric-only. `clamp` rejects reversed bounds, `square` rejects overflow,
 `round` resolves exact halves away from zero, and all rounding and interpolation
 operations use pinned IEEE-754 binary64 operation order rather than host Lua.
@@ -132,11 +134,11 @@ fast-math mode, and canonical values are independent of source spelling.
 
 This core is not a Lua interpreter and exposes no host, filesystem, network,
 clock, or random functions. Every function outside the two deterministic
-`case` signatures and the eleven-name deterministic numeric allowlist,
+`case` signatures and the sixteen-name deterministic numeric allowlist,
 numeric-to-string concatenation, component tables, indexing, and method calls
 remain unsupported. In particular, transcendental, host-libm-dependent,
-multi-result, and random functions stay fail-closed until their cross-platform
-numeric and state contracts are versioned.
+random, and unversioned scaling/remainder functions stay fail-closed until
+their cross-platform numeric and state contracts are versioned.
 
 The functions above are an independent implementation of public format
 behavior; they do not reuse BeamNG code or assets. `ParseJBeam` and

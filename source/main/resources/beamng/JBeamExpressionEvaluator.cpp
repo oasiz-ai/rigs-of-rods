@@ -97,6 +97,7 @@ double NormalizeNumber(double value)
 double AddNumbers(double left, double right);
 double SubtractNumbers(double left, double right);
 double MultiplyNumbers(double left, double right);
+double DivideNumbers(double left, double right);
 
 double NumberFromBits(std::uint64_t bits)
 {
@@ -202,6 +203,56 @@ double SmootheststepNumber(double value)
                     x,
                     SubtractNumbers(70.0, MultiplyNumbers(20.0, x))))));
     return MultiplyNumbers(x_fourth, polynomial);
+}
+
+double FrexpMantissaNumber(double value)
+{
+    static const std::uint64_t SIGN_MASK =
+        UINT64_C(0x8000000000000000);
+    static const std::uint64_t FRACTION_MASK =
+        UINT64_C(0x000fffffffffffff);
+    static const std::uint64_t HALF_EXPONENT =
+        UINT64_C(0x3fe0000000000000);
+
+    const std::uint64_t bits = DoubleBits(value);
+    const std::uint64_t magnitude =
+        bits & UINT64_C(0x7fffffffffffffff);
+    if (magnitude == 0U)
+    {
+        return 0.0;
+    }
+
+    const std::uint64_t sign = bits & SIGN_MASK;
+    const std::uint64_t fraction = bits & FRACTION_MASK;
+    if ((magnitude >> 52U) != 0U)
+    {
+        return NumberFromBits(sign | HALF_EXPONENT | fraction);
+    }
+
+    unsigned int highest_bit = 0U;
+    std::uint64_t remaining = fraction;
+    while ((remaining >>= 1U) != 0U)
+    {
+        ++highest_bit;
+    }
+    const unsigned int shift = 52U - highest_bit;
+    const std::uint64_t normalized_fraction =
+        (fraction << shift) & FRACTION_MASK;
+    return NumberFromBits(
+        sign | HALF_EXPONENT | normalized_fraction);
+}
+
+double JBeamPiNumber()
+{
+    // Exact binary64 identity of the public profile's decimal
+    // 3.1415926535898 spelling.
+    return NumberFromBits(UINT64_C(0x400921fb54442d28));
+}
+
+double JBeamHugeNumber()
+{
+    // The public JBeam documentation defines huge as FLT_MAX, not DBL_MAX.
+    return NumberFromBits(UINT64_C(0x47efffffe0000000));
 }
 
 bool IsValidUtf8(const std::string& value)
@@ -1547,6 +1598,21 @@ private:
         case TokenKind::CASE_VALUE:
             return ParseCase(evaluate, output);
         case TokenKind::IDENTIFIER:
+            if ((token.text == "pi" || token.text == "huge") &&
+                Next().kind != TokenKind::LEFT_PAREN)
+            {
+                if (!Consume())
+                {
+                    return false;
+                }
+                output = evaluate
+                    ? JBeamExpressionValue::Number(
+                        token.text == "pi"
+                            ? JBeamPiNumber()
+                            : JBeamHugeNumber())
+                    : JBeamExpressionValue::Nil();
+                return true;
+            }
             if (Next().kind == TokenKind::LEFT_PAREN &&
                 IsAllowlistedScalarFunction(token.text))
             {
@@ -1578,6 +1644,11 @@ private:
             name == "smoothstep" ||
             name == "smootherstep" ||
             name == "smootheststep" ||
+            name == "frexp" ||
+            name == "modf" ||
+            name == "rad" ||
+            name == "deg" ||
+            name == "pow" ||
             name == "clamp" ||
             name == "min" ||
             name == "max";
@@ -1610,7 +1681,12 @@ private:
             function.text == "ceil" ||
             function.text == "smoothstep" ||
             function.text == "smootherstep" ||
-            function.text == "smootheststep";
+            function.text == "smootheststep" ||
+            function.text == "frexp" ||
+            function.text == "modf" ||
+            function.text == "rad" ||
+            function.text == "deg";
+        const bool binary = function.text == "pow";
         const bool variadic =
             function.text == "min" || function.text == "max";
         std::size_t argument_count = 0U;
@@ -1690,6 +1766,7 @@ private:
 
         const bool valid_arity =
             (unary && argument_count == 1U) ||
+            (binary && argument_count == 2U) ||
             (function.text == "clamp" && argument_count == 3U) ||
             (variadic &&
              argument_count >= 1U &&
@@ -1766,6 +1843,67 @@ private:
         {
             result = SmootheststepNumber(
                 fixed_arguments[0].number_value);
+        }
+        else if (function.text == "frexp")
+        {
+            result = FrexpMantissaNumber(
+                fixed_arguments[0].number_value);
+        }
+        else if (function.text == "modf")
+        {
+            result = TruncateNumber(
+                fixed_arguments[0].number_value);
+        }
+        else if (function.text == "rad")
+        {
+            result = MultiplyNumbers(
+                DivideNumbers(
+                    fixed_arguments[0].number_value,
+                    180.0),
+                JBeamPiNumber());
+        }
+        else if (function.text == "deg")
+        {
+            result = MultiplyNumbers(
+                DivideNumbers(
+                    fixed_arguments[0].number_value,
+                    JBeamPiNumber()),
+                180.0);
+        }
+        else if (function.text == "pow")
+        {
+            static const std::int64_t MAX_POWER_EXPONENT = 1024;
+            std::int64_t exponent = 0;
+            if (!IsExactIntegerInRange(
+                    fixed_arguments[1].number_value,
+                    -static_cast<double>(MAX_POWER_EXPONENT),
+                    static_cast<double>(MAX_POWER_EXPONENT),
+                    exponent))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        NON_DETERMINISTIC_OPERAND,
+                    function.begin,
+                    "JBeam pow exponent must be an exact integer in "
+                    "[-1024, 1024]");
+            }
+            if (fixed_arguments[0].number_value == 0.0 && exponent < 0)
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO,
+                    function.begin,
+                    "JBeam zero cannot be raised to a negative power");
+            }
+            if (!PowerNumbers(
+                    fixed_arguments[0].number_value,
+                    static_cast<int>(exponent),
+                    result))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::NON_FINITE_RESULT,
+                    function.begin,
+                    "JBeam pow function produced a non-finite value");
+            }
         }
         else if (function.text == "clamp")
         {

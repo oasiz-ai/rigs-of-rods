@@ -155,8 +155,10 @@ struct JBeamExpressionResult
 ///     an integer past the available choices returns the last choice.
 ///   * numeric abs(value), square(value), round(value), floor(value),
 ///     ceil(value), smoothstep(value), smootherstep(value),
-///     smootheststep(value), clamp(value, lower, upper), and one-to-64-argument
-///     min(...) and max(...) calls.
+///     smootheststep(value), frexp(value), modf(value), rad(value), deg(value),
+///     pow(value, integerExponent), clamp(value, lower, upper), and
+///     one-to-64-argument min(...) and max(...) calls;
+///   * exact profile constants pi and huge (documented FLT_MAX).
 ///
 /// The evaluator is not Lua. Dotted component paths perform no dynamic lookup:
 /// they are opaque keys in the caller-provided environment. The evaluator
@@ -171,6 +173,10 @@ struct JBeamExpressionResult
 /// [-1024, 1024]. The rounding functions use explicit IEEE-754 bit operations;
 /// round() resolves exact halves away from zero. The smooth-step family clamps
 /// its input to [0, 1] and evaluates one pinned polynomial operation order.
+/// pow() has the same integer-exponent boundary as `^`; frexp() returns only
+/// the documented usable mantissa and modf() only the documented usable
+/// integral result. rad()/deg() use the exact profile pi identity and pinned
+/// basic-operation order.
 JBeamExpressionResult EvaluateJBeamExpression(
     const std::string& expression,
     const JBeamExpressionEnvironment& environment =
