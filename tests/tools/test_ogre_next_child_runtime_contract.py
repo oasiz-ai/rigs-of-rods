@@ -450,13 +450,16 @@ class OgreNextChildRuntimeContractTests(unittest.TestCase):
             "OgreNextN1Frontend frontend",
             "OgreNextN1PresentationMode::PRODUCTION_RUN_LOOP",
             "presentation.gpu_only_output = true",
-            "PSSM_3_CASCADE_V1",
+            "OgreNextDirectionalShadowMode::DISABLED",
+            "Persistent HDR and the pinned Ogre PSSM node do not yet have a safe",
+            "shared compositor contract",
             "RunRendererOgreNextLiveSession(endpoint, live_runtime)",
             "audit.source_readbacks != 0U",
             "audit.cpu_window_copy",
         ):
             with self.subTest(production_token=token):
                 self.assertIn(token, self.production_session)
+        self.assertNotIn("PSSM_3_CASCADE_V1", self.production_session)
         for cmake_path in (
             REPOSITORY_ROOT / "CMakeLists.txt",
             REPOSITORY_ROOT / "source/main/CMakeLists.txt",
