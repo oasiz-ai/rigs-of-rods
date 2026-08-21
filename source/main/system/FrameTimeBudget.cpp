@@ -257,8 +257,8 @@ bool FrameTimeBudgetSession::RecordFrame(double seconds)
     ++accepted_frames_;
     last_frame_retained_ = true;
     total_ns_ += sample_ns;
-    minimum_ns_ = std::min(minimum_ns_, sample_ns);
-    maximum_ns_ = std::max(maximum_ns_, sample_ns);
+    minimum_ns_ = (std::min)(minimum_ns_, sample_ns);
+    maximum_ns_ = (std::max)(maximum_ns_, sample_ns);
 
     std::uint64_t sustained_ns = 0U;
     if (MillisecondsToNanoseconds(limits_.sustained_ms, sustained_ns) &&
