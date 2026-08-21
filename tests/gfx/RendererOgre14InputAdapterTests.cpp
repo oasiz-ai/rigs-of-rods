@@ -116,11 +116,11 @@ void TestRendererNeutralSdlMapping() {
 
   const std::array<std::pair<std::uint8_t, RendererGameMouseButton>, 5U>
       mouse_buttons{{
-          {1U, RendererGameMouseButton::LEFT},
-          {2U, RendererGameMouseButton::MIDDLE},
-          {3U, RendererGameMouseButton::RIGHT},
-          {4U, RendererGameMouseButton::X1},
-          {5U, RendererGameMouseButton::X2},
+          {static_cast<std::uint8_t>(1U), RendererGameMouseButton::LEFT},
+          {static_cast<std::uint8_t>(2U), RendererGameMouseButton::MIDDLE},
+          {static_cast<std::uint8_t>(3U), RendererGameMouseButton::RIGHT},
+          {static_cast<std::uint8_t>(4U), RendererGameMouseButton::X1},
+          {static_cast<std::uint8_t>(5U), RendererGameMouseButton::X2},
       }};
   for (const auto &entry : mouse_buttons) {
     RendererGameMouseButton translated = RendererGameMouseButton::LEFT;
