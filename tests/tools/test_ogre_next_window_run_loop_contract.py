@@ -76,7 +76,9 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
             "Ogre::TextureFlags::RenderToTexture",
             '"MainRT", 0U',
             '"PresentationRT", 1U',
-            "node->setNumTargetPass(2U)",
+            "node->setNumTargetPass(copy_only_hdr ? 1U : 2U)",
+            "production_source_target = hdr_output_target",
+            "if (!copy_only_hdr)",
             "main_target->addPass(Ogre::PASS_SCENE)",
             "scene->mIncludeOverlays = false",
             "presentation_target->addPass(Ogre::PASS_QUAD)",
@@ -134,7 +136,7 @@ class OgreNextWindowRunLoopContractTests(unittest.TestCase):
         render = self.frontend[self.frontend.index("OgreNextN1Frontend::Render(") :]
         production = render[
             render.index("if (production_presentation) {") :
-            render.index("} else if (!persistent_hdr)")
+            render.index("} else if (persistent_hdr) {")
         ]
         self.assertIn("EnsureProductionPresentationGraph", production)
         self.assertIn("impl_->production_source_target", production)
