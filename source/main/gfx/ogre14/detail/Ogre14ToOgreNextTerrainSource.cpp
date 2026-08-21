@@ -53,6 +53,8 @@ namespace RoR::Gfx::Detail {
 namespace {
 
 constexpr std::uint32_t kMaximumCompositeDimension = 8192U;
+/// Ceiling for the published layer weight mask. See BuildLayerWeightMask.
+constexpr std::size_t kMaximumWeightMaskDimension = 2048U;
 constexpr std::uint32_t kMaximumCompositeMipLevels = 32U;
 constexpr std::uint64_t kMaximumCompositeBytes = 384ULL * 1024ULL * 1024ULL;
 constexpr char kMeshIdDomain[] =
@@ -675,11 +677,28 @@ Render::ValidationResult BuildLayerWeightMask(
                    "ogre_next_demo.terrain.weight.layers",
                    "the packed weight mask carries one to three detail layers");
   }
-  const std::size_t size = terrain.getLayerBlendMapSize();
-  if (size == 0U || size > kMaximumCompositeDimension) {
+  const std::size_t source_size = terrain.getLayerBlendMapSize();
+  if (source_size == 0U || source_size > kMaximumCompositeDimension) {
     return Failure(Render::ValidationCode::INVALID_DIMENSIONS,
                    "ogre_next_demo.terrain.weight.dimensions",
                    "terrain blend map size is empty or exceeds the cap");
+  }
+  // Publish the mask no finer than kMaximumWeightMaskDimension. It is a
+  // low-frequency selection weight that the shader filters bilinearly anyway,
+  // and at the authored size it dominates the page's VRAM: CityWorld's 4096
+  // mask is 85 MiB against 3 MiB for every layer texture combined.
+  //
+  // The cap is measured, not assumed. On CityWorld's derived coverage the
+  // narrowest tenth of features run 8.8 m (concrete) and 17.6 m (asphalt);
+  // halving to 2048 holds ~1.5 texels across the narrowest of those for a mean
+  // absolute error of 0.4/255, while quartering to 1024 costs 1.0/255 and
+  // drops below one texel on them. Whole blocks are box-averaged so the cap
+  // only ever integrates authored weights.
+  std::size_t size = source_size;
+  std::size_t decimation = 1U;
+  while (size > kMaximumWeightMaskDimension && (size % 2U) == 0U) {
+    size /= 2U;
+    decimation *= 2U;
   }
 
   output = Render::TextureResourceDescriptor{};
@@ -716,15 +735,27 @@ Render::ValidationResult BuildLayerWeightMask(
                      "ogre_next_demo.terrain.weight.blend_map",
                      "a terrain blend map exposed no CPU weights", detail);
     }
-    for (std::size_t texel = 0U; texel < texel_count; ++texel) {
-      const float weight = weights[texel];
-      if (!std::isfinite(weight)) {
-        return Failure(Render::ValidationCode::NON_FINITE_VALUE,
-                       "ogre_next_demo.terrain.weight.blend_map",
-                       "a terrain blend weight is not finite", detail);
+    for (std::size_t y = 0U; y < output.height; ++y) {
+      for (std::size_t x = 0U; x < output.width; ++x) {
+        double sum = 0.0;
+        for (std::size_t block_y = 0U; block_y < decimation; ++block_y) {
+          const std::size_t source_row =
+              ((y * decimation) + block_y) * source_size;
+          for (std::size_t block_x = 0U; block_x < decimation; ++block_x) {
+            const float weight =
+                weights[source_row + (x * decimation) + block_x];
+            if (!std::isfinite(weight)) {
+              return Failure(Render::ValidationCode::NON_FINITE_VALUE,
+                             "ogre_next_demo.terrain.weight.blend_map",
+                             "a terrain blend weight is not finite", detail);
+            }
+            sum += std::min(std::max(weight, 0.0F), 1.0F);
+          }
+        }
+        mip.bytes[((y * output.width) + x) * 4U + detail] =
+            static_cast<std::uint8_t>(std::lround(
+                (sum / static_cast<double>(decimation * decimation)) * 255.0));
       }
-      mip.bytes[texel * 4U + detail] = static_cast<std::uint8_t>(
-          std::lround(std::min(std::max(weight, 0.0F), 1.0F) * 255.0F));
     }
   }
   for (std::size_t texel = 0U; texel < texel_count; ++texel) {

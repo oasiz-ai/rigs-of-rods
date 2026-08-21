@@ -11579,6 +11579,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
             snapshot.environment().environment_intensity,
         snapshot.environment().ambient_radiance.z *
             snapshot.environment().environment_intensity);
+    // Ogre selects AmbientFixed only while both hemispheres match; giving them
+    // different values switches HlmsPbs to AmbientHemisphere, which is a
+    // different shading path with a different effective magnitude. A measured
+    // attempt at the split lifted the canyon but also took sunlit open ground
+    // from 57,65,40 to 92,108,96 - washing out the very terrain this work
+    // exists to show - so the split is left for a pass that can recalibrate
+    // the level against the hemisphere path rather than assume it carries over.
     impl_->scene_manager->setAmbientLight(expected_ambient, expected_ambient,
                                           Ogre::Vector3::UNIT_Y);
     if (!NearlyEqual(

@@ -884,9 +884,22 @@ constexpr float kOgre14ModernAnalyticSkyExposureCompensationEv = 3.5F;
 /// forwarding the legacy scene ambient: OGRE 14 content authors ambient
 /// nearly equal to the sun (0.7 vs 0.867), which lights every face almost
 /// identically - a flat, washed look with no directional contrast. Under
-/// HlmsPbs AmbientFixed, shadow/sunlit = f/(1+f), so 0.15 seats fully
-/// shadowed surfaces at ~13% of sunlit - clear-day photometry.
-constexpr float kOgre14ModernAnalyticSkyAmbientSunFraction = 0.15F;
+/// HlmsPbs AmbientFixed, shadow/sunlit = f/(1+f).
+///
+/// 0.15 seated fully shadowed surfaces at ~13% of sunlit, which is clear-day
+/// photometry for an OPEN horizontal surface seeing the whole sky. It is too
+/// low for the shadow that dominates this content. A street between facades
+/// sees little sky but is filled by inter-reflection off those facades, and
+/// this renderer has no other indirect mechanism to supply it: the reflection
+/// probe clears to black and excludes the sky dome from its capture, so its
+/// diffuse GI contribution is nil. This one term therefore stands in for sky
+/// AND bounce, not sky alone.
+///
+/// 0.25 seats fully shadowed surfaces at 20% of sunlit. Being a fraction of
+/// the key light it stays correct as the sun moves; it raises a sunlit surface
+/// by only 1.25/1.15 = 8.7% while lifting a shadowed one by 67%, so it opens
+/// shadow without flattening directional contrast.
+constexpr float kOgre14ModernAnalyticSkyAmbientSunFraction = 0.25F;
 /// Policy v3 adds the deterministic cloud layer. Coverage scales with the
 /// same smoothstepped daylight term as the gradient so clouds fade out with
 /// the sun instead of floating over a night sky; the cloud radiance sits
