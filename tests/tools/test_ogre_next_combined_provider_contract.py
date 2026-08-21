@@ -732,12 +732,14 @@ class CombinedProviderContractTests(unittest.TestCase):
         )
         undefined_intersection, undefined_unexpected = (
             module._unexpected_symbol_intersection(
-                undefined,
-                {"_jcopy_sample_rows"},
+                undefined | {"_crc32"},
+                {"_jcopy_sample_rows", "_crc32"},
                 module.REVIEWED_CODEC_FREEIMAGE_UNDEFINED_INTERSECTION_ALLOWLIST,
             )
         )
-        self.assertEqual(undefined_intersection, ["_jcopy_sample_rows"])
+        self.assertEqual(
+            undefined_intersection, ["_crc32", "_jcopy_sample_rows"]
+        )
         self.assertEqual(undefined_unexpected, ["_jcopy_sample_rows"])
         self.assertEqual(
             module._sdl_definition_symbols({"_SDL_Init", "_unrelated"}),

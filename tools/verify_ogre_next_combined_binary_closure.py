@@ -105,8 +105,8 @@ FORBIDDEN_EXTERNAL_IMAGE_CODEC_SYMBOL_PREFIXES = (
     "_stbi_",
 )
 
-# These are the exact pre-existing zlib/libc++ definitions/imports shared by
-# the reviewed RoR-Combined closure and OGRE14 Codec_FreeImage. PNG/JPEG/stb
+# These are the exact reviewed zlib/libc++ definitions/imports shared by the
+# RoR-Combined closure and OGRE14 Codec_FreeImage. PNG/JPEG/stb
 # symbols, including libjpeg's non-jpeg_ helper globals, are intentionally not
 # admitted. The complete Codec_FreeImage symbol set is intersected below, so a
 # renamed archive/object cannot evade this boundary by changing its filename.
@@ -124,6 +124,10 @@ REVIEWED_CODEC_FREEIMAGE_DEFINED_INTERSECTION_ALLOWLIST = (
     "_uncompress_z",
 )
 REVIEWED_CODEC_FREEIMAGE_UNDEFINED_INTERSECTION_ALLOWLIST = (
+    # JBeamVehicleImporter authenticates decoded ZIP members with the zlib
+    # CRC32 API. This is the same pinned zlib ABI already present in the
+    # reviewed OGRE14 closure, not a second image decoder implementation.
+    "_crc32",
     "_deflate",
     "_deflateEnd",
     "_deflateInit_",
