@@ -36,6 +36,8 @@ using RoR::BeamNG::JBeamHydroActuatorAdmission;
 using RoR::BeamNG::JBeamHydroActuatorAdmissionCode;
 using RoR::BeamNG::JBeamHydroBeamPropertyAdmission;
 using RoR::BeamNG::JBeamHydroBeamPropertyAdmissionCode;
+using RoR::BeamNG::JBeamHydroRuntimePlan;
+using RoR::BeamNG::JBeamHydroRuntimePlanCode;
 using RoR::BeamNG::JBeamObjectField;
 using RoR::BeamNG::JBeamPackageIndex;
 using RoR::BeamNG::JBeamPackageSource;
@@ -89,6 +91,35 @@ std::string Nodes()
         "[\"n3\",0,1,0],[\"n4\",1,1,0],"
         "[\"n5\",0,0,1],[\"n6\",1,0,1],"
         "[\"n7\",0,1,1],[\"n8\",1,1,1]]";
+}
+
+std::string FrameAndNodes()
+{
+    return
+        "\"nodes\":[[\"id\",\"posX\",\"posY\",\"posZ\"],"
+        "[\"ref\",0,0,0],[\"back\",0,1,0],"
+        "[\"left\",1,0,0],[\"up\",0,0,1],"
+        "[\"leftCorner\",1,-1,0],"
+        "[\"rightCorner\",-1,-1,0]],"
+        "\"refNodes\":[[\"ref:\",\"back:\",\"left:\","
+        "\"up:\",\"leftCorner:\",\"rightCorner:\"],"
+        "[\"ref\",\"back\",\"left\",\"up\","
+        "\"leftCorner\",\"rightCorner\"]]";
+}
+
+std::string FrameAndFarNodes()
+{
+    return
+        "\"nodes\":[[\"id\",\"posX\",\"posY\",\"posZ\"],"
+        "[\"ref\",0,0,0],[\"back\",0,1,0],"
+        "[\"left\",1,0,0],[\"up\",0,0,1],"
+        "[\"leftCorner\",1,-1,0],"
+        "[\"rightCorner\",-1,-1,0],"
+        "[\"farA\",0,0,0],[\"farB\",2e38,0,0]],"
+        "\"refNodes\":[[\"ref:\",\"back:\",\"left:\","
+        "\"up:\",\"leftCorner:\",\"rightCorner:\"],"
+        "[\"ref\",\"back\",\"left\",\"up\","
+        "\"leftCorner\",\"rightCorner\"]]";
 }
 
 std::string AllOfficialSections()
@@ -511,6 +542,65 @@ void TestHydroBeamPropertyAdmission()
         RoR::BeamNG::JBeamHydroBeamPropertyAdmissionCodeToString(
             JBeamHydroBeamPropertyAdmissionCode::FLOAT_NARROWING)) ==
         "float-narrowing");
+}
+
+void TestHydroRuntimePlan()
+{
+    const JBeamResolvedGraph graph = ResolveSingle(
+        FrameAndNodes() +
+        ",\"hydros\":[[\"id1:\",\"id2:\"],"
+        "{\"beamSpring\":8001000,\"beamDamp\":50,"
+        "\"beamDeform\":220000,\"beamStrength\":125000,"
+        "\"beamPrecompression\":0.75},"
+        "[\"ref\",\"back\",{\"factor\":0.14,"
+        "\"steeringWheelLock\":510,\"inRate\":1.25,"
+        "\"outRate\":1.25}]]");
+    const JBeamHydroRuntimePlan plan =
+        RoR::BeamNG::BuildJBeamHydroRuntimePlan(graph, 0U);
+    CHECK(plan.IsAdmitted());
+    CHECK(plan.code == JBeamHydroRuntimePlanCode::ADMITTED);
+    CHECK(plan.source_hydro_index == 0U);
+    CHECK(plan.node1_source_index == 0U);
+    CHECK(plan.node2_source_index == 1U);
+    CHECK(plan.geometric_length == 1.0);
+    CHECK(plan.initial_rest_length == 0.75);
+    CHECK(plan.properties.beam.spring == 8001000.0f);
+    CHECK(plan.runtime_config.response.factor == 0.14);
+    CHECK(plan.runtime_config.has_steering_wheel_lock);
+    CHECK(plan.runtime_config.steering_wheel_lock == 510.0);
+    CHECK(plan.initialized_runtime.valid);
+    CHECK(plan.initialized_runtime.runtime_rest_length == 0.75f);
+
+    const JBeamResolvedGraph unsupported_input = ResolveSingle(
+        FrameAndNodes() +
+        ",\"hydros\":[[\"id1:\",\"id2:\",\"inputSource\"],"
+        "[\"ref\",\"back\",\"tilt\"]]");
+    CHECK(RoR::BeamNG::BuildJBeamHydroRuntimePlan(
+        unsupported_input, 0U).code ==
+        JBeamHydroRuntimePlanCode::UNSUPPORTED_INPUT_SOURCE);
+
+    const JBeamResolvedGraph missing_frame = ResolveSingle(
+        Nodes() +
+        ",\"hydros\":[[\"id1:\",\"id2:\"],"
+        "[\"n1\",\"n2\"]]");
+    CHECK(RoR::BeamNG::BuildJBeamHydroRuntimePlan(
+        missing_frame, 0U).code ==
+        JBeamHydroRuntimePlanCode::INVALID_STRUCTURAL_IR);
+
+    const JBeamResolvedGraph rest_length_overflow = ResolveSingle(
+        FrameAndFarNodes() +
+        ","
+        "\"hydros\":[[\"id1:\",\"id2:\"],"
+        "{\"beamPrecompression\":2},[\"farA\",\"farB\"]]");
+    const JBeamHydroRuntimePlan overflow_plan =
+        RoR::BeamNG::BuildJBeamHydroRuntimePlan(
+            rest_length_overflow, 0U);
+    CHECK(overflow_plan.code ==
+        JBeamHydroRuntimePlanCode::RUNTIME_INITIALIZATION_REJECTED);
+
+    CHECK(std::string(RoR::BeamNG::JBeamHydroRuntimePlanCodeToString(
+        JBeamHydroRuntimePlanCode::UNSUPPORTED_INPUT_SOURCE)) ==
+        "unsupported-input-source");
 }
 
 void TestLegacyRailsAndRails2SemanticEquivalence()
@@ -1060,6 +1150,7 @@ int main()
     TestDefaultsAndDependentDefaults();
     TestHydroActuatorAdmission();
     TestHydroBeamPropertyAdmission();
+    TestHydroRuntimePlan();
     TestLegacyRailsAndRails2SemanticEquivalence();
     TestModifiersUnknownsAndOwnership();
     TestExpressionsArePreservedDisabled();

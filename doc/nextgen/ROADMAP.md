@@ -2065,6 +2065,16 @@ does not yet close the source-to-actor chain: structural node identity,
 authenticated electrics routing, ActorSpawner construction, force-loop use,
 and save/replay integration remain required.
 
+A selected-row runtime-plan transaction now rebuilds both advanced and
+structural IR from one resolved graph and joins the admitted hydro to its two
+unique structural node indices. It enforces the Actor `uint16` node ceiling,
+supports only exact `steering_input`, computes geometric and precompressed
+initial lengths with overflow-safe scaling, and requires successful native
+state initialization before returning a plan. This closes the dependency-light
+structural join for one row. Batch all-or-none vehicle planning, retained
+package/resolver authority, actual RigDef/ActorSpawner publication, live input
+resolution, force-loop use, and save/replay state remain open.
+
 The first pressure-wheel pass now provides a bounded, deterministic inventory
 of literal `pressureWheels` rows and every relevant source section. It preserves
 exact documented fields, unknowns, duplicate history, source-order `scale*`

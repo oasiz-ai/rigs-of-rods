@@ -341,6 +341,17 @@ fault without advancing state. This is executable state behavior, but it is
 not yet connected to `ActorSpawner`, `Actor::CalcHydros`, a live electrics
 source, or save/replay; therefore it remains non-spawnable from JBeam content.
 
+The first source-to-runtime plan now rebuilds the advanced and structural IRs
+inside one transaction from the same resolved part graph. For a selected
+hydro it requires both admissions above, a valid ref-frame-bearing structural
+IR, at most 65,535 runtime nodes, two unique node-name joins within the
+`uint16` runtime index range, the exact documented `steering_input` route, a
+finite nondegenerate geometric length, finite precompression, and successful
+runtime-state initialization including binary32 rest-length proof. Custom
+electrics remain unsupported. The plan deliberately carries no current
+package/resolver authority and is not published to ActorSpawner yet, so it is
+still an internal pre-spawn value rather than a content admission receipt.
+
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
 caps/loops, and break behavior.

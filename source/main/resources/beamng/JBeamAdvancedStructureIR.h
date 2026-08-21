@@ -21,6 +21,8 @@
 
 #include "JBeamPartResolver.h"
 #include "HydroActuatorResponse.h"
+#include "JBeamHydroRuntime.h"
+#include "JBeamStructuralIR.h"
 
 #include <cstddef>
 #include <memory>
@@ -363,6 +365,52 @@ JBeamHydroBeamPropertyAdmission AdmitJBeamHydroBeamProperties(
 
 const char* JBeamHydroBeamPropertyAdmissionCodeToString(
     JBeamHydroBeamPropertyAdmissionCode code);
+
+enum class JBeamHydroRuntimePlanCode
+{
+    ADMITTED,
+    ADVANCED_ADMISSION_REJECTED,
+    INVALID_STRUCTURAL_IR,
+    UNSUPPORTED_INPUT_SOURCE,
+    STRUCTURAL_NODE_NOT_UNIQUE,
+    STRUCTURAL_NODE_LIMIT,
+    DEGENERATE_GEOMETRY,
+    RUNTIME_INITIALIZATION_REJECTED
+};
+
+/// All dependency-light values required immediately before RigDef/runtime
+/// construction. Both IRs are built internally from the same resolved graph.
+/// The plan still lacks current package authority and live electrics identity,
+/// so its presence alone does not authorize ActorSpawner publication.
+struct JBeamHydroRuntimePlan
+{
+    JBeamHydroRuntimePlanCode code;
+    std::size_t source_hydro_index;
+    std::size_t node1_source_index;
+    std::size_t node2_source_index;
+    JBeamHydroBeamPropertyAdmission properties;
+    JBeamHydroRuntimeConfig runtime_config;
+    double geometric_length;
+    double initial_rest_length;
+    JBeamHydroRuntimeStep initialized_runtime;
+
+    JBeamHydroRuntimePlan();
+    bool IsAdmitted() const;
+};
+
+/// Transactionally builds the advanced and structural views from one graph,
+/// joins the hydro's exact node names to unique structural nodes, and proves
+/// the initial runtime rest length. Only the documented steering_input route
+/// is admitted by this first native plan.
+JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
+    const JBeamResolvedGraph& graph,
+    std::size_t hydro_index,
+    const JBeamAdvancedLimits& advanced_limits = JBeamAdvancedLimits(),
+    const JBeamStructuralLimits& structural_limits =
+        JBeamStructuralLimits());
+
+const char* JBeamHydroRuntimePlanCodeToString(
+    JBeamHydroRuntimePlanCode code);
 
 struct JBeamAdvancedRail
 {

@@ -2555,7 +2555,9 @@ add_executable(
     ror_jbeam_advanced_structure_ir_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamAdvancedStructureIRTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
 )
 

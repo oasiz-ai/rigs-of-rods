@@ -3722,6 +3722,220 @@ const char* JBeamHydroBeamPropertyAdmissionCodeToString(
     return "unknown";
 }
 
+JBeamHydroRuntimePlan::JBeamHydroRuntimePlan()
+    : code(JBeamHydroRuntimePlanCode::ADVANCED_ADMISSION_REJECTED)
+    , source_hydro_index(0U)
+    , node1_source_index(0U)
+    , node2_source_index(0U)
+    , geometric_length(0.0)
+    , initial_rest_length(0.0)
+{
+}
+
+bool JBeamHydroRuntimePlan::IsAdmitted() const
+{
+    return code == JBeamHydroRuntimePlanCode::ADMITTED;
+}
+
+namespace {
+
+bool FindUniqueStructuralNode(
+    const JBeamStructuralIR& structural,
+    const std::string& id,
+    std::size_t& output)
+{
+    bool found = false;
+    output = 0U;
+    for (std::size_t i = 0U; i < structural.nodes.size(); ++i)
+    {
+        if (structural.nodes[i].id == id)
+        {
+            if (found)
+            {
+                return false;
+            }
+            found = true;
+            output = i;
+        }
+    }
+    return found;
+}
+
+double AbsoluteRuntimeCoordinate(double value)
+{
+    return value < 0.0 ? -value : value;
+}
+
+bool ResolveStructuralNodeDistance(
+    const JBeamStructuralNode& first,
+    const JBeamStructuralNode& second,
+    double& output)
+{
+    output = 0.0;
+    if (!IsFiniteDouble(first.x) ||
+        !IsFiniteDouble(first.y) ||
+        !IsFiniteDouble(first.z) ||
+        !IsFiniteDouble(second.x) ||
+        !IsFiniteDouble(second.y) ||
+        !IsFiniteDouble(second.z))
+    {
+        return false;
+    }
+    const double dx = first.x - second.x;
+    const double dy = first.y - second.y;
+    const double dz = first.z - second.z;
+    if (!IsFiniteDouble(dx) ||
+        !IsFiniteDouble(dy) ||
+        !IsFiniteDouble(dz))
+    {
+        return false;
+    }
+    const double maximum = std::max(
+        AbsoluteRuntimeCoordinate(dx),
+        std::max(
+            AbsoluteRuntimeCoordinate(dy),
+            AbsoluteRuntimeCoordinate(dz)));
+    if (!IsFiniteDouble(maximum) || !(maximum > 0.0))
+    {
+        return false;
+    }
+    const double sx = dx / maximum;
+    const double sy = dy / maximum;
+    const double sz = dz / maximum;
+    const double squared = sx * sx + sy * sy + sz * sz;
+    if (!IsFiniteDouble(squared) || !(squared > 0.0))
+    {
+        return false;
+    }
+    const double unit_length = std::sqrt(squared);
+    const double length = maximum * unit_length;
+    if (!IsFiniteDouble(length) || !(length > 0.0))
+    {
+        return false;
+    }
+    output = length;
+    return true;
+}
+
+} // namespace
+
+JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
+    const JBeamResolvedGraph& graph,
+    std::size_t hydro_index,
+    const JBeamAdvancedLimits& advanced_limits,
+    const JBeamStructuralLimits& structural_limits)
+{
+    JBeamHydroRuntimePlan result;
+    result.source_hydro_index = hydro_index;
+    const JBeamAdvancedStructureIR advanced =
+        BuildJBeamAdvancedStructureIR(graph, advanced_limits);
+    result.properties =
+        AdmitJBeamHydroBeamProperties(advanced, hydro_index);
+    if (!result.properties.IsAdmitted())
+    {
+        result.code =
+            JBeamHydroRuntimePlanCode::ADVANCED_ADMISSION_REJECTED;
+        return result;
+    }
+
+    const JBeamStructuralIR structural =
+        BuildJBeamStructuralIR(graph, structural_limits);
+    if (!structural.IsValid())
+    {
+        result.code = JBeamHydroRuntimePlanCode::INVALID_STRUCTURAL_IR;
+        return result;
+    }
+    if (structural.nodes.size() > 65535U)
+    {
+        result.code = JBeamHydroRuntimePlanCode::STRUCTURAL_NODE_LIMIT;
+        return result;
+    }
+
+    const JBeamHydroActuatorAdmission& actuator =
+        result.properties.actuator;
+    if (actuator.input_source != "steering_input")
+    {
+        result.code = JBeamHydroRuntimePlanCode::UNSUPPORTED_INPUT_SOURCE;
+        return result;
+    }
+    if (!FindUniqueStructuralNode(
+            structural, actuator.node1, result.node1_source_index) ||
+        !FindUniqueStructuralNode(
+            structural, actuator.node2, result.node2_source_index))
+    {
+        result.code =
+            JBeamHydroRuntimePlanCode::STRUCTURAL_NODE_NOT_UNIQUE;
+        return result;
+    }
+    if (result.node1_source_index > 65534U ||
+        result.node2_source_index > 65534U)
+    {
+        result.code = JBeamHydroRuntimePlanCode::STRUCTURAL_NODE_LIMIT;
+        return result;
+    }
+    if (!ResolveStructuralNodeDistance(
+            structural.nodes[result.node1_source_index],
+            structural.nodes[result.node2_source_index],
+            result.geometric_length))
+    {
+        result.code = JBeamHydroRuntimePlanCode::DEGENERATE_GEOMETRY;
+        return result;
+    }
+
+    result.initial_rest_length = result.geometric_length *
+        static_cast<double>(result.properties.beam.precompression);
+    if (!IsFiniteDouble(result.initial_rest_length) ||
+        !(result.initial_rest_length > 0.0))
+    {
+        result.code = JBeamHydroRuntimePlanCode::DEGENERATE_GEOMETRY;
+        return result;
+    }
+
+    result.runtime_config.response = actuator.config;
+    result.runtime_config.input_route =
+        JBeamHydroInputRoute::STEERING_INPUT;
+    result.runtime_config.has_steering_wheel_lock =
+        actuator.has_steering_wheel_lock;
+    result.runtime_config.steering_wheel_lock =
+        actuator.steering_wheel_lock;
+    result.initialized_runtime = InitializeJBeamHydroRuntime(
+        result.runtime_config, result.initial_rest_length);
+    if (!result.initialized_runtime.valid)
+    {
+        result.code =
+            JBeamHydroRuntimePlanCode::RUNTIME_INITIALIZATION_REJECTED;
+        return result;
+    }
+
+    result.code = JBeamHydroRuntimePlanCode::ADMITTED;
+    return result;
+}
+
+const char* JBeamHydroRuntimePlanCodeToString(
+    JBeamHydroRuntimePlanCode code)
+{
+    switch (code)
+    {
+    case JBeamHydroRuntimePlanCode::ADMITTED:
+        return "admitted";
+    case JBeamHydroRuntimePlanCode::ADVANCED_ADMISSION_REJECTED:
+        return "advanced-admission-rejected";
+    case JBeamHydroRuntimePlanCode::INVALID_STRUCTURAL_IR:
+        return "invalid-structural-ir";
+    case JBeamHydroRuntimePlanCode::UNSUPPORTED_INPUT_SOURCE:
+        return "unsupported-input-source";
+    case JBeamHydroRuntimePlanCode::STRUCTURAL_NODE_NOT_UNIQUE:
+        return "structural-node-not-unique";
+    case JBeamHydroRuntimePlanCode::STRUCTURAL_NODE_LIMIT:
+        return "structural-node-limit";
+    case JBeamHydroRuntimePlanCode::DEGENERATE_GEOMETRY:
+        return "degenerate-geometry";
+    case JBeamHydroRuntimePlanCode::RUNTIME_INITIALIZATION_REJECTED:
+        return "runtime-initialization-rejected";
+    }
+    return "unknown";
+}
+
 JBeamAdvancedStructureIR BuildJBeamAdvancedStructureIR(
     const JBeamResolvedGraph& graph,
     const JBeamAdvancedLimits& limits)
