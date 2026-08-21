@@ -97,6 +97,75 @@ Compression methods are recorded but are not decoder claims. Use
 `ror_beamng_zip_index PACKAGE.zip` to emit a compact JSON validity summary; the
 tool reads an explicitly supplied local archive only.
 
+The first product admission path is now stricter than the metadata tool. Mod
+cache discovery treats `*.jbeam` only as a hint, hashes the complete ZIP,
+creates an immutable authenticated snapshot, decodes and resolves every
+`slotType: "main"` candidate, and publishes the bundle atomically only when
+all candidates fit the supported structural/hydro subset. Each root is exposed
+as a virtual cache entry tied to the same physical ZIP, full SHA-256, exact
+byte count, and case-exact root name; a virtual entry is never reopened as a
+standalone RigDef file. Loading remints and verifies the snapshot before
+resource-group creation, mounts those exact bytes through `EmbeddedZip`, and
+rebuilds every root before publishing any `RigDef::Document`. Actor creation
+then revalidates the current cache pointer, root, resource-group generation,
+mounted archive pointer, immutable snapshot owner, SHA-256, size, and importer
+receipt before reserving an actor ID or publishing network or graphics state.
+An admitted JBeam ZIP is one cache transaction: ordinary sibling vehicle
+entries are not published, and auto-executable OGRE material, GPU-program,
+compositor, particle, overlay, font, or generic Ogre-script members reject the
+package before resource-group creation. BeamNG Lua remains inert data and is
+never invoked.
+
+This closes product package discovery and source-authority wiring for the
+allowlisted subset. A project-original structural/hydro package now also
+executes that exact product path through cache discovery, immutable ZIP mount,
+`RigDef` lowering, `ActorManager` spawn, and 120,000 fixed `0.5 ms` physics
+steps. One-worker and eight-worker traces contain 120,000 records and compare
+equal after the authenticated worker-count metadata difference; the hydro and
+compression-only support beam each accept exactly 120,000 finite steps with no
+latched fault. The support spring is active for 119,931 of those steps. Before
+the first step, the product actor reports the exact six 20 kg nodes, sixteen
+native beams (fourteen normal, one compression-only support, and the hydro),
+five `NORMALTYPE` cab triangles admitted to the native collision-cab set, six
+ground/static-contact-enabled nodes, zero explicit self-collision contacters,
+120 kg total mass, and the expected translation/rotation-invariant
+center-of-mass relation. The step-zero-only impact transaction then translates
+the actor upward by exactly 2 m and gives every movable node a `-4 m/s`
+vertical velocity. The product run records a 1.9985843151807785 m minimum
+center-of-mass drop, a 7.3981828689575195 m/s peak center-of-mass speed, an
+upward terrain-contact response, and zero broken beams. Both worker counts end
+at state digest
+`c77f90c5488f2cbba10135b33722fdea45ab33393583d3c3236a7fdb3b1fa579`.
+The clean source revision is
+`f8dc6298ac04f9d361624157ec22ce5a1032d483`; the executable SHA-256 is
+`a6c7fbb878bc6e2013ae3abca7fb80110471945ad2e0626846c05c9d27c8d89f`
+and the exact report SHA-256 is
+`0c15d65bafe312b96527b6c612d5be8984bc72988be97143decc684b3d117758`.
+The separate authenticated inter-actor gate then spawns two copies of that
+same exact archive above the terrain with stable actor IDs, 0.01 m vertical
+separation, and a 1 m/s closing speed. Its canonical 2,000-step trace records
+343 external node-to-`NORMALTYPE`-cab keys across 299 steps (maximum 20 in one
+step, first contact at step zero), a 7.234161376953125 m/s change in relative
+vertical velocity, 0.6013336181640625 m maximum separation, and zero broken
+beams. One-worker and eight-worker state digests match at every step after the
+authenticated worker-count metadata difference. The executable SHA-256 is
+`f0524e9dcd5b85b1b585c7e54e40a606fb2aaf935da656db080eb4612608ad88`
+and the exact report SHA-256 is
+`9fe46da17c90432f022097ceefdd5bc4367cad61242139d85e880001b716c6e2`.
+This is not
+evidence that a third-party vehicle spawned, drove, rendered correctly,
+replayed, or synchronized over multiplayer.
+Configuration selection (`.pc`), pressure wheels, powertrain/electrics,
+visual resources, and every unsupported active section remain fail-closed.
+The native application integration test now executes the production cache
+scanner over a generated ZIP, proves exact virtual-root metadata and idempotent
+rescan, and proves that an uppercase hostile `.MATERIAL` sibling publishes no
+cache entry. `tools/run_jbeam_spawn_soak.py` supplies the separate executable
+spawn/physics gate and preserves its logs, exact trace files, executable/source
+digests, and bounded telemetry. The importer/archive suite covers all current
+JBeam stages, but no third-party package is bundled or required by public
+tests.
+
 ## JBeam syntax and resolution
 
 The [JBeam syntax][jbeam-syntax] is JSON-derived but is not strict JSON. The
@@ -209,9 +278,11 @@ The position transform is therefore
 `(x_ror, y_ror, z_ror) = (y_beamng, z_beamng, x_beamng)`. It is a
 handedness-preserving cyclic permutation. Dependency-free golden tests lock its
 basis, inverse, metric and cross-product preservation, triangle winding, and
-refnode landmarks. Runtime import remains disabled until nodes, cab normals,
-camera direction, wheel placement, rotations, forces, and inertia all route
-through this one tested boundary.
+refnode landmarks. The supported structural/hydro product importer now routes
+its node positions, reference frame, triangles, and hydro-node joins through
+this boundary. Cab normals, camera direction, wheel placement, general
+rotations, forces outside the admitted hydro path, and inertia still require
+their own conversion before those features can be enabled.
 
 One aligned [refNodes][refnodes] set is required. `ref`, `back`, `left`, and
 `up` define the vehicle frame; `leftCorner` and `rightCorner` identify its front
@@ -240,6 +311,35 @@ The documented collision participants are nodes and vehicle triangles:
 - dynamic collision has priority over static and heightmap collision;
 - beams do not collide.
 
+The bounded native node slice now parses all three documented switches with
+their official defaults: `collision=true`, `selfCollision=false`, and
+`staticCollision=true`. A row-level `collision=false` sets RoR's
+no-ground-contact bit and prevents that node from being automatically admitted
+to inter-vehicle point collision. Because BeamNG defines `collision` as the
+highest-priority switch, this remains exact even if that disabled row retains
+otherwise ineffective self/static values. With collision enabled, the adapter
+admits only the default self/static mode: `selfCollision=true` fails because a
+generic RoR contacter would incorrectly omit BeamNG's group-aware triangle
+rules, and `staticCollision=false` fails because RoR cannot currently disable
+terrain/static contact while preserving external dynamic contact. The adapter
+does not silently approximate either mode.
+The original six-node fixture proves a real downward drop and upward terrain
+response through six ground-enabled nodes while retaining zero explicit
+self-collision contacters. This is node-to-terrain execution
+evidence only. The structural IR also recognizes the documented triangle
+`NORMALTYPE` default and `NONCOLLIDABLE` value. `NORMALTYPE` lowers to a native
+contact cab, `NONCOLLIDABLE` remains a visual/non-contact cab, and any other
+active triangle type is rejected rather than approximated. This preserves
+contact exclusion but does not implement BeamNG's anti-clip repulsion for
+`NONCOLLIDABLE`; it is not full triangle-behavior parity. The current
+single-actor gate proves that five authored default surfaces enter the native
+collision-cab set while the default `selfCollision=false` produces zero
+explicit self-contact nodes. The paired gate executes two actors in that state
+and records the exact external contact-key stream plus finite collision
+response. It closes the bounded default node-to-`NORMALTYPE`-triangle product
+path, not self-collision, arbitrary topology/dynamic-contact completeness,
+static-mesh collision semantics, ground models, or collision-force parity.
+
 J2 therefore requires first-class authored base mass per imported node. RoR's
 legacy whole-vehicle dry-mass redistribution and minimum-mass pass cannot be
 used for a `native` result.
@@ -256,10 +356,29 @@ The initial type matrix is:
 | Type | Import policy |
 | --- | --- |
 | `NORMAL` | J2 after spring, damping, deformation, strength, and precompression conformance tests. |
-| `SUPPORT` | J2 approximation until compression-only and extension-break behavior match. |
+| `SUPPORT` | Native J2 compression-only response and `beamLongBound` extension break; coupled triangle/mesh break propagation remains unsupported. |
 | `HYDRO` | Lower through the dedicated hydro contract below. |
 | `ANISOTROPIC` | Preserve until separate compression/extension and transition behavior is native. |
 | bounded, pressured, and L-beams | Preserve until dedicated J5 kernels exist. |
+
+The [SUPPORT-beam contract][support-beams] is implemented through a generic
+internal compression-only beam capability rather than a JBeam-specific spawner
+branch. The importer preserves the finite nonnegative `beamLongBound` value
+(default `1`) and keeps the geometric spawned length separate from the
+precompressed activation length. Below that activation length the native force
+loop applies the authored spring and damping; at or above it both are exactly
+zero. Extension breaks only when
+`current_length / spawned_length - 1 > beamLongBound`, so a zero bound is
+preserved and breaks only after extension beyond the spawned length. Invalid
+runtime state or counter exhaustion latches a fault and disables the beam
+before force publication. Dependency-free hostiles cover equality boundaries,
+zero bounds, extreme finite ratios, non-finite inputs, narrowing, conflicting
+legacy flags, and unsupported source types. The authenticated product soak
+then proves one such beam was actually constructed and accepted all 120,000
+steps, including 119,931 compression-active steps, with zero faults and equal
+one/eight-worker state traces. This closes the bounded response kernel and
+source-to-runtime path, not BeamNG-wide deformation, break-group, triangle,
+flexbody, or mesh-removal coupling.
 
 When a beam breaks, BeamNG can disable adjacent or grouped triangle collision
 and aero and remove affected flexbody polygons. RoR must not advertise native
@@ -332,14 +451,21 @@ this receipt cannot preserve those semantics. The two receipts deliberately
 remain separate: even both being valid does not authorize input wiring,
 physical construction, or spawning.
 
-The dependency-free runtime carrier now owns the admitted response state once
-those missing joins are supplied. It validates configuration and initial
-length, advances the ratio kernel with a checked `uint64` step counter,
-resolves rest length in binary64, verifies the exact positive-normal binary32
-value handed to the beam solver, and permanently latches the first runtime
-fault without advancing state. This is executable state behavior, but it is
-not yet connected to `ActorSpawner`, `Actor::CalcHydros`, a live electrics
-source, or save/replay; therefore it remains non-spawnable from JBeam content.
+The dependency-free runtime carrier owns the admitted response state. It
+validates configuration and initial length, advances the ratio kernel with a
+checked `uint64` step counter, resolves rest length in binary64, verifies the
+exact positive-normal binary32 value handed to the beam solver, and
+permanently latches the first runtime fault without advancing state. The
+internal adapter can now publish a complete plan set into one unpublished
+`RigDef::Document`; `ActorSpawner` initializes that immutable plan on the
+corresponding native hydro beam, and the force loop advances it from RoR's
+steering-direction command. The product importer now wraps that document in an
+opaque receipt for the exact immutable ZIP/root/resolved graph, and
+`ActorManager` requires the same currently mounted snapshot immediately before
+spawn construction. Save/replay authority, explicit source-electrics lineage,
+and source-engine calibration remain open. The clean-room product spawn-soak
+proves the admitted native carrier is constructed and advanced for every
+requested step; it does not establish source-engine behavioral parity.
 
 The first source-to-runtime plan now rebuilds the advanced and structural IRs
 inside one transaction from the same resolved part graph. For a selected
@@ -348,17 +474,26 @@ IR, at most 65,535 runtime nodes, two unique node-name joins within the
 `uint16` runtime index range, the exact documented `steering_input` route, a
 finite nondegenerate geometric length, finite precompression, and successful
 runtime-state initialization including binary32 rest-length proof. Custom
-electrics remain unsupported. The plan deliberately carries no current
-package/resolver authority and is not published to ActorSpawner yet, so it is
-still an internal pre-spawn value rather than a content admission receipt.
+electrics remain unsupported. The plan deliberately carries no package
+authority itself; the product importer attaches it to an unpublished RigDef
+document and separately retains the opaque archive/root authority receipt.
+Only the outer current-cache/current-mounted-snapshot transaction may authorize
+spawn. The plan alone remains an internal value rather than a content receipt.
 
 Vehicle-level planning now builds those two IR views once and emits every
 hydro plan in stable source order under an all-or-none transaction. A failed
 advanced/structural build, allocation, construction step, or single row clears
 the public plan vector and reports the exact rejected row and plan code. An
-exact graph with no hydros validly yields an empty admitted set. This prevents
-an importer from silently dropping one unsupported actuator while spawning the
-rest, but it still does not add package authority or runtime publication.
+exact graph with no hydros validly yields an empty admitted set. The internal
+RigDef adapter likewise publishes every plan or no document, preventing a
+later importer from silently dropping one unsupported actuator. The product
+loader now supplies package authority and the importer call site, while actor
+creation revalidates that authority before publication. The project-original
+spawn-soak closes finite product spawn, bounded node-to-terrain impact,
+settle, and hydro execution for this one structural/hydro fixture. Replay
+qualification, source-electrics identity, representative-vehicle and full
+triangle/self/static collision coverage, and third-party vehicle evidence
+remain open.
 
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
@@ -580,6 +715,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 - [RefNodes][refnodes]
 - [Nodes][nodes]
 - [Beams][beams]
+- [Support beams][support-beams]
 - [Triangles][triangles]
 - [Hydros][hydros]
 - [Rails and slidenodes][rails]
@@ -615,6 +751,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 [refnodes]: https://documentation.beamng.com/modding/vehicle/sections/refnodes/
 [sections]: https://documentation.beamng.com/modding/vehicle/sections/
 [slots]: https://documentation.beamng.com/modding/vehicle/sections/slots/
+[support-beams]: https://documentation.beamng.com/modding/vehicle/sections/beams/support/
 [thrusters]: https://documentation.beamng.com/modding/vehicle/sections/thrusters/
 [torsionbars]: https://documentation.beamng.com/modding/vehicle/sections/torsionbars/
 [triangles]: https://documentation.beamng.com/modding/vehicle/sections/triangles/

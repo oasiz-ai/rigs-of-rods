@@ -8,7 +8,7 @@
   "rootPart": "ror_jbeam_spawn_fixture",
   "jbeamSource": {
     "path": "tests/fixtures/beamng/jbeam_spawn_soak/vehicles/ror_jbeam_spawn/main.jbeam",
-    "sha256": "8f1106ff3c615604558d726ab5a925f3a97957d12c53a637c332feecef5f1ea0"
+    "sha256": "152214276db02490d9b87795716dd3e8fecfd7373719610a2a183254d86fc935"
   },
   "scenarioScript": {
     "path": "resources/scripts/example_jbeam_inter_actor_collision.as",
