@@ -741,6 +741,15 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             self.context[focus_start:focus_end],
         )
 
+    def test_renderer_window_close_guard_is_cross_platform(self) -> None:
+        apple_members_start = self.context_h.index(
+            "#if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE"
+        )
+        apple_members_end = self.context_h.index("#endif", apple_members_start)
+        shutdown_guard = "bool                 m_window_shutdown_requested = false;"
+        self.assertEqual(self.context_h.count(shutdown_guard), 1)
+        self.assertGreater(self.context_h.index(shutdown_guard), apple_members_end)
+
 
 if __name__ == "__main__":
     unittest.main()
