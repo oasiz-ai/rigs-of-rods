@@ -1294,7 +1294,7 @@ void TestCurrentTextureAuthorityInvalidation() {
       unanchored_output, unanchored_expected,
       "missing scene texture authority mutated caller output");
 
-  for (const auto hostile_case : {
+  for (const auto &hostile_case : {
            std::pair{HostileTextureAuthorityProvider::Mode::EMPTY_SUCCESS,
                      "material_coordinator.texture_authority"},
            std::pair{HostileTextureAuthorityProvider::Mode::BAD_ALLOC,
