@@ -389,6 +389,13 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         self.assertEqual(self.probe_cmake.count(token), 1)
         self.assertEqual(self.tests_cmake.count(token), 1)
 
+    def test_windows_object_paths_are_hashed_below_native_tool_limit(
+        self,
+    ) -> None:
+        token = "if (MSVC)\n    set(CMAKE_OBJECT_PATH_MAX 200)\nendif ()"
+        self.assertEqual(self.probe_cmake.count(token), 1)
+        self.assertEqual(self.tests_cmake.count(token), 1)
+
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
             "option(\n"

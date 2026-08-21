@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 
 project(ror_ogre_next_probe LANGUAGES C CXX)
 
+if (MSVC)
+    set(CMAKE_OBJECT_PATH_MAX 200)
+endif ()
+
 if (APPLE)
     enable_language(OBJCXX)
     # SDL's Cocoa backend contains Objective-C (.m) translation units. Enable

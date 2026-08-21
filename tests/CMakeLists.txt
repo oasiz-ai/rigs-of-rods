@@ -6,6 +6,10 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     find_package(RapidJSON QUIET)
 endif ()
 
+if (MSVC)
+    set(CMAKE_OBJECT_PATH_MAX 200)
+endif ()
+
 get_filename_component(
     ROR_REPOSITORY_ROOT
     "${CMAKE_CURRENT_LIST_DIR}/.."
