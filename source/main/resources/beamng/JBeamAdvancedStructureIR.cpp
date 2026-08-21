@@ -22,7 +22,9 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <new>
 #include <set>
+#include <stdexcept>
 #include <utility>
 
 namespace RoR {
@@ -3817,18 +3819,13 @@ bool ResolveStructuralNodeDistance(
     return true;
 }
 
-} // namespace
-
-JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
-    const JBeamResolvedGraph& graph,
-    std::size_t hydro_index,
-    const JBeamAdvancedLimits& advanced_limits,
-    const JBeamStructuralLimits& structural_limits)
+JBeamHydroRuntimePlan BuildRuntimePlanFromViews(
+    const JBeamAdvancedStructureIR& advanced,
+    const JBeamStructuralIR& structural,
+    std::size_t hydro_index)
 {
     JBeamHydroRuntimePlan result;
     result.source_hydro_index = hydro_index;
-    const JBeamAdvancedStructureIR advanced =
-        BuildJBeamAdvancedStructureIR(graph, advanced_limits);
     result.properties =
         AdmitJBeamHydroBeamProperties(advanced, hydro_index);
     if (!result.properties.IsAdmitted())
@@ -3837,9 +3834,6 @@ JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
             JBeamHydroRuntimePlanCode::ADVANCED_ADMISSION_REJECTED;
         return result;
     }
-
-    const JBeamStructuralIR structural =
-        BuildJBeamStructuralIR(graph, structural_limits);
     if (!structural.IsValid())
     {
         result.code = JBeamHydroRuntimePlanCode::INVALID_STRUCTURAL_IR;
@@ -3911,6 +3905,21 @@ JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
     return result;
 }
 
+} // namespace
+
+JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
+    const JBeamResolvedGraph& graph,
+    std::size_t hydro_index,
+    const JBeamAdvancedLimits& advanced_limits,
+    const JBeamStructuralLimits& structural_limits)
+{
+    const JBeamAdvancedStructureIR advanced =
+        BuildJBeamAdvancedStructureIR(graph, advanced_limits);
+    const JBeamStructuralIR structural =
+        BuildJBeamStructuralIR(graph, structural_limits);
+    return BuildRuntimePlanFromViews(advanced, structural, hydro_index);
+}
+
 const char* JBeamHydroRuntimePlanCodeToString(
     JBeamHydroRuntimePlanCode code)
 {
@@ -3932,6 +3941,110 @@ const char* JBeamHydroRuntimePlanCodeToString(
         return "degenerate-geometry";
     case JBeamHydroRuntimePlanCode::RUNTIME_INITIALIZATION_REJECTED:
         return "runtime-initialization-rejected";
+    }
+    return "unknown";
+}
+
+JBeamHydroRuntimePlanSet::JBeamHydroRuntimePlanSet()
+    : code(JBeamHydroRuntimePlanSetCode::INVALID_ADVANCED_IR)
+    , source_hydro_count(0U)
+    , rejected_source_hydro_index(0U)
+    , rejected_plan_code(
+          JBeamHydroRuntimePlanCode::ADVANCED_ADMISSION_REJECTED)
+{
+}
+
+bool JBeamHydroRuntimePlanSet::IsAdmitted() const
+{
+    return code == JBeamHydroRuntimePlanSetCode::ADMITTED;
+}
+
+JBeamHydroRuntimePlanSet BuildJBeamHydroRuntimePlanSet(
+    const JBeamResolvedGraph& graph,
+    const JBeamAdvancedLimits& advanced_limits,
+    const JBeamStructuralLimits& structural_limits)
+{
+    JBeamHydroRuntimePlanSet result;
+    try
+    {
+        const JBeamAdvancedStructureIR advanced =
+            BuildJBeamAdvancedStructureIR(graph, advanced_limits);
+        result.source_hydro_count = advanced.hydros.size();
+        if (!advanced.IsValid())
+        {
+            result.code =
+                JBeamHydroRuntimePlanSetCode::INVALID_ADVANCED_IR;
+            return result;
+        }
+        const JBeamStructuralIR structural =
+            BuildJBeamStructuralIR(graph, structural_limits);
+        if (!structural.IsValid())
+        {
+            result.code =
+                JBeamHydroRuntimePlanSetCode::INVALID_STRUCTURAL_IR;
+            return result;
+        }
+        result.plans.reserve(advanced.hydros.size());
+        for (std::size_t i = 0U; i < advanced.hydros.size(); ++i)
+        {
+            JBeamHydroRuntimePlan plan =
+                BuildRuntimePlanFromViews(advanced, structural, i);
+            if (!plan.IsAdmitted())
+            {
+                result.rejected_source_hydro_index = i;
+                result.rejected_plan_code = plan.code;
+                result.plans.clear();
+                result.code = JBeamHydroRuntimePlanSetCode::ROW_REJECTED;
+                return result;
+            }
+            result.plans.push_back(plan);
+        }
+        result.code = JBeamHydroRuntimePlanSetCode::ADMITTED;
+        return result;
+    }
+    catch (const std::bad_alloc&)
+    {
+        result.plans.clear();
+        result.code = JBeamHydroRuntimePlanSetCode::ALLOCATION_FAILURE;
+        return result;
+    }
+    catch (const std::length_error&)
+    {
+        result.plans.clear();
+        result.code = JBeamHydroRuntimePlanSetCode::ALLOCATION_FAILURE;
+        return result;
+    }
+    catch (const std::exception&)
+    {
+        result.plans.clear();
+        result.code = JBeamHydroRuntimePlanSetCode::CONSTRUCTION_FAILURE;
+        return result;
+    }
+    catch (...)
+    {
+        result.plans.clear();
+        result.code = JBeamHydroRuntimePlanSetCode::CONSTRUCTION_FAILURE;
+        return result;
+    }
+}
+
+const char* JBeamHydroRuntimePlanSetCodeToString(
+    JBeamHydroRuntimePlanSetCode code)
+{
+    switch (code)
+    {
+    case JBeamHydroRuntimePlanSetCode::ADMITTED:
+        return "admitted";
+    case JBeamHydroRuntimePlanSetCode::INVALID_ADVANCED_IR:
+        return "invalid-advanced-ir";
+    case JBeamHydroRuntimePlanSetCode::INVALID_STRUCTURAL_IR:
+        return "invalid-structural-ir";
+    case JBeamHydroRuntimePlanSetCode::ROW_REJECTED:
+        return "row-rejected";
+    case JBeamHydroRuntimePlanSetCode::ALLOCATION_FAILURE:
+        return "allocation-failure";
+    case JBeamHydroRuntimePlanSetCode::CONSTRUCTION_FAILURE:
+        return "construction-failure";
     }
     return "unknown";
 }

@@ -38,6 +38,8 @@ using RoR::BeamNG::JBeamHydroBeamPropertyAdmission;
 using RoR::BeamNG::JBeamHydroBeamPropertyAdmissionCode;
 using RoR::BeamNG::JBeamHydroRuntimePlan;
 using RoR::BeamNG::JBeamHydroRuntimePlanCode;
+using RoR::BeamNG::JBeamHydroRuntimePlanSet;
+using RoR::BeamNG::JBeamHydroRuntimePlanSetCode;
 using RoR::BeamNG::JBeamObjectField;
 using RoR::BeamNG::JBeamPackageIndex;
 using RoR::BeamNG::JBeamPackageSource;
@@ -603,6 +605,62 @@ void TestHydroRuntimePlan()
         "unsupported-input-source");
 }
 
+void TestHydroRuntimePlanSet()
+{
+    const JBeamResolvedGraph two_hydros = ResolveSingle(
+        FrameAndNodes() +
+        ",\"hydros\":[[\"id1:\",\"id2:\"],"
+        "[\"ref\",\"back\",{\"factor\":0.14}],"
+        "[\"left\",\"up\",{\"factor\":-0.2}]]");
+    const JBeamHydroRuntimePlanSet admitted =
+        RoR::BeamNG::BuildJBeamHydroRuntimePlanSet(two_hydros);
+    CHECK(admitted.IsAdmitted());
+    CHECK(admitted.code == JBeamHydroRuntimePlanSetCode::ADMITTED);
+    CHECK(admitted.source_hydro_count == 2U);
+    CHECK(admitted.plans.size() == 2U);
+    CHECK(admitted.plans[0].source_hydro_index == 0U);
+    CHECK(admitted.plans[1].source_hydro_index == 1U);
+    CHECK(admitted.plans[0].runtime_config.response.factor == 0.14);
+    CHECK(admitted.plans[1].runtime_config.response.factor == -0.2);
+
+    const JBeamResolvedGraph rejected_row = ResolveSingle(
+        FrameAndNodes() +
+        ",\"hydros\":[[\"id1:\",\"id2:\"],"
+        "[\"ref\",\"back\"],"
+        "[\"left\",\"up\",{\"inputSource\":\"tilt\"}]]");
+    const JBeamHydroRuntimePlanSet rejected =
+        RoR::BeamNG::BuildJBeamHydroRuntimePlanSet(rejected_row);
+    CHECK(!rejected.IsAdmitted());
+    CHECK(rejected.code == JBeamHydroRuntimePlanSetCode::ROW_REJECTED);
+    CHECK(rejected.source_hydro_count == 2U);
+    CHECK(rejected.rejected_source_hydro_index == 1U);
+    CHECK(rejected.rejected_plan_code ==
+        JBeamHydroRuntimePlanCode::UNSUPPORTED_INPUT_SOURCE);
+    CHECK(rejected.plans.empty());
+
+    const JBeamResolvedGraph invalid_structural = ResolveSingle(
+        Nodes() +
+        ",\"hydros\":[[\"id1:\",\"id2:\"],"
+        "[\"n1\",\"n2\"]]");
+    const JBeamHydroRuntimePlanSet invalid =
+        RoR::BeamNG::BuildJBeamHydroRuntimePlanSet(invalid_structural);
+    CHECK(invalid.code ==
+        JBeamHydroRuntimePlanSetCode::INVALID_STRUCTURAL_IR);
+    CHECK(invalid.plans.empty());
+
+    const JBeamHydroRuntimePlanSet empty =
+        RoR::BeamNG::BuildJBeamHydroRuntimePlanSet(
+            ResolveSingle(FrameAndNodes()));
+    CHECK(empty.IsAdmitted());
+    CHECK(empty.source_hydro_count == 0U);
+    CHECK(empty.plans.empty());
+
+    CHECK(std::string(
+        RoR::BeamNG::JBeamHydroRuntimePlanSetCodeToString(
+            JBeamHydroRuntimePlanSetCode::ROW_REJECTED)) ==
+        "row-rejected");
+}
+
 void TestLegacyRailsAndRails2SemanticEquivalence()
 {
     const JBeamAdvancedStructureIR legacy =
@@ -1151,6 +1209,7 @@ int main()
     TestHydroActuatorAdmission();
     TestHydroBeamPropertyAdmission();
     TestHydroRuntimePlan();
+    TestHydroRuntimePlanSet();
     TestLegacyRailsAndRails2SemanticEquivalence();
     TestModifiersUnknownsAndOwnership();
     TestExpressionsArePreservedDisabled();

@@ -352,6 +352,14 @@ electrics remain unsupported. The plan deliberately carries no current
 package/resolver authority and is not published to ActorSpawner yet, so it is
 still an internal pre-spawn value rather than a content admission receipt.
 
+Vehicle-level planning now builds those two IR views once and emits every
+hydro plan in stable source order under an all-or-none transaction. A failed
+advanced/structural build, allocation, construction step, or single row clears
+the public plan vector and reports the exact rejected row and plan code. An
+exact graph with no hydros validly yields an empty admitted set. This prevents
+an importer from silently dropping one unsupported actuator while spawning the
+rest, but it still does not add package authority or runtime publication.
+
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
 caps/loops, and break behavior.

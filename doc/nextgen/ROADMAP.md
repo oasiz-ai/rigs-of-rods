@@ -2075,6 +2075,13 @@ structural join for one row. Batch all-or-none vehicle planning, retained
 package/resolver authority, actual RigDef/ActorSpawner publication, live input
 resolution, force-loop use, and save/replay state remain open.
 
+Vehicle-level hydro planning now performs that work once for the full source
+set and publishes plans in stable source order only when every row succeeds.
+Any invalid IR, unsupported row, allocation failure, or construction exception
+clears the output and retains the rejected source index/code. This closes the
+batch all-or-none planning item; retained package authority, RigDef/runtime
+publication, live input resolution, force integration, and replay remain open.
+
 The first pressure-wheel pass now provides a bounded, deterministic inventory
 of literal `pressureWheels` rows and every relevant source section. It preserves
 exact documented fields, unknowns, duplicate history, source-order `scale*`

@@ -412,6 +412,39 @@ JBeamHydroRuntimePlan BuildJBeamHydroRuntimePlan(
 const char* JBeamHydroRuntimePlanCodeToString(
     JBeamHydroRuntimePlanCode code);
 
+enum class JBeamHydroRuntimePlanSetCode
+{
+    ADMITTED,
+    INVALID_ADVANCED_IR,
+    INVALID_STRUCTURAL_IR,
+    ROW_REJECTED,
+    ALLOCATION_FAILURE,
+    CONSTRUCTION_FAILURE
+};
+
+/// Stable source-order, all-or-none plan set for every hydro in one resolved
+/// vehicle graph. Any rejected row clears the public plan vector.
+struct JBeamHydroRuntimePlanSet
+{
+    JBeamHydroRuntimePlanSetCode code;
+    std::size_t source_hydro_count;
+    std::size_t rejected_source_hydro_index;
+    JBeamHydroRuntimePlanCode rejected_plan_code;
+    std::vector<JBeamHydroRuntimePlan> plans;
+
+    JBeamHydroRuntimePlanSet();
+    bool IsAdmitted() const;
+};
+
+JBeamHydroRuntimePlanSet BuildJBeamHydroRuntimePlanSet(
+    const JBeamResolvedGraph& graph,
+    const JBeamAdvancedLimits& advanced_limits = JBeamAdvancedLimits(),
+    const JBeamStructuralLimits& structural_limits =
+        JBeamStructuralLimits());
+
+const char* JBeamHydroRuntimePlanSetCodeToString(
+    JBeamHydroRuntimePlanSetCode code);
+
 struct JBeamAdvancedRail
 {
     JBeamAdvancedEntry entry;
