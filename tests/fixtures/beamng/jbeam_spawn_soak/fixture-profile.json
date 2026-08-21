@@ -1,0 +1,42 @@
+{
+  "schema": 6,
+  "fixtureId": "ror-jbeam-authenticated-spawn-soak-v6",
+  "documentationProfile": "beamng-docs-0.38.5.0-2026-07-27",
+  "authorship": "original-clean-room",
+  "license": "GPL-3.0-or-later",
+  "execution": "authenticated-product-path",
+  "rootPart": "ror_jbeam_spawn_fixture",
+  "jbeamSource": {
+    "path": "vehicles/ror_jbeam_spawn/main.jbeam",
+    "sha256": "152214276db02490d9b87795716dd3e8fecfd7373719610a2a183254d86fc935"
+  },
+  "scenarioScript": {
+    "path": "resources/scripts/example_jbeam_spawn_soak.as",
+    "sha256": "e936fa53d3cffe82ffb6b9a817d7ed40e91ffa272fe719dafbf4697c1cc96460"
+  },
+  "expectedRuntime": {
+    "cabTriangles": 5,
+    "collisionCabTriangles": 5,
+    "contacters": 0,
+    "centerOfMassFromReferenceSquared": 0.08333333333333333,
+    "fixedSteps": 120000,
+    "groundContactNodes": 6,
+    "impactTranslationY": 2,
+    "impactVelocityY": -4,
+    "jbeamHydros": 1,
+    "jbeamSupportBeams": 1,
+    "nodeMassKg": 20,
+    "nodes": 6,
+    "physicsStepDenominator": 2000,
+    "physicsStepNumerator": 1,
+    "runtimeBeams": 16,
+    "totalMassKg": 120
+  },
+  "prohibitedInputs": [
+    "lua-execution",
+    "ogre-script-execution",
+    "network",
+    "external-assets",
+    "third-party-mod-data"
+  ]
+}

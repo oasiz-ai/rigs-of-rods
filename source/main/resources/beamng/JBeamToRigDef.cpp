@@ -20,6 +20,7 @@
 #include "JBeamToRigDef.h"
 
 #include "BeamRestLengthScale.h"
+#include "JBeamAdvancedStructureIR.h"
 #include "JBeamCoordinateTransform.h"
 
 #if !defined(ROR_JBEAM_TO_RIGDEF_PREFLIGHT_ONLY)
@@ -560,6 +561,23 @@ void PushDiagnostic(
     diagnostics.push_back(std::move(diagnostic));
 }
 
+void PushDiagnostic(
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics,
+    JBeamToRigDefDiagnosticCode code,
+    JBeamToRigDefEntityKind kind,
+    std::size_t source_index,
+    const JBeamStructuralProvenance& provenance,
+    const std::string& detail)
+{
+    JBeamToRigDefDiagnostic diagnostic;
+    diagnostic.code = code;
+    diagnostic.entity_kind = kind;
+    diagnostic.source_index = source_index;
+    diagnostic.provenance = provenance;
+    diagnostic.detail = detail;
+    diagnostics.push_back(std::move(diagnostic));
+}
+
 void ClearPlan(JBeamToRigDefPreflightResult& result)
 {
     result.node_source_order.clear();
@@ -589,6 +607,17 @@ bool IsValidTriangleOrigin(JBeamStructuralTriangleOrigin origin)
     case JBeamStructuralTriangleOrigin::TRIANGLE:
     case JBeamStructuralTriangleOrigin::QUAD_FIRST:
     case JBeamStructuralTriangleOrigin::QUAD_SECOND:
+        return true;
+    }
+    return false;
+}
+
+bool IsValidTriangleType(JBeamStructuralTriangleType type)
+{
+    switch (type)
+    {
+    case JBeamStructuralTriangleType::NORMALTYPE:
+    case JBeamStructuralTriangleType::NONCOLLIDABLE:
         return true;
     }
     return false;
@@ -939,6 +968,12 @@ bool ValidateBeamParameterState(const JBeamStructuralBeam& beam)
     {
         return false;
     }
+    if (beam.has_long_bound &&
+        (!Detail::IsFiniteBinary64(beam.long_bound) ||
+         beam.long_bound < 0.0))
+    {
+        return false;
+    }
     return true;
 }
 
@@ -981,7 +1016,8 @@ bool BuildBeamPlan(
     switch (beam.status)
     {
     case JBeamStructuralBeamStatus::ENABLED:
-        if (beam.beam_type != "NORMAL" ||
+        if ((beam.beam_type != "NORMAL" &&
+             beam.beam_type != "SUPPORT") ||
             first != ReferenceState::VALID ||
             second != ReferenceState::VALID)
         {
@@ -991,12 +1027,14 @@ bool BuildBeamPlan(
                 JBeamToRigDefEntityKind::BEAM,
                 source_index,
                 beam.provenance,
-                "Enabled NORMAL beam has an inconsistent node reference");
+                "Enabled NORMAL or SUPPORT beam has an inconsistent node "
+                "reference");
             valid = false;
         }
         break;
     case JBeamStructuralBeamStatus::PRESERVED_DISABLED_SPECIAL_TYPE:
         if (beam.beam_type == "NORMAL" ||
+            beam.beam_type == "SUPPORT" ||
             first != ReferenceState::VALID ||
             second != ReferenceState::VALID)
         {
@@ -1058,6 +1096,7 @@ bool BuildBeamPlan(
 
     JBeamRigDefBeamPlan plan;
     plan.source_index = source_index;
+    plan.support = beam.beam_type == "SUPPORT";
     const double spring = beam.has_spring
         ? beam.spring
         : static_cast<double>(JBEAM_RIGDEF_DEFAULT_BEAM_SPRING);
@@ -1129,6 +1168,24 @@ bool BuildBeamPlan(
             source_index,
             beam.provenance,
             "Beam precompression cannot be represented safely in binary32");
+        valid = false;
+    }
+
+    const double extension_break_limit = beam.has_long_bound
+        ? beam.long_bound
+        : 1.0;
+    if (plan.support &&
+        !TryNarrowNonnegative(
+            extension_break_limit, &plan.extension_break_limit))
+    {
+        PushDiagnostic(
+            result,
+            JBeamToRigDefDiagnosticCode::FLOAT_NARROWING,
+            JBeamToRigDefEntityKind::BEAM,
+            source_index,
+            beam.provenance,
+            "SUPPORT beamLongBound cannot be represented safely in "
+            "binary32");
         valid = false;
     }
 
@@ -1211,6 +1268,17 @@ bool ValidateTriangle(
             source_index,
             triangle.provenance,
             "Triangle has an unknown source topology state");
+        valid = false;
+    }
+    if (!IsValidTriangleType(triangle.triangle_type))
+    {
+        PushDiagnostic(
+            result,
+            JBeamToRigDefDiagnosticCode::INVALID_ENTITY_STATE,
+            JBeamToRigDefEntityKind::TRIANGLE,
+            source_index,
+            triangle.provenance,
+            "Triangle has an unknown collision type state");
         valid = false;
     }
     if (triangle.node_a == triangle.node_b ||
@@ -1818,7 +1886,8 @@ JBeamToRigDefPreflightResult PreflightImpl(
         switch (beam.status)
         {
         case JBeamStructuralBeamStatus::ENABLED:
-            if (beam.beam_type != "NORMAL")
+            if (beam.beam_type != "NORMAL" &&
+                beam.beam_type != "SUPPORT")
             {
                 PushDiagnostic(
                     result,
@@ -1826,12 +1895,13 @@ JBeamToRigDefPreflightResult PreflightImpl(
                     JBeamToRigDefEntityKind::BEAM,
                     i,
                     beam.provenance,
-                    "Only NORMAL beams may be enabled");
+                    "Only NORMAL or SUPPORT beams may be enabled");
             }
             ++enabled_beams;
             break;
         case JBeamStructuralBeamStatus::PRESERVED_DISABLED_SPECIAL_TYPE:
-            if (beam.beam_type == "NORMAL")
+            if (beam.beam_type == "NORMAL" ||
+                beam.beam_type == "SUPPORT")
             {
                 PushDiagnostic(
                     result,
@@ -1839,7 +1909,8 @@ JBeamToRigDefPreflightResult PreflightImpl(
                     JBeamToRigDefEntityKind::BEAM,
                     i,
                     beam.provenance,
-                    "NORMAL beam cannot use the disabled special state");
+                    "NORMAL or SUPPORT beam cannot use the disabled special "
+                    "state");
             }
             break;
         case JBeamStructuralBeamStatus::
@@ -1874,7 +1945,7 @@ JBeamToRigDefPreflightResult PreflightImpl(
             JBeamToRigDefEntityKind::DOCUMENT,
             INVALID_SOURCE_INDEX,
             document_provenance,
-            "Enabled NORMAL beam count exceeds the configured or "
+            "Enabled NORMAL/SUPPORT beam count exceeds the configured or "
             "1000000-beam runtime limit");
     }
     else if (enabled_beams == 0U)
@@ -1885,8 +1956,8 @@ JBeamToRigDefPreflightResult PreflightImpl(
             JBeamToRigDefEntityKind::DOCUMENT,
             INVALID_SOURCE_INDEX,
             document_provenance,
-            "At least one supported NORMAL beam is required to keep Actor's "
-            "mass redistribution finite");
+            "At least one supported NORMAL or SUPPORT beam is required to "
+            "keep Actor's mass redistribution finite");
     }
 
     std::size_t enabled_triangles = 0U;
@@ -2019,6 +2090,30 @@ JBeamToRigDefPreflightResult PreflightImpl(
                 "Node weight must narrow to a positive normal binary32 "
                 "mass");
         }
+
+        // BeamNG's top-level collision=false makes self/static flags
+        // ineffective and maps exactly to RoR's no-ground/contactable node.
+        // With collision enabled, RoR cannot presently preserve either
+        // group-aware self-collision=true or staticCollision=false without
+        // changing external dynamic-contact semantics. Reject those modes
+        // rather than approximating them with a generic contacter.
+        if (node.collision &&
+            (node.self_collision || !node.static_collision))
+        {
+            PushDiagnostic(
+                result,
+                JBeamToRigDefDiagnosticCode::
+                    UNSUPPORTED_NODE_COLLISION_MODE,
+                JBeamToRigDefEntityKind::NODE,
+                i,
+                node.provenance,
+                node.self_collision
+                    ? "Enabled BeamNG selfCollision requires native "
+                      "group-aware node/triangle behavior"
+                    : "BeamNG staticCollision=false cannot preserve "
+                      "external dynamic contact in the current RoR node "
+                      "model");
+        }
     }
     if (!result.diagnostics.empty())
     {
@@ -2084,6 +2179,260 @@ RigDef::Node::Ref NamedReference(
         SourceLine(provenance));
 }
 
+bool SameBinary32(float first, float second)
+{
+    std::uint32_t first_bits = 0U;
+    std::uint32_t second_bits = 0U;
+    std::memcpy(&first_bits, &first, sizeof(first_bits));
+    std::memcpy(&second_bits, &second, sizeof(second_bits));
+    return first_bits == second_bits;
+}
+
+bool SameBinary64(double first, double second)
+{
+    std::uint64_t first_bits = 0U;
+    std::uint64_t second_bits = 0U;
+    std::memcpy(&first_bits, &first, sizeof(first_bits));
+    std::memcpy(&second_bits, &second, sizeof(second_bits));
+    return first_bits == second_bits;
+}
+
+bool SameHydroConfig(
+    const HydroActuatorConfig& first,
+    const HydroActuatorConfig& second)
+{
+    return first.has_factor == second.has_factor &&
+        SameBinary64(first.factor, second.factor) &&
+        SameBinary64(first.in_limit, second.in_limit) &&
+        SameBinary64(first.out_limit, second.out_limit) &&
+        SameBinary64(first.input_factor, second.input_factor) &&
+        SameBinary64(first.input_center, second.input_center) &&
+        SameBinary64(first.input_in_limit, second.input_in_limit) &&
+        SameBinary64(first.input_out_limit, second.input_out_limit) &&
+        SameBinary64(first.in_rate, second.in_rate) &&
+        SameBinary64(first.out_rate, second.out_rate) &&
+        SameBinary64(
+            first.auto_center_rate, second.auto_center_rate);
+}
+
+bool SameHydroRuntimeStep(
+    const JBeamHydroRuntimeStep& first,
+    const JBeamHydroRuntimeStep& second)
+{
+    return first.valid == second.valid &&
+        first.state.accepted_step_count ==
+            second.state.accepted_step_count &&
+        first.state.fault_latched == second.state.fault_latched &&
+        first.state.fault == second.state.fault &&
+        SameBinary64(
+            first.state.response.length_ratio,
+            second.state.response.length_ratio) &&
+        SameBinary64(first.rest_length, second.rest_length) &&
+        SameBinary32(
+            first.runtime_rest_length,
+            second.runtime_rest_length) &&
+        SameBinary64(first.target_ratio, second.target_ratio) &&
+        first.input_was_clamped == second.input_was_clamped;
+}
+
+bool TrySourceLength(
+    const JBeamStructuralNode& first,
+    const JBeamStructuralNode& second,
+    double* output)
+{
+    if (output == NULL)
+    {
+        return false;
+    }
+    *output = 0.0;
+    if (!Detail::IsFiniteBinary64(first.x) ||
+        !Detail::IsFiniteBinary64(first.y) ||
+        !Detail::IsFiniteBinary64(first.z) ||
+        !Detail::IsFiniteBinary64(second.x) ||
+        !Detail::IsFiniteBinary64(second.y) ||
+        !Detail::IsFiniteBinary64(second.z))
+    {
+        return false;
+    }
+    const double dx = first.x - second.x;
+    const double dy = first.y - second.y;
+    const double dz = first.z - second.z;
+    if (!Detail::IsFiniteBinary64(dx) ||
+        !Detail::IsFiniteBinary64(dy) ||
+        !Detail::IsFiniteBinary64(dz))
+    {
+        return false;
+    }
+    const double maximum = std::max(
+        Absolute(dx), std::max(Absolute(dy), Absolute(dz)));
+    if (!Detail::IsFiniteBinary64(maximum) || !(maximum > 0.0))
+    {
+        return false;
+    }
+    const double sx = dx / maximum;
+    const double sy = dy / maximum;
+    const double sz = dz / maximum;
+    const double squared = sx * sx + sy * sy + sz * sz;
+    if (!Detail::IsFiniteBinary64(squared) || !(squared > 0.0))
+    {
+        return false;
+    }
+    const double length = maximum * std::sqrt(squared);
+    if (!Detail::IsFiniteBinary64(length) || !(length > 0.0))
+    {
+        return false;
+    }
+    *output = length;
+    return true;
+}
+
+bool ValidateHydroRuntimePlans(
+    const JBeamStructuralIR& ir,
+    const JBeamToRigDefPreflightResult& structural,
+    const JBeamHydroRuntimePlanSet& plan_set,
+    const JBeamToRigDefLimits& limits,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics)
+{
+    const JBeamStructuralProvenance document_provenance =
+        ir.has_ref_frame
+            ? ir.ref_frame.provenance
+            : JBeamStructuralProvenance();
+    if (plan_set.code != JBeamHydroRuntimePlanSetCode::ADMITTED ||
+        plan_set.source_hydro_count != plan_set.plans.size())
+    {
+        PushDiagnostic(
+            diagnostics,
+            JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN,
+            JBeamToRigDefEntityKind::DOCUMENT,
+            INVALID_SOURCE_INDEX,
+            document_provenance,
+            "Hydro plan set is not an admitted exact-size transaction");
+        return false;
+    }
+
+    const std::size_t total_limit = std::min(
+        std::min(limits.max_beams, JBEAM_RIGDEF_RUNTIME_BEAM_LIMIT),
+        static_cast<std::size_t>(
+            std::numeric_limits<std::uint16_t>::max()));
+    if (structural.beams.size() > total_limit ||
+        plan_set.plans.size() > total_limit - structural.beams.size())
+    {
+        PushDiagnostic(
+            diagnostics,
+            JBeamToRigDefDiagnosticCode::HYDRO_RUNTIME_LIMIT,
+            JBeamToRigDefEntityKind::DOCUMENT,
+            INVALID_SOURCE_INDEX,
+            document_provenance,
+            "Structural beams plus hydros exceed the uint16 runtime index "
+            "boundary");
+        return false;
+    }
+
+    for (std::size_t i = 0U; i < plan_set.plans.size(); ++i)
+    {
+        const JBeamHydroRuntimePlan& plan = plan_set.plans[i];
+        const JBeamStructuralProvenance provenance =
+            plan.node1_source_index < ir.nodes.size()
+                ? ir.nodes[plan.node1_source_index].provenance
+                : document_provenance;
+        bool valid =
+            plan.code == JBeamHydroRuntimePlanCode::ADMITTED &&
+            plan.source_hydro_index == i &&
+            plan.properties.code ==
+                JBeamHydroBeamPropertyAdmissionCode::ADMITTED &&
+            plan.properties.source_hydro_index == i &&
+            plan.properties.actuator.code ==
+                JBeamHydroActuatorAdmissionCode::ADMITTED &&
+            plan.properties.actuator.source_hydro_index == i &&
+            plan.node1_source_index < ir.nodes.size() &&
+            plan.node2_source_index < ir.nodes.size() &&
+            plan.node1_source_index != plan.node2_source_index &&
+            plan.runtime_config.input_route ==
+                JBeamHydroInputRoute::STEERING_INPUT &&
+            plan.properties.actuator.input_source == "steering_input" &&
+            SameHydroConfig(
+                plan.runtime_config.response,
+                plan.properties.actuator.config) &&
+            plan.runtime_config.has_steering_wheel_lock ==
+                plan.properties.actuator.has_steering_wheel_lock &&
+            SameBinary64(
+                plan.runtime_config.steering_wheel_lock,
+                plan.properties.actuator.steering_wheel_lock);
+        if (valid)
+        {
+            valid =
+                ir.nodes[plan.node1_source_index].id ==
+                    plan.properties.actuator.node1 &&
+                ir.nodes[plan.node2_source_index].id ==
+                    plan.properties.actuator.node2 &&
+                IsFiniteBinary32(plan.properties.beam.spring) &&
+                plan.properties.beam.spring >= 0.0f &&
+                IsFiniteBinary32(plan.properties.beam.damping) &&
+                plan.properties.beam.damping >= 0.0f &&
+                IsFiniteBinary32(plan.properties.beam.deform) &&
+                plan.properties.beam.deform >= 0.0f &&
+                IsFiniteBinary32(plan.properties.beam.strength) &&
+                plan.properties.beam.strength >= 0.0f &&
+                IsNormalBinary32(plan.properties.beam.precompression) &&
+                plan.properties.beam.precompression > 0.0f;
+        }
+
+        double source_length = 0.0;
+        if (valid)
+        {
+            valid = TrySourceLength(
+                ir.nodes[plan.node1_source_index],
+                ir.nodes[plan.node2_source_index],
+                &source_length) &&
+                SameBinary64(source_length, plan.geometric_length);
+        }
+        if (valid)
+        {
+            const double source_initial_length = source_length *
+                static_cast<double>(plan.properties.beam.precompression);
+            const JBeamHydroRuntimeStep initialized =
+                InitializeJBeamHydroRuntime(
+                    plan.runtime_config, source_initial_length);
+            valid = SameBinary64(
+                    source_initial_length, plan.initial_rest_length) &&
+                initialized.valid &&
+                SameHydroRuntimeStep(
+                    initialized, plan.initialized_runtime);
+        }
+        if (valid)
+        {
+            float runtime_length = 0.0f;
+            valid = TryRuntimeLength(
+                structural.transformed_nodes[plan.node1_source_index],
+                structural.transformed_nodes[plan.node2_source_index],
+                &runtime_length);
+            if (valid)
+            {
+                const double runtime_initial_length =
+                    static_cast<double>(runtime_length) *
+                    static_cast<double>(
+                        plan.properties.beam.precompression);
+                valid = InitializeJBeamHydroRuntime(
+                    plan.runtime_config,
+                    runtime_initial_length).valid;
+            }
+        }
+        if (!valid)
+        {
+            PushDiagnostic(
+                diagnostics,
+                JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN,
+                JBeamToRigDefEntityKind::HYDRO,
+                i,
+                provenance,
+                "Hydro plan does not exactly match structural identity, "
+                "configuration, or spawn geometry");
+            return false;
+        }
+    }
+    return true;
+}
+
 #endif
 
 } // namespace AdapterDetail
@@ -2131,6 +2480,8 @@ JBeamRigDefBeamPlan::JBeamRigDefBeamPlan()
     , deform(0.0f)
     , strength(0.0f)
     , rest_length_scale(1.0f)
+    , support(false)
+    , extension_break_limit(1.0f)
     , geometric_length(0.0f)
     , scaled_rest_length(0.0f)
 {
@@ -2199,8 +2550,11 @@ JBeamToRigDefPreflightResult PreflightJBeamToRigDef(
 
 #if !defined(ROR_JBEAM_TO_RIGDEF_PREFLIGHT_ONLY)
 
-RigDef::DocumentPtr ConvertJBeamToRigDef(
+namespace {
+
+RigDef::DocumentPtr ConvertJBeamToRigDefImpl(
     const JBeamStructuralIR& ir,
+    const JBeamHydroRuntimePlanSet* hydro_plans,
     const std::string& document_name,
     std::vector<JBeamToRigDefDiagnostic>& diagnostics,
     const JBeamToRigDefLimits& limits)
@@ -2211,6 +2565,12 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
     if (!preflight.IsValid())
     {
         diagnostics.swap(preflight.diagnostics);
+        return RigDef::DocumentPtr();
+    }
+    if (hydro_plans != NULL &&
+        !AdapterDetail::ValidateHydroRuntimePlans(
+            ir, preflight, *hydro_plans, limits, diagnostics))
+    {
         return RigDef::DocumentPtr();
     }
 
@@ -2230,6 +2590,10 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
         RigDef::Document::Module& module = *document->root_module;
         module.nodes.reserve(preflight.node_source_order.size());
         module.beams.reserve(preflight.beams.size());
+        if (hydro_plans != NULL)
+        {
+            module.hydros.reserve(hydro_plans->plans.size());
+        }
         module.cameras.reserve(1U);
         module.globals.reserve(1U);
         if (!preflight.triangle_source_indices.empty())
@@ -2259,6 +2623,11 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
             node.position =
                 Ogre::Vector3(position.x, position.y, position.z);
             node.options = RigDef::Node::OPTION_l_LOAD_WEIGHT;
+            if (!source.collision)
+            {
+                node.options |=
+                    RigDef::Node::OPTION_c_NO_GROUND_CONTACT;
+            }
             node.load_weight_override =
                 preflight.node_masses[source_index];
             node._has_load_weight_override = true;
@@ -2283,6 +2652,14 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
                 AdapterDetail::NamedReference(
                     source.node_b, source.provenance);
             beam.options = RigDef::Beam::OPTION_i_INVISIBLE;
+            if (plan.support)
+            {
+                beam.options |=
+                    RigDef::Beam::OPTION_COMPRESSION_ONLY_SUPPORT;
+                beam.extension_break_limit =
+                    plan.extension_break_limit;
+                beam._has_extension_break_limit = true;
+            }
             beam._rest_length_scale = plan.rest_length_scale;
             beam.defaults = std::make_shared<RigDef::BeamDefaults>();
             beam.defaults->springiness = plan.spring;
@@ -2303,6 +2680,48 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
             module.beams.push_back(beam);
         }
 
+        if (hydro_plans != NULL)
+        {
+            for (std::size_t plan_index = 0U;
+                 plan_index < hydro_plans->plans.size();
+                 ++plan_index)
+            {
+                const JBeamHydroRuntimePlan& plan =
+                    hydro_plans->plans[plan_index];
+                RigDef::Hydro hydro;
+                hydro.nodes[0] = AdapterDetail::NamedReference(
+                    ir.nodes[plan.node1_source_index].id,
+                    ir.nodes[plan.node1_source_index].provenance);
+                hydro.nodes[1] = AdapterDetail::NamedReference(
+                    ir.nodes[plan.node2_source_index].id,
+                    ir.nodes[plan.node2_source_index].provenance);
+                hydro.lenghtening_factor = 0.0f;
+                hydro.options = 0U;
+                hydro.inertia_defaults =
+                    std::make_shared<RigDef::Inertia>();
+                hydro.beam_defaults =
+                    std::make_shared<RigDef::BeamDefaults>();
+                hydro.beam_defaults->springiness =
+                    plan.properties.beam.spring;
+                hydro.beam_defaults->damping_constant =
+                    plan.properties.beam.damping;
+                hydro.beam_defaults->deformation_threshold =
+                    plan.properties.beam.deform;
+                hydro.beam_defaults->breaking_threshold =
+                    plan.properties.beam.strength;
+                hydro.beam_defaults->visual_beam_diameter = 0.0f;
+                hydro.beam_defaults->plastic_deform_coef =
+                    BEAM_PLASTIC_COEF_DEFAULT;
+                hydro.beam_defaults->
+                    _is_plastic_deform_coef_user_defined = true;
+                hydro.beam_defaults->_is_user_defined = true;
+                hydro.beam_defaults->_enable_advanced_deformation = true;
+                hydro._jbeam_runtime_plan =
+                    std::make_shared<const JBeamHydroRuntimePlan>(plan);
+                module.hydros.push_back(std::move(hydro));
+            }
+        }
+
         if (!preflight.triangle_source_indices.empty())
         {
             RigDef::Submesh submesh;
@@ -2320,7 +2739,10 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
                     ir.triangles[source_index];
                 RigDef::Cab cab;
                 // The proper (+1 determinant) axis permutation preserves the
-                // authored winding. No contact or buoyancy options are set.
+                // authored winding. BeamNG NORMALTYPE is a two-sided
+                // node-to-triangle collision surface and maps to RoR's
+                // contact cab. NONCOLLIDABLE remains visual/anti-clip-only at
+                // this boundary and therefore receives no contact option.
                 cab.nodes[0] =
                     AdapterDetail::NamedReference(
                         source.node_a, source.provenance);
@@ -2330,7 +2752,11 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
                 cab.nodes[2] =
                     AdapterDetail::NamedReference(
                         source.node_c, source.provenance);
-                cab.options = 0U;
+                cab.options =
+                    source.triangle_type ==
+                            JBeamStructuralTriangleType::NORMALTYPE
+                        ? RigDef::Cab::OPTION_c_CONTACT
+                        : 0U;
                 submesh.cab_triangles.push_back(cab);
             }
             module.submeshes.push_back(submesh);
@@ -2386,6 +2812,29 @@ RigDef::DocumentPtr ConvertJBeamToRigDef(
     return RigDef::DocumentPtr();
 }
 
+} // namespace
+
+RigDef::DocumentPtr ConvertJBeamToRigDef(
+    const JBeamStructuralIR& ir,
+    const std::string& document_name,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics,
+    const JBeamToRigDefLimits& limits)
+{
+    return ConvertJBeamToRigDefImpl(
+        ir, NULL, document_name, diagnostics, limits);
+}
+
+RigDef::DocumentPtr ConvertJBeamToRigDefWithHydroRuntimePlans(
+    const JBeamStructuralIR& ir,
+    const JBeamHydroRuntimePlanSet& hydro_plans,
+    const std::string& document_name,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics,
+    const JBeamToRigDefLimits& limits)
+{
+    return ConvertJBeamToRigDefImpl(
+        ir, &hydro_plans, document_name, diagnostics, limits);
+}
+
 #endif
 
 const char* ToString(JBeamToRigDefDiagnosticCode code)
@@ -2432,6 +2881,8 @@ const char* ToString(JBeamToRigDefDiagnosticCode code)
         return "float-narrowing";
     case JBeamToRigDefDiagnosticCode::INVALID_NODE_MASS:
         return "invalid-node-mass";
+    case JBeamToRigDefDiagnosticCode::UNSUPPORTED_NODE_COLLISION_MODE:
+        return "unsupported-node-collision-mode";
     case JBeamToRigDefDiagnosticCode::TOTAL_MASS_OVERFLOW:
         return "total-mass-overflow";
     case JBeamToRigDefDiagnosticCode::INVALID_CENTER_OF_MASS:
@@ -2452,6 +2903,10 @@ const char* ToString(JBeamToRigDefDiagnosticCode code)
         return "misaligned-ref-frame";
     case JBeamToRigDefDiagnosticCode::MISALIGNED_REF_CORNERS:
         return "misaligned-ref-corners";
+    case JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN:
+        return "invalid-hydro-runtime-plan";
+    case JBeamToRigDefDiagnosticCode::HYDRO_RUNTIME_LIMIT:
+        return "hydro-runtime-limit";
     case JBeamToRigDefDiagnosticCode::ALLOCATION_FAILURE:
         return "allocation-failure";
     case JBeamToRigDefDiagnosticCode::RIGDEF_CONSTRUCTION_FAILURE:
@@ -2472,6 +2927,8 @@ const char* ToString(JBeamToRigDefEntityKind kind)
         return "node";
     case JBeamToRigDefEntityKind::BEAM:
         return "beam";
+    case JBeamToRigDefEntityKind::HYDRO:
+        return "hydro";
     case JBeamToRigDefEntityKind::TRIANGLE:
         return "triangle";
     case JBeamToRigDefEntityKind::REF_FRAME:

@@ -53,6 +53,13 @@
 #include <OgreVector3.h>
 #include <OgreStringConverter.h>
 
+namespace RoR {
+namespace BeamNG {
+struct JBeamHydroRuntimePlan;
+class JBeamVehicleImportAuthorityReceipt;
+}
+}
+
 namespace RigDef {
 
 extern const char* ROOT_MODULE_NAME;
@@ -495,6 +502,10 @@ struct Beam
     static const BitMask_t OPTION_i_INVISIBLE = BITMASK(1);
     static const BitMask_t OPTION_r_ROPE      = BITMASK(2);
     static const BitMask_t OPTION_s_SUPPORT   = BITMASK(3);
+    /// Internal physics marker. It is never parsed from or serialized to the
+    /// legacy truck format. Importers may request the exact compression-only
+    /// response instead of RoR's historical residual extension damping.
+    static const BitMask_t OPTION_COMPRESSION_ONLY_SUPPORT = BITMASK(4);
 
     Node::Ref nodes[2];
     BitMask_t options = 0;
@@ -891,6 +902,11 @@ struct Hydro
     std::shared_ptr<Inertia> inertia_defaults;
     std::shared_ptr<BeamDefaults> beam_defaults;
     int detacher_group = 0;
+    /// Internal importer sidecar. Truck parsing/serialization never creates or
+    /// emits this value; only the fail-closed JBeam conversion transaction may
+    /// attach an admitted native plan.
+    std::shared_ptr<const RoR::BeamNG::JBeamHydroRuntimePlan>
+        _jbeam_runtime_plan;
 };
 
 struct InterAxle
@@ -1483,6 +1499,13 @@ struct Document
 
     // File hash
     std::string hash;
+
+    /// Exact immutable source authority for a product-admitted JBeam root.
+    /// Ordinary RigDef documents leave this empty. Actor publication must
+    /// revalidate it against the currently mounted EmbeddedZip snapshot.
+    std::shared_ptr<const
+        RoR::BeamNG::JBeamVehicleImportAuthorityReceipt>
+        _jbeam_import_authority;
 
     // Vehicle modules (caled 'sections' in truckfile doc)
     std::shared_ptr<Module> root_module; //!< Required to exist. `shared_ptr` is used for unified handling with other modules.

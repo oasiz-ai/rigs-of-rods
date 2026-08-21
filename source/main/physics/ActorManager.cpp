@@ -52,6 +52,7 @@
 #include "Console.h"
 #include "GUI_TopMenubar.h"
 #include "InputEngine.h"
+#include "beamng/JBeamVehicleImporter.h"
 #include "Language.h"
 #include "MovableText.h"
 #include "Network.h"
@@ -2320,6 +2321,72 @@ void ActorManager::CaptureDeterministicStateTraceStep(
 
 ActorPtr ActorManager::CreateNewActor(ActorSpawnRequest rq, RigDef::DocumentPtr def)
 {
+    if (def == nullptr)
+    {
+        RoR::Log("[RoR|JBeam] Rejected actor spawn without a RigDef document");
+        return nullptr;
+    }
+
+    const bool cache_claims_jbeam =
+        rq.asr_cache_entry != nullptr &&
+        rq.asr_cache_entry->fext == "jbeam";
+    const std::shared_ptr<const
+        BeamNG::JBeamVehicleImportAuthorityReceipt> jbeam_authority =
+            def->_jbeam_import_authority;
+    if (cache_claims_jbeam || jbeam_authority != nullptr)
+    {
+        const TerrainBundleAuthenticatedArchiveSnapshot* snapshot =
+            jbeam_authority != nullptr
+                ? jbeam_authority->authenticated_archive_snapshot()
+                : nullptr;
+        const CacheEntryPtr current_cache_entry =
+            rq.asr_cache_entry != nullptr
+                ? App::GetCacheSystem()->GetEntryByNumber(
+                      rq.asr_cache_entry->number)
+                : CacheEntryPtr();
+        const bool exact_authority =
+            cache_claims_jbeam && jbeam_authority != nullptr &&
+            jbeam_authority->initialized() &&
+            jbeam_authority->version() ==
+                BeamNG::JBEAM_VEHICLE_IMPORT_AUTHORITY_VERSION &&
+            rq.asr_cache_entry != nullptr &&
+            current_cache_entry == rq.asr_cache_entry &&
+            !rq.asr_cache_entry->deleted &&
+            rq.asr_cache_entry->resource_bundle_type == "Zip" &&
+            !rq.asr_cache_entry->resource_group.empty() &&
+            rq.asr_cache_entry->beamng_archive_size != 0U &&
+            rq.asr_cache_entry->beamng_archive_size <=
+                TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES &&
+            def->root_module != nullptr &&
+            rq.asr_cache_entry->beamng_root_part == def->name &&
+            rq.asr_cache_entry->beamng_root_part ==
+                jbeam_authority->root_part_name() &&
+            rq.asr_cache_entry->beamng_archive_sha256 ==
+                jbeam_authority->archive_sha256() &&
+            snapshot != nullptr && snapshot->initialized() &&
+            snapshot->source_archive_identity() ==
+                rq.asr_cache_entry->resource_bundle_path &&
+            static_cast<std::uint64_t>(snapshot->size()) ==
+                rq.asr_cache_entry->beamng_archive_size &&
+            jbeam_authority->Matches(
+                rq.asr_cache_entry->resource_group,
+                rq.asr_cache_entry->beamng_root_part,
+                *snapshot) &&
+            App::GetContentManager()->
+                IsExactAuthenticatedPackageSnapshotMounted(
+                    rq.asr_cache_entry->resource_group,
+                    *snapshot);
+        if (!exact_authority)
+        {
+            RoR::LogFormat(
+                "[RoR|JBeam] Rejected actor spawn before publication: "
+                "the cache entry, root, immutable archive, or mounted "
+                "generation is not current (actor='%s')",
+                def->name.c_str());
+            return nullptr;
+        }
+    }
+
     const std::uint64_t prospective_actor_id =
         rq.asr_instance_id == ACTORINSTANCEID_INVALID
             ? static_cast<std::uint64_t>(
@@ -4155,6 +4222,18 @@ RigDef::DocumentPtr ActorManager::FetchActorDef(RoR::ActorSpawnRequest& rq)
     try
     {
         App::GetCacheSystem()->LoadResource(rq.asr_cache_entry);
+        if (rq.asr_cache_entry->actor_def != nullptr)
+        {
+            return rq.asr_cache_entry->actor_def;
+        }
+        if (rq.asr_cache_entry->fext == "jbeam")
+        {
+            HandleErrorLoadingTruckfile(
+                rq.asr_cache_entry->fname,
+                "Authenticated JBeam import did not publish a current "
+                "RigDef document");
+            return nullptr;
+        }
         Ogre::DataStreamPtr stream = Ogre::ResourceGroupManager::getSingleton().openResource(rq.asr_cache_entry->fname, rq.asr_cache_entry->resource_group);
 
         if (!stream || !stream->isReadable())

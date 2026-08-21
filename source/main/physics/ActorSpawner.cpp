@@ -38,6 +38,7 @@
 #include "Actor.h"
 #include "ActorManager.h"
 #include "BitFlags.h"
+#include "BeamAxialResponse.h"
 #include "BeamRestLengthScale.h"
 #include "Buoyance.h"
 #include "CacheSystem.h"
@@ -58,6 +59,7 @@
 #include "GfxScene.h"
 #include "Console.h"
 #include "InputEngine.h"
+#include "resources/beamng/JBeamAdvancedStructureIR.h"
 #include "Language.h"
 #include "MeshObject.h"
 #include "PointColDetector.h"
@@ -4545,6 +4547,40 @@ void ActorSpawner::ProcessHydro(RigDef::Hydro & def)
     node_t & node_1 = m_actor->ar_nodes[this->GetNodeIndexOrThrow(def.nodes[0])];
     node_t & node_2 = m_actor->ar_nodes[this->GetNodeIndexOrThrow(def.nodes[1])];
 
+    const RoR::BeamNG::JBeamHydroRuntimePlan* const jbeam_plan =
+        def._jbeam_runtime_plan.get();
+    RoR::JBeamHydroRuntimeStep jbeam_initialized;
+    if (jbeam_plan != nullptr)
+    {
+        if (!jbeam_plan->IsAdmitted() ||
+            def.options != 0U ||
+            !def.beam_defaults ||
+            !def.inertia_defaults ||
+            jbeam_plan->runtime_config.input_route !=
+                RoR::JBeamHydroInputRoute::STEERING_INPUT)
+        {
+            AddMessage(
+                Message::TYPE_ERROR,
+                "Rejected invalid native JBeam hydro plan");
+            return;
+        }
+        const float geometric_length =
+            (node_1.RelPosition - node_2.RelPosition).length();
+        const double initial_length =
+            static_cast<double>(geometric_length) *
+            static_cast<double>(
+                jbeam_plan->properties.beam.precompression);
+        jbeam_initialized = RoR::InitializeJBeamHydroRuntime(
+            jbeam_plan->runtime_config, initial_length);
+        if (!jbeam_initialized.valid)
+        {
+            AddMessage(
+                Message::TYPE_ERROR,
+                "Rejected native JBeam hydro runtime initialization");
+            return;
+        }
+    }
+
     int beam_index = m_actor->ar_num_beams;
     beam_t & beam = AddBeam(node_1, node_2, def.beam_defaults, def.detacher_group);
     SetBeamStrength(beam, def.beam_defaults->GetScaledBreakingThreshold());
@@ -4552,6 +4588,12 @@ void ActorSpawner::ProcessHydro(RigDef::Hydro & def)
     beam.bm_type              = BEAM_HYDRO;
     beam.k                    = def.beam_defaults->GetScaledSpringiness();
     beam.d                    = def.beam_defaults->GetScaledDamping();
+
+    if (jbeam_plan != nullptr)
+    {
+        beam.L = jbeam_initialized.runtime_rest_length;
+        beam.refL = jbeam_initialized.runtime_rest_length;
+    }
 
     if (!invisible)
     {
@@ -4569,7 +4611,23 @@ void ActorSpawner::ProcessHydro(RigDef::Hydro & def)
     hb.hb_ref_length = beam.L;
     hb.hb_anim_flags = 0;
     hb.hb_anim_param = 0.f;
-    this->_ProcessKeyInertia(def.inertia, *def.inertia_defaults, hb.hb_inertia, hb.hb_inertia);
+    if (jbeam_plan != nullptr)
+    {
+        hb.hb_speed = 0.0f;
+        hb.hb_ref_length = jbeam_initialized.runtime_rest_length;
+        hb.hb_flags = 0U;
+        hb.hb_has_jbeam_runtime = true;
+        hb.hb_jbeam_config = jbeam_plan->runtime_config;
+        hb.hb_jbeam_state = jbeam_initialized.state;
+    }
+    else
+    {
+        this->_ProcessKeyInertia(
+            def.inertia,
+            *def.inertia_defaults,
+            hb.hb_inertia,
+            hb.hb_inertia);
+    }
 
     m_actor->ar_hydros.push_back(hb);
 }
@@ -6141,6 +6199,22 @@ void ActorSpawner::ProcessCamera(RigDef::Camera & def)
 
 void ActorSpawner::ProcessBeam(RigDef::Beam & def)
 {
+    const bool legacy_support = BITMASK_IS_1(
+        def.options, RigDef::Beam::OPTION_s_SUPPORT);
+    const bool compression_only_support = BITMASK_IS_1(
+        def.options, RigDef::Beam::OPTION_COMPRESSION_ONLY_SUPPORT);
+    if ((legacy_support && compression_only_support) ||
+        (compression_only_support &&
+         (!def._has_extension_break_limit ||
+          !BeamAxialResponse::IsFinite(def.extension_break_limit) ||
+          def.extension_break_limit < 0.0f)))
+    {
+        AddMessage(
+            Message::TYPE_ERROR,
+            "Skipping beam with invalid or conflicting SUPPORT mode.");
+        return;
+    }
+
     // Nodes
     const NodeNum_t n1 = this->ResolveNodeRef(def.nodes[0]);
     const NodeNum_t n2 = this->ResolveNodeRef(def.nodes[1]);
@@ -6160,7 +6234,8 @@ void ActorSpawner::ProcessBeam(RigDef::Beam & def)
         const bool is_plain_normal_noshock_beam =
             (def.options &
                 (RigDef::Beam::OPTION_r_ROPE |
-                    RigDef::Beam::OPTION_s_SUPPORT)) == 0;
+                    RigDef::Beam::OPTION_s_SUPPORT |
+                    RigDef::Beam::OPTION_COMPRESSION_ONLY_SUPPORT)) == 0;
         if (!RigDef::TryPrepareCalibratedBeamMaterialForSpawn(
                 def.defaults->calibrated_material,
                 is_plain_normal_noshock_beam,
@@ -6229,10 +6304,16 @@ void ActorSpawner::ProcessBeam(RigDef::Beam & def)
     {
         beam.bounded = ROPE;
     }
-    if (BITMASK_IS_1(def.options, RigDef::Beam::OPTION_s_SUPPORT))
+    if (legacy_support)
     {
         beam.bounded = SUPPORTBEAM;
         beam.longbound = def.extension_break_limit;
+    }
+    if (compression_only_support)
+    {
+        beam.bounded = COMPRESSION_ONLY_SUPPORTBEAM;
+        beam.longbound = def.extension_break_limit;
+        beam.support_spawn_length = geometric_length;
     }
 
     if (def.defaults->calibrated_material.enabled)

@@ -153,6 +153,17 @@ public:
     bool trySetDeterministicImpactVelocity(vector3 velocity);
 
     /**
+     * Applies one bounded world-space translation to every node and one exact
+     * velocity to every movable node for a deterministic impact run. The
+     * operation is transactional and succeeds only at physics step zero for a
+     * locally simulated actor while simulation is paused and deterministic
+     * fixed stepping is armed. Translation magnitude must be at most 100 m;
+     * velocity magnitude must be in (0, 100].
+     */
+    bool trySetDeterministicImpactPlacementAndVelocity(
+        vector3 translation, vector3 velocity);
+
+    /**
      * @return The number of currently broken structural beams.
      */
     int getBrokenBeamCount() const;
@@ -217,6 +228,39 @@ public:
     double getCalibratedBeamMaxAccumulatedPlasticStrain() const;
     /** Maximum scalar damage across calibrated beams. */
     double getCalibratedBeamMaxDamage() const;
+
+    /** Number of hydros constructed through the authenticated JBeam runtime. */
+    int getJBeamHydroRuntimeCount() const;
+    /** Number of authenticated JBeam hydros with a latched runtime fault. */
+    int getJBeamHydroRuntimeFaultCount() const;
+    /** True when every authenticated JBeam hydro has a finite positive ratio. */
+    bool hasFiniteJBeamHydroRuntimeState() const;
+    /** Minimum accepted fixed-step count across authenticated JBeam hydros. */
+    uint64 getJBeamHydroMinimumAcceptedStepCount() const;
+    /** Maximum accepted fixed-step count across authenticated JBeam hydros. */
+    uint64 getJBeamHydroMaximumAcceptedStepCount() const;
+    /** Number of native beams using the exact BeamNG SUPPORT response. */
+    int getJBeamSupportRuntimeCount() const;
+    /** Number of exact SUPPORT beams with a latched runtime-state fault. */
+    int getJBeamSupportRuntimeFaultCount() const;
+    /** True when every exact SUPPORT beam retains finite valid parameters. */
+    bool hasFiniteJBeamSupportRuntimeState() const;
+    /** Minimum accepted fixed-step count across exact SUPPORT beams. */
+    uint64 getJBeamSupportMinimumAcceptedStepCount() const;
+    /** Maximum accepted fixed-step count across exact SUPPORT beams. */
+    uint64 getJBeamSupportMaximumAcceptedStepCount() const;
+    /** Minimum compression-active steps across exact SUPPORT beams. */
+    uint64 getJBeamSupportMinimumCompressionStepCount() const;
+    /** Total native beam records, including hydro beams. */
+    int getBeamCount() const;
+    /** Total native cab triangles constructed for this actor. */
+    int getCabTriangleCount() const;
+    /** Cab triangles admitted to native node-to-triangle collision. */
+    int getCollisionCabTriangleCount() const;
+    /** Total native collision contacter nodes constructed for this actor. */
+    int getContacterCount() const;
+    /** Total nodes admitted to native terrain/static collision. */
+    int getGroundContactEnabledNodeCount() const;
 
     /**
      * @return The air brake (speed brake) level for aircraft, from 0 (no braking) to 5 (maximum braking).

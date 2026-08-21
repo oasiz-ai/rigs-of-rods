@@ -909,6 +909,12 @@ void TestComparisonCli()
     CHECK(output.find("\"status\":\"valid\"") !=
         std::string::npos);
     CHECK(output.find("\"step_count\":3") != std::string::npos);
+    CHECK(output.find(
+        "\"contact_summary\":{\"total_contact_count\":11,"
+        "\"contact_step_count\":2,\"maximum_contact_count\":7,"
+        "\"first_contact_physics_step\":100,"
+        "\"last_contact_physics_step\":101}") !=
+        std::string::npos);
     CHECK(output.find("\"has_final_step\":true") !=
         std::string::npos);
     CHECK(output.find("\"physics_step\":102") != std::string::npos);

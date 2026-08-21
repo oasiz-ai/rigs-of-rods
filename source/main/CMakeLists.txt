@@ -271,6 +271,7 @@ set(SOURCE_FILES
         resources/beamng/JBeamStructuralIR.{h,cpp}
         resources/beamng/JBeamSyntax.{h,cpp}
         resources/beamng/JBeamToRigDef.{h,cpp}
+        resources/beamng/JBeamVehicleImporter.{h,cpp}
         resources/addonpart_fileformat/AddonPartFileFormat.{h,cpp}
         resources/otc_fileformat/OTCFileFormat.{h,cpp}
         resources/odef_fileformat/ODefFileFormat.{h,cpp}

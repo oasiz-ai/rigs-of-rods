@@ -243,10 +243,13 @@ void TestNormalizedCoreAndPreservedFields()
     const JBeamResolvedGraph graph = ResolveSingle(
         "\"nodes\":["
         "[\"id\",\"posX\",\"posY\",\"posZ\"],"
-        "{\"nodeWeight\":5,\"collision\":true},"
+        "{\"nodeWeight\":5,\"collision\":true,"
+        "\"selfCollision\":false,\"staticCollision\":true},"
         "[\"ref\",0,0,0],"
         "[\"back\",0,1,0],"
-        "[\"left\",1,0,0,{\"nodeWeight\":7,\"mystery\":9}],"
+        "[\"left\",1,0,0,{\"nodeWeight\":7,\"collision\":false,"
+        "\"selfCollision\":true,\"staticCollision\":false,"
+        "\"mystery\":9}],"
         "[\"up\",0,0,1],"
         "[\"leftCorner\",1,-1,0],"
         "[\"rightCorner\",-1,-1,0],"
@@ -265,10 +268,12 @@ void TestNormalizedCoreAndPreservedFields()
         "],"
         "\"triangles\":["
         "[\"id1:\",\"id2:\",\"id3:\"],"
+        "{\"triangleType\":\"NORMALTYPE\"},"
         "[\"ref\",\"back\",\"left\"]"
         "],"
         "\"quads\":["
         "[\"id1:\",\"id2:\",\"id3:\",\"id4:\"],"
+        "{\"triangleType\":\"NONCOLLIDABLE\"},"
         "[\"ref\",\"back\",\"q\",\"left\"]"
         "]");
     const JBeamStructuralIR ir =
@@ -279,8 +284,14 @@ void TestNormalizedCoreAndPreservedFields()
     CHECK(ir.nodes[0].id == "ref");
     CHECK(ir.nodes[0].node_weight == 5.0);
     CHECK(ir.nodes[0].node_weight_authored);
+    CHECK(ir.nodes[0].collision);
+    CHECK(!ir.nodes[0].self_collision);
+    CHECK(ir.nodes[0].static_collision);
     CHECK(ir.nodes[2].node_weight == 7.0);
     CHECK(ir.nodes[2].node_weight_authored);
+    CHECK(!ir.nodes[2].collision);
+    CHECK(ir.nodes[2].self_collision);
+    CHECK(!ir.nodes[2].static_collision);
     CHECK(ir.nodes[6].x == 1.0);
     CHECK(ir.nodes[6].y == 1.0);
     CHECK(ir.has_ref_frame);
@@ -304,8 +315,14 @@ void TestNormalizedCoreAndPreservedFields()
     CHECK(ir.triangles.size() == 3U);
     CHECK(ir.triangles[0].origin ==
         JBeamStructuralTriangleOrigin::TRIANGLE);
+    CHECK(ir.triangles[0].triangle_type ==
+        RoR::BeamNG::JBeamStructuralTriangleType::NORMALTYPE);
     CHECK(ir.triangles[1].origin ==
         JBeamStructuralTriangleOrigin::QUAD_FIRST);
+    CHECK(ir.triangles[1].triangle_type ==
+        RoR::BeamNG::JBeamStructuralTriangleType::NONCOLLIDABLE);
+    CHECK(ir.triangles[2].triangle_type ==
+        RoR::BeamNG::JBeamStructuralTriangleType::NONCOLLIDABLE);
     CHECK(ir.triangles[1].node_a == "ref");
     CHECK(ir.triangles[1].node_b == "back");
     CHECK(ir.triangles[1].node_c == "q");
@@ -315,7 +332,7 @@ void TestNormalizedCoreAndPreservedFields()
     CHECK(ir.triangles[2].node_b == "q");
     CHECK(ir.triangles[2].node_c == "left");
     CHECK(CountDiagnostic(
-        ir, JBeamStructuralDiagnosticCode::UNSUPPORTED_FIELD) == 1U);
+        ir, JBeamStructuralDiagnosticCode::UNSUPPORTED_FIELD) == 0U);
     CHECK(CountDiagnostic(
         ir, JBeamStructuralDiagnosticCode::UNKNOWN_FIELD) == 1U);
     const JBeamStructuralDiagnostic* unknown = FindDiagnostic(
@@ -327,6 +344,42 @@ void TestNormalizedCoreAndPreservedFields()
     CHECK(unknown->provenance.PartName() == "car");
     CHECK(unknown->provenance.SourceName() ==
         "vehicles/clean/main.jbeam");
+
+    JBeamStructuralIR changed_collision_mode = ir;
+    changed_collision_mode.nodes[0].self_collision = true;
+    CHECK(
+        RoR::BeamNG::SerializeCanonicalJBeamStructuralIR(
+            changed_collision_mode) !=
+        RoR::BeamNG::SerializeCanonicalJBeamStructuralIR(ir));
+}
+
+void TestTriangleTypeAdmission()
+{
+    const JBeamStructuralIR unsupported =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"nodes\":["
+            "[\"id\",\"posX\",\"posY\",\"posZ\"],"
+            "[\"ref\",0,0,0],"
+            "[\"back\",0,1,0],"
+            "[\"left\",1,0,0],"
+            "[\"up\",0,0,1],"
+            "[\"leftCorner\",1,-1,0],"
+            "[\"rightCorner\",-1,-1,0]"
+            "],"
+            "\"triangles\":["
+            "[\"id1:\",\"id2:\",\"id3:\",\"triangleType\"],"
+            "[\"ref\",\"back\",\"left\",\"GHOSTTYPE\"]"
+            "],"
+            "\"refNodes\":["
+            "[\"ref:\",\"back:\",\"left:\",\"up:\","
+            "\"leftCorner:\",\"rightCorner:\"],"
+            "[\"ref\",\"back\",\"left\",\"up\","
+            "\"leftCorner\",\"rightCorner\"]"
+            "]"));
+    CHECK(!unsupported.IsValid());
+    CHECK(CountDiagnostic(
+        unsupported,
+        JBeamStructuralDiagnosticCode::UNSUPPORTED_TRIANGLE_TYPE) == 1U);
 }
 
 void TestResolvedPartPreorderAndCanonicalSourcePermutation()
@@ -1143,10 +1196,12 @@ void TestBeamReferenceAndTypeSemantics()
             "\"beams\":["
             "[\"id1:\",\"id2:\",\"optional\",\"beamType\"],"
             "[\"ref\",\"missing\",true,\"NORMAL\"],"
-            "[\"ref\",\"left\",false,\"|BOUNDED\"]"
+            "[\"ref\",\"left\",false,\"|BOUNDED\"],"
+            "[\"back\",\"left\",false,\"|SUPPORT\","
+            "{\"beamLongBound\":0}]"
             "]"));
     CHECK(optional.IsValid());
-    CHECK(optional.beams.size() == 2U);
+    CHECK(optional.beams.size() == 3U);
     CHECK(optional.beams[0].status ==
         JBeamStructuralBeamStatus::
             PRESERVED_DISABLED_OPTIONAL_REFERENCE);
@@ -1156,6 +1211,11 @@ void TestBeamReferenceAndTypeSemantics()
         JBeamStructuralBeamStatus::
             PRESERVED_DISABLED_SPECIAL_TYPE);
     CHECK(optional.beams[1].beam_type == "|BOUNDED");
+    CHECK(optional.beams[2].status ==
+        JBeamStructuralBeamStatus::ENABLED);
+    CHECK(optional.beams[2].beam_type == "SUPPORT");
+    CHECK(optional.beams[2].has_long_bound);
+    CHECK(optional.beams[2].long_bound == 0.0);
     CHECK(CountDiagnostic(
         optional,
         JBeamStructuralDiagnosticCode::OPTIONAL_BEAM_SKIPPED) == 1U);
@@ -1203,6 +1263,18 @@ void TestBeamReferenceAndTypeSemantics()
     CHECK(CountDiagnostic(
         degenerate,
         JBeamStructuralDiagnosticCode::DEGENERATE_BEAM) == 1U);
+
+    const JBeamStructuralIR negative_long_bound =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            FrameAndNodes() + ","
+            "\"beams\":["
+            "[\"id1:\",\"id2:\",\"beamType\",\"beamLongBound\"],"
+            "[\"ref\",\"left\",\"SUPPORT\",-0.1]"
+            "]"));
+    CHECK(!negative_long_bound.IsValid());
+    CHECK(CountDiagnostic(
+        negative_long_bound,
+        JBeamStructuralDiagnosticCode::INVALID_BEAM_PARAMETER) == 1U);
 }
 
 void TestBeamInfinitySentinel()
@@ -2307,6 +2379,7 @@ void TestAuthoredTuningVariableExpressionPipeline()
 int main()
 {
     TestNormalizedCoreAndPreservedFields();
+    TestTriangleTypeAdmission();
     TestResolvedPartPreorderAndCanonicalSourcePermutation();
     TestDuplicateAndMalformedNodes();
     TestResolvedExpressionsVariablesAndComponents();

@@ -380,9 +380,7 @@ bool IsKnownUnsupportedField(
 {
     if (section == "nodes")
     {
-        return field == "collision" ||
-            field == "selfCollision" ||
-            field == "group" ||
+        return field == "group" ||
             field == "nodeMaterial" ||
             field == "frictionCoef" ||
             field == "volumeCoef" ||
@@ -397,7 +395,6 @@ bool IsKnownUnsupportedField(
             field == "deformGroup" ||
             field == "beamLimitSpring" ||
             field == "beamLimitDamp" ||
-            field == "beamLongBound" ||
             field == "beamShortBound" ||
             field == "dampCutoffHz" ||
             field == "soundFile" ||
@@ -413,7 +410,6 @@ bool IsKnownUnsupportedField(
             field == "stallAngle" ||
             field == "groundModel" ||
             field == "pressureGroup" ||
-            field == "triangleType" ||
             field == "collision" ||
             field == "optional" ||
             field == "name";
@@ -435,7 +431,10 @@ bool IsImplementedField(
             field == "posX" ||
             field == "posY" ||
             field == "posZ" ||
-            field == "nodeWeight";
+            field == "nodeWeight" ||
+            field == "collision" ||
+            field == "selfCollision" ||
+            field == "staticCollision";
     }
     if (section == "beams")
     {
@@ -449,7 +448,8 @@ bool IsImplementedField(
             field == "beamDamp" ||
             field == "beamDeform" ||
             field == "beamStrength" ||
-            field == "beamPrecompression";
+            field == "beamPrecompression" ||
+            field == "beamLongBound";
     }
     if (section == "triangles")
     {
@@ -459,7 +459,8 @@ bool IsImplementedField(
             field == "id2" ||
             field == "id3:" ||
             field == "id3" ||
-            field == "optional";
+            field == "optional" ||
+            field == "triangleType";
     }
     if (section == "quads")
     {
@@ -471,7 +472,8 @@ bool IsImplementedField(
             field == "id3" ||
             field == "id4:" ||
             field == "id4" ||
-            field == "optional";
+            field == "optional" ||
+            field == "triangleType";
     }
     if (section == "refNodes")
     {
@@ -3474,6 +3476,90 @@ private:
         return true;
     }
 
+    bool ReadTriangleType(
+        const JBeamNormalizedDataRow& row,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        std::size_t row_index,
+        JBeamStructuralTriangleType& output)
+    {
+        if (m_resource_limit)
+        {
+            return false;
+        }
+        const JBeamFieldAssignment* assignment =
+            FindEffectiveJBeamField(row, "triangleType");
+        output = JBeamStructuralTriangleType::NORMALTYPE;
+        if (assignment == NULL)
+        {
+            return true;
+        }
+        if (!assignment->value)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
+                provenance,
+                section,
+                row_index,
+                "triangleType",
+                "triangleType must resolve to a non-empty string");
+            return false;
+        }
+        const JBeamStructuralProvenance field_provenance =
+            ProvenanceWithSpan(provenance, assignment->span);
+        JBeamExpressionValue resolved;
+        if (!ResolveScalarValue(
+                *assignment->value,
+                VariablesFor(provenance),
+                field_provenance,
+                section,
+                row_index,
+                "triangleType",
+                resolved))
+        {
+            return false;
+        }
+        if (resolved.type != JBeamExpressionValueType::STRING ||
+            resolved.string_value.empty())
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::INVALID_FIELD_TYPE,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
+                field_provenance,
+                section,
+                row_index,
+                "triangleType",
+                "triangleType must resolve to a non-empty string");
+            return false;
+        }
+        std::string normalized = resolved.string_value;
+        if (!normalized.empty() && normalized[0] == '|')
+        {
+            normalized.erase(0U, 1U);
+        }
+        if (normalized == "NORMALTYPE")
+        {
+            output = JBeamStructuralTriangleType::NORMALTYPE;
+            return true;
+        }
+        if (normalized == "NONCOLLIDABLE")
+        {
+            output = JBeamStructuralTriangleType::NONCOLLIDABLE;
+            return true;
+        }
+        Push(
+            JBeamStructuralDiagnosticCode::UNSUPPORTED_TRIANGLE_TYPE,
+            JBeamStructuralSeverity::ERROR_SEVERITY,
+            field_provenance,
+            section,
+            row_index,
+            "triangleType",
+            "Only NORMALTYPE and NONCOLLIDABLE are admitted by the "
+            "documented J2 triangle subset");
+        return false;
+    }
+
     bool ReadBeamType(
         const JBeamNormalizedDataRow& row,
         const JBeamStructuralProvenance& provenance,
@@ -3547,6 +3633,11 @@ private:
             output = "NORMAL";
             return true;
         }
+        if (normalized == "SUPPORT")
+        {
+            output = "SUPPORT";
+            return true;
+        }
         status =
             JBeamStructuralBeamStatus::
                 PRESERVED_DISABLED_SPECIAL_TYPE;
@@ -3557,7 +3648,7 @@ private:
             "beams",
             row_index,
             "beamType",
-            "Only NORMAL beams are enabled by the J2 subset",
+            "Only NORMAL and SUPPORT beams are enabled by the J2 subset",
             assignment->value);
         return true;
     }
@@ -3644,6 +3735,9 @@ private:
                 node.z = 0.0;
                 node.node_weight = 25.0;
                 node.node_weight_authored = false;
+                node.collision = true;
+                node.self_collision = false;
+                node.static_collision = true;
                 node.provenance =
                     ProvenanceWithSpan(
                         m_sections[part_index].part.provenance,
@@ -3704,6 +3798,30 @@ private:
                         valid = false;
                     }
                 }
+                valid = ReadOptionalBoolean(
+                    entry.data_row,
+                    node.provenance,
+                    "nodes",
+                    entry_index,
+                    "collision",
+                    true,
+                    node.collision) && valid;
+                valid = ReadOptionalBoolean(
+                    entry.data_row,
+                    node.provenance,
+                    "nodes",
+                    entry_index,
+                    "selfCollision",
+                    false,
+                    node.self_collision) && valid;
+                valid = ReadOptionalBoolean(
+                    entry.data_row,
+                    node.provenance,
+                    "nodes",
+                    entry_index,
+                    "staticCollision",
+                    true,
+                    node.static_collision) && valid;
                 if (!node.id.empty() &&
                     m_node_indices.find(node.id) !=
                         m_node_indices.end())
@@ -4474,6 +4592,11 @@ private:
                     entry_index, "beamPrecompression",
                     beam.has_precompression,
                     beam.precompression) && valid;
+                valid = ReadOptionalNumber(
+                    entry.data_row, beam.provenance, "beams",
+                    entry_index, "beamLongBound",
+                    beam.has_long_bound,
+                    beam.long_bound) && valid;
                 const bool invalid_spring =
                     beam.has_spring && beam.spring < 0.0;
                 const bool invalid_damping =
@@ -4487,12 +4610,15 @@ private:
                 const bool invalid_precompression =
                     beam.has_precompression &&
                     !(beam.precompression > 0.0);
+                const bool invalid_long_bound =
+                    beam.has_long_bound && beam.long_bound < 0.0;
                 if (valid &&
                     (invalid_spring ||
                      invalid_damping ||
                      invalid_deform ||
                      invalid_strength ||
-                     invalid_precompression))
+                     invalid_precompression ||
+                     invalid_long_bound))
                 {
                     Push(
                         JBeamStructuralDiagnosticCode::
@@ -4502,9 +4628,9 @@ private:
                         "beams",
                         entry_index,
                         std::string(),
-                        "Beam spring, damping, deform, and strength "
-                        "must be nonnegative; precompression must be "
-                        "positive");
+                        "Beam spring, damping, deform, strength, and "
+                        "beamLongBound must be nonnegative; "
+                        "precompression must be positive");
                     valid = false;
                 }
                 if (valid && beam.node_a == beam.node_b)
@@ -4605,6 +4731,7 @@ private:
         const std::string& third,
         bool optional,
         JBeamStructuralTriangleOrigin origin,
+        JBeamStructuralTriangleType triangle_type,
         JBeamStructuralTriangle& triangle)
     {
         triangle.provenance =
@@ -4615,6 +4742,7 @@ private:
         triangle.optional = optional;
         triangle.status = JBeamStructuralTriangleStatus::ENABLED;
         triangle.origin = origin;
+        triangle.triangle_type = triangle_type;
         triangle.authored_row_index = entry_index;
         bool valid = ReadRequiredString(
             row, triangle.provenance, section, entry_index,
@@ -4807,6 +4935,8 @@ private:
                     return;
                 }
                 bool optional = false;
+                JBeamStructuralTriangleType triangle_type =
+                    JBeamStructuralTriangleType::NORMALTYPE;
                 if (!ReadOptionalBoolean(
                         entry.data_row,
                         m_sections[part_index].part.provenance,
@@ -4814,7 +4944,13 @@ private:
                         entry_index,
                         "optional",
                         false,
-                        optional))
+                        optional) ||
+                    !ReadTriangleType(
+                        entry.data_row,
+                        m_sections[part_index].part.provenance,
+                        "triangles",
+                        entry_index,
+                        triangle_type))
                 {
                     continue;
                 }
@@ -4829,6 +4965,7 @@ private:
                         "id3",
                         optional,
                         JBeamStructuralTriangleOrigin::TRIANGLE,
+                        triangle_type,
                         triangle))
                 {
                     m_result.triangles.push_back(triangle);
@@ -4935,6 +5072,8 @@ private:
                     entry.data_row, provenance, "quads", entry_index,
                     "id4:", "id4", id4) && valid;
                 bool optional = false;
+                JBeamStructuralTriangleType triangle_type =
+                    JBeamStructuralTriangleType::NORMALTYPE;
                 valid = ReadOptionalBoolean(
                     entry.data_row,
                     provenance,
@@ -4943,6 +5082,12 @@ private:
                     "optional",
                     false,
                     optional) && valid;
+                valid = ReadTriangleType(
+                    entry.data_row,
+                    provenance,
+                    "quads",
+                    entry_index,
+                    triangle_type) && valid;
                 if (!valid)
                 {
                     continue;
@@ -4977,12 +5122,14 @@ private:
                     "id1", "id2", "id3",
                     optional,
                     JBeamStructuralTriangleOrigin::QUAD_FIRST,
+                    triangle_type,
                     first);
                 bool second_valid = BuildTriangle(
                     entry.data_row, provenance, "quads", entry_index,
                     "id1", "id3", "id4",
                     optional,
                     JBeamStructuralTriangleOrigin::QUAD_SECOND,
+                    triangle_type,
                     second);
                 if (m_resource_limit)
                 {
@@ -5298,6 +5445,32 @@ JBeamStructuralBeam::JBeamStructuralBeam()
     , strength(0.0)
     , has_precompression(false)
     , precompression(0.0)
+    , has_long_bound(false)
+    , long_bound(1.0)
+{
+}
+
+JBeamStructuralNode::JBeamStructuralNode()
+    : x(0.0)
+    , y(0.0)
+    , z(0.0)
+    , node_weight(25.0)
+    , node_weight_authored(false)
+    , collision(true)
+    , self_collision(false)
+    , static_collision(true)
+{
+}
+
+JBeamStructuralTriangle::JBeamStructuralTriangle()
+    : node_a_index(INVALID_INDEX)
+    , node_b_index(INVALID_INDEX)
+    , node_c_index(INVALID_INDEX)
+    , optional(false)
+    , status(JBeamStructuralTriangleStatus::ENABLED)
+    , origin(JBeamStructuralTriangleOrigin::TRIANGLE)
+    , triangle_type(JBeamStructuralTriangleType::NORMALTYPE)
+    , authored_row_index(0U)
 {
 }
 
@@ -5349,7 +5522,7 @@ std::string SerializeCanonicalJBeamStructuralIR(
     BoundedStringBuffer buffer(ir.canonical_output_byte_limit);
     std::ostream output(&buffer);
     output.imbue(std::locale::classic());
-    output << "ror-beamng-structural-ir-v1\n";
+    output << "ror-beamng-structural-ir-v5\n";
     output << "parts\t" << ir.parts.size() << '\n';
     for (std::size_t i = 0U;
          output && i < ir.parts.size();
@@ -5378,7 +5551,10 @@ std::string SerializeCanonicalJBeamStructuralIR(
         AppendDouble(node.z, output);
         output << '\t';
         AppendDouble(node.node_weight, output);
-        output << '\t' << (node.node_weight_authored ? 1 : 0) << '\t';
+        output << '\t' << (node.node_weight_authored ? 1 : 0) << '\t'
+               << (node.collision ? 1 : 0) << '\t'
+               << (node.self_collision ? 1 : 0) << '\t'
+               << (node.static_collision ? 1 : 0) << '\t';
         AppendProvenance(node.provenance, output);
         output << '\n';
     }
@@ -5405,16 +5581,18 @@ std::string SerializeCanonicalJBeamStructuralIR(
             beam.has_damping,
             beam.has_deform,
             beam.has_strength,
-            beam.has_precompression
+            beam.has_precompression,
+            beam.has_long_bound
         };
         const double values[] = {
             beam.spring,
             beam.damping,
             beam.deform,
             beam.strength,
-            beam.precompression
+            beam.precompression,
+            beam.long_bound
         };
-        for (std::size_t field = 0U; field < 5U; ++field)
+        for (std::size_t field = 0U; field < 6U; ++field)
         {
             output << (flags[field] ? 1 : 0) << ':';
             AppendDouble(values[field], output);
@@ -5446,6 +5624,7 @@ std::string SerializeCanonicalJBeamStructuralIR(
             << (triangle.optional ? 1 : 0) << '\t'
             << static_cast<int>(triangle.status) << '\t'
             << static_cast<int>(triangle.origin) << '\t'
+            << static_cast<int>(triangle.triangle_type) << '\t'
             << triangle.authored_row_index << '\t';
         AppendProvenance(triangle.provenance, output);
         output << '\n';
@@ -5621,6 +5800,8 @@ const char* JBeamStructuralDiagnosticCodeToString(
         return "degenerate-beam";
     case JBeamStructuralDiagnosticCode::DEGENERATE_TRIANGLE:
         return "degenerate-triangle";
+    case JBeamStructuralDiagnosticCode::UNSUPPORTED_TRIANGLE_TYPE:
+        return "unsupported-triangle-type";
     case JBeamStructuralDiagnosticCode::SPECIAL_BEAM_TYPE_DISABLED:
         return "special-beam-type-disabled";
     case JBeamStructuralDiagnosticCode::UNKNOWN_SECTION:

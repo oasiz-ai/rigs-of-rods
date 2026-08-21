@@ -74,6 +74,7 @@ enum class JBeamStructuralDiagnosticCode
     DUPLICATE_VERTEX,
     DEGENERATE_BEAM,
     DEGENERATE_TRIANGLE,
+    UNSUPPORTED_TRIANGLE_TYPE,
     SPECIAL_BEAM_TYPE_DISABLED,
     UNKNOWN_SECTION,
     UNKNOWN_FIELD,
@@ -175,12 +176,27 @@ struct JBeamStructuralPart
 
 struct JBeamStructuralNode
 {
+    JBeamStructuralNode();
+
     std::string id;
     double x;
     double y;
     double z;
     double node_weight;
     bool node_weight_authored;
+    /// BeamNG node collision defaults to enabled. The initial compatibility
+    /// slice maps false to RoR's no-ground/static-contact node option and
+    /// leaves explicit self-collision contacters disabled.
+    bool collision;
+    /// BeamNG defaults self-collision off. A true value is retained here but
+    /// may lower only when `collision` is false; otherwise RoR needs a native
+    /// group-aware node/triangle implementation rather than a generic
+    /// contacter approximation.
+    bool self_collision;
+    /// BeamNG defaults static/heightmap collision on. A false value is retained
+    /// here but may lower only when `collision` is false; RoR's current node
+    /// flag cannot disable terrain while preserving external dynamic contact.
+    bool static_collision;
     JBeamStructuralProvenance provenance;
 };
 
@@ -212,6 +228,10 @@ struct JBeamStructuralBeam
     double strength;
     bool has_precompression;
     double precompression;
+    /// SUPPORT-beam extension break ratio. BeamNG's documented default is
+    /// 1.0, measured from the geometric spawned length (1.0 means 200%).
+    bool has_long_bound;
+    double long_bound;
     JBeamStructuralProvenance provenance;
 
     JBeamStructuralBeam();
@@ -230,8 +250,16 @@ enum class JBeamStructuralTriangleStatus
     PRESERVED_DISABLED_OPTIONAL_REFERENCE
 };
 
+enum class JBeamStructuralTriangleType
+{
+    NORMALTYPE,
+    NONCOLLIDABLE
+};
+
 struct JBeamStructuralTriangle
 {
+    JBeamStructuralTriangle();
+
     std::string node_a;
     std::string node_b;
     std::string node_c;
@@ -241,6 +269,7 @@ struct JBeamStructuralTriangle
     bool optional;
     JBeamStructuralTriangleStatus status;
     JBeamStructuralTriangleOrigin origin;
+    JBeamStructuralTriangleType triangle_type;
     std::size_t authored_row_index;
     JBeamStructuralProvenance provenance;
 };

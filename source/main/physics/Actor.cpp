@@ -28,6 +28,7 @@
 #include "AutoPilot.h"
 #include "SimData.h"
 #include "ActorManager.h"
+#include "BeamAxialResponse.h"
 #include "Buoyance.h"
 #include "CalibratedBeamMaterial.h"
 #include "CacheSystem.h"
@@ -797,6 +798,14 @@ void Actor::scaleTruck(float value)
         ar_beams[i].d *= value;
         ar_beams[i].L *= value;
         ar_beams[i].refL *= value;
+        if (ar_beams[i].bounded == COMPRESSION_ONLY_SUPPORTBEAM)
+        {
+            // BeamNG beamLongBound is measured from the geometric spawned
+            // length. Keep that reference in the same actor-local scale as
+            // the live nodes and rest length; otherwise scaleTruck() would
+            // silently change the authored extension-break ratio.
+            ar_beams[i].support_spawn_length *= value;
+        }
     }
     // scale hydros
     for (hydrobeam_t& hbeam: ar_hydros)
@@ -2175,6 +2184,9 @@ void Actor::SyncReset(bool reset_position, bool emit_script_event)
         ar_beams[i].stress          = 0.0;
         ar_beams[i].bm_broken       = false;
         ar_beams[i].bm_disabled     = false;
+        ar_beams[i].support_accepted_step_count = 0U;
+        ar_beams[i].support_compression_step_count = 0U;
+        ar_beams[i].support_runtime_fault = false;
         CalibratedBeamMaterialAdapter::ResetHistory(
             ar_beams[i].calibrated_material);
     }
@@ -4657,6 +4669,204 @@ double Actor::getCalibratedBeamMaxDamage() const
     return GetCalibratedBeamRuntimeAudit().max_damage;
 }
 
+int Actor::getJBeamHydroRuntimeCount() const
+{
+    int count = 0;
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (hydro.hb_has_jbeam_runtime)
+            ++count;
+    }
+    return count;
+}
+
+int Actor::getJBeamHydroRuntimeFaultCount() const
+{
+    int count = 0;
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (hydro.hb_has_jbeam_runtime &&
+            (hydro.hb_jbeam_state.fault_latched ||
+             hydro.hb_jbeam_state.fault != JBeamHydroRuntimeFault::NONE))
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool Actor::hasFiniteJBeamHydroRuntimeState() const
+{
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (!hydro.hb_has_jbeam_runtime)
+            continue;
+        if (!HydroActuatorDetail::IsFinite(
+                hydro.hb_jbeam_state.response.length_ratio) ||
+            !(hydro.hb_jbeam_state.response.length_ratio > 0.0))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::uint64_t Actor::getJBeamHydroMinimumAcceptedStepCount() const
+{
+    std::uint64_t minimum = std::numeric_limits<std::uint64_t>::max();
+    bool found = false;
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (!hydro.hb_has_jbeam_runtime)
+            continue;
+        minimum = std::min(
+            minimum, hydro.hb_jbeam_state.accepted_step_count);
+        found = true;
+    }
+    return found ? minimum : 0U;
+}
+
+std::uint64_t Actor::getJBeamHydroMaximumAcceptedStepCount() const
+{
+    std::uint64_t maximum = 0U;
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (hydro.hb_has_jbeam_runtime)
+        {
+            maximum = std::max(
+                maximum, hydro.hb_jbeam_state.accepted_step_count);
+        }
+    }
+    return maximum;
+}
+
+int Actor::getJBeamSupportRuntimeCount() const
+{
+    int count = 0;
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        if (ar_beams[i].bounded == COMPRESSION_ONLY_SUPPORTBEAM)
+            ++count;
+    }
+    return count;
+}
+
+int Actor::getJBeamSupportRuntimeFaultCount() const
+{
+    int count = 0;
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        if (ar_beams[i].bounded == COMPRESSION_ONLY_SUPPORTBEAM &&
+            ar_beams[i].support_runtime_fault)
+        {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool Actor::hasFiniteJBeamSupportRuntimeState() const
+{
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        const beam_t& beam = ar_beams[i];
+        if (beam.bounded != COMPRESSION_ONLY_SUPPORTBEAM)
+            continue;
+        if (!BeamAxialResponse::IsFinite(beam.L) ||
+            !BeamAxialResponse::IsFinite(beam.support_spawn_length) ||
+            !BeamAxialResponse::IsFinite(beam.longbound) ||
+            !BeamAxialResponse::IsFinite(beam.k) ||
+            !BeamAxialResponse::IsFinite(beam.d) ||
+            !(beam.L > 0.0f) ||
+            !(beam.support_spawn_length > 0.0f) ||
+            beam.longbound < 0.0f ||
+            beam.k < 0.0f ||
+            beam.d < 0.0f ||
+            beam.support_runtime_fault ||
+            beam.support_compression_step_count >
+                beam.support_accepted_step_count)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::uint64_t Actor::getJBeamSupportMinimumAcceptedStepCount() const
+{
+    std::uint64_t minimum = std::numeric_limits<std::uint64_t>::max();
+    bool found = false;
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        if (ar_beams[i].bounded != COMPRESSION_ONLY_SUPPORTBEAM)
+            continue;
+        minimum = std::min(
+            minimum, ar_beams[i].support_accepted_step_count);
+        found = true;
+    }
+    return found ? minimum : 0U;
+}
+
+std::uint64_t Actor::getJBeamSupportMaximumAcceptedStepCount() const
+{
+    std::uint64_t maximum = 0U;
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        if (ar_beams[i].bounded == COMPRESSION_ONLY_SUPPORTBEAM)
+        {
+            maximum = std::max(
+                maximum, ar_beams[i].support_accepted_step_count);
+        }
+    }
+    return maximum;
+}
+
+std::uint64_t Actor::getJBeamSupportMinimumCompressionStepCount() const
+{
+    std::uint64_t minimum = std::numeric_limits<std::uint64_t>::max();
+    bool found = false;
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        if (ar_beams[i].bounded != COMPRESSION_ONLY_SUPPORTBEAM)
+            continue;
+        minimum = std::min(
+            minimum, ar_beams[i].support_compression_step_count);
+        found = true;
+    }
+    return found ? minimum : 0U;
+}
+
+int Actor::getBeamCount() const
+{
+    return ar_num_beams;
+}
+
+int Actor::getCabTriangleCount() const
+{
+    return ar_num_cabs;
+}
+
+int Actor::getCollisionCabTriangleCount() const
+{
+    return ar_num_collcabs;
+}
+
+int Actor::getContacterCount() const
+{
+    return ar_num_contacters;
+}
+
+int Actor::getGroundContactEnabledNodeCount() const
+{
+    int count = 0;
+    for (int i = 0; i < ar_num_nodes; ++i)
+    {
+        if (!ar_nodes[i].nd_no_ground_contact)
+            ++count;
+    }
+    return count;
+}
+
 bool Actor::isTied()
 {
     for (std::vector<tie_t>::iterator it = ar_ties.begin(); it != ar_ties.end(); it++)
@@ -5560,6 +5770,108 @@ bool Actor::trySetDeterministicImpactVelocity(Vector3 velocity)
         }
     }
     m_avg_node_velocity = velocity;
+    return true;
+}
+
+bool Actor::trySetDeterministicImpactPlacementAndVelocity(
+    Vector3 translation,
+    Vector3 velocity)
+{
+    using namespace DeterministicImpactInitialCondition;
+
+    GameContext* game_context = App::GetGameContext();
+    if (ar_state != ActorState::LOCAL_SIMULATED ||
+        game_context == nullptr ||
+        game_context->GetActorManager() == nullptr ||
+        game_context->GetActorManager()->GetCompletedPhysicsSteps() != 0U ||
+        App::sim_state == nullptr ||
+        App::sim_state->getEnum<SimState>() != SimState::PAUSED ||
+        App::sim_deterministic_fixed_steps_per_frame == nullptr ||
+        App::sim_deterministic_fixed_steps_per_frame->getInt() <= 0 ||
+        ar_num_nodes <= 0)
+    {
+        return false;
+    }
+
+    PlacementRequest placement_request;
+    placement_request.translation_offset_meters = {{
+        static_cast<double>(translation.x),
+        static_cast<double>(translation.y),
+        static_cast<double>(translation.z)}};
+    Request velocity_request;
+    velocity_request.velocity_meters_per_second = {{
+        static_cast<double>(velocity.x),
+        static_cast<double>(velocity.y),
+        static_cast<double>(velocity.z)}};
+    if (!ValidatePlacement(placement_request).IsValid() ||
+        !Validate(velocity_request).IsValid())
+    {
+        return false;
+    }
+
+    const auto finite_coordinate = [](float value) {
+        return CalibratedBeamMaterial::IsFinite(
+            static_cast<double>(value)) &&
+            std::abs(static_cast<double>(value)) <=
+                MAXIMUM_ABSOLUTE_WORLD_POSITION_METERS;
+    };
+    const auto finite_vector = [&finite_coordinate](const Vector3& value) {
+        return finite_coordinate(value.x) &&
+            finite_coordinate(value.y) &&
+            finite_coordinate(value.z);
+    };
+    if (!finite_vector(ar_origin))
+    {
+        return false;
+    }
+
+    int movable_nodes = 0;
+    for (int i = 0; i < ar_num_nodes; ++i)
+    {
+        const node_t& node = ar_nodes[i];
+        const Vector3 translated_position = node.AbsPosition + translation;
+        const Vector3 translated_relative = translated_position - ar_origin;
+        const Vector3 predicted_position = translated_position + velocity;
+        if (!finite_vector(node.AbsPosition) ||
+            !finite_vector(node.RelPosition) ||
+            !finite_vector(translated_position) ||
+            !finite_vector(translated_relative) ||
+            !finite_vector(predicted_position))
+        {
+            return false;
+        }
+        if (!node.nd_immovable)
+        {
+            if (!CalibratedBeamMaterial::IsFinite(
+                    static_cast<double>(node.mass)) ||
+                node.mass <= 0.0f)
+            {
+                return false;
+            }
+            ++movable_nodes;
+        }
+    }
+    if (movable_nodes == 0)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < ar_num_nodes; ++i)
+    {
+        node_t& node = ar_nodes[i];
+        node.AbsPosition += translation;
+        node.RelPosition = node.AbsPosition - ar_origin;
+        node.nd_has_ground_contact = false;
+        node.nd_has_mesh_contact = false;
+        if (!node.nd_immovable)
+        {
+            node.Velocity = velocity;
+            node.Forces = Vector3::ZERO;
+        }
+    }
+    m_avg_node_velocity = velocity;
+    UpdateBoundingBoxes();
+    calculateAveragePosition();
     return true;
 }
 

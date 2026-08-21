@@ -22,6 +22,9 @@ namespace DeterministicImpactInitialCondition {
 
 static const std::uint32_t SCHEMA_VERSION = 1U;
 static const double MAXIMUM_SPEED_METERS_PER_SECOND = 100.0;
+static const std::uint32_t PLACEMENT_SCHEMA_VERSION = 1U;
+static const double MAXIMUM_TRANSLATION_METERS = 100.0;
+static const double MAXIMUM_ABSOLUTE_WORLD_POSITION_METERS = 1000000.0;
 
 enum class Error
 {
@@ -45,6 +48,29 @@ struct Result
     double speed_squared_meters2_per_second2 = 0.0;
 
     bool IsValid() const { return error == Error::NONE; }
+};
+
+enum class PlacementError
+{
+    NONE,
+    UNSUPPORTED_SCHEMA,
+    NONFINITE_TRANSLATION,
+    TRANSLATION_OUT_OF_RANGE,
+    NUMERIC_OVERFLOW
+};
+
+struct PlacementRequest
+{
+    std::uint32_t schema_version = PLACEMENT_SCHEMA_VERSION;
+    std::array<double, 3> translation_offset_meters = {{0.0, 0.0, 0.0}};
+};
+
+struct PlacementResult
+{
+    PlacementError error = PlacementError::NONE;
+    double translation_squared_meters2 = 0.0;
+
+    bool IsValid() const { return error == PlacementError::NONE; }
 };
 
 inline bool IsFinite(double value)
@@ -106,6 +132,48 @@ inline Result Validate(const Request& request)
     }
 
     result.speed_squared_meters2_per_second2 = speed_squared;
+    return result;
+}
+
+inline PlacementResult ValidatePlacement(const PlacementRequest& request)
+{
+    PlacementResult result;
+    if (request.schema_version != PLACEMENT_SCHEMA_VERSION)
+    {
+        result.error = PlacementError::UNSUPPORTED_SCHEMA;
+        return result;
+    }
+
+    const double x = request.translation_offset_meters[0];
+    const double y = request.translation_offset_meters[1];
+    const double z = request.translation_offset_meters[2];
+    if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z))
+    {
+        result.error = PlacementError::NONFINITE_TRANSLATION;
+        return result;
+    }
+
+    const double x_squared = x * x;
+    const double y_squared = y * y;
+    const double z_squared = z * z;
+    const double translation_squared =
+        x_squared + y_squared + z_squared;
+    if (!IsFinite(x_squared) || !IsFinite(y_squared) ||
+        !IsFinite(z_squared) || !IsFinite(translation_squared))
+    {
+        result.error = PlacementError::NUMERIC_OVERFLOW;
+        return result;
+    }
+
+    const double maximum_translation_squared =
+        MAXIMUM_TRANSLATION_METERS * MAXIMUM_TRANSLATION_METERS;
+    if (translation_squared > maximum_translation_squared)
+    {
+        result.error = PlacementError::TRANSLATION_OUT_OF_RANGE;
+        return result;
+    }
+
+    result.translation_squared_meters2 = translation_squared;
     return result;
 }
 

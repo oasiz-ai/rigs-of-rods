@@ -134,6 +134,10 @@ public:
     bool               IsAuthenticatedPackageSourceMounted(
                            const Ogre::String& resource_group,
                            const Ogre::String& source_archive_identity);
+    bool               IsExactAuthenticatedPackageSnapshotMounted(
+                           const Ogre::String& resource_group,
+                           const TerrainBundleAuthenticatedArchiveSnapshot&
+                               archive_snapshot) const;
     void               UnregisterPackageResourceGroup(const Ogre::String& resource_group);
     void               InitContentManager();
     void               InitModCache(CacheValidity validity);

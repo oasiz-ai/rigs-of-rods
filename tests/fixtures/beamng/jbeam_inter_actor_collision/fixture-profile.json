@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "fixtureId": "ror-jbeam-authenticated-inter-actor-collision-v1",
+  "documentationProfile": "beamng-docs-0.38.5.0-2026-07-27",
+  "authorship": "original-clean-room",
+  "license": "GPL-3.0-or-later",
+  "execution": "authenticated-product-path",
+  "rootPart": "ror_jbeam_spawn_fixture",
+  "jbeamSource": {
+    "path": "tests/fixtures/beamng/jbeam_spawn_soak/vehicles/ror_jbeam_spawn/main.jbeam",
+    "sha256": "8f1106ff3c615604558d726ab5a925f3a97957d12c53a637c332feecef5f1ea0"
+  },
+  "scenarioScript": {
+    "path": "resources/scripts/example_jbeam_inter_actor_collision.as",
+    "sha256": "b47115c7c44c1abeb57b32e2acdf77186a6f7f68ded43e75e036a65d68102511"
+  },
+  "expectedRuntime": {
+    "actors": 2,
+    "cabTrianglesPerActor": 5,
+    "collisionCabsPerActor": 5,
+    "contactersPerActor": 0,
+    "fixedSteps": 2000,
+    "initialVerticalGap": 0.01,
+    "initialVerticalRelativeSpeed": 1,
+    "jbeamHydrosPerActor": 1,
+    "nodesPerActor": 6,
+    "physicsStepDenominator": 2000,
+    "physicsStepNumerator": 1,
+    "runtimeBeamsPerActor": 16
+  },
+  "prohibitedInputs": [
+    "lua-execution",
+    "ogre-script-execution",
+    "network",
+    "external-assets",
+    "third-party-mod-data"
+  ]
+}

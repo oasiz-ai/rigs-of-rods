@@ -1,0 +1,66 @@
+{
+  // Original six-node frame for authenticated product-path execution.
+  "ror_jbeam_spawn_fixture": {
+    "slotType": "main",
+
+    "nodes": [
+      ["id", "posX", "posY", "posZ", "nodeWeight"],
+      {"collision": true, "selfCollision": false,
+       "staticCollision": true},
+      ["ref",          0,  0, 1, 20],
+      ["back",         0,  1, 1, 20],
+      ["left",         1,  0, 1, 20],
+      ["up",           0,  0, 2, 20],
+      ["leftCorner",   1, -1, 1, 20],
+      ["rightCorner", -1, -1, 1, 20],
+    ],
+
+    "refNodes": [
+      ["ref:", "back:", "left:", "up:",
+       "leftCorner:", "rightCorner:"],
+      ["ref", "back", "left", "up", "leftCorner", "rightCorner"],
+    ],
+
+    "beams": [
+      ["id1:", "id2:", "beamSpring", "beamDamp",
+       "beamDeform", "beamStrength"],
+      ["ref", "back", 4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "left", 4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "up", 4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "leftCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["ref", "rightCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["back", "left", 4300000, 580, 220000, "FLT_MAX"],
+      ["back", "up", 4300000, 580, 220000, "FLT_MAX"],
+      ["back", "leftCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["back", "rightCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["left", "up", 4300000, 580, 220000, "FLT_MAX"],
+      ["left", "leftCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["left", "rightCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["up", "leftCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["up", "rightCorner", 4300000, 580, 220000, "FLT_MAX"],
+      ["leftCorner", "rightCorner", 4300000, 580, 220000, "FLT_MAX", {
+        "beamType": "SUPPORT",
+        "beamPrecompression": 1.01,
+        "beamLongBound": 2.0,
+      }],
+    ],
+
+    "triangles": [
+      ["id1:", "id2:", "id3:"],
+      ["ref", "leftCorner", "rightCorner"],
+      ["ref", "back", "leftCorner"],
+      ["ref", "rightCorner", "back"],
+      ["up", "back", "leftCorner"],
+      ["up", "rightCorner", "back"],
+    ],
+
+    "hydros": [
+      ["id1:", "id2:"],
+      ["left", "up", {
+        "factor": 0.02,
+        "inRate": 0.5,
+        "outRate": 0.5,
+      }],
+    ],
+  },
+}

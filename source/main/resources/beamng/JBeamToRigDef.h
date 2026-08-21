@@ -34,6 +34,8 @@ typedef std::shared_ptr<Document> DocumentPtr;
 namespace RoR {
 namespace BeamNG {
 
+struct JBeamHydroRuntimePlanSet;
+
 /// BeamNG's defaults for ordinary structural beams. These are deliberately
 /// adapter-owned rather than inherited from RoR's truck parser.
 extern const float JBEAM_RIGDEF_DEFAULT_BEAM_SPRING;
@@ -79,6 +81,7 @@ enum class JBeamToRigDefDiagnosticCode
     NON_FINITE_VALUE,
     FLOAT_NARROWING,
     INVALID_NODE_MASS,
+    UNSUPPORTED_NODE_COLLISION_MODE,
     TOTAL_MASS_OVERFLOW,
     INVALID_CENTER_OF_MASS,
     INVALID_BOUNDS,
@@ -89,6 +92,8 @@ enum class JBeamToRigDefDiagnosticCode
     INVALID_REF_FRAME,
     MISALIGNED_REF_FRAME,
     MISALIGNED_REF_CORNERS,
+    INVALID_HYDRO_RUNTIME_PLAN,
+    HYDRO_RUNTIME_LIMIT,
     ALLOCATION_FAILURE,
     RIGDEF_CONSTRUCTION_FAILURE
 };
@@ -99,6 +104,7 @@ enum class JBeamToRigDefEntityKind
     STRUCTURAL_IR,
     NODE,
     BEAM,
+    HYDRO,
     TRIANGLE,
     REF_FRAME
 };
@@ -156,6 +162,8 @@ struct JBeamRigDefBeamPlan
     float deform;
     float strength;
     float rest_length_scale;
+    bool support;
+    float extension_break_limit;
     float geometric_length;
     float scaled_rest_length;
 
@@ -213,6 +221,18 @@ JBeamToRigDefPreflightResult PreflightJBeamToRigDef(
 /// document. This adapter does not invoke SequentialImporter or ActorSpawner.
 RigDef::DocumentPtr ConvertJBeamToRigDef(
     const JBeamStructuralIR& ir,
+    const std::string& document_name,
+    std::vector<JBeamToRigDefDiagnostic>& diagnostics,
+    const JBeamToRigDefLimits& limits = JBeamToRigDefLimits());
+
+/// Converts the structural IR and an all-or-none hydro runtime plan set into
+/// one fresh document. Every hydro plan is revalidated against the exact
+/// structural node identity and binary32 spawn geometry before any document
+/// is published. This remains an internal conversion boundary: the plan set
+/// does not by itself prove package or resolver authority.
+RigDef::DocumentPtr ConvertJBeamToRigDefWithHydroRuntimePlans(
+    const JBeamStructuralIR& ir,
+    const JBeamHydroRuntimePlanSet& hydro_plans,
     const std::string& document_name,
     std::vector<JBeamToRigDefDiagnostic>& diagnostics,
     const JBeamToRigDefLimits& limits = JBeamToRigDefLimits());

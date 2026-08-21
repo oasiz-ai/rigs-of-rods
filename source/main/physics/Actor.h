@@ -112,6 +112,9 @@ public:
     Ogre::Vector3     getNodeVelocity(int nodeNumber);
     Ogre::Vector3     getNodeForces(int nodeNumber);
     bool              trySetDeterministicImpactVelocity(Ogre::Vector3 velocity);
+    bool              trySetDeterministicImpactPlacementAndVelocity(
+                          Ogre::Vector3 translation,
+                          Ogre::Vector3 velocity);
     int               getBrokenBeamCount() const;
     void              getNodeMassOptions(int nodeNumber, bool& loaded, bool& overrideMass);
     bool              isNodeWheelRim(int nodeNumber);      //!< Is node marked as wheel rim? Note some wheel models use only tire nodes. See https://docs.rigsofrods.org/vehicle-creation/fileformat-truck/#wheels
@@ -134,6 +137,22 @@ public:
     double            getCalibratedBeamMaxAbsTotalStrain() const;
     double            getCalibratedBeamMaxAccumulatedPlasticStrain() const;
     double            getCalibratedBeamMaxDamage() const;
+    int               getJBeamHydroRuntimeCount() const;
+    int               getJBeamHydroRuntimeFaultCount() const;
+    bool              hasFiniteJBeamHydroRuntimeState() const;
+    std::uint64_t     getJBeamHydroMinimumAcceptedStepCount() const;
+    std::uint64_t     getJBeamHydroMaximumAcceptedStepCount() const;
+    int               getJBeamSupportRuntimeCount() const;
+    int               getJBeamSupportRuntimeFaultCount() const;
+    bool              hasFiniteJBeamSupportRuntimeState() const;
+    std::uint64_t     getJBeamSupportMinimumAcceptedStepCount() const;
+    std::uint64_t     getJBeamSupportMaximumAcceptedStepCount() const;
+    std::uint64_t     getJBeamSupportMinimumCompressionStepCount() const;
+    int               getBeamCount() const;
+    int               getCabTriangleCount() const;
+    int               getCollisionCabTriangleCount() const;
+    int               getContacterCount() const;
+    int               getGroundContactEnabledNodeCount() const;
     float             getAirbrakeIntensity() { return ar_airbrake_intensity; }
     int               getAircraftFlaps() { return ar_aerial_flap; }
     // not exported to scripting:

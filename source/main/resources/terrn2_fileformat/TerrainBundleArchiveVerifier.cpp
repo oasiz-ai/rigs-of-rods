@@ -583,20 +583,13 @@ bool TerrainBundleAuthenticatedArchiveSnapshot::SharesImmutableStateWith(
     return m_state == other.m_state;
 }
 
-bool VerifyTerrainBundleArchiveSha256(
+bool ComputeTerrainBundleArchiveSha256(
     const std::string& archive_path,
-    const std::string& expected_sha256,
     std::string& out_observed_sha256,
     std::string& out_error)
 {
     out_observed_sha256.clear();
     out_error.clear();
-    if (!IsLowercaseSha256(expected_sha256))
-    {
-        out_error =
-            "expected SHA-256 must be 64 lowercase hexadecimal characters";
-        return false;
-    }
 
     std::unique_ptr<FILE, FileCloser> archive(
         OpenArchiveReadOnly(archive_path));
@@ -656,6 +649,28 @@ bool VerifyTerrainBundleArchiveSha256(
     }
 
     out_observed_sha256 = LowercaseHex(digest.data(), digest_size);
+    return true;
+}
+
+bool VerifyTerrainBundleArchiveSha256(
+    const std::string& archive_path,
+    const std::string& expected_sha256,
+    std::string& out_observed_sha256,
+    std::string& out_error)
+{
+    out_observed_sha256.clear();
+    out_error.clear();
+    if (!IsLowercaseSha256(expected_sha256))
+    {
+        out_error =
+            "expected SHA-256 must be 64 lowercase hexadecimal characters";
+        return false;
+    }
+    if (!ComputeTerrainBundleArchiveSha256(
+            archive_path, out_observed_sha256, out_error))
+    {
+        return false;
+    }
     if (out_observed_sha256 != expected_sha256)
     {
         out_error = "archive SHA-256 mismatch";

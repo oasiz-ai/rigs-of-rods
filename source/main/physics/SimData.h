@@ -36,6 +36,7 @@
 #include "BitFlags.h"
 #include "CmdKeyInertia.h"
 #include "InputEngine.h"
+#include "JBeamHydroRuntime.h"
 
 #include <cstdint>
 #include <memory>
@@ -104,7 +105,10 @@ enum SpecialBeam: short //!< aka 'bounded'
     SHOCK3,         //!< shock3
     TRIGGER,        //!< trigger
     SUPPORTBEAM,    //!<
-    ROPE            //!<
+    ROPE,           //!<
+    /// Compression only, no extension damping, with the extension-break ratio
+    /// measured from the geometric spawned length.
+    COMPRESSION_ONLY_SUPPORTBEAM
 };
 
 /// @} // addtogroup Physics
@@ -331,6 +335,10 @@ struct beam_t
     float           shortbound = 0.f;
     float           longbound = 0.f;
     float           refL = 0.f;                  //!< reference length
+    float           support_spawn_length = 0.f; //!< Compression-only support break-ratio reference
+    std::uint64_t   support_accepted_step_count = 0U;
+    std::uint64_t   support_compression_step_count = 0U;
+    bool            support_runtime_fault = false;
 
     shock_t*        shock = nullptr;
 
@@ -579,6 +587,9 @@ struct hydrobeam_t //!< beams updating length based on simulation variables, gen
     BitMask_t hb_anim_flags{0}; //!< Only for 'animators' 
     float     hb_anim_param{0}; //!< Only for 'animators'
     RoR::CmdKeyInertia  hb_inertia;
+    bool hb_has_jbeam_runtime{false};
+    RoR::JBeamHydroRuntimeConfig hb_jbeam_config;
+    RoR::JBeamHydroRuntimeState hb_jbeam_state;
 };
 
 struct rotator_t

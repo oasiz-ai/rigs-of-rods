@@ -72,6 +72,18 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_calibrated_beam_soak.py"
 )
 add_test(
+    NAME jbeam_spawn_soak_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_spawn_soak.py"
+)
+add_test(
+    NAME jbeam_inter_actor_collision_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_jbeam_inter_actor_collision.py"
+)
+add_test(
     NAME agora_impact_regression_tool
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -79,6 +91,8 @@ add_test(
 )
 set_tests_properties(
     calibrated_beam_soak_tool
+    jbeam_spawn_soak_tool
+    jbeam_inter_actor_collision_tool
     agora_impact_regression_tool
     PROPERTIES
         LABELS "physics;integration;python"
@@ -2131,6 +2145,11 @@ add_executable(
 )
 
 add_executable(
+    ror_jbeam_support_beam_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamSupportBeamTests.cpp"
+)
+
+add_executable(
     ror_beam_axial_kinematics_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/BeamAxialKinematicsTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/BeamAxialKinematics.cpp"
@@ -2588,11 +2607,27 @@ add_executable(
 add_executable(
     ror_jbeam_to_rigdef_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamToRigDefTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+)
+
+add_executable(
+    ror_jbeam_vehicle_importer_tests
+    "${CMAKE_CURRENT_LIST_DIR}/resources/JBeamVehicleImporterTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGPackageManifest.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/BeamNGZipArchiveIndex.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamAdvancedStructureIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamExpressionEvaluator.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamPartResolver.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamStructuralIR.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamSyntax.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamToRigDef.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng/JBeamVehicleImporter.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat/TerrainBundleArchiveVerifier.cpp"
 )
 
 target_include_directories(
@@ -2703,6 +2738,48 @@ target_include_directories(
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
 )
+
+target_include_directories(
+    ror_jbeam_vehicle_importer_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/beamng"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/terrn2_fileformat"
+)
+target_include_directories(
+    ror_jbeam_vehicle_importer_tests
+    SYSTEM PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main"
+        "${ROR_REPOSITORY_ROOT}/source/main/system"
+        "${ROR_REPOSITORY_ROOT}/source/main/utils"
+        "${ROR_REPOSITORY_ROOT}/source/main/utils/memory"
+        "${ROR_REPOSITORY_ROOT}/source/main/resources/rig_def_fileformat"
+        ${OGRE_INCLUDE_DIRS}
+)
+
+if (TARGET OgreMain)
+    target_link_libraries(
+        ror_jbeam_vehicle_importer_tests
+        PRIVATE OgreMain
+    )
+else ()
+    target_link_libraries(
+        ror_jbeam_vehicle_importer_tests
+        PRIVATE ${OGRE_LIBRARIES}
+    )
+endif ()
+target_link_libraries(
+    ror_jbeam_vehicle_importer_tests
+    PRIVATE
+        fmt::fmt
+        OpenSSL::Crypto
+        ZLIB::ZLIB
+)
+if (TARGET Angelscript::angelscript)
+    target_link_libraries(
+        ror_jbeam_vehicle_importer_tests
+        PRIVATE Angelscript::angelscript
+    )
+endif ()
 
 target_include_directories(
     ror_render_display_metrics_tests
@@ -2941,6 +3018,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_application_fatal_shutdown_contract_tests
     ror_beam_axial_kinematics_tests
     ror_beam_axial_response_tests
+    ror_jbeam_support_beam_tests
     ror_beam_rest_length_scale_tests
     ror_beamng_material_inventory_tests
     ror_beamng_package_manifest_tests
@@ -2988,6 +3066,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_jbeam_structural_ir_tests
     ror_jbeam_syntax_tests
     ror_jbeam_to_rigdef_tests
+    ror_jbeam_vehicle_importer_tests
 )
 
 if (TARGET ror_terrain_bundle_config_syntax_tests)
@@ -3061,6 +3140,7 @@ endif ()
 set_target_properties(
     ror_beamng_material_inventory_tests
     ror_jbeam_to_rigdef_tests
+    ror_jbeam_vehicle_importer_tests
     ror_application_fatal_shutdown_contract_tests
     ror_renderer_bridge_process_fake_game
     ror_renderer_bridge_process_fake_presentation
@@ -3635,6 +3715,11 @@ add_test(
 )
 
 add_test(
+    NAME jbeam_support_beam
+    COMMAND ror_jbeam_support_beam_tests
+)
+
+add_test(
     NAME worldmodel_observation_scheduler
     COMMAND ror_worldmodel_observation_scheduler_tests
 )
@@ -3962,6 +4047,11 @@ add_test(
 add_test(
     NAME jbeam_to_rigdef
     COMMAND ror_jbeam_to_rigdef_tests
+)
+
+add_test(
+    NAME jbeam_vehicle_importer
+    COMMAND ror_jbeam_vehicle_importer_tests
 )
 
 if (APPLE)

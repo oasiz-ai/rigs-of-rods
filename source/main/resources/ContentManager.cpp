@@ -2557,6 +2557,84 @@ bool ContentManager::IsAuthenticatedPackageSourceMounted(
     return false;
 }
 
+bool ContentManager::IsExactAuthenticatedPackageSnapshotMounted(
+    const Ogre::String& resource_group,
+    const TerrainBundleAuthenticatedArchiveSnapshot& archive_snapshot) const
+{
+    if (resource_group.empty() || !archive_snapshot.initialized() ||
+        archive_snapshot.source_archive_identity().empty() ||
+        archive_snapshot.archive_sha256().empty() ||
+        archive_snapshot.size() == 0U)
+    {
+        return false;
+    }
+
+    Ogre::ResourceGroupManager* const resource_manager =
+        Ogre::ResourceGroupManager::getSingletonPtr();
+    if (resource_manager == nullptr ||
+        !resource_manager->resourceGroupExists(resource_group))
+    {
+        return false;
+    }
+    const Ogre::ResourceGroupManager::LocationList& live_locations =
+        resource_manager->getResourceLocationList(resource_group);
+
+    std::lock_guard<std::mutex> state_lock(
+        m_legacy_material_state_mutex);
+    const auto generation =
+        m_legacy_material_group_generations.find(resource_group);
+    const auto group =
+        m_authenticated_package_archive_bindings_by_group.find(
+            resource_group);
+    if (generation == m_legacy_material_group_generations.end() ||
+        generation->second == 0U ||
+        group == m_authenticated_package_archive_bindings_by_group.end())
+    {
+        return false;
+    }
+
+    for (const auto& archive_entry : group->second)
+    {
+        const Ogre::Archive* const mounted_archive = archive_entry.first;
+        const AuthenticatedPackageArchiveBinding& binding =
+            archive_entry.second;
+        bool exact_live_location = false;
+        for (const Ogre::ResourceGroupManager::ResourceLocation& location :
+             live_locations)
+        {
+            if (location.archive != mounted_archive)
+            {
+                continue;
+            }
+            if (exact_live_location || location.archive == nullptr ||
+                location.archive->getName() !=
+                    binding.selected_archive_name ||
+                location.archive->getType() !=
+                    binding.selected_archive_type)
+            {
+                exact_live_location = false;
+                break;
+            }
+            exact_live_location = true;
+        }
+        if (mounted_archive != nullptr &&
+            exact_live_location &&
+            binding.archive_pointer_token ==
+                reinterpret_cast<std::uintptr_t>(mounted_archive) &&
+            binding.group_generation == generation->second &&
+            binding.source_archive_identity ==
+                archive_snapshot.source_archive_identity() &&
+            binding.archive_sha256 == archive_snapshot.archive_sha256() &&
+            binding.immutable_archive.size() == archive_snapshot.size() &&
+            binding.immutable_archive.SharesImmutableStateWith(
+                archive_snapshot))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ContentManager::UnregisterPackageResourceGroup(
     const Ogre::String& resource_group)
 {

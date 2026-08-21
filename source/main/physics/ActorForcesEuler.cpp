@@ -38,12 +38,15 @@
 #include "Engine.h"
 #include "FlexAirfoil.h"
 #include "GameContext.h"
+#include "CompressionOnlySupportBeam.h"
 #include "Replay.h"
 #include "ScrewProp.h"
 #include "ScriptEngine.h"
 #include "SoundScriptManager.h"
 #include "Terrain.h"
 #include "GfxWater.h"
+
+#include <limits>
 
 using namespace Ogre;
 using namespace RoR;
@@ -724,6 +727,34 @@ void Actor::CalcHydros()
     for (int i = 0; i < num_hydros; ++i)
     {
         hydrobeam_t& hydrobeam = ar_hydros[i];
+
+        if (hydrobeam.hb_has_jbeam_runtime)
+        {
+            if (hydrobeam.hb_beam_index >= ar_num_beams)
+            {
+                hydrobeam.hb_jbeam_state.fault_latched = true;
+                hydrobeam.hb_jbeam_state.fault =
+                    JBeamHydroRuntimeFault::INVALID_PREVIOUS_STATE;
+                continue;
+            }
+            const double input =
+                static_cast<double>(ar_hydro_dir_command);
+            const JBeamHydroRuntimeStep step =
+                AdvanceJBeamHydroRuntime(
+                    hydrobeam.hb_jbeam_config,
+                    hydrobeam.hb_jbeam_state,
+                    static_cast<double>(hydrobeam.hb_ref_length),
+                    input,
+                    static_cast<double>(PHYSICS_DT),
+                    input == 0.0);
+            hydrobeam.hb_jbeam_state = step.state;
+            if (step.valid)
+            {
+                ar_beams[hydrobeam.hb_beam_index].L =
+                    step.runtime_rest_length;
+            }
+            continue;
+        }
 
         //compound hydro
         float cstate = 0.0f;
@@ -1425,6 +1456,61 @@ void Actor::CalcBeams(bool trigger_hooks)
                             }
                         }
                     }
+                }
+                else if (ar_beams[i].bounded == COMPRESSION_ONLY_SUPPORTBEAM)
+                {
+                    const CompressionOnlySupportBeam::Response response =
+                        CompressionOnlySupportBeam::Evaluate(
+                            dislen,
+                            ar_beams[i].L,
+                            ar_beams[i].support_spawn_length,
+                            ar_beams[i].longbound,
+                            k,
+                            d);
+                    if (!response.valid ||
+                        ar_beams[i].support_accepted_step_count ==
+                            std::numeric_limits<std::uint64_t>::max() ||
+                        (response.compression_active &&
+                         ar_beams[i].support_compression_step_count ==
+                            std::numeric_limits<std::uint64_t>::max()))
+                    {
+                        // Authenticated imported state must not fall through
+                        // to the legacy axial law after corruption or a
+                        // non-finite/runtime-counter transition.
+                        ar_beams[i].support_runtime_fault = true;
+                        ar_beams[i].bm_disabled = true;
+                        ar_beams[i].stress = 0.0f;
+                        ar_beams[i].debug_k = 0.0f;
+                        ar_beams[i].debug_d = 0.0f;
+                        ar_beams[i].debug_v = 0.0f;
+                        continue;
+                    }
+                    ++ar_beams[i].support_accepted_step_count;
+                    if (response.compression_active)
+                        ++ar_beams[i].support_compression_step_count;
+                    if (response.break_now)
+                    {
+                        ar_beams[i].bm_broken = true;
+                        ar_beams[i].bm_disabled = true;
+                        ar_beams[i].stress = 0.0f;
+                        ar_beams[i].debug_k = 0.0f;
+                        ar_beams[i].debug_d = 0.0f;
+                        ar_beams[i].debug_v = 0.0f;
+                        if (m_beam_break_debug_enabled)
+                        {
+                            RoR::Str<300> msg;
+                            msg << "[RoR|Diag] Compression-only support beam "
+                                << i << " exceeded its extension bound. ";
+                            LogBeamNodes(msg, ar_beams[i]);
+                            App::GetConsole()->putMessage(
+                                Console::CONSOLE_MSGTYPE_ACTOR,
+                                Console::CONSOLE_SYSTEM_NOTICE,
+                                msg.ToCStr());
+                        }
+                        continue;
+                    }
+                    k = response.spring;
+                    d = response.damping;
                 }
                 else if (ar_beams[i].bounded == ROPE)
                 {

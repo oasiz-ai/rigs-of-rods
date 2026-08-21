@@ -11,7 +11,9 @@
 
 #include "DeterministicStateTrace.h"
 
+#include <cstdint>
 #include <fstream>
+#include <limits>
 #include <locale>
 #include <ostream>
 #include <sstream>
@@ -206,6 +208,12 @@ int InspectTrace(
 
     RoR::DeterministicStateTrace::StepRecord final_step;
     bool has_final_step = false;
+    std::uint64_t total_contact_count = 0U;
+    std::uint64_t contact_step_count = 0U;
+    std::uint32_t maximum_contact_count = 0U;
+    std::uint64_t first_contact_physics_step = 0U;
+    std::uint64_t last_contact_physics_step = 0U;
+    bool has_contact_step = false;
     for (;;)
     {
         RoR::DeterministicStateTrace::StepRecord candidate;
@@ -213,6 +221,44 @@ int InspectTrace(
             reader.ReadNext(candidate);
         if (result == RoR::DeterministicStateTrace::ReadResult::STEP)
         {
+            if (total_contact_count >
+                    std::numeric_limits<std::uint64_t>::max() -
+                        static_cast<std::uint64_t>(
+                            candidate.contact_count))
+            {
+                WriteInspectionFailure(
+                    output,
+                    path,
+                    "contact_summary_overflow",
+                    nullptr);
+                return RoR::DeterministicStateTrace::CLI_EXIT_INVALID;
+            }
+            total_contact_count += candidate.contact_count;
+            if (candidate.contact_count > 0U)
+            {
+                if (contact_step_count ==
+                        std::numeric_limits<std::uint64_t>::max())
+                {
+                    WriteInspectionFailure(
+                        output,
+                        path,
+                        "contact_summary_overflow",
+                        nullptr);
+                    return RoR::DeterministicStateTrace::CLI_EXIT_INVALID;
+                }
+                ++contact_step_count;
+                if (!has_contact_step)
+                {
+                    first_contact_physics_step =
+                        candidate.physics_step;
+                    has_contact_step = true;
+                }
+                last_contact_physics_step = candidate.physics_step;
+                if (candidate.contact_count > maximum_contact_count)
+                {
+                    maximum_contact_count = candidate.contact_count;
+                }
+            }
             final_step = candidate;
             has_final_step = true;
             continue;
@@ -243,6 +289,22 @@ int InspectTrace(
     report
         << ",\"step_count\":" << reader.GetStepCount()
         << ",\"bytes_read\":" << reader.GetBytesRead()
+        << ",\"contact_summary\":{"
+        << "\"total_contact_count\":" << total_contact_count
+        << ",\"contact_step_count\":" << contact_step_count
+        << ",\"maximum_contact_count\":" << maximum_contact_count
+        << ",\"first_contact_physics_step\":";
+    if (has_contact_step)
+        report << first_contact_physics_step;
+    else
+        report << "null";
+    report << ",\"last_contact_physics_step\":";
+    if (has_contact_step)
+        report << last_contact_physics_step;
+    else
+        report << "null";
+    report
+        << '}'
         << ",\"has_final_step\":"
         << (has_final_step ? "true" : "false")
         << ",\"final_step\":";

@@ -37,6 +37,7 @@
 #include "GenericFileFormat.h"
 #include "GfxActor.h"
 #include "GfxScene.h"
+#include "beamng/JBeamVehicleImporter.h"
 #include "Language.h"
 #include "LegacyMaterialCompatibilityPlan.h"
 #include "PlatformUtils.h"
@@ -56,8 +57,11 @@
 #include <rapidjson/istreamwrapper.h>
 #include <rapidjson/ostreamwrapper.h>
 #include <rapidjson/writer.h>
+#include <cstdint>
 #include <exception>
 #include <fstream>
+#include <limits>
+#include <stdexcept>
 
 using namespace Ogre;
 using namespace RoR;
@@ -304,6 +308,9 @@ void CacheSystem::ImportEntryFromJson(rapidjson::Value& j_entry, CacheEntryPtr &
     out_entry->addtimestamp =           j_entry["addtimestamp"].GetInt();
     out_entry->resource_bundle_type =   j_entry["resource_bundle_type"].GetString();
     out_entry->resource_bundle_path =   j_entry["resource_bundle_path"].GetString();
+    out_entry->beamng_archive_sha256 =  j_entry["beamng_archive_sha256"].GetString();
+    out_entry->beamng_archive_size =    j_entry["beamng_archive_size"].GetUint64();
+    out_entry->beamng_root_part =       j_entry["beamng_root_part"].GetString();
     out_entry->fpath =                  j_entry["fpath"].GetString();
     out_entry->fname =                  j_entry["fname"].GetString();
     out_entry->fname_without_uid =      j_entry["fname_without_uid"].GetString();
@@ -596,6 +603,9 @@ void CacheSystem::ExportEntryToJson(rapidjson::Value& j_entries, rapidjson::Docu
     j_entry.AddMember("addtimestamp",         static_cast<int64_t>(entry->addtimestamp),                    j_doc.GetAllocator());
     j_entry.AddMember("resource_bundle_type", rapidjson::StringRef(entry->resource_bundle_type.c_str()),    j_doc.GetAllocator());
     j_entry.AddMember("resource_bundle_path", rapidjson::StringRef(entry->resource_bundle_path.c_str()),    j_doc.GetAllocator());
+    j_entry.AddMember("beamng_archive_sha256", rapidjson::StringRef(entry->beamng_archive_sha256.c_str()),  j_doc.GetAllocator());
+    j_entry.AddMember("beamng_archive_size", entry->beamng_archive_size,                                   j_doc.GetAllocator());
+    j_entry.AddMember("beamng_root_part", rapidjson::StringRef(entry->beamng_root_part.c_str()),            j_doc.GetAllocator());
     j_entry.AddMember("fpath",                rapidjson::StringRef(entry->fpath.c_str()),                   j_doc.GetAllocator());
     j_entry.AddMember("fname",                rapidjson::StringRef(entry->fname.c_str()),                   j_doc.GetAllocator());
     j_entry.AddMember("fname_without_uid",    rapidjson::StringRef(entry->fname_without_uid.c_str()),       j_doc.GetAllocator());
@@ -1167,7 +1177,19 @@ void CacheSystem::ParseSingleZip(String path)
         try
         {
             ResourceGroupManager::getSingleton().addResourceLocation(path, "Zip", RGN_TEMP);
-            if (ParseKnownFiles(RGN_TEMP))
+            const Ogre::FileInfoListPtr jbeam_members =
+                ResourceGroupManager::getSingleton().findResourceFileInfo(
+                    RGN_TEMP, "*.jbeam");
+            const bool has_jbeam_members =
+                jbeam_members != nullptr && !jbeam_members->empty();
+            // A ZIP with JBeam is one package transaction. Never publish
+            // ordinary sibling CacheEntries first: a rejected JBeam graph or
+            // unsafe OGRE script must leave the entire package absent.
+            const bool usable_content_added = has_jbeam_members
+                ? this->ParseBeamNGJBeamPackage(
+                      path, /*emit_activity_events=*/true)
+                : !ParseKnownFiles(RGN_TEMP);
+            if (!usable_content_added)
             {
                 LOG("No usable content in: '" + path + "'");
             }
@@ -1178,6 +1200,267 @@ void CacheSystem::ParseSingleZip(String path)
         }
         ResourceGroupManager::getSingleton().destroyResourceGroup(RGN_TEMP);
         m_resource_paths.insert(path);
+    }
+}
+
+bool CacheSystem::ParseBeamNGJBeamPackage(
+    const Ogre::String& archive_path,
+    bool emit_activity_events)
+{
+    try
+    {
+        std::string archive_sha256;
+        std::string archive_error;
+        if (!ComputeTerrainBundleArchiveSha256(
+                archive_path,
+                archive_sha256,
+                archive_error))
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Rejected '%s' before cache "
+                "publication: %s",
+                archive_path.c_str(),
+                archive_error.c_str());
+            return false;
+        }
+
+        TerrainBundleAuthenticatedArchiveSnapshot snapshot;
+        std::string observed_sha256;
+        if (!LoadAndVerifyTerrainBundleArchiveSnapshot(
+                archive_path,
+                archive_sha256,
+                TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES,
+                snapshot,
+                observed_sha256,
+                archive_error))
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Rejected '%s' while finalizing its "
+                "immutable snapshot (observed_sha256=%s, reason=%s)",
+                archive_path.c_str(),
+                observed_sha256.empty() ? "unavailable" :
+                    observed_sha256.c_str(),
+                archive_error.c_str());
+            return false;
+        }
+
+        const BeamNG::JBeamVehiclePackageInspection inspection =
+            BeamNG::InspectJBeamVehicleArchiveSnapshot(snapshot);
+        if (!inspection.IsValid())
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Rejected '%s': %s (%s)",
+                archive_path.c_str(),
+                BeamNG::JBeamVehicleImportCodeToString(inspection.code),
+                inspection.detail.c_str());
+            return false;
+        }
+
+        const std::string scan_group =
+            "{jbeam cache scan:" + archive_sha256 + "}";
+        std::vector<CacheEntryPtr> staged_entries;
+        staged_entries.reserve(inspection.candidates.size());
+        std::set<std::string> staged_roots;
+        bool exact_existing_entry = false;
+        const auto unsorted_category = m_categories.find(CID_Unsorted);
+        if (unsorted_category == m_categories.end() ||
+            snapshot.size() >
+                static_cast<std::size_t>(
+                    (std::numeric_limits<std::uint64_t>::max)()))
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Rejected '%s': cache metadata "
+                "capacity is unavailable",
+                archive_path.c_str());
+            return false;
+        }
+
+        for (const BeamNG::JBeamVehicleCandidate& candidate:
+             inspection.candidates)
+        {
+            if (candidate.root_part_name.empty() ||
+                candidate.package_path.empty() ||
+                !staged_roots.insert(candidate.root_part_name).second)
+            {
+                RoR::LogFormat(
+                    "[RoR|ModCache|JBeam] Rejected '%s': duplicate or "
+                    "empty main-root identity",
+                    archive_path.c_str());
+                return false;
+            }
+
+            const auto existing = std::find_if(
+                m_entries.begin(),
+                m_entries.end(),
+                [&](const CacheEntryPtr& entry)
+                {
+                    return entry && !entry->deleted &&
+                        entry->resource_bundle_path == archive_path &&
+                        entry->fext == "jbeam" &&
+                        entry->beamng_root_part ==
+                            candidate.root_part_name;
+                });
+            if (existing != m_entries.end())
+            {
+                if ((*existing)->resource_bundle_type != "Zip" ||
+                    (*existing)->beamng_archive_sha256 != archive_sha256 ||
+                    (*existing)->beamng_archive_size !=
+                        static_cast<std::uint64_t>(snapshot.size()))
+                {
+                    RoR::LogFormat(
+                        "[RoR|ModCache|JBeam] Rejected '%s': an existing "
+                        "root has conflicting source metadata",
+                        archive_path.c_str());
+                    return false;
+                }
+                exact_existing_entry = true;
+                continue;
+            }
+
+            const BeamNG::JBeamVehicleImportResult imported =
+                BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+                    snapshot,
+                    scan_group,
+                    candidate.root_part_name);
+            if (!imported.IsAdmitted() ||
+                imported.document->root_module == nullptr)
+            {
+                RoR::LogFormat(
+                    "[RoR|ModCache|JBeam] Rejected root '%s' from '%s': "
+                    "%s (%s)",
+                    candidate.root_part_name.c_str(),
+                    archive_path.c_str(),
+                    BeamNG::JBeamVehicleImportCodeToString(imported.code),
+                    imported.detail.c_str());
+                return false;
+            }
+
+            const RigDef::Document::Module& root =
+                *imported.document->root_module;
+            if (root.nodes.size() >
+                    static_cast<std::size_t>(
+                        (std::numeric_limits<int>::max)()) ||
+                root.beams.size() >
+                    static_cast<std::size_t>(
+                        (std::numeric_limits<int>::max)()) ||
+                root.hydros.size() >
+                    static_cast<std::size_t>(
+                        (std::numeric_limits<int>::max)()))
+            {
+                RoR::LogFormat(
+                    "[RoR|ModCache|JBeam] Rejected root '%s' from '%s': "
+                    "cache count exceeds INT_MAX",
+                    candidate.root_part_name.c_str(),
+                    archive_path.c_str());
+                return false;
+            }
+
+            CacheEntryPtr cache_entry = new CacheEntry();
+            const std::size_t separator =
+                candidate.package_path.find_last_of("/\\");
+            cache_entry->fpath = separator == std::string::npos
+                ? std::string()
+                : candidate.package_path.substr(0U, separator + 1U);
+            cache_entry->fname = candidate.root_part_name + ".jbeam";
+            cache_entry->fname_without_uid = cache_entry->fname;
+            cache_entry->fext = "jbeam";
+            cache_entry->dname = candidate.root_part_name;
+            cache_entry->categoryid = unsorted_category->first;
+            cache_entry->categoryname = unsorted_category->second;
+            cache_entry->uniqueid =
+                "jbeam:" + archive_sha256 + ":" +
+                candidate.root_part_name;
+            cache_entry->version = 1;
+            cache_entry->fileformatversion = 1;
+            cache_entry->filetime =
+                RoR::GetFileLastModifiedTime(archive_path);
+            cache_entry->resource_bundle_type = "Zip";
+            cache_entry->resource_bundle_path = archive_path;
+            cache_entry->beamng_archive_sha256 = archive_sha256;
+            cache_entry->beamng_archive_size =
+                static_cast<std::uint64_t>(snapshot.size());
+            cache_entry->beamng_root_part =
+                candidate.root_part_name;
+            cache_entry->addtimestamp = m_update_time;
+            cache_entry->nodecount =
+                static_cast<int>(root.nodes.size());
+            cache_entry->beamcount =
+                static_cast<int>(root.beams.size());
+            cache_entry->hydroscount =
+                static_cast<int>(root.hydros.size());
+            cache_entry->hasSubmeshs = !root.submeshes.empty();
+            cache_entry->driveable = NOT_DRIVEABLE;
+            cache_entry->tags = "BeamNG JBeam structural/hydro subset";
+            staged_entries.push_back(cache_entry);
+        }
+
+        if (staged_entries.empty())
+        {
+            return exact_existing_entry;
+        }
+        if (staged_entries.size() >
+                (std::numeric_limits<std::size_t>::max)() -
+                    m_entries.size() ||
+            m_entries.size() + staged_entries.size() >
+                static_cast<std::size_t>(
+                    (std::numeric_limits<CacheEntryID_t>::max)()))
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Rejected '%s': cache entry "
+                "identity capacity is exhausted",
+                archive_path.c_str());
+            return false;
+        }
+
+        m_entries.reserve(m_entries.size() + staged_entries.size());
+        for (std::size_t index = 0U;
+             index < staged_entries.size();
+             ++index)
+        {
+            staged_entries[index]->number =
+                static_cast<CacheEntryID_t>(m_entries.size() + 1U);
+            m_entries.push_back(staged_entries[index]);
+        }
+        for (const CacheEntryPtr& cache_entry: staged_entries)
+        {
+            if (emit_activity_events)
+            {
+                TRIGGER_EVENT_ASYNC(
+                    SE_GENERIC_MODCACHE_ACTIVITY,
+                    MODCACHEACTIVITY_ENTRY_ADDED,
+                    cache_entry->number,
+                    0,
+                    0,
+                    cache_entry->fname,
+                    cache_entry->fext);
+            }
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Added exact root '%s' from '%s' "
+                "(archive_sha256=%s, nodes=%d, beams=%d, hydros=%d)",
+                cache_entry->beamng_root_part.c_str(),
+                archive_path.c_str(),
+                archive_sha256.c_str(),
+                cache_entry->nodecount,
+                cache_entry->beamcount,
+                cache_entry->hydroscount);
+        }
+        return true;
+    }
+    catch (const std::exception& error)
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache|JBeam] Rejected '%s' before cache "
+            "publication: %s",
+            archive_path.c_str(),
+            error.what());
+        return false;
+    }
+    catch (...)
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache|JBeam] Rejected '%s' before cache publication",
+            archive_path.c_str());
+        return false;
     }
 }
 
@@ -1750,6 +2033,10 @@ static bool CheckAndReplacePathIgnoreCase(const CacheEntryPtr& entry, CVar* dir,
     std::string lower_bundlepath = entry->resource_bundle_path;
     Ogre::StringUtil::toLowerCase(lower_bundlepath);
 
+    if (dir == nullptr)
+    {
+        return false;
+    }
     std::string lower_dir = dir->getStr();
     Ogre::StringUtil::toLowerCase(lower_dir);    
 
@@ -1830,6 +2117,17 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
     if (!entry)
         return;
 
+    if (entry->fext == "jbeam" &&
+        (entry->deleted ||
+         this->GetEntryByNumber(entry->number) != entry))
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache|JBeam] Refused stale cache entry '%s' before "
+            "resource loading",
+            entry->fname.c_str());
+        return;
+    }
+
     // Check if already loaded for this entry->
     if (entry->resource_group != "")
     {
@@ -1838,6 +2136,114 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
     }
 
     Ogre::String group = CacheSystem::ComposeResourceGroupName(entry);
+
+    // A ZIP containing admitted JBeam roots is always mounted through the
+    // immutable EmbeddedZip path, regardless of which sibling CacheEntry
+    // triggered the first bundle load. This prevents an ordinary sibling
+    // file from mounting mutable pathname bytes before a JBeam root is
+    // selected later.
+    std::vector<CacheEntryPtr> jbeam_bundle_entries;
+    std::set<std::string> jbeam_bundle_roots;
+    std::string jbeam_archive_sha256;
+    std::uint64_t jbeam_archive_size = 0U;
+    for (const CacheEntryPtr& candidate: m_entries)
+    {
+        if (!candidate || candidate->deleted ||
+            candidate->resource_bundle_path !=
+                entry->resource_bundle_path ||
+            candidate->fext != "jbeam")
+        {
+            continue;
+        }
+        if (candidate->resource_bundle_type != "Zip" ||
+            candidate->beamng_archive_sha256.size() != 64U ||
+            candidate->beamng_archive_size == 0U ||
+            candidate->beamng_archive_size >
+                TERRAIN_BUNDLE_AUTHENTICATED_ARCHIVE_MAXIMUM_BYTES ||
+            candidate->beamng_root_part.empty() ||
+            !jbeam_bundle_roots.insert(
+                candidate->beamng_root_part).second ||
+            (!jbeam_archive_sha256.empty() &&
+             (candidate->beamng_archive_sha256 !=
+                  jbeam_archive_sha256 ||
+              candidate->beamng_archive_size != jbeam_archive_size)))
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Refused bundle '%s': cache roots "
+                "do not share one exact ZIP authority",
+                entry->resource_bundle_path.c_str());
+            return;
+        }
+        if (jbeam_archive_sha256.empty())
+        {
+            jbeam_archive_sha256 =
+                candidate->beamng_archive_sha256;
+            jbeam_archive_size = candidate->beamng_archive_size;
+        }
+        jbeam_bundle_entries.push_back(candidate);
+    }
+    if (!jbeam_bundle_entries.empty() &&
+        entry->resource_bundle_type != "Zip")
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache|JBeam] Refused bundle '%s': an authenticated "
+            "JBeam root cannot share a non-ZIP mount",
+            entry->resource_bundle_path.c_str());
+        return;
+    }
+    if (entry->fext == "jbeam" && jbeam_bundle_entries.empty())
+    {
+        RoR::LogFormat(
+            "[RoR|ModCache|JBeam] Refused cache entry '%s': its exact "
+            "bundle authority is absent",
+            entry->fname.c_str());
+        return;
+    }
+
+    TerrainBundleAuthenticatedArchiveSnapshot authenticated_jbeam_snapshot;
+    bool use_authenticated_jbeam_snapshot = false;
+    std::vector<RigDef::DocumentPtr> staged_jbeam_documents;
+    if (!jbeam_bundle_entries.empty())
+    {
+#if OGRE_VERSION_MAJOR >= 14
+        std::string observed_sha256;
+        std::string verification_error;
+        use_authenticated_jbeam_snapshot =
+            LoadAndVerifyTerrainBundleArchiveSnapshot(
+                entry->resource_bundle_path,
+                jbeam_archive_sha256,
+                jbeam_archive_size,
+                authenticated_jbeam_snapshot,
+                observed_sha256,
+                verification_error) &&
+            authenticated_jbeam_snapshot.size() ==
+                static_cast<std::size_t>(jbeam_archive_size) &&
+            authenticated_jbeam_snapshot.source_archive_identity() ==
+                entry->resource_bundle_path;
+        if (!use_authenticated_jbeam_snapshot)
+        {
+            RoR::LogFormat(
+                "[RoR|ModCache|JBeam] Refused bundle '%s' before resource "
+                "group creation (expected_sha256=%s, observed_sha256=%s, "
+                "reason=%s)",
+                entry->resource_bundle_path.c_str(),
+                jbeam_archive_sha256.c_str(),
+                observed_sha256.empty() ? "unavailable" :
+                    observed_sha256.c_str(),
+                verification_error.empty() ?
+                    "snapshot size or source identity mismatch" :
+                    verification_error.c_str());
+            return;
+        }
+        staged_jbeam_documents.reserve(jbeam_bundle_entries.size());
+#else
+        RoR::LogFormat(
+            "[RoR|ModCache|JBeam] Refused bundle '%s': authenticated JBeam "
+            "mounts require OGRE 14",
+            entry->resource_bundle_path.c_str());
+        return;
+#endif
+    }
 
     // Make "FileSystem" (directory) bundles writable (Default is read-only), except if it's a root directory.
     // See explanation of `readOnly` OGRE flag in `ContentManager::InitModCache()`.
@@ -1899,7 +2305,7 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
     }
 #endif
 
-    bool authenticated_primary_mount_published = false;
+    bool authenticated_package_mount_published = false;
     bool primary_package_location_dispatched = false;
     const auto abandon_resource_group =
         [&](const char* failure_detail) noexcept
@@ -1985,7 +2391,7 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
                     "(authenticated_primary=%s)",
                     entry->resource_bundle_path.c_str(),
                     failure_detail != nullptr ? failure_detail : "unknown",
-                    authenticated_primary_mount_published ? "yes" : "no");
+                    authenticated_package_mount_published ? "yes" : "no");
             }
             catch (...)
             {
@@ -1995,60 +2401,89 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
     // Load now.
     try
     {
+        const auto mount_entry_resource_location = [&]()
+        {
+            if (use_authenticated_jbeam_snapshot)
+            {
+                App::GetContentManager()->
+                    MountAuthenticatedPackageResourceLocation(
+                        group, authenticated_jbeam_snapshot);
+                authenticated_package_mount_published = true;
+                primary_package_location_dispatched = true;
+                RoR::LogFormat(
+                    "[RoR|ModCache|JBeam] Mounted exact archive into '%s' "
+                    "(archive_sha256=%s, roots=%zu)",
+                    group.c_str(),
+                    authenticated_jbeam_snapshot.archive_sha256().c_str(),
+                    jbeam_bundle_entries.size());
+                return;
+            }
+            ResourceGroupManager::getSingleton().addResourceLocation(
+                entry->resource_bundle_path,
+                entry->resource_bundle_type,
+                group,
+                recursive,
+                readonly);
+        };
+
         if (entry->fext == "terrn2")
         {
             // PagedGeometry is hardcoded to use `Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME`
             ResourceGroupManager::getSingleton().createResourceGroup(group, /*inGlobalPool=*/true);
-            DispatchLegacyMaterialPrimaryArchiveMount(
-                use_authenticated_primary_snapshot,
-                [&]()
-                {
-                    App::GetContentManager()->
-                        MountAuthenticatedPackageResourceLocation(
-                            group, authenticated_primary_snapshot);
-                    authenticated_primary_mount_published = true;
-                    RoR::LogFormat(
-                        "[RoR|ModCache|AuthenticatedPrimary] Mounted exact "
-                        "primary terrain archive into '%s' "
-                        "(archive_sha256=%s)",
-                        group.c_str(),
-                        authenticated_primary_snapshot.archive_sha256().c_str());
-                },
-                [&]()
-                {
-                    ResourceGroupManager::getSingleton().addResourceLocation(
-                        entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
-                },
-                [&]()
-                {
-                    App::GetContentManager()->RegisterPackageResourceLocation(
-                        group, entry->resource_bundle_path);
-                });
-            primary_package_location_dispatched = true;
+            if (use_authenticated_jbeam_snapshot)
+            {
+                mount_entry_resource_location();
+            }
+            else
+            {
+                DispatchLegacyMaterialPrimaryArchiveMount(
+                    use_authenticated_primary_snapshot,
+                    [&]()
+                    {
+                        App::GetContentManager()->
+                            MountAuthenticatedPackageResourceLocation(
+                                group, authenticated_primary_snapshot);
+                        authenticated_package_mount_published = true;
+                        RoR::LogFormat(
+                            "[RoR|ModCache|AuthenticatedPrimary] Mounted exact "
+                            "primary terrain archive into '%s' "
+                            "(archive_sha256=%s)",
+                            group.c_str(),
+                            authenticated_primary_snapshot.archive_sha256().c_str());
+                    },
+                    [&]()
+                    {
+                        ResourceGroupManager::getSingleton().addResourceLocation(
+                            entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+                    },
+                    [&]()
+                    {
+                        App::GetContentManager()->RegisterPackageResourceLocation(
+                            group, entry->resource_bundle_path);
+                    });
+                primary_package_location_dispatched = true;
+            }
         }
         else if (entry->fext == "skin")
         {
             // This is a SkinZip bundle - use `inGlobalPool=false` to prevent resource name conflicts.
             // Note: this code won't execute for .skin files in vehicle-bundles because in such case the bundle is already loaded by the vehicle's Cacheentry->
             ResourceGroupManager::getSingleton().createResourceGroup(group, /*inGlobalPool=*/false);
-            ResourceGroupManager::getSingleton().addResourceLocation(
-                entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+            mount_entry_resource_location();
             App::GetContentManager()->InitManagedMaterials(group);
         }
         else if (entry->fext == "tuneup")
         {
             // This is a .tuneup bundle - use `inGlobalPool=false` to prevent resource name conflicts.
             ResourceGroupManager::getSingleton().createResourceGroup(group, /*inGlobalPool=*/false);
-            ResourceGroupManager::getSingleton().addResourceLocation(
-                entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+            mount_entry_resource_location();
             App::GetContentManager()->InitManagedMaterials(group);
         }
         else if (entry->fext == "gadget")
         {
             // This is a .gadget bundle - use `inGlobalPool=false` to prevent resource name conflicts.
             ResourceGroupManager::getSingleton().createResourceGroup(group, /*inGlobalPool=*/false);
-            ResourceGroupManager::getSingleton().addResourceLocation(
-                entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+            mount_entry_resource_location();
             App::GetContentManager()->InitManagedMaterials(group);
             // Allow using builtin include scripts
             App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::SCRIPTS, group);
@@ -2058,13 +2493,18 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
             // A vehicle bundle - use `inGlobalPool=false` to prevent resource name conflicts.
             // See bottom 'note' at https://ogrecave.github.io/ogre/api/latest/_resource-_management.html#Resource-Groups
             ResourceGroupManager::getSingleton().createResourceGroup(group, /*inGlobalPool=*/false);
-            ResourceGroupManager::getSingleton().addResourceLocation(
-                entry->resource_bundle_path, entry->resource_bundle_type, group, recursive, readonly);
+            mount_entry_resource_location();
 
-            App::GetContentManager()->InitManagedMaterials(group);
-            App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::TEXTURES, group);
-            App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MATERIALS, group);
-            App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MESHES, group);
+            // The admitted J2 slice is physics-only. Pulling the legacy
+            // material/mesh packs into this group would both widen authority
+            // and make a structural package depend on renderer initialization.
+            if (!use_authenticated_jbeam_snapshot)
+            {
+                App::GetContentManager()->InitManagedMaterials(group);
+                App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::TEXTURES, group);
+                App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MATERIALS, group);
+                App::GetContentManager()->AddResourcePack(ContentManager::ResourcePack::MESHES, group);
+            }
         }
 
         if (!primary_package_location_dispatched)
@@ -2075,6 +2515,42 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
 
         // Initialize resource group
         ResourceGroupManager::getSingleton().initialiseResourceGroup(group);
+
+        if (use_authenticated_jbeam_snapshot)
+        {
+            for (const CacheEntryPtr& jbeam_entry: jbeam_bundle_entries)
+            {
+                const BeamNG::JBeamVehicleImportResult imported =
+                    BeamNG::ImportJBeamVehicleFromArchiveSnapshot(
+                        authenticated_jbeam_snapshot,
+                        group,
+                        jbeam_entry->beamng_root_part);
+                if (!imported.IsAdmitted() ||
+                    imported.document->_jbeam_import_authority == nullptr ||
+                    imported.document->_jbeam_import_authority !=
+                        imported.authority ||
+                    !imported.authority->Matches(
+                        group,
+                        jbeam_entry->beamng_root_part,
+                        authenticated_jbeam_snapshot))
+                {
+                    throw std::runtime_error(fmt::format(
+                        "JBeam root '{}' failed mounted import: {} ({})",
+                        jbeam_entry->beamng_root_part,
+                        BeamNG::JBeamVehicleImportCodeToString(
+                            imported.code),
+                        imported.detail));
+                }
+                staged_jbeam_documents.push_back(imported.document);
+            }
+            if (staged_jbeam_documents.size() !=
+                jbeam_bundle_entries.size())
+            {
+                throw std::runtime_error(
+                    "JBeam mounted import did not stage every cache root");
+            }
+        }
+
         entry->resource_group = group;
 
         this->LoadSupplementaryDocuments(entry);
@@ -2086,6 +2562,13 @@ void CacheSystem::LoadResource(CacheEntryPtr& entry)
             {
                 i_entry->resource_group = group; // Mark as loaded
             }
+        }
+        for (std::size_t index = 0U;
+             index < staged_jbeam_documents.size();
+             ++index)
+        {
+            jbeam_bundle_entries[index]->actor_def =
+                staged_jbeam_documents[index];
         }
     }
     catch (const Ogre::Exception& e)
@@ -2887,6 +3370,8 @@ size_t CacheSystem::Query(CacheQuery& query)
             add = (query.cqy_filter_type == LT_DashBoard);
         else if (entry->fext == "gadget")
             add = (query.cqy_filter_type == LT_Gadget);
+        else if (entry->fext == "jbeam")
+            add = (query.cqy_filter_type == LT_AllBeam || query.cqy_filter_type == LT_Vehicle || query.cqy_filter_type == LT_Truck);
         else if (entry->fext == "truck")
             add = (query.cqy_filter_type == LT_AllBeam || query.cqy_filter_type == LT_Vehicle || query.cqy_filter_type == LT_Truck);
         else if (entry->fext == "car")

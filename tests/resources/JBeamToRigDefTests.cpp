@@ -1,4 +1,5 @@
 #include "JBeamToRigDef.h"
+#include "JBeamAdvancedStructureIR.h"
 
 #if defined(ROR_JBEAM_TO_RIGDEF_FULL_TEST)
 // Keep this focused target independent from Actor/CacheSystem. The layout and
@@ -139,6 +140,10 @@ double Binary64FromBits(std::uint64_t bits)
 }
 
 using RoR::BeamNG::JBeamRigDefBeamPlan;
+using RoR::BeamNG::JBeamHydroRuntimePlan;
+using RoR::BeamNG::JBeamHydroRuntimePlanCode;
+using RoR::BeamNG::JBeamHydroRuntimePlanSet;
+using RoR::BeamNG::JBeamHydroRuntimePlanSetCode;
 using RoR::BeamNG::JBeamStructuralBeam;
 using RoR::BeamNG::JBeamStructuralBeamStatus;
 using RoR::BeamNG::JBeamStructuralDiagnostic;
@@ -152,6 +157,7 @@ using RoR::BeamNG::JBeamStructuralSeverity;
 using RoR::BeamNG::JBeamStructuralTriangle;
 using RoR::BeamNG::JBeamStructuralTriangleOrigin;
 using RoR::BeamNG::JBeamStructuralTriangleStatus;
+using RoR::BeamNG::JBeamStructuralTriangleType;
 using RoR::BeamNG::JBeamToRigDefDiagnostic;
 using RoR::BeamNG::JBeamToRigDefDiagnosticCode;
 using RoR::BeamNG::JBeamToRigDefLimits;
@@ -194,6 +200,7 @@ JBeamStructuralNode Node(
     node.z = z;
     node.node_weight = mass;
     node.node_weight_authored = true;
+    node.collision = true;
     node.provenance = Provenance("vehicles/test/main.jbeam", line);
     return node;
 }
@@ -1081,6 +1088,72 @@ void TestTransformPreservesTriangleHandedness()
 
 #if defined(ROR_JBEAM_TO_RIGDEF_FULL_TEST)
 
+JBeamHydroRuntimePlan MakeHydroPlan(
+    const JBeamStructuralIR& ir,
+    std::size_t source_index,
+    std::size_t first_node,
+    std::size_t second_node,
+    float precompression,
+    double factor)
+{
+    JBeamHydroRuntimePlan plan;
+    plan.code = JBeamHydroRuntimePlanCode::ADMITTED;
+    plan.source_hydro_index = source_index;
+    plan.node1_source_index = first_node;
+    plan.node2_source_index = second_node;
+    plan.properties.code = RoR::BeamNG::
+        JBeamHydroBeamPropertyAdmissionCode::ADMITTED;
+    plan.properties.source_hydro_index = source_index;
+    plan.properties.actuator.code = RoR::BeamNG::
+        JBeamHydroActuatorAdmissionCode::ADMITTED;
+    plan.properties.actuator.source_hydro_index = source_index;
+    plan.properties.actuator.node1 = ir.nodes[first_node].id;
+    plan.properties.actuator.node2 = ir.nodes[second_node].id;
+    plan.properties.actuator.input_source = "steering_input";
+    plan.properties.actuator.config.has_factor = true;
+    plan.properties.actuator.config.factor = factor;
+    plan.properties.actuator.config.in_rate = 1.25;
+    plan.properties.actuator.config.out_rate = 1.5;
+    plan.properties.actuator.config.auto_center_rate = 2.0;
+    plan.properties.beam.spring = 8001000.0f;
+    plan.properties.beam.damping = 50.0f;
+    plan.properties.beam.deform = 220000.0f;
+    plan.properties.beam.strength = 125000.0f;
+    plan.properties.beam.precompression = precompression;
+    plan.runtime_config.response = plan.properties.actuator.config;
+    plan.runtime_config.input_route =
+        RoR::JBeamHydroInputRoute::STEERING_INPUT;
+
+    const double dx = ir.nodes[first_node].x - ir.nodes[second_node].x;
+    const double dy = ir.nodes[first_node].y - ir.nodes[second_node].y;
+    const double dz = ir.nodes[first_node].z - ir.nodes[second_node].z;
+    const double maximum = std::max(
+        std::fabs(dx), std::max(std::fabs(dy), std::fabs(dz)));
+    const double sx = dx / maximum;
+    const double sy = dy / maximum;
+    const double sz = dz / maximum;
+    plan.geometric_length = maximum *
+        std::sqrt(sx * sx + sy * sy + sz * sz);
+    plan.initial_rest_length = plan.geometric_length *
+        static_cast<double>(precompression);
+    plan.initialized_runtime = RoR::InitializeJBeamHydroRuntime(
+        plan.runtime_config, plan.initial_rest_length);
+    return plan;
+}
+
+JBeamHydroRuntimePlanSet ValidHydroPlanSet(
+    const JBeamStructuralIR& ir)
+{
+    JBeamHydroRuntimePlanSet plans;
+    plans.code = JBeamHydroRuntimePlanSetCode::ADMITTED;
+    plans.source_hydro_count = 2U;
+    plans.plans.push_back(MakeHydroPlan(
+        ir, 0U, 1U, 0U, 0.75f, 0.14));
+    plans.plans.push_back(MakeHydroPlan(
+        ir, 1U, 2U, 3U, 1.0f, -0.2));
+    return plans;
+}
+
 float MirrorActorSpawnerDeformationThreshold(
     const RigDef::BeamDefaults& defaults)
 {
@@ -1186,6 +1259,7 @@ void TestProductionDocumentIsFreshAndSpawnReady()
     }
     CHECK(module.nodes[0].load_weight_override == 1.0f);
     CHECK(module.nodes[1].load_weight_override == 2.0f);
+    CHECK(module.contacters.empty());
 
     CHECK(module.beams.size() == 2U);
     CHECK(module.beams[0].nodes[0].Str() == "ref");
@@ -1213,7 +1287,8 @@ void TestProductionDocumentIsFreshAndSpawnReady()
     CHECK(module.submeshes.size() == 1U);
     CHECK(module.submeshes[0].texcoords.empty());
     CHECK(module.submeshes[0].cab_triangles.size() == 1U);
-    CHECK(module.submeshes[0].cab_triangles[0].options == 0U);
+    CHECK(module.submeshes[0].cab_triangles[0].options ==
+        RigDef::Cab::OPTION_c_CONTACT);
     CHECK(module.submeshes[0].cab_triangles[0].nodes[0].Str() ==
         "ref");
     CHECK(module.submeshes[0].cab_triangles[0].nodes[1].Str() ==
@@ -1229,6 +1304,283 @@ void TestProductionDocumentIsFreshAndSpawnReady()
     CHECK(module.globals[0].dry_mass == 0.0f);
     CHECK(module.globals[0].cargo_mass == 0.0f);
     CHECK(module.globals[0].material_name.empty());
+}
+
+void TestNodeCollisionLowering()
+{
+    JBeamStructuralIR ir = ValidIR();
+    CHECK(ir.nodes.size() >= 3U);
+    ir.nodes[2].collision = false;
+
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    const RigDef::DocumentPtr document =
+        RoR::BeamNG::ConvertJBeamToRigDef(
+            ir, "node-collision", diagnostics);
+    CHECK(document != nullptr);
+    CHECK(diagnostics.empty());
+    CHECK(document->root_module != nullptr);
+    if (!document || !document->root_module)
+        return;
+
+    const RigDef::Document::Module& module = *document->root_module;
+    CHECK(module.nodes.size() == ir.nodes.size());
+    CHECK(module.contacters.empty());
+    for (std::size_t output_index = 0U;
+         output_index < module.nodes.size();
+         ++output_index)
+    {
+        const JBeamStructuralNode& source =
+            ir.nodes[output_index];
+        const bool no_ground_contact =
+            (module.nodes[output_index].options &
+             RigDef::Node::OPTION_c_NO_GROUND_CONTACT) != 0U;
+        CHECK(no_ground_contact == !source.collision);
+        CHECK((module.nodes[output_index].options &
+            RigDef::Node::OPTION_l_LOAD_WEIGHT) != 0U);
+    }
+}
+
+void TestNodeCollisionModeAdmission()
+{
+    JBeamStructuralIR self_collision = ValidIR();
+    self_collision.nodes[0].self_collision = true;
+    JBeamToRigDefPreflightResult result =
+        RoR::BeamNG::PreflightJBeamToRigDef(
+            self_collision, "self-collision");
+    CHECK(!result.IsValid());
+    const JBeamToRigDefDiagnostic* diagnostic = FindDiagnostic(
+        result,
+        JBeamToRigDefDiagnosticCode::
+            UNSUPPORTED_NODE_COLLISION_MODE);
+    CHECK(diagnostic != NULL);
+    CHECK(diagnostic && diagnostic->source_index == 0U);
+
+    JBeamStructuralIR no_static_collision = ValidIR();
+    no_static_collision.nodes[1].static_collision = false;
+    result = RoR::BeamNG::PreflightJBeamToRigDef(
+        no_static_collision, "no-static-collision");
+    CHECK(!result.IsValid());
+    diagnostic = FindDiagnostic(
+        result,
+        JBeamToRigDefDiagnosticCode::
+            UNSUPPORTED_NODE_COLLISION_MODE);
+    CHECK(diagnostic != NULL);
+    CHECK(diagnostic && diagnostic->source_index == 1U);
+
+    // BeamNG documents collision as the highest-priority switch. Once it is
+    // false, self/static settings have no effect and the exact effective mode
+    // is representable by RoR's no-ground/contactable node option.
+    JBeamStructuralIR collision_disabled = ValidIR();
+    collision_disabled.nodes[2].collision = false;
+    collision_disabled.nodes[2].self_collision = true;
+    collision_disabled.nodes[2].static_collision = false;
+    result = RoR::BeamNG::PreflightJBeamToRigDef(
+        collision_disabled, "collision-disabled");
+    CHECK(result.IsValid());
+    CHECK(result.diagnostics.empty());
+
+#if defined(ROR_JBEAM_TO_RIGDEF_FULL_TEST)
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    const RigDef::DocumentPtr document =
+        RoR::BeamNG::ConvertJBeamToRigDef(
+            collision_disabled,
+            "collision-disabled",
+            diagnostics);
+    CHECK(document != nullptr);
+    CHECK(diagnostics.empty());
+    CHECK(document && document->root_module);
+    if (document && document->root_module)
+    {
+        const JBeamToRigDefPreflightResult plan =
+            RoR::BeamNG::PreflightJBeamToRigDef(
+                collision_disabled,
+                "collision-disabled");
+        std::size_t output_index = 0U;
+        while (output_index < plan.node_source_order.size() &&
+               plan.node_source_order[output_index] != 2U)
+        {
+            ++output_index;
+        }
+        CHECK(output_index < document->root_module->nodes.size());
+        if (output_index < document->root_module->nodes.size())
+        {
+            CHECK((document->root_module->nodes[output_index].options &
+                RigDef::Node::OPTION_c_NO_GROUND_CONTACT) != 0U);
+        }
+        CHECK(document->root_module->contacters.empty());
+    }
+#endif
+}
+
+void TestTriangleTypeLowering()
+{
+    JBeamStructuralIR noncollidable = ValidIR();
+    CHECK(!noncollidable.triangles.empty());
+    noncollidable.triangles[0].triangle_type =
+        JBeamStructuralTriangleType::NONCOLLIDABLE;
+
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    const RigDef::DocumentPtr document =
+        RoR::BeamNG::ConvertJBeamToRigDef(
+            noncollidable,
+            "noncollidable-triangle",
+            diagnostics);
+    CHECK(document != nullptr);
+    CHECK(diagnostics.empty());
+    CHECK(document && document->root_module);
+    if (document && document->root_module)
+    {
+        CHECK(document->root_module->submeshes.size() == 1U);
+        CHECK(document->root_module->submeshes[0].
+            cab_triangles.size() == 1U);
+        CHECK(document->root_module->submeshes[0].
+            cab_triangles[0].options == 0U);
+    }
+
+    JBeamStructuralIR invalid = ValidIR();
+    invalid.triangles[0].triangle_type =
+        static_cast<JBeamStructuralTriangleType>(255);
+    const JBeamToRigDefPreflightResult result =
+        RoR::BeamNG::PreflightJBeamToRigDef(
+            invalid,
+            "invalid-triangle-type");
+    CHECK(!result.IsValid());
+    const JBeamToRigDefDiagnostic* diagnostic = FindDiagnostic(
+        result,
+        JBeamToRigDefDiagnosticCode::INVALID_ENTITY_STATE);
+    CHECK(diagnostic != NULL);
+    CHECK(diagnostic && diagnostic->entity_kind ==
+        RoR::BeamNG::JBeamToRigDefEntityKind::TRIANGLE);
+}
+
+void TestSupportBeamLowering()
+{
+    JBeamStructuralIR support = ValidIR();
+    CHECK(!support.beams.empty());
+    JBeamStructuralBeam& source = support.beams[0];
+    source.beam_type = "SUPPORT";
+    source.status = JBeamStructuralBeamStatus::ENABLED;
+    source.has_precompression = true;
+    source.precompression = 0.71;
+    source.has_long_bound = true;
+    source.long_bound = 0.0;
+
+    const JBeamToRigDefPreflightResult plan =
+        RoR::BeamNG::PreflightJBeamToRigDef(
+            support, "support-beam");
+    CHECK(plan.IsValid());
+    CHECK(!plan.beams.empty());
+    if (!plan.beams.empty())
+    {
+        CHECK(plan.beams[0].support);
+        CHECK(plan.beams[0].extension_break_limit == 0.0f);
+        CHECK(plan.beams[0].rest_length_scale == 0.71f);
+        CHECK(plan.beams[0].geometric_length >
+            plan.beams[0].scaled_rest_length);
+    }
+
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    const RigDef::DocumentPtr document =
+        RoR::BeamNG::ConvertJBeamToRigDef(
+            support, "support-beam", diagnostics);
+    CHECK(document != nullptr);
+    CHECK(diagnostics.empty());
+    CHECK(document && document->root_module);
+    if (document && document->root_module &&
+        !document->root_module->beams.empty())
+    {
+        const RigDef::Beam& beam =
+            document->root_module->beams[0];
+        CHECK((beam.options &
+            RigDef::Beam::OPTION_COMPRESSION_ONLY_SUPPORT) != 0U);
+        CHECK((beam.options &
+            RigDef::Beam::OPTION_s_SUPPORT) == 0U);
+        CHECK(beam._has_extension_break_limit);
+        CHECK(beam.extension_break_limit == 0.0f);
+        CHECK(beam._rest_length_scale == 0.71f);
+    }
+
+    JBeamStructuralIR invalid = support;
+    invalid.beams[0].long_bound = -0.1;
+    const JBeamToRigDefPreflightResult invalid_plan =
+        RoR::BeamNG::PreflightJBeamToRigDef(
+            invalid, "invalid-support-beam");
+    CHECK(!invalid_plan.IsValid());
+    CHECK(FindDiagnostic(
+        invalid_plan,
+        JBeamToRigDefDiagnosticCode::INVALID_BEAM_PARAMETER) != NULL);
+}
+
+void TestHydroPlansPublishAllOrNone()
+{
+    const JBeamStructuralIR ir = ValidIR();
+    JBeamHydroRuntimePlanSet plans = ValidHydroPlanSet(ir);
+    std::vector<JBeamToRigDefDiagnostic> diagnostics;
+    const RigDef::DocumentPtr document =
+        RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
+            ir, plans, "hydro-runtime", diagnostics);
+    CHECK(document != nullptr);
+    CHECK(diagnostics.empty());
+    CHECK(document->root_module != nullptr);
+    const RigDef::Document::Module& module = *document->root_module;
+    CHECK(module.hydros.size() == 2U);
+    CHECK(module.hydros[0].nodes[0].Str() == "ref");
+    CHECK(module.hydros[0].nodes[1].Str() == "back");
+    CHECK(module.hydros[0].options == 0U);
+    CHECK(module.hydros[0].lenghtening_factor == 0.0f);
+    CHECK(module.hydros[0].inertia_defaults != nullptr);
+    CHECK(module.hydros[0].beam_defaults != nullptr);
+    CHECK(module.hydros[0].beam_defaults->springiness == 8001000.0f);
+    CHECK(module.hydros[0].beam_defaults->damping_constant == 50.0f);
+    CHECK(module.hydros[0].beam_defaults->deformation_threshold ==
+        220000.0f);
+    CHECK(module.hydros[0].beam_defaults->breaking_threshold ==
+        125000.0f);
+    CHECK(module.hydros[0].beam_defaults->_is_user_defined);
+    CHECK(module.hydros[0].beam_defaults->_enable_advanced_deformation);
+    CHECK(module.hydros[0]._jbeam_runtime_plan != nullptr);
+    CHECK(module.hydros[0]._jbeam_runtime_plan->IsAdmitted());
+    CHECK(module.hydros[0]._jbeam_runtime_plan.get() !=
+        &plans.plans[0]);
+    CHECK(module.hydros[1].nodes[0].Str() == "left");
+    CHECK(module.hydros[1].nodes[1].Str() == "up");
+    CHECK(module.hydros[1]._jbeam_runtime_plan->
+        runtime_config.response.factor == -0.2);
+
+    JBeamHydroRuntimePlanSet wrong_identity = plans;
+    wrong_identity.plans[0].properties.actuator.node1 = "left";
+    CHECK(!RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
+        ir, wrong_identity, "wrong-hydro-node", diagnostics));
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN);
+    CHECK(diagnostics[0].entity_kind ==
+        RoR::BeamNG::JBeamToRigDefEntityKind::HYDRO);
+    CHECK(diagnostics[0].source_index == 0U);
+
+    JBeamHydroRuntimePlanSet wrong_config = plans;
+    wrong_config.plans[1].runtime_config.response.factor = -0.3;
+    CHECK(!RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
+        ir, wrong_config, "wrong-hydro-config", diagnostics));
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN);
+
+    JBeamHydroRuntimePlanSet partial = plans;
+    partial.plans.pop_back();
+    CHECK(!RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
+        ir, partial, "partial-hydros", diagnostics));
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::INVALID_HYDRO_RUNTIME_PLAN);
+
+    JBeamToRigDefLimits limited;
+    limited.max_beams = 3U;
+    CHECK(!RoR::BeamNG::ConvertJBeamToRigDefWithHydroRuntimePlans(
+        ir, plans, "hydro-limit", diagnostics, limited));
+    CHECK(diagnostics.size() == 1U);
+    CHECK(diagnostics[0].code ==
+        JBeamToRigDefDiagnosticCode::HYDRO_RUNTIME_LIMIT);
 }
 
 #endif
@@ -1251,6 +1603,11 @@ int main()
 #if defined(ROR_JBEAM_TO_RIGDEF_FULL_TEST)
     TestLowBeamNGDeformSurvivesActorSpawner();
     TestProductionDocumentIsFreshAndSpawnReady();
+    TestNodeCollisionLowering();
+    TestNodeCollisionModeAdmission();
+    TestTriangleTypeLowering();
+    TestSupportBeamLowering();
+    TestHydroPlansPublishAllOrNone();
 #endif
     if (g_failures != 0)
     {

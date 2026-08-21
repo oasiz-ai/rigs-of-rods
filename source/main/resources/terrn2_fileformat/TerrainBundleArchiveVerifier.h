@@ -110,6 +110,15 @@ bool VerifyTerrainBundleArchiveSha256(
     std::string& out_observed_sha256,
     std::string& out_error);
 
+/// Computes the lowercase SHA-256 of one archive without accepting or
+/// mounting it. Callers that need an immutable snapshot must subsequently use
+/// LoadAndVerifyTerrainBundleArchiveSnapshot with this digest; that second
+/// full read closes mutation between discovery and publication.
+bool ComputeTerrainBundleArchiveSha256(
+    const std::string& archive_path,
+    std::string& out_observed_sha256,
+    std::string& out_error);
+
 /// Reads the archive exactly once, enforces a caller cap no larger than the
 /// hard 512 MiB ceiling, hashes those same bytes, and atomically publishes an
 /// immutable snapshot only when the expected lowercase SHA-256 matches.

@@ -36,12 +36,13 @@
 
 #include <Ogre.h>
 #include <rapidjson/document.h>
+#include <cstdint>
 #include <string>
 #include <set>
 #include <vector>
 
 #define CACHE_FILE "mods.cache"
-#define CACHE_FILE_FORMAT 14
+#define CACHE_FILE_FORMAT 15
 #define CACHE_FILE_FRESHNESS 86400 // 60*60*24 = one day
 
 namespace RoR {
@@ -81,6 +82,14 @@ public:
     
     std::string resource_bundle_type;   //!< Archive type recognized by OGRE resource system: 'FileSystem' or 'Zip'
     std::string resource_bundle_path;   //!< Path of ZIP or directory which contains the media. Shared between CacheEntries, loaded only once.
+
+    // Exact immutable source identity for product-admitted BeamNG JBeam ZIPs.
+    // Ordinary cache entries leave these empty/zero. The virtual `fname` is
+    // never opened as a RigDef stream; LoadResource remints the document from
+    // this exact archive/root pair after mounting its immutable snapshot.
+    std::string beamng_archive_sha256;
+    std::uint64_t beamng_archive_size = 0U;
+    std::string beamng_root_part;
     
     std::time_t filetime;               //!< filetime
     bool deleted;                       //!< is this mod deleted?
@@ -285,6 +294,7 @@ struct ModifyProjectRequest
 class CacheSystem
 {
     friend class ContentManager;
+    friend class CacheSystemNativeIntegrationTestAccess;
 public:
     typedef std::map<int, Ogre::String> CategoryIdNameMap;
 
@@ -353,6 +363,9 @@ private:
 
     void ParseZipArchives(Ogre::String group);
     bool ParseKnownFiles(Ogre::String group); // returns true if no known files are found
+    bool ParseBeamNGJBeamPackage(
+        const Ogre::String& archive_path,
+        bool emit_activity_events);
     
 
     void ClearCache(); // removes                   all files from the cache
