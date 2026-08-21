@@ -3430,6 +3430,298 @@ const char* JBeamHydroActuatorAdmissionCodeToString(
     return "unknown";
 }
 
+JBeamHydroBeamPropertyConfig::JBeamHydroBeamPropertyConfig()
+    : spring(4300000.0f)
+    , damping(580.0f)
+    , deform(220000.0f)
+    , strength(std::numeric_limits<float>::max())
+    , precompression(1.0f)
+    , deform_is_flt_max(false)
+    , strength_is_flt_max(true)
+{
+}
+
+JBeamHydroBeamPropertyAdmission::JBeamHydroBeamPropertyAdmission()
+    : code(JBeamHydroBeamPropertyAdmissionCode::ACTUATOR_NOT_ADMITTED)
+    , source_hydro_index(0U)
+{
+}
+
+bool JBeamHydroBeamPropertyAdmission::IsAdmitted() const
+{
+    return code == JBeamHydroBeamPropertyAdmissionCode::ADMITTED;
+}
+
+namespace {
+
+const JBeamAdvancedField* FindUniqueEffectiveField(
+    const JBeamAdvancedEntry& entry,
+    const char* name,
+    bool& malformed)
+{
+    const JBeamAdvancedField* result = NULL;
+    for (std::size_t i = 0U; i < entry.effective_fields.size(); ++i)
+    {
+        const JBeamAdvancedField& field = entry.effective_fields[i];
+        if (field.name == name)
+        {
+            if (result != NULL || !field.raw_value)
+            {
+                malformed = true;
+                return NULL;
+            }
+            result = &field;
+        }
+    }
+    return result;
+}
+
+bool IsNormalBinary32(float value)
+{
+    static_assert(sizeof(float) == sizeof(std::uint32_t),
+        "hydro beam admission requires a binary32 float");
+    static_assert(std::numeric_limits<float>::is_iec559,
+        "hydro beam admission requires IEC 60559 floats");
+    std::uint32_t bits = 0U;
+    volatile unsigned char stored[sizeof(float)];
+    const unsigned char* source =
+        reinterpret_cast<const unsigned char*>(&value);
+    for (std::size_t i = 0U; i < sizeof(float); ++i)
+    {
+        stored[i] = source[i];
+    }
+    unsigned char* destination =
+        reinterpret_cast<unsigned char*>(&bits);
+    for (std::size_t i = 0U; i < sizeof(float); ++i)
+    {
+        destination[i] = stored[i];
+    }
+    const std::uint32_t exponent = bits & UINT32_C(0x7f800000);
+    return exponent != 0U && exponent != UINT32_C(0x7f800000);
+}
+
+bool TryNarrowBeamProperty(double value, bool require_positive, float& output)
+{
+    output = 0.0f;
+    if (!IsFiniteDouble(value) ||
+        value < 0.0 ||
+        (require_positive && !(value > 0.0)) ||
+        value > static_cast<double>(std::numeric_limits<float>::max()))
+    {
+        return false;
+    }
+    const volatile float narrowed = static_cast<float>(value);
+    output = narrowed;
+    if (value == 0.0)
+    {
+        return !require_positive && output == 0.0f;
+    }
+    return output > 0.0f && IsNormalBinary32(output);
+}
+
+enum class BeamPropertyReadCode
+{
+    OK,
+    MALFORMED,
+    INVALID,
+    NARROWING
+};
+
+BeamPropertyReadCode ReadBeamProperty(
+    const JBeamAdvancedEntry& entry,
+    const char* name,
+    double default_value,
+    bool default_is_flt_max,
+    bool allow_flt_max,
+    bool require_positive,
+    float& output,
+    bool& is_flt_max)
+{
+    is_flt_max = default_is_flt_max;
+    bool malformed = false;
+    const JBeamAdvancedField* field =
+        FindUniqueEffectiveField(entry, name, malformed);
+    if (malformed)
+    {
+        return BeamPropertyReadCode::MALFORMED;
+    }
+    if (field == NULL)
+    {
+        return TryNarrowBeamProperty(
+            default_value, require_positive, output)
+            ? BeamPropertyReadCode::OK
+            : BeamPropertyReadCode::NARROWING;
+    }
+    is_flt_max = false;
+    const JBeamValue& value = *field->raw_value;
+    if (allow_flt_max && IsFltMax(value))
+    {
+        output = std::numeric_limits<float>::max();
+        is_flt_max = true;
+        return BeamPropertyReadCode::OK;
+    }
+    if (value.type != JBeamValueType::NUMBER ||
+        !IsFiniteDouble(value.number_value) ||
+        value.number_value < 0.0 ||
+        (require_positive && !(value.number_value > 0.0)))
+    {
+        return BeamPropertyReadCode::INVALID;
+    }
+    return TryNarrowBeamProperty(
+        value.number_value, require_positive, output)
+        ? BeamPropertyReadCode::OK
+        : BeamPropertyReadCode::NARROWING;
+}
+
+JBeamHydroBeamPropertyAdmissionCode MapBeamPropertyReadCode(
+    BeamPropertyReadCode code)
+{
+    if (code == BeamPropertyReadCode::MALFORMED)
+    {
+        return JBeamHydroBeamPropertyAdmissionCode::
+            MALFORMED_EFFECTIVE_FIELD;
+    }
+    if (code == BeamPropertyReadCode::NARROWING)
+    {
+        return JBeamHydroBeamPropertyAdmissionCode::FLOAT_NARROWING;
+    }
+    return JBeamHydroBeamPropertyAdmissionCode::INVALID_BEAM_PROPERTY;
+}
+
+} // namespace
+
+JBeamHydroBeamPropertyAdmission AdmitJBeamHydroBeamProperties(
+    const JBeamAdvancedStructureIR& ir,
+    std::size_t hydro_index)
+{
+    JBeamHydroBeamPropertyAdmission result;
+    result.source_hydro_index = hydro_index;
+    result.actuator = AdmitJBeamHydroActuator(ir, hydro_index);
+    if (!result.actuator.IsAdmitted())
+    {
+        result.code =
+            JBeamHydroBeamPropertyAdmissionCode::ACTUATOR_NOT_ADMITTED;
+        return result;
+    }
+
+    const JBeamAdvancedEntry& entry = ir.hydros[hydro_index].entry;
+    bool malformed = false;
+    const JBeamAdvancedField* beam_type =
+        FindUniqueEffectiveField(entry, "beamType", malformed);
+    if (malformed || (beam_type != NULL && !beam_type->raw_value))
+    {
+        result.code = JBeamHydroBeamPropertyAdmissionCode::
+            MALFORMED_EFFECTIVE_FIELD;
+        return result;
+    }
+    if (beam_type != NULL)
+    {
+        const JBeamValue& type_value = *beam_type->raw_value;
+        if (type_value.type != JBeamValueType::STRING ||
+            type_value.scalar_text.empty())
+        {
+            result.code = JBeamHydroBeamPropertyAdmissionCode::
+                UNSUPPORTED_BEAM_TYPE;
+            return result;
+        }
+        std::string normalized = type_value.scalar_text;
+        if (!normalized.empty() && normalized[0] == '|')
+        {
+            normalized.erase(0U, 1U);
+        }
+        if (normalized != "NORMAL")
+        {
+            result.code = JBeamHydroBeamPropertyAdmissionCode::
+                UNSUPPORTED_BEAM_TYPE;
+            return result;
+        }
+    }
+
+    const char* unsupported_fields[] = {
+        "beamLongBound", "beamShortBound", "breakGroup",
+        "breakGroupType"
+    };
+    for (std::size_t i = 0U;
+         i < sizeof(unsupported_fields) / sizeof(unsupported_fields[0]);
+         ++i)
+    {
+        malformed = false;
+        if (FindUniqueEffectiveField(
+                entry, unsupported_fields[i], malformed) != NULL ||
+            malformed)
+        {
+            result.code = malformed
+                ? JBeamHydroBeamPropertyAdmissionCode::
+                    MALFORMED_EFFECTIVE_FIELD
+                : JBeamHydroBeamPropertyAdmissionCode::
+                    UNSUPPORTED_BEAM_BEHAVIOR;
+            return result;
+        }
+    }
+
+    bool unused_flt_max = false;
+    BeamPropertyReadCode read = ReadBeamProperty(
+        entry, "beamSpring", 4300000.0, false, false, false,
+        result.beam.spring, unused_flt_max);
+    if (read == BeamPropertyReadCode::OK)
+    {
+        read = ReadBeamProperty(
+            entry, "beamDamp", 580.0, false, false, false,
+            result.beam.damping, unused_flt_max);
+    }
+    if (read == BeamPropertyReadCode::OK)
+    {
+        read = ReadBeamProperty(
+            entry, "beamDeform", 220000.0, false, true, false,
+            result.beam.deform, result.beam.deform_is_flt_max);
+    }
+    if (read == BeamPropertyReadCode::OK)
+    {
+        read = ReadBeamProperty(
+            entry, "beamStrength",
+            static_cast<double>(std::numeric_limits<float>::max()),
+            true, true, false, result.beam.strength,
+            result.beam.strength_is_flt_max);
+    }
+    if (read == BeamPropertyReadCode::OK)
+    {
+        read = ReadBeamProperty(
+            entry, "beamPrecompression", 1.0, false, false, true,
+            result.beam.precompression, unused_flt_max);
+    }
+    if (read != BeamPropertyReadCode::OK)
+    {
+        result.code = MapBeamPropertyReadCode(read);
+        return result;
+    }
+
+    result.code = JBeamHydroBeamPropertyAdmissionCode::ADMITTED;
+    return result;
+}
+
+const char* JBeamHydroBeamPropertyAdmissionCodeToString(
+    JBeamHydroBeamPropertyAdmissionCode code)
+{
+    switch (code)
+    {
+    case JBeamHydroBeamPropertyAdmissionCode::ADMITTED:
+        return "admitted";
+    case JBeamHydroBeamPropertyAdmissionCode::ACTUATOR_NOT_ADMITTED:
+        return "actuator-not-admitted";
+    case JBeamHydroBeamPropertyAdmissionCode::MALFORMED_EFFECTIVE_FIELD:
+        return "malformed-effective-field";
+    case JBeamHydroBeamPropertyAdmissionCode::UNSUPPORTED_BEAM_TYPE:
+        return "unsupported-beam-type";
+    case JBeamHydroBeamPropertyAdmissionCode::UNSUPPORTED_BEAM_BEHAVIOR:
+        return "unsupported-beam-behavior";
+    case JBeamHydroBeamPropertyAdmissionCode::INVALID_BEAM_PROPERTY:
+        return "invalid-beam-property";
+    case JBeamHydroBeamPropertyAdmissionCode::FLOAT_NARROWING:
+        return "float-narrowing";
+    }
+    return "unknown";
+}
+
 JBeamAdvancedStructureIR BuildJBeamAdvancedStructureIR(
     const JBeamResolvedGraph& graph,
     const JBeamAdvancedLimits& limits)

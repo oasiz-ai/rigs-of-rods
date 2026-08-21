@@ -321,6 +321,17 @@ construct a beam, apply forces, create constraints, publish replay state, or
 authorize vehicle spawning. Rails, slidenodes, thrusters, torsion bars, and
 all other force-producing paths remain inventory-only.
 
+A second, separately queried receipt admits only the physical standard-beam
+properties that the existing RigDef construction boundary can represent
+without legacy defaults. It resolves the documented spring, damping,
+deformation, strength, and precompression defaults or exact row overrides;
+normalizes `NORMAL`/`|NORMAL`; maps `FLT_MAX` to exact binary32 maximum; and
+rejects negative, non-finite, subnormal, or overflowing binary32 values. Any
+special beam type, long/short bound, or break-group behavior rejects because
+this receipt cannot preserve those semantics. The two receipts deliberately
+remain separate: even both being valid does not authorize input wiring,
+physical construction, or spawning.
+
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
 caps/loops, and break behavior.

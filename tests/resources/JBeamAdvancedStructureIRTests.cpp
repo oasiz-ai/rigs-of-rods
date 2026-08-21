@@ -34,6 +34,8 @@ using RoR::BeamNG::JBeamAdvancedSectionKind;
 using RoR::BeamNG::JBeamAdvancedStructureIR;
 using RoR::BeamNG::JBeamHydroActuatorAdmission;
 using RoR::BeamNG::JBeamHydroActuatorAdmissionCode;
+using RoR::BeamNG::JBeamHydroBeamPropertyAdmission;
+using RoR::BeamNG::JBeamHydroBeamPropertyAdmissionCode;
 using RoR::BeamNG::JBeamObjectField;
 using RoR::BeamNG::JBeamPackageIndex;
 using RoR::BeamNG::JBeamPackageSource;
@@ -407,6 +409,108 @@ void TestHydroActuatorAdmission()
         RoR::BeamNG::JBeamHydroActuatorAdmissionCodeToString(
             JBeamHydroActuatorAdmissionCode::INVALID_ACTUATOR_CONFIG)) ==
         "invalid-actuator-config");
+}
+
+void TestHydroBeamPropertyAdmission()
+{
+    const JBeamAdvancedStructureIR defaults =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "[\"n1\",\"n2\"]]"));
+    const JBeamHydroBeamPropertyAdmission admitted_defaults =
+        RoR::BeamNG::AdmitJBeamHydroBeamProperties(defaults, 0U);
+    CHECK(admitted_defaults.IsAdmitted());
+    CHECK(admitted_defaults.actuator.IsAdmitted());
+    CHECK(admitted_defaults.beam.spring == 4300000.0f);
+    CHECK(admitted_defaults.beam.damping == 580.0f);
+    CHECK(admitted_defaults.beam.deform == 220000.0f);
+    CHECK(!admitted_defaults.beam.deform_is_flt_max);
+    CHECK(admitted_defaults.beam.strength ==
+        std::numeric_limits<float>::max());
+    CHECK(admitted_defaults.beam.strength_is_flt_max);
+    CHECK(admitted_defaults.beam.precompression == 1.0f);
+
+    const JBeamAdvancedStructureIR explicit_properties =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "{\"beamType\":\"|NORMAL\",\"beamSpring\":8001000,"
+            "\"beamDamp\":50,\"beamDeform\":\"FLT_MAX\","
+            "\"beamStrength\":125000,\"beamPrecompression\":0.75},"
+            "[\"n1\",\"n2\",{\"factor\":0.14}]]"));
+    const JBeamHydroBeamPropertyAdmission admitted_explicit =
+        RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+            explicit_properties, 0U);
+    CHECK(admitted_explicit.IsAdmitted());
+    CHECK(admitted_explicit.beam.spring == 8001000.0f);
+    CHECK(admitted_explicit.beam.damping == 50.0f);
+    CHECK(admitted_explicit.beam.deform ==
+        std::numeric_limits<float>::max());
+    CHECK(admitted_explicit.beam.deform_is_flt_max);
+    CHECK(admitted_explicit.beam.strength == 125000.0f);
+    CHECK(!admitted_explicit.beam.strength_is_flt_max);
+    CHECK(admitted_explicit.beam.precompression == 0.75f);
+
+    const JBeamAdvancedStructureIR bounded =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "{\"beamLongBound\":1},[\"n1\",\"n2\"]]"));
+    CHECK(RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+        bounded, 0U).code ==
+        JBeamHydroBeamPropertyAdmissionCode::
+            UNSUPPORTED_BEAM_BEHAVIOR);
+
+    const JBeamAdvancedStructureIR break_group =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "{\"breakGroup\":\"steering\"},[\"n1\",\"n2\"]]"));
+    CHECK(RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+        break_group, 0U).code ==
+        JBeamHydroBeamPropertyAdmissionCode::
+            UNSUPPORTED_BEAM_BEHAVIOR);
+
+    const JBeamAdvancedStructureIR wrong_type =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "{\"beamType\":\"BOUNDED\"},[\"n1\",\"n2\"]]"));
+    CHECK(RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+        wrong_type, 0U).code ==
+        JBeamHydroBeamPropertyAdmissionCode::UNSUPPORTED_BEAM_TYPE);
+
+    const JBeamAdvancedStructureIR negative_spring =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "{\"beamSpring\":-1},[\"n1\",\"n2\"]]"));
+    CHECK(RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+        negative_spring, 0U).code ==
+        JBeamHydroBeamPropertyAdmissionCode::INVALID_BEAM_PROPERTY);
+
+    const JBeamAdvancedStructureIR too_large =
+        RoR::BeamNG::BuildJBeamAdvancedStructureIR(ResolveSingle(
+            Nodes() +
+            ",\"hydros\":[[\"id1:\",\"id2:\"],"
+            "{\"beamSpring\":1e100},[\"n1\",\"n2\"]]"));
+    CHECK(RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+        too_large, 0U).code ==
+        JBeamHydroBeamPropertyAdmissionCode::FLOAT_NARROWING);
+
+    JBeamAdvancedStructureIR duplicate_field = explicit_properties;
+    duplicate_field.hydros[0].entry.effective_fields.push_back(
+        duplicate_field.hydros[0].entry.effective_fields[0]);
+    CHECK(RoR::BeamNG::AdmitJBeamHydroBeamProperties(
+        duplicate_field, 0U).code ==
+        JBeamHydroBeamPropertyAdmissionCode::
+            MALFORMED_EFFECTIVE_FIELD);
+
+    CHECK(std::string(
+        RoR::BeamNG::JBeamHydroBeamPropertyAdmissionCodeToString(
+            JBeamHydroBeamPropertyAdmissionCode::FLOAT_NARROWING)) ==
+        "float-narrowing");
 }
 
 void TestLegacyRailsAndRails2SemanticEquivalence()
@@ -955,6 +1059,7 @@ int main()
     TestOfficialExamplesAndClassification();
     TestDefaultsAndDependentDefaults();
     TestHydroActuatorAdmission();
+    TestHydroBeamPropertyAdmission();
     TestLegacyRailsAndRails2SemanticEquivalence();
     TestModifiersUnknownsAndOwnership();
     TestExpressionsArePreservedDisabled();

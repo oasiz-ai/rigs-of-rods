@@ -314,6 +314,56 @@ JBeamHydroActuatorAdmission AdmitJBeamHydroActuator(
 const char* JBeamHydroActuatorAdmissionCodeToString(
     JBeamHydroActuatorAdmissionCode code);
 
+/// Exact binary32 beam properties that can be handed to the existing RigDef
+/// beam construction boundary without applying legacy truck defaults. This
+/// receipt is still not a spawn authorization: input/electrics lineage and the
+/// runtime actuator state must be admitted separately.
+struct JBeamHydroBeamPropertyConfig
+{
+    float spring;
+    float damping;
+    float deform;
+    float strength;
+    float precompression;
+    bool deform_is_flt_max;
+    bool strength_is_flt_max;
+
+    JBeamHydroBeamPropertyConfig();
+};
+
+enum class JBeamHydroBeamPropertyAdmissionCode
+{
+    ADMITTED,
+    ACTUATOR_NOT_ADMITTED,
+    MALFORMED_EFFECTIVE_FIELD,
+    UNSUPPORTED_BEAM_TYPE,
+    UNSUPPORTED_BEAM_BEHAVIOR,
+    INVALID_BEAM_PROPERTY,
+    FLOAT_NARROWING
+};
+
+struct JBeamHydroBeamPropertyAdmission
+{
+    JBeamHydroBeamPropertyAdmissionCode code;
+    std::size_t source_hydro_index;
+    JBeamHydroActuatorAdmission actuator;
+    JBeamHydroBeamPropertyConfig beam;
+
+    JBeamHydroBeamPropertyAdmission();
+    bool IsAdmitted() const;
+};
+
+/// Builds a physical-beam property receipt for one already-admissible hydro.
+/// Bounds and break-group fields reject because their BeamNG behavior is not
+/// represented by this receipt. Source expressions and diagnostics have
+/// already failed the nested response admission.
+JBeamHydroBeamPropertyAdmission AdmitJBeamHydroBeamProperties(
+    const JBeamAdvancedStructureIR& ir,
+    std::size_t hydro_index);
+
+const char* JBeamHydroBeamPropertyAdmissionCodeToString(
+    JBeamHydroBeamPropertyAdmissionCode code);
+
 struct JBeamAdvancedRail
 {
     JBeamAdvancedEntry entry;

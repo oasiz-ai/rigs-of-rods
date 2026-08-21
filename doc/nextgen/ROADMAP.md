@@ -2045,6 +2045,16 @@ native electrics/input wiring, save/replay state, force integration, runtime
 spawn publication, and source-engine calibration remain open before the
 adapter can advertise native behavior.
 
+The following physical-property preflight now resolves the documented hydro
+beam spring, damping, deformation, strength, and precompression defaults and
+row overrides to the exact binary32 values consumed by RigDef. It accepts only
+`NORMAL`/`|NORMAL`, preserves `FLT_MAX`, and rejects non-finite, negative,
+subnormal, or overflowing values. Long/short bounds and break-group behavior
+remain fail-closed rather than being discarded. This is a second receipt, not
+a spawn path: it must be joined with the response receipt, exact structural
+node identity, authenticated input/electrics lineage, and a reviewed runtime
+state carrier before any hydro enters ActorSpawner.
+
 The first pressure-wheel pass now provides a bounded, deterministic inventory
 of literal `pressureWheels` rows and every relevant source section. It preserves
 exact documented fields, unknowns, duplicate history, source-order `scale*`
