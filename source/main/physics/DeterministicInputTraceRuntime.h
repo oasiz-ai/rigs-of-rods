@@ -258,6 +258,10 @@ public:
     std::uint64_t GetProcessedStepCount() const;
     std::uint64_t GetNextPhysicsStep() const;
     const ReplayState& GetPersistentState() const;
+    /// SHA-256 chain digest immediately after the last successfully recorded
+    /// or injected frame. Record and replay expose the same value for the same
+    /// processed prefix. It is all zero before the first accepted frame.
+    const Digest& GetProcessedPrefixDigest() const;
     const Digest& GetTraceDigest() const;
     const std::string& GetAuthenticatedTrace() const;
 

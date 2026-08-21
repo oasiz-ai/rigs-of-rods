@@ -59,7 +59,7 @@ def comparison(
         }
 
     return {
-        "format": "ror-d0-state-trace-comparison-v1",
+        "format": "ror-d0-state-trace-comparison-v2",
         "status": status,
         "difference": "none",
         "metadata_field": "none",

@@ -113,7 +113,8 @@ void RepairFrameCrc(std::string& bytes, std::size_t frame_offset)
 {
     StoreU32(
         bytes,
-        frame_offset + 60,
+        frame_offset +
+            RoR::DeterministicStateTrace::STEP_RECORD_SIZE - 4,
         ComputeCrc32(
             bytes,
             frame_offset,
@@ -158,6 +159,13 @@ RoR::DeterministicStateTrace::StepRecord MakeStep(
     {
         step.digest.bytes[index] =
             static_cast<std::uint8_t>(digest_seed + index * 7U);
+    }
+    step.input_flags = RoR::DeterministicStateTrace::
+        STEP_INPUT_AUTHENTICATED_PREFIX;
+    for (std::size_t index = 0; index < step.input_digest.size(); ++index)
+    {
+        step.input_digest[index] =
+            static_cast<std::uint8_t>(digest_seed ^ (index * 11U + 3U));
     }
     return step;
 }
@@ -261,6 +269,8 @@ void TestRoundTripAndFormat()
         CHECK(observed.actor_count == steps[index].actor_count);
         CHECK(observed.contact_count == steps[index].contact_count);
         CHECK(observed.digest.bytes == steps[index].digest.bytes);
+        CHECK(observed.input_flags == steps[index].input_flags);
+        CHECK(observed.input_digest == steps[index].input_digest);
     }
     StepRecord sentinel = MakeStep(999, 0xff, 1, 1);
     CHECK(reader.ReadNext(sentinel) == ReadResult::END);
@@ -317,6 +327,31 @@ void TestWriterValidationAndLimits()
     std::ostringstream output6(std::ios::out | std::ios::binary);
     Writer wrong_digest_schema(output6, metadata);
     CHECK(!wrong_digest_schema.IsReady());
+
+    metadata = MakeMetadata();
+    StepRecord unknown_input_flag = MakeStep(100, 1, 0, 0);
+    unknown_input_flag.input_flags |= UINT32_C(1) << 31;
+    std::ostringstream output6b(std::ios::out | std::ios::binary);
+    Writer invalid_input_flag(output6b, metadata);
+    CHECK(!invalid_input_flag.Append(unknown_input_flag));
+    CHECK(invalid_input_flag.GetStatus().error ==
+        Error::INVALID_INPUT_BINDING);
+
+    StepRecord unbound_nonzero_digest = MakeStep(100, 1, 0, 0);
+    unbound_nonzero_digest.input_flags = 0;
+    std::ostringstream output6c(std::ios::out | std::ios::binary);
+    Writer invalid_unbound_digest(output6c, metadata);
+    CHECK(!invalid_unbound_digest.Append(unbound_nonzero_digest));
+    CHECK(invalid_unbound_digest.GetStatus().error ==
+        Error::INVALID_INPUT_BINDING);
+
+    StepRecord explicit_no_input = MakeStep(100, 1, 0, 0);
+    explicit_no_input.input_flags = 0;
+    explicit_no_input.input_digest.fill(0U);
+    std::ostringstream output6d(std::ios::out | std::ios::binary);
+    Writer valid_no_input(output6d, metadata);
+    CHECK(valid_no_input.Append(explicit_no_input));
+    CHECK(valid_no_input.Finish());
 
     Limits tiny_bytes;
     tiny_bytes.max_bytes = HEADER_SIZE + TRAILER_SIZE - 1;
@@ -513,10 +548,16 @@ void TestReaderStructuralFailures()
     CHECK(error == Error::COUNT_LIMIT_EXCEEDED);
 
     malformed = complete;
-    StoreU32(malformed, first_frame + 56, 1);
+    StoreU32(malformed, first_frame + 56, UINT32_C(1) << 31);
     RepairFrameCrc(malformed, first_frame);
     CHECK(!IsValidTrace(malformed, &error));
-    CHECK(error == Error::RESERVED_FIELD_NONZERO);
+    CHECK(error == Error::INVALID_INPUT_BINDING);
+
+    malformed = complete;
+    StoreU32(malformed, first_frame + 56, 0);
+    RepairFrameCrc(malformed, first_frame);
+    CHECK(!IsValidTrace(malformed, &error));
+    CHECK(error == Error::INVALID_INPUT_BINDING);
 
     malformed = complete;
     malformed[first_frame + 24] ^= 1;
@@ -613,6 +654,16 @@ void TestComparisonAndFirstDivergence()
     CHECK(result.metadata_field == MetadataField::PHYSICS_FLAGS);
 
     std::vector<StepRecord> changed_steps = baseline_steps;
+    changed_steps[1].input_digest[13] ^= 1U;
+    result = CompareBytes(
+        baseline,
+        WriteTrace(MakeMetadata(), changed_steps));
+    CHECK(result.status == ComparisonStatus::DIVERGED);
+    CHECK(result.difference == Difference::INPUT_DIGEST);
+    CHECK(result.steps_compared == 1);
+    CHECK(result.first_divergent_step == 101);
+
+    changed_steps = baseline_steps;
     changed_steps[1].digest.bytes[13] ^= 1U;
     result = CompareBytes(
         baseline,
@@ -708,12 +759,14 @@ void TestCanonicalJsonReport()
     CHECK(!json.empty());
     CHECK(json[json.size() - 1] == '\n');
     CHECK(json.find(
-        "\"format\":\"ror-d0-state-trace-comparison-v1\"") !=
+        "\"format\":\"ror-d0-state-trace-comparison-v2\"") !=
         std::string::npos);
     CHECK(json.find("\"status\":\"diverged\"") != std::string::npos);
     CHECK(json.find("\"difference\":\"digest\"") != std::string::npos);
     CHECK(json.find("\"steps_compared\":1") != std::string::npos);
     CHECK(json.find("\"first_divergent_step\":101") !=
+        std::string::npos);
+    CHECK(json.find("\"input_digest\":\"") !=
         std::string::npos);
     CHECK(json.find("left\\\"trace") != std::string::npos);
     CHECK(json.find("right\\\\trace\\n") != std::string::npos);
@@ -851,7 +904,7 @@ void TestComparisonCli()
     CHECK(result == CLI_EXIT_MATCH);
     CHECK(error.empty());
     CHECK(output.find(
-        "\"format\":\"ror-d0-state-trace-inspection-v1\"") !=
+        "\"format\":\"ror-d0-state-trace-inspection-v2\"") !=
         std::string::npos);
     CHECK(output.find("\"status\":\"valid\"") !=
         std::string::npos);

@@ -342,9 +342,13 @@ void TestGoldenLifecycle()
     CHECK(recorder.GetLifecycle() == Trace::RuntimeLifecycle::RUNNING);
     CHECK(recorder.GetNextPhysicsStep() == 100);
     CHECK(recorder.GetIdentity().source_digest == metadata.source_digest);
+    CHECK(recorder.GetProcessedPrefixDigest() == Trace::Digest());
 
     ScriptSource source(frames);
+    std::vector<Trace::Digest> processed_prefix_digests;
     CHECK(recorder.RecordFixedStep(100, source));
+    processed_prefix_digests.push_back(
+        recorder.GetProcessedPrefixDigest());
     CHECK(source.calls == 1);
     CHECK(recorder.Pause());
     CHECK(recorder.GetLifecycle() == Trace::RuntimeLifecycle::PAUSED);
@@ -352,7 +356,11 @@ void TestGoldenLifecycle()
     CHECK(recorder.GetNextPhysicsStep() == 101);
     CHECK(recorder.Resume());
     for (std::size_t index = 1; index < frames.size(); ++index)
+    {
         CHECK(recorder.RecordFixedStep(frames[index].physics_step, source));
+        processed_prefix_digests.push_back(
+            recorder.GetProcessedPrefixDigest());
+    }
     CHECK(source.calls == frames.size());
 
     std::string recorded("caller-sentinel");
@@ -361,6 +369,8 @@ void TestGoldenLifecycle()
     CHECK(recorded == direct);
     CHECK(recorder.GetAuthenticatedTrace() == direct);
     CHECK(recorder.GetTraceDigest() == direct_digest);
+    CHECK(recorder.GetProcessedPrefixDigest() ==
+        processed_prefix_digests.back());
     CHECK(recorder.GetTraceDigest().ToHex() ==
         "4c54a6ab5d5ff6e4f6f3db94d8ceeb5c941231670c6526d39a2b9523c5324bfb");
     CHECK(recorder.GetPersistentState().GetControlCount() == 1);
@@ -369,14 +379,23 @@ void TestGoldenLifecycle()
     CHECK(replay.BeginReplay(recorded, metadata));
     CHECK(replay.GetMode() == Trace::RuntimeMode::REPLAY);
     CHECK(replay.GetLifecycle() == Trace::RuntimeLifecycle::RUNNING);
+    CHECK(replay.GetProcessedPrefixDigest() == Trace::Digest());
     CapturingSink sink;
     CHECK(replay.ReplayFixedStep(100, sink));
+    CHECK(replay.GetProcessedPrefixDigest() ==
+        processed_prefix_digests[0]);
     CHECK(replay.ReplayFixedStep(101, sink));
+    CHECK(replay.GetProcessedPrefixDigest() ==
+        processed_prefix_digests[1]);
     CHECK(replay.Pause());
     CHECK(replay.GetNextPhysicsStep() == 102);
     CHECK(replay.Resume());
     CHECK(replay.ReplayFixedStep(102, sink));
+    CHECK(replay.GetProcessedPrefixDigest() ==
+        processed_prefix_digests[2]);
     CHECK(replay.ReplayFixedStep(103, sink));
+    CHECK(replay.GetProcessedPrefixDigest() ==
+        processed_prefix_digests[3]);
     CHECK(replay.GetLifecycle() == Trace::RuntimeLifecycle::FINISHED);
     CHECK(sink.calls == 4);
     CHECK(sink.injections.size() == 4);
@@ -415,6 +434,8 @@ void TestRecordAndReplayContinuation()
     CHECK(recorder.Pause());
     const Trace::Digest live_record_digest =
         recorder.GetTraceDigest();
+    const Trace::Digest live_record_prefix_digest =
+        recorder.GetProcessedPrefixDigest();
 
     Trace::RuntimeContinuation record_checkpoint;
     CHECK(recorder.ExportContinuation(record_checkpoint));
@@ -438,6 +459,8 @@ void TestRecordAndReplayContinuation()
         Trace::RuntimeLifecycle::PAUSED);
     CHECK(resumed_recording.GetPersistentState().GetControlCount() == 2);
     CHECK(resumed_recording.GetTraceDigest() == live_record_digest);
+    CHECK(resumed_recording.GetProcessedPrefixDigest() ==
+        live_record_prefix_digest);
     Trace::RuntimeContinuation reexported_record_checkpoint;
     CHECK(resumed_recording.ExportContinuation(
         reexported_record_checkpoint));
@@ -472,6 +495,8 @@ void TestRecordAndReplayContinuation()
     CHECK(replay.ReplayFixedStep(100, prefix_sink));
     CHECK(replay.ReplayFixedStep(101, prefix_sink));
     CHECK(replay.Pause());
+    const Trace::Digest replay_prefix_digest =
+        replay.GetProcessedPrefixDigest();
     Trace::RuntimeContinuation replay_checkpoint;
     CHECK(replay.ExportContinuation(replay_checkpoint));
     CHECK(replay_checkpoint.mode == Trace::RuntimeMode::REPLAY);
@@ -483,6 +508,8 @@ void TestRecordAndReplayContinuation()
         replay_checkpoint,
         metadata));
     CHECK(resumed_replay.GetPersistentState().GetControlCount() == 2);
+    CHECK(resumed_replay.GetProcessedPrefixDigest() ==
+        replay_prefix_digest);
     CHECK(resumed_replay.Resume());
     CapturingSink suffix_sink;
     CHECK(resumed_replay.ReplayFixedStep(102, suffix_sink));
@@ -518,6 +545,8 @@ void TestRecordAndReplayContinuation()
         Trace::RuntimeLifecycle::FINISHED);
     CHECK(finished_import.GetPersistentState() ==
         resumed_replay.GetPersistentState());
+    CHECK(finished_import.GetProcessedPrefixDigest() ==
+        resumed_replay.GetProcessedPrefixDigest());
 }
 
 void TestFrameRegroupingAndNoWallClockRecords()
@@ -1012,6 +1041,7 @@ void TestIoMismatchCorruptionAndHostileSinks()
             Trace::RuntimeError::SINK_REJECTED);
         CHECK(runtime.GetPersistentState().GetControlCount() == 0);
         CHECK(runtime.GetProcessedStepCount() == 0);
+        CHECK(runtime.GetProcessedPrefixDigest() == Trace::Digest());
         CHECK(!runtime.ReplayFixedStep(100, sink));
         CHECK(sink.calls == 1);
     }

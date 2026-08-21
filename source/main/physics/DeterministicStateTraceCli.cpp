@@ -88,7 +88,7 @@ void WriteOpenFailure(
     std::ostringstream report;
     report.imbue(std::locale::classic());
     report
-        << "{\"format\":\"ror-d0-state-trace-comparison-v1\""
+        << "{\"format\":\"ror-d0-state-trace-comparison-v2\""
         << ",\"status\":\"invalid_input\""
         << ",\"difference\":";
     AppendJsonString(report, std::string(side) + "_open_failed");
@@ -124,6 +124,28 @@ void AppendStepJson(
         << "{\"physics_step\":" << step.physics_step
         << ",\"actor_count\":" << step.actor_count
         << ",\"contact_count\":" << step.contact_count
+        << ",\"input_digest\":";
+    if ((step.input_flags & RoR::DeterministicStateTrace::
+            STEP_INPUT_AUTHENTICATED_PREFIX) != 0U)
+    {
+        static const char HEX[] = "0123456789abcdef";
+        std::string input_digest;
+        input_digest.reserve(step.input_digest.size() * 2U);
+        for (std::size_t index = 0;
+             index < step.input_digest.size();
+             ++index)
+        {
+            input_digest.push_back(
+                HEX[(step.input_digest[index] >> 4U) & 0xfU]);
+            input_digest.push_back(HEX[step.input_digest[index] & 0xfU]);
+        }
+        AppendJsonString(report, input_digest);
+    }
+    else
+    {
+        report << "null";
+    }
+    report
         << ",\"state_digest\":";
     AppendJsonString(report, step.digest.ToHex());
     report << '}';
@@ -138,7 +160,7 @@ void WriteInspectionFailure(
     std::ostringstream report;
     report.imbue(std::locale::classic());
     report
-        << "{\"format\":\"ror-d0-state-trace-inspection-v1\""
+        << "{\"format\":\"ror-d0-state-trace-inspection-v2\""
         << ",\"status\":\"invalid_input\""
         << ",\"path\":";
     AppendJsonString(report, path);
@@ -212,7 +234,7 @@ int InspectTrace(
     std::ostringstream report;
     report.imbue(std::locale::classic());
     report
-        << "{\"format\":\"ror-d0-state-trace-inspection-v1\""
+        << "{\"format\":\"ror-d0-state-trace-inspection-v2\""
         << ",\"status\":\"valid\""
         << ",\"path\":";
     AppendJsonString(report, path);

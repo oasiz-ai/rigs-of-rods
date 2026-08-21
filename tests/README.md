@@ -289,15 +289,19 @@ buffer rejection, and canonical fallback order.
 `DeterministicStateTrace` wraps each fixed-step state digest in a bounded,
 versioned binary stream. Its checked header records scenario identity, worker
 count, the exact rational physics step, and floating-point mode. Every record
-contains one contiguous physics-step number, actor/contact counts, and its
-32-byte digest. A mandatory aggregate trailer distinguishes a deliberately
-short run from truncation.
+contains one contiguous physics-step number, actor/contact counts, its 32-byte
+state digest, and either the exact authenticated deterministic-input prefix
+digest accepted for that step or an explicit no-input marker. Schema 2 keeps
+the input and resulting-state evidence in the same checksummed transaction. A
+mandatory aggregate trailer distinguishes a deliberately short run from
+truncation.
 
 The reader rejects malformed schemas, nonzero reserved fields, discontinuous
 steps, count/size overflow, local or aggregate checksum failures, inconsistent
 summaries, and trailing bytes. Exhaustive fixtures truncate the stream at every
 byte and flip every individual bit. The comparator validates both complete
-inputs, reports the first divergence, and only permits worker-count metadata to
+inputs, distinguishes input-prefix divergence from resulting-state divergence,
+reports the first divergent step, and only permits worker-count metadata to
 differ when explicitly requested for the D0 one-versus-eight-worker gate.
 
 With `ROR_BUILD_TESTS=ON`, compare completed artifacts using:

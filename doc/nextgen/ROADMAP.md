@@ -452,8 +452,16 @@ behavior. AngelScript exposes the explicit path separately as
 `spawnTruckDeterministic()` so ordinary `spawnTruck()` compatibility does not
 silently change.
 
-The clean native save/load continuation run, runtime TSan soak, actor-source
-broad-phase churn, and input-replay hashing remain open D0 work.
+State-trace schema 2 now binds every completed physics step to either the exact
+SHA-256 chain prefix of the authenticated deterministic-input frame accepted
+at that fixed-step start or an explicit no-input marker. Recording and replay
+publish the same transactional prefix only after their source/sink succeeds;
+savegame continuation import reconstructs that prefix from authenticated trace
+bytes rather than trusting a serialized internal cursor. The comparator reports
+input-prefix divergence separately from resulting-state divergence.
+
+The clean native save/load continuation run, runtime TSan soak, and actor-source
+broad-phase churn remain open D0 work.
 
 The contact-order slice now updates inter-actor detectors in stable actor-ID
 order, canonicalizes collision-partner and KD-hit lists, discovers narrow-phase

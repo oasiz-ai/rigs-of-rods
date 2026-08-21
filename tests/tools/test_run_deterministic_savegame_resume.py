@@ -38,7 +38,7 @@ def valid_checkpoint() -> dict[str, object]:
 
 def valid_inspection(first: int) -> dict[str, object]:
     return {
-        "format": "ror-d0-state-trace-inspection-v1",
+        "format": "ror-d0-state-trace-inspection-v2",
         "status": "valid",
         "metadata": {
             "scenario_id": gate.SCENARIO_ID,

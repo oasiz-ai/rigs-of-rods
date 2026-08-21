@@ -33,6 +33,7 @@
 #include "SimData.h"
 #include "ThreadPool.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -259,6 +260,9 @@ private:
     bool                m_deterministic_actor_input_suppressed = false; //!< Cleared only by selecting mode=off or loading a new simulation
     bool                m_deterministic_actor_input_stop_replay = false; //!< Stops the current physics batch after replay exhaustion/fault
     std::atomic<bool>   m_deterministic_actor_input_pause_requested{false}; //!< Physics worker requests; main thread consumes before scheduling
+    std::array<std::uint8_t, 32> m_deterministic_input_step_digest{}; //!< Authenticated input-chain prefix for the current fixed step
+    std::uint64_t       m_deterministic_input_step_digest_physics_step = 0; //!< Step identity paired with the prefix digest
+    bool                m_deterministic_input_step_digest_valid = false; //!< False means this step had no accepted deterministic input frame
     FreeForceVec_t      m_free_forces;                    //!< Global forces added ad-hoc by scripts
     FreeForceID_t       m_free_force_next_id     = 0;     //!< Unique ID for each FreeForce
 

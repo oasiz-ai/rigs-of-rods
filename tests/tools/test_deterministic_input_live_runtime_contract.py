@@ -37,6 +37,48 @@ class DeterministicInputLiveRuntimeContractTests(unittest.TestCase):
         self.assertLess(observer_offset, state_trace_offset)
         self.assertLess(state_trace_offset, solver_offset)
 
+    def test_state_trace_binds_the_exact_accepted_input_prefix(self) -> None:
+        source = (ROOT / "source/main/physics/ActorManager.cpp").read_text()
+        process_start = source.index(
+            "bool ActorManager::ProcessDeterministicActorInputStep()"
+        )
+        process_end = source.index(
+            "bool ActorManager::PrepareDeterministicStateTraceStep()",
+            process_start,
+        )
+        process = source[process_start:process_end]
+        reset = process.index(
+            "m_deterministic_input_step_digest_valid = false;"
+        )
+        accepted = process.index("if (!advanced)")
+        prefix = process.index("GetProcessedPrefixDigest().bytes", accepted)
+        teardown = process.index(
+            "this->FinishDeterministicActorInput(", prefix
+        )
+        self.assertLess(reset, accepted)
+        self.assertLess(accepted, prefix)
+        self.assertLess(prefix, teardown)
+
+        capture_start = source.index(
+            "void ActorManager::CaptureDeterministicStateTraceStep("
+        )
+        capture_end = source.index(
+            "void ActorManager::UpdatePhysicsSimulation()", capture_start
+        )
+        capture = source[capture_start:capture_end]
+        binding = capture.index(
+            "record.input_flags =\n"
+            "            DeterministicStateTrace::"
+            "STEP_INPUT_AUTHENTICATED_PREFIX;"
+        )
+        append = capture.index("runtime.writer->Append(record)")
+        self.assertLess(binding, append)
+        self.assertIn(
+            "m_deterministic_input_step_digest_physics_step ==\n"
+            "            m_completed_physics_steps",
+            capture,
+        )
+
     def test_replay_suppresses_unrecorded_actor_input(self) -> None:
         source = (ROOT / "source/main/main.cpp").read_text()
         anchor = "const bool deterministic_replay_owns_input ="

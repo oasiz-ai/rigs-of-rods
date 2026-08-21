@@ -426,7 +426,7 @@ def inspect_trace(trace_tool: Path, trace: Path, timeout: int) -> dict[str, obje
 def validate_inspection(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ResumeFailure("state-trace inspection is not an object")
-    if payload.get("format") != "ror-d0-state-trace-inspection-v1":
+    if payload.get("format") != "ror-d0-state-trace-inspection-v2":
         raise ResumeFailure("state-trace inspection format differs")
     if payload.get("status") != "valid":
         raise ResumeFailure("state-trace inspection is not valid")

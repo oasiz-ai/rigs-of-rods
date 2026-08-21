@@ -409,7 +409,7 @@ def compare_traces(
         raise SoakFailure("trace comparator emitted invalid JSON") from error
     if result.returncode != 0 or not isinstance(payload, dict):
         raise SoakFailure(f"trace comparison failed: {output}")
-    if payload.get("format") != "ror-d0-state-trace-comparison-v1":
+    if payload.get("format") != "ror-d0-state-trace-comparison-v2":
         raise SoakFailure("trace comparator format is unsupported")
     if payload.get("status") != "match":
         raise SoakFailure("calibrated-beam traces diverged")

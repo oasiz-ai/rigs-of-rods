@@ -1575,6 +1575,14 @@ void ActorManager::SetSimulationPaused(bool paused)
 
 bool ActorManager::ProcessDeterministicActorInputStep()
 {
+    // The state trace may only inherit input authority from an input frame
+    // accepted for this exact fixed step. Clear the prior step before any
+    // configuration, source, or sink path can return.
+    m_deterministic_input_step_digest.fill(0U);
+    m_deterministic_input_step_digest_physics_step =
+        m_completed_physics_steps;
+    m_deterministic_input_step_digest_valid = false;
+
     const std::string configured_mode =
         App::sim_deterministic_input_mode->getStr();
     DeterministicInputTrace::RuntimeMode requested_mode =
@@ -1920,6 +1928,13 @@ bool ActorManager::ProcessDeterministicActorInputStep()
         return !replay;
     }
 
+    // Copy the frame-chain prefix before a configured limit or replay
+    // exhaustion tears down the runtime. Both record and replay publish this
+    // value only after their source/sink transaction succeeds.
+    m_deterministic_input_step_digest =
+        runtime.trace.GetProcessedPrefixDigest().bytes;
+    m_deterministic_input_step_digest_valid = true;
+
     if (runtime.trace.GetMode() ==
             DeterministicInputTrace::RuntimeMode::RECORD &&
         runtime.trace.GetProcessedStepCount() == runtime.step_limit)
@@ -2261,6 +2276,14 @@ void ActorManager::CaptureDeterministicStateTraceStep(
     record.contact_count =
         static_cast<std::uint32_t>(runtime.contact_keys.size());
     record.digest = digest;
+    if (m_deterministic_input_step_digest_valid &&
+        m_deterministic_input_step_digest_physics_step ==
+            m_completed_physics_steps)
+    {
+        record.input_flags =
+            DeterministicStateTrace::STEP_INPUT_AUTHENTICATED_PREFIX;
+        record.input_digest = m_deterministic_input_step_digest;
+    }
     if (!runtime.writer->Append(record))
     {
         const DeterministicStateTrace::Status& status =

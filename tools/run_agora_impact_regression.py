@@ -289,7 +289,7 @@ def compare_traces(
         raise ImpactFailure("trace comparator emitted invalid JSON") from error
     if completed.returncode != 0 or not isinstance(payload, dict):
         raise ImpactFailure(f"trace comparison failed: {output}")
-    if payload.get("format") != "ror-d0-state-trace-comparison-v1":
+    if payload.get("format") != "ror-d0-state-trace-comparison-v2":
         raise ImpactFailure("trace comparator format is unsupported")
     if payload.get("status") != "match":
         raise ImpactFailure("Agora impact traces diverged")

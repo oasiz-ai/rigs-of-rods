@@ -171,6 +171,28 @@ bool DigestsEqual(
     return left.bytes == right.bytes;
 }
 
+bool IsZeroInputDigest(
+    const std::array<std::uint8_t,
+        RoR::DeterministicStateTrace::INPUT_DIGEST_SIZE>& digest)
+{
+    for (std::size_t index = 0; index < digest.size(); ++index)
+    {
+        if (digest[index] != 0U)
+            return false;
+    }
+    return true;
+}
+
+bool IsValidInputBinding(
+    const RoR::DeterministicStateTrace::StepRecord& record)
+{
+    using namespace RoR::DeterministicStateTrace;
+    if ((record.input_flags & ~STEP_INPUT_FLAG_MASK) != 0U)
+        return false;
+    return (record.input_flags & STEP_INPUT_AUTHENTICATED_PREFIX) != 0U ||
+        IsZeroInputDigest(record.input_digest);
+}
+
 void AppendJsonString(std::ostringstream& stream, const std::string& value)
 {
     static const char HEX[] = "0123456789abcdef";
@@ -235,6 +257,21 @@ std::string DigestHex(const RoR::DeterministicStateDigest::Digest& digest)
     return result;
 }
 
+std::string InputDigestHex(
+    const std::array<std::uint8_t,
+        RoR::DeterministicStateTrace::INPUT_DIGEST_SIZE>& digest)
+{
+    static const char HEX[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(digest.size() * 2U);
+    for (std::size_t index = 0; index < digest.size(); ++index)
+    {
+        result.push_back(HEX[(digest[index] >> 4U) & 0xfU]);
+        result.push_back(HEX[digest[index] & 0xfU]);
+    }
+    return result;
+}
+
 void AppendMetadataJson(
     std::ostringstream& stream,
     const RoR::DeterministicStateTrace::Metadata& metadata)
@@ -261,6 +298,18 @@ void AppendStepJson(
            << "\"physics_step\":" << step.physics_step
            << ",\"actor_count\":" << step.actor_count
            << ",\"contact_count\":" << step.contact_count
+           << ",\"input_digest\":";
+    if ((step.input_flags &
+            RoR::DeterministicStateTrace::
+                STEP_INPUT_AUTHENTICATED_PREFIX) != 0U)
+    {
+        AppendJsonString(stream, InputDigestHex(step.input_digest));
+    }
+    else
+    {
+        stream << "null";
+    }
+    stream
            << ",\"digest\":";
     AppendJsonString(stream, DigestHex(step.digest));
     stream << '}';
@@ -299,7 +348,9 @@ StepRecord::StepRecord():
     physics_step(0),
     actor_count(0),
     contact_count(0),
-    digest()
+    digest(),
+    input_flags(0),
+    input_digest()
 {
 }
 
@@ -444,6 +495,8 @@ bool Writer::Append(const StepRecord& record)
     {
         return Fail(Error::COUNT_LIMIT_EXCEEDED, m_bytes_written);
     }
+    if (!IsValidInputBinding(record))
+        return Fail(Error::INVALID_INPUT_BINDING, m_bytes_written);
     if (AddWouldOverflow(m_total_actor_count, record.actor_count) ||
         AddWouldOverflow(m_total_contact_count, record.contact_count))
     {
@@ -460,9 +513,13 @@ bool Writer::Append(const StepRecord& record)
         frame.data() + 24,
         record.digest.bytes.data(),
         record.digest.bytes.size());
-    StoreU32(frame.data() + 56, 0);
-    StoreU32(
+    StoreU32(frame.data() + 56, record.input_flags);
+    std::memcpy(
         frame.data() + 60,
+        record.input_digest.data(),
+        record.input_digest.size());
+    StoreU32(
+        frame.data() + 92,
         ComputeCrc32(frame.data(), STEP_RECORD_SIZE - 4));
 
     if (!WriteBlock(
@@ -707,15 +764,10 @@ ReadResult Reader::ReadNext(StepRecord& record)
         {
             return ReadResult::READ_ERROR;
         }
-        if (LoadU32(frame.data() + 56) != 0)
-        {
-            Fail(Error::RESERVED_FIELD_NONZERO, record_offset + 56);
-            return ReadResult::READ_ERROR;
-        }
-        if (LoadU32(frame.data() + 60) !=
+        if (LoadU32(frame.data() + 92) !=
             ComputeCrc32(frame.data(), STEP_RECORD_SIZE - 4))
         {
-            Fail(Error::CHECKSUM_MISMATCH, record_offset + 60);
+            Fail(Error::CHECKSUM_MISMATCH, record_offset + 92);
             return ReadResult::READ_ERROR;
         }
         if (AddWouldOverflow(
@@ -756,6 +808,16 @@ ReadResult Reader::ReadNext(StepRecord& record)
             completed.digest.bytes.data(),
             frame.data() + 24,
             completed.digest.bytes.size());
+        completed.input_flags = LoadU32(frame.data() + 56);
+        std::memcpy(
+            completed.input_digest.data(),
+            frame.data() + 60,
+            completed.input_digest.size());
+        if (!IsValidInputBinding(completed))
+        {
+            Fail(Error::INVALID_INPUT_BINDING, record_offset + 56);
+            return ReadResult::READ_ERROR;
+        }
         m_aggregate_crc_state =
             UpdateCrc32(
                 m_aggregate_crc_state,
@@ -1093,6 +1155,11 @@ ComparisonResult Compare(
         {
             step_difference = Difference::CONTACT_COUNT;
         }
+        else if (left_step.input_flags != right_step.input_flags ||
+            left_step.input_digest != right_step.input_digest)
+        {
+            step_difference = Difference::INPUT_DIGEST;
+        }
         else if (!DigestsEqual(left_step.digest, right_step.digest))
         {
             step_difference = Difference::DIGEST;
@@ -1125,7 +1192,7 @@ std::string FormatComparisonJson(
 {
     std::ostringstream stream;
     stream.imbue(std::locale::classic());
-    stream << "{\"format\":\"ror-d0-state-trace-comparison-v1\""
+    stream << "{\"format\":\"ror-d0-state-trace-comparison-v2\""
            << ",\"status\":";
     AppendJsonString(stream, ToString(result.status));
     stream << ",\"difference\":";
@@ -1195,6 +1262,8 @@ const char* ToString(Error error)
         return "digest_schema_mismatch";
     case Error::RESERVED_FIELD_NONZERO:
         return "reserved_field_nonzero";
+    case Error::INVALID_INPUT_BINDING:
+        return "invalid_input_binding";
     case Error::CHECKSUM_MISMATCH:
         return "checksum_mismatch";
     case Error::INVALID_RECORD_TAG:
@@ -1249,6 +1318,8 @@ const char* ToString(Difference difference)
         return "actor_count";
     case Difference::CONTACT_COUNT:
         return "contact_count";
+    case Difference::INPUT_DIGEST:
+        return "input_digest";
     case Difference::DIGEST:
         return "digest";
     case Difference::TRACE_LENGTH:

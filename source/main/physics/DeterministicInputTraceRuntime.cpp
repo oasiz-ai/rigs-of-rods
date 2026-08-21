@@ -685,6 +685,7 @@ struct Runtime::Impl
     Limits limits;
     ReplayState state;
     Digest trace_digest;
+    Digest processed_prefix_digest;
     std::uint64_t processed_steps;
     std::uint64_t total_replay_steps;
     std::vector<Frame> record_frames;
@@ -702,6 +703,7 @@ struct Runtime::Impl
         limits(),
         state(),
         trace_digest(),
+        processed_prefix_digest(),
         processed_steps(0),
         total_replay_steps(0),
         record_frames(),
@@ -780,6 +782,7 @@ bool Runtime::BeginRecording(
         m_impl->lifecycle = RuntimeLifecycle::RUNNING;
         m_impl->state = ReplayState();
         m_impl->trace_digest = writer->GetTraceDigest();
+        m_impl->processed_prefix_digest = Digest();
         m_impl->processed_steps = 0;
         m_impl->record_stream = std::move(stream);
         m_impl->writer = std::move(writer);
@@ -869,6 +872,7 @@ bool Runtime::BeginReplay(
                 RuntimeLifecycle::RUNNING;
         m_impl->state = ReplayState();
         m_impl->trace_digest = preflight.digest;
+        m_impl->processed_prefix_digest = Digest();
         m_impl->processed_steps = 0;
         m_impl->total_replay_steps = preflight.step_count;
         m_impl->authenticated_trace.swap(trace_copy);
@@ -1116,6 +1120,7 @@ bool Runtime::RecordFixedStep(
 
     m_impl->state = std::move(next_state);
     m_impl->trace_digest = m_impl->writer->GetTraceDigest();
+    m_impl->processed_prefix_digest = m_impl->trace_digest;
     ++m_impl->processed_steps;
     m_impl->status.processed_steps = m_impl->processed_steps;
     m_impl->status.physics_step = physics_step;
@@ -1173,6 +1178,8 @@ bool Runtime::ReplayFixedStep(
             RuntimeError::INVALID_TRANSITION,
             physics_step);
     }
+    const Digest processed_prefix_digest =
+        m_impl->reader->GetTraceDigest();
 
     StepInjection injection;
     ReplayState next_state;
@@ -1245,6 +1252,7 @@ bool Runtime::ReplayFixedStep(
     }
 
     m_impl->state = std::move(next_state);
+    m_impl->processed_prefix_digest = processed_prefix_digest;
     ++m_impl->processed_steps;
     m_impl->status.processed_steps = m_impl->processed_steps;
     m_impl->status.physics_step = physics_step;
@@ -1587,6 +1595,7 @@ bool Runtime::ImportContinuation(
         std::string trace_copy;
         ReplayState current_state;
         Digest current_digest = continuation.trace_digest;
+        Digest processed_prefix_digest;
 
         if (continuation.mode == RuntimeMode::RECORD &&
             continuation.lifecycle != RuntimeLifecycle::FINISHED)
@@ -1618,6 +1627,8 @@ bool Runtime::ImportContinuation(
             }
             current_state = writer->GetReplayState();
             current_digest = writer->GetTraceDigest();
+            if (continuation.processed_steps != 0)
+                processed_prefix_digest = current_digest;
         }
         else if (continuation.mode == RuntimeMode::REPLAY &&
                  continuation.lifecycle != RuntimeLifecycle::FINISHED)
@@ -1647,11 +1658,41 @@ bool Runtime::ImportContinuation(
                 }
             }
             current_state = reader->GetReplayState();
+            if (continuation.processed_steps != 0)
+                processed_prefix_digest = reader->GetTraceDigest();
         }
         else
         {
             current_state = preflight.state;
             trace_copy = continuation.authenticated_trace;
+            if (continuation.processed_steps != 0)
+            {
+                std::istringstream prefix_stream(
+                    continuation.authenticated_trace,
+                    std::ios::in | std::ios::binary);
+                Reader prefix_reader(prefix_stream, limits);
+                if (!prefix_reader.IsReady())
+                {
+                    return m_impl->FailTrace(
+                        prefix_reader.GetStatus(),
+                        continuation.next_physics_step);
+                }
+                Frame prefix_frame;
+                for (std::uint64_t index = 0;
+                     index < continuation.processed_steps;
+                     ++index)
+                {
+                    if (prefix_reader.ReadNext(prefix_frame) !=
+                        ReadResult::FRAME)
+                    {
+                        return m_impl->FailTrace(
+                            prefix_reader.GetStatus(),
+                            continuation.next_physics_step);
+                    }
+                }
+                processed_prefix_digest =
+                    prefix_reader.GetTraceDigest();
+            }
         }
 
         m_impl->metadata = expected_identity;
@@ -1660,6 +1701,7 @@ bool Runtime::ImportContinuation(
         m_impl->lifecycle = continuation.lifecycle;
         m_impl->state = std::move(current_state);
         m_impl->trace_digest = current_digest;
+        m_impl->processed_prefix_digest = processed_prefix_digest;
         m_impl->processed_steps = continuation.processed_steps;
         m_impl->total_replay_steps =
             continuation.mode == RuntimeMode::REPLAY ?
@@ -1743,6 +1785,11 @@ std::uint64_t Runtime::GetNextPhysicsStep() const
 const ReplayState& Runtime::GetPersistentState() const
 {
     return m_impl->state;
+}
+
+const Digest& Runtime::GetProcessedPrefixDigest() const
+{
+    return m_impl->processed_prefix_digest;
 }
 
 const Digest& Runtime::GetTraceDigest() const

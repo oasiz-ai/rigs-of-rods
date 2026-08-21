@@ -361,7 +361,7 @@ def validate_trace_comparison(
     expected_left_workers: int,
     expected_right_workers: int,
 ) -> None:
-    if payload.get("format") != "ror-d0-state-trace-comparison-v1":
+    if payload.get("format") != "ror-d0-state-trace-comparison-v2":
         raise SceneFailure("state-trace comparison format is unsupported")
     if payload.get("status") != "match":
         raise SceneFailure(

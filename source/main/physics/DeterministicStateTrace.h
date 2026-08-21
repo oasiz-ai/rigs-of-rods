@@ -22,6 +22,7 @@
 
 #include "DeterministicStateDigest.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <iosfwd>
@@ -30,11 +31,12 @@
 namespace RoR {
 namespace DeterministicStateTrace {
 
-static const std::uint32_t SCHEMA_VERSION = 1;
+static const std::uint32_t SCHEMA_VERSION = 2;
 static const std::uint32_t STATE_DIGEST_SCHEMA_VERSION = 2;
 static const std::uint32_t HEADER_SIZE = 80;
-static const std::uint32_t STEP_RECORD_SIZE = 64;
+static const std::uint32_t STEP_RECORD_SIZE = 96;
 static const std::uint32_t TRAILER_SIZE = 56;
+static const std::uint32_t INPUT_DIGEST_SIZE = 32;
 
 // These are immutable format ceilings. Limits supplied by a caller may only
 // tighten them.
@@ -52,12 +54,12 @@ static_assert(
         STATE_DIGEST_SCHEMA_VERSION,
     "state trace digest version must match the embedded digest contract");
 
-/// Version-1 encoding is fixed-width and little-endian:
+/// Version-2 encoding is fixed-width and little-endian:
 ///
 /// - 80-byte header: magic, trace/digest schemas, worker count, scenario ID,
 ///   first step, rational step duration, physics flags, reserved zeroes, CRC32.
-/// - 64-byte `STEP` record: step, actor/contact counts, 32-byte digest,
-///   reserved zero, CRC32.
+/// - 96-byte `STEP` record: step, actor/contact counts, 32-byte state digest,
+///   input-binding flags, 32-byte authenticated input-prefix digest, CRC32.
 /// - 56-byte mandatory `END!` trailer: record count, next expected step,
 ///   accumulated actor/contact counts, aggregate CRC32 over header/record
 ///   payloads (excluding their individual CRC fields), reserved zeroes, trailer
@@ -97,9 +99,19 @@ struct StepRecord
     std::uint32_t actor_count;
     std::uint32_t contact_count;
     DeterministicStateDigest::Digest digest;
+    std::uint32_t input_flags;
+    std::array<std::uint8_t, INPUT_DIGEST_SIZE> input_digest;
 
     StepRecord();
 };
+
+enum StepInputFlags : std::uint32_t
+{
+    STEP_INPUT_AUTHENTICATED_PREFIX = UINT32_C(1) << 0
+};
+
+static const std::uint32_t STEP_INPUT_FLAG_MASK =
+    STEP_INPUT_AUTHENTICATED_PREFIX;
 
 struct Limits
 {
@@ -120,6 +132,7 @@ enum class Error
     INVALID_HEADER_SIZE,
     DIGEST_SCHEMA_MISMATCH,
     RESERVED_FIELD_NONZERO,
+    INVALID_INPUT_BINDING,
     CHECKSUM_MISMATCH,
     INVALID_RECORD_TAG,
     INVALID_RECORD_SIZE,
@@ -240,6 +253,7 @@ enum class Difference
     PHYSICS_STEP,
     ACTOR_COUNT,
     CONTACT_COUNT,
+    INPUT_DIGEST,
     DIGEST,
     TRACE_LENGTH,
     LEFT_INVALID,
