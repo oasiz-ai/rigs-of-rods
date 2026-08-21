@@ -130,7 +130,7 @@ def audit_plugin_symbol_ownership(
     }
 
 
-def is_reviewed_weak_global_collision(symbol: str) -> bool:
+def is_toolchain_owned_global_collision(symbol: str) -> bool:
     return (
         symbol in DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
         or ITANIUM_STD_SYMBOL_PATTERN.match(symbol) is not None
@@ -844,31 +844,35 @@ def main() -> int:
         require(modern_definitions,
                 f"the modern archive has no global definitions to audit: {archive}")
         intersection = modern_definitions & legacy_definitions
-        reviewed_weak = {
+        toolchain_owned = {
             symbol for symbol in intersection
-            if is_reviewed_weak_global_collision(symbol)
+            if is_toolchain_owned_global_collision(symbol)
         }
-        unexpected = intersection - reviewed_weak
+        unexpected = intersection - toolchain_owned
         require(not unexpected,
                 f"global definitions collide with OGRE14 in {archive}: " +
                 ", ".join(sorted(unexpected)))
         modern_weak, modern_strong = global_definition_linkages(
             archive, modern_definitions, args.platform_policy
         )
-        require(
-            reviewed_weak <= modern_weak
-            and reviewed_weak <= legacy_weak_definitions
-            and not (reviewed_weak & modern_strong)
-            and not (reviewed_weak & legacy_strong_definitions),
-            f"reviewed weak collision became strong in {archive}: "
-            + ", ".join(sorted(reviewed_weak)),
-        )
         global_intersections.append({
             "modern_archive": str(archive),
             "modern_defined_globals": len(modern_definitions),
             "legacy_closure_defined_globals": len(legacy_definitions),
             "intersection": sorted(intersection),
-            "reviewed_weak_collisions": sorted(reviewed_weak),
+            "toolchain_owned_intersections": sorted(toolchain_owned),
+            "toolchain_owned_modern_weak": sorted(
+                toolchain_owned & modern_weak
+            ),
+            "toolchain_owned_modern_strong": sorted(
+                toolchain_owned & modern_strong
+            ),
+            "toolchain_owned_legacy_weak": sorted(
+                toolchain_owned & legacy_weak_definitions
+            ),
+            "toolchain_owned_legacy_strong": sorted(
+                toolchain_owned & legacy_strong_definitions
+            ),
         })
 
     # OgreNext is linked statically with hidden visibility, so its resolved

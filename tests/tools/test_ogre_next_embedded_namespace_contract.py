@@ -298,7 +298,7 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 "static",
             )
 
-    def test_only_itanium_std_symbols_are_reviewable_weak_collisions(self) -> None:
+    def test_only_itanium_std_symbols_are_toolchain_owned_collisions(self) -> None:
         for symbol in (
             "_ZNKSt5ctypeIcE8do_widenEc",
             "_ZNSt6vectorIiSaIiEE17_M_default_appendEm",
@@ -307,14 +307,14 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             "__ZNSt3__119piecewise_constructE",
         ):
             with self.subTest(symbol=symbol):
-                self.assertTrue(AUDIT.is_reviewed_weak_global_collision(symbol))
+                self.assertTrue(AUDIT.is_toolchain_owned_global_collision(symbol))
         for symbol in (
             "_ZN4Ogre4Root15getSingletonPtrEv",
             "_ZN12RoROgreNext4Root15getSingletonPtrEv",
             "plain_c_export",
         ):
             with self.subTest(symbol=symbol):
-                self.assertFalse(AUDIT.is_reviewed_weak_global_collision(symbol))
+                self.assertFalse(AUDIT.is_toolchain_owned_global_collision(symbol))
 
     def test_audit_binds_exact_contract_inputs_and_source_commit(self) -> None:
         embedded = self.lock["embedded_namespace"]
