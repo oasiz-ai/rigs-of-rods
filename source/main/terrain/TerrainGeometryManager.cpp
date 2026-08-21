@@ -395,7 +395,15 @@ bool TerrainGeometryManager::InitTerrain(std::string otc_filename)
     }
     mIsFlat = std::abs(mMaxHeight - mMinHeight) < std::numeric_limits<float>::epsilon();
 
-    if (m_was_new_geometry_generated)
+    // A flat page is defined straight from a constant height, so SetupGeometry
+    // returns before it can raise m_was_new_geometry_generated. It is still
+    // rebuilt from scratch on every load and never served from the page cache,
+    // so its layers and blend maps must be applied all the same: skipping them
+    // leaves every blend weight at OGRE's zero-initialised value and the page
+    // renders as nothing but its base layer.
+    const bool apply_layer_setup = m_was_new_geometry_generated || m_spec->is_flat;
+
+    if (apply_layer_setup)
     {
         // update the blend maps
         if (terrainManager->GetDef()->custom_material_name.empty())
@@ -411,7 +419,10 @@ bool TerrainGeometryManager::InitTerrain(std::string otc_filename)
                 }
             }
         }
+    }
 
+    if (m_was_new_geometry_generated)
+    {
         // always save the results when it was imported
         if (!m_spec->disable_cache)
         {
