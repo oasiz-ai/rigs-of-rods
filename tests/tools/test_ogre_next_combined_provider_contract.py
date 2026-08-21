@@ -142,7 +142,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             "rapidjson/document.h",
             "SYSTEM PRIVATE",
             "INTERFACE_INCLUDE_DIRECTORIES",
+            "file(REAL_PATH",
+            "_ror_rapidjson_canonical_include",
+            "_ror_rapidjson_existing_private_usage_count EQUAL 0",
             "_ror_rapidjson_private_usage_count EQUAL 1",
+            "_ror_rapidjson_interface_leaked",
             "ror_ogre_next_rapidjson_private_closure_verify",
             "ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256",
         ):

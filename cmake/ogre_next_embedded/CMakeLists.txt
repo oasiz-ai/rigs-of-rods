@@ -370,6 +370,8 @@ set(ROR_OGRE_NEXT_RAPIDJSON_PRIVATE_CONSUMERS
     OgreNextMain
     OgreNextHlmsPbs
     OgreNextHlmsUnlit)
+file(REAL_PATH "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}"
+    _ror_rapidjson_canonical_include)
 foreach (_ror_rapidjson_consumer IN LISTS
         ROR_OGRE_NEXT_RAPIDJSON_PRIVATE_CONSUMERS)
     if (NOT TARGET ${_ror_rapidjson_consumer})
@@ -382,23 +384,57 @@ foreach (_ror_rapidjson_consumer IN LISTS
         message(FATAL_ERROR
             "RapidJSON consumer is not the reviewed static closure: ${_ror_rapidjson_consumer}")
     endif ()
-    target_include_directories(${_ror_rapidjson_consumer}
-        SYSTEM PRIVATE "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}")
+    get_target_property(_ror_rapidjson_existing_private_usage
+        ${_ror_rapidjson_consumer} INCLUDE_DIRECTORIES)
+    set(_ror_rapidjson_existing_private_usage_count 0)
+    foreach (_ror_rapidjson_usage IN LISTS
+            _ror_rapidjson_existing_private_usage)
+        if (IS_ABSOLUTE "${_ror_rapidjson_usage}" AND
+                IS_DIRECTORY "${_ror_rapidjson_usage}")
+            file(REAL_PATH "${_ror_rapidjson_usage}"
+                _ror_rapidjson_canonical_usage)
+            if (_ror_rapidjson_canonical_usage STREQUAL
+                    _ror_rapidjson_canonical_include)
+                math(EXPR _ror_rapidjson_existing_private_usage_count
+                    "${_ror_rapidjson_existing_private_usage_count} + 1")
+            endif ()
+        endif ()
+    endforeach ()
+    if (_ror_rapidjson_existing_private_usage_count EQUAL 0)
+        target_include_directories(${_ror_rapidjson_consumer}
+            SYSTEM PRIVATE "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}")
+    endif ()
     get_target_property(_ror_rapidjson_private_usage
         ${_ror_rapidjson_consumer} INCLUDE_DIRECTORIES)
     set(_ror_rapidjson_private_usage_count 0)
     foreach (_ror_rapidjson_usage IN LISTS _ror_rapidjson_private_usage)
-        if (_ror_rapidjson_usage STREQUAL
-                ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR)
-            math(EXPR _ror_rapidjson_private_usage_count
-                "${_ror_rapidjson_private_usage_count} + 1")
+        if (IS_ABSOLUTE "${_ror_rapidjson_usage}" AND
+                IS_DIRECTORY "${_ror_rapidjson_usage}")
+            file(REAL_PATH "${_ror_rapidjson_usage}"
+                _ror_rapidjson_canonical_usage)
+            if (_ror_rapidjson_canonical_usage STREQUAL
+                    _ror_rapidjson_canonical_include)
+                math(EXPR _ror_rapidjson_private_usage_count
+                    "${_ror_rapidjson_private_usage_count} + 1")
+            endif ()
         endif ()
     endforeach ()
     get_target_property(_ror_rapidjson_interface_usage
         ${_ror_rapidjson_consumer} INTERFACE_INCLUDE_DIRECTORIES)
+    set(_ror_rapidjson_interface_leaked FALSE)
+    foreach (_ror_rapidjson_usage IN LISTS _ror_rapidjson_interface_usage)
+        if (IS_ABSOLUTE "${_ror_rapidjson_usage}" AND
+                IS_DIRECTORY "${_ror_rapidjson_usage}")
+            file(REAL_PATH "${_ror_rapidjson_usage}"
+                _ror_rapidjson_canonical_usage)
+            if (_ror_rapidjson_canonical_usage STREQUAL
+                    _ror_rapidjson_canonical_include)
+                set(_ror_rapidjson_interface_leaked TRUE)
+            endif ()
+        endif ()
+    endforeach ()
     if (NOT _ror_rapidjson_private_usage_count EQUAL 1 OR
-            ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR IN_LIST
-                _ror_rapidjson_interface_usage)
+            _ror_rapidjson_interface_leaked)
         message(FATAL_ERROR
             "RapidJSON must appear exactly once in private-only usage for ${_ror_rapidjson_consumer}")
     endif ()
