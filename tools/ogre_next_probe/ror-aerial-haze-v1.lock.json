@@ -18,6 +18,22 @@
     {
       "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRAerialHaze_ps.metal",
       "sha256": "1ef074b17fa208567912e090d9d2c4885ea2d30d11eeabc89ef43fc01494c7b6"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/RoRMetering.material",
+      "sha256": "4933b27e16e1e77041b35b53cc570d4c2a66882a382ae455d7938290a7ee81df"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRMeteringSumLumStart_ps.glsl",
+      "sha256": "3924e80883ed2d07c3e6e61d31cb4038b3bf3eb5ae314d1c1a3008e9140fc4d3"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRMeteringSumLumStart_ps.hlsl",
+      "sha256": "acaff88b6e36372cc35b246c8f71dfad25d1903633fc8c0b1e43cb05c21c74e6"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRMeteringSumLumStart_ps.metal",
+      "sha256": "4df3cf438cd3a021f73c5f30d0347ad1a0c3678762040c6a0f02b251569c30fc"
     }
   ]
 }

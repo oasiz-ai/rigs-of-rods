@@ -1713,6 +1713,21 @@ constexpr const char kOgreNextHdrSubtractMaterial[] =
 constexpr const char kOgreNextHdrClampMaterial[] = "RoR/HDR/SunDirectClamp";
 constexpr std::uint8_t kOgreNextHdrSplitExecutionMask = 0x01U;
 constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
+/// RoR-owned shadow-protected auto-exposure metering material, replacing
+/// HDR/DownScale01_SumLumStart on the stock post node's first metering
+/// target. Same reduction, with each sample's log luminance winsorized at
+/// kOgreNextHdrMeteringLogLuminanceCeiling.
+constexpr const char kOgreNextHdrMeteringMaterial[] =
+    "RoR/HDR/MeteringSumLumStart";
+/// Winsorization bound for one metered sample, in the shader's natural-log
+/// luminance-times-1024 domain. 10.0 corresponds to a luminance of
+/// exp(10)/1024 = 21.5, comfortably above the canonical clear-sky radiance
+/// (log(12.4 * 1024) = 9.45, from the pinned 6.667/13.333/20 sky clear) so
+/// ordinary scene content including the whole sky meters exactly as
+/// upstream, while the sun disc (24x sun colour) and mirror-like specular
+/// glints contribute at most the ceiling instead of dragging auto-exposure
+/// down and crushing shadow detail.
+constexpr float kOgreNextHdrMeteringLogLuminanceCeiling = 10.0F;
 /// Output-relative bloom target extent per axis. The stock upstream targets
 /// were a fixed square 256x256, which on a widescreen output stretches one
 /// blur texel further horizontally than vertically and therefore makes the
@@ -2554,6 +2569,64 @@ float ResolveHdrBloomResolutionFactor() {
     return kOgreNextHdrBloomResolutionFactor;
   }
   return parsed;
+}
+
+/// TEMPORARY measurement override for the Stage-1 exposure report:
+/// ROR_HDR_METERING_CEILING replaces the pinned metering ceiling when it
+/// parses to a finite value in [7.0, 30.0] (30 renders the winsorization
+/// inert for A/B baselines). Removed once the shipped ceiling is pinned.
+float ResolveHdrMeteringCeiling() {
+  const char *const override_text =
+      std::getenv("ROR_HDR_METERING_CEILING");
+  if (override_text == nullptr) {
+    return kOgreNextHdrMeteringLogLuminanceCeiling;
+  }
+  char *parsed_end = nullptr;
+  const float parsed = std::strtof(override_text, &parsed_end);
+  if (parsed_end == override_text || parsed_end == nullptr ||
+      *parsed_end != '\0' || !std::isfinite(parsed) || parsed < 7.0F ||
+      parsed > 30.0F) {
+    return kOgreNextHdrMeteringLogLuminanceCeiling;
+  }
+  return parsed;
+}
+
+/// Swaps the stock post node's first metering pass onto the RoR-owned
+/// shadow-protected reduction. Auto-exposure previously adapted to the
+/// unprotected full-frame log-average, so the same shadowed street metered
+/// darker or brighter depending on what else was in frame (the permanently
+/// visible sun disc, a parked bright vehicle). The replacement is the same
+/// reduction with per-sample winsorization; the exposure adaptation stage,
+/// its uniforms, and the CPU history oracle are unchanged because the oracle
+/// consumes the GPU's reduced log-average rather than re-deriving this pass.
+void ConfigureAndVerifyHdrMeteringGraph(
+    Ogre::CompositorManager2 &compositors) {
+  Ogre::CompositorNodeDef *post = compositors.getNodeDefinitionNonConst(
+      Ogre::IdString(kOgreNextHdrPostprocessingNode));
+  if (post == nullptr || post->getNumTargetPasses() != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR post node topology changed before metering swap");
+  }
+  Ogre::CompositorTargetDef *target = post->getTargetPass(0U);
+  if (target == nullptr ||
+      target->getRenderTargetName() != Ogre::IdString("rtIter0") ||
+      target->getCompositorPasses().size() != 1U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR metering target changed before metering swap");
+  }
+  auto *quad = dynamic_cast<Ogre::CompositorPassQuadDef *>(
+      target->getCompositorPasses().front());
+  if (quad == nullptr || quad->mMaterialIsHlms ||
+      quad->mMaterialName != "HDR/DownScale01_SumLumStart") {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR metering material changed before metering swap");
+  }
+  quad->mMaterialName = kOgreNextHdrMeteringMaterial;
+  quad->mProfilingId = "Start Luminance (RoR shadow-protected)";
+  if (quad->mMaterialName != kOgreNextHdrMeteringMaterial) {
+    throw std::runtime_error(
+        "Ogre-Next HDR metering material failed native readback");
+  }
 }
 
 /// Stage-1 imaging-chain corrections applied once to the stock parsed
@@ -6165,6 +6238,28 @@ public:
           "native exposure or simulation-delta constant changed after binding");
     }
 
+    Ogre::MaterialPtr metering_material =
+        std::static_pointer_cast<Ogre::Material>(
+            Ogre::MaterialManager::getSingleton().load(
+                kOgreNextHdrMeteringMaterial,
+                Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME));
+    Ogre::Pass *metering_pass =
+        metering_material->getTechnique(0U)->getPass(0U);
+    Ogre::GpuProgramParametersSharedPtr metering_parameters =
+        metering_pass->getFragmentProgramParameters();
+    const float metering_ceiling = ResolveHdrMeteringCeiling();
+    metering_parameters->setNamedConstant("meteringCeiling",
+                                          metering_ceiling);
+    float observed_ceiling = -1.0F;
+    const Ogre::GpuConstantDefinition &ceiling_definition =
+        metering_parameters->getConstantDefinition("meteringCeiling");
+    metering_parameters->_readRawConstants(
+        ceiling_definition.physicalIndex, 1U, &observed_ceiling);
+    if (observed_ceiling != metering_ceiling) {
+      return HdrBackendFailure(
+          "native metering ceiling changed after deterministic binding");
+    }
+
     Ogre::MaterialPtr bloom_material =
         std::static_pointer_cast<Ogre::Material>(
             Ogre::MaterialManager::getSingleton().load(
@@ -6943,6 +7038,8 @@ public:
       // ladder, aspect-correct output-relative targets, unclipped binary16
       // bloom storage. Applies to both production topologies.
       ConfigureAndVerifyHdrBloomGraph(*root->getCompositorManager2());
+      // Stage-1 exposure repair: shadow-protected metering on the same node.
+      ConfigureAndVerifyHdrMeteringGraph(*root->getCompositorManager2());
     } else {
       Ogre::CompositorManager2 *compositors =
           root->getCompositorManager2();
