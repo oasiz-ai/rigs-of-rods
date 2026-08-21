@@ -631,9 +631,27 @@ paused physics. Independent record and replay state traces both had SHA-256
 live scene through Ogre-Next with single-evaluation HDR, PSSM, auto-exposure,
 bloom, filmic output, zero production content/framebuffer readbacks, and zero
 Ogre14 lighting passes. This closes production record/apply and same-machine
-state-equivalence for the restricted manual-truck policy; savegame continuation,
-TSan runtime soak, controller intent, automatic gear changes, multi-actor input,
-and cross-platform tolerance evidence remain open.
+state-equivalence for the restricted manual-truck policy.
+
+Commit `00017722d` adds the first production savegame continuation for that
+same restricted policy. Version-3 saves may now carry a bounded, canonical
+base64url schema-1 envelope which binds the complete authenticated input trace,
+mode, paused lifecycle, quotas, global and actor fixed-step cursors, target,
+scenario, and resume decision. Load stages the envelope behind a zero-step
+barrier, binds it to the exact restored player Actor, rebuilds and compares the
+live policy/source identity, and imports the authenticated runtime before any
+physics step or success notice. Missing, duplicated, stale, malformed,
+cross-policy, multiplayer, allocation-failed, or failed queued-spawn paths stay
+paused and fail closed. The dependency-free hostile fixture rejects every
+truncation and every single-character mutation and proves that uninterrupted
+replay and an encoded/decoded save/load-resumed replay produce the same
+schema-2 final-state digest
+`b287553431ec87c94d314951c2ef7fcf147fa4696a62e0857e2ce63b659f912b`
+under strict and fast-math builds; ASan/UBSan and direct production-TU syntax
+checks also pass. A fresh combined-runtime record/save/load/resume artifact is
+still required before this satisfies the live D0 gate. TSan runtime soak,
+controller intent, automatic gear changes, multi-actor input, and
+cross-platform tolerance evidence also remain open.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with
