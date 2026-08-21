@@ -35,6 +35,7 @@
 #include "CmdKeyInertia.h"
 #include "Collisions.h"
 #include "DashBoardManager.h"
+#include "DeterministicScenarioIdentity.h"
 #include "Differentials.h"
 #include "DeterministicImpactInitialCondition.h"
 #include "DeterministicCounterNoise.h"
@@ -2295,6 +2296,12 @@ bool Actor::PrepareWorldModelCaptureReset(std::uint64_t reset_seed)
         return false;
     }
 
+    // The capture adapter supplies a resolved episode seed, not the original
+    // scenario/stream pair. Retaining an old explicit pair would make the
+    // actor and any later savegame claim a derivation that is no longer true.
+    m_deterministic_scenario_seed = 0U;
+    m_deterministic_actor_stream_id = 0U;
+
     // SyncReset restores the authored node/beam state. Install the
     // episode-derived seed before it so every future counter-noise consumer
     // starts from the same sealed reset identity.
@@ -2327,7 +2334,10 @@ bool Actor::PrepareWorldModelCaptureReset(std::uint64_t reset_seed)
     // so keeping that latch would silently turn the first recorded transition
     // into a no-physics transition.
     m_ongoing_reset = false;
-    return m_deterministic_seed == reset_seed && !m_ongoing_reset;
+    return m_deterministic_scenario_seed == 0U &&
+        m_deterministic_actor_stream_id == 0U &&
+        m_deterministic_seed == reset_seed &&
+        !m_ongoing_reset;
 }
 
 void Actor::applyNodeBeamScales()
@@ -5231,10 +5241,16 @@ Actor::Actor(
     , m_disable_default_sounds(false)
     , m_disable_smoke(false)
 {
-    m_deterministic_seed =
-        DeterministicCounterNoise::MakeActorSeed(
+    const DeterministicScenarioIdentity::Resolution identity =
+        DeterministicScenarioIdentity::Resolve(
+            rq.asr_deterministic_scenario_seed,
+            rq.asr_deterministic_actor_stream_id,
             static_cast<std::uint64_t>(
                 static_cast<std::uint32_t>(actor_id)));
+    ROR_ASSERT(DeterministicScenarioIdentity::IsValid(identity));
+    m_deterministic_scenario_seed = identity.scenario_seed;
+    m_deterministic_actor_stream_id = identity.actor_stream_id;
+    m_deterministic_seed = identity.deterministic_seed;
 }
 
 float Actor::getSteeringAngle()

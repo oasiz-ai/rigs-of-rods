@@ -442,10 +442,18 @@ savegames carry optional seed/counter fields so existing version-3 saves remain
 loadable and resumed saves retain the next cadence boundary. Golden vectors,
 dependency-free one/two/eight-thread noise tests, and 50,000 fixed-seed cadence
 fixtures lock the pure-function and frame-regrouping contracts.
-Save/load continuation tests, the runtime TSan soak, actor-source broad-phase
-churn, and input-replay hashing remain open D0 work, as does a general
-scenario-level seed/stream-ID contract independent of runtime actor-ID
-assignment.
+The scenario-identity slice adds a nonzero `(scenario seed, actor stream ID)`
+spawn contract that derives counter-noise independently of runtime actor ID and
+spawn order. Partial identities and duplicate live streams fail before actor
+allocation. The exact pair is retained in an optional schema-1 version-3
+savegame member and the stored resolved seed must rederive exactly. Legacy
+all-zero requests and older version-3 saves retain their actor-ID/resolved-seed
+behavior. AngelScript exposes the explicit path separately as
+`spawnTruckDeterministic()` so ordinary `spawnTruck()` compatibility does not
+silently change.
+
+The clean native save/load continuation run, runtime TSan soak, actor-source
+broad-phase churn, and input-replay hashing remain open D0 work.
 
 The contact-order slice now updates inter-actor detectors in stable actor-ID
 order, canonicalizes collision-partner and KD-hit lists, discovers narrow-phase

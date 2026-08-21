@@ -1156,6 +1156,33 @@ ActorPtr GameScript::spawnTruck(Ogre::String& truckName, Ogre::Vector3& pos, Ogr
     return App::GetGameContext()->SpawnActor(rq);
 }
 
+ActorPtr GameScript::spawnTruckDeterministic(
+    Ogre::String& truckName,
+    Ogre::Vector3& pos,
+    Ogre::Vector3& rot,
+    std::uint64_t scenarioSeed,
+    std::uint64_t actorStreamId)
+{
+    if (scenarioSeed == 0U || actorStreamId == 0U)
+    {
+        this->log(
+            "spawnTruckDeterministic(): scenario seed and actor stream "
+            "ID must both be nonzero");
+        return ActorPtr();
+    }
+
+    ActorSpawnRequest rq;
+    rq.asr_position = pos;
+    rq.asr_rotation =
+        Quaternion(Degree(rot.x), Vector3::UNIT_X) *
+        Quaternion(Degree(rot.y), Vector3::UNIT_Y) *
+        Quaternion(Degree(rot.z), Vector3::UNIT_Z);
+    rq.asr_filename = truckName;
+    rq.asr_deterministic_scenario_seed = scenarioSeed;
+    rq.asr_deterministic_actor_stream_id = actorStreamId;
+    return App::GetGameContext()->SpawnActor(rq);
+}
+
 ActorPtr GameScript::spawnTruckAI(Ogre::String& truckName, Ogre::Vector3& pos, Ogre::String& truckSectionConfig, std::string& truckSkin, int x)
 {
     try

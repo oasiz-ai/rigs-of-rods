@@ -467,6 +467,15 @@ public:
 
     ActorPtr spawnTruck(Ogre::String& truckName, Ogre::Vector3& pos, Ogre::Vector3& rot);
 
+    /// Spawn with a scenario-stable identity. Both values must be nonzero;
+    /// duplicate live `(scenarioSeed, actorStreamId)` pairs are rejected.
+    ActorPtr spawnTruckDeterministic(
+        Ogre::String& truckName,
+        Ogre::Vector3& pos,
+        Ogre::Vector3& rot,
+        std::uint64_t scenarioSeed,
+        std::uint64_t actorStreamId);
+
     void repairVehicle(const Ogre::String& instance, const Ogre::String& box, bool keepPosition);
 
     void removeVehicle(const Ogre::String& instance, const Ogre::String& box);

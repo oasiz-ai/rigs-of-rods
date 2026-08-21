@@ -31,6 +31,7 @@
 #include "ContentManager.h"
 #include "Console.h"
 #include "DeterministicInputContinuationSavegame.h"
+#include "DeterministicScenarioIdentity.h"
 #include "Engine.h"
 #include "GameContext.h"
 #include "GUIManager.h"
@@ -48,7 +49,9 @@
 #include <rapidjson/rapidjson.h>
 #include <fstream>
 #include <new>
+#include <set>
 #include <stdexcept>
+#include <utility>
 
 #define SAVEGAME_FILE_FORMAT 3
 
@@ -61,6 +64,102 @@ static const char* const CALIBRATED_BEAM_STATE_MEMBER =
     "calibrated_beam_material_state";
 static const char* const DETERMINISTIC_INPUT_CONTINUATION_MEMBER =
     "deterministic_input_continuation_v1";
+static const char* const DETERMINISTIC_SCENARIO_IDENTITY_MEMBER =
+    "deterministic_scenario_identity_v1";
+
+struct SavedDeterministicScenarioIdentity
+{
+    bool explicit_identity = false;
+    bool has_stored_seed = false;
+    std::uint64_t scenario_seed = 0U;
+    std::uint64_t actor_stream_id = 0U;
+    std::uint64_t deterministic_seed = 0U;
+};
+
+bool TryReadSavedDeterministicScenarioIdentity(
+    const rapidjson::Value& actor_entry,
+    SavedDeterministicScenarioIdentity& output)
+{
+    if (!actor_entry.IsObject() ||
+        (actor_entry.HasMember("deterministic_seed") &&
+            !actor_entry["deterministic_seed"].IsUint64()))
+    {
+        return false;
+    }
+
+    SavedDeterministicScenarioIdentity candidate;
+    if (!actor_entry.HasMember(DETERMINISTIC_SCENARIO_IDENTITY_MEMBER))
+    {
+        if (actor_entry.HasMember("deterministic_seed"))
+        {
+            candidate.has_stored_seed = true;
+            candidate.deterministic_seed =
+                actor_entry["deterministic_seed"].GetUint64();
+        }
+        output = candidate;
+        return true;
+    }
+
+    const rapidjson::Value& identity =
+        actor_entry[DETERMINISTIC_SCENARIO_IDENTITY_MEMBER];
+    if (!identity.IsObject() || identity.MemberCount() != 3U ||
+        !identity.HasMember("schema_version") ||
+        !identity["schema_version"].IsUint() ||
+        identity["schema_version"].GetUint() !=
+            DeterministicScenarioIdentity::SCHEMA_VERSION ||
+        !identity.HasMember("scenario_seed") ||
+        !identity["scenario_seed"].IsUint64() ||
+        !identity.HasMember("actor_stream_id") ||
+        !identity["actor_stream_id"].IsUint64() ||
+        !actor_entry.HasMember("deterministic_seed"))
+    {
+        return false;
+    }
+
+    candidate.explicit_identity = true;
+    candidate.has_stored_seed = true;
+    candidate.scenario_seed = identity["scenario_seed"].GetUint64();
+    candidate.actor_stream_id = identity["actor_stream_id"].GetUint64();
+    candidate.deterministic_seed =
+        actor_entry["deterministic_seed"].GetUint64();
+    if (!DeterministicScenarioIdentity::RevalidatesStoredSeed(
+            candidate.scenario_seed,
+            candidate.actor_stream_id,
+            candidate.deterministic_seed))
+    {
+        return false;
+    }
+
+    output = candidate;
+    return true;
+}
+
+bool ValidateSavedDeterministicScenarioIdentities(
+    const rapidjson::Value& actors)
+{
+    if (!actors.IsArray())
+        return false;
+
+    std::set<std::pair<std::uint64_t, std::uint64_t> > identities;
+    for (const rapidjson::Value& actor_entry: actors.GetArray())
+    {
+        SavedDeterministicScenarioIdentity identity;
+        if (!TryReadSavedDeterministicScenarioIdentity(
+                actor_entry,
+                identity))
+        {
+            return false;
+        }
+        if (identity.explicit_identity &&
+            !identities.insert(std::make_pair(
+                identity.scenario_seed,
+                identity.actor_stream_id)).second)
+        {
+            return false;
+        }
+    }
+    return true;
+}
 
 bool BuildLiveMaterialBeams(
     const ActorPtr& actor,
@@ -511,6 +610,8 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
     }
     if (!j_doc.HasMember("physics_paused") ||
         !j_doc["physics_paused"].IsBool() ||
+        !j_doc.HasMember("actors") ||
+        !ValidateSavedDeterministicScenarioIdentities(j_doc["actors"]) ||
         (j_doc.HasMember("completed_physics_steps") &&
             !j_doc["completed_physics_steps"].IsUint64()) ||
         (j_doc.HasMember(DETERMINISTIC_INPUT_CONTINUATION_MEMBER) &&
@@ -737,6 +838,13 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
         // If a 'preloaded' actor isn't loaded at this point, it means it's not installed.
         if (actor == nullptr && !j_entry["preloaded_with_terrain"].GetBool())
         {
+            SavedDeterministicScenarioIdentity saved_identity;
+            if (!TryReadSavedDeterministicScenarioIdentity(
+                    j_entry,
+                    saved_identity))
+            {
+                return false;
+            }
             ActorSpawnRequest* rq = new ActorSpawnRequest;
             rq->asr_filename      = rigdef_filename_maybe_bundle_qualified;
             rq->asr_position.x    = j_entry["position"][0].GetFloat();
@@ -747,6 +855,10 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
             rq->asr_working_tuneup = working_tuneup;
             rq->asr_config        = section_config;
             rq->asr_origin        = ActorSpawnRequest::Origin::SAVEGAME;
+            rq->asr_deterministic_scenario_seed =
+                saved_identity.scenario_seed;
+            rq->asr_deterministic_actor_stream_id =
+                saved_identity.actor_stream_id;
             // Copy saved state
             rq->asr_saved_state = std::shared_ptr<rapidjson::Document>(new rapidjson::Document());
             rq->asr_saved_state->CopyFrom(j_entry, rq->asr_saved_state->GetAllocator());
@@ -939,6 +1051,27 @@ bool ActorManager::SaveScene(Ogre::String filename)
         j_entry.AddMember("sim_state", static_cast<int>(actor->ar_state), j_doc.GetAllocator());
         j_entry.AddMember("physics_paused", actor->ar_physics_paused, j_doc.GetAllocator());
         j_entry.AddMember("deterministic_seed", actor->m_deterministic_seed, j_doc.GetAllocator());
+        if (actor->HasExplicitDeterministicScenarioIdentity())
+        {
+            rapidjson::Value identity(rapidjson::kObjectType);
+            identity.AddMember(
+                "schema_version",
+                DeterministicScenarioIdentity::SCHEMA_VERSION,
+                j_doc.GetAllocator());
+            identity.AddMember(
+                "scenario_seed",
+                actor->m_deterministic_scenario_seed,
+                j_doc.GetAllocator());
+            identity.AddMember(
+                "actor_stream_id",
+                actor->m_deterministic_actor_stream_id,
+                j_doc.GetAllocator());
+            j_entry.AddMember(
+                rapidjson::StringRef(
+                    DETERMINISTIC_SCENARIO_IDENTITY_MEMBER),
+                identity,
+                j_doc.GetAllocator());
+        }
         j_entry.AddMember("physics_step", actor->m_physics_step, j_doc.GetAllocator());
         j_entry.AddMember("engine_update_step", actor->m_engine_update_step, j_doc.GetAllocator());
         j_entry.AddMember("player_actor", actor==App::GetGameContext()->GetPlayerActor(), j_doc.GetAllocator());
@@ -1256,6 +1389,21 @@ bool ActorManager::SaveScene(Ogre::String filename)
 
 bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_entry)
 {
+    SavedDeterministicScenarioIdentity saved_identity;
+    if (!TryReadSavedDeterministicScenarioIdentity(
+            j_entry,
+            saved_identity))
+    {
+        if (m_deterministic_actor_input_pending_savegame != nullptr)
+        {
+            this->FailPendingDeterministicActorInputSavegame(
+                "restored Actor identity rejected");
+        }
+        RoR::LogFormat(
+            "[RoR|Savegame] Rejected deterministic scenario identity");
+        return false;
+    }
+
     bool has_material_payload = false;
     std::vector<CalibratedBeamSavegame::StagedBeam> staged_material;
     CalibratedBeamSavegame::Result material_validation;
@@ -1290,11 +1438,21 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
     actor->m_spawn_rotation = j_entry["spawn_rotation"].GetFloat();
     actor->ar_state = static_cast<ActorState>(j_entry["sim_state"].GetInt());
     actor->ar_physics_paused = j_entry["physics_paused"].GetBool();
-    if (j_entry.HasMember("deterministic_seed") &&
-        j_entry["deterministic_seed"].IsUint64())
+    actor->m_deterministic_scenario_seed = saved_identity.scenario_seed;
+    actor->m_deterministic_actor_stream_id = saved_identity.actor_stream_id;
+    if (saved_identity.has_stored_seed)
+    {
+        actor->m_deterministic_seed = saved_identity.deterministic_seed;
+    }
+    else
     {
         actor->m_deterministic_seed =
-            j_entry["deterministic_seed"].GetUint64();
+            DeterministicScenarioIdentity::Resolve(
+                0U,
+                0U,
+                static_cast<std::uint64_t>(
+                    static_cast<std::uint32_t>(
+                        actor->ar_instance_id))).deterministic_seed;
     }
     actor->m_physics_step =
         j_entry.HasMember("physics_step") &&

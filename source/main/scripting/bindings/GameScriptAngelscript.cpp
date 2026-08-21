@@ -170,6 +170,7 @@ void RoR::RegisterGameScript(asIScriptEngine *engine)
     result = engine->RegisterObjectMethod("GameScriptClass", "array<BeamClass@> @getAllTrucks()", AngelScript::asMETHOD(GameScript, getAllTrucks), AngelScript::asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "int getCurrentTruckNumber()", asMETHOD(GameScript, getCurrentTruckNumber), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "BeamClassPtr @spawnTruck(string &in, vector3 &in, vector3 &in)", asMETHOD(GameScript, spawnTruck), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("GameScriptClass", "BeamClassPtr @spawnTruckDeterministic(string &in, vector3 &in, vector3 &in, uint64, uint64)", asMETHOD(GameScript, spawnTruckDeterministic), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "void repairVehicle(const string &in, const string &in, bool)", asMETHOD(GameScript, repairVehicle), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "void removeVehicle(const string &in, const string &in)", asMETHOD(GameScript, removeVehicle), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("GameScriptClass", "int getNumTrucksByFlag(int)", asMETHOD(GameScript, getNumTrucksByFlag), asCALL_THISCALL); ROR_ASSERT(result >= 0);

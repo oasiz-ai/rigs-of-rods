@@ -37,6 +37,7 @@
 #include "CmdKeyInertia.h"
 #include "InputEngine.h"
 
+#include <cstdint>
 #include <memory>
 #include <Ogre.h>
 #include <rapidjson/document.h>
@@ -849,6 +850,8 @@ struct ActorSpawnRequest
     BitMask_t           asr_net_peeropts = BitMask_t(0); //!< `RoRnet::PeerOptions` to be applied after spawn.
     int                 net_source_id = 0;
     int                 net_stream_id = 0;
+    std::uint64_t       asr_deterministic_scenario_seed = 0U; //!< Nonzero with `asr_deterministic_actor_stream_id`; zero pair keeps legacy actor-ID seeding.
+    std::uint64_t       asr_deterministic_actor_stream_id = 0U; //!< Stable scenario-assigned actor identity, independent of runtime Actor ID.
     bool                asr_free_position = false;   //!< Disables the automatic spawn position adjustment
     bool                asr_enter = true;
     bool                asr_terrn_machine = false;   //!< This is a fixed machinery

@@ -151,6 +151,9 @@ void RoR::RegisterActor(asIScriptEngine *engine)
     result = engine->RegisterObjectMethod("BeamClass", "float getNodeMass(int)", asMETHOD(Actor, getNodeMass), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("BeamClass", "vector3 getNodeVelocity(int)", asMETHOD(Actor, getNodeVelocity), asCALL_THISCALL); ROR_ASSERT(result>=0);
     result = engine->RegisterObjectMethod("BeamClass", "vector3 getNodeForces(int)", asMETHOD(Actor, getNodeForces), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "bool hasExplicitDeterministicScenarioIdentity() const", asMETHOD(Actor, HasExplicitDeterministicScenarioIdentity), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "uint64 getDeterministicScenarioSeed() const", asMETHOD(Actor, GetDeterministicScenarioSeed), asCALL_THISCALL); ROR_ASSERT(result >= 0);
+    result = engine->RegisterObjectMethod("BeamClass", "uint64 getDeterministicActorStreamId() const", asMETHOD(Actor, GetDeterministicActorStreamId), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("BeamClass", "bool trySetDeterministicImpactVelocity(vector3)", asMETHOD(Actor, trySetDeterministicImpactVelocity), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("BeamClass", "int getBrokenBeamCount() const", asMETHOD(Actor, getBrokenBeamCount), asCALL_THISCALL); ROR_ASSERT(result >= 0);
     result = engine->RegisterObjectMethod("BeamClass", "void getNodeMassOptions(int, bool&inout, bool&inout)", asMETHOD(Actor, getNodeMassOptions), asCALL_THISCALL); ROR_ASSERT(result >= 0);

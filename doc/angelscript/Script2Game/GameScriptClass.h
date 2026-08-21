@@ -555,6 +555,9 @@ public:
 	 *  @return reference to Beam object
 	 */
 	BeamClass @spawnTruck(stringtruckName, vector3 pos, vector3 rot);
+
+	/** Spawn an actor using a nonzero scenario seed and scenario-stable actor stream ID. */
+	BeamClass @spawnTruckDeterministic(string truckName, vector3 pos, vector3 rot, uint64 scenarioSeed, uint64 actorStreamId);
     
 	/**
 	 * This method repairs the vehicle in the box

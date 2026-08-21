@@ -39,6 +39,7 @@
 #include "DeterministicInputContinuationSavegame.h"
 #include "DeterministicInputTraceRuntime.h"
 #include "DeterministicScenarioSchedule.h"
+#include "DeterministicScenarioIdentity.h"
 #include "DeterministicStateTrace.h"
 #include "DeterministicVehicleInput.h"
 #include "DeterministicVehicleInputActorAdapter.h"
@@ -2296,6 +2297,51 @@ void ActorManager::CaptureDeterministicStateTraceStep(
 
 ActorPtr ActorManager::CreateNewActor(ActorSpawnRequest rq, RigDef::DocumentPtr def)
 {
+    const std::uint64_t prospective_actor_id =
+        rq.asr_instance_id == ACTORINSTANCEID_INVALID
+            ? static_cast<std::uint64_t>(
+                static_cast<std::uint32_t>(m_actor_next_instance_id))
+            : static_cast<std::uint64_t>(
+                static_cast<std::uint32_t>(rq.asr_instance_id));
+    const DeterministicScenarioIdentity::Resolution identity =
+        DeterministicScenarioIdentity::Resolve(
+            rq.asr_deterministic_scenario_seed,
+            rq.asr_deterministic_actor_stream_id,
+            prospective_actor_id);
+    if (!DeterministicScenarioIdentity::IsValid(identity))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Rejected actor spawn with partial "
+            "scenario identity (scenario=%llu, stream=%llu)",
+            static_cast<unsigned long long>(
+                rq.asr_deterministic_scenario_seed),
+            static_cast<unsigned long long>(
+                rq.asr_deterministic_actor_stream_id));
+        return nullptr;
+    }
+    if (identity.explicit_identity)
+    {
+        for (const ActorPtr& existing_actor: m_actors)
+        {
+            if (existing_actor != nullptr &&
+                existing_actor->ar_state != ActorState::DISPOSED &&
+                existing_actor->m_deterministic_scenario_seed ==
+                    identity.scenario_seed &&
+                existing_actor->m_deterministic_actor_stream_id ==
+                    identity.actor_stream_id)
+            {
+                RoR::LogFormat(
+                    "[RoR|Determinism] Rejected duplicate live actor "
+                    "stream (scenario=%llu, stream=%llu)",
+                    static_cast<unsigned long long>(
+                        identity.scenario_seed),
+                    static_cast<unsigned long long>(
+                        identity.actor_stream_id));
+                return nullptr;
+            }
+        }
+    }
+
     // Reserve the ownership slot before constructing/registering anything.
     // Once graphics registration commits, the final ActorPtr append cannot
     // allocate and therefore cannot strand a capture-side raw owner.

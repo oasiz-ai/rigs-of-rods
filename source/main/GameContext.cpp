@@ -734,6 +734,10 @@ void GameContext::ModifyActor(ActorModifyRequest& rq)
         srq->asr_cache_entry= actor->getUsedActorEntry();
         srq->asr_debugview  = (int)actor->GetGfxActor()->GetDebugView();
         srq->asr_origin     = ActorSpawnRequest::Origin::USER;
+        srq->asr_deterministic_scenario_seed =
+            actor->GetDeterministicScenarioSeed();
+        srq->asr_deterministic_actor_stream_id =
+            actor->GetDeterministicActorStreamId();
 
         // This deletes all actors using the resource bundle, including the one we're reloading.
         this->PushMessage(Message(MSG_EDI_RELOAD_BUNDLE_REQUESTED, new CacheEntryPtr(actor->getUsedActorEntry())));

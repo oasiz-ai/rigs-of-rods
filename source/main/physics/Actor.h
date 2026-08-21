@@ -370,6 +370,9 @@ public:
     /// fixed running-engine/controller baseline; never call with physics live.
     bool              PrepareWorldModelCaptureReset(std::uint64_t reset_seed);
     std::uint64_t     GetWorldModelDeterministicSeed() const { return m_deterministic_seed; }
+    bool              HasExplicitDeterministicScenarioIdentity() const { return m_deterministic_scenario_seed != 0U && m_deterministic_actor_stream_id != 0U; }
+    std::uint64_t     GetDeterministicScenarioSeed() const { return m_deterministic_scenario_seed; }
+    std::uint64_t     GetDeterministicActorStreamId() const { return m_deterministic_actor_stream_id; }
     void              WriteDiagnosticDump(std::string const& filename);
     Ogre::Vector3     GetCameraDir()                    { return (ar_nodes[ar_main_camera_node_pos].RelPosition - ar_nodes[ar_main_camera_node_dir].RelPosition).normalisedCopy(); }
     Ogre::Vector3     GetCameraRoll()                   { return (ar_nodes[ar_main_camera_node_pos].RelPosition - ar_nodes[ar_main_camera_node_roll].RelPosition).normalisedCopy(); }
@@ -766,6 +769,8 @@ private:
     Ogre::Real        m_min_camera_radius = 0.f;
     Ogre::Vector3     m_avg_node_position_prev = Ogre::Vector3::ZERO;
     Ogre::Vector3     m_avg_node_velocity = Ogre::Vector3::ZERO;          //!< average node velocity (compared to the previous frame step)
+    std::uint64_t     m_deterministic_scenario_seed = 0;                  //!< Explicit scenario seed; zero only for legacy actor-ID mapping
+    std::uint64_t     m_deterministic_actor_stream_id = 0;                //!< Explicit scenario-stable actor stream; zero only for legacy mapping
     std::uint64_t     m_deterministic_seed = 0;                           //!< Persisted seed shared by this actor's counter-noise domains
     std::uint64_t     m_physics_step = 0;                                 //!< Next turbulence counter; advances once per completed fixed physics step
     std::uint64_t     m_engine_update_step = 0;                           //!< Next engine fixed-step/anti-lag counter; legacy mode counts calls

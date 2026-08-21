@@ -120,8 +120,25 @@ public:
      * Returns the sum of all the forces applied to the node.
      * @param nodeNumber The number of the node (counts from 0, see `getNodeCount()`)
      * @return The node's current force vector.
-     */
+    */
     vector3 getNodeForces(int nodeNumber);
+
+    /**
+     * Returns true when this actor was spawned with an explicit immutable
+     * deterministic scenario and actor-stream identity.
+     */
+    bool hasExplicitDeterministicScenarioIdentity() const;
+
+    /**
+     * Gets the explicit deterministic scenario seed, or zero for a legacy
+     * actor whose deterministic seed is derived from its runtime instance ID.
+     */
+    uint64 getDeterministicScenarioSeed() const;
+
+    /**
+     * Gets the scenario-stable actor stream ID, or zero for a legacy actor.
+     */
+    uint64 getDeterministicActorStreamId() const;
 
     /**
      * Sets one exact initial velocity on every movable node for a deterministic

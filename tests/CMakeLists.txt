@@ -37,6 +37,12 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_input_live_runtime_contract.py"
 )
 add_test(
+    NAME deterministic_scenario_identity_contract
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_scenario_identity_contract.py"
+)
+add_test(
     NAME deterministic_savegame_resume_tool
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -51,6 +57,7 @@ add_test(
 )
 set_tests_properties(
     deterministic_input_live_runtime_contract
+    deterministic_scenario_identity_contract
     deterministic_savegame_resume_tool
     deterministic_savegame_resume_tool_optimized
     PROPERTIES
@@ -2156,6 +2163,11 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_scenario_identity_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicScenarioIdentityTests.cpp"
+)
+
+add_executable(
     ror_deterministic_fixed_step_cadence_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicFixedStepCadenceTests.cpp"
 )
@@ -2931,6 +2943,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_contact_order_tests
     ror_point_col_detector_production_oracle_tests
     ror_deterministic_counter_noise_tests
+    ror_deterministic_scenario_identity_tests
     ror_deterministic_fixed_step_cadence_tests
     ror_fixed_step_capture_bridge_tests
     ror_deterministic_scenario_schedule_tests
@@ -3671,6 +3684,11 @@ add_test(
 add_test(
     NAME deterministic_counter_noise
     COMMAND ror_deterministic_counter_noise_tests
+)
+
+add_test(
+    NAME deterministic_scenario_identity
+    COMMAND ror_deterministic_scenario_identity_tests
 )
 
 add_test(

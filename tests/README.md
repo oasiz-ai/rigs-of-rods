@@ -240,10 +240,14 @@ threads, reversed traversal, and omitted actors. It does not replace the pending
 pinned-content ActorManager worker-count run, save/load continuation test, or
 full-game ThreadSanitizer soak.
 
-Fresh actors currently derive their seed from the fixed default world seed and
-runtime actor ID, so independent fresh runs must preserve the same actor-ID
-assignment. Savegame restoration does not have that limitation because it
-restores the resolved seed.
+Legacy actor spawns continue to derive their seed from the fixed default world
+seed and runtime actor ID. Deterministic scenario producers can instead call
+`spawnTruckDeterministic()` with a nonzero scenario seed and nonzero stable
+actor stream ID. That pair derives the same actor seed regardless of runtime
+actor ID or spawn order. A partial pair and a duplicate live pair fail before
+actor allocation. Version-3 savegames retain the pair in an optional schema-1
+object and require its stored resolved seed to rederive exactly; old version-3
+saves remain compatible.
 
 With `sim_deterministic_sleeping_engine` enabled (the default), sleeping engines
 advance the same counter once per 2 kHz physics step and integrate on exact
