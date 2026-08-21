@@ -49,6 +49,24 @@ static_assert(static_cast<std::size_t>(MaterialTextureSlot::DETAIL0) +
                   kMaterialDetailMapCount - 1U ==
               static_cast<std::size_t>(MaterialTextureSlot::DETAIL3));
 
+bool RetainedAuditEverythingRequested() noexcept {
+#if defined(_WIN32)
+  char *setting = nullptr;
+  std::size_t setting_size = 0U;
+  if (_dupenv_s(&setting, &setting_size, "ROR_PRODUCER_RETAINED_AUDIT") != 0 ||
+      setting == nullptr) {
+    std::free(setting);
+    return false;
+  }
+  const bool requested = std::string_view(setting) == "full";
+  std::free(setting);
+  return requested;
+#else
+  const char *const setting = std::getenv("ROR_PRODUCER_RETAINED_AUDIT");
+  return setting != nullptr && std::string_view(setting) == "full";
+#endif
+}
+
 ValidationResult Failure(ValidationCode code, const char *field,
                          const char *detail,
                          std::size_t index = ValidationResult::kNoElement) {
@@ -2700,10 +2718,8 @@ public:
     // fail the same audit forever instead of being re-validated once under
     // the ordinary revision-lineage rules.
     if (retained_block_reused) {
-      static const bool audit_everything = [] {
-        const char *const setting = std::getenv("ROR_PRODUCER_RETAINED_AUDIT");
-        return setting != nullptr && std::string_view(setting) == "full";
-      }();
+      static const bool audit_everything =
+          RetainedAuditEverythingRequested();
       const std::vector<MeshInstanceDescriptor> &verified_instances =
           created.snapshot->mesh_instances();
       const std::size_t instance_window =

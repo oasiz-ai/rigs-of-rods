@@ -149,6 +149,19 @@ class ProducerRetainedStaticContractTests(unittest.TestCase):
                 field,
             )
 
+    def test_retained_audit_environment_read_is_msvc_safe(self) -> None:
+        start = self.producer.index("bool RetainedAuditEverythingRequested()")
+        end = self.producer.index("ValidationResult Failure(", start)
+        helper = self.producer[start:end]
+        self.assertIn("#if defined(_WIN32)", helper)
+        self.assertIn("_dupenv_s(&setting, &setting_size", helper)
+        self.assertIn("std::free(setting);", helper)
+        self.assertIn("#else", helper)
+        self.assertIn("std::getenv(\"ROR_PRODUCER_RETAINED_AUDIT\")", helper)
+        self.assertIn(
+            "RetainedAuditEverythingRequested();", self.producer
+        )
+
     def test_scoped_compatibility_replaces_the_dynamic_forcing_term(
         self,
     ) -> None:
