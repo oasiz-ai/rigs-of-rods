@@ -374,11 +374,35 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("AlexisSaber.truck", command)
         self.assertIn("-enter", command)
         self.assertIn("-checkcache", command)
+        self.assertNotIn("--native-visual-showcase", command)
+        self.assertNotIn("--native-visual-showcase-a0", command)
 
         without_actor = runner.build_command(
             Path("/bin/RoR"), make_request(actor=""))
         self.assertNotIn("-truck", without_actor)
         self.assertNotIn("-enter", without_actor)
+
+    def test_renderer_only_showcases_cannot_satisfy_the_playable_gate(
+        self,
+    ) -> None:
+        for option in sorted(runner.NON_PLAYABLE_COMBINED_OPTIONS):
+            with self.subTest(option=option):
+                with self.assertRaisesRegex(
+                    runner.PerformanceSceneFailure,
+                    "renderer-only showcase mode",
+                ):
+                    runner.build_command(
+                        Path("/bin/RoR"),
+                        make_request(),
+                        launcher_arguments=(option,),
+                    )
+
+        ordinary = runner.build_command(
+            Path("/bin/RoR"),
+            make_request(),
+            launcher_arguments=("--renderer-log-level=info",),
+        )
+        self.assertEqual(ordinary[1], "--renderer-log-level=info")
 
     def test_environment_isolates_the_profile(self) -> None:
         environment = runner.build_environment(Path("/tmp/home"))

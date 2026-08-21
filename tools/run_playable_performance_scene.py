@@ -671,6 +671,14 @@ REFRESH_INTERVALS_MS = (
     1000.0 / 240.0,
 )
 
+#: Private renderer-diagnostic scenes are deliberately excluded from the
+#: playable-performance gate.  They exercise the Ogre-Next presentation stack
+#: but do not contain the joined RoR simulation, vehicle, terrain, or gameplay
+#: surface whose budget this runner qualifies.
+NON_PLAYABLE_COMBINED_OPTIONS = frozenset(
+    ("--native-visual-showcase", "--native-visual-showcase-a0")
+)
+
 #: How close the median must sit to a refresh interval, and how tight the
 #: distribution must be, before pacing is reported.
 PACING_MEDIAN_TOLERANCE_MS = 0.5
@@ -801,6 +809,17 @@ def build_command(
     launcher parses its own options first and forwards everything after them
     to the selected child byte-for-byte.
     """
+
+    non_playable = sorted(
+        option
+        for option in launcher_arguments
+        if option in NON_PLAYABLE_COMBINED_OPTIONS
+    )
+    if non_playable:
+        raise PerformanceSceneFailure(
+            "the playable-performance gate cannot select renderer-only "
+            "showcase mode: " + ", ".join(non_playable)
+        )
 
     command = [str(executable)]
     command.extend(launcher_arguments)
