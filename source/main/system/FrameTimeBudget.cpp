@@ -197,7 +197,7 @@ FrameTimeBudgetSession::FrameTimeBudgetSession(
     , context_(context)
     , limits_valid_(limits.valid())
     , bins_(kFrameTimeBudgetTotalBins, 0U)
-    , minimum_ns_(std::numeric_limits<std::uint64_t>::max())
+    , minimum_ns_((std::numeric_limits<std::uint64_t>::max)())
 {
 }
 

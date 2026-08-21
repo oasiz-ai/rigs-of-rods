@@ -381,6 +381,14 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
             self.probe_cmake,
         )
 
+    def test_long_windows_test_target_has_an_explicit_compile_pdb(self) -> None:
+        token = (
+            'COMPILE_PDB_NAME '
+            '"ror_ogre14_prepared_material_binding_tests"'
+        )
+        self.assertEqual(self.probe_cmake.count(token), 1)
+        self.assertEqual(self.tests_cmake.count(token), 1)
+
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
             "option(\n"

@@ -1427,6 +1427,11 @@ target_compile_definitions(
     ror_ogre14_graphics_scene_prepared_material_binding_tests
     PRIVATE ROR_OGRE14_NATIVE_MATERIAL_AUDIT_INTERNAL_TESTING=1
 )
+set_target_properties(
+    ror_ogre14_graphics_scene_prepared_material_binding_tests
+    PROPERTIES
+        COMPILE_PDB_NAME "ror_ogre14_prepared_material_binding_tests"
+)
 add_executable(
     ror_ogre14_authenticated_texture_receipt_tests
     "${CMAKE_CURRENT_LIST_DIR}/gfx/ogre14/Ogre14AuthenticatedTextureReceiptTests.cpp"

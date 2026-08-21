@@ -2244,7 +2244,9 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         PRIVATE ror_ogre_next_n1_contract)
     set_target_properties(
         ror_ogre14_graphics_scene_prepared_material_binding_tests
-        PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+        PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+            COMPILE_PDB_NAME "ror_ogre14_prepared_material_binding_tests")
 
     add_executable(
         ror_ogre14_authenticated_texture_receipt_tests
