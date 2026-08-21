@@ -130,13 +130,18 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         self.assertIn("find_package(SDL2 2.32.10 EXACT CONFIG REQUIRED)", dependencies)
 
     def test_lock_is_enforced_before_pinned_source_build(self) -> None:
+        embedded_provider_guard = self.pinned_cmake[
+            self.pinned_cmake.index(
+                "if (NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)"
+            ) : self.pinned_cmake.index(
+                "set(_ror_lock_path"
+            )
+        ]
         for token in (
             LOCK_SHA256,
             "ROR_SDL2_PRESENTATION_ARCHIVE_SHA256",
             "FETCHCONTENT_SOURCE_DIR_ROR_SDL2",
-            "FetchContent_Declare(\n    ror_sdl2",
             'URL_HASH "SHA256=${ROR_SDL2_PRESENTATION_ARCHIVE_SHA256}"',
-            "FetchContent_MakeAvailable(ror_sdl2)",
             "Pinned SDL2 license hash changed",
             "SDL_SHARED OFF",
             "SDL_STATIC ON",
@@ -145,6 +150,14 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.pinned_cmake)
+        self.assertIn("FetchContent_Declare(", embedded_provider_guard)
+        self.assertIn("ror_sdl2", embedded_provider_guard)
+        self.assertIn(
+            "if (NOT ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER)",
+            embedded_provider_guard,
+        )
+        self.assertIn("endif ()", embedded_provider_guard)
+        self.assertIn("FetchContent_MakeAvailable(ror_sdl2)", self.pinned_cmake)
 
     def test_linux_builds_null_bootstrap_and_xcb_presentation_only(self) -> None:
         for token in (
@@ -303,7 +316,7 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         self.assertIn("immediate post-SDL_SetWindowSize query is not", header_callback)
         resize = self.host[
             self.host.index("RendererOgreNextWindowHost::Resize(") :
-            self.host.index("RendererOgreNextWindowHost::RefreshMetrics")
+            self.host.index("RendererOgreNextWindowHost::AdoptExternalResize(")
         ]
         self.assertLess(
             resize.index("resize_sdl_window_and_wait_for_configure"),
@@ -461,7 +474,7 @@ class OgreNextWindowHostContractTests(unittest.TestCase):
         )
         self.assertIn("ror_renderer_ogre_next_window_host_tests", normal_cmake)
         package = self.probe_cmake[
-            self.probe_cmake.index("set(ROR_OGRE_NEXT_N1_PACKAGE_ROOT") :
+            self.probe_cmake.index("set(_ror_n1_package_commands") :
             self.probe_cmake.index(
                 "add_custom_target(ror_ogre_next_frontend_n1_package ALL"
             )
