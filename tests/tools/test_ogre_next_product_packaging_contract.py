@@ -396,6 +396,18 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         self.assertEqual(self.probe_cmake.count(token), 1)
         self.assertEqual(self.tests_cmake.count(token), 1)
 
+    def test_protected_material_source_switch_warning_is_test_scoped(
+        self,
+    ) -> None:
+        token = (
+            "target_compile_options(\n"
+            "            ror_ogre_next_demo_material_source_native_tests\n"
+            "            PRIVATE -Wno-error=switch\n"
+            "        )"
+        )
+        self.assertEqual(self.tests_cmake.count(token), 1)
+        self.assertNotIn("-Wno-switch", self.tests_cmake)
+
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
             "option(\n"
