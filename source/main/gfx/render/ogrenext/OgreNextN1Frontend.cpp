@@ -153,6 +153,127 @@ bool OgreNextStage0FeatureDisabled(const char *token) noexcept {
   return false;
 }
 
+/// Stage 0 items 1 and 3: per-object distance-cull policy derived from the
+/// present's validated projection and the pinned PSSM split policy. The
+/// native distance test is already folded into Ogre's SIMD frustum cull
+/// (ObjectData::mUpperDistance), so applying these upper distances costs
+/// nothing per frame; the thresholds are chosen from projected size so the
+/// culled set is sub-pixel in view and sub-texel in every shadow cascade.
+struct OgreNextStage0DistanceCullPolicy final {
+  bool view_enabled = false;
+  bool shadow_enabled = false;
+  /// Upper rendering distance per meter of world-bounds radius: an object
+  /// is culled once its projected bounding-sphere diameter drops below
+  /// kOgreNextStage0ViewCullDiameterPixels on the validated viewport.
+  float view_distance_per_radius = 0.0F;
+  /// Cascade band far ends and the minimum world-bounds radius an object
+  /// needs to still cover kOgreNextStage0CasterCullTexels texels of that
+  /// cascade's estimated texel density.
+  std::array<float, kOgreNextPssmCascadeCount> band_end{};
+  std::array<float, kOgreNextPssmCascadeCount> minimum_caster_radius{};
+
+  bool operator==(const OgreNextStage0DistanceCullPolicy &other)
+      const noexcept {
+    return view_enabled == other.view_enabled &&
+           shadow_enabled == other.shadow_enabled &&
+           view_distance_per_radius == other.view_distance_per_radius &&
+           band_end == other.band_end &&
+           minimum_caster_radius == other.minimum_caster_radius;
+  }
+  bool operator!=(const OgreNextStage0DistanceCullPolicy &other)
+      const noexcept {
+    return !(*this == other);
+  }
+};
+
+/// Projected bounding-sphere diameter below which an object stops being
+/// submitted for view rendering. Half a pixel keeps the 12 km vista
+/// pixel-comparable: a culled object could at most have contributed
+/// sub-half-pixel coverage.
+constexpr float kOgreNextStage0ViewCullDiameterPixels = 0.5F;
+/// Estimated cascade texels below which an object stops being submitted as
+/// a shadow caster for the bands that cannot resolve it.
+constexpr float kOgreNextStage0CasterCullTexels = 2.0F;
+/// The focused (non-stable) cascades can fit tighter windows than the slice
+/// bounding sphere this policy estimates, so the estimated texel size is
+/// additionally halved before it gates a caster: the cull stays sub-budget
+/// even if the real cascade window is half the estimated one.
+constexpr float kOgreNextStage0CasterTexelMargin = 0.5F;
+/// Casters whose radius misses every cascade budget keep this positive
+/// shadow rendering distance (the native setter rejects zero).
+constexpr float kOgreNextStage0SubTexelCasterDistanceMeters = 0.05F;
+
+/// Builds the per-present distance-cull policy. projection_scale_x/y are
+/// the validated clip_from_view [0][0] and [1][1] magnitudes. Returns false
+/// (all-disabled policy) when the projection cannot support the derivation
+/// or both levers are disabled.
+bool BuildOgreNextStage0DistanceCullPolicy(
+    float projection_scale_x, float projection_scale_y,
+    std::uint32_t viewport_height, bool shadow_plan_enabled,
+    OgreNextStage0DistanceCullPolicy &policy) noexcept {
+  policy = OgreNextStage0DistanceCullPolicy{};
+  const bool view_lever = !OgreNextStage0FeatureDisabled("view_distance");
+  const bool shadow_lever = !OgreNextStage0FeatureDisabled("shadow_distance");
+  if (!(std::isfinite(projection_scale_x) && projection_scale_x > 0.0F &&
+        std::isfinite(projection_scale_y) && projection_scale_y > 0.0F &&
+        viewport_height != 0U)) {
+    return false;
+  }
+  if (view_lever) {
+    // Projected diameter of a sphere of radius r at view depth d is
+    // approximately 2r / d * projection_scale_y * height / 2 pixels, so the
+    // depth where it reaches the cull threshold is linear in r.
+    const float per_radius = projection_scale_y *
+                             static_cast<float>(viewport_height) /
+                             kOgreNextStage0ViewCullDiameterPixels;
+    if (std::isfinite(per_radius) && per_radius > 0.0F) {
+      policy.view_distance_per_radius = per_radius;
+      policy.view_enabled = true;
+    }
+  }
+  if (shadow_lever && shadow_plan_enabled) {
+    OgreNextPssmSplitPolicy splits;
+    bool bands_valid = TryBuildOgreNextPssmSplitPolicy(splits);
+    if (bands_valid) {
+      const float tan_x = 1.0F / projection_scale_x;
+      const float tan_y = 1.0F / projection_scale_y;
+      const float corner_scale = tan_x * tan_x + tan_y * tan_y;
+      for (std::size_t index = 0U;
+           bands_valid && index < kOgreNextPssmCascadeCount; ++index) {
+        const float near_z = splits.split_points[index];
+        const float far_z = splits.split_points[index + 1U];
+        // Bounding sphere of the perspective frustum slice [near_z, far_z]:
+        // the stable cascade window uses exactly this sphere and a focused
+        // cascade window never exceeds it.
+        const float corner_near = near_z * near_z * corner_scale;
+        const float corner_far = far_z * far_z * corner_scale;
+        float center_z =
+            (far_z * far_z + corner_far - near_z * near_z - corner_near) /
+            (2.0F * (far_z - near_z));
+        center_z = std::min(std::max(center_z, near_z), far_z);
+        const float radius = std::sqrt(std::max(
+            (center_z - near_z) * (center_z - near_z) + corner_near,
+            (far_z - center_z) * (far_z - center_z) + corner_far));
+        const float texel =
+            2.0F * radius * kOgreNextPssmXyPadding /
+            static_cast<float>(kOgreNextPssmCascadeLayouts[index].width);
+        const float minimum_radius = texel *
+                                     (kOgreNextStage0CasterCullTexels * 0.5F) *
+                                     kOgreNextStage0CasterTexelMargin;
+        if (!(std::isfinite(far_z) && far_z > 0.0F &&
+              std::isfinite(minimum_radius) && minimum_radius > 0.0F)) {
+          bands_valid = false;
+          break;
+        }
+        policy.band_end[index] = far_z;
+        policy.minimum_caster_radius[index] = minimum_radius;
+      }
+    }
+    policy.shadow_enabled = bands_valid;
+  }
+  return policy.view_enabled || policy.shadow_enabled;
+}
+
 bool TryClaimOgreNextN1Root() noexcept {
   bool expected = false;
   return g_ogre_next_n1_root_claimed.compare_exchange_strong(
@@ -2970,6 +3091,18 @@ public:
     bool casts_shadow = false;
     bool receives_shadow = false;
     bool dynamic_mesh = false;
+    /// Stage 0 item 4: created in Ogre's static memory manager because the
+    /// mesh is non-dynamic and undeformed; transform mutations must notify
+    /// the static system instead of relying on per-frame node updates.
+    bool scene_static = false;
+    /// Stage 0 items 1 and 3: the instance's world-bounds radius at the
+    /// last transform application, and the exact native upper distances
+    /// last applied, so verification and threshold-drift re-application
+    /// read one source of truth. Zero means the lever left the native
+    /// default untouched.
+    float stage0_world_radius = 0.0F;
+    float applied_view_distance = 0.0F;
+    float applied_shadow_distance = 0.0F;
     std::uint32_t material_descriptor_version = 0U;
     /// Retained PSSM evidence, refreshed on create, update, and native
     /// re-verification.
@@ -8948,6 +9081,11 @@ public:
   std::vector<NativeMesh> frame_meshes;
   /// Retained native lights in snapshot order (strictly increasing light_id).
   std::vector<RetainedLight> retained_lights;
+  /// Stage 0 items 1 and 3: the distance-cull policy last applied to the
+  /// retained instances. When a present derives a different policy (window
+  /// resize or projection change), every retained instance is re-applied
+  /// once before that present's diff.
+  OgreNextStage0DistanceCullPolicy stage0_distance_policy;
   /// Retained native scene keyed by instance_id, so the per-present diff is a
   /// merge-join against the strictly increasing snapshot instance vector.
   std::map<std::uint64_t, RetainedInstance> retained_instances;
@@ -11839,6 +11977,89 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 .count());
 
     const auto instance_phase_start = std::chrono::steady_clock::now();
+
+    // Stage 0 items 1 and 3: derive this present's distance-cull policy
+    // from the validated projection and the pinned PSSM split policy. The
+    // derivation is scalar math; the applied distances ride the SIMD cull's
+    // existing upper-distance test, so the per-frame cost is zero.
+    OgreNextStage0DistanceCullPolicy stage0_present_policy;
+    static_cast<void>(BuildOgreNextStage0DistanceCullPolicy(
+        std::fabs(view.clip_from_view.elements[0U]),
+        std::fabs(view.clip_from_view.elements[5U]), view.height,
+        shadow_plan.enabled, stage0_present_policy));
+
+    // Applies the derived upper distances to one retained item. The world
+    // radius comes from the instance's validated local bounds scaled by the
+    // decomposed node scale, so it bounds the exact TRS the item renders
+    // with. Failure to derive a radius leaves the native default (no cull).
+    const auto apply_stage0_distance_cull =
+        [&stage0_present_policy](Impl::RetainedInstance &record,
+                                 const Ogre::Vector3 &scale) noexcept {
+      record.stage0_world_radius = 0.0F;
+      record.applied_view_distance = 0.0F;
+      record.applied_shadow_distance = 0.0F;
+      if (record.item == nullptr || (!stage0_present_policy.view_enabled &&
+                                     !stage0_present_policy.shadow_enabled)) {
+        return;
+      }
+      OgreNextN1NativeMeshBounds local_bounds;
+      if (!TryBuildOgreNextN1NativeMeshBounds(record.descriptor.local_bounds,
+                                              local_bounds)) {
+        return;
+      }
+      const float scale_bound =
+          std::max(std::max(std::fabs(scale.x), std::fabs(scale.y)),
+                   std::fabs(scale.z));
+      const float world_radius = local_bounds.radius * scale_bound;
+      if (!(std::isfinite(world_radius) && world_radius > 0.0F)) {
+        return;
+      }
+      float view_distance = 0.0F;
+      if (stage0_present_policy.view_enabled) {
+        view_distance =
+            world_radius * stage0_present_policy.view_distance_per_radius;
+        if (!(std::isfinite(view_distance) && view_distance > 0.0F)) {
+          return;
+        }
+        record.item->setRenderingDistance(view_distance);
+      }
+      float shadow_distance = view_distance;
+      if (stage0_present_policy.shadow_enabled) {
+        float caster_distance = kOgreNextStage0SubTexelCasterDistanceMeters;
+        for (std::size_t band = 0U; band < kOgreNextPssmCascadeCount;
+             ++band) {
+          if (world_radius >=
+              stage0_present_policy.minimum_caster_radius[band]) {
+            caster_distance =
+                std::max(caster_distance, stage0_present_policy.band_end[band]);
+          }
+        }
+        shadow_distance = stage0_present_policy.view_enabled
+                              ? std::min(view_distance, caster_distance)
+                              : caster_distance;
+      }
+      if (shadow_distance > 0.0F && std::isfinite(shadow_distance)) {
+        record.item->setShadowRenderingDistance(shadow_distance);
+        record.applied_shadow_distance = shadow_distance;
+      }
+      record.stage0_world_radius = world_radius;
+      record.applied_view_distance = view_distance;
+    };
+
+    // Threshold drift (window resize, projection change, shadow plan
+    // toggle): re-apply the policy once to every retained instance before
+    // this present's diff, reading each node's already-decomposed scale.
+    if (stage0_present_policy != impl_->stage0_distance_policy) {
+      for (auto &stage0_entry : impl_->retained_instances) {
+        Impl::RetainedInstance &stage0_record = stage0_entry.second;
+        if (stage0_record.node != nullptr) {
+          apply_stage0_distance_cull(stage0_record,
+                                     stage0_record.node->getScale());
+        }
+      }
+      impl_->stage0_distance_policy = stage0_present_policy;
+    }
+
     reflection_items.reserve(snapshot.mesh_instances().size());
     if (impl_->native_interop) {
       interop_geometry.reserve(snapshot.mesh_instances().size());
@@ -12134,6 +12355,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
       record.node->attachObject(record.item);
+      apply_stage0_distance_cull(record, scale);
       ++diff_created;
       return RenderOperationResult::Success();
     };
@@ -12234,6 +12456,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       record.node->setPosition(position);
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
+      apply_stage0_distance_cull(record, scale);
       return RenderOperationResult::Success();
     };
 
@@ -12394,6 +12617,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
           record.item->getSubItem(0U)->getDatablock() != instance_datablock) {
         throw std::runtime_error(
             "Ogre-Next PBS datablock, caster, or visibility state failed native readback");
+      }
+      // Stage 0 items 1 and 3: the applied upper distances are exact native
+      // floats, so untouched retained state must read back bit-identical.
+      if ((record.applied_view_distance > 0.0F &&
+           record.item->getRenderingDistance() !=
+               record.applied_view_distance) ||
+          (record.applied_shadow_distance > 0.0F &&
+           record.item->getShadowRenderingDistance() !=
+               record.applied_shadow_distance)) {
+        throw std::runtime_error(
+            "Ogre-Next Stage 0 distance-cull state failed native readback");
       }
       record.pbs = pbs_material;
       record.transmission = pbs_material && thin_slab_transmission;
