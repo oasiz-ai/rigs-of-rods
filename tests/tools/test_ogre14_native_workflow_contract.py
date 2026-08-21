@@ -411,9 +411,16 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("conan==2.31.1", text)
         self.assertIn("https://center2.conan.io", text)
         self.assertIn(
-            "https://nexus.anotherfoxguy.com/repository/rigs-of-rods/",
+            "python cmake/conan/export_pinned_dependency_recipes.py",
             text,
         )
+        self.assertIn(
+            '"$RUNNER_TEMP/ror-conan-recipes-d3568327.tar.gz"', text
+        )
+        self.assertIn("artifacts/pinned-conan-recipes.json", text)
+        self.assertEqual(text.count("artifacts/pinned-conan-recipes.json"), 2)
+        self.assertNotIn("nexus.anotherfoxguy.com", text)
+        self.assertNotIn("rigs-of-rods-deps", text)
         self.assertIn(
             "CONAN_HOME: ${{ github.workspace }}/.ci-conan/"
             "${{ matrix.platform }}",
@@ -422,6 +429,7 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("cmake/conan/locks/*.lock", text)
         self.assertIn("cmake/conan/profiles/*", text)
         self.assertIn("cmake/conan/recipes/**", text)
+        self.assertIn("cmake/conan/export_pinned_dependency_recipes.py", text)
         self.assertIn("assert_ogre14_app_graph.py", text)
         self.assertIn('--platform "${{ matrix.platform }}"', text)
         self.assertIn("-DCONAN_HOST_PROFILE=", text)

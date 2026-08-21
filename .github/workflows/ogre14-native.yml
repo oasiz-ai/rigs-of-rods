@@ -145,7 +145,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.CONAN_HOME }}
-          key: ogre14-native-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.platform }}-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**') }}
+          key: ogre14-native-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.platform }}-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
 
       - name: Configure isolated Conan client
         shell: bash
@@ -165,12 +165,17 @@ jobs:
           PY
           conan remote add \
             conancenter https://center2.conan.io --force
-          conan remote add \
-            rigs-of-rods-deps \
-            https://nexus.anotherfoxguy.com/repository/rigs-of-rods/ \
-            --force
           conan --version
           ninja --version
+
+      - name: Export pinned public RoR dependency recipes
+        shell: bash
+        run: |
+          cmake -E make_directory artifacts
+          python cmake/conan/export_pinned_dependency_recipes.py \
+            --archive "$RUNNER_TEMP/ror-conan-recipes-d3568327.tar.gz" \
+            --extract-root "$RUNNER_TEMP/ror-conan-recipes-export" \
+            | tee artifacts/pinned-conan-recipes.json
 
       - name: Verify native compiler identity
         if: runner.os == 'Linux'
@@ -760,6 +765,7 @@ jobs:
             artifacts/cityworld-bridge-sync-${{ matrix.platform }}.driver.log
             artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}
             artifacts/${{ matrix.platform }}-conan-graph.json
+            artifacts/pinned-conan-recipes.json
             artifacts/${{ matrix.platform }}-runtime-audit.json
             artifacts/${{ matrix.platform }}-runtime-audit.log
             artifacts/${{ matrix.platform }}-storefront-clean-reproducibility.json
