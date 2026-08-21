@@ -373,6 +373,14 @@ void TestDeterministicScalarFunctions()
     CheckNumber("$=pow(2,10)", 1024.0);
     CheckNumber("$=pow(2,-2)", 0.25);
     CheckNumber("$=pow(-2,3)", -8.0);
+    CheckNumber("$=fmod(7,3)", 1.0);
+    CheckNumber("$=fmod(-7,3)", -1.0);
+    CheckNumber("$=fmod(7,-3)", 1.0);
+    CheckNumber("$=fmod(-7,-3)", -1.0);
+    CheckNumber("$=fmod(1,2)", 1.0);
+    CheckNumber("$=fmod(2,2)", 0.0);
+    CheckNumber("$=ldexp(3,4)", 48.0);
+    CheckNumber("$=ldexp(0.75,-1)", 0.375);
     CheckNumber("$=clamp(-2,-1,1)", -1.0);
     CheckNumber("$=clamp(0,-1,1)", 0.0);
     CheckNumber("$=clamp(2,-1,1)", 1.0);
@@ -418,6 +426,10 @@ void TestDeterministicScalarFunctions()
         "$=deg()",
         "$=pow(1)",
         "$=pow(1,2,3)",
+        "$=fmod(1)",
+        "$=fmod(1,2,3)",
+        "$=ldexp(1)",
+        "$=ldexp(1,2,3)",
         "$=clamp(1,2)",
         "$=clamp(1,2,3,4)",
         "$=min()",
@@ -451,6 +463,8 @@ void TestDeterministicScalarFunctions()
         "$=rad(nil)",
         "$=deg('x')",
         "$=pow(2,'x')",
+        "$=fmod('x',2)",
+        "$=ldexp(1,false)",
         "$=clamp(1,0,'x')",
         "$=min(1,'x',2)",
         "$=max(nil,2)"
@@ -514,6 +528,33 @@ void TestDeterministicScalarFunctions()
     CHECK(!power_overflow.IsValid());
     CHECK(HasCode(
         power_overflow,
+        JBeamExpressionDiagnosticCode::NON_FINITE_RESULT));
+    const JBeamExpressionResult zero_fmod =
+        EvaluateJBeamExpression("$=fmod(1,0)");
+    CHECK(!zero_fmod.IsValid());
+    CHECK(HasCode(
+        zero_fmod,
+        JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO));
+    const char* invalid_ldexp[] = {
+        "$=ldexp(1,0.5)",
+        "$=ldexp(1,4097)",
+        "$=ldexp(1,-4097)"};
+    for (std::size_t index = 0U;
+         index < sizeof(invalid_ldexp) / sizeof(invalid_ldexp[0]);
+         ++index)
+    {
+        const JBeamExpressionResult invalid_scale =
+            EvaluateJBeamExpression(invalid_ldexp[index]);
+        CHECK(!invalid_scale.IsValid());
+        CHECK(HasCode(
+            invalid_scale,
+            JBeamExpressionDiagnosticCode::NON_DETERMINISTIC_OPERAND));
+    }
+    const JBeamExpressionResult ldexp_overflow =
+        EvaluateJBeamExpression("$=ldexp(1,1024)");
+    CHECK(!ldexp_overflow.IsValid());
+    CHECK(HasCode(
+        ldexp_overflow,
         JBeamExpressionDiagnosticCode::NON_FINITE_RESULT));
 
     // Function calls evaluate every argument before validating the signature
@@ -585,6 +626,19 @@ void TestDeterministicScalarFunctions()
     CHECK(HasCode(
         result, JBeamExpressionDiagnosticCode::WORK_LIMIT));
 
+    const JBeamExpressionResult charged_fmod =
+        EvaluateJBeamExpression("$=fmod(huge,ldexp(1,-1074))");
+    CHECK(charged_fmod.IsValid());
+    limits = JBeamExpressionLimits();
+    limits.max_work_units = charged_fmod.work_units - 1U;
+    result = EvaluateJBeamExpression(
+        "$=fmod(huge,ldexp(1,-1074))",
+        JBeamExpressionEnvironment(),
+        limits);
+    CHECK(!result.IsValid());
+    CHECK(HasCode(
+        result, JBeamExpressionDiagnosticCode::WORK_LIMIT));
+
     CheckCanonicalNumber(
         "$=abs(-0)",
         "jbeam-expression-value-v1:number:0000000000000000");
@@ -618,6 +672,42 @@ void TestDeterministicScalarFunctions()
     CheckCanonicalNumber(
         "$=pow(2,10)",
         "jbeam-expression-value-v1:number:4090000000000000");
+    CheckCanonicalNumber(
+        "$=fmod(-7,3)",
+        "jbeam-expression-value-v1:number:bff0000000000000");
+    CheckCanonicalNumber(
+        "$=fmod(ldexp(3,-1074),ldexp(2,-1074))",
+        "jbeam-expression-value-v1:number:0000000000000001");
+    CheckCanonicalNumber(
+        "$=fmod(ldexp(-3,-1074),ldexp(2,-1074))",
+        "jbeam-expression-value-v1:number:8000000000000001");
+    CheckCanonicalNumber(
+        "$=fmod(ldexp(3,-1023),ldexp(1,-1022))",
+        "jbeam-expression-value-v1:number:0008000000000000");
+    CheckCanonicalNumber(
+        "$=ldexp(1,-1074)",
+        "jbeam-expression-value-v1:number:0000000000000001");
+    CheckCanonicalNumber(
+        "$=ldexp(-1,-1074)",
+        "jbeam-expression-value-v1:number:8000000000000001");
+    CheckCanonicalNumber(
+        "$=ldexp(1,-1075)",
+        "jbeam-expression-value-v1:number:0000000000000000");
+    CheckCanonicalNumber(
+        "$=ldexp(3,-1075)",
+        "jbeam-expression-value-v1:number:0000000000000002");
+    CheckCanonicalNumber(
+        "$=ldexp(9007199254740990,-1075)",
+        "jbeam-expression-value-v1:number:000fffffffffffff");
+    CheckCanonicalNumber(
+        "$=ldexp(9007199254740991,-1075)",
+        "jbeam-expression-value-v1:number:0010000000000000");
+    CheckCanonicalNumber(
+        "$=ldexp(1,1023)",
+        "jbeam-expression-value-v1:number:7fe0000000000000");
+    CheckCanonicalNumber(
+        "$=ldexp(ldexp(1,-1074),1074)",
+        "jbeam-expression-value-v1:number:3ff0000000000000");
 
     JBeamExpressionEnvironment subnormal_environment;
     subnormal_environment.variables.push_back(Variable(

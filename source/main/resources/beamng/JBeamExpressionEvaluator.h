@@ -156,7 +156,8 @@ struct JBeamExpressionResult
 ///   * numeric abs(value), square(value), round(value), floor(value),
 ///     ceil(value), smoothstep(value), smootherstep(value),
 ///     smootheststep(value), frexp(value), modf(value), rad(value), deg(value),
-///     pow(value, integerExponent), clamp(value, lower, upper), and
+///     pow(value, integerExponent), fmod(value, divisor),
+///     ldexp(value, integerExponent), clamp(value, lower, upper), and
 ///     one-to-64-argument min(...) and max(...) calls;
 ///   * exact profile constants pi and huge (documented FLT_MAX).
 ///
@@ -176,7 +177,8 @@ struct JBeamExpressionResult
 /// pow() has the same integer-exponent boundary as `^`; frexp() returns only
 /// the documented usable mantissa and modf() only the documented usable
 /// integral result. rad()/deg() use the exact profile pi identity and pinned
-/// basic-operation order.
+/// basic-operation order. fmod() uses an exact integer-significand remainder;
+/// ldexp() pins overflow and binary64 subnormal round-to-nearest-even behavior.
 JBeamExpressionResult EvaluateJBeamExpression(
     const std::string& expression,
     const JBeamExpressionEnvironment& environment =

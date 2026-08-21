@@ -1901,16 +1901,16 @@ positive-integer-selector `case`, string concatenation/length, numeric `abs`,
 `square`,
 `round`, `floor`, `ceil`, the clamped
 `smoothstep`/`smootherstep`/`smootheststep` family, `frexp` mantissa, `modf`
-integral part, `rad`, `deg`, integer-exponent `pow`, `clamp`, bounded variadic
-`min`/`max`, exact `pi`/documented-`FLT_MAX` `huge` constants, explicit
-precedence, and
+integral part, `rad`, `deg`, integer-exponent `pow`, exact-significand `fmod`,
+subnormal-aware integer-exponent `ldexp`, `clamp`, bounded variadic `min`/`max`,
+exact `pi`/documented-`FLT_MAX` `huge` constants, explicit precedence, and
 source-independent canonical scalar results. Function arguments are eager and
 numeric-only; `min`/`max` reduce without argument-proportional storage and have
 a hard 64-argument ceiling. Input, token, recursion, function-argument, work,
 string, output, and environment quotas are deterministic; non-finite values
 fail closed under strict and fast-math builds. It does not execute Lua or expose
 host functions. Every function outside the two deterministic `case` signatures
-and the sixteen-name deterministic numeric allowlist, table-valued components,
+and the eighteen-name deterministic numeric allowlist, table-valued components,
 and numeric-to-string concatenation remain unsupported. This is an independent
 implementation of public format behavior and does not reuse BeamNG code or
 assets.
@@ -1936,8 +1936,8 @@ FormulaCOUPE v0.9.7 arithmetic shapes such as node mass scaling and
 beam-precompression tuning. A local scan found no scalar built-in calls in the
 fixture's 84 `.jbeam` files, so `FC-A7-01` is not blocked by the remaining
 function set. Full table components, authored tuning-variable default tables,
-the remaining documented transcendental/random and unversioned
-scaling/remainder math functions, and semantic evaluation for
+the remaining documented transcendental/random math functions, and semantic
+evaluation for
 non-structural sections remain open J1/J2 work.
 
 The bounded resolver indexes parts independently of archive enumeration order,

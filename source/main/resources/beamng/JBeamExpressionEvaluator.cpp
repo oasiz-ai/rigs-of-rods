@@ -255,6 +255,224 @@ double JBeamHugeNumber()
     return NumberFromBits(UINT64_C(0x47efffffe0000000));
 }
 
+void DecodeMagnitude(
+    std::uint64_t magnitude_bits,
+    std::uint64_t& significand,
+    int& binary_exponent)
+{
+    static const std::uint64_t FRACTION_MASK =
+        UINT64_C(0x000fffffffffffff);
+    const std::uint64_t exponent_bits = magnitude_bits >> 52U;
+    const std::uint64_t fraction = magnitude_bits & FRACTION_MASK;
+    if (exponent_bits == 0U)
+    {
+        significand = fraction;
+        binary_exponent = -1074;
+        return;
+    }
+    significand = UINT64_C(0x0010000000000000) | fraction;
+    binary_exponent =
+        static_cast<int>(exponent_bits) - 1023 - 52;
+}
+
+unsigned int HighestSetBit(std::uint64_t value)
+{
+    unsigned int highest = 0U;
+    while ((value >>= 1U) != 0U)
+    {
+        ++highest;
+    }
+    return highest;
+}
+
+bool ComposeScaledInteger(
+    std::uint64_t significand,
+    int binary_exponent,
+    std::uint64_t sign,
+    double& output)
+{
+    static const std::uint64_t FRACTION_MASK =
+        UINT64_C(0x000fffffffffffff);
+    if (significand == 0U)
+    {
+        output = 0.0;
+        return true;
+    }
+
+    const unsigned int highest = HighestSetBit(significand);
+    const int result_exponent =
+        binary_exponent + static_cast<int>(highest);
+    if (result_exponent > 1023)
+    {
+        return false;
+    }
+    if (result_exponent >= -1022)
+    {
+        const unsigned int shift = 52U - highest;
+        const std::uint64_t normalized = significand << shift;
+        const std::uint64_t exponent_bits =
+            static_cast<std::uint64_t>(result_exponent + 1023) << 52U;
+        output = NumberFromBits(
+            sign | exponent_bits | (normalized & FRACTION_MASK));
+        return true;
+    }
+
+    const int subnormal_shift = binary_exponent + 1074;
+    std::uint64_t fraction = 0U;
+    if (subnormal_shift >= 0)
+    {
+        fraction = significand <<
+            static_cast<unsigned int>(subnormal_shift);
+    }
+    else
+    {
+        const unsigned int right_shift =
+            static_cast<unsigned int>(-subnormal_shift);
+        if (right_shift < 64U)
+        {
+            fraction = significand >> right_shift;
+            const std::uint64_t mask =
+                (UINT64_C(1) << right_shift) - UINT64_C(1);
+            const std::uint64_t discarded = significand & mask;
+            const std::uint64_t halfway =
+                UINT64_C(1) << (right_shift - 1U);
+            if (discarded > halfway ||
+                (discarded == halfway && (fraction & UINT64_C(1)) != 0U))
+            {
+                ++fraction;
+            }
+        }
+    }
+
+    if (fraction >= UINT64_C(0x0010000000000000))
+    {
+        output = NumberFromBits(
+            sign | UINT64_C(0x0010000000000000));
+        return true;
+    }
+    output = NumberFromBits(sign | fraction);
+    return true;
+}
+
+bool InspectFmodWork(
+    double left,
+    double right,
+    std::size_t& work_units)
+{
+    static const std::uint64_t MAGNITUDE_MASK =
+        UINT64_C(0x7fffffffffffffff);
+    const std::uint64_t left_bits = DoubleBits(left);
+    const std::uint64_t right_bits = DoubleBits(right);
+    const std::uint64_t left_magnitude = left_bits & MAGNITUDE_MASK;
+    const std::uint64_t right_magnitude = right_bits & MAGNITUDE_MASK;
+    work_units = 0U;
+    if (right_magnitude == 0U)
+    {
+        return false;
+    }
+    if (left_magnitude <= right_magnitude)
+    {
+        return true;
+    }
+
+    std::uint64_t left_significand = 0U;
+    std::uint64_t right_significand = 0U;
+    int left_exponent = 0;
+    int right_exponent = 0;
+    DecodeMagnitude(
+        left_magnitude, left_significand, left_exponent);
+    DecodeMagnitude(
+        right_magnitude, right_significand, right_exponent);
+    if (left_exponent < right_exponent)
+    {
+        return false;
+    }
+    work_units = static_cast<std::size_t>(
+        left_exponent - right_exponent);
+    return true;
+}
+
+bool FmodNumbers(
+    double left,
+    double right,
+    double& output)
+{
+    static const std::uint64_t SIGN_MASK =
+        UINT64_C(0x8000000000000000);
+    static const std::uint64_t MAGNITUDE_MASK =
+        UINT64_C(0x7fffffffffffffff);
+    const std::uint64_t left_bits = DoubleBits(left);
+    const std::uint64_t right_bits = DoubleBits(right);
+    const std::uint64_t left_magnitude = left_bits & MAGNITUDE_MASK;
+    const std::uint64_t right_magnitude = right_bits & MAGNITUDE_MASK;
+    if (right_magnitude == 0U)
+    {
+        return false;
+    }
+    if (left_magnitude < right_magnitude)
+    {
+        output = left;
+        return true;
+    }
+    if (left_magnitude == right_magnitude)
+    {
+        output = 0.0;
+        return true;
+    }
+
+    std::uint64_t left_significand = 0U;
+    std::uint64_t right_significand = 0U;
+    int left_exponent = 0;
+    int right_exponent = 0;
+    DecodeMagnitude(
+        left_magnitude, left_significand, left_exponent);
+    DecodeMagnitude(
+        right_magnitude, right_significand, right_exponent);
+    if (left_exponent < right_exponent)
+    {
+        return false;
+    }
+    std::uint64_t remainder =
+        left_significand % right_significand;
+    const std::size_t work_units = static_cast<std::size_t>(
+        left_exponent - right_exponent);
+    for (std::size_t index = 0U; index < work_units; ++index)
+    {
+        remainder = (remainder << 1U) % right_significand;
+    }
+    return ComposeScaledInteger(
+        remainder,
+        right_exponent,
+        left_bits & SIGN_MASK,
+        output);
+}
+
+bool LdexpNumber(
+    double value,
+    int exponent,
+    double& output)
+{
+    static const std::uint64_t SIGN_MASK =
+        UINT64_C(0x8000000000000000);
+    static const std::uint64_t MAGNITUDE_MASK =
+        UINT64_C(0x7fffffffffffffff);
+    const std::uint64_t bits = DoubleBits(value);
+    const std::uint64_t magnitude = bits & MAGNITUDE_MASK;
+    if (magnitude == 0U)
+    {
+        output = 0.0;
+        return true;
+    }
+    std::uint64_t significand = 0U;
+    int binary_exponent = 0;
+    DecodeMagnitude(magnitude, significand, binary_exponent);
+    return ComposeScaledInteger(
+        significand,
+        binary_exponent + exponent,
+        bits & SIGN_MASK,
+        output);
+}
+
 bool IsValidUtf8(const std::string& value)
 {
     std::size_t index = 0U;
@@ -1649,6 +1867,8 @@ private:
             name == "rad" ||
             name == "deg" ||
             name == "pow" ||
+            name == "fmod" ||
+            name == "ldexp" ||
             name == "clamp" ||
             name == "min" ||
             name == "max";
@@ -1686,7 +1906,10 @@ private:
             function.text == "modf" ||
             function.text == "rad" ||
             function.text == "deg";
-        const bool binary = function.text == "pow";
+        const bool binary =
+            function.text == "pow" ||
+            function.text == "fmod" ||
+            function.text == "ldexp";
         const bool variadic =
             function.text == "min" || function.text == "max";
         std::size_t argument_count = 0U;
@@ -1903,6 +2126,71 @@ private:
                     JBeamExpressionDiagnosticCode::NON_FINITE_RESULT,
                     function.begin,
                     "JBeam pow function produced a non-finite value");
+            }
+        }
+        else if (function.text == "fmod")
+        {
+            if (fixed_arguments[1].number_value == 0.0)
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::DIVISION_BY_ZERO,
+                    function.begin,
+                    "JBeam fmod divisor must not be zero");
+            }
+            std::size_t fmod_work = 0U;
+            if (!InspectFmodWork(
+                    fixed_arguments[0].number_value,
+                    fixed_arguments[1].number_value,
+                    fmod_work))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        INVALID_FUNCTION_ARGUMENT,
+                    function.begin,
+                    "JBeam fmod operands could not be reduced exactly");
+            }
+            if (!m_runtime.Charge(fmod_work, function.begin))
+            {
+                return false;
+            }
+            if (!FmodNumbers(
+                    fixed_arguments[0].number_value,
+                    fixed_arguments[1].number_value,
+                    result))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        INVALID_FUNCTION_ARGUMENT,
+                    function.begin,
+                    "JBeam fmod operands changed after work preflight");
+            }
+        }
+        else if (function.text == "ldexp")
+        {
+            static const std::int64_t MAX_LDEXP_EXPONENT = 4096;
+            std::int64_t exponent = 0;
+            if (!IsExactIntegerInRange(
+                    fixed_arguments[1].number_value,
+                    -static_cast<double>(MAX_LDEXP_EXPONENT),
+                    static_cast<double>(MAX_LDEXP_EXPONENT),
+                    exponent))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::
+                        NON_DETERMINISTIC_OPERAND,
+                    function.begin,
+                    "JBeam ldexp exponent must be an exact integer in "
+                    "[-4096, 4096]");
+            }
+            if (!LdexpNumber(
+                    fixed_arguments[0].number_value,
+                    static_cast<int>(exponent),
+                    result))
+            {
+                return m_runtime.Fail(
+                    JBeamExpressionDiagnosticCode::NON_FINITE_RESULT,
+                    function.begin,
+                    "JBeam ldexp function overflowed binary64");
             }
         }
         else if (function.text == "clamp")
