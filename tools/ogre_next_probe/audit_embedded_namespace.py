@@ -32,6 +32,9 @@ DEFINED_GLOBAL_INTERSECTION_ALLOWLIST: frozenset[str] = frozenset(
         "__ZNSt3__119piecewise_constructE",
     }
 )
+ITANIUM_STD_SYMBOL_PATTERN = re.compile(
+    r"^_+Z(?:N[KVRrO]*St|St|TISt|TSSt|ZNSt)"
+)
 LEGACY_RUNTIME_LIBRARY_PATTERNS = {
     "macos-arm64-metal": re.compile(
         r"^(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$"
@@ -125,6 +128,13 @@ def audit_plugin_symbol_ownership(
             else "not_applicable_static"
         ),
     }
+
+
+def is_reviewed_weak_global_collision(symbol: str) -> bool:
+    return (
+        symbol in DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
+        or ITANIUM_STD_SYMBOL_PATTERN.match(symbol) is not None
+    )
 
 
 def digest(path: Path) -> str:
@@ -796,6 +806,7 @@ def main() -> int:
     require("Ogre::Root::getSingletonPtr()" in legacy_main_demangled,
             "the explicit legacy runtime lacks Ogre::Root")
     legacy_definitions: set[str] = set()
+    legacy_weak_definitions: set[str] = set()
     legacy_strong_definitions: set[str] = set()
     legacy_library_reports: list[dict[str, object]] = []
     for legacy_library in legacy_libraries:
@@ -811,10 +822,11 @@ def main() -> int:
             definitions,
             f"legacy runtime has no global definitions to audit: {legacy_library}",
         )
-        _, strong_definitions = global_definition_linkages(
+        weak_definitions, strong_definitions = global_definition_linkages(
             legacy_library, definitions, args.platform_policy
         )
         legacy_definitions.update(definitions)
+        legacy_weak_definitions.update(weak_definitions)
         legacy_strong_definitions.update(strong_definitions)
         legacy_library_reports.append(
             {
@@ -832,20 +844,22 @@ def main() -> int:
         require(modern_definitions,
                 f"the modern archive has no global definitions to audit: {archive}")
         intersection = modern_definitions & legacy_definitions
-        unexpected = intersection - DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
+        reviewed_weak = {
+            symbol for symbol in intersection
+            if is_reviewed_weak_global_collision(symbol)
+        }
+        unexpected = intersection - reviewed_weak
         require(not unexpected,
                 f"global definitions collide with OGRE14 in {archive}: " +
                 ", ".join(sorted(unexpected)))
-        reviewed_weak = intersection & DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
         modern_weak, modern_strong = global_definition_linkages(
             archive, modern_definitions, args.platform_policy
         )
         require(
             reviewed_weak <= modern_weak
-            and not (
-                reviewed_weak
-                & (modern_strong | legacy_strong_definitions)
-            ),
+            and reviewed_weak <= legacy_weak_definitions
+            and not (reviewed_weak & modern_strong)
+            and not (reviewed_weak & legacy_strong_definitions),
             f"reviewed weak collision became strong in {archive}: "
             + ", ".join(sorted(reviewed_weak)),
         )
@@ -854,8 +868,7 @@ def main() -> int:
             "modern_defined_globals": len(modern_definitions),
             "legacy_closure_defined_globals": len(legacy_definitions),
             "intersection": sorted(intersection),
-            "reviewed_allowlist": sorted(
-                DEFINED_GLOBAL_INTERSECTION_ALLOWLIST),
+            "reviewed_weak_collisions": sorted(reviewed_weak),
         })
 
     # OgreNext is linked statically with hidden visibility, so its resolved
