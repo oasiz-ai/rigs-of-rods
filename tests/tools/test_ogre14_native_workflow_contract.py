@@ -283,6 +283,32 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
                 self.assertIn(contract, text)
         self.assertNotIn("runner: windows-2025", text)
 
+    def test_linux_job_provisions_the_required_vulkan_renderer(self) -> None:
+        step = self.workflow_step(
+            self.text,
+            "Install Linux build and software-rendering prerequisites",
+        )
+        for package in (
+            "libvulkan-dev",
+            "libx11-xcb-dev",
+            "libxcb1-dev",
+            "libxcb-randr0-dev",
+            "libxt-dev",
+            "mesa-vulkan-drivers",
+            "vulkan-tools",
+        ):
+            with self.subTest(package=package):
+                self.assertEqual(step.count(f"            {package}"), 1)
+        for contract in (
+            "lvp_icd=\"$(find /usr/share/vulkan/icd.d "
+            "-name 'lvp*json' -print -quit)\"",
+            'test -n "$lvp_icd"',
+            'echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"',
+            'echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"',
+        ):
+            with self.subTest(contract=contract):
+                self.assertEqual(step.count(contract), 1)
+
     def test_automatic_texture_gates_use_exact_registered_test_names(
         self,
     ) -> None:

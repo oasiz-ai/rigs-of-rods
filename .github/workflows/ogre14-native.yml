@@ -76,12 +76,23 @@ jobs:
             gdb \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
+            libvulkan-dev \
             libx11-dev \
+            libx11-xcb-dev \
             libxaw7-dev \
             libxrandr-dev \
+            libxcb1-dev \
+            libxcb-randr0-dev \
+            libxt-dev \
+            mesa-vulkan-drivers \
             mesa-utils \
+            vulkan-tools \
             xauth \
             xvfb
+          lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
+          test -n "$lvp_icd"
+          echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
 
       - name: Restore pinned Blender 5.2 authoring archive
         if: matrix.platform == 'linux-x86_64'
