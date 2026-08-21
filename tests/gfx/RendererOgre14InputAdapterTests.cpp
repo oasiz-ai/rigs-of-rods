@@ -207,7 +207,7 @@ InputTransportRawDeviceDescriptor RawDescriptor() {
   descriptor.axes.push_back(
       RawAxis(0U, InputTransportRawAxisMode::ABSOLUTE_POSITION));
   descriptor.axes.push_back(
-      RawAxis(1U, InputTransportRawAxisMode::RELATIVE));
+      RawAxis(1U, InputTransportRawAxisMode::RELATIVE_DELTA));
   descriptor.button_count = 4U;
   descriptor.hat_count = 1U;
   InputTransportRawSliderDescriptor slider;

@@ -6,7 +6,33 @@
     published by the Free Software Foundation.
 */
 
+#ifndef ABSOLUTE
+#define ABSOLUTE 1
+#define ROR_TEST_DEFINED_WINDOWS_ABSOLUTE_MACRO
+#endif
+#ifndef RELATIVE
+#define RELATIVE 2
+#define ROR_TEST_DEFINED_WINDOWS_RELATIVE_MACRO
+#endif
+#ifndef OUT
+#define OUT
+#define ROR_TEST_DEFINED_WINDOWS_OUT_MACRO
+#endif
+
 #include "InputEventTransport.h"
+
+#ifdef ROR_TEST_DEFINED_WINDOWS_OUT_MACRO
+#undef OUT
+#undef ROR_TEST_DEFINED_WINDOWS_OUT_MACRO
+#endif
+#ifdef ROR_TEST_DEFINED_WINDOWS_RELATIVE_MACRO
+#undef RELATIVE
+#undef ROR_TEST_DEFINED_WINDOWS_RELATIVE_MACRO
+#endif
+#ifdef ROR_TEST_DEFINED_WINDOWS_ABSOLUTE_MACRO
+#undef ABSOLUTE
+#undef ROR_TEST_DEFINED_WINDOWS_ABSOLUTE_MACRO
+#endif
 
 #include <algorithm>
 #include <cstdint>
@@ -99,7 +125,7 @@ RawWheelDescriptor(std::uint64_t generation = 3U) {
       reinterpret_cast<const std::uint8_t *>(name.data()), name.size());
   descriptor.axes.push_back(RawAxis(0U, -32768, 32767, 0, -512, 512));
   descriptor.axes.push_back(RawAxis(1U, -1000, 1000, 0, -10, 10,
-                                    InputTransportRawAxisMode::RELATIVE));
+                                    InputTransportRawAxisMode::RELATIVE_DELTA));
   descriptor.button_count = 8U;
   descriptor.hat_count = 1U;
   InputTransportRawSliderDescriptor slider;

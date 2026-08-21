@@ -90,7 +90,7 @@ bool IsKnownRawDeviceClass(InputTransportRawDeviceClass device_class) noexcept {
 
 bool IsKnownRawAxisMode(InputTransportRawAxisMode mode) noexcept {
   return mode == InputTransportRawAxisMode::ABSOLUTE_POSITION ||
-         mode == InputTransportRawAxisMode::RELATIVE;
+         mode == InputTransportRawAxisMode::RELATIVE_DELTA;
 }
 
 bool IsKnownHatState(Sdl2HatState state) noexcept {
@@ -177,7 +177,7 @@ bool ValidateRawAxisDescriptor(const InputTransportRawAxisDescriptor &axis,
          axis.deadzone_minimum <= axis.center &&
          axis.deadzone_maximum >= axis.center &&
          axis.deadzone_maximum <= axis.logical_maximum &&
-         (axis.mode != InputTransportRawAxisMode::RELATIVE ||
+         (axis.mode != InputTransportRawAxisMode::RELATIVE_DELTA ||
           (axis.logical_minimum <= 0 && axis.logical_maximum >= 0 &&
            axis.center == 0));
 }

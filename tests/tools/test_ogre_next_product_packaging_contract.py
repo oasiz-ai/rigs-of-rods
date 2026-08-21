@@ -361,6 +361,10 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         self.assertNotIn(
             "\n  ABSOLUTE =", self.input_event_transport_header
         )
+        self.assertIn("RELATIVE_DELTA = 2U", self.input_event_transport_header)
+        self.assertNotIn(
+            "\n  RELATIVE =", self.input_event_transport_header
+        )
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
