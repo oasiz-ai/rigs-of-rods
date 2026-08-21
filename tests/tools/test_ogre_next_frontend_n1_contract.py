@@ -1246,7 +1246,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         )
 
     def test_normal_map_audit_remediation_is_native_and_fail_closed(self) -> None:
-        self.assertIn("HasEffectivelyUniformScale", self.policy)
+        # Uniform-scale handling is an instance-retention decision in the live
+        # presenter, not a scene-policy rejection. The retired policy helper
+        # made one unsupported object fail the whole frame.
+        self.assertNotIn("HasEffectivelyUniformScale", self.policy)
         # The uniformity predicate and its reason live in exactly one place so
         # the producer's filter and the presenter's skip cannot disagree about
         # which instances are drawable.
