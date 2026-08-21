@@ -98,10 +98,12 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #endif
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -1711,6 +1713,14 @@ constexpr const char kOgreNextHdrSubtractMaterial[] =
 constexpr const char kOgreNextHdrClampMaterial[] = "RoR/HDR/SunDirectClamp";
 constexpr std::uint8_t kOgreNextHdrSplitExecutionMask = 0x01U;
 constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
+/// Output-relative bloom target extent per axis. The stock upstream targets
+/// were a fixed square 256x256, which on a widescreen output stretches one
+/// blur texel further horizontally than vertically and therefore makes the
+/// bloom anisotropic even with a balanced blur ladder. One-eighth of the
+/// output per axis keeps the total texel budget at the 2560x1664 interactive
+/// backing within one percent of the historical 256x256 budget while making
+/// the blur isotropic in screen space at any aspect.
+constexpr float kOgreNextHdrBloomResolutionFactor = 0.125F;
 constexpr std::uint8_t kOgreNextThinSlabRenderQueue = 200U;
 constexpr std::uint32_t kOgreNextHdrBaseScenePassIdentifier = 0x524f5201U;
 constexpr std::uint32_t kOgreNextHdrSunFullScenePassIdentifier = 0x524f5202U;
@@ -2523,6 +2533,123 @@ void ConfigureAndVerifyHdrPostExecutionMask(
   if (configured != 15U) {
     throw std::runtime_error(
         "Ogre-Next HDR post execution-mask closure is incomplete");
+  }
+}
+
+/// TEMPORARY measurement override for the Stage-1 bloom cost report:
+/// ROR_HDR_BLOOM_RES_FACTOR replaces kOgreNextHdrBloomResolutionFactor when
+/// it parses to a finite value in [0.0625, 0.5]. Removed once the shipped
+/// factor is pinned.
+float ResolveHdrBloomResolutionFactor() {
+  const char *const override_text =
+      std::getenv("ROR_HDR_BLOOM_RES_FACTOR");
+  if (override_text == nullptr) {
+    return kOgreNextHdrBloomResolutionFactor;
+  }
+  char *parsed_end = nullptr;
+  const float parsed = std::strtof(override_text, &parsed_end);
+  if (parsed_end == override_text || parsed_end == nullptr ||
+      *parsed_end != '\0' || !std::isfinite(parsed) || parsed < 0.0625F ||
+      parsed > 0.5F) {
+    return kOgreNextHdrBloomResolutionFactor;
+  }
+  return parsed;
+}
+
+/// Stage-1 imaging-chain corrections applied once to the stock parsed
+/// HdrPostprocessingNode definition, before any workspace instantiates it.
+///
+/// 1) The upstream blur ladder runs H,V,H,V,H,H,H,H - six horizontal and two
+///    vertical box passes (an upstream copy-paste slip). Multiplied by the
+///    square 256x256 target stretched over a widescreen output this made the
+///    bloom skirt three to five times wider than tall. The ladder becomes
+///    strictly alternating H,V,H,V,H,V,H,V with the same pass count and the
+///    same final rtBlur0 output feeding HDR/FinalToneMapping.
+/// 2) The fixed square 256x256 targets become output-relative so one blur
+///    texel spans the same screen distance on both axes at any aspect, and
+///    the bloom resolution follows the output instead of a fixed 2012-era
+///    budget.
+/// 3) The targets become PFG_RGBA16_FLOAT. The gamma-2 encode into RGB10A2
+///    hard-clipped any source above 16x exposure-normalized radiance (the
+///    sun disc clips there); the chain's sqrt/square encode is
+///    format-agnostic, so binary16 storage removes the clip while the tone
+///    map's decode (x*x*16) is unchanged.
+void ConfigureAndVerifyHdrBloomGraph(Ogre::CompositorManager2 &compositors) {
+  Ogre::CompositorNodeDef *post = compositors.getNodeDefinitionNonConst(
+      Ogre::IdString(kOgreNextHdrPostprocessingNode));
+  if (post == nullptr || post->getNumTargetPasses() != 15U ||
+      post->calculateNumPasses() != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR post node topology changed before bloom repair");
+  }
+  struct ExpectedBlurPass final {
+    std::size_t target_index;
+    const char *render_target;
+    const char *parsed_material;
+    const char *corrected_material;
+  };
+  // The stock ladder exactly as parsed from the pinned HDR.compositor. Any
+  // upstream drift fails closed here instead of silently compounding.
+  constexpr std::array<ExpectedBlurPass, 9U> ladder{{
+      {5U, "rtBlur0", "HDR/BrightPass_Start", "HDR/BrightPass_Start"},
+      {6U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {7U, "rtBlur0", "HDR/BoxBlurV", "HDR/BoxBlurV"},
+      {8U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {9U, "rtBlur0", "HDR/BoxBlurV", "HDR/BoxBlurV"},
+      {10U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {11U, "rtBlur0", "HDR/BoxBlurH", "HDR/BoxBlurV"},
+      {12U, "rtBlur1", "HDR/BoxBlurH", "HDR/BoxBlurH"},
+      {13U, "rtBlur0", "HDR/BoxBlurH", "HDR/BoxBlurV"},
+  }};
+  for (const ExpectedBlurPass &expected : ladder) {
+    Ogre::CompositorTargetDef *target =
+        post->getTargetPass(expected.target_index);
+    if (target == nullptr ||
+        target->getRenderTargetName() !=
+            Ogre::IdString(expected.render_target) ||
+        target->getCompositorPasses().size() != 1U) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR bloom ladder targets changed before repair");
+    }
+    auto *quad = dynamic_cast<Ogre::CompositorPassQuadDef *>(
+        target->getCompositorPasses().front());
+    if (quad == nullptr || quad->mMaterialIsHlms ||
+        quad->mMaterialName != expected.parsed_material) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR bloom ladder materials changed before repair");
+    }
+    if (quad->mMaterialName != expected.corrected_material) {
+      quad->mMaterialName = expected.corrected_material;
+      quad->mProfilingId = "Bloom (Blur Vertical)";
+    }
+    if (quad->mMaterialName != expected.corrected_material) {
+      throw std::runtime_error(
+          "Ogre-Next HDR bloom ladder material failed native readback");
+    }
+  }
+  const float resolution_factor = ResolveHdrBloomResolutionFactor();
+  std::size_t corrected_textures = 0U;
+  for (Ogre::TextureDefinitionBase::TextureDefinition &texture :
+       post->getLocalTextureDefinitionsNonConst()) {
+    if (texture.getName() != Ogre::IdString("rtBlur0") &&
+        texture.getName() != Ogre::IdString("rtBlur1")) {
+      continue;
+    }
+    if (texture.width != 256U || texture.height != 256U ||
+        texture.format != Ogre::PFG_R10G10B10A2_UNORM) {
+      throw std::runtime_error(
+          "Ogre-Next stock HDR bloom target definition changed before repair");
+    }
+    texture.width = 0U;
+    texture.height = 0U;
+    texture.widthFactor = resolution_factor;
+    texture.heightFactor = resolution_factor;
+    texture.format = Ogre::PFG_RGBA16_FLOAT;
+    ++corrected_textures;
+  }
+  if (corrected_textures != 2U) {
+    throw std::runtime_error(
+        "Ogre-Next HDR bloom targets failed aspect-correct rebinding");
   }
 }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
@@ -6812,6 +6939,10 @@ public:
         ConfigureAndVerifyHdrPostExecutionMask(
             *root->getCompositorManager2());
       }
+      // Stage-1 bloom repair on the shared stock post node: balanced blur
+      // ladder, aspect-correct output-relative targets, unclipped binary16
+      // bloom storage. Applies to both production topologies.
+      ConfigureAndVerifyHdrBloomGraph(*root->getCompositorManager2());
     } else {
       Ogre::CompositorManager2 *compositors =
           root->getCompositorManager2();
