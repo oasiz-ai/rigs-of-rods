@@ -1094,16 +1094,17 @@ bool HasAdmissibleLegacyShape(
     ++additive_overlay_passes;
   }
   if (additive_overlay_passes != 0U) {
-    if (!kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses) {
+    if constexpr (!kOgreNextDemoAdmitsLegacyAdditiveOverlayPasses) {
       exclusion = OgreNextDemoTextureProjectionExclusion::
           MATERIAL_ADDITIVE_OVERLAY_PASS_UNSUPPORTED;
       return false;
     }
-    if (!kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials &&
-        pass.getAlphaRejectFunction() != Ogre::CMPF_ALWAYS_PASS) {
-      exclusion = OgreNextDemoTextureProjectionExclusion::
-          MATERIAL_ALPHA_TESTED_OVERLAY_PASS_UNSUPPORTED;
-      return false;
+    if constexpr (!kOgreNextDemoAdmitsAlphaTestedLegacyAdditiveOverlayMaterials) {
+      if (pass.getAlphaRejectFunction() != Ogre::CMPF_ALWAYS_PASS) {
+        exclusion = OgreNextDemoTextureProjectionExclusion::
+            MATERIAL_ALPHA_TESTED_OVERLAY_PASS_UNSUPPORTED;
+        return false;
+      }
     }
     unpresented_additive_overlay_passes = additive_overlay_passes;
   }
