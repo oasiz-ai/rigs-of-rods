@@ -60,16 +60,31 @@ struct OgreNextReflectionProbeItemBinding final {
 /// (not portable instances), so they never travel through the item-binding
 /// eligibility rules: an environment is always visible in reflections. For
 /// exactly the capture duration the Items carry
-/// kOgreNextPccCaptureVisibilityBit and the node is re-centred on the probe's
+/// kOgreNextPccCaptureVisibilityBit, the node is re-centred on the probe's
 /// capture position (the dome is camera-relative background geometry, so a
 /// probe away from the view camera would otherwise see a displaced or absent
-/// sky); both are restored by the same fail-closed restore path as the item
-/// flags. Native pointers remain borrowed for the duration of PrepareFrame
-/// only.
+/// sky), and both Unlit datablock colours are scaled by
+/// capture_radiance_scale; all three are restored by the same fail-closed
+/// restore path as the item flags. Native pointers remain borrowed for the
+/// duration of PrepareFrame only.
+///
+/// capture_radiance_scale seats the dome's physical radiance onto the
+/// scene's calibrated ambient scale before it enters the probe. The dome is
+/// authored at descriptor radiance (sky pixels), while everything else the
+/// probe influences - and everything the probe captures besides the dome -
+/// lives at the calibrated level the SH-9 ambient is seated to. An unscaled
+/// dome makes the probe's diffuse-GI term several times the entire seated
+/// ambient (measured: open ground (37,47,20) -> (91,106,95), the exact
+/// wash-out class that retired the hemisphere split), so the frontend passes
+/// the same derived SH calibration gain here and the probe stores
+/// calibrated-scale sky radiance instead.
 struct OgreNextReflectionProbeSkyBinding final {
   std::uintptr_t background_item = 0U;
   std::uintptr_t sun_item = 0U;
   std::uintptr_t sky_node = 0U;
+  std::uintptr_t background_datablock = 0U;
+  std::uintptr_t sun_datablock = 0U;
+  float capture_radiance_scale = 1.0F;
   std::uint32_t authored_visibility_mask = 0U;
   bool enabled = false;
 };

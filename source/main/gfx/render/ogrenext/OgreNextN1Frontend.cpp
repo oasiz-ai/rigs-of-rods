@@ -11617,6 +11617,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
     // them, and any degrade below lands on the exact pre-F2 AmbientFixed
     // scalar for this present rather than anything that can end a session.
     bool ambient_sh_active = false;
+    float analytic_sky_capture_radiance_scale = 1.0F;
     if (portable_sky.enabled) {
       OgreNextAnalyticSkyAmbientSh ambient_sh;
       if (BuildOgreNextAnalyticSkyAmbientShCoefficients(
@@ -11644,6 +11645,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->pbs->setAmbientLightMode(Ogre::HlmsPbs::AmbientSh);
           ambient_sh_active =
               impl_->pbs->getAmbientLightMode() == Ogre::HlmsPbs::AmbientSh;
+        }
+        if (ambient_sh_active && ambient_sh.calibration_gain > 0.0F &&
+            ambient_sh.calibration_gain <= 1.0F) {
+          // The probe capture seats the dome's physical radiance with the
+          // same derived gain, so the probe's diffuse-GI term joins the
+          // calibrated ambient level instead of dwarfing it.
+          analytic_sky_capture_radiance_scale = ambient_sh.calibration_gain;
         }
       }
     }
@@ -13326,15 +13334,29 @@ RenderOperationResult OgreNextN1Frontend::Render(
       // the same fail-closed restore path as ordinary item flags - the
       // attached-state verification above never observes moved state.
       OgreNextReflectionProbeSkyBinding reflection_sky;
-      if (analytic_sky_frame_completed &&
+      if (analytic_sky_frame_completed && ambient_sh_active &&
           analytic_sky_background_item != nullptr &&
-          analytic_sky_sun_item != nullptr && analytic_sky_node != nullptr) {
+          analytic_sky_sun_item != nullptr && analytic_sky_node != nullptr &&
+          analytic_sky_background_datablock != nullptr &&
+          analytic_sky_sun_datablock != nullptr) {
+        // Sky admission requires the active SH seat: the capture scale below
+        // is the SH calibration gain, and a dome captured at full physical
+        // radiance while the ambient runs degraded AmbientFixed would
+        // reintroduce the measured wash-out through the probe's diffuse-GI
+        // term. The degraded state therefore keeps the complete pre-F2
+        // capture behavior.
         reflection_sky.background_item =
             reinterpret_cast<std::uintptr_t>(analytic_sky_background_item);
         reflection_sky.sun_item =
             reinterpret_cast<std::uintptr_t>(analytic_sky_sun_item);
         reflection_sky.sky_node =
             reinterpret_cast<std::uintptr_t>(analytic_sky_node);
+        reflection_sky.background_datablock = reinterpret_cast<std::uintptr_t>(
+            analytic_sky_background_datablock);
+        reflection_sky.sun_datablock =
+            reinterpret_cast<std::uintptr_t>(analytic_sky_sun_datablock);
+        reflection_sky.capture_radiance_scale =
+            analytic_sky_capture_radiance_scale;
         reflection_sky.authored_visibility_mask = authored_view_visibility;
         reflection_sky.enabled = true;
       }

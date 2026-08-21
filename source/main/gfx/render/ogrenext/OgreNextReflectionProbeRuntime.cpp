@@ -30,6 +30,7 @@
 #include "OgreHlmsCompute.h"
 #include "OgreHlmsManager.h"
 #include "OgreHlmsPbs.h"
+#include "OgreHlmsUnlitDatablock.h"
 #include "OgreId.h"
 #include "OgreImage2.h"
 #include "OgreItem.h"
@@ -1020,22 +1021,43 @@ public:
     Ogre::Item *sky_background_item = nullptr;
     Ogre::Item *sky_sun_item = nullptr;
     Ogre::SceneNode *sky_node = nullptr;
+    Ogre::HlmsUnlitDatablock *sky_background_datablock = nullptr;
+    Ogre::HlmsUnlitDatablock *sky_sun_datablock = nullptr;
     if (sky.enabled) {
       if (sky.background_item == 0U || sky.sun_item == 0U ||
-          sky.sky_node == 0U) {
+          sky.sky_node == 0U || sky.background_datablock == 0U ||
+          sky.sun_datablock == 0U) {
         return Failure(RenderOperationCode::INVALID_ARGUMENT,
                        "sky capture binding contains a null native object");
+      }
+      if (!std::isfinite(sky.capture_radiance_scale) ||
+          sky.capture_radiance_scale <= 0.0F ||
+          sky.capture_radiance_scale > 1.0F) {
+        return Failure(
+            RenderOperationCode::INVALID_ARGUMENT,
+            "sky capture radiance scale must be a finite fraction in (0, 1]");
       }
       sky_background_item = reinterpret_cast<Ogre::Item *>(sky.background_item);
       sky_sun_item = reinterpret_cast<Ogre::Item *>(sky.sun_item);
       sky_node = reinterpret_cast<Ogre::SceneNode *>(sky.sky_node);
+      sky_background_datablock = reinterpret_cast<Ogre::HlmsUnlitDatablock *>(
+          sky.background_datablock);
+      sky_sun_datablock =
+          reinterpret_cast<Ogre::HlmsUnlitDatablock *>(sky.sun_datablock);
       if (sky_background_item->_getManager() != scene_manager ||
           sky_sun_item->_getManager() != scene_manager ||
           sky_background_item->getParentSceneNode() != sky_node ||
           sky_sun_item->getParentSceneNode() != sky_node ||
           sky_background_item->getVisibilityFlags() !=
               sky.authored_visibility_mask ||
-          sky_sun_item->getVisibilityFlags() != sky.authored_visibility_mask) {
+          sky_sun_item->getVisibilityFlags() != sky.authored_visibility_mask ||
+          sky_background_item->getNumSubItems() != 1U ||
+          sky_sun_item->getNumSubItems() != 1U ||
+          sky_background_item->getSubItem(0U)->getDatablock() !=
+              sky_background_datablock ||
+          sky_sun_item->getSubItem(0U)->getDatablock() != sky_sun_datablock ||
+          !sky_background_datablock->hasColour() ||
+          !sky_sun_datablock->hasColour()) {
         return Failure(
             RenderOperationCode::INVALID_ARGUMENT,
             "sky capture binding does not match the live analytic-sky scene");
@@ -1109,7 +1131,15 @@ public:
         const Ogre::Vector3 prior_sky_position =
             sky_node != nullptr ? sky_node->getPosition()
                                 : Ogre::Vector3::ZERO;
+        const Ogre::ColourValue prior_sky_background_colour =
+            sky_background_datablock != nullptr
+                ? sky_background_datablock->getColour()
+                : Ogre::ColourValue::White;
+        const Ogre::ColourValue prior_sky_sun_colour =
+            sky_sun_datablock != nullptr ? sky_sun_datablock->getColour()
+                                         : Ogre::ColourValue::White;
         bool sky_moved = false;
+        bool sky_scaled = false;
         const auto restore_capture_state = [&]() noexcept {
           bool clean = true;
           try {
@@ -1130,6 +1160,20 @@ public:
               sky_node->setPosition(prior_sky_position);
               sky_moved = sky_node->getPosition() != prior_sky_position;
               clean = !sky_moved && clean;
+            } catch (...) {
+              clean = false;
+            }
+          }
+          if (sky_scaled) {
+            try {
+              sky_background_datablock->setColour(
+                  prior_sky_background_colour);
+              sky_sun_datablock->setColour(prior_sky_sun_colour);
+              sky_scaled =
+                  sky_background_datablock->getColour() !=
+                      prior_sky_background_colour ||
+                  sky_sun_datablock->getColour() != prior_sky_sun_colour;
+              clean = !sky_scaled && clean;
             } catch (...) {
               clean = false;
             }
@@ -1161,10 +1205,12 @@ public:
             // admitted into every capture unconditionally so the probe's
             // diffuse-GI mip chain carries real sky radiance instead of the
             // cleared black. The dome is camera-relative geometry, so it is
-            // re-centred on the probe's capture position for exactly the
-            // capture duration; restore_capture_state puts both flag state
-            // and position back before any main-view state verification can
-            // observe them.
+            // re-centred on the probe's capture position, and its authored
+            // physical radiance is scaled onto the calibrated ambient level
+            // (capture_radiance_scale, the SH seat gain) for exactly the
+            // capture duration; restore_capture_state puts flag state,
+            // position, and datablock colours back before any main-view
+            // state verification can observe them.
             prior_flags.emplace_back(
                 sky_background_item,
                 sky_background_item->getVisibilityFlags());
@@ -1175,6 +1221,12 @@ public:
             sky_sun_item->setVisibilityFlags(kOgreNextPccCaptureVisibilityBit);
             sky_node->setPosition(candidate->getProbeCameraPos());
             sky_moved = true;
+            const Ogre::ColourValue scaled_capture_colour(
+                sky.capture_radiance_scale, sky.capture_radiance_scale,
+                sky.capture_radiance_scale, 1.0F);
+            sky_background_datablock->setColour(scaled_capture_colour);
+            sky_sun_datablock->setColour(scaled_capture_colour);
+            sky_scaled = true;
           }
           pcc->mMask = kCandidateProbeMask;
           if (!candidate->mEnabled || !candidate->mDirty ||
@@ -1233,12 +1285,15 @@ public:
           std::fprintf(
               stderr,
               "[RoR|PccCaptureStats] frame=%llu probe=%llu resolution=%u "
-              "sky_included=%d filtered_mean_rgb=[%.6g,%.6g,%.6g] "
+              "sky_included=%d sky_capture_radiance_scale=%.6g "
+              "filtered_mean_rgb=[%.6g,%.6g,%.6g] "
               "filtered_max_abs_rgb=%.6g nonzero_rgb_components=%llu\n",
               static_cast<unsigned long long>(render_frame_id),
               static_cast<unsigned long long>(request.probe_id),
               static_cast<unsigned int>(request.resolution),
-              sky_node != nullptr ? 1 : 0, filtered_stats.mean_r,
+              sky_node != nullptr ? 1 : 0,
+              static_cast<double>(sky.capture_radiance_scale),
+              filtered_stats.mean_r,
               filtered_stats.mean_g, filtered_stats.mean_b,
               static_cast<double>(filtered_stats.max_absolute_rgb),
               static_cast<unsigned long long>(
