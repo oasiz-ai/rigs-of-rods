@@ -1587,7 +1587,7 @@ Render::ValidationResult ResolveOgreNextDemoBc1AlphaMode(
           "legacy DXT1 needs explicit opaque-versus-one-bit alpha authority");
     }
     candidate = alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE
-                    ? Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE
+                    ? Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR
                     : Render::Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA;
   }
   output = candidate;
@@ -1804,7 +1804,7 @@ Render::ValidationResult BuildOgreNextDemoSrgbPbrTextureFromDecodedSource(
   const Render::Ogre14SourceTextureBc1AlphaMode expected_bc1_alpha =
       alpha_policy == OgreNextDemoTextureAlphaPolicy::PRESERVE_STRAIGHT
           ? Render::Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA
-          : Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+          : Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR;
   if ((decoded.source_format == Render::Ogre14SourceTextureFormat::BC1_UNORM &&
        decoded.bc1_alpha_mode != expected_bc1_alpha) ||
       (decoded.source_format != Render::Ogre14SourceTextureFormat::BC1_UNORM &&
@@ -1902,7 +1902,7 @@ BuildOgreNextDemoLinearSpecularTextureFromDecodedSource(
   }
   if ((decoded.source_format == Render::Ogre14SourceTextureFormat::BC1_UNORM &&
        decoded.bc1_alpha_mode !=
-           Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE) ||
+           Render::Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR) ||
       (decoded.source_format != Render::Ogre14SourceTextureFormat::BC1_UNORM &&
        decoded.bc1_alpha_mode !=
            Render::Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE)) {

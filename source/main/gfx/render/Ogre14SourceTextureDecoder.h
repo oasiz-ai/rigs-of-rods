@@ -47,7 +47,7 @@ enum class Ogre14SourceTextureColorSemantic : std::uint8_t {
 /// greater than endpoint one. Callers must select the authored interpretation.
 enum class Ogre14SourceTextureBc1AlphaMode : std::uint8_t {
   NOT_APPLICABLE = 0U,
-  OPAQUE = 1U,
+  OPAQUE_COLOR = 1U,
   ONE_BIT_ALPHA = 2U,
 };
 

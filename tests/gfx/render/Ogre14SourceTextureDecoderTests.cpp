@@ -603,7 +603,7 @@ void TestBc1ModesAndEdgeClipping() {
       MakeCompressedDds(FourCc('D', 'X', 'T', '1'), 3U, 2U, 1U, block, 8U);
   Ogre14DecodedSourceTexture output;
   Require(DecodeOgre14SourceTextureDds(
-              dds, Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE),
+              dds, Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR),
               output)
               .ok(),
           "opaque BC1 decode failed");
@@ -620,7 +620,7 @@ void TestBc1ModesAndEdgeClipping() {
   dds = MakeCompressedDds(FourCc('D', 'X', 'T', '1'), 4U, 1U, 1U, block,
                           8U, kDdpfFourCc | kDdpfAlphaPixels);
   Require(DecodeOgre14SourceTextureDds(
-              dds, Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE),
+              dds, Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR),
               output)
               .ok(),
           "BC1 forced opaque endpoint-order mode failed");
@@ -751,7 +751,7 @@ void TestCompressedMipChain() {
       FourCc('D', 'X', 'T', '1'), 5U, 3U, 3U, payload, 8U);
   Ogre14DecodedSourceTexture output;
   Require(DecodeOgre14SourceTextureDds(
-              dds, Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE),
+              dds, Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR),
               output)
               .ok(),
           "compressed edge-clipped mip chain failed");
@@ -775,7 +775,7 @@ void TestStrictContainerAndLimitRejection() {
   const std::vector<std::uint8_t> valid = MakeCompressedDds(
       FourCc('D', 'X', 'T', '1'), 4U, 4U, 1U, block, 8U);
   const Ogre14SourceTextureDecodeOptions bc1 =
-      Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE);
+      Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR);
 
   Ogre14SourceTextureDecodeOptions options = bc1;
   options.version = 99U;
@@ -1091,7 +1091,7 @@ void TestGenericDispatchAndHostileImages() {
   ExpectGenericFailureUnchanged(palette, capped,
                                 "PNG decoded-byte cap was bypassed");
   capped = options;
-  capped.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE;
+  capped.bc1_alpha_mode = Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR;
   ExpectGenericFailureUnchanged(palette, capped,
                                 "BC1 alpha mode leaked into PNG");
 
@@ -1167,7 +1167,7 @@ void TestTransactionalExceptionRollback() {
   const std::vector<std::uint8_t> valid = MakeCompressedDds(
       FourCc('D', 'X', 'T', '1'), 4U, 4U, 1U, block, 8U);
   const Ogre14SourceTextureDecodeOptions options =
-      Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE);
+      Bc1Options(Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR);
   for (const Ogre14SourceTextureDecoderFaultStage stage :
        {Ogre14SourceTextureDecoderFaultStage::AFTER_HEADER_VALIDATION,
         Ogre14SourceTextureDecoderFaultStage::AFTER_FIRST_MIP_DECODE,

@@ -1194,7 +1194,7 @@ bool IsKnownColorSemantic(
 bool IsKnownBc1AlphaMode(Ogre14SourceTextureBc1AlphaMode mode) noexcept {
   switch (mode) {
   case Ogre14SourceTextureBc1AlphaMode::NOT_APPLICABLE:
-  case Ogre14SourceTextureBc1AlphaMode::OPAQUE:
+  case Ogre14SourceTextureBc1AlphaMode::OPAQUE_COLOR:
   case Ogre14SourceTextureBc1AlphaMode::ONE_BIT_ALPHA:
     return true;
   }
