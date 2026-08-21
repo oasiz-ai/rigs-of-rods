@@ -395,7 +395,7 @@ class Ogre14AuthenticatedTextureReceiptContractTests(unittest.TestCase):
             "kCityWorldLegacyMaterialCompatibilityArchiveBytes",
             "DispatchLegacyMaterialPrimaryArchiveMount(",
             "MountAuthenticatedPackageResourceLocation(",
-            "authenticated_primary_mount_published = true",
+            "authenticated_package_mount_published = true",
             "if (!primary_package_location_dispatched)",
             "RegisterPackageResourceLocation(",
             "destroyResourceGroup(group)",
