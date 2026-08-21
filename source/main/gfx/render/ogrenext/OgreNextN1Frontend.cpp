@@ -1719,15 +1719,20 @@ constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
 /// kOgreNextHdrMeteringLogLuminanceCeiling.
 constexpr const char kOgreNextHdrMeteringMaterial[] =
     "RoR/HDR/MeteringSumLumStart";
-/// Winsorization bound for one metered sample, in the shader's natural-log
-/// luminance-times-1024 domain. 10.0 corresponds to a luminance of
-/// exp(10)/1024 = 21.5, comfortably above the canonical clear-sky radiance
-/// (log(12.4 * 1024) = 9.45, from the pinned 6.667/13.333/20 sky clear) so
-/// ordinary scene content including the whole sky meters exactly as
-/// upstream, while the sun disc (24x sun colour) and mirror-like specular
-/// glints contribute at most the ceiling instead of dragging auto-exposure
-/// down and crushing shadow detail.
-constexpr float kOgreNextHdrMeteringLogLuminanceCeiling = 10.0F;
+/// Winsorization headroom for one metered sample, in natural-log luminance
+/// units above the scene's currently adapted average (recovered on the CPU
+/// from the committed R16 exposure history each frame). Content within
+/// three stops of the adapted average meters exactly as upstream; only
+/// emitters beyond that - the sun disc at 24x sun colour, mirror-like
+/// specular glints - are winsorized down to average + headroom, so they
+/// stop dragging auto-exposure and crushing shadow detail. Anchoring the
+/// ceiling to the adapted average keeps the bound scene-independent: it
+/// follows absolute scene radiance instead of assuming one calibration.
+constexpr float kOgreNextHdrMeteringCeilingHeadroom = 2.0F;
+/// Ceiling value that renders the winsorization numerically inert (no
+/// plausible scene sample reaches e^30/1024 luminance). Used until a
+/// finite adapted history exists and by the temporary A/B override.
+constexpr float kOgreNextHdrMeteringCeilingInert = 30.0F;
 /// Output-relative bloom target extent per axis. The stock upstream targets
 /// were a fixed square 256x256, which on a widescreen output stretches one
 /// blur texel further horizontally than vertically and therefore makes the
@@ -2575,18 +2580,18 @@ float ResolveHdrBloomResolutionFactor() {
 /// ROR_HDR_METERING_CEILING replaces the pinned metering ceiling when it
 /// parses to a finite value in [7.0, 30.0] (30 renders the winsorization
 /// inert for A/B baselines). Removed once the shipped ceiling is pinned.
-float ResolveHdrMeteringCeiling() {
+float ResolveHdrMeteringCeiling(float adaptive_ceiling) {
   const char *const override_text =
       std::getenv("ROR_HDR_METERING_CEILING");
   if (override_text == nullptr) {
-    return kOgreNextHdrMeteringLogLuminanceCeiling;
+    return adaptive_ceiling;
   }
   char *parsed_end = nullptr;
   const float parsed = std::strtof(override_text, &parsed_end);
   if (parsed_end == override_text || parsed_end == nullptr ||
       *parsed_end != '\0' || !std::isfinite(parsed) || parsed < 7.0F ||
       parsed > 30.0F) {
-    return kOgreNextHdrMeteringLogLuminanceCeiling;
+    return adaptive_ceiling;
   }
   return parsed;
 }
@@ -6195,7 +6200,8 @@ public:
   [[nodiscard]] RenderOperationResult ConfigureHdrParameters(
       float ogre_exposure, float minimum_auto_exposure,
       float maximum_auto_exposure, float bloom_minimum_threshold,
-      float bloom_inverse_transition_width, float delta_seconds) {
+      float bloom_inverse_transition_width, float delta_seconds,
+      float previous_inverse_luminance) {
     Ogre::MaterialPtr luminance_material =
         std::static_pointer_cast<Ogre::Material>(
             Ogre::MaterialManager::getSingleton().load(
@@ -6247,7 +6253,22 @@ public:
         metering_material->getTechnique(0U)->getPass(0U);
     Ogre::GpuProgramParametersSharedPtr metering_parameters =
         metering_pass->getFragmentProgramParameters();
-    const float metering_ceiling = ResolveHdrMeteringCeiling();
+    // Recover the scene's adapted average log-luminance from the committed
+    // exposure history: stored_inverse_luminance = numerator / exp(avgLog),
+    // so avgLog = log(numerator / stored). Winsorize the next metering pass
+    // at that average plus the fixed headroom. Until a finite positive
+    // history exists the ceiling stays inert.
+    float adaptive_ceiling = kOgreNextHdrMeteringCeilingInert;
+    if (std::isfinite(previous_inverse_luminance) &&
+        previous_inverse_luminance > 0.0F) {
+      const float adapted_average_log_luminance =
+          std::log(exposure_numerator / previous_inverse_luminance);
+      if (std::isfinite(adapted_average_log_luminance)) {
+        adaptive_ceiling = adapted_average_log_luminance +
+                           kOgreNextHdrMeteringCeilingHeadroom;
+      }
+    }
+    const float metering_ceiling = ResolveHdrMeteringCeiling(adaptive_ceiling);
     metering_parameters->setNamedConstant("meteringCeiling",
                                           metering_ceiling);
     float observed_ceiling = -1.0F;
@@ -7418,7 +7439,8 @@ public:
     const RenderOperationResult parameters = ConfigureHdrParameters(
         0.0F, hdr_configuration.minimum_auto_exposure,
         hdr_configuration.maximum_auto_exposure,
-        hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F);
+        hdr_configuration.bloom_minimum_threshold, inverse_width, 0.0F,
+        history_seed.decoded);
     if (!parameters) {
       return parameters;
     }
@@ -11019,7 +11041,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
     const RenderOperationResult configured = impl_->ConfigureHdrParameters(
         hdr_plan.ogre_exposure, hdr_plan.minimum_auto_exposure,
         hdr_plan.maximum_auto_exposure, hdr_plan.bloom_minimum_threshold,
-        hdr_plan.bloom_inverse_transition_width, hdr_plan.delta_seconds);
+        hdr_plan.bloom_inverse_transition_width, hdr_plan.delta_seconds,
+        hdr_plan.previous_inverse_luminance_r16.decoded);
     if (!configured) {
       impl_->faulted = true;
       return configured;
