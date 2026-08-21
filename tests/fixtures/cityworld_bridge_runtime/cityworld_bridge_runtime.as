@@ -5,6 +5,12 @@ const int APP_STATE_SIMULATION = 2;
 const int SIM_STATE_PAUSED = 2;
 const int64 ACTOR_ID = 2026072802;
 const uint64 MAX_PHYSICS_STEPS = 30000;
+// Hosted llvmpipe renders this scene at roughly one frame per second.  The
+// bridge contract is over fixed physics steps and exact crossing markers, not
+// over render-frame cadence, so batch enough fixed steps per presented frame
+// to finish inside the cross-platform runtime budget without weakening the
+// integration, collision, screenshot, or route assertions below.
+const int FIXED_STEPS_PER_FRAME = 80;
 const string VEHICLE = "b6b0UID-semi.truck";
 
 const float LANE_X = 510.25f;
@@ -64,7 +70,9 @@ void main()
         return;
     }
 
-    console.cVarSet("sim_deterministic_fixed_steps_per_frame", "20");
+    console.cVarSet(
+        "sim_deterministic_fixed_steps_per_frame",
+        "" + FIXED_STEPS_PER_FRAME);
     console.cVarSet("sim_deterministic_sleeping_engine", "true");
     console.cVarSet("sim_no_collisions", "false");
     console.cVarSet("sim_no_self_collisions", "false");

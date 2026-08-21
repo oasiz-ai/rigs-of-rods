@@ -984,7 +984,8 @@ class CityWorldBridgeSceneTests(unittest.TestCase):
         )
         for marker in (
             'const uint64 MAX_PHYSICS_STEPS = 30000;',
-            '"sim_deterministic_fixed_steps_per_frame", "20"',
+            'const int FIXED_STEPS_PER_FRAME = 80;',
+            '"" + FIXED_STEPS_PER_FRAME',
             '"sim_no_collisions", "false"',
             '"sim_no_self_collisions", "false"',
             "SEAM index=0",

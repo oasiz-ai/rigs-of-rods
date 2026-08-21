@@ -860,6 +860,41 @@ class Ogre14NativeWorkflowContractTests(unittest.TestCase):
         self.assertIn("COMMON_ENGINE_REQUIRED_MARKERS", smoke)
         self.assertIn("require_fresh_log(", smoke)
 
+    def test_linux_cityworld_crash_evidence_is_fail_closed(self) -> None:
+        text = self.text
+        linux_start = text.index(
+            "Drive CityWorld bridge with relocated Linux GL3Plus"
+        )
+        windows_start = text.index(
+            "Stage Windows CityWorld crash symbols and enable LocalDumps",
+            linux_start,
+        )
+        gate = text[linux_start:windows_start]
+        for contract in (
+            "timeout-minutes: 12",
+            "cityworld-bridge-crash-evidence-${{ matrix.platform }}",
+            "cat /proc/sys/kernel/core_pattern",
+            "trap restore_core_pattern EXIT",
+            "kernel.core_pattern=${core_dir}/core.%e.%p",
+            "ulimit -c unlimited",
+            'driver_exit_code="${PIPESTATUS[0]}"',
+            "find \"$core_dir\" -maxdepth 1 -type f -name 'core.*'",
+            "thread apply all bt full",
+            "info sharedlibrary",
+            "collect_linux_cityworld_crash_evidence.py",
+            "--process-diagnostic",
+            "diagnostics/runtime-process.json",
+            "--core-dir \"$core_dir\"",
+            "--backtrace \"$backtrace\"",
+            "--output \"$manifest\"",
+            'exit "$evidence_exit_code"',
+            'exit "$driver_exit_code"',
+        ):
+            with self.subTest(contract=contract):
+                self.assertIn(contract, gate)
+        self.assertIn("gdb \\", text)
+        self.assertNotIn("continue-on-error", gate)
+
     def test_windows_cityworld_crash_evidence_is_fail_closed(self) -> None:
         text = self.text
         setup_start = text.index(

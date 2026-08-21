@@ -73,6 +73,7 @@ jobs:
             file \
             gcc-11 \
             g++-11 \
+            gdb \
             libgl1-mesa-dev \
             libglu1-mesa-dev \
             libx11-dev \
@@ -507,11 +508,32 @@ jobs:
 
       - name: Drive CityWorld bridge with relocated Linux GL3Plus and V0A
         if: runner.os == 'Linux'
+        timeout-minutes: 12
         shell: bash
         env:
           GALLIUM_DRIVER: llvmpipe
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: |
+          evidence_root="${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-crash-evidence-${{ matrix.platform }}"
+          core_dir="$evidence_root/cores/sync"
+          backtrace="$evidence_root/backtraces/sync.txt"
+          manifest="$evidence_root/sync-cores.json"
+          scene_artifact="${GITHUB_WORKSPACE}/artifacts/cityworld-bridge-${{ matrix.platform }}"
+          executable="${GITHUB_WORKSPACE}/artifacts/runtime-${{ matrix.platform }}/RoR-Ogre14"
+          cmake -E make_directory "$core_dir"
+          cmake -E make_directory "$evidence_root/backtraces"
+
+          previous_core_pattern="$(cat /proc/sys/kernel/core_pattern)"
+          restore_core_pattern() {
+            sudo sysctl -q -w \
+              "kernel.core_pattern=${previous_core_pattern}" >/dev/null
+          }
+          trap restore_core_pattern EXIT
+          sudo sysctl -q -w \
+            "kernel.core_pattern=${core_dir}/core.%e.%p" >/dev/null
+          ulimit -c unlimited
+
+          set +e
           xvfb-run -a \
             -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
             python tools/run_cityworld_bridge_scene.py \
@@ -523,6 +545,39 @@ jobs:
               --timeout 300 \
             2>&1 | tee \
               "artifacts/cityworld-bridge-${{ matrix.platform }}.driver.log"
+          driver_exit_code="${PIPESTATUS[0]}"
+          set -e
+
+          mapfile -t cores < <(
+            find "$core_dir" -maxdepth 1 -type f -name 'core.*' -size +0c -print
+          )
+          if (( ${#cores[@]} == 1 )); then
+            if ! gdb --quiet --batch \
+              -ex 'set pagination off' \
+              -ex 'thread apply all bt full' \
+              -ex 'info sharedlibrary' \
+              "$executable" "${cores[0]}" >"$backtrace" 2>&1
+            then
+              cmake -E rm -f "$backtrace"
+            fi
+          fi
+
+          set +e
+          python tools/collect_linux_cityworld_crash_evidence.py \
+            --mode sync \
+            --driver-exit-code "$driver_exit_code" \
+            --process-diagnostic \
+              "$scene_artifact/diagnostics/runtime-process.json" \
+            --core-dir "$core_dir" \
+            --executable "$executable" \
+            --backtrace "$backtrace" \
+            --output "$manifest"
+          evidence_exit_code="$?"
+          set -e
+          if (( evidence_exit_code != 0 )); then
+            exit "$evidence_exit_code"
+          fi
+          exit "$driver_exit_code"
 
       - name: Stage Windows CityWorld crash symbols and enable LocalDumps
         id: windows-cityworld-crash-evidence
