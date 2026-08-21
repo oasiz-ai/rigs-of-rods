@@ -332,6 +332,15 @@ this receipt cannot preserve those semantics. The two receipts deliberately
 remain separate: even both being valid does not authorize input wiring,
 physical construction, or spawning.
 
+The dependency-free runtime carrier now owns the admitted response state once
+those missing joins are supplied. It validates configuration and initial
+length, advances the ratio kernel with a checked `uint64` step counter,
+resolves rest length in binary64, verifies the exact positive-normal binary32
+value handed to the beam solver, and permanently latches the first runtime
+fault without advancing state. This is executable state behavior, but it is
+not yet connected to `ActorSpawner`, `Actor::CalcHydros`, a live electrics
+source, or save/replay; therefore it remains non-spawnable from JBeam content.
+
 Rails/slidenodes constrain a named node to a named node-chain rail. Native
 status requires matching attachment distance, spring/strength, tolerance,
 caps/loops, and break behavior.

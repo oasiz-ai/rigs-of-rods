@@ -2382,6 +2382,17 @@ add_executable(
 )
 
 add_executable(
+    ror_jbeam_hydro_runtime_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroRuntimeTests.cpp"
+)
+
+target_include_directories(
+    ror_jbeam_hydro_runtime_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/physics"
+)
+
+add_executable(
     ror_shader_compatibility_policy_tests
     "${CMAKE_CURRENT_LIST_DIR}/resources/ShaderCompatibilityPolicyTests.cpp"
 )
@@ -3822,6 +3833,11 @@ endif ()
 add_test(
     NAME hydro_actuator_response
     COMMAND ror_hydro_actuator_response_tests
+)
+
+add_test(
+    NAME jbeam_hydro_runtime
+    COMMAND ror_jbeam_hydro_runtime_tests
 )
 
 add_test(

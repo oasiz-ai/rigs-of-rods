@@ -2055,6 +2055,16 @@ a spawn path: it must be joined with the response receipt, exact structural
 node identity, authenticated input/electrics lineage, and a reviewed runtime
 state carrier before any hydro enters ActorSpawner.
 
+That native state carrier is now dependency-free and executable. It owns the
+binary64 response state, checked accepted-step counter, first-fault latch, and
+positive-normal binary32 rest-length handoff. Initialization and every step
+revalidate the response configuration, initial length, prior state, input,
+timestep, counter headroom, resolved ratio, and final solver value. A rejected
+step publishes the latched fault without advancing the accepted state. This
+does not yet close the source-to-actor chain: structural node identity,
+authenticated electrics routing, ActorSpawner construction, force-loop use,
+and save/replay integration remain required.
+
 The first pressure-wheel pass now provides a bounded, deterministic inventory
 of literal `pressureWheels` rows and every relevant source section. It preserves
 exact documented fields, unknowns, duplicate history, source-order `scale*`
