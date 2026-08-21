@@ -3388,9 +3388,15 @@ public:
     Ogre::VertexBufferPacked *vertex_buffer = nullptr;
     Ogre::IndexBufferPacked *index_buffer = nullptr;
     Ogre::VertexArrayObject *vao = nullptr;
+    Ogre::VertexBufferPacked *shadow_vertex_buffer = nullptr;
+    Ogre::IndexBufferPacked *shadow_index_buffer = nullptr;
+    Ogre::VertexArrayObject *shadow_vao = nullptr;
     bool attached = false;
+    bool shadow_attached = false;
     void *vertices = nullptr;
     void *indices = nullptr;
+    void *shadow_vertices = nullptr;
+    void *shadow_indices = nullptr;
     try {
       Ogre::VertexElement2Vec elements;
       if (native.vertex_layout == OgreNextNativeVertexLayout::
@@ -3492,7 +3498,101 @@ public:
       Ogre::SubMesh *submesh = native.mesh->createSubMesh();
       submesh->mVao[Ogre::VpNormal].push_back(vao);
       attached = true;
-      submesh->mVao[Ogre::VpShadow].push_back(vao);
+      // Stage 0 item 2: the caster pass previously fetched the full lit
+      // vertex layout through the shared VAO. Build a dedicated caster VAO
+      // instead: position plus UV0 for the PBR layout (UV0 stays because
+      // the HLMS caster pipeline consumes it whenever a datablock
+      // alpha-tests; Ogre's VertexShadowMapHelper::optimizeForShadowMapping
+      // strips UVs and would break every alpha-tested caster), position
+      // only for the UV-less layout. Both are packed from the validated
+      // CPU descriptor, so no GPU readback is needed, and the caster VAO
+      // owns its own index buffer so SubMesh teardown never double-frees a
+      // buffer shared across pass VAOs.
+      // Dynamic meshes recreate their native mesh on every deformation
+      // revision; packing a second buffer per revision would trade steady
+      // per-frame CPU for a caster-fetch win the deforming set is too small
+      // to show. They keep the shared VAO.
+      if (descriptor.dynamic || OgreNextStage0FeatureDisabled("shadow_vao")) {
+        submesh->mVao[Ogre::VpShadow].push_back(vao);
+      } else {
+        Ogre::VertexElement2Vec shadow_elements;
+        shadow_elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
+        const bool shadow_has_uv =
+            native.vertex_layout ==
+            OgreNextNativeVertexLayout::POSITION_NORMAL_TANGENT_UV0_FLOAT32_48;
+        if (shadow_has_uv) {
+          shadow_elements.push_back(Ogre::VertexElement2(
+              Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES));
+        }
+        struct ShadowCasterUvVertex {
+          float position[3U];
+          float uv[2U];
+        };
+        struct ShadowCasterVertex {
+          float position[3U];
+        };
+        static_assert(sizeof(ShadowCasterUvVertex) == 20U,
+                      "caster position+uv0 vertex layout drifted");
+        static_assert(sizeof(ShadowCasterVertex) == 12U,
+                      "caster position vertex layout drifted");
+        if (shadow_has_uv) {
+          const std::size_t shadow_bytes =
+              sizeof(ShadowCasterUvVertex) * descriptor.positions.size();
+          auto *shadow_packed = static_cast<ShadowCasterUvVertex *>(
+              OGRE_MALLOC_SIMD(shadow_bytes, Ogre::MEMCATEGORY_GEOMETRY));
+          shadow_vertices = shadow_packed;
+          for (std::size_t index = 0U; index < descriptor.positions.size();
+               ++index) {
+            const Float3 &position = descriptor.positions[index];
+            const Float2 &uv = descriptor.texture_coordinates_0[index];
+            shadow_packed[index] = {{position.x, position.y, position.z},
+                                    {uv.x, uv.y}};
+          }
+        } else {
+          const std::size_t shadow_bytes =
+              sizeof(ShadowCasterVertex) * descriptor.positions.size();
+          auto *shadow_packed = static_cast<ShadowCasterVertex *>(
+              OGRE_MALLOC_SIMD(shadow_bytes, Ogre::MEMCATEGORY_GEOMETRY));
+          shadow_vertices = shadow_packed;
+          for (std::size_t index = 0U; index < descriptor.positions.size();
+               ++index) {
+            const Float3 &position = descriptor.positions[index];
+            shadow_packed[index] = {{position.x, position.y, position.z}};
+          }
+        }
+        shadow_vertex_buffer = vao_manager->createVertexBuffer(
+            shadow_elements, descriptor.positions.size(), Ogre::BT_IMMUTABLE,
+            shadow_vertices, true);
+        shadow_vertices = nullptr;
+        shadow_indices = OGRE_MALLOC_SIMD(
+            index_stride * descriptor.indices.size(),
+            Ogre::MEMCATEGORY_GEOMETRY);
+        if (use_u16) {
+          auto *destination = static_cast<Ogre::uint16 *>(shadow_indices);
+          for (std::size_t index = 0U; index < descriptor.indices.size();
+               ++index) {
+            destination[index] =
+                static_cast<Ogre::uint16>(descriptor.indices[index]);
+          }
+        } else {
+          std::memcpy(shadow_indices, descriptor.indices.data(),
+                      index_stride * descriptor.indices.size());
+        }
+        shadow_index_buffer = vao_manager->createIndexBuffer(
+            use_u16 ? Ogre::IndexBufferPacked::IT_16BIT
+                    : Ogre::IndexBufferPacked::IT_32BIT,
+            descriptor.indices.size(), Ogre::BT_IMMUTABLE, shadow_indices,
+            true);
+        shadow_indices = nullptr;
+        Ogre::VertexBufferPackedVec shadow_vertex_buffers;
+        shadow_vertex_buffers.push_back(shadow_vertex_buffer);
+        shadow_vao = vao_manager->createVertexArrayObject(
+            shadow_vertex_buffers, shadow_index_buffer,
+            Ogre::OT_TRIANGLE_LIST);
+        submesh->mVao[Ogre::VpShadow].push_back(shadow_vao);
+        shadow_attached = true;
+      }
 
       OgreNextN1NativeMeshBounds bounds;
       if (!TryBuildOgreNextN1NativeMeshBounds(descriptor.local_bounds,
@@ -3516,6 +3616,39 @@ public:
       }
       if (indices != nullptr) {
         OGRE_FREE_SIMD(indices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (shadow_vertices != nullptr) {
+        OGRE_FREE_SIMD(shadow_vertices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (shadow_indices != nullptr) {
+        OGRE_FREE_SIMD(shadow_indices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (!shadow_attached) {
+        bool shadow_vao_destroyed = true;
+        if (shadow_vao != nullptr) {
+          try {
+            vao_manager->destroyVertexArrayObject(shadow_vao);
+          } catch (...) {
+            clean = false;
+            shadow_vao_destroyed = false;
+          }
+        }
+        if (shadow_vao_destroyed) {
+          if (shadow_vertex_buffer != nullptr) {
+            try {
+              vao_manager->destroyVertexBuffer(shadow_vertex_buffer);
+            } catch (...) {
+              clean = false;
+            }
+          }
+          if (shadow_index_buffer != nullptr) {
+            try {
+              vao_manager->destroyIndexBuffer(shadow_index_buffer);
+            } catch (...) {
+              clean = false;
+            }
+          }
+        }
       }
       if (!attached) {
         bool vao_destroyed = true;
