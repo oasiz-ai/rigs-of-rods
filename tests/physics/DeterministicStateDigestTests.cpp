@@ -1,3 +1,4 @@
+#include "CalibratedBeamStateDigest.h"
 #include "DeterministicStateDigest.h"
 
 #include <algorithm>
@@ -313,7 +314,7 @@ RoR::DeterministicStateDigest::Digest BuildFixture(
     beam.damage = 1.0;
     beam.damage_driver_density = 750000.0;
     beam.last_total_strain = 0.75;
-    beam.state_flags = UINT32_C(0x05);
+    beam.state_flags = UINT32_C(0x07);
     CHECK(builder.AddBeam(beam));
 
     CHECK(builder.BeginContacts(2));
@@ -382,10 +383,11 @@ void TestGoldenAndSensitivity()
 {
     using namespace RoR::DeterministicStateDigest;
 
+    CHECK(SCHEMA_VERSION == 2);
     const Digest baseline =
         BuildFixture(UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03));
     CHECK(baseline.ToHex() ==
-        "d569dfba124a6a07344e49edeb3416da287d1552dd6c8a64be3e68ac690fa470");
+        "4c4bf29808476fbe9eb8f7f64c8420a8066db9e33f32f23c304ee9ac1924afe6");
     CHECK(baseline.ToHex().size() == 64);
     CHECK(BuildFixture(
         UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03)) == baseline);
@@ -434,7 +436,7 @@ void TestCompleteMaterialHistorySensitivity()
     beam.damage = 0.3;
     beam.damage_driver_density = 400.0;
     beam.last_total_strain = -0.5;
-    beam.state_flags = UINT32_C(0x06);
+    beam.state_flags = UINT32_C(0x07);
     const Digest baseline = BuildMaterialFixture(beam);
 
     BeamRecord changed = beam;
@@ -454,6 +456,99 @@ void TestCompleteMaterialHistorySensitivity()
     CHECK(BuildMaterialFixture(changed) != baseline);
 }
 
+void TestCalibratedMaterialFaultReceipt()
+{
+    using namespace RoR::DeterministicStateDigest;
+    namespace Adapter = RoR::CalibratedBeamMaterialAdapter;
+    namespace Material = RoR::CalibratedBeamMaterial;
+
+    BeamRecord beam;
+    beam.actor_id = 1;
+    beam.beam_id = 2;
+    beam.rest_length = 3.f;
+    beam.material_schema_version =
+        BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+    beam.state_flags = BEAM_STATE_DISABLED;
+
+    Adapter::Runtime runtime;
+    runtime.enabled = true;
+    runtime.faulted = true;
+    runtime.last_error = Adapter::Error::INVALID_DIRECTION;
+    CHECK(CalibratedBeamStateDigest::Populate(
+        runtime, true, false, beam));
+    CHECK((beam.state_flags & BEAM_STATE_MATERIAL_FAULTED) != 0);
+    CHECK(beam.material_runtime_error ==
+        BEAM_MATERIAL_RUNTIME_ERROR_INVALID_DIRECTION);
+    CHECK(beam.material_error == BEAM_MATERIAL_ERROR_NONE);
+    const Digest direction_fault = BuildMaterialFixture(beam);
+
+    BeamRecord range_beam;
+    range_beam.actor_id = beam.actor_id;
+    range_beam.beam_id = beam.beam_id;
+    range_beam.rest_length = beam.rest_length;
+    range_beam.material_schema_version =
+        BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+    range_beam.state_flags = BEAM_STATE_DISABLED;
+    runtime.last_error = Adapter::Error::FORCE_OUT_OF_RUNTIME_RANGE;
+    CHECK(CalibratedBeamStateDigest::Populate(
+        runtime, true, false, range_beam));
+    CHECK(BuildMaterialFixture(range_beam) != direction_fault);
+
+    BeamRecord material_beam;
+    material_beam.actor_id = beam.actor_id;
+    material_beam.beam_id = beam.beam_id;
+    material_beam.rest_length = beam.rest_length;
+    material_beam.material_schema_version =
+        BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+    material_beam.state_flags = BEAM_STATE_DISABLED;
+    runtime.last_error = Adapter::Error::MATERIAL_FAILURE;
+    runtime.last_material_error = Material::Error::INVALID_STATE;
+    CHECK(CalibratedBeamStateDigest::Populate(
+        runtime, true, false, material_beam));
+    CHECK(material_beam.material_runtime_error ==
+        BEAM_MATERIAL_RUNTIME_ERROR_MATERIAL_FAILURE);
+    CHECK(material_beam.material_error ==
+        BEAM_MATERIAL_ERROR_INVALID_STATE);
+    CHECK(BuildMaterialFixture(material_beam) != direction_fault);
+
+    const BeamRecord unchanged = material_beam;
+    runtime.last_error = Adapter::Error::INVALID_DIRECTION;
+    CHECK(!CalibratedBeamStateDigest::Populate(
+        runtime, true, false, material_beam));
+    CHECK(material_beam.material_runtime_error ==
+        unchanged.material_runtime_error);
+    CHECK(material_beam.material_error == unchanged.material_error);
+    CHECK(material_beam.state_flags == unchanged.state_flags);
+
+    runtime.last_error = Adapter::Error::MATERIAL_FAILURE;
+    CHECK(!CalibratedBeamStateDigest::Populate(
+        runtime, false, false, material_beam));
+    CHECK(!CalibratedBeamStateDigest::Populate(
+        runtime, true, true, material_beam));
+    runtime.last_error = Adapter::Error::FAULT_LATCHED;
+    runtime.last_material_error = Material::Error::NONE;
+    CHECK(!CalibratedBeamStateDigest::Populate(
+        runtime, true, false, material_beam));
+
+    runtime.faulted = false;
+    runtime.last_error = Adapter::Error::NONE;
+    runtime.state.fractured = true;
+    BeamRecord fractured;
+    fractured.actor_id = beam.actor_id;
+    fractured.beam_id = beam.beam_id;
+    fractured.rest_length = beam.rest_length;
+    fractured.material_schema_version =
+        BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+    fractured.state_flags = BEAM_STATE_DISABLED | BEAM_STATE_BROKEN;
+    CHECK(CalibratedBeamStateDigest::Populate(
+        runtime, true, true, fractured));
+    CHECK(fractured.state_flags ==
+        (BEAM_STATE_DISABLED |
+         BEAM_STATE_BROKEN |
+         BEAM_STATE_MATERIAL_FRACTURED));
+    CHECK(BuildMaterialFixture(fractured) != direction_fault);
+}
+
 void TestEmptySnapshot()
 {
     using namespace RoR::DeterministicStateDigest;
@@ -466,7 +561,7 @@ void TestEmptySnapshot()
     Digest digest;
     CHECK(builder.Finish(digest));
     CHECK(digest.ToHex() ==
-        "3f4db870f55ea2c58163463b9b040afc38e470e45a89e26689b7c71a958b1d8c");
+        "1ba7639424c7c8ee2740b81c428c96af6c62baad86ae48ea03b35cdb4a11244c");
 
     Digest second;
     CHECK(!builder.Finish(second));
@@ -730,6 +825,85 @@ void TestInvalidRecordsAndFastMathFiniteCheck()
         CHECK(!builder.AddBeam(beam));
         CHECK(builder.GetError() == Error::INVALID_RECORD);
     }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.material_schema_version =
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+        beam.state_flags = BEAM_STATE_MATERIAL_FAULTED;
+        beam.material_runtime_error =
+            BEAM_MATERIAL_RUNTIME_ERROR_INVALID_DIRECTION;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.material_schema_version =
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+        beam.state_flags =
+            BEAM_STATE_DISABLED | BEAM_STATE_MATERIAL_FAULTED;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.material_schema_version =
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+        beam.state_flags = BEAM_STATE_DISABLED;
+        beam.material_runtime_error =
+            BEAM_MATERIAL_RUNTIME_ERROR_INVALID_DIRECTION;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.material_schema_version =
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+        beam.state_flags =
+            BEAM_STATE_DISABLED | BEAM_STATE_MATERIAL_FAULTED;
+        beam.material_runtime_error =
+            BEAM_MATERIAL_RUNTIME_ERROR_MATERIAL_FAILURE;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(1));
+        BeamRecord beam;
+        beam.actor_id = 1;
+        beam.rest_length = 1.f;
+        beam.material_schema_version =
+            BEAM_MATERIAL_SCHEMA_CALIBRATED_V1;
+        beam.state_flags =
+            BEAM_STATE_DISABLED | BEAM_STATE_MATERIAL_FRACTURED;
+        CHECK(!builder.AddBeam(beam));
+        CHECK(builder.GetError() == Error::INVALID_RECORD);
+    }
 }
 
 void TestSnapshotAdapterCanonicalExtraction()
@@ -745,7 +919,7 @@ void TestSnapshotAdapterCanonicalExtraction()
     Digest baseline;
     CHECK(BuildSnapshotDigest(73, 91, source, baseline, &status));
     CHECK(baseline.ToHex() ==
-        "aa66a9ab55a0e7c89fb62eeb0209897d921fd5b7f7fde709d4eeeaee6940026e");
+        "c44bd43b99f69e5a0472772d8457ad11f42d9dcf996407e085cd44bc306103ab");
     CHECK(status.error == SnapshotError::NONE);
     CHECK(status.digest_error == Error::NONE);
     CHECK(
@@ -906,6 +1080,7 @@ int main()
     TestGoldenAndSensitivity();
     TestActorNoiseStateSensitivity();
     TestCompleteMaterialHistorySensitivity();
+    TestCalibratedMaterialFaultReceipt();
     TestEmptySnapshot();
     TestOrderAndCountFailures();
     TestHardLimits();

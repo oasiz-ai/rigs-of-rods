@@ -28,7 +28,7 @@
 namespace RoR {
 namespace DeterministicStateDigest {
 
-static const std::uint32_t SCHEMA_VERSION = 1;
+static const std::uint32_t SCHEMA_VERSION = 2;
 
 // These ceilings are part of the digest schema and cannot be loosened by
 // content or callers. The streaming builder itself retains no records.
@@ -112,15 +112,49 @@ enum BeamStateFlags : std::uint32_t
 {
     BEAM_STATE_DISABLED = UINT32_C(1) << 0,
     BEAM_STATE_BROKEN = UINT32_C(1) << 1,
-    BEAM_STATE_MATERIAL_FRACTURED = UINT32_C(1) << 2
+    BEAM_STATE_MATERIAL_FRACTURED = UINT32_C(1) << 2,
+    BEAM_STATE_MATERIAL_FAULTED = UINT32_C(1) << 3
 };
 
 static const std::uint32_t BEAM_STATE_MASK =
     BEAM_STATE_DISABLED |
     BEAM_STATE_BROKEN |
-    BEAM_STATE_MATERIAL_FRACTURED;
+    BEAM_STATE_MATERIAL_FRACTURED |
+    BEAM_STATE_MATERIAL_FAULTED;
 static const std::uint32_t BEAM_MATERIAL_SCHEMA_NONE = 0;
 static const std::uint32_t BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 = 1;
+
+/// Schema-v2 codes are intentionally independent of the implementation enum
+/// ordinals. Only errors which can be latched into calibrated runtime state
+/// have a representation here.
+enum BeamMaterialRuntimeErrorCode : std::uint32_t
+{
+    BEAM_MATERIAL_RUNTIME_ERROR_NONE = 0,
+    BEAM_MATERIAL_RUNTIME_ERROR_UNSUPPORTED_ADAPTER_SCHEMA = 1,
+    BEAM_MATERIAL_RUNTIME_ERROR_UNSUPPORTED_BEAM_ROLE = 2,
+    BEAM_MATERIAL_RUNTIME_ERROR_NONFINITE_INPUT = 3,
+    BEAM_MATERIAL_RUNTIME_ERROR_INVALID_CROSS_SECTION_AREA = 4,
+    BEAM_MATERIAL_RUNTIME_ERROR_INVALID_REFERENCE_LENGTH = 5,
+    BEAM_MATERIAL_RUNTIME_ERROR_INVALID_CURRENT_LENGTH = 6,
+    BEAM_MATERIAL_RUNTIME_ERROR_INVALID_DIRECTION = 7,
+    BEAM_MATERIAL_RUNTIME_ERROR_MATERIAL_FAILURE = 8,
+    BEAM_MATERIAL_RUNTIME_ERROR_NUMERIC_OVERFLOW = 9,
+    BEAM_MATERIAL_RUNTIME_ERROR_FORCE_OUT_OF_RUNTIME_RANGE = 10
+};
+
+enum BeamMaterialErrorCode : std::uint32_t
+{
+    BEAM_MATERIAL_ERROR_NONE = 0,
+    BEAM_MATERIAL_ERROR_UNSUPPORTED_SCHEMA = 1,
+    BEAM_MATERIAL_ERROR_NONFINITE_INPUT = 2,
+    BEAM_MATERIAL_ERROR_INVALID_ELASTIC_MODULUS = 3,
+    BEAM_MATERIAL_ERROR_INVALID_YIELD_STRESS = 4,
+    BEAM_MATERIAL_ERROR_INVALID_HARDENING_MODULUS = 5,
+    BEAM_MATERIAL_ERROR_INVALID_DAMAGE_ONSET = 6,
+    BEAM_MATERIAL_ERROR_INVALID_DAMAGE_DRIVER_CAPACITY = 7,
+    BEAM_MATERIAL_ERROR_INVALID_STATE = 8,
+    BEAM_MATERIAL_ERROR_NUMERIC_OVERFLOW = 9
+};
 
 struct BeamRecord
 {
@@ -134,6 +168,8 @@ struct BeamRecord
     double damage;
     double damage_driver_density;
     double last_total_strain;
+    std::uint32_t material_runtime_error;
+    std::uint32_t material_error;
     std::uint32_t state_flags;
 
     BeamRecord();

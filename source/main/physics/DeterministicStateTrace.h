@@ -31,7 +31,7 @@ namespace RoR {
 namespace DeterministicStateTrace {
 
 static const std::uint32_t SCHEMA_VERSION = 1;
-static const std::uint32_t STATE_DIGEST_SCHEMA_VERSION = 1;
+static const std::uint32_t STATE_DIGEST_SCHEMA_VERSION = 2;
 static const std::uint32_t HEADER_SIZE = 80;
 static const std::uint32_t STEP_RECORD_SIZE = 64;
 static const std::uint32_t TRAILER_SIZE = 56;
@@ -50,7 +50,7 @@ static const std::uint64_t MAX_PHYSICS_RATE_COMPONENT =
 static_assert(
     DeterministicStateDigest::SCHEMA_VERSION ==
         STATE_DIGEST_SCHEMA_VERSION,
-    "state trace v1 must be reviewed when the digest schema changes");
+    "state trace digest version must match the embedded digest contract");
 
 /// Version-1 encoding is fixed-width and little-endian:
 ///

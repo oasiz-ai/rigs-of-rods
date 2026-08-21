@@ -221,6 +221,8 @@ BeamRecord::BeamRecord():
     damage(0.0),
     damage_driver_density(0.0),
     last_total_strain(0.0),
+    material_runtime_error(BEAM_MATERIAL_RUNTIME_ERROR_NONE),
+    material_error(BEAM_MATERIAL_ERROR_NONE),
     state_flags(0)
 {
 }
@@ -499,17 +501,60 @@ bool Builder::AddBeam(const BeamRecord& record)
         return false;
     if (record.material_schema_version >
             BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 ||
+        record.material_runtime_error >
+            BEAM_MATERIAL_RUNTIME_ERROR_FORCE_OUT_OF_RUNTIME_RANGE ||
+        record.material_error >
+            BEAM_MATERIAL_ERROR_NUMERIC_OVERFLOW ||
         (record.state_flags & ~BEAM_STATE_MASK) != 0)
     {
         return Fail(Error::INVALID_RECORD, m_observed_count);
     }
     if (record.material_schema_version == BEAM_MATERIAL_SCHEMA_NONE &&
-        ((record.state_flags & BEAM_STATE_MATERIAL_FRACTURED) != 0 ||
+        ((record.state_flags &
+              (BEAM_STATE_MATERIAL_FRACTURED |
+               BEAM_STATE_MATERIAL_FAULTED)) != 0 ||
          ExactBinary64Bits(record.plastic_strain) != 0 ||
          ExactBinary64Bits(record.accumulated_plastic_strain) != 0 ||
          ExactBinary64Bits(record.damage) != 0 ||
          ExactBinary64Bits(record.damage_driver_density) != 0 ||
-         ExactBinary64Bits(record.last_total_strain) != 0))
+         ExactBinary64Bits(record.last_total_strain) != 0 ||
+         record.material_runtime_error !=
+             BEAM_MATERIAL_RUNTIME_ERROR_NONE ||
+         record.material_error != BEAM_MATERIAL_ERROR_NONE))
+    {
+        return Fail(Error::INVALID_RECORD, m_observed_count);
+    }
+    const bool material_fractured =
+        (record.state_flags & BEAM_STATE_MATERIAL_FRACTURED) != 0;
+    const bool material_faulted =
+        (record.state_flags & BEAM_STATE_MATERIAL_FAULTED) != 0;
+    if (material_fractured &&
+        (((record.state_flags & BEAM_STATE_DISABLED) == 0) ||
+         ((record.state_flags & BEAM_STATE_BROKEN) == 0) ||
+         material_faulted))
+    {
+        return Fail(Error::INVALID_RECORD, m_observed_count);
+    }
+    if (material_faulted)
+    {
+        const bool is_material_failure =
+            record.material_runtime_error ==
+            BEAM_MATERIAL_RUNTIME_ERROR_MATERIAL_FAILURE;
+        const bool has_material_error =
+            record.material_error != BEAM_MATERIAL_ERROR_NONE;
+        if (record.material_schema_version !=
+                BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 ||
+            (record.state_flags & BEAM_STATE_DISABLED) == 0 ||
+            record.material_runtime_error ==
+                BEAM_MATERIAL_RUNTIME_ERROR_NONE ||
+            is_material_failure != has_material_error)
+        {
+            return Fail(Error::INVALID_RECORD, m_observed_count);
+        }
+    }
+    else if (record.material_runtime_error !=
+                 BEAM_MATERIAL_RUNTIME_ERROR_NONE ||
+             record.material_error != BEAM_MATERIAL_ERROR_NONE)
     {
         return Fail(Error::INVALID_RECORD, m_observed_count);
     }
@@ -524,6 +569,8 @@ bool Builder::AddBeam(const BeamRecord& record)
     HashDouble(record.damage);
     HashDouble(record.damage_driver_density);
     HashDouble(record.last_total_strain);
+    HashU32(record.material_runtime_error);
+    HashU32(record.material_error);
     HashU32(record.state_flags);
 
     m_previous_beam_actor_id = record.actor_id;

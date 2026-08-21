@@ -18,6 +18,7 @@
 #include "ActorStateDigestAdapter.h"
 
 #include "Actor.h"
+#include "CalibratedBeamStateDigest.h"
 
 #include <cstddef>
 
@@ -202,21 +203,15 @@ public:
             beam.last_total_strain = 0.0;
         }
         beam.state_flags = 0;
-        // A fail-closed calibrated beam is disabled by the production force
-        // path, so schema v1 captures the disabled bit plus its unchanged
-        // finite material history. The builder rejects non-finite corrupted
-        // history. A dedicated material-fault bit requires a future digest
-        // schema revision.
         if (source_beam.bm_disabled)
             beam.state_flags |= BEAM_STATE_DISABLED;
         if (source_beam.bm_broken)
             beam.state_flags |= BEAM_STATE_BROKEN;
-        if (source_beam.calibrated_material.enabled &&
-            source_beam.calibrated_material.state.fractured)
-        {
-            beam.state_flags |= BEAM_STATE_MATERIAL_FRACTURED;
-        }
-        return true;
+        return CalibratedBeamStateDigest::Populate(
+            source_beam.calibrated_material,
+            source_beam.bm_disabled,
+            source_beam.bm_broken,
+            beam);
     }
 
     std::size_t GetContactCount() const override
