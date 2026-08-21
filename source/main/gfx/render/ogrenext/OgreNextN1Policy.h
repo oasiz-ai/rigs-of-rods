@@ -71,6 +71,48 @@ struct OgreNextAnalyticSkyNativeMesh final {
     const LightDescriptor &sun, float radius,
     OgreNextAnalyticSkyNativeMesh &mesh);
 
+/// SH-9 sky irradiance in the exact HlmsPbs AmbientSh shader polynomial basis
+/// {1, y, z, x, y*x, y*z, 3z^2-1, z*x, x^2-y^2}. The shader carries no
+/// spherical-harmonic constants at all - `irradianceSH(n)` is a raw dot
+/// product against these nine coefficients - so every real-SH normalization
+/// and Lambertian cosine-lobe factor (A0=pi, A1=2pi/3, A2=pi/4) is pre-folded
+/// here. Coefficients feed Ogre::SceneManager::setSphericalHarmonics
+/// unchanged. mean_irradiance is the band-0 sphere mean E; up_irradiance is
+/// E(+Y); calibration_gain is the derived seat factor described at the
+/// builder. All values are calibrated, finite binary32 on success.
+struct OgreNextAnalyticSkyAmbientSh final {
+  Float3 coefficients[9U]{};
+  Float3 mean_irradiance{};
+  Float3 up_irradiance{};
+  float calibration_gain = 0.0F;
+};
+
+/// Integrates the transported analytic-sky descriptor into SH-9 irradiance
+/// for HlmsPbs AmbientSh, excluding the sun disc (it is already the one
+/// calibrated directional light; folding it again would double-count direct
+/// sun and invite band-2 ringing). The dome radiance model matches
+/// BuildOgreNextAnalyticSkyNativeMesh exactly: the upper hemisphere lerps
+/// horizon->zenith linearly in elevation sine, the lower hemisphere is
+/// constant ground radiance, clouds pull the upper hemisphere toward
+/// cloud_radiance, and everything scales by environment_intensity once.
+/// Azimuthal symmetry about +Y makes the integral zonal and closed-form.
+///
+/// The absolute level is seated, not assumed: AmbientFixed contributes
+/// `ambient * albedo / pi` per pixel (HlmsPbs kD folds 1/pi into diffuse)
+/// while AmbientSh contributes `E(n) * albedo`, and the raw descriptor
+/// irradiance is roughly an order of magnitude above the calibrated
+/// AmbientFixed scalar - the exact wash-out that retired the hemisphere
+/// split. The gain therefore equates the Rec.709 luminance of the SH sphere
+/// mean (band 0) with the AmbientFixed level derived from the same snapshot,
+/// so band 1/2 redistribute light between sky-facing and ground-facing
+/// surfaces around an unchanged average. Returns false (output untouched)
+/// whenever the sky is disabled or any derived value is non-finite or
+/// degenerate; the caller degrades to the AmbientFixed scalar for that
+/// present.
+[[nodiscard]] bool BuildOgreNextAnalyticSkyAmbientShCoefficients(
+    const SceneEnvironmentDescriptor &environment,
+    OgreNextAnalyticSkyAmbientSh &sh) noexcept;
+
 /// Bounds after the portable descriptor has been reduced with overflow-safe
 /// float arithmetic into Ogre's center/half-size representation.
 struct OgreNextN1NativeMeshBounds final {

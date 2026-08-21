@@ -55,6 +55,25 @@ struct OgreNextReflectionProbeItemBinding final {
   bool dynamic_mesh = false;
 };
 
+/// Optional camera-anchored analytic-sky background admitted into a probe
+/// capture. The two Items are the frontend's internal per-present sky objects
+/// (not portable instances), so they never travel through the item-binding
+/// eligibility rules: an environment is always visible in reflections. For
+/// exactly the capture duration the Items carry
+/// kOgreNextPccCaptureVisibilityBit and the node is re-centred on the probe's
+/// capture position (the dome is camera-relative background geometry, so a
+/// probe away from the view camera would otherwise see a displaced or absent
+/// sky); both are restored by the same fail-closed restore path as the item
+/// flags. Native pointers remain borrowed for the duration of PrepareFrame
+/// only.
+struct OgreNextReflectionProbeSkyBinding final {
+  std::uintptr_t background_item = 0U;
+  std::uintptr_t sun_item = 0U;
+  std::uintptr_t sky_node = 0U;
+  std::uint32_t authored_visibility_mask = 0U;
+  bool enabled = false;
+};
+
 struct OgreNextReflectionProbeAudit final {
   std::uint32_t version = 4U;
   std::uint64_t committed_state_digest = 0U;
@@ -162,7 +181,8 @@ public:
                const Double3 &absolute_world_origin_meters,
                const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors,
                const std::vector<OgreNextReflectionProbeItemBinding> &items,
-               std::uintptr_t tracking_camera);
+               std::uintptr_t tracking_camera,
+               const OgreNextReflectionProbeSkyBinding &sky = {});
 
   /// Atomically publishes the prepared capture after the enclosing frontend
   /// has completed all failure-prone rendering, readback, validation, and

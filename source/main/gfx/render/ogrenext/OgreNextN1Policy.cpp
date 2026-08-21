@@ -9,6 +9,7 @@
 #include "OgreNextN1Policy.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <new>
@@ -1064,6 +1065,156 @@ ValidationResult BuildOgreNextAnalyticSkyNativeMesh(
         "environment.analytic_sky.native_mesh.exception",
         "native analytic sky mesh construction failed before publication");
   }
+}
+
+bool BuildOgreNextAnalyticSkyAmbientShCoefficients(
+    const SceneEnvironmentDescriptor &environment,
+    OgreNextAnalyticSkyAmbientSh &sh) noexcept {
+  const AnalyticSkyDescriptor &sky = environment.analytic_sky;
+  if (!sky.enabled || !IsFinite(sky.zenith_radiance) ||
+      !IsFinite(sky.horizon_radiance) || !IsFinite(sky.ground_radiance) ||
+      !IsFinite(sky.cloud_radiance) || !IsNonNegative(sky.zenith_radiance) ||
+      !IsNonNegative(sky.horizon_radiance) ||
+      !IsNonNegative(sky.ground_radiance) ||
+      !IsNonNegative(sky.cloud_radiance) ||
+      !std::isfinite(sky.cloud_coverage) || sky.cloud_coverage < 0.0F ||
+      sky.cloud_coverage > 1.0F ||
+      !std::isfinite(environment.environment_intensity) ||
+      environment.environment_intensity <= 0.0F ||
+      !IsFinite(environment.ambient_radiance) ||
+      !IsNonNegative(environment.ambient_radiance)) {
+    return false;
+  }
+  // Real-SH normalization constants (Condon-Shortley free) and the Lambertian
+  // cosine-lobe convolution factors A_l. The shader basis carries neither, so
+  // both fold into the coefficients here.
+  constexpr double kY00 = 0.28209479177387814;   // sqrt(1/(4*pi))
+  constexpr double kY1 = 0.4886025119029199;     // sqrt(3/(4*pi))
+  constexpr double kY20 = 0.31539156525252005;   // (1/4)*sqrt(5/pi)
+  constexpr double kPi = 3.14159265358979323846;
+  constexpr double kTwoPi = 6.28318530717958647692;
+  constexpr double kA0 = kPi;
+  constexpr double kA1 = kTwoPi / 3.0;
+  constexpr double kA2 = kPi / 4.0;
+  const double intensity =
+      static_cast<double>(environment.environment_intensity);
+  // Sphere-mean cloud response derived from the dome policy, not fit by eye:
+  // the remapped value-noise field admits a `coverage` fraction of its mass,
+  // the smoothstep shaping averages one half over an admitted span, and the
+  // sub-horizon fade (zero below sin(latitude)=0.087, full above 0.187)
+  // removes roughly a tenth of the upper hemisphere's solid angle -
+  // 0.5 * 0.9 = 0.45. SH bands 0-2 cannot represent individual cloud shapes
+  // anyway; only this mean radiance shift is observable in irradiance.
+  const double mean_cloud_density = 0.45 * static_cast<double>(
+      sky.cloud_coverage);
+  const std::array<double, 3U> zenith{{
+      static_cast<double>(sky.zenith_radiance.x),
+      static_cast<double>(sky.zenith_radiance.y),
+      static_cast<double>(sky.zenith_radiance.z)}};
+  const std::array<double, 3U> horizon{{
+      static_cast<double>(sky.horizon_radiance.x),
+      static_cast<double>(sky.horizon_radiance.y),
+      static_cast<double>(sky.horizon_radiance.z)}};
+  const std::array<double, 3U> ground{{
+      static_cast<double>(sky.ground_radiance.x),
+      static_cast<double>(sky.ground_radiance.y),
+      static_cast<double>(sky.ground_radiance.z)}};
+  const std::array<double, 3U> cloud{{
+      static_cast<double>(sky.cloud_radiance.x),
+      static_cast<double>(sky.cloud_radiance.y),
+      static_cast<double>(sky.cloud_radiance.z)}};
+  // Zonal projection about +Y with u = n.y. The upper hemisphere radiance is
+  // L_u(u) = h' + (z' - h')*u for u in [0, 1] (the dome's exact per-vertex
+  // model), the lower hemisphere is the constant g:
+  //   L00  = 2*pi*Y00*( (h' + z')/2 + g )        [ integral of L over u ]
+  //   L1   = 2*pi*Y1 *( h'/2 + (z' - h')/3 - g/2 )  [ integral of L*u ]
+  //   L20y = 2*pi*Y20*( (z' - h')/4 )            [ integral of L*(3u^2-1) ]
+  // Irradiance E(n) = A0*L00*Y00 + A1*L1*Y1*n.y + A2*L20y*Y20*(3*n.y^2 - 1),
+  // and 3y^2-1 = -(1/2)*(3z^2-1) - (3/2)*(x^2-y^2) rewrites the y-zonal
+  // quadratic into the shader's z-zonal polynomial slots. The shader
+  // evaluates in cubemap space (world with x negated); every surviving term
+  // is even in x, so the negation is exactly representation-neutral, and the
+  // five odd/azimuthal coefficients are exactly zero by symmetry.
+  std::array<double, 3U> c0{};
+  std::array<double, 3U> c1{};
+  std::array<double, 3U> c6{};
+  std::array<double, 3U> c8{};
+  for (std::size_t channel = 0U; channel < 3U; ++channel) {
+    const double h = (horizon[channel] +
+                      (cloud[channel] - horizon[channel]) *
+                          mean_cloud_density) * intensity;
+    const double z = (zenith[channel] +
+                      (cloud[channel] - zenith[channel]) *
+                          mean_cloud_density) * intensity;
+    const double g = ground[channel] * intensity;
+    const double l00 = kTwoPi * kY00 * ((h + z) * 0.5 + g);
+    const double l1 = kTwoPi * kY1 * (h * 0.5 + (z - h) / 3.0 - g * 0.5);
+    const double l20 = kTwoPi * kY20 * ((z - h) * 0.25);
+    c0[channel] = kA0 * kY00 * l00;
+    c1[channel] = kA1 * kY1 * l1;
+    const double zonal_quadratic = kA2 * kY20 * l20;
+    c6[channel] = zonal_quadratic * -0.5;
+    c8[channel] = zonal_quadratic * -1.5;
+  }
+  // Seat the level: match the Rec.709/D65 luminance of the SH sphere mean
+  // (band 0; bands 1-2 integrate to zero over the sphere) to the calibrated
+  // AmbientFixed contribution `ambient/pi` this snapshot would otherwise
+  // present. Both sides are derived from the same descriptor - no invented
+  // constants - and hue stays with the sky because the gain is scalar.
+  const auto rec709_luminance = [](const std::array<double, 3U> &value) {
+    return 0.2126 * value[0U] + 0.7152 * value[1U] + 0.0722 * value[2U];
+  };
+  const std::array<double, 3U> fixed_ambient{{
+      static_cast<double>(environment.ambient_radiance.x) * intensity,
+      static_cast<double>(environment.ambient_radiance.y) * intensity,
+      static_cast<double>(environment.ambient_radiance.z) * intensity}};
+  const double mean_luminance = rec709_luminance(c0);
+  const double fixed_luminance = rec709_luminance(fixed_ambient);
+  if (!std::isfinite(mean_luminance) || mean_luminance <= 0.0 ||
+      !std::isfinite(fixed_luminance) || fixed_luminance <= 0.0) {
+    return false;
+  }
+  const double gain = fixed_luminance / (kPi * mean_luminance);
+  if (!std::isfinite(gain) || gain <= 0.0) {
+    return false;
+  }
+  OgreNextAnalyticSkyAmbientSh candidate;
+  for (std::size_t channel = 0U; channel < 3U; ++channel) {
+    c0[channel] *= gain;
+    c1[channel] *= gain;
+    c6[channel] *= gain;
+    c8[channel] *= gain;
+  }
+  const auto to_float3 = [](const std::array<double, 3U> &value,
+                            Float3 &output) noexcept {
+    const Float3 converted{static_cast<float>(value[0U]),
+                           static_cast<float>(value[1U]),
+                           static_cast<float>(value[2U])};
+    if (!IsFinite(converted)) {
+      return false;
+    }
+    output = converted;
+    return true;
+  };
+  const std::array<double, 3U> up{{
+      c0[0U] + c1[0U] - c6[0U] - c8[0U],
+      c0[1U] + c1[1U] - c6[1U] - c8[1U],
+      c0[2U] + c1[2U] - c6[2U] - c8[2U]}};
+  if (!to_float3(c0, candidate.coefficients[0U]) ||
+      !to_float3(c1, candidate.coefficients[1U]) ||
+      !to_float3(c6, candidate.coefficients[6U]) ||
+      !to_float3(c8, candidate.coefficients[8U]) ||
+      !to_float3(c0, candidate.mean_irradiance) ||
+      !to_float3(up, candidate.up_irradiance)) {
+    return false;
+  }
+  candidate.calibration_gain = static_cast<float>(gain);
+  if (!std::isfinite(candidate.calibration_gain) ||
+      candidate.calibration_gain <= 0.0F) {
+    return false;
+  }
+  sh = candidate;
+  return true;
 }
 
 bool TryBuildOgreNextN1NativeMeshBounds(
