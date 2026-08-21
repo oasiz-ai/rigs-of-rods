@@ -11589,10 +11589,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
     // quantities for its dome and they are validated before they arrive here,
     // so the split costs nothing to source.
     //
-    // Magnitude is preserved: the two hemispheres are normalized so their mean
-    // luminance is still the sun-relative ambient the producer chose. This
-    // changes the colour and direction of the shadow fill, never its level, so
-    // it cannot on its own wash out a sunlit surface.
+    // Magnitude is preserved: each hemisphere is normalized to unit luminance
+    // on its own, so the split changes the colour and direction of the shadow
+    // fill and never its level, and cannot on its own wash out a sunlit
+    // surface.
     Ogre::ColourValue expected_upper = expected_ambient;
     Ogre::ColourValue expected_lower = expected_ambient;
     {
@@ -11600,16 +11600,30 @@ RenderOperationResult OgreNextN1Frontend::Render(
       const auto luminance = [](const Float3 &value) {
         return 0.2126F * value.x + 0.7152F * value.y + 0.0722F * value.z;
       };
-      const float mean_luminance =
-          0.5F * (luminance(sky.zenith_radiance) +
-                  luminance(sky.ground_radiance));
-      if (sky.enabled && std::isfinite(mean_luminance) &&
-          mean_luminance > 0.0F) {
+      // Normalize each hemisphere to unit luminance ON ITS OWN, so the split
+      // changes hue and nothing else. Dividing both by a shared mean instead
+      // lets the brighter hemisphere raise the level: the blue-heavy zenith
+      // then arrives 2.6x up in blue, which washes sunlit ground out and turns
+      // green grass blue-grey. Only kSkyTintSaturation of the hue is applied,
+      // because a fully saturated skylight hue reads as a colour cast rather
+      // than as daylight shadow.
+      constexpr float kSkyTintSaturation = 0.5F;
+      if (sky.enabled) {
         const auto tint = [&](const Float3 &radiance) {
+          const float radiance_luminance = luminance(radiance);
+          if (!std::isfinite(radiance_luminance) ||
+              radiance_luminance <= 0.0F) {
+            return expected_ambient;
+          }
+          const auto channel = [&](float value, float ambient) {
+            const float hue = value / radiance_luminance;
+            return ambient *
+                   (1.0F + kSkyTintSaturation * (hue - 1.0F));
+          };
           return Ogre::ColourValue(
-              expected_ambient.r * (radiance.x / mean_luminance),
-              expected_ambient.g * (radiance.y / mean_luminance),
-              expected_ambient.b * (radiance.z / mean_luminance));
+              channel(radiance.x, expected_ambient.r),
+              channel(radiance.y, expected_ambient.g),
+              channel(radiance.z, expected_ambient.b));
         };
         const Ogre::ColourValue upper = tint(sky.zenith_radiance);
         const Ogre::ColourValue lower = tint(sky.ground_radiance);
