@@ -264,9 +264,12 @@ class OgreNextPssmShadowContractTests(unittest.TestCase):
             "requires exactly one shadow-casting directional light",
             "does not substitute local-light shadows",
             "requires a nonzero static/dynamic geometry mask",
-            "requires exact 0.5 m near and 350 m far clip distances",
+            "requires the exact pinned view near and far clip distances",
+            "view.far_plane != kOgreNextExpectedViewFarMeters",
         ):
             self.assertIn(token, self.policy)
+        self.assertIn("kOgreNextPssmFarMeters", self.policy_header)
+        self.assertIn("kOgreNextExpectedViewFarMeters", self.policy_header)
         self.assertIn("shadow_flags != 0U", self.policy)
 
     def test_shadow_visibility_excludes_reflection_and_ogre_layers(self) -> None:
