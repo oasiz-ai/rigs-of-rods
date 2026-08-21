@@ -1439,6 +1439,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
             "$<TARGET_FILE:ror_ogre_next_embedded_direct_contract>"
         --plugin-object
             "$<TARGET_OBJECTS:ror_ogre_next_root_plugin_export_probe>"
+        --next-plugin-linkage static
         --legacy-main-library "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
         ${_ror_namespace_audit_legacy_arguments}
         --executable

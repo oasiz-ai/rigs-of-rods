@@ -81,6 +81,52 @@ def output(*argv: str) -> str:
     return completed.stdout
 
 
+def audit_plugin_symbol_ownership(
+    plugin_raw: str,
+    archive_strings: str,
+    next_plugin_linkage: str,
+) -> dict[str, object]:
+    require(
+        next_plugin_linkage in {"static", "dynamic"},
+        "OgreNext plugin linkage is not explicit",
+    )
+    require(
+        "RoROgreNext_dllStartPlugin" in plugin_raw
+        and "RoROgreNext_dllStopPlugin" in plugin_raw,
+        "prefixed plugin C exports are absent",
+    )
+    require(
+        not re.search(r"\b_?dll(?:Start|Stop)Plugin\b", plugin_raw),
+        "unprefixed plugin C export remains",
+    )
+    require(
+        not re.search(
+            r"(?<![A-Za-z0-9_])dll(?:Start|Stop)Plugin(?![A-Za-z0-9_])",
+            archive_strings,
+        ),
+        "an unprefixed dynamic plugin lookup name remains",
+    )
+    prefixed_dynamic_lookup_names = (
+        "RoROgreNext_dllStartPlugin" in archive_strings
+        and "RoROgreNext_dllStopPlugin" in archive_strings
+    )
+    if next_plugin_linkage == "dynamic":
+        require(
+            prefixed_dynamic_lookup_names,
+            "OgreNext Root did not compile the prefixed dynamic lookup names",
+        )
+    return {
+        "linkage": next_plugin_linkage,
+        "prefixed_c_exports": True,
+        "unprefixed_exports_or_lookup_names": False,
+        "dynamic_lookup_names": (
+            "verified"
+            if next_plugin_linkage == "dynamic"
+            else "not_applicable_static"
+        ),
+    }
+
+
 def digest(path: Path) -> str:
     hasher = hashlib.sha256()
     with path.open("rb") as stream:
@@ -436,6 +482,11 @@ def main() -> int:
     parser.add_argument("--embedded-runtime-archive", required=True)
     parser.add_argument("--direct-contract-archive", required=True)
     parser.add_argument("--plugin-object", required=True)
+    parser.add_argument(
+        "--next-plugin-linkage",
+        choices=("static", "dynamic"),
+        required=True,
+    )
     parser.add_argument("--legacy-main-library", required=True)
     parser.add_argument("--legacy-library", action="append", required=True)
     parser.add_argument(
@@ -731,18 +782,15 @@ def main() -> int:
                     f"expected prefixed Objective-C runtime class is absent: {new_name}")
 
     plugin_raw, plugin_demangled = nm(plugin_object)
-    require("RoROgreNext_dllStartPlugin" in plugin_raw and
-            "RoROgreNext_dllStopPlugin" in plugin_raw,
-            "prefixed plugin C exports are absent")
-    require(not re.search(r"\b_?dll(?:Start|Stop)Plugin\b", plugin_raw),
-            "unprefixed plugin C export remains")
     require("Ogre::" not in plugin_demangled,
             "plugin export probe references the legacy C++ namespace")
 
     archive_strings = "\n".join(output("strings", str(path)) for path in next_archives)
-    require("RoROgreNext_dllStartPlugin" in archive_strings and
-            "RoROgreNext_dllStopPlugin" in archive_strings,
-            "OgreNext Root did not compile the prefixed dynamic lookup names")
+    plugin_symbol_ownership = audit_plugin_symbol_ownership(
+        plugin_raw,
+        archive_strings,
+        args.next_plugin_linkage,
+    )
 
     _, legacy_main_demangled = nm(legacy_main_library)
     require("Ogre::Root::getSingletonPtr()" in legacy_main_demangled,
@@ -1099,6 +1147,7 @@ def main() -> int:
             "bridge_transport_symbols": 0,
         },
         "plugin_object": {"path": str(plugin_object), "sha256": digest(plugin_object)},
+        "plugin_symbol_ownership": plugin_symbol_ownership,
         "legacy_main_library": {
             "path": str(legacy_main_library),
             "sha256": digest(legacy_main_library),

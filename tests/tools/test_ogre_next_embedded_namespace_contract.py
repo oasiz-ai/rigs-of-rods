@@ -277,6 +277,27 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 self.assertIsNotNone(pattern.fullmatch(accepted))
                 self.assertIsNone(pattern.fullmatch(rejected))
 
+    def test_plugin_symbol_audit_distinguishes_static_and_dynamic_linkage(self) -> None:
+        exports = "RoROgreNext_dllStartPlugin\nRoROgreNext_dllStopPlugin\n"
+        static = AUDIT.audit_plugin_symbol_ownership(exports, "", "static")
+        self.assertEqual(static["dynamic_lookup_names"], "not_applicable_static")
+
+        dynamic = AUDIT.audit_plugin_symbol_ownership(
+            exports,
+            "RoROgreNext_dllStartPlugin\nRoROgreNext_dllStopPlugin\n",
+            "dynamic",
+        )
+        self.assertEqual(dynamic["dynamic_lookup_names"], "verified")
+
+        with self.assertRaisesRegex(RuntimeError, "did not compile"):
+            AUDIT.audit_plugin_symbol_ownership(exports, "", "dynamic")
+        with self.assertRaisesRegex(RuntimeError, "unprefixed dynamic"):
+            AUDIT.audit_plugin_symbol_ownership(
+                exports,
+                "Cannot find symbol dllStartPlugin in library",
+                "static",
+            )
+
     def test_audit_binds_exact_contract_inputs_and_source_commit(self) -> None:
         embedded = self.lock["embedded_namespace"]
         contract = {
@@ -337,6 +358,7 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             "--build-contract",
             "--canonical-lock",
             "--patch",
+            "--next-plugin-linkage",
             "--namespaced-source",
             "--neutral-source",
         ):

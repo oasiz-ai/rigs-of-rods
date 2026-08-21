@@ -1487,6 +1487,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
                 "$<TARGET_FILE:ror_ogre_next_embedded_direct_contract>"
             --plugin-object
                 "$<TARGET_OBJECTS:ror_ogre_next_embedded_plugin_export_probe>"
+            --next-plugin-linkage static
             --legacy-main-library
                 "${ROR_OGRE14_DUAL_RUNTIME_LIBRARY}"
             ${_ror_ogre14_audit_arguments}
