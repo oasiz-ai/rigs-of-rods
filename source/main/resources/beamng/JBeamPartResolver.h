@@ -52,6 +52,14 @@ enum class JBeamResolveDiagnosticCode
     INVALID_SLOT_FIELD,
     DUPLICATE_SLOT,
     INVALID_SLOT_VARIABLE,
+    DUPLICATE_TUNING_VARIABLE_SECTION,
+    INVALID_TUNING_VARIABLE_TABLE,
+    INVALID_TUNING_VARIABLE_ROW,
+    MISSING_TUNING_VARIABLE_FIELD,
+    INVALID_TUNING_VARIABLE_FIELD,
+    INVALID_TUNING_VARIABLE_OVERRIDE,
+    DUPLICATE_TUNING_VARIABLE,
+    TUNING_VARIABLE_LIMIT,
     INDEX_PART_LIMIT,
     CONFIGURATION_NOT_OBJECT,
     INVALID_CONFIGURATION_SECTION,
@@ -104,6 +112,11 @@ struct JBeamResolverLimits
     std::size_t max_request_selections;
     std::size_t max_request_variables;
     std::size_t max_variables_per_node;
+    /// Per-table normalization gates used by slots, slots2, and authored
+    /// variables. They prevent temporary normalized-row copies from escaping
+    /// the resolver's deterministic resource contract.
+    std::size_t max_table_normalize_work_units;
+    std::size_t max_table_normalize_retained_bytes;
     /// Maximum retained diagnostics. Zero still retains one terminal
     /// diagnostic when any diagnostic is emitted so failure cannot appear
     /// successful.
@@ -126,6 +139,7 @@ enum class JBeamSlotKind
 
 enum class JBeamVariableOrigin
 {
+    AUTHORED_DEFAULT,
     CONFIGURATION,
     SLOT
 };
@@ -139,6 +153,36 @@ struct JBeamVariableAssignment
     JBeamValue value;
     JBeamSourceSpan span;
     JBeamVariableOrigin origin;
+};
+
+/// One selected part's documented tuning-variable row. Required range fields
+/// are admitted as literal finite values. The duplicate-preserving raw row
+/// remains in the owning part body so UI metadata outside this first semantic
+/// subset is never lost or redundantly deep-copied.
+struct JBeamTuningVariableDefinition
+{
+    std::string part_name;
+    std::string package_path;
+    std::string name;
+    std::string type;
+    std::string unit;
+    std::string category;
+    JBeamValue default_value;
+    JBeamValue min_value;
+    JBeamValue max_value;
+    std::string title;
+    std::string description;
+    std::string sub_category;
+    bool has_step_dis;
+    JBeamValue step_dis;
+    bool has_min_dis;
+    JBeamValue min_dis;
+    bool has_max_dis;
+    JBeamValue max_dis;
+    bool hide_in_ui;
+    JBeamSourceSpan span;
+
+    JBeamTuningVariableDefinition();
 };
 
 struct JBeamSlotDefinition
@@ -165,6 +209,8 @@ struct JBeamPartDefinition
     /// Source order and duplicates are retained. Matching treats this as a set.
     std::vector<std::string> slot_types;
     std::vector<JBeamSlotDefinition> slots;
+    /// Ordered definitions from the effective authored `variables` table.
+    std::vector<JBeamTuningVariableDefinition> tuning_variables;
 };
 
 struct JBeamPackageIndex
@@ -255,6 +301,10 @@ struct JBeamResolvedGraph
     /// cannot collapse to the same canonical graph identity.
     JBeamResolveRequest request;
     std::shared_ptr<JBeamResolvedPartNode> root;
+    /// Active authored definitions in deterministic resolved-part preorder.
+    /// Duplicate names are retained; later rows are effective unless a .pc or
+    /// descendant slot assignment overrides them.
+    std::vector<JBeamTuningVariableDefinition> tuning_variables;
     std::vector<JBeamResolveDiagnostic> diagnostics;
     std::size_t resolved_part_count;
 
@@ -275,6 +325,10 @@ std::string SerializeCanonicalJBeamResolvedGraph(
 
 const JBeamVariableAssignment* FindEffectiveJBeamVariable(
     const JBeamResolvedPartNode& node,
+    const std::string& name);
+
+const JBeamTuningVariableDefinition* FindEffectiveJBeamTuningVariable(
+    const JBeamResolvedGraph& graph,
     const std::string& name);
 
 const char* JBeamResolveDiagnosticCodeToString(

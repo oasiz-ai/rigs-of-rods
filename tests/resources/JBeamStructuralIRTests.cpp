@@ -1942,6 +1942,78 @@ void TestCleanRoomFixtureConformance()
         permuted) == canonical);
 }
 
+void TestAuthoredTuningVariableExpressionPipeline()
+{
+    std::vector<JBeamPackageSource> packages;
+    packages.push_back(Package(
+        "vehicles/tuning/main.jbeam",
+        "{\"car\":{"
+        "\"slotType\":\"main\","
+        "\"variables\":["
+        "[\"name\",\"type\",\"unit\",\"category\",\"default\","
+        "\"min\",\"max\",\"title\",\"description\"],"
+        "[\"$mass\",\"range\",\"kg\",\"Chassis\",5,1,10,"
+        "\"Mass\",\"Root mass\"],"
+        "[\"$x\",\"range\",\"m\",\"Geometry\",0.25,0,2,"
+        "\"X\",\"Root position\"]"
+        "],"
+        "\"slots\":["
+        "[\"type\",\"default\",\"description\"],"
+        "[\"child\",\"tuning_child\",\"Child\",{"
+        "\"variables\":{\"$childMass\":3}}]"
+        "],"
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\",\"nodeWeight\"],"
+        "[\"ref\",0,0,0,1],"
+        "[\"back\",0,1,0,1],"
+        "[\"left\",1,0,0,1],"
+        "[\"up\",0,0,1,1],"
+        "[\"leftCorner\",1,-1,0,1],"
+        "[\"rightCorner\",-1,-1,0,1],"
+        "[\"tuned\",\"$x\",0,0,\"$=$mass+$childMass\"]"
+        "],"
+        "\"refNodes\":["
+        "[\"ref:\",\"back:\",\"left:\",\"up:\","
+        "\"leftCorner:\",\"rightCorner:\"],"
+        "[\"ref\",\"back\",\"left\",\"up\","
+        "\"leftCorner\",\"rightCorner\"]"
+        "]"
+        "}}"));
+    packages.push_back(Package(
+        "vehicles/tuning/child.jbeam",
+        "{\"tuning_child\":{"
+        "\"slotType\":\"child\","
+        "\"variables\":["
+        "[\"name\",\"type\",\"unit\",\"category\",\"default\","
+        "\"min\",\"max\",\"title\",\"description\"],"
+        "[\"$childMass\",\"range\",\"kg\",\"Chassis\",2,1,4,"
+        "\"Child mass\",\"Child default\"]"
+        "],"
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\",\"nodeWeight\"],"
+        "[\"childNode\",0,0,0,\"$childMass\"]"
+        "]"
+        "}}"));
+
+    const JBeamResolvedGraph graph = ResolveConfigured(
+        packages,
+        "{\"parts\":{},\"vars\":{\"$mass\":6}}" );
+    CHECK(graph.tuning_variables.size() == 3U);
+    const JBeamStructuralIR ir =
+        RoR::BeamNG::BuildJBeamStructuralIR(graph);
+    CHECK(ir.IsValid());
+    CHECK(ir.nodes.size() == 8U);
+    CHECK(ir.nodes[0].id == "ref");
+    CHECK(ir.nodes[6].id == "tuned");
+    CHECK(ir.nodes[6].x == 0.25);
+    CHECK(ir.nodes[6].node_weight == 8.0);
+    CHECK(ir.nodes[7].id == "childNode");
+    CHECK(ir.nodes[7].node_weight == 3.0);
+    CHECK(CountDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 0U);
+}
+
 } // namespace
 
 int main()
@@ -1967,6 +2039,7 @@ int main()
     TestDiagnosticLimitStopsStructuralPhases();
     TestLimitsAndAmbiguity();
     TestCleanRoomFixtureConformance();
+    TestAuthoredTuningVariableExpressionPipeline();
 
     if (g_failures != 0)
     {

@@ -300,7 +300,8 @@ bool IsResolverMetadataSection(const std::string& name)
     return name == "slotType" ||
         name == "slots" ||
         name == "slots2" ||
-        name == "components";
+        name == "components" ||
+        name == "variables";
 }
 
 bool IsKnownUnsupportedField(

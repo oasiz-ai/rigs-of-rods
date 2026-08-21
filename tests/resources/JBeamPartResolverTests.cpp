@@ -35,6 +35,7 @@ using RoR::BeamNG::JBeamResolvedSlotStatus;
 using RoR::BeamNG::JBeamResolverLimits;
 using RoR::BeamNG::JBeamValueType;
 using RoR::BeamNG::JBeamVariableAssignment;
+using RoR::BeamNG::JBeamVariableOrigin;
 
 JBeamPackageSource Package(
     const std::string& path,
@@ -940,6 +941,249 @@ void TestDiagnosticLimitIsTerminalAndDeterministic()
         JBeamResolveDiagnosticCode::DIAGNOSTIC_LIMIT);
 }
 
+void TestAuthoredTuningDefaultsAndOverridePrecedence()
+{
+    std::vector<JBeamPackageSource> sources;
+    sources.push_back(Package(
+        "vehicles/tuning/main.jbeam",
+        "{\"car\":{"
+        "\"slotType\":\"main\","
+        "\"variables\":["
+        "[\"name\",\"type\",\"unit\",\"category\",\"default\","
+        "\"min\",\"max\",\"title\",\"description\"],"
+        "[\"$shared\",\"range\",\"\",\"Powertrain\",10,0,100,"
+        "\"Shared\",\"Root default\"],"
+        "[\"$rootOnly\",\"range\",\"N\",\"Chassis\",1,0,2,"
+        "\"Root\",\"Root only\",{\"stepDis\":0.25,"
+        "\"minDis\":0.5,\"maxDis\":1.5,\"hideInUI\":true,"
+        "\"subCategory\":\"Front\"}]"
+        "],"
+        "\"slots\":["
+        "[\"type\",\"default\",\"description\"],"
+        "[\"child\",\"child_part\",\"Child\",{"
+        "\"variables\":{\"$shared\":30}}]"
+        "]"
+        "}}"));
+    sources.push_back(Package(
+        "vehicles/tuning/child.jbeam",
+        "{\"child_part\":{"
+        "\"slotType\":\"child\","
+        "\"variables\":["
+        "[\"name\",\"type\",\"unit\",\"category\",\"default\","
+        "\"min\",\"max\",\"title\",\"description\"],"
+        "[\"$shared\",\"range\",\"\",\"Powertrain\",20,0,100,"
+        "\"Shared child\",\"Child default\"],"
+        "[\"$childOnly\",\"range\",\"m\",\"Suspension\",2,1,3,"
+        "\"Child\",\"Child only\"]"
+        "]"
+        "}}"));
+
+    const JBeamPackageIndex index =
+        RoR::BeamNG::BuildJBeamPackageIndex(sources);
+    CHECK(index.IsValid());
+    CHECK(index.parts.size() == 2U);
+
+    const JBeamConfigurationResult configuration =
+        RoR::BeamNG::ParseJBeamConfiguration(Value(
+            "{\"vars\":{\"$shared\":25,\"$configured\":7}}",
+            "vehicles/tuning/config.pc"));
+    CHECK(configuration.IsValid());
+    const JBeamResolvedGraph graph =
+        RoR::BeamNG::ResolveJBeamPartGraph(
+            index, configuration.request);
+    CHECK(graph.IsValid());
+    CHECK(graph.tuning_variables.size() == 4U);
+    CHECK(
+        CountDiagnostic(
+            graph.diagnostics,
+            JBeamResolveDiagnosticCode::DUPLICATE_TUNING_VARIABLE) ==
+        1U);
+    CHECK(graph.root != NULL);
+    if (!graph.root)
+    {
+        return;
+    }
+    const JBeamResolvedSlot* child =
+        FindSlot(*graph.root, "child");
+    CHECK(child != NULL && child->child != NULL);
+    CHECK(graph.root->inherited_variables.size() == 6U);
+    CHECK(child->child->inherited_variables.size() == 7U);
+
+    const JBeamVariableAssignment* root_shared =
+        RoR::BeamNG::FindEffectiveJBeamVariable(
+            *graph.root, "$shared");
+    const JBeamVariableAssignment* child_shared =
+        RoR::BeamNG::FindEffectiveJBeamVariable(
+            *child->child, "$shared");
+    const JBeamVariableAssignment* child_only =
+        RoR::BeamNG::FindEffectiveJBeamVariable(
+            *graph.root, "$childOnly");
+    CHECK(root_shared != NULL);
+    CHECK(root_shared->origin == JBeamVariableOrigin::CONFIGURATION);
+    CHECK(root_shared->value.number_value == 25.0);
+    CHECK(child_shared != NULL);
+    CHECK(child_shared->origin == JBeamVariableOrigin::SLOT);
+    CHECK(child_shared->value.number_value == 30.0);
+    CHECK(child_only != NULL);
+    CHECK(child_only->origin == JBeamVariableOrigin::AUTHORED_DEFAULT);
+    CHECK(child_only->value.number_value == 2.0);
+
+    const RoR::BeamNG::JBeamTuningVariableDefinition* shared =
+        RoR::BeamNG::FindEffectiveJBeamTuningVariable(
+            graph, "$shared");
+    const RoR::BeamNG::JBeamTuningVariableDefinition* root_only =
+        RoR::BeamNG::FindEffectiveJBeamTuningVariable(
+            graph, "$rootOnly");
+    CHECK(shared != NULL);
+    CHECK(shared->part_name == "child_part");
+    CHECK(shared->default_value.number_value == 20.0);
+    CHECK(root_only != NULL);
+    CHECK(root_only->unit == "N");
+    CHECK(root_only->sub_category == "Front");
+    CHECK(root_only->has_step_dis);
+    CHECK(root_only->step_dis.number_value == 0.25);
+    CHECK(root_only->has_min_dis);
+    CHECK(root_only->min_dis.number_value == 0.5);
+    CHECK(root_only->has_max_dis);
+    CHECK(root_only->max_dis.number_value == 1.5);
+    CHECK(root_only->hide_in_ui);
+
+    std::reverse(sources.begin(), sources.end());
+    const JBeamPackageIndex reversed_index =
+        RoR::BeamNG::BuildJBeamPackageIndex(sources);
+    const JBeamResolvedGraph reversed =
+        RoR::BeamNG::ResolveJBeamPartGraph(
+            reversed_index, configuration.request);
+    CHECK(reversed.IsValid());
+    CHECK(
+        RoR::BeamNG::SerializeCanonicalJBeamPackageIndex(index) ==
+        RoR::BeamNG::SerializeCanonicalJBeamPackageIndex(
+            reversed_index));
+    CHECK(
+        RoR::BeamNG::SerializeCanonicalJBeamResolvedGraph(graph) ==
+        RoR::BeamNG::SerializeCanonicalJBeamResolvedGraph(reversed));
+}
+
+void TestAuthoredTuningTablesFailClosedAndRespectLimits()
+{
+    const char* invalid_rows[] = {
+        "[\"bad\",\"range\",\"\",\"C\",1,0,2,\"T\",\"D\"]",
+        "[\"$badType\",\"select\",\"\",\"C\",1,0,2,\"T\",\"D\"]",
+        "[\"$badDefault\",\"range\",\"\",\"C\",3,0,2,\"T\",\"D\"]",
+        "[\"$badMin\",\"range\",\"\",\"C\",1,2,0,\"T\",\"D\"]",
+        "[\"$expr\",\"range\",\"\",\"C\",\"$=1\",0,2,\"T\",\"D\"]",
+        "[\"$missing\",\"range\",\"\",\"C\",1,0]"
+    };
+    for (std::size_t i = 0U;
+         i < sizeof(invalid_rows) / sizeof(invalid_rows[0]);
+         ++i)
+    {
+        const std::string source =
+            std::string("{\"car\":{\"slotType\":\"main\","
+                "\"variables\":["
+                "[\"name\",\"type\",\"unit\",\"category\","
+                "\"default\",\"min\",\"max\",\"title\","
+                "\"description\"],") +
+            invalid_rows[i] + "]}}";
+        const JBeamPackageIndex invalid =
+            RoR::BeamNG::BuildJBeamPackageIndex(
+                std::vector<JBeamPackageSource>(
+                    1U, Package(
+                        "vehicles/tuning/invalid.jbeam", source)));
+        CHECK(!invalid.IsValid());
+        CHECK(
+            FindDiagnostic(
+                invalid.diagnostics,
+                JBeamResolveDiagnosticCode::
+                    INVALID_TUNING_VARIABLE_FIELD) != NULL ||
+            FindDiagnostic(
+                invalid.diagnostics,
+                JBeamResolveDiagnosticCode::
+                    MISSING_TUNING_VARIABLE_FIELD) != NULL);
+    }
+
+    const std::vector<JBeamPackageSource> valid_sources(
+        1U,
+        Package(
+            "vehicles/tuning/limited.jbeam",
+            "{\"car\":{\"slotType\":\"main\","
+            "\"variables\":["
+            "[\"name\",\"type\",\"unit\",\"category\",\"default\","
+            "\"min\",\"max\",\"title\",\"description\"],"
+            "[\"$one\",\"range\",\"\",\"C\",1,0,2,\"T\",\"D\"],"
+            "[\"$two\",\"range\",\"\",\"C\",1,0,2,\"T\",\"D\"]"
+            "]}}"));
+    JBeamResolverLimits limits;
+    limits.max_variables_per_node = 1U;
+    const JBeamPackageIndex limited =
+        RoR::BeamNG::BuildJBeamPackageIndex(valid_sources, limits);
+    CHECK(!limited.IsValid());
+    CHECK(
+        FindDiagnostic(
+            limited.diagnostics,
+            JBeamResolveDiagnosticCode::TUNING_VARIABLE_LIMIT) != NULL);
+
+    JBeamResolverLimits normalize_limited;
+    normalize_limited.max_table_normalize_retained_bytes = 1U;
+    normalize_limited.max_table_normalize_work_units = 1U;
+    const JBeamPackageIndex normalization_rejected =
+        RoR::BeamNG::BuildJBeamPackageIndex(
+            valid_sources, normalize_limited);
+    CHECK(!normalization_rejected.IsValid());
+    CHECK(
+        FindDiagnostic(
+            normalization_rejected.diagnostics,
+            JBeamResolveDiagnosticCode::
+                INVALID_TUNING_VARIABLE_TABLE) != NULL);
+
+    const std::vector<JBeamPackageSource> one_source(
+        1U,
+        Package(
+            "vehicles/tuning/combined-limit.jbeam",
+            "{\"car\":{\"slotType\":\"main\","
+            "\"variables\":["
+            "[\"name\",\"type\",\"unit\",\"category\",\"default\","
+            "\"min\",\"max\",\"title\",\"description\"],"
+            "[\"$one\",\"range\",\"\",\"C\",1,0,2,\"T\",\"D\"]"
+            "]}}"));
+    const JBeamPackageIndex one_index =
+        RoR::BeamNG::BuildJBeamPackageIndex(one_source, limits);
+    CHECK(one_index.IsValid());
+    const JBeamConfigurationResult configuration =
+        RoR::BeamNG::ParseJBeamConfiguration(Value(
+            "{\"vars\":{\"$configured\":2}}",
+            "vehicles/tuning/combined-limit.pc"));
+    CHECK(configuration.IsValid());
+    const JBeamResolvedGraph combined_limited =
+        RoR::BeamNG::ResolveJBeamPartGraph(
+            one_index, configuration.request, limits);
+    CHECK(!combined_limited.IsValid());
+    CHECK(combined_limited.root != NULL);
+    CHECK(combined_limited.tuning_variables.empty());
+    CHECK(combined_limited.root->inherited_variables.size() == 1U);
+    CHECK(
+        FindDiagnostic(
+            combined_limited.diagnostics,
+            JBeamResolveDiagnosticCode::RESOLVED_VARIABLE_LIMIT) != NULL);
+
+    const JBeamConfigurationResult out_of_range_configuration =
+        RoR::BeamNG::ParseJBeamConfiguration(Value(
+            "{\"vars\":{\"$one\":3}}",
+            "vehicles/tuning/out-of-range.pc"));
+    CHECK(out_of_range_configuration.IsValid());
+    const JBeamResolvedGraph out_of_range =
+        RoR::BeamNG::ResolveJBeamPartGraph(
+            one_index, out_of_range_configuration.request);
+    CHECK(!out_of_range.IsValid());
+    CHECK(out_of_range.root != NULL);
+    CHECK(out_of_range.tuning_variables.empty());
+    CHECK(
+        FindDiagnostic(
+            out_of_range.diagnostics,
+            JBeamResolveDiagnosticCode::
+                INVALID_TUNING_VARIABLE_OVERRIDE) != NULL);
+}
+
 } // namespace
 
 int main()
@@ -958,6 +1202,8 @@ int main()
     TestInputEntryLimitCountsMalformedEntries();
     TestConfigurationAndRequestLimitsAreAtomic();
     TestDiagnosticLimitIsTerminalAndDeterministic();
+    TestAuthoredTuningDefaultsAndOverridePrecedence();
+    TestAuthoredTuningTablesFailClosedAndRespectLimits();
 
     if (g_failures != 0)
     {

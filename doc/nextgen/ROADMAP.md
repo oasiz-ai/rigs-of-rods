@@ -1918,8 +1918,9 @@ assets.
 `ParseJBeam` and `JBeamPartResolver` deliberately retain expressions as inert,
 duplicate-preserving source data. The J2 structural semantic pass now invokes
 the core only at its explicit scalar-field readers. It builds each part's
-environment from effective configuration/slot variables plus deterministically
-merged scalar component leaves, resolves standalone variables, `$=`
+environment from active authored tuning defaults, effective configuration/slot
+overrides, and deterministically merged scalar component leaves, resolves
+standalone variables, `$=`
 expressions, and `$.name` namespace strings, then enforces the destination
 field's number/Boolean/string policy. Missing variables remain `nil` for
 documented existence checks; a final `nil` in a typed structural field fails
@@ -1929,15 +1930,24 @@ offset.
 Table-valued and expression-valued components remain preserved-but-disabled,
 and no unknown field or section is evaluated. Per-expression quotas are backed
 by aggregate evaluation/work, component node/depth, environment, and retained
-memory gates. Clean-room end-to-end tests cover configuration and slot
-variables, namespace expansion, scalar components, missing-variable
+memory gates. The part resolver now admits the official authored `variables`
+table for the documented `range` type, retains required and optional UI
+metadata plus exact source provenance, and builds a vehicle-wide default
+environment from active parts in deterministic preorder. Later active rows use
+last-row semantics, `.pc` values override them globally, and slot variables
+override them only for descendants. Numeric type and authored min/max bounds
+are revalidated before any node environment is published; table-normalization,
+graph, diagnostic, and retained-environment limits fail atomically.
+
+Clean-room end-to-end tests cover authored defaults, configuration and slot
+override precedence, range/type hostiles, namespace expansion, scalar
+components, missing-variable
 short-circuiting, forbidden host calls, quotas, and representative
 FormulaCOUPE v0.9.7 arithmetic shapes such as node mass scaling and
 beam-precompression tuning. A local scan found no scalar built-in calls in the
 fixture's 84 `.jbeam` files, so `FC-A7-01` is not blocked by the remaining
-function set. Full table components, authored tuning-variable default tables,
-the remaining documented transcendental/random math functions, and semantic
-evaluation for
+function set. Full table components, the remaining documented
+transcendental/random math functions, and semantic evaluation for
 non-structural sections remain open J1/J2 work.
 
 The bounded resolver indexes parts independently of archive enumeration order,

@@ -20,6 +20,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <tuple>
 
 namespace RoR {
 namespace BeamNG {
@@ -232,6 +233,40 @@ bool IsVariableName(const std::string& name)
     return !name.empty() && name[0] == '$';
 }
 
+bool IsAuthoredTuningVariableName(const std::string& name)
+{
+    if (name.size() < 2U || name[0] != '$')
+    {
+        return false;
+    }
+    const unsigned char first =
+        static_cast<unsigned char>(name[1]);
+    if (!((first >= static_cast<unsigned char>('a') &&
+           first <= static_cast<unsigned char>('z')) ||
+          (first >= static_cast<unsigned char>('A') &&
+           first <= static_cast<unsigned char>('Z')) ||
+          first == static_cast<unsigned char>('_')))
+    {
+        return false;
+    }
+    for (std::size_t i = 2U; i < name.size(); ++i)
+    {
+        const unsigned char value =
+            static_cast<unsigned char>(name[i]);
+        if (!((value >= static_cast<unsigned char>('a') &&
+               value <= static_cast<unsigned char>('z')) ||
+              (value >= static_cast<unsigned char>('A') &&
+               value <= static_cast<unsigned char>('Z')) ||
+              (value >= static_cast<unsigned char>('0') &&
+               value <= static_cast<unsigned char>('9')) ||
+              value == static_cast<unsigned char>('_')))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool IsStructuralString(const JBeamValue& value)
 {
     if (value.type != JBeamValueType::STRING ||
@@ -241,6 +276,12 @@ bool IsStructuralString(const JBeamValue& value)
     }
     return value.scalar_text.compare(0, 2, "$=") != 0 &&
            value.scalar_text[0] != '$';
+}
+
+bool IsLiteralStringAllowEmpty(const JBeamValue& value)
+{
+    return value.type == JBeamValueType::STRING &&
+           (value.scalar_text.empty() || IsStructuralString(value));
 }
 
 const JBeamNormalizedTable* FindRootTable(
@@ -261,6 +302,20 @@ const JBeamFieldAssignment* RowField(
     const std::string& name)
 {
     return FindEffectiveJBeamField(row, name);
+}
+
+JBeamNormalizeResult NormalizeResolverTable(
+    const JBeamValue& value,
+    const JBeamResolverLimits& limits)
+{
+    JBeamNormalizeLimits normalize_limits;
+    normalize_limits.max_work_units =
+        limits.max_table_normalize_work_units;
+    normalize_limits.max_retained_bytes =
+        limits.max_table_normalize_retained_bytes;
+    normalize_limits.max_diagnostics =
+        std::max<std::size_t>(1U, limits.max_diagnostics);
+    return NormalizeJBeamTables(value, normalize_limits);
 }
 
 bool ReadStringArray(
@@ -441,7 +496,8 @@ void ParseSlotTable(
     std::vector<JBeamSlotDefinition>& output,
     std::vector<JBeamResolveDiagnostic>& diagnostics)
 {
-    const JBeamNormalizeResult normalized = NormalizeJBeamTables(value);
+    const JBeamNormalizeResult normalized =
+        NormalizeResolverTable(value, limits);
     const JBeamNormalizedTable* table = FindRootTable(normalized);
     if (table == NULL)
     {
@@ -849,6 +905,439 @@ void ParsePartSlots(
     }
 }
 
+bool ReadTuningString(
+    const JBeamNormalizedDataRow& row,
+    const std::string& field_name,
+    const std::string& part_name,
+    const JBeamResolverLimits& limits,
+    std::vector<JBeamResolveDiagnostic>& diagnostics,
+    std::string& output,
+    bool required,
+    bool allow_variable_name = false)
+{
+    const JBeamFieldAssignment* field = RowField(row, field_name);
+    if (field == NULL)
+    {
+        if (required)
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::
+                        MISSING_TUNING_VARIABLE_FIELD,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    row.span,
+                    part_name,
+                    field_name,
+                    "Tuning-variable row is missing required field '" +
+                        field_name + "'"));
+            return false;
+        }
+        return true;
+    }
+    if (!field->value ||
+        (allow_variable_name
+             ? field->value->type != JBeamValueType::STRING
+             : !IsLiteralStringAllowEmpty(*field->value)))
+    {
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::
+                    INVALID_TUNING_VARIABLE_FIELD,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                field->span,
+                part_name,
+                field_name,
+                "Tuning-variable field '" + field_name +
+                    "' must be a literal string"));
+        return false;
+    }
+    output = field->value->scalar_text;
+    return true;
+}
+
+bool ReadTuningNumber(
+    const JBeamNormalizedDataRow& row,
+    const std::string& field_name,
+    const std::string& part_name,
+    const JBeamResolverLimits& limits,
+    std::vector<JBeamResolveDiagnostic>& diagnostics,
+    JBeamValue& output,
+    bool required,
+    bool& present)
+{
+    const JBeamFieldAssignment* field = RowField(row, field_name);
+    present = field != NULL;
+    if (field == NULL)
+    {
+        if (required)
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::
+                        MISSING_TUNING_VARIABLE_FIELD,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    row.span,
+                    part_name,
+                    field_name,
+                    "Tuning-variable row is missing required field '" +
+                        field_name + "'"));
+            return false;
+        }
+        return true;
+    }
+    if (!field->value ||
+        field->value->type != JBeamValueType::NUMBER)
+    {
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::
+                    INVALID_TUNING_VARIABLE_FIELD,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                field->span,
+                part_name,
+                field_name,
+                "Tuning-variable field '" + field_name +
+                    "' must be a finite literal number"));
+        return false;
+    }
+    output = *field->value;
+    return true;
+}
+
+bool ReadTuningBoolean(
+    const JBeamNormalizedDataRow& row,
+    const std::string& field_name,
+    const std::string& part_name,
+    const JBeamResolverLimits& limits,
+    std::vector<JBeamResolveDiagnostic>& diagnostics,
+    bool& output)
+{
+    const JBeamFieldAssignment* field = RowField(row, field_name);
+    if (field == NULL)
+    {
+        return true;
+    }
+    if (!field->value ||
+        field->value->type != JBeamValueType::BOOLEAN)
+    {
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::
+                    INVALID_TUNING_VARIABLE_FIELD,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                field->span,
+                part_name,
+                field_name,
+                "Tuning-variable field '" + field_name +
+                    "' must be Boolean"));
+        return false;
+    }
+    output = field->value->boolean_value;
+    return true;
+}
+
+void ParsePartTuningVariables(
+    JBeamPartDefinition& part,
+    const JBeamResolverLimits& limits,
+    std::vector<JBeamResolveDiagnostic>& diagnostics)
+{
+    const JBeamObjectField* variables = NULL;
+    for (std::size_t i = 0U;
+         i < part.body.object_fields.size();
+         ++i)
+    {
+        const JBeamObjectField& field = part.body.object_fields[i];
+        if (field.key != "variables")
+        {
+            continue;
+        }
+        if (variables != NULL)
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::
+                        DUPLICATE_TUNING_VARIABLE_SECTION,
+                    JBeamResolveSeverity::WARNING,
+                    field.key_span,
+                    part.name,
+                    "variables",
+                    "Only the last duplicate authored variables table is "
+                    "effective; all source fields remain in the part AST"));
+        }
+        variables = &field;
+    }
+    if (variables == NULL)
+    {
+        return;
+    }
+    if (!variables->value)
+    {
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_TABLE,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                variables->key_span,
+                part.name,
+                "variables",
+                "Authored variables must be a header-row table"));
+        return;
+    }
+
+    const JBeamNormalizeResult normalized =
+        NormalizeResolverTable(*variables->value, limits);
+    const JBeamNormalizedTable* table = FindRootTable(normalized);
+    if (table == NULL)
+    {
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_TABLE,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                variables->value->span,
+                part.name,
+                "variables",
+                "Authored variables must be a header-row table"));
+        return;
+    }
+    for (std::size_t i = 0U;
+         i < normalized.diagnostics.size();
+         ++i)
+    {
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_TABLE,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                normalized.diagnostics[i].span,
+                part.name,
+                "variables",
+                "Malformed authored variables table: " +
+                    normalized.diagnostics[i].message));
+    }
+    if (table->entries.size() > limits.max_variables_per_node)
+    {
+        const std::size_t rejected = limits.max_variables_per_node;
+        PushDiagnostic(
+            diagnostics,
+            limits.max_diagnostics,
+            MakeDiagnostic(
+                JBeamResolveDiagnosticCode::TUNING_VARIABLE_LIMIT,
+                JBeamResolveSeverity::ERROR_SEVERITY,
+                rejected < table->entries.size()
+                    ? table->entries[rejected].raw_value.span
+                    : variables->value->span,
+                part.name,
+                "variables",
+                "Authored variables exceed the configured per-part "
+                "variable limit"));
+        return;
+    }
+
+    std::set<std::string> names;
+    for (std::size_t row_index = 0U;
+         row_index < table->entries.size();
+         ++row_index)
+    {
+        const JBeamNormalizedTableEntry& entry =
+            table->entries[row_index];
+        if (entry.kind != JBeamNormalizedTableEntryKind::DATA_ROW)
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_ROW,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    entry.raw_value.span,
+                    part.name,
+                    "variables",
+                    "Authored variables entries must be data-row arrays"));
+            continue;
+        }
+
+        const JBeamNormalizedDataRow& row = entry.data_row;
+        JBeamTuningVariableDefinition definition;
+        definition.part_name = part.name;
+        definition.package_path = part.package_path;
+        definition.span = row.span;
+        bool valid = true;
+        valid = ReadTuningString(
+                    row, "name", part.name, limits, diagnostics,
+                    definition.name, true, true) && valid;
+        valid = ReadTuningString(
+                    row, "type", part.name, limits, diagnostics,
+                    definition.type, true) && valid;
+        valid = ReadTuningString(
+                    row, "unit", part.name, limits, diagnostics,
+                    definition.unit, true) && valid;
+        valid = ReadTuningString(
+                    row, "category", part.name, limits, diagnostics,
+                    definition.category, true) && valid;
+        bool default_present = false;
+        bool min_present = false;
+        bool max_present = false;
+        valid = ReadTuningNumber(
+                    row, "default", part.name, limits, diagnostics,
+                    definition.default_value, true, default_present) &&
+                valid;
+        valid = ReadTuningNumber(
+                    row, "min", part.name, limits, diagnostics,
+                    definition.min_value, true, min_present) && valid;
+        valid = ReadTuningNumber(
+                    row, "max", part.name, limits, diagnostics,
+                    definition.max_value, true, max_present) && valid;
+        valid = ReadTuningString(
+                    row, "title", part.name, limits, diagnostics,
+                    definition.title, true) && valid;
+        valid = ReadTuningString(
+                    row, "description", part.name, limits, diagnostics,
+                    definition.description, true) && valid;
+        valid = ReadTuningString(
+                    row, "subCategory", part.name, limits, diagnostics,
+                    definition.sub_category, false) && valid;
+
+        JBeamValue optional;
+        bool present = false;
+        if (ReadTuningNumber(
+                row, "stepDis", part.name, limits, diagnostics,
+                optional, false, present))
+        {
+            definition.has_step_dis = present;
+            if (present)
+            {
+                definition.step_dis = optional;
+            }
+        }
+        else
+        {
+            valid = false;
+        }
+        present = false;
+        if (ReadTuningNumber(
+                row, "minDis", part.name, limits, diagnostics,
+                optional, false, present))
+        {
+            definition.has_min_dis = present;
+            if (present)
+            {
+                definition.min_dis = optional;
+            }
+        }
+        else
+        {
+            valid = false;
+        }
+        present = false;
+        if (ReadTuningNumber(
+                row, "maxDis", part.name, limits, diagnostics,
+                optional, false, present))
+        {
+            definition.has_max_dis = present;
+            if (present)
+            {
+                definition.max_dis = optional;
+            }
+        }
+        else
+        {
+            valid = false;
+        }
+        valid = ReadTuningBoolean(
+                    row, "hideInUI", part.name, limits, diagnostics,
+                    definition.hide_in_ui) && valid;
+
+        if (valid &&
+            !IsAuthoredTuningVariableName(definition.name))
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::
+                        INVALID_TUNING_VARIABLE_FIELD,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    row.span,
+                    part.name,
+                    "name",
+                    "Tuning-variable names must begin with '$' and "
+                    "contain a non-empty identifier"));
+            valid = false;
+        }
+        if (valid && definition.type != "range")
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::
+                        INVALID_TUNING_VARIABLE_FIELD,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    row.span,
+                    part.name,
+                    "type",
+                    "Only the documented tuning-variable type 'range' is "
+                    "supported"));
+            valid = false;
+        }
+        if (valid &&
+            (definition.min_value.number_value >
+                 definition.max_value.number_value ||
+             definition.default_value.number_value <
+                 definition.min_value.number_value ||
+             definition.default_value.number_value >
+                 definition.max_value.number_value))
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::
+                        INVALID_TUNING_VARIABLE_FIELD,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    row.span,
+                    part.name,
+                    "default",
+                    "Tuning-variable range must satisfy min <= default <= "
+                    "max"));
+            valid = false;
+        }
+        if (!valid)
+        {
+            continue;
+        }
+        if (!names.insert(definition.name).second)
+        {
+            PushDiagnostic(
+                diagnostics,
+                limits.max_diagnostics,
+                MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::DUPLICATE_TUNING_VARIABLE,
+                    JBeamResolveSeverity::WARNING,
+                    definition.span,
+                    part.name,
+                    definition.name,
+                    "Duplicate authored tuning variable uses the last row"));
+        }
+        part.tuning_variables.push_back(definition);
+    }
+}
+
 bool HasSlotType(
     const JBeamPartDefinition& part,
     const std::string& slot_type)
@@ -896,9 +1385,16 @@ const char* SlotKindToString(JBeamSlotKind kind)
 
 const char* VariableOriginToString(JBeamVariableOrigin origin)
 {
-    return origin == JBeamVariableOrigin::CONFIGURATION
-        ? "configuration"
-        : "slot";
+    switch (origin)
+    {
+    case JBeamVariableOrigin::AUTHORED_DEFAULT:
+        return "authored-default";
+    case JBeamVariableOrigin::CONFIGURATION:
+        return "configuration";
+    case JBeamVariableOrigin::SLOT:
+        return "slot";
+    }
+    return "unknown";
 }
 
 const char* SlotStatusToString(JBeamResolvedSlotStatus status)
@@ -941,6 +1437,40 @@ void AppendVariable(
     AppendSpan(variable.span, output);
     const std::string value = CanonicalValue(variable.value);
     output << '\t' << LengthPrefixed(value) << '\n';
+}
+
+void AppendTuningVariable(
+    const JBeamTuningVariableDefinition& variable,
+    std::ostringstream& output)
+{
+    output
+        << "T\t" << LengthPrefixed(variable.part_name) << '\t'
+        << LengthPrefixed(variable.package_path) << '\t'
+        << LengthPrefixed(variable.name) << '\t'
+        << LengthPrefixed(variable.type) << '\t'
+        << LengthPrefixed(variable.unit) << '\t'
+        << LengthPrefixed(variable.category) << '\t'
+        << LengthPrefixed(CanonicalValue(variable.default_value)) << '\t'
+        << LengthPrefixed(CanonicalValue(variable.min_value)) << '\t'
+        << LengthPrefixed(CanonicalValue(variable.max_value)) << '\t'
+        << LengthPrefixed(variable.title) << '\t'
+        << LengthPrefixed(variable.description) << '\t'
+        << LengthPrefixed(variable.sub_category) << '\t'
+        << (variable.has_step_dis ? 1 : 0) << '\t'
+        << (variable.has_step_dis
+                ? LengthPrefixed(CanonicalValue(variable.step_dis))
+                : LengthPrefixed(std::string())) << '\t'
+        << (variable.has_min_dis ? 1 : 0) << '\t'
+        << (variable.has_min_dis
+                ? LengthPrefixed(CanonicalValue(variable.min_dis))
+                : LengthPrefixed(std::string())) << '\t'
+        << (variable.has_max_dis ? 1 : 0) << '\t'
+        << (variable.has_max_dis
+                ? LengthPrefixed(CanonicalValue(variable.max_dis))
+                : LengthPrefixed(std::string())) << '\t'
+        << (variable.hide_in_ui ? 1 : 0) << '\t';
+    AppendSpan(variable.span, output);
+    output << '\n';
 }
 
 void AppendSlotDefinition(
@@ -1042,6 +1572,10 @@ public:
             m_request.variables.begin(),
             m_request.variables.end());
         m_graph.root = ResolveNode(*root, variables, 0);
+        if (m_graph.root && !HasErrors(m_graph.diagnostics))
+        {
+            ApplyAuthoredTuningDefaults();
+        }
 
         for (std::size_t i = 0;
              i < m_request.part_selections.size();
@@ -1375,6 +1909,201 @@ private:
                    part_name) != m_stack.end();
     }
 
+    void CollectResolvedNodes(
+        JBeamResolvedPartNode& node,
+        std::vector<JBeamResolvedPartNode*>& output)
+    {
+        output.push_back(&node);
+        for (std::size_t i = 0U; i < node.slots.size(); ++i)
+        {
+            if (node.slots[i].child)
+            {
+                CollectResolvedNodes(*node.slots[i].child, output);
+            }
+        }
+    }
+
+    bool ApplyAuthoredTuningDefaults()
+    {
+        std::vector<JBeamResolvedPartNode*> nodes;
+        nodes.reserve(m_graph.resolved_part_count);
+        CollectResolvedNodes(*m_graph.root, nodes);
+
+        std::vector<JBeamTuningVariableDefinition> active;
+        std::map<std::string, JBeamSourceSpan> seen;
+        for (std::size_t node_index = 0U;
+             node_index < nodes.size();
+             ++node_index)
+        {
+            const JBeamPartDefinition& part =
+                nodes[node_index]->definition;
+            for (std::size_t variable_index = 0U;
+                 variable_index < part.tuning_variables.size();
+                 ++variable_index)
+            {
+                const JBeamTuningVariableDefinition& variable =
+                    part.tuning_variables[variable_index];
+                if (active.size() >= m_limits.max_variables_per_node)
+                {
+                    Emit(MakeDiagnostic(
+                        JBeamResolveDiagnosticCode::TUNING_VARIABLE_LIMIT,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
+                        variable.span,
+                        part.name,
+                        variable.name,
+                        "Resolved authored variables exceed the configured "
+                        "vehicle-variable limit"));
+                    return false;
+                }
+                if (seen.find(variable.name) != seen.end())
+                {
+                    Emit(MakeDiagnostic(
+                        JBeamResolveDiagnosticCode::
+                            DUPLICATE_TUNING_VARIABLE,
+                        JBeamResolveSeverity::WARNING,
+                        variable.span,
+                        part.name,
+                        variable.name,
+                        "Duplicate active authored tuning variable uses "
+                        "deterministic resolved-part preorder and the last "
+                        "row"));
+                }
+                else
+                {
+                    seen.insert(
+                        std::make_pair(variable.name, variable.span));
+                }
+                active.push_back(variable);
+            }
+        }
+
+        std::map<
+            std::string,
+            const JBeamTuningVariableDefinition*> effective;
+        for (std::size_t i = 0U; i < active.size(); ++i)
+        {
+            effective[active[i].name] = &active[i];
+        }
+        bool overrides_valid = true;
+        std::set<std::tuple<
+            int,
+            std::string,
+            std::size_t,
+            std::size_t,
+            std::string> > checked_overrides;
+        for (std::size_t node_index = 0U;
+             node_index < nodes.size();
+             ++node_index)
+        {
+            const std::vector<JBeamVariableAssignment>& inherited =
+                nodes[node_index]->inherited_variables;
+            for (std::size_t i = 0U; i < inherited.size(); ++i)
+            {
+                const std::map<
+                    std::string,
+                    const JBeamTuningVariableDefinition*>::const_iterator
+                    found = effective.find(inherited[i].name);
+                if (found == effective.end())
+                {
+                    continue;
+                }
+                const std::tuple<
+                    int,
+                    std::string,
+                    std::size_t,
+                    std::size_t,
+                    std::string> key(
+                        static_cast<int>(inherited[i].origin),
+                        inherited[i].span.source_name,
+                        inherited[i].span.begin.byte_offset,
+                        inherited[i].span.end.byte_offset,
+                        inherited[i].name);
+                if (!checked_overrides.insert(key).second)
+                {
+                    continue;
+                }
+                const JBeamTuningVariableDefinition& definition =
+                    *found->second;
+                if (inherited[i].value.type != JBeamValueType::NUMBER ||
+                    inherited[i].value.number_value <
+                        definition.min_value.number_value ||
+                    inherited[i].value.number_value >
+                        definition.max_value.number_value)
+                {
+                    Emit(MakeDiagnostic(
+                        JBeamResolveDiagnosticCode::
+                            INVALID_TUNING_VARIABLE_OVERRIDE,
+                        JBeamResolveSeverity::ERROR_SEVERITY,
+                        inherited[i].span,
+                        nodes[node_index]->definition.name,
+                        inherited[i].name,
+                        std::string("Declared range override from ") +
+                            VariableOriginToString(inherited[i].origin) +
+                            " must be numeric and lie within the active "
+                            "authored min/max bounds"));
+                    overrides_valid = false;
+                }
+            }
+        }
+        if (!overrides_valid)
+        {
+            return false;
+        }
+
+        for (std::size_t node_index = 0U;
+             node_index < nodes.size();
+             ++node_index)
+        {
+            const std::size_t inherited =
+                nodes[node_index]->inherited_variables.size();
+            if (active.size() > m_limits.max_variables_per_node ||
+                inherited > m_limits.max_variables_per_node -
+                    active.size())
+            {
+                Emit(MakeDiagnostic(
+                    JBeamResolveDiagnosticCode::RESOLVED_VARIABLE_LIMIT,
+                    JBeamResolveSeverity::ERROR_SEVERITY,
+                    nodes[node_index]->definition.name_span,
+                    nodes[node_index]->definition.name,
+                    std::string(),
+                    "Authored defaults plus configuration/slot variables "
+                    "exceed the configured per-node limit"));
+                return false;
+            }
+        }
+
+        std::vector<JBeamVariableAssignment> defaults;
+        defaults.reserve(active.size());
+        for (std::size_t i = 0U; i < active.size(); ++i)
+        {
+            JBeamVariableAssignment assignment;
+            assignment.name = active[i].name;
+            assignment.value = active[i].default_value;
+            assignment.span = active[i].default_value.span;
+            assignment.origin = JBeamVariableOrigin::AUTHORED_DEFAULT;
+            defaults.push_back(assignment);
+        }
+
+        for (std::size_t node_index = 0U;
+             node_index < nodes.size();
+             ++node_index)
+        {
+            std::vector<JBeamVariableAssignment> merged;
+            merged.reserve(
+                defaults.size() +
+                nodes[node_index]->inherited_variables.size());
+            merged.insert(
+                merged.end(), defaults.begin(), defaults.end());
+            merged.insert(
+                merged.end(),
+                nodes[node_index]->inherited_variables.begin(),
+                nodes[node_index]->inherited_variables.end());
+            nodes[node_index]->inherited_variables.swap(merged);
+        }
+        m_graph.tuning_variables.swap(active);
+        return true;
+    }
+
     std::shared_ptr<JBeamResolvedPartNode> ResolveNode(
         const JBeamPartDefinition& part,
         const std::vector<JBeamVariableAssignment>& variables,
@@ -1646,6 +2375,8 @@ JBeamResolverLimits::JBeamResolverLimits()
     , max_request_selections(4096U)
     , max_request_variables(4096U)
     , max_variables_per_node(4096U)
+    , max_table_normalize_work_units(4000000U)
+    , max_table_normalize_retained_bytes(64U * 1024U * 1024U)
     , max_diagnostics(4096U)
 {
 }
@@ -1653,6 +2384,14 @@ JBeamResolverLimits::JBeamResolverLimits()
 JBeamSlotDefinition::JBeamSlotDefinition()
     : kind(JBeamSlotKind::SLOTS)
     , core_slot(false)
+{
+}
+
+JBeamTuningVariableDefinition::JBeamTuningVariableDefinition()
+    : has_step_dis(false)
+    , has_min_dis(false)
+    , has_max_dis(false)
+    , hide_in_ui(false)
 {
 }
 
@@ -1797,6 +2536,7 @@ JBeamPackageIndex BuildJBeamPackageIndex(
             part.body = *field.value;
             ParsePartSlotTypes(part, limits, index.diagnostics);
             ParsePartSlots(part, limits, index.diagnostics);
+            ParsePartTuningVariables(part, limits, index.diagnostics);
             index.parts.push_back(part);
         }
     }
@@ -1833,7 +2573,7 @@ std::string SerializeCanonicalJBeamPackageIndex(
     SortDiagnostics(diagnostics);
 
     std::ostringstream output;
-    output << "ror-beamng-package-index-v1\n";
+    output << "ror-beamng-package-index-v2\n";
     output << "parts\t" << parts.size() << '\n';
     for (std::size_t i = 0; i < parts.size(); ++i)
     {
@@ -1859,6 +2599,15 @@ std::string SerializeCanonicalJBeamPackageIndex(
         {
             output << "S\t";
             AppendSlotDefinition(part.slots[slot_index], output);
+        }
+        output << "part-tuning-vars\t"
+               << part.tuning_variables.size() << '\n';
+        for (std::size_t variable_index = 0U;
+             variable_index < part.tuning_variables.size();
+             ++variable_index)
+        {
+            AppendTuningVariable(
+                part.tuning_variables[variable_index], output);
         }
     }
     output << "diagnostics\t" << diagnostics.size() << '\n';
@@ -2172,7 +2921,7 @@ std::string SerializeCanonicalJBeamResolvedGraph(
     std::vector<JBeamResolveDiagnostic> diagnostics = graph.diagnostics;
     SortDiagnostics(diagnostics);
     std::ostringstream output;
-    output << "ror-beamng-resolved-graph-v1\n";
+    output << "ror-beamng-resolved-graph-v2\n";
     output
         << "request-root\t"
         << LengthPrefixed(graph.request.root_part_name) << '\n';
@@ -2195,6 +2944,14 @@ std::string SerializeCanonicalJBeamResolvedGraph(
     for (std::size_t i = 0; i < graph.request.variables.size(); ++i)
     {
         AppendVariable(graph.request.variables[i], output);
+    }
+    output << "active-tuning-vars\t"
+           << graph.tuning_variables.size() << '\n';
+    for (std::size_t i = 0U;
+         i < graph.tuning_variables.size();
+         ++i)
+    {
+        AppendTuningVariable(graph.tuning_variables[i], output);
     }
     output << "resolved-parts\t" << graph.resolved_part_count << '\n';
     output << "root\t" << (graph.root ? 1 : 0) << '\n';
@@ -2219,6 +2976,20 @@ const JBeamVariableAssignment* FindEffectiveJBeamVariable(
         if (node.inherited_variables[i - 1].name == name)
         {
             return &node.inherited_variables[i - 1];
+        }
+    }
+    return NULL;
+}
+
+const JBeamTuningVariableDefinition* FindEffectiveJBeamTuningVariable(
+    const JBeamResolvedGraph& graph,
+    const std::string& name)
+{
+    for (std::size_t i = graph.tuning_variables.size(); i > 0U; --i)
+    {
+        if (graph.tuning_variables[i - 1U].name == name)
+        {
+            return &graph.tuning_variables[i - 1U];
         }
     }
     return NULL;
@@ -2259,6 +3030,22 @@ const char* JBeamResolveDiagnosticCodeToString(
         return "duplicate-slot";
     case JBeamResolveDiagnosticCode::INVALID_SLOT_VARIABLE:
         return "invalid-slot-variable";
+    case JBeamResolveDiagnosticCode::DUPLICATE_TUNING_VARIABLE_SECTION:
+        return "duplicate-tuning-variable-section";
+    case JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_TABLE:
+        return "invalid-tuning-variable-table";
+    case JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_ROW:
+        return "invalid-tuning-variable-row";
+    case JBeamResolveDiagnosticCode::MISSING_TUNING_VARIABLE_FIELD:
+        return "missing-tuning-variable-field";
+    case JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_FIELD:
+        return "invalid-tuning-variable-field";
+    case JBeamResolveDiagnosticCode::INVALID_TUNING_VARIABLE_OVERRIDE:
+        return "invalid-tuning-variable-override";
+    case JBeamResolveDiagnosticCode::DUPLICATE_TUNING_VARIABLE:
+        return "duplicate-tuning-variable";
+    case JBeamResolveDiagnosticCode::TUNING_VARIABLE_LIMIT:
+        return "tuning-variable-limit";
     case JBeamResolveDiagnosticCode::INDEX_INPUT_ENTRY_LIMIT:
         return "index-input-entry-limit";
     case JBeamResolveDiagnosticCode::INDEX_PART_LIMIT:

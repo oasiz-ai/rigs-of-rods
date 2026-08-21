@@ -109,6 +109,8 @@ front end must support and test:
 - table sections with a header row;
 - dictionary rows that change inherited defaults;
 - row-local dictionaries that override inherited defaults;
+- authored [`variables`][variables] range tables with numeric default/min/max
+  values and retained tuning-menu metadata;
 - numeric variables and deterministic `$=` expressions;
 - string and Boolean slot variables;
 - `$prefix`, `$suffix`, and `$.name` namespace expansion;
@@ -146,8 +148,12 @@ behavior; they do not reuse BeamNG code or assets. `ParseJBeam` and
 `JBeamPartResolver` retain authored
 expression strings as inert source values so syntax and graph identity never
 depend on execution. The J2 structural semantic pass now constructs a bounded
-environment from each resolved part's effective configuration/slot variables
-and the selected graph's deterministically merged scalar component leaves. It
+environment from the selected graph's active authored tuning defaults,
+effective configuration/slot overrides, and deterministically merged scalar
+component leaves. Active authored rows are collected in resolved-part preorder;
+later duplicate rows are effective, `.pc` values override them globally, and
+slot values override them for that child subtree. Declared `range` overrides
+must remain numeric and inside the active authored min/max bounds. It
 evaluates standalone variables, `$=` expressions, and `$.name` namespace
 strings only for explicitly supported scalar node, beam, surface, and refNodes
 fields before applying the field's required type.
@@ -170,8 +176,9 @@ public test dependency.
 The [part/slot system][slots] is a recursive tree, not a flat list. `slotType:
 "main"` identifies a root part. The resolver applies the chosen `.pc` parts and
 variables, follows `slots` and `slots2`, propagates slot variables to
-descendants, applies components and node transforms, and detects cycles,
-duplicate resolved names, missing required parts, and optional references.
+descendants, inventories selected authored `range` tables, applies components
+and node transforms, and detects cycles, duplicate resolved names, missing
+required parts, invalid tuning rows/overrides, and optional references.
 Namespace variables were added in BeamNG 0.38 and slot variables in 0.32, so
 their availability is part of the declared documentation profile.
 
@@ -508,6 +515,7 @@ and behavior text. Existing profiles and golden results remain reproducible.
 - [Components][components]
 - [Mod packing][packing]
 - [Slots and slot variables][slots]
+- [Tuning variables][variables]
 - [Coordinate systems][coordinates]
 - [RefNodes][refnodes]
 - [Nodes][nodes]
@@ -550,5 +558,6 @@ and behavior text. Existing profiles and golden results remain reproducible.
 [thrusters]: https://documentation.beamng.com/modding/vehicle/sections/thrusters/
 [torsionbars]: https://documentation.beamng.com/modding/vehicle/sections/torsionbars/
 [triangles]: https://documentation.beamng.com/modding/vehicle/sections/triangles/
+[variables]: https://documentation.beamng.com/modding/vehicle/sections/variables/
 [vehicle-controller]: https://documentation.beamng.com/modding/vehicle/vehicle_system/controller/main/vehiclecontroller/
 [wheels]: https://documentation.beamng.com/modding/vehicle/sections/wheels/
