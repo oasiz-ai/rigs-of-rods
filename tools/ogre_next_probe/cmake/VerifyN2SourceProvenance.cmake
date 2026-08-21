@@ -10,7 +10,12 @@ endif ()
 set(_ror_n2_relevant_source_paths
     source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp
     source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h
+    source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.cpp
+    source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.h
     tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any
+    tools/ogre_next_probe/media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any
+    tools/ogre_next_probe/ogre-next-uv0-affine-pbs-v1.lock.json
+    tools/ogre_next_probe/verify_uv0_affine_pbs_shader.py
     tools/ogre_next_probe/audit_embedded_namespace.py
     tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h
     tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch
@@ -330,7 +335,12 @@ file(GLOB_RECURSE _ror_n2_relevant_source_files
 list(APPEND _ror_n2_relevant_source_files
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.cpp"
     "source/main/gfx/render/ogrenext/OgreNextDisplayDomainUnlit.h"
+    "source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.cpp"
+    "source/main/gfx/render/ogrenext/OgreNextUvAffinePbs.h"
     "tools/ogre_next_probe/media/Hlms/RoR/DisplayDomain/DisplayDomain_piece_ps.any"
+    "tools/ogre_next_probe/media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
+    "tools/ogre_next_probe/ogre-next-uv0-affine-pbs-v1.lock.json"
+    "tools/ogre_next_probe/verify_uv0_affine_pbs_shader.py"
     "tools/ogre_next_probe/audit_embedded_namespace.py"
     "tools/ogre_next_probe/embedded_namespace/RoROgreNextNamespaceRemap.h"
     "tools/ogre_next_probe/patches/0006-embedded-namespace-plugin-symbols.patch"
