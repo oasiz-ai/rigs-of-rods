@@ -345,10 +345,6 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         cls.input_event_transport_header = (
             REPOSITORY_ROOT / "source/main/gfx/render/InputEventTransport.h"
         ).read_text(encoding="utf-8")
-        cls.n1_frontend = (
-            REPOSITORY_ROOT
-            / "source/main/gfx/render/ogrenext/OgreNextN1Frontend.cpp"
-        ).read_text(encoding="utf-8")
         cls.n1_policy = (
             REPOSITORY_ROOT
             / "source/main/gfx/render/ogrenext/OgreNextN1Policy.cpp"
@@ -378,9 +374,11 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         self.assertNotIn(
             "bool HasEffectivelyUniformScale(", self.n1_policy
         )
+        self.assertEqual(self.probe_cmake.count("-Wno-error=extra"), 1)
         self.assertIn(
-            "static_cast<unsigned int>(Ogre::DepthBuffer::POOL_NO_DEPTH)",
-            self.n1_frontend,
+            'SOURCE "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"\n'
+            '            APPEND PROPERTY COMPILE_OPTIONS "-Wno-error=extra"',
+            self.probe_cmake,
         )
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:

@@ -1674,6 +1674,15 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp")
+    # GCC 11 reports the pinned Ogre PoolId/unsigned conditional in this one
+    # translation unit under the umbrella -Wextra diagnostic. Keep reporting
+    # every -Wextra warning, but do not promote that umbrella category to an
+    # error for this source; all other product sources retain full -Werror.
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set_property(
+            SOURCE "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
+            APPEND PROPERTY COMPILE_OPTIONS "-Wno-error=extra")
+    endif ()
     add_library(
         ror_ogre_next_frontend_n1 STATIC
         ${_ror_ogre_next_frontend_n1_sources})
