@@ -683,7 +683,33 @@ def _direct_dynamic_load_evidence(
 def _verify_ogre14_runtime_manifest(
     provider_contract: dict[str, object],
     audited_records: list[dict[str, str]],
+    platform_policy: str = "macos-arm64-metal",
 ) -> dict[str, object]:
+    runtime_patterns = {
+        "macos-arm64-metal": re.compile(
+            r"(?:lib|lib/OGRE)/(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib"
+        ),
+        "linux-x86_64-vulkan": re.compile(
+            r"(?:lib|lib/OGRE)/(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]so(?:[.][0-9]+)*"
+        ),
+        "windows-x64-d3d11": re.compile(
+            r"bin/(?:Ogre|Plugin_|Codec_|RenderSystem_).*[.]dll",
+            re.IGNORECASE,
+        ),
+    }
+    codec_patterns = {
+        "macos-arm64-metal": re.compile(
+            r"Codec_FreeImage(?:[.][0-9]+)+[.]dylib"
+        ),
+        "linux-x86_64-vulkan": re.compile(
+            r"Codec_FreeImage[.]so(?:[.][0-9]+)*"
+        ),
+        "windows-x64-d3d11": re.compile(
+            r"Codec_FreeImage.*[.]dll", re.IGNORECASE
+        ),
+    }
+    if platform_policy not in runtime_patterns:
+        raise ValueError("provider OGRE14 runtime platform is unsupported")
     package_root = _directory_absolute(
         str(provider_contract.get("ogre14_runtime_package_root", "")),
         "OGRE14 runtime package root",
@@ -716,10 +742,7 @@ def _verify_ogre14_runtime_manifest(
         relative_text = relative.as_posix()
         if (
             any(part in ("", ".", "..") for part in relative.parts)
-            or not re.fullmatch(
-                r"(?:lib|lib/OGRE)/(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib",
-                relative_text,
-            )
+            or runtime_patterns[platform_policy].fullmatch(relative_text) is None
         ):
             raise ValueError("provider OGRE14 runtime relative path is invalid")
         size = path.stat().st_size
@@ -759,7 +782,7 @@ def _verify_ogre14_runtime_manifest(
         raise ValueError("provider OGRE14 main/SDL runtimes escaped its manifest")
     codec_freeimage = [
         path for path in paths
-        if re.fullmatch(r"Codec_FreeImage(?:[.][0-9]+)+[.]dylib", path.name)
+        if codec_patterns[platform_policy].fullmatch(path.name)
     ]
     if len(codec_freeimage) != 1:
         raise ValueError("configured OGRE14 closure lacks one exact Codec_FreeImage")
@@ -1034,6 +1057,47 @@ def _write_receipt(path: Path, document: dict[str, object]) -> None:
             temporary.unlink()
 
 
+def _verify_source_checkout(
+    namespace_audit_document: dict[str, object],
+) -> dict[str, object]:
+    source_checkout = namespace_audit_document.get("source_checkout")
+    if not isinstance(source_checkout, dict):
+        raise ValueError("combined namespace audit omitted source checkout state")
+    clean = source_checkout.get("clean")
+    development_only = source_checkout.get(
+        "dirty_development_build_allowed"
+    )
+    entry_count = source_checkout.get("porcelain_entry_count")
+    status_sha256 = source_checkout.get("porcelain_sha256")
+    qualification_eligible = source_checkout.get("qualification_eligible")
+    if (
+        not isinstance(clean, bool)
+        or not isinstance(development_only, bool)
+        or not isinstance(entry_count, int)
+        or isinstance(entry_count, bool)
+        or entry_count < 0
+        or not isinstance(status_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", status_sha256) is None
+        or not isinstance(qualification_eligible, bool)
+        or qualification_eligible != (clean and not development_only)
+        or (clean and entry_count != 0)
+        or (not clean and (entry_count == 0 or not development_only))
+        or (
+            clean
+            and status_sha256
+            != hashlib.sha256(b"").hexdigest()
+        )
+    ):
+        raise ValueError("combined namespace source checkout state is invalid")
+    return {
+        "clean": clean,
+        "dirty_development_build_allowed": development_only,
+        "porcelain_entry_count": entry_count,
+        "porcelain_sha256": status_sha256,
+        "qualification_eligible": qualification_eligible,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nm", required=True)
@@ -1157,6 +1221,7 @@ def main() -> int:
             != provider_contract_document.get("ror_commit")
         ):
             raise ValueError("combined namespace audit is not an exact passing proof")
+        source_checkout = _verify_source_checkout(namespace_audit_document)
         strict_fp_report = _verify_strict_fp_receipts(
             provider_contract_document, namespace_audit_document
         )
@@ -1674,6 +1739,10 @@ def main() -> int:
                     "audited_ogre14_dylibs": verified_audited_legacy,
                     "stb_image_implementation": stb_implementation,
                 },
+                "source_checkout": source_checkout,
+                "qualification_eligible": source_checkout[
+                    "qualification_eligible"
+                ],
                 "ogre_next_upstream_strict_fp": strict_fp_report,
                 "ogre14_runtime_manifest": ogre14_runtime_manifest,
                 "authenticated_source_image_decoder": (

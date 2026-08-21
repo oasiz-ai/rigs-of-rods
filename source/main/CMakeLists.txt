@@ -1211,12 +1211,39 @@ if (ROR_OGRE14)
         SDL2::SDL2)
 endif ()
 if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
-    find_program(ROR_OGRE_NEXT_OTOOL NAMES otool REQUIRED)
-    if (NOT APPLE OR NOT CMAKE_NM OR
-            NOT IS_ABSOLUTE "${CMAKE_NM}" OR
-            NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_OTOOL}")
+    if (NOT CMAKE_NM OR NOT IS_ABSOLUTE "${CMAKE_NM}")
         message(FATAL_ERROR
-            "RoR-Combined binary closure verification requires the reviewed macOS nm tool")
+            "RoR-Combined binary closure verification requires an absolute nm tool")
+    endif ()
+    if (APPLE)
+        find_program(ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL NAMES otool REQUIRED)
+        set(_ror_combined_closure_verifier
+            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py")
+        set(_ror_combined_dynamic_tool_arguments
+            --otool "${ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL}")
+        set(_ror_combined_legacy_library_option
+            --required-ogre14-dylib)
+        set(_ror_combined_sdl_provider_option --sdl-provider-dylib)
+        set(_ror_combined_link_map_option
+            "LINKER:-map,${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt")
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        find_program(ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL NAMES readelf REQUIRED)
+        set(_ror_combined_closure_verifier
+            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_elf_closure.py")
+        set(_ror_combined_dynamic_tool_arguments
+            --readelf "${ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL}")
+        set(_ror_combined_legacy_library_option
+            --required-ogre14-library)
+        set(_ror_combined_sdl_provider_option --sdl-provider-library)
+        set(_ror_combined_link_map_option
+            "LINKER:-Map,${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt")
+    else ()
+        message(FATAL_ERROR
+            "RoR-Combined has no reviewed final binary-closure verifier for this platform")
+    endif ()
+    if (NOT IS_ABSOLUTE "${ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL}")
+        message(FATAL_ERROR
+            "RoR-Combined dynamic audit tool must be an absolute executable")
     endif ()
     find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
     set(_ror_combined_link_map
@@ -1233,7 +1260,7 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     target_link_libraries(${BINNAME} PRIVATE
         RoR::OgreNextEmbeddedRuntime)
     target_link_options(${BINNAME} PRIVATE
-        "LINKER:-map,${_ror_combined_link_map}")
+        "${_ror_combined_link_map_option}")
     add_dependencies(${BINNAME}
         ror_ogre_next_combined_resources
         ror_ogre_next_combined_binary_receipt_invalidate
@@ -1249,9 +1276,9 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             "${_ror_combined_binary_closure_receipt}"
         COMMAND
             "${Python3_EXECUTABLE}"
-            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py"
+            "${_ror_combined_closure_verifier}"
             --nm "${CMAKE_NM}"
-            --otool "${ROR_OGRE_NEXT_OTOOL}"
+            ${_ror_combined_dynamic_tool_arguments}
             --binary "$<TARGET_FILE:${BINNAME}>"
             --build-root "${CMAKE_BINARY_DIR}"
             --link-map "${_ror_combined_link_map}"
@@ -1273,14 +1300,16 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             --required-archive
                 "$<TARGET_FILE:ror_ogre_next_embedded_game_input_target>"
             --required-archive "$<TARGET_FILE:OgreNextMain>"
-            --required-archive "$<TARGET_FILE:RenderSystem_Metal>"
+            --required-archive
+                "$<TARGET_FILE:${ROR_OGRE_NEXT_RENDERER_TARGET}>"
             --required-archive "$<TARGET_FILE:OgreNextHlmsPbs>"
             --required-archive "$<TARGET_FILE:OgreNextHlmsUnlit>"
-            --required-ogre14-dylib
+            --required-archive "$<TARGET_FILE:OgreNextOverlay>"
+            ${_ror_combined_legacy_library_option}
                 "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
-            --required-ogre14-dylib
+            ${_ror_combined_legacy_library_option}
                 "${ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME}"
-            --sdl-provider-dylib
+            ${_ror_combined_sdl_provider_option}
                 "${ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME}"
             --receipt "${_ror_combined_binary_closure_receipt}"
         BYPRODUCTS "${_ror_combined_binary_closure_receipt}"
@@ -1298,10 +1327,11 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
             ror_render_payload_digest
             ror_ogre_next_embedded_game_input_target
             OgreNextMain
-            RenderSystem_Metal
+            ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextHlmsPbs
             OgreNextHlmsUnlit
-            "${CMAKE_SOURCE_DIR}/tools/verify_ogre_next_combined_binary_closure.py"
+            OgreNextOverlay
+            "${_ror_combined_closure_verifier}"
             "${ROR_OGRE_NEXT_COMBINED_EXECUTABLE_CONTRACT}"
             "${ROR_OGRE_NEXT_COMBINED_PROVIDER_CONTRACT}"
             "${ROR_OGRE_NEXT_COMBINED_NAMESPACE_AUDIT_REPORT}"
@@ -1874,8 +1904,15 @@ else ()
             DESTINATION .
             RENAME plugins_d.cfg
             COMPONENT "Base_Game")
+        if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+            set(_ror_linux_launcher_source
+                "${CMAKE_SOURCE_DIR}/tools/linux/RunRoR-combined")
+        else ()
+            set(_ror_linux_launcher_source
+                "${CMAKE_SOURCE_DIR}/tools/linux/RunRoR-ogre14")
+        endif ()
         install(
-            PROGRAMS ${CMAKE_SOURCE_DIR}/tools/linux/RunRoR-ogre14
+            PROGRAMS "${_ror_linux_launcher_source}"
             DESTINATION .
             RENAME RunRoR
             COMPONENT "Base_Game")
@@ -1888,7 +1925,9 @@ else ()
 [=[set(ROR_LINUX_INSTALL_ROOT "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 ]=])
         set(_ror_linux_installed_game_executable "RoR")
-        if (ROR_RENDERER_PUBLIC_LAUNCHER)
+        if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
+            set(_ror_linux_installed_game_executable "RoR-Combined")
+        elseif (ROR_RENDERER_PUBLIC_LAUNCHER)
             set(_ror_linux_installed_game_executable "RoR-Ogre14")
         endif ()
         ror_ogre14_cmakedeps_runtime_search_dirs(
@@ -1948,6 +1987,7 @@ if (ROR_OGRE14)
     unset(_ror_ogre14_build_plugin_folder)
     unset(_ror_linux_install_root_code)
     unset(_ror_linux_installed_game_executable)
+    unset(_ror_linux_launcher_source)
     unset(_ror_linux_runtime_search_dirs)
     unset(_ror_linux_runtime_search_dirs_install_code)
     unset(_ror_linux_runtime_install_code)

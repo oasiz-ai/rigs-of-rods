@@ -34,10 +34,18 @@ PROVIDER_CONTRACT = (
 ).read_text(encoding="utf-8")
 VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_binary_closure.py"
 VERIFIER = VERIFIER_PATH.read_text(encoding="utf-8")
+ELF_VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_elf_closure.py"
+ELF_VERIFIER = ELF_VERIFIER_PATH.read_text(encoding="utf-8")
 NAMESPACE_AUDIT = (
     ROOT / "tools/ogre_next_probe/audit_embedded_namespace.py"
 ).read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github/workflows/ogre-next-probe.yml").read_text(
+    encoding="utf-8"
+)
+COMBINED_WORKFLOW = (
+    ROOT / ".github/workflows/ogre-next-combined-native.yml"
+).read_text(encoding="utf-8")
+LINUX_COMBINED_LAUNCHER = (ROOT / "tools/linux/RunRoR-combined").read_text(
     encoding="utf-8"
 )
 
@@ -59,7 +67,10 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertLess(dependency_index, provider_index)
         self.assertLess(provider_index, game_index)
         for gate in (
-            "NOT APPLE",
+            "if (APPLE)",
+            "elseif (WIN32)",
+            'elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")',
+            "NOT CMAKE_SIZEOF_VOID_P EQUAL 8",
             'NOT CMAKE_BUILD_TYPE STREQUAL "Release"',
             'NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64"',
             "ROR_RENDERER_PUBLIC_LAUNCHER",
@@ -76,7 +87,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             "ROR_ROOT_SDL_PACKAGE_IDENTITY_SHA256",
             "ROR_ROOT_SDL_CONANINFO_SHA256",
             "ROR_ROOT_SDL_CONANMANIFEST_SHA256",
-            "ror-ogre14-macos-arm64-release.lock",
+            "ror-ogre14-${_ror_root_conan_lock_platform}-release.lock",
+            'set(_ror_root_conan_lock_platform "macos-arm64")',
+            'set(_ror_root_conan_lock_platform "windows-x86_64")',
+            'set(_ror_root_conan_lock_platform "linux-x86_64")',
+            'CACHE INTERNAL "Selected embedded Ogre-Next renderer target" FORCE',
         ):
             self.assertIn(token, PROVIDER)
         root_sdl = PINNED[: PINNED.index("include(FetchContent)")]
@@ -185,10 +200,13 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn('"ogre_next_upstream_strict_fp": true', PROVIDER_CONTRACT)
         for invocation in (
             "ror_ogre_next_embedded_n1_runtime LANGUAGES CXX OBJCXX",
+            "ror_ogre_next_embedded_n1_runtime LANGUAGES CXX)",
             "ror_ogre_next_embedded_sdl_window_runtime LANGUAGES OBJCXX",
             "ror_ogre_next_in_process_presenter LANGUAGES CXX",
             "ror_ogre_next_root_next_adapter LANGUAGES CXX",
-            "ror_ogre_next_root_plugin_export_probe LANGUAGES OBJCXX",
+            "LANGUAGES ${_ror_ogre_next_plugin_export_language}",
+            "set(_ror_ogre_next_plugin_export_language OBJCXX)",
+            "set(_ror_ogre_next_plugin_export_language CXX)",
         ):
             self.assertIn(invocation, PROVIDER)
 
@@ -398,6 +416,123 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn('"provider_contract":', EXECUTABLE_CONTRACT)
         self.assertIn('"namespace_audit_report":', EXECUTABLE_CONTRACT)
 
+    def test_linux_binary_proof_uses_the_platform_renderer_and_elf_tools(self) -> None:
+        for token in (
+            'elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")',
+            "verify_ogre_next_combined_elf_closure.py",
+            "--readelf",
+            "--required-ogre14-library",
+            "--sdl-provider-library",
+            '"LINKER:-Map,${CMAKE_CURRENT_BINARY_DIR}/RoR-Combined.link-map.txt"',
+            '"$<TARGET_FILE:${ROR_OGRE_NEXT_RENDERER_TARGET}>"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, MAIN_CMAKE)
+        for token in (
+            'PLATFORM_POLICY = "linux-x86_64-vulkan"',
+            "REQUIRED_SYMBOL_TOKENS",
+            "FORBIDDEN_SYMBOL_TOKENS",
+            "FORBIDDEN_LINK_MAP_OBJECT_TOKENS",
+            '"qualification_eligible": source_checkout[',
+            '"bridge_or_transport_symbols_present": False',
+            '"root_sdl_symbols_present": False',
+            '"ogre14_host_load_commands_present": True',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, ELF_VERIFIER)
+        self.assertIn(
+            '"tools/verify_ogre_next_combined_elf_closure.py"', PROVIDER
+        )
+        self.assertIn(
+            "- tools/verify_ogre_next_combined_elf_closure.py", WORKFLOW
+        )
+
+    def test_linux_install_and_launcher_select_the_combined_executable(self) -> None:
+        for token in (
+            'set(_ror_linux_launcher_source',
+            '"${CMAKE_SOURCE_DIR}/tools/linux/RunRoR-combined"',
+            'set(_ror_linux_installed_game_executable "RoR-Combined")',
+        ):
+            self.assertIn(token, MAIN_CMAKE)
+        self.assertIn(
+            'exec "${ror_launcher_dir}/RoR-Combined" "$@"',
+            LINUX_COMBINED_LAUNCHER,
+        )
+        self.assertNotIn("RoR-Ogre14", LINUX_COMBINED_LAUNCHER)
+        for source in (
+            ".github/workflows/ogre-next-combined-native.yml",
+            "cmake/linux/LinuxRuntimeContract.cmake",
+            "cmake/linux/StageLinuxRuntime.cmake",
+            "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock",
+            "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock",
+            "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock",
+            "tools/linux/RunRoR-combined",
+        ):
+            self.assertIn(f'"{source}"', PROVIDER)
+
+    def test_linux_combined_workflow_builds_installs_and_smokes_one_target(self) -> None:
+        for token in (
+            "-DROR_OGRE_NEXT_COMBINED_RUNTIME=ON",
+            "-DROR_RENDERER_PUBLIC_LAUNCHER=OFF",
+            "-DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF",
+            "-DROR_OGRE_NEXT_DEMO_ADMISSION=OFF",
+            "--target ror_ogre_next_combined_verified",
+            'document.get("qualification_eligible") is not True',
+            "cmake --install build-combined-linux-x86_64",
+            'test -x "$stage/RoR-Combined"',
+            'test -x "$stage/RunRoR"',
+            'test ! -e "$stage/RoR-Ogre14"',
+            "ror.ogre_next_combined_elf_closure.v1",
+            "ror.ogre_next_combined_linux_package.v1",
+            '"renderer": "ogre-next"',
+            '"legacy_visible_presentation": False',
+            '"playability_qualified": False',
+            "--native-visual-showcase",
+            '"renderer": "ogre-next-combined"',
+            '"presents_frames": True',
+            "if: success()",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, COMBINED_WORKFLOW)
+        self.assertNotIn("--native-visual-showcase-a0", COMBINED_WORKFLOW)
+        self.assertNotIn("ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", COMBINED_WORKFLOW)
+
+    def test_linux_elf_parsers_fail_closed_on_duplicate_or_missing_evidence(
+        self,
+    ) -> None:
+        tools_path = str(ROOT / "tools")
+        inserted = tools_path not in sys.path
+        if inserted:
+            sys.path.insert(0, tools_path)
+        try:
+            specification = importlib.util.spec_from_file_location(
+                "combined_elf_verifier", ELF_VERIFIER_PATH
+            )
+            self.assertIsNotNone(specification)
+            self.assertIsNotNone(specification.loader)
+            module = importlib.util.module_from_spec(specification)
+            specification.loader.exec_module(module)
+        finally:
+            if inserted:
+                sys.path.remove(tools_path)
+
+        dynamic = (
+            " 0x0000000000000001 (NEEDED)             "
+            "Shared library: [libOgreMain.so.14.5]\n"
+        )
+        self.assertEqual(
+            module._needed_names(dynamic), ["libOgreMain.so.14.5"]
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            module._needed_names(dynamic + dynamic)
+        required = Path("/build/libOgreNextMainStatic.a")
+        self.assertEqual(
+            module._required_archive_evidence(str(required), [required]),
+            {str(required): 1},
+        )
+        with self.assertRaisesRegex(ValueError, "lacks required"):
+            module._required_archive_evidence("", [required])
+
     def test_explicit_combined_build_stages_the_complete_game_resources(self) -> None:
         resource_targets = block(
             MAIN_CMAKE,
@@ -602,7 +737,7 @@ class CombinedProviderContractTests(unittest.TestCase):
                     provider, manifest, ROOT
                 )
 
-    def test_overlay_remains_audited_without_fabricated_runtime_use(self) -> None:
+    def test_overlay_is_production_linked_and_audited(self) -> None:
         production_n1_link = block(
             PROVIDER,
             "target_link_libraries(ror_ogre_next_embedded_n1_runtime",
@@ -618,10 +753,33 @@ class CombinedProviderContractTests(unittest.TestCase):
             "add_custom_target(ror_ogre_next_root_namespace_audit",
             'COMMENT "Auditing full root OGRE14/OgreNext namespace collision closure"',
         )
-        self.assertNotIn("OgreNextOverlay", production_n1_link)
-        self.assertNotIn("OgreNextOverlay", final_binary_proof)
-        self.assertIn('--next-archive "$<TARGET_FILE:OgreNextOverlay>"', namespace_audit)
-        self.assertIn("OgreNextOverlay", namespace_audit)
+        self.assertIn("OgreNextOverlay", production_n1_link)
+        self.assertIn(
+            '--required-archive "$<TARGET_FILE:OgreNextOverlay>"',
+            final_binary_proof,
+        )
+        self.assertIn("OgreNextOverlay", final_binary_proof)
+        self.assertIn(
+            "set(_ror_namespace_audit_next_archive_targets", PROVIDER
+        )
+        self.assertIn("OgreNextOverlay", PROVIDER)
+        self.assertIn(
+            '--next-archive "$<TARGET_FILE:${_ror_namespace_audit_target}>"',
+            PROVIDER,
+        )
+        self.assertIn(
+            "${_ror_namespace_audit_next_archive_arguments}", namespace_audit
+        )
+
+    def test_dirty_development_build_is_explicit_and_unqualified(self) -> None:
+        self.assertIn(
+            "ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD", PROVIDER
+        )
+        self.assertIn("--allow-dirty-source", PROVIDER)
+        self.assertIn('"source_checkout": source_checkout', VERIFIER)
+        self.assertIn(
+            '"qualification_eligible": source_checkout[', VERIFIER
+        )
 
     def test_link_map_evidence_preserves_arbitrary_literal_bytes(self) -> None:
         specification = importlib.util.spec_from_file_location(
@@ -1205,6 +1363,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "cmake/ogre_next_embedded/**",
             "tools/stage_ogre_next_combined_resources.py",
             "tools/verify_ogre_next_combined_binary_closure.py",
+            "tools/verify_ogre_next_combined_elf_closure.py",
         ):
             self.assertEqual(WORKFLOW.count(f"- {trigger}"), 2)
 

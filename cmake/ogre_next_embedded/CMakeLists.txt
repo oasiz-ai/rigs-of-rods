@@ -3,13 +3,42 @@ if (NOT ROR_OGRE_NEXT_COMBINED_RUNTIME OR
     message(FATAL_ERROR
         "The embedded provider is private to the explicit root combined runtime")
 endif ()
-if (NOT APPLE OR NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
-        NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$" OR
-        NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64" OR
-        NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
+
+option(
+    ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD
+    "Allow a manifest-bound dirty combined-runtime build while marking every proof as development-only and unqualified"
+    OFF)
+if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR
         NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     message(FATAL_ERROR
-        "The first embedded provider slice is Release macOS arm64 only")
+        "The embedded provider requires a 64-bit Release target")
+endif ()
+if (APPLE)
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+            NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$" OR
+            NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+        message(FATAL_ERROR
+            "The embedded provider supports only the reviewed macOS arm64 target")
+    endif ()
+    set(_ror_root_conan_lock_platform "macos-arm64")
+    set(_ror_root_sdl_expected_library_name "libSDL2.a")
+elseif (WIN32)
+    if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+        message(FATAL_ERROR
+            "The embedded provider supports only the reviewed Windows x64 target")
+    endif ()
+    set(_ror_root_conan_lock_platform "windows-x86_64")
+    set(_ror_root_sdl_expected_library_name "SDL2-static.lib")
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+        message(FATAL_ERROR
+            "The embedded provider supports only the reviewed Linux x86_64 target")
+    endif ()
+    set(_ror_root_conan_lock_platform "linux-x86_64")
+    set(_ror_root_sdl_expected_library_name "libSDL2.a")
+else ()
+    message(FATAL_ERROR
+        "The embedded provider has no reviewed target for this platform")
 endif ()
 if (NOT TARGET SDL2::SDL2 OR NOT TARGET Threads::Threads OR
         NOT OGRE_LIBRARIES OR NOT OGRE_INCLUDE_DIRS)
@@ -20,7 +49,7 @@ endif ()
 set(_ror_root_ogre14_libraries "${OGRE_LIBRARIES}")
 set(_ror_root_ogre14_include_dirs "${OGRE_INCLUDE_DIRS}")
 set(ROR_ROOT_CONAN_LOCK
-    "${CMAKE_SOURCE_DIR}/cmake/conan/locks/ror-ogre14-macos-arm64-release.lock")
+    "${CMAKE_SOURCE_DIR}/cmake/conan/locks/ror-ogre14-${_ror_root_conan_lock_platform}-release.lock")
 if (NOT EXISTS "${ROR_ROOT_CONAN_LOCK}" OR
         IS_DIRECTORY "${ROR_ROOT_CONAN_LOCK}" OR
         IS_SYMLINK "${ROR_ROOT_CONAN_LOCK}")
@@ -56,11 +85,17 @@ endif ()
 # Prove that the root target resolves to one exact locked static archive. The
 # Conan micro-target is the authoritative imported artifact beneath the
 # public SDL2::SDL2 interface; aliases or a second fetched SDL are rejected.
+if (WIN32)
+    set(_ror_root_sdl_expected_conan_library "SDL2-static")
+else ()
+    set(_ror_root_sdl_expected_conan_library "SDL2")
+endif ()
 if (NOT SDL2_VERSION_STRING STREQUAL "2.32.10" OR
         NOT sdl_PACKAGE_FOLDER_RELEASE OR
         NOT IS_ABSOLUTE "${sdl_PACKAGE_FOLDER_RELEASE}" OR
         NOT sdl_SDL2_SDL2_LIBRARY_TYPE_RELEASE STREQUAL "STATIC" OR
-        NOT sdl_SDL2_SDL2_LIBS_RELEASE STREQUAL "SDL2" OR
+        NOT sdl_SDL2_SDL2_LIBS_RELEASE STREQUAL
+            _ror_root_sdl_expected_conan_library OR
         NOT sdl_SDL2_SDL2_LIBRARIES_TARGETS)
     message(FATAL_ERROR "The root SDL2::SDL2 imported package contract changed")
 endif ()
@@ -85,7 +120,7 @@ string(FIND "${_ror_root_sdl_interface_serialized}"
     "${ROR_ROOT_SDL_IMPORTED_ARTIFACT_TARGET}"
     _ror_root_sdl_interface_target_index)
 set(_ror_root_sdl_expected_artifact
-    "${sdl_PACKAGE_FOLDER_RELEASE}/lib/libSDL2.a")
+    "${sdl_PACKAGE_FOLDER_RELEASE}/lib/${_ror_root_sdl_expected_library_name}")
 if (NOT "${ROR_ROOT_SDL_IMPORTED_ARTIFACT}" STREQUAL
             "${_ror_root_sdl_expected_artifact}" OR
         _ror_root_sdl_interface_target_index EQUAL -1 OR
@@ -123,9 +158,35 @@ if (NOT ogre3d_PACKAGE_FOLDER_RELEASE OR
         NOT IS_ABSOLUTE "${ogre3d_PACKAGE_FOLDER_RELEASE}")
     message(FATAL_ERROR "The root OGRE14 package root is unavailable")
 endif ()
-set(ROR_ROOT_OGRE14_RUNTIME_DIRECTORIES
-    "${ogre3d_PACKAGE_FOLDER_RELEASE}/lib"
-    "${ogre3d_PACKAGE_FOLDER_RELEASE}/lib/OGRE")
+if (WIN32)
+    set(ROR_ROOT_OGRE14_RUNTIME_DIRECTORIES
+        "${ogre3d_PACKAGE_FOLDER_RELEASE}/bin")
+    set(_ror_root_ogre14_runtime_glob "*.dll")
+    set(_ror_root_ogre14_runtime_pattern
+        "^(Ogre|Plugin_|Codec_|RenderSystem_).*[.]dll$")
+    set(_ror_root_ogre14_main_pattern "^OgreMain.*[.]dll$")
+    set(_ror_root_ogre14_sdl_pattern "^OgreBites.*[.]dll$")
+elseif (APPLE)
+    set(ROR_ROOT_OGRE14_RUNTIME_DIRECTORIES
+        "${ogre3d_PACKAGE_FOLDER_RELEASE}/lib"
+        "${ogre3d_PACKAGE_FOLDER_RELEASE}/lib/OGRE")
+    set(_ror_root_ogre14_runtime_glob "*.dylib")
+    set(_ror_root_ogre14_runtime_pattern
+        "^(libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$")
+    set(_ror_root_ogre14_main_pattern "^libOgreMain[.].*[.]dylib$")
+    set(_ror_root_ogre14_sdl_pattern "^libOgreBites[.].*[.]dylib$")
+else ()
+    set(ROR_ROOT_OGRE14_RUNTIME_DIRECTORIES
+        "${ogre3d_PACKAGE_FOLDER_RELEASE}/lib"
+        "${ogre3d_PACKAGE_FOLDER_RELEASE}/lib/OGRE")
+    set(_ror_root_ogre14_runtime_glob "*.so*")
+    set(_ror_root_ogre14_runtime_pattern
+        "^(libOgre|Plugin_|Codec_|RenderSystem_).*[.]so([.][0-9]+)*$")
+    set(_ror_root_ogre14_main_pattern
+        "^libOgreMain[.]so([.][0-9]+)*$")
+    set(_ror_root_ogre14_sdl_pattern
+        "^libOgreBites[.]so([.][0-9]+)*$")
+endif ()
 set(ROR_ROOT_OGRE14_RUNTIME_LIBRARIES "")
 set(ROR_ROOT_OGRE14_MAIN_RUNTIME "")
 set(ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME "")
@@ -138,7 +199,7 @@ foreach (_ror_root_ogre14_runtime_dir IN LISTS
     endif ()
     file(GLOB _ror_root_ogre14_runtime_candidates
         LIST_DIRECTORIES FALSE
-        "${_ror_root_ogre14_runtime_dir}/*.dylib")
+        "${_ror_root_ogre14_runtime_dir}/${_ror_root_ogre14_runtime_glob}")
     foreach (_ror_root_ogre14_runtime IN LISTS
             _ror_root_ogre14_runtime_candidates)
         get_filename_component(_ror_root_ogre14_runtime_name
@@ -147,18 +208,18 @@ foreach (_ror_root_ogre14_runtime_dir IN LISTS
             continue()
         endif ()
         if (NOT _ror_root_ogre14_runtime_name MATCHES
-                "^(libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$")
+                "${_ror_root_ogre14_runtime_pattern}")
             message(FATAL_ERROR
-                "Unexpected dylib in the root OGRE14 collision set: ${_ror_root_ogre14_runtime_name}")
+                "Unexpected library in the root OGRE14 collision set: ${_ror_root_ogre14_runtime_name}")
         endif ()
         list(APPEND ROR_ROOT_OGRE14_RUNTIME_LIBRARIES
             "${_ror_root_ogre14_runtime}")
         if (_ror_root_ogre14_runtime_name MATCHES
-                "^libOgreMain[.].*[.]dylib$")
+                "${_ror_root_ogre14_main_pattern}")
             set(ROR_ROOT_OGRE14_MAIN_RUNTIME
                 "${_ror_root_ogre14_runtime}")
         elseif (_ror_root_ogre14_runtime_name MATCHES
-                "^libOgreBites[.].*[.]dylib$")
+                "${_ror_root_ogre14_sdl_pattern}")
             set(ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME
                 "${_ror_root_ogre14_runtime}")
         endif ()
@@ -194,10 +255,10 @@ set(ROR_ROOT_OGRE14_RUNTIME_PACKAGE_ROOT
     CACHE INTERNAL "Exact OGRE14 runtime package root for RoR-Combined" FORCE)
 set(ROR_ROOT_OGRE14_MAIN_RUNTIME
     "${ROR_ROOT_OGRE14_MAIN_RUNTIME}"
-    CACHE INTERNAL "Exact OGRE14 host dylib for RoR-Combined" FORCE)
+    CACHE INTERNAL "Exact OGRE14 host runtime for RoR-Combined" FORCE)
 set(ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME
     "${ROR_ROOT_OGRE14_SDL_PROVIDER_RUNTIME}"
-    CACHE INTERNAL "Exact OGRE14 Bites/SDL provider dylib for RoR-Combined" FORCE)
+    CACHE INTERNAL "Exact OGRE14 Bites/SDL provider runtime for RoR-Combined" FORCE)
 set(ROR_OGRE_NEXT_STANDALONE_ROOT
     "${CMAKE_SOURCE_DIR}/tools/ogre_next_probe")
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE ON)
@@ -205,11 +266,19 @@ set(ROR_OGRE_NEXT_EMBEDDED_ROOT_PROVIDER ON)
 include("${ROR_OGRE_NEXT_STANDALONE_ROOT}/cmake/PinnedOgreNext.cmake")
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 
-if (NOT ROR_OGRE_NEXT_PLATFORM_POLICY STREQUAL "macos-arm64-metal" OR
-        NOT ROR_OGRE_NEXT_RENDERER_TARGET STREQUAL "RenderSystem_Metal" OR
+set(_ror_combined_platform_contract
+    "macos-arm64-metal|RenderSystem_Metal"
+    "windows-x64-d3d11|RenderSystem_Direct3D11"
+    "linux-x86_64-vulkan|RenderSystem_Vulkan")
+set(_ror_combined_platform_pair
+    "${ROR_OGRE_NEXT_PLATFORM_POLICY}|${ROR_OGRE_NEXT_RENDERER_TARGET}")
+if (NOT _ror_combined_platform_pair IN_LIST _ror_combined_platform_contract OR
         NOT ROR_OGRE_NEXT_PRESENTATION_SDL_TARGET STREQUAL "SDL2::SDL2")
     message(FATAL_ERROR "The embedded provider platform/SDL policy changed")
 endif ()
+set(ROR_OGRE_NEXT_RENDERER_TARGET
+    "${ROR_OGRE_NEXT_RENDERER_TARGET}"
+    CACHE INTERNAL "Selected embedded Ogre-Next renderer target" FORCE)
 
 # The host's optimized configuration globally enables -ffast-math.  Pinned
 # Ogre-Next's scalar Aabb implementation explicitly compares against infinity
@@ -403,10 +472,15 @@ file(GLOB_RECURSE _ror_provider_manifest_files
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/*")
 list(APPEND _ror_provider_manifest_files
     "CMakeLists.txt"
+    ".github/workflows/ogre-next-combined-native.yml"
     ".github/workflows/ogre-next-probe.yml"
     "cmake/DependenciesConfig.cmake"
+    "cmake/linux/LinuxRuntimeContract.cmake"
+    "cmake/linux/StageLinuxRuntime.cmake"
     "cmake/VerifyStbImageSource.cmake"
+    "cmake/conan/locks/ror-ogre14-linux-x86_64-release.lock"
     "cmake/conan/locks/ror-ogre14-macos-arm64-release.lock"
+    "cmake/conan/locks/ror-ogre14-windows-x86_64-release.lock"
     "conanfile.py"
     "source/main/CMakeLists.txt"
     "source/main/main.cpp"
@@ -418,7 +492,9 @@ list(APPEND _ror_provider_manifest_files
     "tests/tools/test_ogre_next_combined_provider_contract.py"
     "cmake/OgreNextEmbeddedRuntime.cmake"
     "tools/stage_ogre_next_combined_resources.py"
+    "tools/linux/RunRoR-combined"
     "tools/verify_ogre_next_combined_binary_closure.py"
+    "tools/verify_ogre_next_combined_elf_closure.py"
     "tools/ogre_next_probe/audit_embedded_namespace.py"
     "tools/ogre_next_probe/CMakeLists.txt"
     "source/main/system/RendererGameInputTarget.cpp"
@@ -1012,15 +1088,34 @@ set(_ror_embedded_n1_sources
     "${_ror_render_root}/ogrenext/OgreNextN1Policy.cpp"
     "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
     "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp"
-    "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
-    "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
-    "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
+    "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp")
+set(_ror_ogre_next_renderer_include_dirs
+    "${ogre_next_SOURCE_DIR}/RenderSystems")
+if (APPLE)
+    list(APPEND _ror_embedded_n1_sources
+        "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
+    list(APPEND _ror_ogre_next_renderer_include_dirs
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+    set(_ror_ogre_next_n1_definition ROR_OGRE_NEXT_N1_METAL=1)
+elseif (WIN32)
+    list(APPEND _ror_ogre_next_renderer_include_dirs
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include")
+    set(_ror_ogre_next_n1_definition ROR_OGRE_NEXT_N1_D3D11=1)
+else ()
+    list(APPEND _ror_ogre_next_renderer_include_dirs
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include")
+    set(_ror_ogre_next_n1_definition ROR_OGRE_NEXT_N1_VULKAN=1)
+endif ()
 add_library(ror_ogre_next_embedded_n1_runtime STATIC
     ${_ror_embedded_n1_sources})
 target_compile_definitions(ror_ogre_next_embedded_n1_runtime
-    PRIVATE ROR_OGRE_NEXT_N1_METAL=1)
-target_compile_options(ror_ogre_next_embedded_n1_runtime
-    PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    PRIVATE ${_ror_ogre_next_n1_definition})
+if (APPLE)
+    target_compile_options(ror_ogre_next_embedded_n1_runtime
+        PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+endif ()
 target_include_directories(ror_ogre_next_embedded_n1_runtime
     PUBLIC
         "${_ror_render_root}"
@@ -1034,42 +1129,54 @@ target_include_directories(ror_ogre_next_embedded_n1_runtime
         "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
         "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
         "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
-        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
-        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+        ${_ror_ogre_next_renderer_include_dirs})
 target_link_libraries(ror_ogre_next_embedded_n1_runtime
     PUBLIC ror_ogre_next_embedded_direct_contract
     PRIVATE
         OgreNextHlmsPbs
         OgreNextHlmsUnlit
         OgreNextOverlay
-        RenderSystem_Metal
+        ${ROR_OGRE_NEXT_RENDERER_TARGET}
         OgreNextMain
         Threads::Threads)
 _ror_combined_strict_target(ror_ogre_next_embedded_n1_runtime)
-ror_ogre_next_enable_embedded_namespace(
-    ror_ogre_next_embedded_n1_runtime LANGUAGES CXX OBJCXX)
+if (APPLE)
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_embedded_n1_runtime LANGUAGES CXX OBJCXX)
+else ()
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_embedded_n1_runtime LANGUAGES CXX)
+endif ()
 add_dependencies(ror_ogre_next_embedded_n1_runtime
     ror_ogre_next_embedded_pssm_source_closure_verify)
 
-add_library(ror_ogre_next_embedded_sdl_window_runtime STATIC
+set(_ror_ogre_next_sdl_window_sources
     "${_ror_system_root}/RendererOgreNextWindowHost.cpp"
-    "${_ror_system_root}/RendererOgreNextSdlWindowRuntime.cpp"
-    "${_ror_system_root}/RendererOgreNextSdlWindowRuntimeCocoa.mm")
-target_compile_options(ror_ogre_next_embedded_sdl_window_runtime
-    PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    "${_ror_system_root}/RendererOgreNextSdlWindowRuntime.cpp")
+if (APPLE)
+    list(APPEND _ror_ogre_next_sdl_window_sources
+        "${_ror_system_root}/RendererOgreNextSdlWindowRuntimeCocoa.mm")
+endif ()
+add_library(ror_ogre_next_embedded_sdl_window_runtime STATIC
+    ${_ror_ogre_next_sdl_window_sources})
+if (APPLE)
+    target_compile_options(ror_ogre_next_embedded_sdl_window_runtime
+        PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+endif ()
 target_include_directories(ror_ogre_next_embedded_sdl_window_runtime
     PUBLIC "${_ror_system_root}"
     SYSTEM PRIVATE
         "${ogre_next_SOURCE_DIR}/OgreMain/include"
         "${ogre_next_BINARY_DIR}/include"
-        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
-        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+        ${_ror_ogre_next_renderer_include_dirs})
 target_link_libraries(ror_ogre_next_embedded_sdl_window_runtime
     PUBLIC SDL2::SDL2 Threads::Threads
-    PRIVATE RenderSystem_Metal OgreNextMain)
+    PRIVATE ${ROR_OGRE_NEXT_RENDERER_TARGET} OgreNextMain)
 _ror_combined_strict_target(ror_ogre_next_embedded_sdl_window_runtime)
-ror_ogre_next_enable_embedded_namespace(
-    ror_ogre_next_embedded_sdl_window_runtime LANGUAGES OBJCXX)
+if (APPLE)
+    ror_ogre_next_enable_embedded_namespace(
+        ror_ogre_next_embedded_sdl_window_runtime LANGUAGES OBJCXX)
+endif ()
 
 add_library(ror_ogre_next_embedded_game_input_target STATIC
     "${_ror_system_root}/RendererGameInputTarget.cpp")
@@ -1087,7 +1194,7 @@ add_dependencies(ror_ogre_next_combined_build_paths
 add_library(ror_ogre_next_in_process_presenter STATIC
     "${_ror_system_root}/RendererOgreNextInProcessPresenter.cpp")
 target_compile_definitions(ror_ogre_next_in_process_presenter
-    PRIVATE ROR_OGRE_NEXT_N1_METAL=1)
+    PRIVATE ${_ror_ogre_next_n1_definition})
 target_include_directories(ror_ogre_next_in_process_presenter
     PUBLIC
         "${_ror_render_root}/.."
@@ -1100,8 +1207,7 @@ target_include_directories(ror_ogre_next_in_process_presenter
         "${ogre_next_SOURCE_DIR}/Components/Hlms/Pbs/include"
         "${ogre_next_SOURCE_DIR}/Components/Hlms/Unlit/include"
         "${ogre_next_SOURCE_DIR}/Components/Overlay/include"
-        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
-        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+        ${_ror_ogre_next_renderer_include_dirs})
 target_link_libraries(ror_ogre_next_in_process_presenter
     PUBLIC
         ror_ogre_next_embedded_n1_runtime
@@ -1154,21 +1260,54 @@ _ror_combined_strict_target(ror_ogre_next_root_provider_link_smoke)
 set_target_properties(ror_ogre_next_root_provider_link_smoke PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+if (APPLE)
+    set(_ror_ogre_next_plugin_export_source
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/metal_plugin_export_probe.mm")
+    set(_ror_ogre_next_plugin_export_definition "")
+    set(_ror_ogre_next_plugin_export_language OBJCXX)
+    set(_ror_ogre_next_plugin_export_include_dirs
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/src"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX")
+elseif (WIN32)
+    set(_ror_ogre_next_plugin_export_source
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/plugin_export_probe.cpp")
+    set(_ror_ogre_next_plugin_export_definition
+        ROR_OGRE_NEXT_PLUGIN_EXPORT_D3D11=1)
+    set(_ror_ogre_next_plugin_export_language CXX)
+    set(_ror_ogre_next_plugin_export_include_dirs
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/src"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Direct3D11/include")
+else ()
+    set(_ror_ogre_next_plugin_export_source
+        "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/plugin_export_probe.cpp")
+    set(_ror_ogre_next_plugin_export_definition
+        ROR_OGRE_NEXT_PLUGIN_EXPORT_VULKAN=1)
+    set(_ror_ogre_next_plugin_export_language CXX)
+    set(_ror_ogre_next_plugin_export_include_dirs
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/src"
+        "${ogre_next_SOURCE_DIR}/RenderSystems/Vulkan/include")
+endif ()
 add_library(ror_ogre_next_root_plugin_export_probe OBJECT
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/metal_plugin_export_probe.mm")
+    "${_ror_ogre_next_plugin_export_source}")
 target_include_directories(ror_ogre_next_root_plugin_export_probe PRIVATE
-    "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/src"
-    "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
-    "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include/Windowing/OSX"
+    ${_ror_ogre_next_plugin_export_include_dirs}
     "${ogre_next_SOURCE_DIR}/OgreMain/include"
     "${ogre_next_BINARY_DIR}/include")
+if (_ror_ogre_next_plugin_export_definition)
+    target_compile_definitions(ror_ogre_next_root_plugin_export_probe PRIVATE
+        ${_ror_ogre_next_plugin_export_definition})
+endif ()
 target_link_libraries(ror_ogre_next_root_plugin_export_probe PRIVATE
-    RenderSystem_Metal OgreNextMain)
-target_compile_options(ror_ogre_next_root_plugin_export_probe PRIVATE
-    $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    ${ROR_OGRE_NEXT_RENDERER_TARGET} OgreNextMain)
+if (APPLE)
+    target_compile_options(ror_ogre_next_root_plugin_export_probe PRIVATE
+        $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+endif ()
 _ror_combined_strict_target(ror_ogre_next_root_plugin_export_probe)
 ror_ogre_next_enable_embedded_namespace(
-    ror_ogre_next_root_plugin_export_probe LANGUAGES OBJCXX)
+    ror_ogre_next_root_plugin_export_probe
+    LANGUAGES ${_ror_ogre_next_plugin_export_language})
 
 set(_ror_namespace_audit_build_contract
     "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-namespace-audit-build-contract.json")
@@ -1199,6 +1338,47 @@ foreach (_ror_embedded_direct_source IN LISTS
     list(APPEND _ror_namespace_audit_direct_source_arguments
         --direct-source "${_ror_embedded_direct_source}")
 endforeach ()
+set(_ror_namespace_audit_next_archive_targets
+    OgreNextMain
+    ${ROR_OGRE_NEXT_RENDERER_TARGET}
+    OgreNextHlmsPbs
+    OgreNextHlmsUnlit
+    OgreNextOverlay
+    ror_render_payload_digest
+    ror_ogre_next_in_process_presenter
+    ror_ogre_next_embedded_sdl_window_runtime
+    ror_ogre_next_embedded_game_input_target)
+set(_ror_namespace_audit_next_archive_arguments "")
+foreach (_ror_namespace_audit_target IN LISTS
+        _ror_namespace_audit_next_archive_targets)
+    list(APPEND _ror_namespace_audit_next_archive_arguments
+        --next-archive "$<TARGET_FILE:${_ror_namespace_audit_target}>")
+endforeach ()
+set(_ror_namespace_audit_namespaced_sources
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/next_adapter.cpp"
+    "${_ror_ogre_next_plugin_export_source}"
+    "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
+    "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
+    "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
+    "${_ror_system_root}/RendererOgreNextInProcessPresenter.cpp")
+if (APPLE)
+    list(APPEND _ror_namespace_audit_namespaced_sources
+        "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_system_root}/RendererOgreNextSdlWindowRuntimeCocoa.mm")
+endif ()
+set(_ror_namespace_audit_namespaced_source_arguments "")
+foreach (_ror_namespace_audit_source IN LISTS
+        _ror_namespace_audit_namespaced_sources)
+    list(APPEND _ror_namespace_audit_namespaced_source_arguments
+        --namespaced-source "${_ror_namespace_audit_source}")
+endforeach ()
+set(_ror_namespace_audit_dirty_source_arguments "")
+if (ROR_OGRE_NEXT_ALLOW_DIRTY_DEVELOPMENT_BUILD)
+    list(APPEND _ror_namespace_audit_dirty_source_arguments
+        --allow-dirty-source)
+    message(STATUS
+        "Dirty combined-runtime development admission enabled; generated receipts are not qualification evidence")
+endif ()
 set(ROR_OGRE_NEXT_COMBINED_NAMESPACE_AUDIT_REPORT
     "${CMAKE_CURRENT_BINARY_DIR}/ogre-next-combined-namespace-audit.json"
     CACHE INTERNAL "Full combined namespace audit report" FORCE)
@@ -1215,18 +1395,8 @@ add_custom_target(ror_ogre_next_root_namespace_audit
     COMMAND
         "${Python3_EXECUTABLE}"
         "${ROR_OGRE_NEXT_STANDALONE_ROOT}/audit_embedded_namespace.py"
-        --next-archive "$<TARGET_FILE:OgreNextMain>"
-        --next-archive "$<TARGET_FILE:RenderSystem_Metal>"
-        --next-archive "$<TARGET_FILE:OgreNextHlmsPbs>"
-        --next-archive "$<TARGET_FILE:OgreNextHlmsUnlit>"
-        --next-archive "$<TARGET_FILE:OgreNextOverlay>"
-        --next-archive "$<TARGET_FILE:ror_render_payload_digest>"
-        --next-archive
-            "$<TARGET_FILE:ror_ogre_next_in_process_presenter>"
-        --next-archive
-            "$<TARGET_FILE:ror_ogre_next_embedded_sdl_window_runtime>"
-        --next-archive
-            "$<TARGET_FILE:ror_ogre_next_embedded_game_input_target>"
+        --platform-policy "${ROR_OGRE_NEXT_PLATFORM_POLICY}"
+        ${_ror_namespace_audit_next_archive_arguments}
         --embedded-runtime-archive
             "$<TARGET_FILE:ror_ogre_next_embedded_n1_runtime>"
         --direct-contract-archive
@@ -1242,6 +1412,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         --next-source-root "${ogre_next_SOURCE_DIR}"
         --source-root "${CMAKE_SOURCE_DIR}"
         --expected-source-commit "${ROR_SOURCE_COMMIT}"
+        ${_ror_namespace_audit_dirty_source_arguments}
         --build-contract "${_ror_namespace_audit_build_contract}"
         --canonical-lock
             "${ROR_OGRE_NEXT_STANDALONE_ROOT}/ogre-next.lock.json"
@@ -1265,22 +1436,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         --remap-header "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP}"
         --legacy-include
             "${ogre3d_PACKAGE_FOLDER_RELEASE}/include/OGRE"
-        --namespaced-source
-            "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/next_adapter.cpp"
-        --namespaced-source
-            "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/metal_plugin_export_probe.mm"
-        --namespaced-source
-            "${_ror_render_root}/ogrenext/OgreNextN1Frontend.cpp"
-        --namespaced-source
-            "${_ror_render_root}/ogrenext/OgreNextDisplayDomainUnlit.cpp"
-        --namespaced-source
-            "${_ror_render_root}/ogrenext/OgreNextReflectionProbeRuntime.cpp"
-        --namespaced-source
-            "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
-        --namespaced-source
-            "${_ror_system_root}/RendererOgreNextSdlWindowRuntimeCocoa.mm"
-        --namespaced-source
-            "${_ror_system_root}/RendererOgreNextInProcessPresenter.cpp"
+        ${_ror_namespace_audit_namespaced_source_arguments}
         --neutral-source
             "${ROR_OGRE_NEXT_STANDALONE_ROOT}/src/embedded_namespace/ogre14_adapter.cpp"
         --neutral-source
@@ -1314,7 +1470,7 @@ add_custom_target(ror_ogre_next_root_namespace_audit
         ror_ogre_next_embedded_game_input_target
         ror_ogre_next_in_process_presenter
         OgreNextMain
-        RenderSystem_Metal
+        ${ROR_OGRE_NEXT_RENDERER_TARGET}
         OgreNextHlmsPbs
         OgreNextHlmsUnlit
         OgreNextOverlay

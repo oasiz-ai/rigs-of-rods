@@ -95,11 +95,32 @@ if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
     endif ()
     get_property(_ror_combined_multi_config GLOBAL
         PROPERTY GENERATOR_IS_MULTI_CONFIG)
-    if (NOT APPLE OR _ror_combined_multi_config OR
+    if (_ror_combined_multi_config OR
             NOT CMAKE_BUILD_TYPE STREQUAL "Release" OR
-            NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
         message(FATAL_ERROR
-            "The first reviewed combined runtime requires a single-config Release macOS arm64 build")
+            "RoR-Combined requires a single-config 64-bit Release build")
+    endif ()
+    if (APPLE)
+        if (NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+                NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$" OR
+                NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+            message(FATAL_ERROR
+                "RoR-Combined supports only the reviewed macOS arm64 target")
+        endif ()
+    elseif (WIN32)
+        if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+            message(FATAL_ERROR
+                "RoR-Combined supports only the reviewed Windows x64 target")
+        endif ()
+    elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        if (NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$")
+            message(FATAL_ERROR
+                "RoR-Combined supports only the reviewed Linux x86_64 target")
+        endif ()
+    else ()
+        message(FATAL_ERROR
+            "RoR-Combined has no reviewed Ogre-Next provider for this platform")
     endif ()
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
     unset(_ror_combined_multi_config)
@@ -291,8 +312,10 @@ endif (WIN32)
 include(DependenciesConfig)
 
 if (ROR_OGRE_NEXT_COMBINED_RUNTIME)
-    enable_language(OBJC)
-    enable_language(OBJCXX)
+    if (APPLE)
+        enable_language(OBJC)
+        enable_language(OBJCXX)
+    endif ()
     include(OgreNextEmbeddedRuntime)
     ror_add_ogre_next_embedded_runtime()
 endif ()

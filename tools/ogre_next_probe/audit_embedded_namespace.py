@@ -32,9 +32,18 @@ DEFINED_GLOBAL_INTERSECTION_ALLOWLIST: frozenset[str] = frozenset(
         "__ZNSt3__119piecewise_constructE",
     }
 )
-LEGACY_RUNTIME_DYLIB_PATTERN = re.compile(
-    r"^(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$"
-)
+LEGACY_RUNTIME_LIBRARY_PATTERNS = {
+    "macos-arm64-metal": re.compile(
+        r"^(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]dylib$"
+    ),
+    "linux-x86_64-vulkan": re.compile(
+        r"^(?:libOgre|Plugin_|Codec_|RenderSystem_).*[.]so(?:[.][0-9]+)*$"
+    ),
+    "windows-x64-d3d11": re.compile(
+        r"^(?:Ogre|Plugin_|Codec_|RenderSystem_).*[.]dll$",
+        re.IGNORECASE,
+    ),
+}
 FORBIDDEN_DIRECT_SOURCE_PATTERN = re.compile(
     r"(?:Bridge|Transport)", re.IGNORECASE
 )
@@ -80,6 +89,29 @@ def digest(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def classify_source_checkout(
+    source_status: str, allow_dirty_source: bool
+) -> dict[str, object]:
+    canonical_status = source_status.strip()
+    status_lines = canonical_status.splitlines() if canonical_status else []
+    checkout_clean = not status_lines
+    require(
+        checkout_clean or allow_dirty_source,
+        "exact source-commit evidence requires a clean checkout; "
+        "dirty builds require the explicit development-only admission",
+    )
+    development_only = bool(allow_dirty_source)
+    return {
+        "clean": checkout_clean,
+        "dirty_development_build_allowed": development_only,
+        "porcelain_entry_count": len(status_lines),
+        "porcelain_sha256": hashlib.sha256(
+            canonical_status.encode("utf-8")
+        ).hexdigest(),
+        "qualification_eligible": checkout_clean and not development_only,
+    }
+
+
 def json_object(path: Path, label: str) -> dict[str, object]:
     def reject_duplicate_keys(
         pairs: list[tuple[str, object]],
@@ -120,8 +152,23 @@ def nm(path: Path, *, global_only: bool = True) -> tuple[str, str]:
     return raw, demangled
 
 
-def defined_global_symbols(path: Path) -> set[str]:
-    """Return exact Mach-O global definitions, excluding undefined imports."""
+def _gnu_defined_symbol_types(path: Path) -> dict[str, str]:
+    raw = output("nm", "--defined-only", "--extern-only", str(path))
+    symbols: dict[str, str] = {}
+    for line in raw.splitlines():
+        fields = line.split()
+        if len(fields) < 2 or line.rstrip().endswith(":"):
+            continue
+        symbol_type = fields[-2]
+        if re.fullmatch(r"[A-Za-z?]", symbol_type):
+            symbols[fields[-1]] = symbol_type
+    return symbols
+
+
+def defined_global_symbols(path: Path, platform_policy: str) -> set[str]:
+    """Return exact global definitions, excluding undefined imports."""
+    if platform_policy != "macos-arm64-metal":
+        return set(_gnu_defined_symbol_types(path))
     raw = output("nm", "-gU", str(path))
     symbols: set[str] = set()
     for line in raw.splitlines():
@@ -134,9 +181,18 @@ def defined_global_symbols(path: Path) -> set[str]:
 
 
 def global_definition_linkages(
-    path: Path, definitions: set[str]
+    path: Path, definitions: set[str], platform_policy: str
 ) -> tuple[set[str], set[str]]:
-    """Partition Mach-O global definitions into weak and strong linkage."""
+    """Partition global definitions into weak and strong linkage."""
+    if platform_policy != "macos-arm64-metal":
+        symbol_types = _gnu_defined_symbol_types(path)
+        weak_types = {"W", "V", "w", "v"}
+        weak = {
+            symbol for symbol in definitions
+            if symbol_types.get(symbol) in weak_types
+        }
+        strong = definitions - weak
+        return weak, strong
     raw = output("nm", "-gm", str(path))
     weak: set[str] = set()
     strong: set[str] = set()
@@ -163,6 +219,17 @@ def command_text(entry: dict[str, object]) -> str:
 
 def require_strict_fp_compile_command(command: str, label: str) -> None:
     tokens = shlex.split(command)
+    msvc_fp = [
+        (index, token.lower())
+        for index, token in enumerate(tokens)
+        if token.lower().startswith("/fp:")
+    ]
+    if msvc_fp:
+        require(
+            msvc_fp[-1][1] == "/fp:strict",
+            f"strict FP does not end with /fp:strict: {label}",
+        )
+        return
     no_fast_math = [
         index for index, token in enumerate(tokens)
         if token == "-fno-fast-math"
@@ -360,6 +427,11 @@ def is_relative_to(path: Path, directory: Path) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--platform-policy",
+        choices=tuple(LEGACY_RUNTIME_LIBRARY_PATTERNS),
+        required=True,
+    )
     parser.add_argument("--next-archive", action="append", required=True)
     parser.add_argument("--embedded-runtime-archive", required=True)
     parser.add_argument("--direct-contract-archive", required=True)
@@ -375,6 +447,7 @@ def main() -> int:
     parser.add_argument("--next-source-root", required=True)
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--expected-source-commit", required=True)
+    parser.add_argument("--allow-dirty-source", action="store_true")
     parser.add_argument("--build-contract", required=True)
     parser.add_argument("--canonical-lock", required=True)
     parser.add_argument("--patch", required=True)
@@ -409,6 +482,9 @@ def main() -> int:
     parser.add_argument("--stb-decoder-target-name")
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
+    legacy_runtime_library_pattern = LEGACY_RUNTIME_LIBRARY_PATTERNS[
+        args.platform_policy
+    ]
 
     report = Path(args.report)
     require(report.is_absolute(), "audit report path must be absolute")
@@ -507,7 +583,7 @@ def main() -> int:
         for candidate in legacy_runtime_directory.iterdir()
         if candidate.is_file()
         and not candidate.is_symlink()
-        and LEGACY_RUNTIME_DYLIB_PATTERN.fullmatch(candidate.name)
+        and legacy_runtime_library_pattern.fullmatch(candidate.name)
     }
     require(
         set(legacy_libraries) == discovered_legacy_libraries,
@@ -581,8 +657,9 @@ def main() -> int:
         "git", "-C", str(source_root), "status", "--porcelain=v1",
         "--untracked-files=all"
     ).strip()
-    require(not source_status,
-            "exact source-commit evidence requires a clean checkout")
+    source_checkout = classify_source_checkout(
+        source_status, args.allow_dirty_source
+    )
 
     contract = json_object(build_contract, "build contract")
     lock = json_object(canonical_lock, "canonical lock")
@@ -641,16 +718,17 @@ def main() -> int:
         "the direct contract archive imports a Bridge/Transport symbol",
     )
 
-    for old_name in LEGACY_OBJC_CLASSES:
-        require(f"$_{old_name}" not in next_raw,
-                f"unprefixed Objective-C runtime class remains: {old_name}")
-    for new_name in (
-        "RoROgreNextConfigWindowDelegate",
-        "RoROgreNextMetalView",
-        "RoROgreNextMetalWinListener",
-    ):
-        require(f"$_{new_name}" in next_raw,
-                f"expected prefixed Objective-C runtime class is absent: {new_name}")
+    if args.platform_policy == "macos-arm64-metal":
+        for old_name in LEGACY_OBJC_CLASSES:
+            require(f"$_{old_name}" not in next_raw,
+                    f"unprefixed Objective-C runtime class remains: {old_name}")
+        for new_name in (
+            "RoROgreNextConfigWindowDelegate",
+            "RoROgreNextMetalView",
+            "RoROgreNextMetalWinListener",
+        ):
+            require(f"$_{new_name}" in next_raw,
+                    f"expected prefixed Objective-C runtime class is absent: {new_name}")
 
     plugin_raw, plugin_demangled = nm(plugin_object)
     require("RoROgreNext_dllStartPlugin" in plugin_raw and
@@ -678,13 +756,15 @@ def main() -> int:
             "RoROgreNext::" not in legacy_demangled,
             f"legacy runtime was modified by the namespace fork: {legacy_library}",
         )
-        definitions = defined_global_symbols(legacy_library)
+        definitions = defined_global_symbols(
+            legacy_library, args.platform_policy
+        )
         require(
             definitions,
             f"legacy runtime has no global definitions to audit: {legacy_library}",
         )
         _, strong_definitions = global_definition_linkages(
-            legacy_library, definitions
+            legacy_library, definitions, args.platform_policy
         )
         legacy_definitions.update(definitions)
         legacy_strong_definitions.update(strong_definitions)
@@ -698,7 +778,9 @@ def main() -> int:
     require(legacy_definitions, "OGRE14 runtime closure has no global definitions")
     global_intersections: list[dict[str, object]] = []
     for archive in modern_archives:
-        modern_definitions = defined_global_symbols(archive)
+        modern_definitions = defined_global_symbols(
+            archive, args.platform_policy
+        )
         require(modern_definitions,
                 f"the modern archive has no global definitions to audit: {archive}")
         intersection = modern_definitions & legacy_definitions
@@ -708,7 +790,7 @@ def main() -> int:
                 ", ".join(sorted(unexpected)))
         reviewed_weak = intersection & DEFINED_GLOBAL_INTERSECTION_ALLOWLIST
         modern_weak, modern_strong = global_definition_linkages(
-            archive, modern_definitions
+            archive, modern_definitions, args.platform_policy
         )
         require(
             reviewed_weak <= modern_weak
@@ -729,7 +811,7 @@ def main() -> int:
         })
 
     # OgreNext is linked statically with hidden visibility, so its resolved
-    # symbols are local in the final Mach-O.  Inspect the complete final symbol
+    # symbols are local in the final executable. Inspect the complete symbol
     # table here; the archive/plugin rejection gates above remain global-only.
     _, executable_demangled = nm(executable, global_only=False)
     require("Ogre::Root::getSingletonPtr()" in executable_demangled and
@@ -756,7 +838,12 @@ def main() -> int:
         executable_demangled,
         "dual-runtime executable does not contain the concrete presenter lifecycle",
     )
-    linked_libraries = output("otool", "-L", str(executable))
+    if args.platform_policy == "macos-arm64-metal":
+        linked_libraries = output("otool", "-L", str(executable))
+    elif args.platform_policy == "linux-x86_64-vulkan":
+        linked_libraries = output("readelf", "-d", str(executable))
+    else:
+        linked_libraries = output("dumpbin", "/DEPENDENTS", str(executable))
     require(legacy_main_library.name in linked_libraries,
             "dual-runtime executable has no load command for OGRE14")
 
@@ -974,8 +1061,10 @@ def main() -> int:
     result = {
         "schema": "ror.ogre_next.embedded_namespace_audit.v2",
         "status": "passed",
+        "platform_policy": args.platform_policy,
         "namespace": "RoROgreNext",
         "ror_source_commit": actual_source_commit,
+        "source_checkout": source_checkout,
         "canonical_lock": {
             "path": str(canonical_lock),
             "sha256": digest(canonical_lock),

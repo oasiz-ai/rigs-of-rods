@@ -248,6 +248,34 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
                 "clang++ -ffast-math -fno-fast-math -ffp-contract=fast -c a.cpp",
                 "bad-contract",
             )
+        AUDIT.require_strict_fp_compile_command(
+            "cl /O2 /fp:fast /fp:strict /c a.cpp", "msvc-good"
+        )
+        with self.assertRaisesRegex(RuntimeError, "does not end"):
+            AUDIT.require_strict_fp_compile_command(
+                "cl /fp:strict /fp:fast /c a.cpp", "msvc-bad-order"
+            )
+
+    def test_runtime_closure_patterns_are_platform_specific(self) -> None:
+        fixtures = {
+            "macos-arm64-metal": (
+                "libOgreMain.14.5.dylib",
+                "libOgreMain.so.14.5",
+            ),
+            "linux-x86_64-vulkan": (
+                "libOgreMain.so.14.5",
+                "libOgreMain.14.5.dylib",
+            ),
+            "windows-x64-d3d11": (
+                "OgreMain.dll",
+                "libOgreMain.so.14.5",
+            ),
+        }
+        for policy, (accepted, rejected) in fixtures.items():
+            with self.subTest(policy=policy):
+                pattern = AUDIT.LEGACY_RUNTIME_LIBRARY_PATTERNS[policy]
+                self.assertIsNotNone(pattern.fullmatch(accepted))
+                self.assertIsNone(pattern.fullmatch(rejected))
 
     def test_audit_binds_exact_contract_inputs_and_source_commit(self) -> None:
         embedded = self.lock["embedded_namespace"]
@@ -323,6 +351,24 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
         )
         self.assertIn('"full_n1_runtime_link":', self.audit_source)
         self.assertIn('"not_evaluated"', self.audit_source)
+
+    def test_dirty_checkout_is_explicit_and_never_qualification_evidence(self) -> None:
+        clean = AUDIT.classify_source_checkout("", False)
+        self.assertTrue(clean["clean"])
+        self.assertTrue(clean["qualification_eligible"])
+        self.assertFalse(clean["dirty_development_build_allowed"])
+
+        with self.assertRaisesRegex(RuntimeError, "development-only"):
+            AUDIT.classify_source_checkout(" M source/main/main.cpp", False)
+
+        dirty = AUDIT.classify_source_checkout(
+            " M source/main/main.cpp\n?? local-note.txt", True
+        )
+        self.assertFalse(dirty["clean"])
+        self.assertFalse(dirty["qualification_eligible"])
+        self.assertTrue(dirty["dirty_development_build_allowed"])
+        self.assertEqual(dirty["porcelain_entry_count"], 2)
+        self.assertRegex(dirty["porcelain_sha256"], r"^[0-9a-f]{64}$")
         for source in (
             "OgreNextVulkanExternalDeviceBootstrap.cpp",
             "OgreNextVulkanRayTracingBootstrap.cpp",

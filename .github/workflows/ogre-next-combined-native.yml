@@ -1,0 +1,394 @@
+name: Ogre-Next combined native Release
+
+on:
+  push:
+    branches: [master, nextgen/playable-performance-gate]
+    paths:
+      - .github/workflows/ogre-next-combined-native.yml
+      - CMakeLists.txt
+      - conanfile.py
+      - cmake/OgreNextEmbeddedRuntime.cmake
+      - cmake/conan/**
+      - cmake/linux/**
+      - cmake/ogre_next_embedded/**
+      - source/main/**
+      - tools/linux/RunRoR-combined
+      - tools/ogre_next_probe/**
+      - tools/stage_ogre_next_combined_resources.py
+      - tools/verify_ogre_next_combined_binary_closure.py
+      - tools/verify_ogre_next_combined_elf_closure.py
+      - tests/tools/test_ogre_next_combined_provider_contract.py
+      - tests/tools/test_ogre_next_embedded_namespace_contract.py
+      - tests/tools/test_renderer_combined_game_wiring_contract.py
+  pull_request:
+    paths:
+      - .github/workflows/ogre-next-combined-native.yml
+      - CMakeLists.txt
+      - conanfile.py
+      - cmake/OgreNextEmbeddedRuntime.cmake
+      - cmake/conan/**
+      - cmake/linux/**
+      - cmake/ogre_next_embedded/**
+      - source/main/**
+      - tools/linux/RunRoR-combined
+      - tools/ogre_next_probe/**
+      - tools/stage_ogre_next_combined_resources.py
+      - tools/verify_ogre_next_combined_binary_closure.py
+      - tools/verify_ogre_next_combined_elf_closure.py
+      - tests/tools/test_ogre_next_combined_provider_contract.py
+      - tests/tools/test_ogre_next_embedded_namespace_contract.py
+      - tests/tools/test_renderer_combined_game_wiring_contract.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ogre-next-combined-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x86_64-vulkan:
+    name: Linux x86_64 Vulkan RoR-Combined
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    env:
+      CC: gcc-11
+      CXX: g++-11
+      CMAKE_BUILD_PARALLEL_LEVEL: "3"
+      CONAN_HOME: ${{ github.workspace }}/.ci-conan/combined-linux-x86_64
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux build and software-rendering prerequisites
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            binutils \
+            file \
+            gcc-11 \
+            g++-11 \
+            gdb \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libvulkan-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxaw7-dev \
+            libxrandr-dev \
+            libxcb1-dev \
+            libxcb-randr0-dev \
+            libxt-dev \
+            mesa-vulkan-drivers \
+            mesa-utils \
+            vulkan-tools \
+            xauth \
+            xvfb
+          lvp_icd="$(find /usr/share/vulkan/icd.d -name 'lvp*json' -print -quit)"
+          test -n "$lvp_icd"
+          echo "VK_ICD_FILENAMES=$lvp_icd" >> "$GITHUB_ENV"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+
+      - name: Install pinned Conan and Ninja clients
+        shell: bash
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          conan==2.31.1
+          ninja==1.13.0
+
+      - name: Restore isolated Conan packages
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.CONAN_HOME }}
+          key: ogre-next-combined-linux-gcc11-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
+
+      - name: Configure isolated Conan client
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          home = Path(os.environ["CONAN_HOME"])
+          home.mkdir(parents=True, exist_ok=True)
+          (home / "global.conf").write_text(
+              "tools.system.package_manager:mode=install\n"
+              "tools.system.package_manager:sudo=True\n"
+              'core.sources:download_urls=["origin", "https://c3i.jfrog.io/artifactory/conan-center-backup-sources/"]\n',
+              encoding="utf-8",
+          )
+          PY
+          conan remote add conancenter https://center2.conan.io --force
+          conan --version
+          ninja --version
+
+      - name: Export pinned public RoR dependency recipes
+        shell: bash
+        run: |
+          cmake -E make_directory artifacts
+          python cmake/conan/export_pinned_dependency_recipes.py \
+            --archive "$RUNNER_TEMP/ror-conan-recipes-d3568327.tar.gz" \
+            --extract-root "$RUNNER_TEMP/ror-conan-recipes-export" \
+            | tee artifacts/pinned-conan-recipes.json
+
+      - name: Verify compiler, architecture, and Vulkan software device
+        shell: bash
+        run: |
+          test "$(uname -m)" = "x86_64"
+          test "$(gcc-11 -dumpfullversion | cut -d. -f1)" = "11"
+          test "$(g++-11 -dumpfullversion | cut -d. -f1)" = "11"
+          gcc-11 --version
+          g++-11 --version
+          readelf --version
+          nm --version
+          vulkaninfo --summary
+
+      - name: Run combined-runtime fail-closed contracts
+        shell: bash
+        run: |
+          python tests/tools/test_ogre_next_combined_provider_contract.py
+          python tests/tools/test_ogre_next_embedded_namespace_contract.py
+          python tests/tools/test_renderer_combined_game_wiring_contract.py
+          python -O tests/tools/test_ogre_next_combined_provider_contract.py
+          python -O tests/tools/test_ogre_next_embedded_namespace_contract.py
+          python -O tests/tools/test_renderer_combined_game_wiring_contract.py
+
+      - name: Verify the locked native Conan graph
+        shell: bash
+        run: |
+          python tests/tools/assert_ogre14_app_graph.py \
+            --platform linux-x86_64 \
+            | tee artifacts/linux-x86_64-conan-graph.json
+
+      - name: Configure clean Linux RoR-Combined Release
+        shell: bash
+        run: |
+          test -z "$(git status --porcelain --untracked-files=no)"
+          cmake \
+            -S . \
+            -B build-combined-linux-x86_64 \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/stage-combined-linux-x86_64" \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
+            -DCONAN_HOST_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
+            -DCONAN_BUILD_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
+            -DROR_BUILD_TESTS=OFF \
+            -DROR_CREATE_CONTENT_FOLDER=ON \
+            -DROR_OGRE_NEXT_COMBINED_RUNTIME=ON \
+            -DROR_RENDERER_PUBLIC_LAUNCHER=OFF \
+            -DROR_OGRE_NEXT_PRODUCTION_PACKAGE=OFF \
+            -DROR_OGRE_NEXT_DEMO_ADMISSION=OFF
+
+      - name: Build and prove the final combined ELF closure
+        shell: bash
+        run: >-
+          cmake
+          --build build-combined-linux-x86_64
+          --target ror_ogre_next_combined_verified
+          --config Release
+
+      - name: Require a qualification-eligible combined build receipt
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          build = Path("build-combined-linux-x86_64")
+          binary = build / "bin/RoR-Combined"
+          closure = build / "source/main/RoR-Combined.binary-closure.json"
+          namespace = build / "ogre-next-embedded/ogre-next-combined-namespace-audit.json"
+          resources = build / "ror-ogre-next-combined-resources/.complete.json"
+          for path in (binary, closure, namespace, resources):
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(f"required combined build output is unavailable: {path}")
+          document = json.loads(closure.read_text(encoding="utf-8"))
+          if document.get("schema") != "ror.ogre_next_combined_elf_closure.v1":
+              raise SystemExit("combined ELF closure schema changed")
+          if document.get("platform_policy") != "linux-x86_64-vulkan":
+              raise SystemExit("combined ELF platform policy changed")
+          if document.get("qualification_eligible") is not True:
+              raise SystemExit("combined ELF closure is not qualification eligible")
+          if document.get("bridge_or_transport_symbols_present") is not False:
+              raise SystemExit("combined ELF includes bridge/transport symbols")
+          if document.get("root_sdl_symbols_present") is not False:
+              raise SystemExit("combined ELF extracted a second SDL provider")
+          PY
+
+      - name: Install and relocate the combined runtime
+        shell: bash
+        run: |
+          cmake --install build-combined-linux-x86_64 \
+            --prefix "$GITHUB_WORKSPACE/stage-combined-linux-x86_64" \
+            --component Base_Game
+          cmake --install build-combined-linux-x86_64 \
+            --prefix "$GITHUB_WORKSPACE/stage-combined-linux-x86_64" \
+            --component Base_Content
+
+      - name: Audit relocated runtime and retain provenance
+        shell: bash
+        run: |
+          stage="$GITHUB_WORKSPACE/stage-combined-linux-x86_64"
+          build="$GITHUB_WORKSPACE/build-combined-linux-x86_64"
+          test -x "$stage/RoR-Combined"
+          test -x "$stage/RunRoR"
+          test ! -e "$stage/RoR"
+          test ! -e "$stage/RoR-Ogre14"
+          test -d "$stage/lib/OGRE"
+          test -d "$stage/resources"
+          test -d "$stage/content"
+          cmake -E make_directory "$stage/qualification"
+          readelf --file-header --dynamic "$stage/RoR-Combined" \
+            | tee "$stage/qualification/RoR-Combined.readelf.txt"
+          ldd "$stage/RoR-Combined" \
+            | tee "$stage/qualification/RoR-Combined.ldd.txt"
+          if grep -Fq 'not found' "$stage/qualification/RoR-Combined.ldd.txt"; then
+            echo 'relocated RoR-Combined has an unresolved shared library'
+            exit 1
+          fi
+          if grep -Fq "$build" "$stage/qualification/RoR-Combined.readelf.txt" \
+              || grep -Fq "$build" "$stage/qualification/RoR-Combined.ldd.txt"; then
+            echo 'relocated RoR-Combined retains its build root'
+            exit 1
+          fi
+          cmake -E copy \
+            "$build/source/main/RoR-Combined.binary-closure.json" \
+            "$stage/qualification/RoR-Combined.binary-closure.json"
+          cmake -E copy \
+            "$build/ogre-next-embedded/ogre-next-combined-namespace-audit.json" \
+            "$stage/qualification/ogre-next-combined-namespace-audit.json"
+          cmake -E copy \
+            "$build/ogre-next-embedded/ogre-next-combined-provider-contract.json" \
+            "$stage/qualification/ogre-next-combined-provider-contract.json"
+          cmake -E copy \
+            "$build/ror-ogre-next-combined-resources/.complete.json" \
+            "$stage/qualification/ogre-next-combined-resources.complete.json"
+
+      - name: Render bounded Ogre-Next frames with relocated Vulkan runtime
+        shell: bash
+        run: |
+          stage="$GITHUB_WORKSPACE/stage-combined-linux-x86_64"
+          smoke="$RUNNER_TEMP/ror-combined-smoke"
+          cmake -E make_directory "$smoke/home" "$smoke/config" "$smoke/cache" "$smoke/data"
+          receipt="$stage/qualification/renderer-smoke.json"
+          test ! -e "$receipt"
+          HOME="$smoke/home" \
+          XDG_CONFIG_HOME="$smoke/config" \
+          XDG_CACHE_HOME="$smoke/cache" \
+          XDG_DATA_HOME="$smoke/data" \
+          timeout --signal=TERM 120s \
+            xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+            "$stage/RunRoR" \
+              --native-visual-showcase \
+              -frame-budget measure \
+              -frame-budget-receipt "$receipt" \
+              -frame-budget-scenario ci.ogre-next-combined.renderer-smoke \
+              -frame-budget-sustained-ms 1000 \
+              -frame-budget-percentile 99 \
+              -frame-budget-percentile-ms 1000 \
+              -frame-budget-warmup 2 \
+              -frame-budget-minimum 8 \
+              -frame-budget-frames 12 \
+            > "$stage/qualification/renderer-smoke.stdout.log" \
+            2> "$stage/qualification/renderer-smoke.stderr.log"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          receipt = Path("stage-combined-linux-x86_64/qualification/renderer-smoke.json")
+          document = json.loads(receipt.read_text(encoding="utf-8"))
+          expected = {
+              "format": "ror-frame-time-budget-v1",
+              "mode": "measure",
+              "scenario_id": "ci.ogre-next-combined.renderer-smoke",
+              "renderer": "ogre-next-combined",
+              "presents_frames": True,
+              "requested_frames": 12,
+              "accepted_frames": 12,
+              "rejected_frames": 0,
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"combined renderer smoke receipt changed: {field}={document.get(field)!r}"
+                  )
+          PY
+
+      - name: Write deterministic package inventory
+        shell: bash
+        run: |
+          stage="$GITHUB_WORKSPACE/stage-combined-linux-x86_64"
+          python - "$stage" "$GITHUB_SHA" <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          root = Path(sys.argv[1]).resolve(strict=True)
+          source_commit = sys.argv[2]
+          files = []
+          for path in sorted(root.rglob("*")):
+              if not path.is_file() or path.is_symlink():
+                  continue
+              relative = path.relative_to(root).as_posix()
+              if relative == "qualification/package-inventory.json":
+                  continue
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              files.append(
+                  {"path": relative, "size": path.stat().st_size, "sha256": digest}
+              )
+          document = {
+              "schema": "ror.ogre_next_combined_linux_package.v1",
+              "source_commit": source_commit,
+              "platform_policy": "linux-x86_64-vulkan",
+              "entrypoint": "RunRoR",
+              "executable": "RoR-Combined",
+              "renderer": "ogre-next",
+              "legacy_visible_presentation": False,
+              "renderer_smoke_only": True,
+              "playability_qualified": False,
+              "files": files,
+          }
+          output = root / "qualification/package-inventory.json"
+          output.write_text(
+              json.dumps(document, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload qualified Linux RoR-Combined runtime
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Combined-Linux-x86_64-Vulkan-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+          path: stage-combined-linux-x86_64/
+
+      - name: Upload combined-build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: RoR-Combined-Linux-x86_64-diagnostics-${{ github.sha }}
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true
+          path: |
+            artifacts/
+            build-combined-linux-x86_64/CMakeCache.txt
+            build-combined-linux-x86_64/CMakeFiles/CMakeConfigureLog.yaml
+            build-combined-linux-x86_64/ogre-next-embedded/*.json
+            build-combined-linux-x86_64/source/main/RoR-Combined.*
+            stage-combined-linux-x86_64/qualification/
