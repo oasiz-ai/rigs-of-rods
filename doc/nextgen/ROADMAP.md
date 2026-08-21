@@ -473,20 +473,22 @@ Apple Silicon, thirty fresh-process runs with one worker and thirty with eight
 workers matched every canonical state record. This closes the pinned
 two-vehicle worker-count runtime check, but not the remaining D0 gates.
 
-The version-1 D0 state-digest kernel now defines the byte-level contract for
+The version-2 D0 state-digest kernel now defines the byte-level contract for
 those comparisons. It streams, without retaining records, exact binary32 actor
 origins, integer actor state, full-width deterministic seeds/noise counters,
 ordered node positions/velocities, ordered beam rest length and stress, the
-complete binary64 P1 material history, beam flags, and ordered inter-actor
-contact keys into a domain-separated SHA-256 digest. Invalid section order or
-counts, noncanonical within-section keys, invalid numeric ranges, non-finite
-values, and immutable actor/node/beam/contact ceiling violations fail closed.
-IEEE exponent bits are inspected through the object representation, so NaN and
-infinity are rejected even with the game's fast-math mode; strict, fast-math,
-and address/undefined-sanitizer fixtures lock golden digests and field
-sensitivity. The production `Actor` adapter now canonicalizes live actors and
-contacts after worker synchronization and validates cross-section references,
-accepted material schemas, and flag masks.
+complete binary64 P1 material history, fracture and fault flags, canonical
+runtime/constitutive fault codes, and ordered inter-actor contact keys into a
+domain-separated SHA-256 digest. Invalid section order or counts, noncanonical
+within-section keys, invalid numeric ranges, non-finite values, inconsistent
+fracture/fault provenance, and immutable actor/node/beam/contact ceiling
+violations fail closed. IEEE exponent bits are inspected through the object
+representation, so NaN and infinity are rejected even with the game's
+fast-math mode; strict, fast-math, and address/undefined-sanitizer fixtures lock
+golden digests and field sensitivity. The production `Actor` adapter now
+canonicalizes live actors and contacts after worker synchronization and
+validates cross-section references, accepted material schemas, flag masks, and
+the exact latched calibrated-material failure identity.
 
 The version-1 state-trace container adds a checked run header, contiguous
 64-byte per-step digest records, and a mandatory aggregate trailer. Its bounded
