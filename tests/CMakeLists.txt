@@ -8,6 +8,7 @@ endif ()
 
 if (MSVC)
     set(CMAKE_OBJECT_PATH_MAX 200)
+    add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX)
 endif ()
 
 get_filename_component(

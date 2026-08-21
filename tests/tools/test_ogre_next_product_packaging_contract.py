@@ -392,9 +392,19 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
     def test_windows_object_paths_are_hashed_below_native_tool_limit(
         self,
     ) -> None:
-        token = "if (MSVC)\n    set(CMAKE_OBJECT_PATH_MAX 200)\nendif ()"
-        self.assertEqual(self.probe_cmake.count(token), 1)
-        self.assertEqual(self.tests_cmake.count(token), 1)
+        probe_token = (
+            "if (MSVC)\n"
+            "    set(CMAKE_OBJECT_PATH_MAX 200)\n"
+            "endif ()"
+        )
+        tests_token = (
+            "if (MSVC)\n"
+            "    set(CMAKE_OBJECT_PATH_MAX 200)\n"
+            "    add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX)\n"
+            "endif ()"
+        )
+        self.assertEqual(self.probe_cmake.count(probe_token), 1)
+        self.assertEqual(self.tests_cmake.count(tests_token), 1)
 
     def test_protected_material_source_switch_warning_is_test_scoped(
         self,
