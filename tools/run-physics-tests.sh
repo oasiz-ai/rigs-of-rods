@@ -210,5 +210,7 @@ for ((run = 1; run <= physics_test_repeat; ++run)); do
 done
 
 "${test_build_dir}/ror_state_trace" --help >/dev/null
+python3 "${repository_dir}/tests/tools/test_run_deterministic_savegame_resume.py"
+python3 -O "${repository_dir}/tests/tools/test_run_deterministic_savegame_resume.py"
 
 echo "physics kernel suite passed ${physics_test_repeat} time(s)"

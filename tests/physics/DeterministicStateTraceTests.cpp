@@ -841,6 +841,59 @@ void TestComparisonCli()
         error);
     CHECK(result == CLI_EXIT_MATCH);
     CHECK(output.find("Usage:") != std::string::npos);
+    CHECK(output.find("--inspect TRACE.trace") != std::string::npos);
+
+    result = RunCli(
+        std::vector<std::string>{
+            "ror-state-trace", "--inspect", left_path},
+        output,
+        error);
+    CHECK(result == CLI_EXIT_MATCH);
+    CHECK(error.empty());
+    CHECK(output.find(
+        "\"format\":\"ror-d0-state-trace-inspection-v1\"") !=
+        std::string::npos);
+    CHECK(output.find("\"status\":\"valid\"") !=
+        std::string::npos);
+    CHECK(output.find("\"step_count\":3") != std::string::npos);
+    CHECK(output.find("\"has_final_step\":true") !=
+        std::string::npos);
+    CHECK(output.find("\"physics_step\":102") != std::string::npos);
+    CHECK(output.find(
+        "\"state_digest\":\"" + steps.back().digest.ToHex() + "\"") !=
+        std::string::npos);
+
+    result = RunCli(
+        std::vector<std::string>{
+            "ror-state-trace", "--inspect", invalid_path},
+        output,
+        error);
+    CHECK(result == CLI_EXIT_INVALID);
+    CHECK(error.empty());
+    CHECK(output.find("\"status\":\"invalid_input\"") !=
+        std::string::npos);
+    CHECK(output.find("\"code\":\"truncated\"") !=
+        std::string::npos);
+
+    result = RunCli(
+        std::vector<std::string>{
+            "ror-state-trace", "--inspect", missing_path},
+        output,
+        error);
+    CHECK(result == CLI_EXIT_INVALID);
+    CHECK(output.find("\"code\":\"open_failed\"") !=
+        std::string::npos);
+
+    result = RunCli(
+        std::vector<std::string>{
+            "ror-state-trace",
+            "--inspect",
+            "--allow-worker-count-difference",
+            left_path},
+        output,
+        error);
+    CHECK(result == CLI_EXIT_INVALID);
+    CHECK(!error.empty());
 
     result = RunCli(
         std::vector<std::string>{"ror-state-trace", "--unknown"},

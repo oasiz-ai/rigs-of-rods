@@ -612,7 +612,8 @@ control, and speed limiter. Command forwarding/import and simulated event
 overrides are rejected. This is not authorization to replay every truck:
 automatic-shift intent/timers, gearbox selector changes, differential and
 transfer-case modes, controller state, multi-actor atomic input, and savegame
-continuation still require later schemas rather than being silently omitted.
+continuation for those broader policies still require later schemas rather
+than being silently omitted.
 
 Live acceptance on 2026-08-13 used clean commit `07a68565d` and the Release
 arm64 `RoR-Combined` binary SHA-256
@@ -652,6 +653,23 @@ checks also pass. A fresh combined-runtime record/save/load/resume artifact is
 still required before this satisfies the live D0 gate. TSan runtime soak,
 controller intent, automatic gear changes, multi-actor input, and
 cross-platform tolerance evidence also remain open.
+
+The native save/load acceptance harness now drives that remaining single-truck
+gate without a test-only restore shortcut. The record script arms the exact
+manual Agora player at step zero, records both input and schema-2 state, writes
+`d0_input_checkpoint.sav` synchronously at completed step 120, and continues
+to step 240. A separate startup script requests the named save through
+`MSG_SIM_LOAD_SAVEGAME_REQUESTED`; it never rewrites the imported input CVars,
+requires the published record/scenario/target/limit identity at step 120, and
+continues to the same terminal cursor. `ror_state_trace --inspect` drains the
+mandatory trailer before publishing the terminal actor/contact counts and
+state digest. The fail-closed runner requires a canonical schema-3 checkpoint,
+one exact player owner, byte-identical 240-step `.rorinput` artifacts, a
+240-record uninterrupted state trace, a 120-record resumed suffix, and equal
+step-239 state records before atomically writing its receipt. Product binding
+objects, the strict state-trace test, and normal/optimized runner hostiles pass;
+this paragraph describes implemented instrumentation, not the still-pending
+combined-runtime receipt.
 
 For a local kernel stress pass, run
 `ROR_PHYSICS_TEST_REPEAT=30 tools/run-physics-tests.sh`, then repeat with

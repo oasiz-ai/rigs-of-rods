@@ -72,6 +72,38 @@ using namespace Ogre;
 using namespace RoR;
 using namespace AngelScript;
 
+namespace {
+
+bool IsSafeSavegameBasename(const std::string& filename)
+{
+    static const std::string extension = ".sav";
+    if (filename.size() <= extension.size() ||
+        filename.size() > 128U ||
+        filename.compare(
+            filename.size() - extension.size(),
+            extension.size(),
+            extension) != 0)
+    {
+        return false;
+    }
+    const std::size_t basename_size = filename.size() - extension.size();
+    for (std::size_t index = 0U; index < basename_size; ++index)
+    {
+        const unsigned char value =
+            static_cast<unsigned char>(filename[index]);
+        if (!((value >= 'a' && value <= 'z') ||
+                (value >= 'A' && value <= 'Z') ||
+                (value >= '0' && value <= '9') ||
+                value == '_' || value == '-'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 // GUIDELINE: Make functions safe from invoking in wrong circumstances,
 // i.e. when server script calls function using SimController while in main menu.
 // --> Getter functions should silently return zero/empty value.
@@ -116,6 +148,32 @@ float GameScript::getTime()
 std::uint64_t GameScript::getCompletedPhysicsSteps()
 {
     return App::GetGameContext()->GetActorManager()->GetCompletedPhysicsSteps();
+}
+
+bool GameScript::saveScene(const std::string& filename)
+{
+    try
+    {
+        GameContext* const context = App::GetGameContext();
+        if (!IsSafeSavegameBasename(filename) ||
+            context == nullptr ||
+            context->GetActorManager() == nullptr ||
+            App::app_state->getEnum<AppState>() != AppState::SIMULATION)
+        {
+            this->log(fmt::format(
+                "saveScene(): rejected '{}' outside the simulation or "
+                "basename-only .sav policy",
+                filename));
+            return false;
+        }
+        return context->GetActorManager()->SaveScene(filename);
+    }
+    catch (...)
+    {
+        App::GetScriptEngine()->forwardExceptionAsScriptEvent(
+            "GameScript::saveScene()");
+        return false;
+    }
 }
 
 void GameScript::setPersonPosition(const Vector3& vec)

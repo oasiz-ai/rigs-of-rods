@@ -61,6 +61,10 @@ public:
     /// Canonical number of completed 2 kHz fixed steps in the loaded scene.
     std::uint64_t getCompletedPhysicsSteps();
 
+    /// Synchronously capture one save into the dedicated Savegames resource
+    /// group. Only a bounded ASCII basename ending in `.sav` is accepted.
+    bool saveScene(const std::string& filename);
+
     void backToMenu();
     void quitGame();
     float getFPS();

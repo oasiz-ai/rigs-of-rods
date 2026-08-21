@@ -36,6 +36,27 @@ add_test(
         "${Python3_EXECUTABLE}"
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_input_live_runtime_contract.py"
 )
+add_test(
+    NAME deterministic_savegame_resume_tool
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_deterministic_savegame_resume.py"
+)
+add_test(
+    NAME deterministic_savegame_resume_tool_optimized
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        -O
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_run_deterministic_savegame_resume.py"
+)
+set_tests_properties(
+    deterministic_input_live_runtime_contract
+    deterministic_savegame_resume_tool
+    deterministic_savegame_resume_tool_optimized
+    PROPERTIES
+        LABELS "physics;integration;python"
+        TIMEOUT 120
+)
 
 add_test(
     NAME calibrated_beam_soak_tool
