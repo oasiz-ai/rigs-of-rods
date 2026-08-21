@@ -1927,13 +1927,14 @@ documented existence checks; a final `nil` in a typed structural field fails
 closed. Expression diagnostics retain the field source span and decoded byte
 offset.
 
-Exact array-valued component paths can now be inserted as rows in the five
-recognized structural sections. Selected-part component dictionaries deep
-merge in resolved preorder, inserted rows may use the already bounded scalar
-component environment, and a source section plus every referenced row is
-measured before any copy. Non-exact, missing, wrong-type, or over-budget row
-references fail before partial geometry is published. Expression-valued
-components and whole-table operations remain preserved-but-disabled, and no
+Exact array-valued component paths can now supply any of the five recognized
+structural tables or be inserted as individual rows. Selected-part component
+dictionaries deep merge in resolved preorder, referenced tables/rows may use
+the already bounded scalar component environment, and inserted rows are
+measured before any copy while whole tables use the bounded normalizer.
+Non-exact, missing, wrong-type, or over-budget references fail before partial
+geometry is published. Expression-valued components and computed table
+operations remain preserved-but-disabled, and no
 unknown field or section is evaluated. Per-expression quotas are backed by
 aggregate evaluation/work, component node/depth, environment, and retained
 memory gates. The part resolver now admits the official authored `variables`
@@ -1947,15 +1948,16 @@ graph, diagnostic, and retained-environment limits fail atomically.
 
 Clean-room end-to-end tests cover authored defaults, configuration and slot
 override precedence, range/type hostiles, namespace expansion, scalar
-components, exact component-row insertion and selected-part override,
-missing-variable short-circuiting, forbidden host calls, quotas, and
-representative
+components, exact component-row and whole-table references, selected-part
+override, missing-variable short-circuiting, forbidden host calls, quotas,
+and representative
 FormulaCOUPE v0.9.7 arithmetic shapes such as node mass scaling and
 beam-precompression tuning. A local scan found no scalar built-in calls in the
 fixture's 84 `.jbeam` files, so `FC-A7-01` is not blocked by the remaining
-function set. Whole-table component storage/operations, the remaining
-documented transcendental/random math functions, and semantic evaluation for
-non-structural sections remain open J1/J2 work.
+function set. Computed table-component operators, component-backed
+non-structural sections, the remaining documented transcendental/random math
+functions, and semantic evaluation for non-structural sections remain open
+J1/J2 work.
 
 The bounded resolver indexes parts independently of archive enumeration order,
 selects the sole `main` root or requires an explicit root when a package exposes

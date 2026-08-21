@@ -699,6 +699,140 @@ void TestExactTableComponentRowExpansion()
     }
 }
 
+void TestExactWholeTableComponentExpansion()
+{
+    std::vector<JBeamPackageSource> packages;
+    packages.push_back(Package(
+        "vehicles/components/table-main.jbeam",
+        "{"
+        "\"table_car\":{"
+        "\"slotType\":\"main\","
+        "\"components\":{"
+        "\"mass\":1,"
+        "\"tables\":{"
+        "\"nodes\":["
+        "[\"id\",\"posX\",\"posY\",\"posZ\","
+        "\"nodeWeight\"],"
+        "[\"ref\",0,0,0,\"$=$components.mass\"],"
+        "[\"back\",0,1,0,1],"
+        "[\"left\",1,0,0,1],"
+        "[\"up\",0,0,1,1],"
+        "[\"leftCorner\",1,-1,0,1],"
+        "[\"rightCorner\",-1,-1,0,1]"
+        "],"
+        "\"beams\":["
+        "[\"id1:\",\"id2:\",\"beamSpring\",\"beamDamp\"],"
+        "[\"ref\",\"back\",200000,20]"
+        "],"
+        "\"frame\":["
+        "[\"ref:\",\"back:\",\"left:\",\"up:\","
+        "\"leftCorner:\",\"rightCorner:\"],"
+        "[\"ref\",\"back\",\"left\",\"up\","
+        "\"leftCorner\",\"rightCorner\"]"
+        "]"
+        "}"
+        "},"
+        "\"slots\":["
+        "[\"type\",\"default\",\"description\"],"
+        "[\"body\",\"table_body\",\"Body\"]"
+        "],"
+        "\"nodes\":\"$= $components.tables.nodes\","
+        "\"beams\":\"$=$components.tables.beams\","
+        "\"refNodes\":\"$=$components.tables.frame\""
+        "}"
+        "}"));
+    packages.push_back(Package(
+        "vehicles/components/table-body.jbeam",
+        "{"
+        "\"table_body\":{"
+        "\"slotType\":\"body\","
+        "\"components\":{"
+        "\"mass\":3,"
+        "\"tables\":{"
+        "\"beams\":["
+        "[\"id1:\",\"id2:\",\"beamSpring\",\"beamDamp\"],"
+        "[\"ref\",\"back\",300000,30]"
+        "]"
+        "}"
+        "}"
+        "}"
+        "}"));
+
+    const JBeamResolvedGraph graph = ResolveConfigured(
+        packages,
+        "{\"parts\":{},\"vars\":{}}");
+    CHECK(graph.IsValid());
+    const JBeamStructuralIR ir =
+        RoR::BeamNG::BuildJBeamStructuralIR(graph);
+    CHECK(ir.IsValid());
+    CHECK(ir.nodes.size() == 6U);
+    if (ir.nodes.size() == 6U)
+    {
+        CHECK(ir.nodes[0].id == "ref");
+        CHECK(ir.nodes[0].node_weight == 3.0);
+    }
+    CHECK(ir.beams.size() == 1U);
+    if (ir.beams.size() == 1U)
+    {
+        CHECK(ir.beams[0].spring == 300000.0);
+        CHECK(ir.beams[0].damping == 30.0);
+    }
+    CHECK(ir.ref_frame.reference == "ref");
+    CHECK(CountDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 0U);
+    CHECK(CountDiagnostic(
+        ir,
+        JBeamStructuralDiagnosticCode::INVALID_SECTION) == 0U);
+
+    std::reverse(packages.begin(), packages.end());
+    const JBeamStructuralIR permuted =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveConfigured(
+            packages,
+            "{\"parts\":{},\"vars\":{}}"));
+    CHECK(permuted.IsValid());
+    CHECK(RoR::BeamNG::SerializeCanonicalJBeamStructuralIR(ir) ==
+        RoR::BeamNG::SerializeCanonicalJBeamStructuralIR(permuted));
+
+    JBeamStructuralLimits reference_limit;
+    reference_limit.expression_limits.max_expression_bytes = 8U;
+    const JBeamStructuralIR limited =
+        RoR::BeamNG::BuildJBeamStructuralIR(graph, reference_limit);
+    CHECK(!limited.IsValid());
+    CHECK(limited.nodes.empty());
+    CHECK(limited.beams.empty());
+    CHECK(CountDiagnostic(
+        limited,
+        JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT) == 3U);
+
+    const JBeamStructuralIR wrong_type =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"components\":{\"table\":1},"
+            "\"nodes\":\"$=$components.table\""));
+    CHECK(!wrong_type.IsValid());
+    CHECK(CountDiagnostic(
+        wrong_type,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 1U);
+    const JBeamStructuralDiagnostic* wrong_type_error = FindDiagnostic(
+        wrong_type,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR);
+    CHECK(wrong_type_error != NULL);
+    if (wrong_type_error != NULL)
+    {
+        CHECK(wrong_type_error->detail.find("array-valued") !=
+            std::string::npos);
+    }
+
+    const JBeamStructuralIR non_exact =
+        RoR::BeamNG::BuildJBeamStructuralIR(ResolveSingle(
+            "\"components\":{\"table\":[[\"id\"]]},"
+            "\"nodes\":\"$=$components.table or nil\""));
+    CHECK(!non_exact.IsValid());
+    CHECK(CountDiagnostic(
+        non_exact,
+        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR) == 1U);
+}
+
 void TestSlotNamespaceExpressionPipeline()
 {
     std::vector<JBeamPackageSource> packages;
@@ -2177,6 +2311,7 @@ int main()
     TestDuplicateAndMalformedNodes();
     TestResolvedExpressionsVariablesAndComponents();
     TestExactTableComponentRowExpansion();
+    TestExactWholeTableComponentExpansion();
     TestSlotNamespaceExpressionPipeline();
     TestExpressionFailuresAndAggregateLimits();
     TestNonFiniteDefenseUnderFastMath();

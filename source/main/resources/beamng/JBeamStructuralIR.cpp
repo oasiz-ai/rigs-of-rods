@@ -616,11 +616,11 @@ private:
     /// because an array or unsupported expression replaced the subtree.
     std::map<std::string, bool> m_non_scalar_components;
     /// Exact effective array-valued component leaves. These remain source
-    /// owned and are copied only after a structural table uses an exact
-    /// `$=$components.path` row reference and the complete copy has passed
-    /// the retained-memory preflight.
+    /// owned. A whole recognized section can reference one directly; a row
+    /// reference copies it only after the complete copy has passed the
+    /// retained-memory preflight.
     std::map<std::string, std::shared_ptr<const JBeamValue> >
-        m_component_rows;
+        m_component_arrays;
     std::map<
         std::string,
         std::shared_ptr<const std::string> > m_source_names;
@@ -1862,7 +1862,7 @@ private:
         return true;
     }
 
-    bool EraseComponentRowPath(
+    bool EraseComponentArrayPath(
         const std::string& path,
         bool descendants,
         const JBeamStructuralProvenance& provenance)
@@ -1871,8 +1871,8 @@ private:
         std::map<
             std::string,
             std::shared_ptr<const JBeamValue> >::iterator iterator =
-                m_component_rows.begin();
-        while (iterator != m_component_rows.end())
+                m_component_arrays.begin();
+        while (iterator != m_component_arrays.end())
         {
             if (!ChargeSemanticWork(
                     1U,
@@ -1892,7 +1892,7 @@ private:
                     0U, prefix.size(), prefix) == 0;
             if (exact || child)
             {
-                m_component_rows.erase(iterator++);
+                m_component_arrays.erase(iterator++);
             }
             else
             {
@@ -1902,15 +1902,15 @@ private:
         return true;
     }
 
-    bool SetComponentRow(
+    bool SetComponentArray(
         const std::string& path,
         const std::shared_ptr<const JBeamValue>& value)
     {
         std::map<
             std::string,
             std::shared_ptr<const JBeamValue> >::iterator found =
-                m_component_rows.find(path);
-        if (found != m_component_rows.end())
+                m_component_arrays.find(path);
+        if (found != m_component_arrays.end())
         {
             found->second = value;
             return true;
@@ -1925,7 +1925,7 @@ private:
         {
             return false;
         }
-        m_component_rows.insert(std::make_pair(path, value));
+        m_component_arrays.insert(std::make_pair(path, value));
         return true;
     }
 
@@ -2027,7 +2027,7 @@ private:
         {
             if (!EraseComponentPath(
                     values, path, false, part.provenance) ||
-                !EraseComponentRowPath(
+                !EraseComponentArrayPath(
                     path, false, part.provenance))
             {
                 return;
@@ -2092,7 +2092,7 @@ private:
         }
         if (!EraseComponentPath(
                 values, path, true, part.provenance) ||
-            !EraseComponentRowPath(
+            !EraseComponentArrayPath(
                 path, true, part.provenance))
         {
             return;
@@ -2105,7 +2105,7 @@ private:
         if (value->type == JBeamValueType::ARRAY)
         {
             if (!SetNonScalarComponent(path, true) ||
-                !SetComponentRow(path, value))
+                !SetComponentArray(path, value))
             {
                 return;
             }
@@ -2420,6 +2420,83 @@ private:
         }
     }
 
+    bool PreflightComponentReferenceText(
+        const JBeamValue& value,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        std::size_t row_index)
+    {
+        if (value.scalar_text.size() >
+            m_limits.expression_limits.max_expression_bytes)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_LIMIT,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
+                ProvenanceWithSpan(provenance, value.span),
+                section,
+                row_index,
+                "$components",
+                "Component reference exceeds the configured expression "
+                "byte limit");
+            return false;
+        }
+        return ChargeSemanticWork(
+            value.scalar_text.size(),
+            provenance,
+            section,
+            "$components",
+            "Component-reference scanning exceeds the aggregate semantic "
+            "work limit");
+    }
+
+    const JBeamValue* ResolveStructuralSectionValue(
+        const PartContext& part,
+        const std::string& section,
+        const std::shared_ptr<const JBeamValue>& value)
+    {
+        if (!value || !IsExpressionString(*value))
+        {
+            return value.get();
+        }
+        if (!PreflightComponentReferenceText(
+                *value, part.provenance, section, 0U))
+        {
+            return NULL;
+        }
+        std::string path;
+        if (!ParseExactComponentReference(*value, path))
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
+                ProvenanceWithSpan(part.provenance, value->span),
+                section,
+                0U,
+                "$components",
+                "A structural section expression must be an exact "
+                "$=$components.path table reference");
+            return NULL;
+        }
+        const std::map<
+            std::string,
+            std::shared_ptr<const JBeamValue> >::const_iterator found =
+                m_component_arrays.find(path);
+        if (found == m_component_arrays.end() || !found->second)
+        {
+            Push(
+                JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                JBeamStructuralSeverity::ERROR_SEVERITY,
+                ProvenanceWithSpan(part.provenance, value->span),
+                section,
+                0U,
+                "$components." + path,
+                "Exact component table reference does not resolve to "
+                "an effective array-valued component");
+            return NULL;
+        }
+        return found->second.get();
+    }
+
     void DiscoverSections()
     {
         for (std::size_t part_index = 0U;
@@ -2455,10 +2532,21 @@ private:
                     body.object_fields[field_index];
                 if (IsRecognizedSection(field.key))
                 {
+                    const JBeamValue* effective_value =
+                        ResolveStructuralSectionValue(
+                            sections.part,
+                            field.key,
+                            field.value);
+                    if (field.value &&
+                        IsExpressionString(*field.value) &&
+                        effective_value == NULL)
+                    {
+                        continue;
+                    }
                     SectionOccurrence occurrence;
-                    occurrence.value = field.value.get();
-                    occurrence.span = field.value
-                        ? field.value->span
+                    occurrence.value = effective_value;
+                    occurrence.span = effective_value
+                        ? effective_value->span
                         : field.key_span;
                     sections.sections[field.key].push_back(
                         occurrence);
@@ -2644,6 +2732,15 @@ private:
                 return false;
             }
             std::string path;
+            if (IsExpressionString(source.array_values[i]) &&
+                !PreflightComponentReferenceText(
+                    source.array_values[i],
+                    provenance,
+                    section,
+                    i - 1U))
+            {
+                return false;
+            }
             if (!ParseExactComponentReference(
                     source.array_values[i], path))
             {
@@ -2667,8 +2764,8 @@ private:
             const std::map<
                 std::string,
                 std::shared_ptr<const JBeamValue> >::const_iterator found =
-                    m_component_rows.find(path);
-            if (found == m_component_rows.end())
+                    m_component_arrays.find(path);
+            if (found == m_component_arrays.end())
             {
                 Push(
                     JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
