@@ -317,6 +317,7 @@ private:
     std::uint64_t m_ogre14_section_log_merge_ns = 0U;
     std::uint64_t m_ogre14_section_log_union_ns = 0U;
     std::uint64_t m_ogre14_section_log_particles_ns = 0U;
+    std::uint64_t m_ogre14_section_log_material_apply_ns = 0U;
     std::uint64_t m_ogre14_section_log_other_ns = 0U;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
@@ -448,6 +449,10 @@ private:
         std::uint64_t section_merge_ns = 0U;
         std::uint64_t section_union_ns = 0U;
         std::uint64_t section_particles_ns = 0U;
+        /// The material-source Apply transaction, split out of the particle
+        /// walk span it executes inside so an empty particle inventory can
+        /// never be billed for material republication cost.
+        std::uint64_t section_material_apply_ns = 0U;
         std::uint64_t section_other_ns = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;
