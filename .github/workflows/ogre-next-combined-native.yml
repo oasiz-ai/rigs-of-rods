@@ -56,7 +56,6 @@ jobs:
       CC: gcc-11
       CXX: g++-11
       CMAKE_BUILD_PARALLEL_LEVEL: "3"
-      CONAN_HOME: ${{ github.workspace }}/.ci-conan/combined-linux-x86_64
       PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
@@ -67,6 +66,16 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
+      - name: Isolate all generated state from the source checkout
+        shell: bash
+        run: |
+          {
+            echo "CONAN_HOME=$RUNNER_TEMP/ror-combined-conan-home"
+            echo "ROR_COMBINED_ARTIFACTS_DIR=$RUNNER_TEMP/ror-combined-artifacts"
+            echo "ROR_COMBINED_BUILD_DIR=$RUNNER_TEMP/ror-combined-build"
+            echo "ROR_COMBINED_STAGE_DIR=$RUNNER_TEMP/ror-combined-stage"
+          } >> "$GITHUB_ENV"
 
       - name: Install Linux build and software-rendering prerequisites
         shell: bash
@@ -109,7 +118,7 @@ jobs:
       - name: Restore isolated Conan packages
         uses: actions/cache@v6
         with:
-          path: ${{ env.CONAN_HOME }}
+          path: ${{ runner.temp }}/ror-combined-conan-home
           key: ogre-next-combined-linux-gcc11-release-conan-2.31.1-${{ hashFiles('conanfile.py', 'cmake/conan/locks/*.lock', 'cmake/conan/profiles/*', 'cmake/conan/recipes/**', 'cmake/conan/export_pinned_dependency_recipes.py') }}
 
       - name: Configure isolated Conan client
@@ -135,11 +144,11 @@ jobs:
       - name: Export pinned public RoR dependency recipes
         shell: bash
         run: |
-          cmake -E make_directory artifacts
+          cmake -E make_directory "$ROR_COMBINED_ARTIFACTS_DIR"
           python cmake/conan/export_pinned_dependency_recipes.py \
             --archive "$RUNNER_TEMP/ror-conan-recipes-d3568327.tar.gz" \
             --extract-root "$RUNNER_TEMP/ror-conan-recipes-export" \
-            | tee artifacts/pinned-conan-recipes.json
+            | tee "$ROR_COMBINED_ARTIFACTS_DIR/pinned-conan-recipes.json"
 
       - name: Verify compiler, architecture, and Vulkan software device
         shell: bash
@@ -168,7 +177,7 @@ jobs:
         run: |
           python tests/tools/assert_ogre14_app_graph.py \
             --platform linux-x86_64 \
-            | tee artifacts/linux-x86_64-conan-graph.json
+            | tee "$ROR_COMBINED_ARTIFACTS_DIR/linux-x86_64-conan-graph.json"
 
       - name: Configure clean Linux RoR-Combined Release
         shell: bash
@@ -176,10 +185,10 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=no)"
           cmake \
             -S . \
-            -B build-combined-linux-x86_64 \
+            -B "$ROR_COMBINED_BUILD_DIR" \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/stage-combined-linux-x86_64" \
+            -DCMAKE_INSTALL_PREFIX="$ROR_COMBINED_STAGE_DIR" \
             -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/conan_provider.cmake \
             -DCONAN_HOST_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
             -DCONAN_BUILD_PROFILE="$GITHUB_WORKSPACE/cmake/conan/profiles/linux-x86_64-release" \
@@ -194,7 +203,7 @@ jobs:
         shell: bash
         run: >-
           cmake
-          --build build-combined-linux-x86_64
+          --build "$ROR_COMBINED_BUILD_DIR"
           --target ror_ogre_next_combined_verified
           --config Release
 
@@ -203,9 +212,10 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          build = Path("build-combined-linux-x86_64")
+          build = Path(os.environ["ROR_COMBINED_BUILD_DIR"])
           binary = build / "bin/RoR-Combined"
           closure = build / "source/main/RoR-Combined.binary-closure.json"
           namespace = build / "ogre-next-embedded/ogre-next-combined-namespace-audit.json"
@@ -229,18 +239,18 @@ jobs:
       - name: Install and relocate the combined runtime
         shell: bash
         run: |
-          cmake --install build-combined-linux-x86_64 \
-            --prefix "$GITHUB_WORKSPACE/stage-combined-linux-x86_64" \
+          cmake --install "$ROR_COMBINED_BUILD_DIR" \
+            --prefix "$ROR_COMBINED_STAGE_DIR" \
             --component Base_Game
-          cmake --install build-combined-linux-x86_64 \
-            --prefix "$GITHUB_WORKSPACE/stage-combined-linux-x86_64" \
+          cmake --install "$ROR_COMBINED_BUILD_DIR" \
+            --prefix "$ROR_COMBINED_STAGE_DIR" \
             --component Base_Content
 
       - name: Audit relocated runtime and retain provenance
         shell: bash
         run: |
-          stage="$GITHUB_WORKSPACE/stage-combined-linux-x86_64"
-          build="$GITHUB_WORKSPACE/build-combined-linux-x86_64"
+          stage="$ROR_COMBINED_STAGE_DIR"
+          build="$ROR_COMBINED_BUILD_DIR"
           test -x "$stage/RoR-Combined"
           test -x "$stage/RunRoR"
           test ! -e "$stage/RoR"
@@ -278,7 +288,7 @@ jobs:
       - name: Render bounded Ogre-Next frames with relocated Vulkan runtime
         shell: bash
         run: |
-          stage="$GITHUB_WORKSPACE/stage-combined-linux-x86_64"
+          stage="$ROR_COMBINED_STAGE_DIR"
           smoke="$RUNNER_TEMP/ror-combined-smoke"
           cmake -E make_directory "$smoke/home" "$smoke/config" "$smoke/cache" "$smoke/data"
           receipt="$stage/qualification/renderer-smoke.json"
@@ -304,9 +314,13 @@ jobs:
             2> "$stage/qualification/renderer-smoke.stderr.log"
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          receipt = Path("stage-combined-linux-x86_64/qualification/renderer-smoke.json")
+          receipt = (
+              Path(os.environ["ROR_COMBINED_STAGE_DIR"])
+              / "qualification/renderer-smoke.json"
+          )
           document = json.loads(receipt.read_text(encoding="utf-8"))
           expected = {
               "format": "ror-frame-time-budget-v1",
@@ -328,7 +342,7 @@ jobs:
       - name: Write deterministic package inventory
         shell: bash
         run: |
-          stage="$GITHUB_WORKSPACE/stage-combined-linux-x86_64"
+          stage="$ROR_COMBINED_STAGE_DIR"
           python - "$stage" "$GITHUB_SHA" <<'PY'
           import hashlib
           import json
@@ -375,7 +389,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           include-hidden-files: true
-          path: stage-combined-linux-x86_64/
+          path: ${{ runner.temp }}/ror-combined-stage/
 
       - name: Upload combined-build diagnostics
         if: failure()
@@ -386,9 +400,9 @@ jobs:
           retention-days: 14
           include-hidden-files: true
           path: |
-            artifacts/
-            build-combined-linux-x86_64/CMakeCache.txt
-            build-combined-linux-x86_64/CMakeFiles/CMakeConfigureLog.yaml
-            build-combined-linux-x86_64/ogre-next-embedded/*.json
-            build-combined-linux-x86_64/source/main/RoR-Combined.*
-            stage-combined-linux-x86_64/qualification/
+            ${{ runner.temp }}/ror-combined-artifacts/
+            ${{ runner.temp }}/ror-combined-build/CMakeCache.txt
+            ${{ runner.temp }}/ror-combined-build/CMakeFiles/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/ror-combined-build/ogre-next-embedded/*.json
+            ${{ runner.temp }}/ror-combined-build/source/main/RoR-Combined.*
+            ${{ runner.temp }}/ror-combined-stage/qualification/
