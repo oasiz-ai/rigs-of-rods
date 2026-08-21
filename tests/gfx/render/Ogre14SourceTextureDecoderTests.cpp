@@ -248,6 +248,13 @@ void AppendU64LittleEndian(std::vector<std::uint8_t> &bytes,
   }
 }
 
+void AppendBytes(std::vector<std::uint8_t> &bytes,
+                 const std::vector<std::uint8_t> &payload) {
+  for (const std::uint8_t byte : payload) {
+    bytes.push_back(byte);
+  }
+}
+
 std::uint32_t BlockBytes(std::uint32_t width, std::uint32_t height,
                          std::uint32_t bytes_per_block) {
   return ((width + 3U) / 4U) * ((height + 3U) / 4U) * bytes_per_block;
@@ -281,9 +288,7 @@ MakeCompressedDds(std::uint32_t four_cc, std::uint32_t width,
     caps |= 0x00000008U | 0x00400000U;
   }
   WriteU32LittleEndian(bytes, 108U, caps);
-  if (!payload.empty()) {
-    bytes.insert(bytes.end(), payload.begin(), payload.end());
-  }
+  AppendBytes(bytes, payload);
   return bytes;
 }
 
@@ -320,9 +325,7 @@ MakeUncompressedDds(std::uint32_t width, std::uint32_t height,
     caps |= 0x00000008U | 0x00400000U;
   }
   WriteU32LittleEndian(bytes, 108U, caps);
-  if (!payload.empty()) {
-    bytes.insert(bytes.end(), payload.begin(), payload.end());
-  }
+  AppendBytes(bytes, payload);
   return bytes;
 }
 
