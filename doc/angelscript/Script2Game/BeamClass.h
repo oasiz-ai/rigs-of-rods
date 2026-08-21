@@ -124,6 +124,23 @@ public:
     vector3 getNodeForces(int nodeNumber);
 
     /**
+     * Sets one exact initial velocity on every movable node for a deterministic
+     * impact run. The operation is transactional and succeeds only for a
+     * locally simulated actor while simulation is paused and deterministic
+     * fixed stepping is armed. Immovable barrier nodes are left unchanged.
+     * @param velocity Velocity in meters per second; magnitude must be in
+     * (0, 100].
+     * @return True only when every movable node passed preflight and was
+     * updated.
+     */
+    bool trySetDeterministicImpactVelocity(vector3 velocity);
+
+    /**
+     * @return The number of currently broken structural beams.
+     */
+    int getBrokenBeamCount() const;
+
+    /**
      * Returns the mass options of the node.
      * @param nodeNumber The number of the node (counts from 0, see `getNodeCount()`)
      * @param loaded Reference parameter. Indicates whether the node bears a part of the cargo load.

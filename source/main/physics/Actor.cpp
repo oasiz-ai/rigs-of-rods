@@ -29,12 +29,14 @@
 #include "SimData.h"
 #include "ActorManager.h"
 #include "Buoyance.h"
+#include "CalibratedBeamMaterial.h"
 #include "CacheSystem.h"
 #include "ChatSystem.h"
 #include "CmdKeyInertia.h"
 #include "Collisions.h"
 #include "DashBoardManager.h"
 #include "Differentials.h"
+#include "DeterministicImpactInitialCondition.h"
 #include "DeterministicCounterNoise.h"
 #include "DynamicCollisions.h"
 #include "Engine.h"
@@ -5486,6 +5488,76 @@ Vector3 Actor::getNodeForces(int nodeNumber)
     {
         return Ogre::Vector3::ZERO;
     }
+}
+
+bool Actor::trySetDeterministicImpactVelocity(Vector3 velocity)
+{
+    using namespace DeterministicImpactInitialCondition;
+
+    if (ar_state != ActorState::LOCAL_SIMULATED ||
+        App::sim_state == nullptr ||
+        App::sim_state->getEnum<SimState>() != SimState::PAUSED ||
+        App::sim_deterministic_fixed_steps_per_frame == nullptr ||
+        App::sim_deterministic_fixed_steps_per_frame->getInt() <= 0)
+    {
+        return false;
+    }
+
+    Request request;
+    request.velocity_meters_per_second = {{
+        static_cast<double>(velocity.x),
+        static_cast<double>(velocity.y),
+        static_cast<double>(velocity.z)}};
+    if (!Validate(request).IsValid())
+    {
+        return false;
+    }
+
+    int movable_nodes = 0;
+    for (int i = 0; i < ar_num_nodes; ++i)
+    {
+        const node_t& node = ar_nodes[i];
+        if (node.nd_immovable)
+        {
+            continue;
+        }
+        if (!CalibratedBeamMaterial::IsFinite(
+                static_cast<double>(node.mass)) ||
+            node.mass <= 0.0f)
+        {
+            return false;
+        }
+        ++movable_nodes;
+    }
+    if (movable_nodes == 0)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < ar_num_nodes; ++i)
+    {
+        node_t& node = ar_nodes[i];
+        if (!node.nd_immovable)
+        {
+            node.Velocity = velocity;
+            node.Forces = Vector3::ZERO;
+        }
+    }
+    m_avg_node_velocity = velocity;
+    return true;
+}
+
+int Actor::getBrokenBeamCount() const
+{
+    int broken_beams = 0;
+    for (int i = 0; i < ar_num_beams; ++i)
+    {
+        if (ar_beams[i].bm_broken)
+        {
+            ++broken_beams;
+        }
+    }
+    return broken_beams;
 }
 
 void Actor::getNodeMassOptions(int nodeNumber, bool& loaded, bool& overrideMass)

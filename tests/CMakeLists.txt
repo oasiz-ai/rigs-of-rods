@@ -2249,6 +2249,23 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_impact_initial_condition_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicImpactInitialConditionTests.cpp"
+)
+
+add_executable(
+    ror_deterministic_impact_initial_condition_fast_math_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicImpactInitialConditionTests.cpp"
+)
+if (MSVC)
+    target_compile_options(
+        ror_deterministic_impact_initial_condition_fast_math_tests PRIVATE /fp:fast)
+else ()
+    target_compile_options(
+        ror_deterministic_impact_initial_condition_fast_math_tests PRIVATE -ffast-math)
+endif ()
+
+add_executable(
     ror_calibrated_beam_runtime_audit_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/CalibratedBeamRuntimeAuditTests.cpp"
 )
@@ -2868,6 +2885,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_scenario_schedule_tests
     ror_deterministic_input_trace_tests
     ror_deterministic_input_trace_runtime_tests
+    ror_deterministic_impact_initial_condition_tests
+    ror_deterministic_impact_initial_condition_fast_math_tests
     ror_deterministic_vehicle_input_tests
     ror_deterministic_vehicle_input_actor_adapter_tests
     ror_deterministic_state_digest_tests
@@ -3665,6 +3684,16 @@ add_test(
 add_test(
     NAME calibrated_beam_material_adapter
     COMMAND ror_calibrated_beam_material_adapter_tests
+)
+
+add_test(
+    NAME deterministic_impact_initial_condition
+    COMMAND ror_deterministic_impact_initial_condition_tests
+)
+
+add_test(
+    NAME deterministic_impact_initial_condition_fast_math
+    COMMAND ror_deterministic_impact_initial_condition_fast_math_tests
 )
 
 add_test(

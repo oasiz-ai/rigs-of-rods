@@ -111,6 +111,8 @@ public:
     float             getNodeMass(int nodeNumber);
     Ogre::Vector3     getNodeVelocity(int nodeNumber);
     Ogre::Vector3     getNodeForces(int nodeNumber);
+    bool              trySetDeterministicImpactVelocity(Ogre::Vector3 velocity);
+    int               getBrokenBeamCount() const;
     void              getNodeMassOptions(int nodeNumber, bool& loaded, bool& overrideMass);
     bool              isNodeWheelRim(int nodeNumber);      //!< Is node marked as wheel rim? Note some wheel models use only tire nodes. See https://docs.rigsofrods.org/vehicle-creation/fileformat-truck/#wheels
     bool              isNodeWheelTire(int nodeNumber);     //!< Is node marked as wheel tire? Note some wheel models use only tire nodes. See https://docs.rigsofrods.org/vehicle-creation/fileformat-truck/#wheels
