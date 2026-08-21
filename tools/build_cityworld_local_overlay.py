@@ -4218,7 +4218,10 @@ def build_local_overlay(
         for site in infill_plan.sites
     ]
     blend_channels = terrain_layers.rasterize_blend_channels(
-        terrain_routes, terrain_sites)
+        terrain_routes,
+        terrain_sites,
+        derived=terrain_layers.load_derived_coverage(repository),
+    )
     blend_png = terrain_layers.encode_png_rgba(
         terrain_layers.BLEND_MAP_SIZE, *blend_channels)
     add_payload(

@@ -10,12 +10,19 @@ polygons - and emits the OTC configuration plus one RGBA blend map that drives
 the extra layers from separate channels.
 
 No geometry, texture, or byte is copied from the source archive here. The
-layers name textures that the mounted read-only archive already provides, and
-the blend coverage is computed from project-authored route and site geometry.
+layers name textures that the mounted read-only archive already provides. The
+blend coverage combines project-authored route and site geometry with the
+committed coverage mask that ``tools/derive_cityworld_ground_coverage.py``
+derives offline from where CityWorld's own placed objects put their streets,
+plazas and parkland - a mask of surface classes, carrying none of the archive's
+texture or mesh data. Like the rest of this overlay it is local-only and not
+redistributable.
 """
 
 from __future__ import annotations
 
+import os
+import pathlib
 import struct
 import zlib
 from typing import Iterable, Mapping, Sequence
@@ -24,12 +31,25 @@ from typing import Iterable, Mapping, Sequence
 #: The terrain plane the original CityWorld declares, in metres.
 WORLD_SIZE_M = 12000.0
 
-#: Blend-map resolution. The runtime resizes to the terrain's own blend-map
-#: size, so this only has to be fine enough to keep an 8 m road from
-#: disappearing: at 1024 across 12 km one texel is 11.7 m, which loses them.
-#: 2048 gives 5.86 m per texel, so the narrowest authored route still covers a
-#: texel run rather than aliasing away.
-BLEND_MAP_SIZE = 2048
+#: Blend-map resolution, and the terrain's own ``LayerBlendMapSize`` -- the two
+#: are kept equal so ``TerrainGeometryManager::SetupBlendMaps`` transfers the
+#: image byte-exact instead of running it through OGRE's two-tap resampler.
+#: At 1024 across 12 km one texel is 11.7 m and roads vanish; 2048 gives 5.86 m,
+#: which still smears a 10 m street across under two texels and loses the grid
+#: between blocks. 4096 gives 2.93 m per texel, so a street spans three to four
+#: texels and reads as a street. Going further is not safe: the runtime's
+#: downscale skips source texels beyond 2:1, so 8192 would alias thin roads
+#: away again.
+BLEND_MAP_SIZE = 4096
+
+#: Coverage derived from CityWorld's own placed geometry by
+#: ``tools/derive_cityworld_ground_coverage.py``. It supplies where the city's
+#: streets, plazas and parkland actually are; the routes and sites stamped
+#: below are the overlay's own additions and lap over it.
+DERIVED_COVERAGE_ASSET = (
+    "resources/nextgen/cityworld/terrain/"
+    "cityworld_next_ground_coverage.v1.png"
+)
 
 #: Layer 0 is the base and takes no blend map. Every later layer reads one
 #: channel of the shared map, which keeps a single image serving all of them.
@@ -185,25 +205,116 @@ def _stamp_polygon(
                 channel[row + x] = 255
 
 
+def decode_png_rgba(data: bytes) -> tuple[int, bytearray, bytearray, bytearray]:
+    """Decode an RGBA PNG written by :func:`encode_png_rgba`.
+
+    Deliberately narrow: it accepts only the 8-bit RGBA, non-interlaced,
+    filter-0 form this module emits, which keeps the overlay build free of an
+    image dependency. Anything else is a build error rather than a guess.
+    """
+
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise TerrainLayerError("the derived coverage asset is not a PNG")
+
+    width = height = None
+    idat = bytearray()
+    offset = 8
+    while offset + 8 <= len(data):
+        length = struct.unpack(">I", data[offset:offset + 4])[0]
+        tag = data[offset + 4:offset + 8]
+        payload = data[offset + 8:offset + 8 + length]
+        if tag == b"IHDR":
+            width, height, depth, colour, comp, filt, interlace = struct.unpack(
+                ">IIBBBBB", payload)
+            if depth != 8 or colour != 6 or comp or filt or interlace:
+                raise TerrainLayerError(
+                    "the derived coverage asset must be 8-bit RGBA, "
+                    "non-interlaced PNG")
+        elif tag == b"IDAT":
+            idat += payload
+        elif tag == b"IEND":
+            break
+        offset += 12 + length
+
+    if width is None or width != height:
+        raise TerrainLayerError("the derived coverage asset must be square")
+
+    raw = zlib.decompress(bytes(idat))
+    stride = width * 4
+    if len(raw) != height * (stride + 1):
+        raise TerrainLayerError("the derived coverage asset has a short image")
+
+    red = bytearray(width * height)
+    green = bytearray(width * height)
+    blue = bytearray(width * height)
+    for z in range(height):
+        base = z * (stride + 1)
+        if raw[base] != 0:
+            raise TerrainLayerError(
+                "the derived coverage asset must use filter type 0")
+        row = raw[base + 1:base + 1 + stride]
+        start = z * width
+        red[start:start + width] = row[0::4]
+        green[start:start + width] = row[1::4]
+        blue[start:start + width] = row[2::4]
+    return width, red, green, blue
+
+
+def load_derived_coverage(
+    repository: "os.PathLike[str] | str",
+    size: int = BLEND_MAP_SIZE,
+) -> tuple[bytearray, bytearray, bytearray]:
+    """Read the committed derived-coverage asset, checked against `size`."""
+
+    path = pathlib.Path(repository) / DERIVED_COVERAGE_ASSET
+    if not path.is_file():
+        raise TerrainLayerError(
+            f"the derived coverage asset is missing: {DERIVED_COVERAGE_ASSET}")
+    width, red, green, blue = decode_png_rgba(path.read_bytes())
+    if width != size:
+        raise TerrainLayerError(
+            f"the derived coverage asset is {width} px but the blend map is "
+            f"{size} px; regenerate it with "
+            f"tools/derive_cityworld_ground_coverage.py --size {size}")
+    return red, green, blue
+
+
 def rasterize_blend_channels(
     routes: Iterable[Mapping[str, object]],
     sites: Iterable[Mapping[str, object]],
     size: int = BLEND_MAP_SIZE,
+    derived: tuple[bytearray, bytearray, bytearray] | None = None,
 ) -> tuple[bytearray, bytearray, bytearray]:
     """Rasterize authored routes and sites into three blend channels.
 
     Returns (asphalt, hard standing, rock). The base grass layer needs no
-    channel: it is whatever the others do not cover.
+    channel: it is whatever the others do not cover. When `derived` is given it
+    supplies the coverage recovered from CityWorld's own placed geometry, and
+    the overlay's routes and sites lap over it.
     """
 
     if size <= 0 or (size & (size - 1)) != 0:
         raise TerrainLayerError(
             f"the blend map size must be a positive power of two: {size}")
 
-    asphalt = bytearray(size * size)
-    hard_standing = bytearray(size * size)
-    rock = bytearray(size * size)
+    if derived is None:
+        asphalt = bytearray(size * size)
+        hard_standing = bytearray(size * size)
+        rock = bytearray(size * size)
+    else:
+        for name, channel in zip(("asphalt", "hard standing", "rock"), derived):
+            if len(channel) != size * size:
+                raise TerrainLayerError(
+                    f"the derived {name} channel has {len(channel)} samples, "
+                    f"expected {size * size}")
+        asphalt, hard_standing, rock = (bytearray(c) for c in derived)
     channels = (asphalt, hard_standing, rock)
+
+    # Routes are tracked apart from the derived coverage so that "a road beats a
+    # forecourt" stays a statement about the overlay's own routes: applied to
+    # the derived channels it would erase every derived sidewalk that happens to
+    # abut derived asphalt.
+    route_mask = bytearray(size * size)
 
     for route in routes:
         points = route.get("xz_points") or ()
@@ -224,7 +335,7 @@ def rasterize_blend_channels(
                 _world_to_texel(float(points[index + 1][0]), size),
                 _world_to_texel(float(points[index + 1][1]), size),
             )
-            _stamp_segment(asphalt, size, start, end, radius)
+            _stamp_segment(route_mask, size, start, end, radius)
 
     for site in sites:
         category = str(site.get("category") or "")
@@ -250,7 +361,8 @@ def rasterize_blend_channels(
 
     # Routes win over parcels: a road crossing a forecourt is still a road.
     for index in range(size * size):
-        if asphalt[index]:
+        if route_mask[index]:
+            asphalt[index] = 255
             hard_standing[index] = 0
             rock[index] = 0
 
@@ -276,16 +388,20 @@ def encode_png_rgba(
                 f"the {name} channel has {len(channel)} samples, "
                 f"expected {expected}")
 
-    raw = bytearray()
+    # Rows are interleaved by strided slice assignment rather than per sample:
+    # at 4096 the per-sample form costs tens of millions of appends. The bytes
+    # produced are the same.
+    stride = size * 4
+    opaque = b"\xff" * size
+    raw = bytearray(size * (stride + 1))  # filter type 0 bytes are already zero
     for z in range(size):
-        raw.append(0)  # filter type 0, no prediction
+        start = z * (stride + 1) + 1
+        stop = start + stride
         row = z * size
-        for x in range(size):
-            index = row + x
-            raw.append(red[index])
-            raw.append(green[index])
-            raw.append(blue[index])
-            raw.append(255)
+        raw[start:stop:4] = bytes(red[row:row + size])
+        raw[start + 1:stop:4] = bytes(green[row:row + size])
+        raw[start + 2:stop:4] = bytes(blue[row:row + size])
+        raw[start + 3:stop:4] = opaque
 
     def chunk(tag: bytes, payload: bytes) -> bytes:
         return (
