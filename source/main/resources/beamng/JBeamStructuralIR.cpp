@@ -286,6 +286,76 @@ bool IsComponentPathSegment(const std::string& value)
     return true;
 }
 
+bool IsAsciiSpace(unsigned char value)
+{
+    return value == static_cast<unsigned char>(' ') ||
+        value == static_cast<unsigned char>('\t') ||
+        value == static_cast<unsigned char>('\n') ||
+        value == static_cast<unsigned char>('\r');
+}
+
+bool ParseExactComponentReference(
+    const JBeamValue& value,
+    std::string& path)
+{
+    path.clear();
+    if (value.type != JBeamValueType::STRING ||
+        value.scalar_text.compare(0U, 2U, "$=") != 0)
+    {
+        return false;
+    }
+
+    std::size_t begin = 2U;
+    while (begin < value.scalar_text.size() &&
+           IsAsciiSpace(static_cast<unsigned char>(
+               value.scalar_text[begin])))
+    {
+        ++begin;
+    }
+    std::size_t end = value.scalar_text.size();
+    while (end > begin &&
+           IsAsciiSpace(static_cast<unsigned char>(
+               value.scalar_text[end - 1U])))
+    {
+        --end;
+    }
+    static const char COMPONENT_PREFIX[] = "$components.";
+    static const std::size_t COMPONENT_PREFIX_SIZE =
+        sizeof(COMPONENT_PREFIX) - 1U;
+    if (end - begin <= COMPONENT_PREFIX_SIZE ||
+        value.scalar_text.compare(
+            begin, COMPONENT_PREFIX_SIZE, COMPONENT_PREFIX) != 0)
+    {
+        return false;
+    }
+
+    path.assign(
+        value.scalar_text,
+        begin + COMPONENT_PREFIX_SIZE,
+        end - begin - COMPONENT_PREFIX_SIZE);
+    std::size_t segment_begin = 0U;
+    while (segment_begin < path.size())
+    {
+        const std::size_t separator = path.find('.', segment_begin);
+        const std::size_t segment_end = separator == std::string::npos
+            ? path.size()
+            : separator;
+        if (!IsComponentPathSegment(path.substr(
+                segment_begin, segment_end - segment_begin)))
+        {
+            path.clear();
+            return false;
+        }
+        if (separator == std::string::npos)
+        {
+            return true;
+        }
+        segment_begin = separator + 1U;
+    }
+    path.clear();
+    return false;
+}
+
 bool IsRecognizedSection(const std::string& name)
 {
     return name == "nodes" ||
@@ -545,6 +615,12 @@ private:
     /// allows scalar descendants of an object; true also blocks descendants
     /// because an array or unsupported expression replaced the subtree.
     std::map<std::string, bool> m_non_scalar_components;
+    /// Exact effective array-valued component leaves. These remain source
+    /// owned and are copied only after a structural table uses an exact
+    /// `$=$components.path` row reference and the complete copy has passed
+    /// the retained-memory preflight.
+    std::map<std::string, std::shared_ptr<const JBeamValue> >
+        m_component_rows;
     std::map<
         std::string,
         std::shared_ptr<const std::string> > m_source_names;
@@ -1786,6 +1862,73 @@ private:
         return true;
     }
 
+    bool EraseComponentRowPath(
+        const std::string& path,
+        bool descendants,
+        const JBeamStructuralProvenance& provenance)
+    {
+        const std::string prefix = path + ".";
+        std::map<
+            std::string,
+            std::shared_ptr<const JBeamValue> >::iterator iterator =
+                m_component_rows.begin();
+        while (iterator != m_component_rows.end())
+        {
+            if (!ChargeSemanticWork(
+                    1U,
+                    provenance,
+                    "components",
+                    path,
+                    "Component-row classification exceeds the aggregate "
+                    "semantic work limit"))
+            {
+                return false;
+            }
+            const bool exact = iterator->first == path;
+            const bool child =
+                descendants &&
+                iterator->first.size() > prefix.size() &&
+                iterator->first.compare(
+                    0U, prefix.size(), prefix) == 0;
+            if (exact || child)
+            {
+                m_component_rows.erase(iterator++);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        return true;
+    }
+
+    bool SetComponentRow(
+        const std::string& path,
+        const std::shared_ptr<const JBeamValue>& value)
+    {
+        std::map<
+            std::string,
+            std::shared_ptr<const JBeamValue> >::iterator found =
+                m_component_rows.find(path);
+        if (found != m_component_rows.end())
+        {
+            found->second = value;
+            return true;
+        }
+        std::size_t bytes = path.size();
+        if (!AddSize(sizeof(std::shared_ptr<const JBeamValue>), bytes))
+        {
+            RejectRetained();
+            return false;
+        }
+        if (!ReserveSemantic(bytes))
+        {
+            return false;
+        }
+        m_component_rows.insert(std::make_pair(path, value));
+        return true;
+    }
+
     bool SetNonScalarComponent(
         const std::string& path,
         bool blocks_descendants)
@@ -1883,7 +2026,9 @@ private:
         if (value->type == JBeamValueType::OBJECT)
         {
             if (!EraseComponentPath(
-                    values, path, false, part.provenance))
+                    values, path, false, part.provenance) ||
+                !EraseComponentRowPath(
+                    path, false, part.provenance))
             {
                 return;
             }
@@ -1946,7 +2091,9 @@ private:
             return;
         }
         if (!EraseComponentPath(
-                values, path, true, part.provenance))
+                values, path, true, part.provenance) ||
+            !EraseComponentRowPath(
+                path, true, part.provenance))
         {
             return;
         }
@@ -1957,18 +2104,11 @@ private:
         }
         if (value->type == JBeamValueType::ARRAY)
         {
-            if (!SetNonScalarComponent(path, true))
+            if (!SetNonScalarComponent(path, true) ||
+                !SetComponentRow(path, value))
             {
                 return;
             }
-            PreserveUnsupportedComponent(
-                JBeamStructuralDiagnosticCode::
-                    UNSUPPORTED_COMPONENT_VALUE,
-                part,
-                path,
-                "Table-valued component is preserved but cannot enter "
-                "the scalar expression environment",
-                value);
             return;
         }
         if (value->type == JBeamValueType::STRING &&
@@ -2471,6 +2611,156 @@ private:
         }
     }
 
+    bool ExpandComponentRows(
+        const JBeamValue& source,
+        const JBeamStructuralProvenance& provenance,
+        const std::string& section,
+        JBeamValue& output,
+        bool& expanded)
+    {
+        expanded = false;
+        if (source.type != JBeamValueType::ARRAY ||
+            source.array_values.size() < 2U)
+        {
+            return true;
+        }
+
+        typedef std::pair<
+            std::size_t,
+            std::shared_ptr<const JBeamValue> > Replacement;
+        std::vector<Replacement> replacements;
+        for (std::size_t i = 1U;
+             i < source.array_values.size();
+             ++i)
+        {
+            if (!ChargeSemanticWork(
+                    1U,
+                    provenance,
+                    section,
+                    std::string(),
+                    "Component-row expansion exceeds the aggregate "
+                    "semantic work limit"))
+            {
+                return false;
+            }
+            std::string path;
+            if (!ParseExactComponentReference(
+                    source.array_values[i], path))
+            {
+                if (IsExpressionString(source.array_values[i]))
+                {
+                    Push(
+                        JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                        JBeamStructuralSeverity::ERROR_SEVERITY,
+                        ProvenanceWithSpan(
+                            provenance,
+                            source.array_values[i].span),
+                        section,
+                        i - 1U,
+                        "$components",
+                        "A structural table-entry expression must be an "
+                        "exact $=$components.path row reference");
+                    return false;
+                }
+                continue;
+            }
+            const std::map<
+                std::string,
+                std::shared_ptr<const JBeamValue> >::const_iterator found =
+                    m_component_rows.find(path);
+            if (found == m_component_rows.end())
+            {
+                Push(
+                    JBeamStructuralDiagnosticCode::EXPRESSION_ERROR,
+                    JBeamStructuralSeverity::ERROR_SEVERITY,
+                    ProvenanceWithSpan(
+                        provenance,
+                        source.array_values[i].span),
+                    section,
+                    i - 1U,
+                    "$components." + path,
+                    "Exact component row reference does not resolve to "
+                    "an effective array-valued component");
+                return false;
+            }
+            replacements.push_back(
+                std::make_pair(i, found->second));
+        }
+        if (replacements.empty())
+        {
+            return true;
+        }
+
+        std::size_t admitted = m_retained_bytes;
+        if (!AddSize(m_semantic_bytes, admitted))
+        {
+            RejectRetained();
+            return false;
+        }
+        const std::size_t remaining =
+            m_limits.max_retained_bytes -
+                std::min(admitted, m_limits.max_retained_bytes);
+        ValueMeasurement source_measurement;
+        ValueMeasureStatus status = MeasureValue(
+            source,
+            remaining,
+            false,
+            source_measurement);
+        if (status != ValueMeasureStatus::OK)
+        {
+            RejectValueMeasurement(
+                status,
+                provenance,
+                section,
+                0U,
+                "$components");
+            return false;
+        }
+        std::size_t bytes = source_measurement.bytes;
+        for (std::size_t i = 0U; i < replacements.size(); ++i)
+        {
+            if (!replacements[i].second)
+            {
+                continue;
+            }
+            ValueMeasurement replacement_measurement;
+            status = MeasureValue(
+                *replacements[i].second,
+                remaining - std::min(bytes, remaining),
+                false,
+                replacement_measurement);
+            if (status != ValueMeasureStatus::OK)
+            {
+                RejectValueMeasurement(
+                    status,
+                    provenance,
+                    section,
+                    replacements[i].first,
+                    "$components");
+                return false;
+            }
+            if (!AddSize(replacement_measurement.bytes, bytes) ||
+                bytes > remaining)
+            {
+                RejectRetained();
+                return false;
+            }
+        }
+        if (!ReserveSemantic(bytes))
+        {
+            return false;
+        }
+
+        output = source;
+        for (std::size_t i = 0U; i < replacements.size(); ++i)
+        {
+            output.array_values[replacements[i].first] =
+                *replacements[i].second;
+        }
+        expanded = true;
+        return true;
+    }
+
     const JBeamNormalizedTable* NormalizeSection(
         const PartSections& sections,
         const std::string& name,
@@ -2487,10 +2777,30 @@ private:
         {
             return NULL;
         }
+        JBeamValue expanded_value;
+        bool expanded = false;
+        if (!ExpandComponentRows(
+                *found->second[0].value,
+                sections.part.provenance,
+                name,
+                expanded_value,
+                expanded))
+        {
+            return NULL;
+        }
+        const JBeamValue& normalization_input = expanded
+            ? expanded_value
+            : *found->second[0].value;
+        std::size_t admitted_bytes = m_retained_bytes;
+        if (!AddSize(m_semantic_bytes, admitted_bytes))
+        {
+            RejectRetained();
+            return NULL;
+        }
         const std::size_t remaining_bytes =
             m_limits.max_retained_bytes -
                 std::min(
-                    m_retained_bytes,
+                    admitted_bytes,
                     m_limits.max_retained_bytes);
         const std::size_t remaining_diagnostics =
             m_limits.max_diagnostics -
@@ -2509,7 +2819,7 @@ private:
         normalize_limits.max_diagnostics =
             std::max<std::size_t>(1U, remaining_diagnostics);
         normalized = NormalizeJBeamTables(
-            *found->second[0].value,
+            normalization_input,
             normalize_limits);
 
         bool normalization_error = false;

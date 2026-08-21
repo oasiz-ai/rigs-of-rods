@@ -111,6 +111,8 @@ front end must support and test:
 - row-local dictionaries that override inherited defaults;
 - authored [`variables`][variables] range tables with numeric default/min/max
   values and retained tuning-menu metadata;
+- exact array-valued `$=$components.path` insertions as structural table rows,
+  including deep-merge overrides from selected parts;
 - numeric variables and deterministic `$=` expressions;
 - string and Boolean slot variables;
 - `$prefix`, `$suffix`, and `$.name` namespace expansion;
@@ -130,7 +132,9 @@ constants, typed `$variables`, and flattened scalar
 numeric-only. `clamp` rejects reversed bounds, `square` rejects overflow,
 `round` resolves exact halves away from zero, and all rounding and interpolation
 operations use pinned IEEE-754 binary64 operation order rather than host Lua.
-Missing variables evaluate to `nil`. Expression bytes, tokens, recursion,
+Missing variables evaluate to `nil`. Component row insertion is deliberately
+not a general table-expression evaluator: the complete table entry must be one
+exact component path. Expression bytes, tokens, recursion,
 function arguments, deterministic work, strings, output, and environment size
 are bounded. Non-finite input or output fails closed even under the game's
 fast-math mode, and canonical values are independent of source spelling.
@@ -138,10 +142,10 @@ fast-math mode, and canonical values are independent of source spelling.
 This core is not a Lua interpreter and exposes no host, filesystem, network,
 clock, or random functions. Every function outside the two deterministic
 `case` signatures and the eighteen-name deterministic numeric allowlist,
-numeric-to-string concatenation, component tables, indexing, and method calls
-remain unsupported. In particular, transcendental, host-libm-dependent, and
-random functions stay fail-closed until their cross-platform numeric and state
-contracts are versioned.
+numeric-to-string concatenation, whole-table component operators, indexing,
+and method calls remain unsupported. In particular, transcendental,
+host-libm-dependent, and random functions stay fail-closed until their
+cross-platform numeric and state contracts are versioned.
 
 The functions above are an independent implementation of public format
 behavior; they do not reuse BeamNG code or assets. `ParseJBeam` and
@@ -158,11 +162,17 @@ evaluates standalone variables, `$=` expressions, and `$.name` namespace
 strings only for explicitly supported scalar node, beam, surface, and refNodes
 fields before applying the field's required type.
 
-Table-valued and expression-valued components are preserved with diagnostics
-instead of entering the scalar environment. Unknown sections and fields,
-including legacy `rails.id`, are never evaluated. Per-expression limits are
-supplemented by aggregate evaluation, work, component-node, component-depth,
-environment-count, environment-string, and structural retained-byte limits.
+Array-valued component leaves can enter recognized structural tables only
+through an exact row reference; nested scalar expressions inside the inserted
+row then use the normal bounded evaluator. The source section and referenced
+row are fully measured before copying, and non-exact, missing, wrong-type, or
+over-budget references fail before partial geometry is published.
+Expression-valued components and whole-table operations remain preserved with
+diagnostics instead of entering the scalar environment. Unknown sections and
+fields, including legacy `rails.id`, are never evaluated. Per-expression
+limits are supplemented by aggregate evaluation, work, component-node,
+component-depth, environment-count, environment-string, and structural
+retained-byte limits.
 An absent variable is a valid `nil` expression operand, but a final `nil` in a
 field that requires a number, Boolean, or string fails that field closed with
 its source span.
