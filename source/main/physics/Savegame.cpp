@@ -30,6 +30,7 @@
 #include "CalibratedBeamSavegameJson.h"
 #include "ContentManager.h"
 #include "Console.h"
+#include "DeterministicInputContinuationSavegame.h"
 #include "Engine.h"
 #include "GameContext.h"
 #include "GUIManager.h"
@@ -58,6 +59,8 @@ namespace {
 
 static const char* const CALIBRATED_BEAM_STATE_MEMBER =
     "calibrated_beam_material_state";
+static const char* const DETERMINISTIC_INPUT_CONTINUATION_MEMBER =
+    "deterministic_input_continuation_v1";
 
 bool BuildLiveMaterialBeams(
     const ActorPtr& actor,
@@ -506,6 +509,107 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
             Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_ERROR, _L("Error while loading scene: File format mismatch"));
         return false;
     }
+    if (!j_doc.HasMember("physics_paused") ||
+        !j_doc["physics_paused"].IsBool() ||
+        (j_doc.HasMember("completed_physics_steps") &&
+            !j_doc["completed_physics_steps"].IsUint64()) ||
+        (j_doc.HasMember(DETERMINISTIC_INPUT_CONTINUATION_MEMBER) &&
+            !j_doc[DETERMINISTIC_INPUT_CONTINUATION_MEMBER].IsString()))
+    {
+        App::GetConsole()->putMessage(
+            Console::CONSOLE_MSGTYPE_INFO,
+            Console::CONSOLE_SYSTEM_ERROR,
+            _L("Error while loading scene: Invalid deterministic state"));
+        return false;
+    }
+
+    const std::uint64_t completed_physics_steps =
+        j_doc.HasMember("completed_physics_steps")
+            ? j_doc["completed_physics_steps"].GetUint64()
+            : 0U;
+    DeterministicInputContinuationSavegame::Payload input_payload;
+    DeterministicInputContinuationSavegame::Payload* input_payload_ptr =
+        nullptr;
+    if (j_doc.HasMember(DETERMINISTIC_INPUT_CONTINUATION_MEMBER))
+    {
+        const rapidjson::Value& encoded =
+            j_doc[DETERMINISTIC_INPUT_CONTINUATION_MEMBER];
+        DeterministicInputContinuationSavegame::Status status;
+        const std::string encoded_text(
+            encoded.GetString(),
+            encoded.GetStringLength());
+        if (!DeterministicInputContinuationSavegame::Decode(
+                encoded_text,
+                input_payload,
+                status) ||
+            !j_doc.HasMember("completed_physics_steps") ||
+            input_payload.completed_physics_steps !=
+                completed_physics_steps)
+        {
+            RoR::LogFormat(
+                "[RoR|Savegame] Rejected deterministic input "
+                "continuation (error=%s, offset=%llu)",
+                DeterministicInputContinuationSavegame::ToString(
+                    status.error),
+                static_cast<unsigned long long>(status.byte_offset));
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while loading scene: Invalid deterministic input continuation"));
+            return false;
+        }
+        input_payload_ptr = &input_payload;
+    }
+
+    if (input_payload_ptr != nullptr)
+    {
+        if (!j_doc.HasMember("actors") || !j_doc["actors"].IsArray())
+        {
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while loading scene: Deterministic input owner is missing"));
+            return false;
+        }
+        bool found_player_actor = false;
+        for (const rapidjson::Value& actor_entry:
+            j_doc["actors"].GetArray())
+        {
+            if (!actor_entry.IsObject() ||
+                !actor_entry.HasMember("player_actor") ||
+                !actor_entry["player_actor"].IsBool())
+            {
+                App::GetConsole()->putMessage(
+                    Console::CONSOLE_MSGTYPE_INFO,
+                    Console::CONSOLE_SYSTEM_ERROR,
+                    _L("Error while loading scene: Invalid deterministic input owner"));
+                return false;
+            }
+            if (!actor_entry["player_actor"].GetBool())
+                continue;
+            if (found_player_actor ||
+                !actor_entry.HasMember("physics_step") ||
+                !actor_entry["physics_step"].IsUint64() ||
+                actor_entry["physics_step"].GetUint64() !=
+                    input_payload.actor_physics_step)
+            {
+                App::GetConsole()->putMessage(
+                    Console::CONSOLE_MSGTYPE_INFO,
+                    Console::CONSOLE_SYSTEM_ERROR,
+                    _L("Error while loading scene: Deterministic input owner is ambiguous or stale"));
+                return false;
+            }
+            found_player_actor = true;
+        }
+        if (!found_player_actor)
+        {
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while loading scene: Deterministic input owner is missing"));
+            return false;
+        }
+    }
 
     // Terrain
     String terrain_name = j_doc["terrain_name"].GetString();
@@ -526,11 +630,33 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
                 Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_ERROR, _L("Error while loading scene: Too many vehicles"));
             return false;
         }
+        if (input_payload_ptr != nullptr)
+        {
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while loading scene: Deterministic input continuation is single-player only"));
+            return false;
+        }
+    }
+
+    if (!this->StageDeterministicActorInputSavegame(
+            input_payload_ptr,
+            completed_physics_steps,
+            save_filename != "autosave.sav"))
+    {
+        App::GetConsole()->putMessage(
+            Console::CONSOLE_MSGTYPE_INFO,
+            Console::CONSOLE_SYSTEM_ERROR,
+            _L("Error while loading scene: Could not stage deterministic input continuation"));
+        return false;
     }
 
     m_forced_awake = j_doc["forced_awake"].GetBool();
 
-    App::GetGameContext()->GetActorManager()->SetSimulationPaused(j_doc["physics_paused"].GetBool());
+    App::GetGameContext()->GetActorManager()->SetSimulationPaused(
+        input_payload_ptr != nullptr ? true :
+            j_doc["physics_paused"].GetBool());
 
 #ifdef USE_CAELUM
     if (App::gfx_sky_mode->getEnum<GfxSkyMode>() == GfxSkyMode::CAELUM)
@@ -659,7 +785,7 @@ bool ActorManager::LoadScene(Ogre::String save_filename)
             return false;
     }
 
-    if (save_filename != "autosave.sav")
+    if (save_filename != "autosave.sav" && input_payload_ptr == nullptr)
     {
         App::GetConsole()->putMessage(
             Console::CONSOLE_MSGTYPE_INFO, Console::CONSOLE_SYSTEM_NOTICE, _L("Scene loaded"));
@@ -698,6 +824,55 @@ bool ActorManager::SaveScene(Ogre::String filename)
     rapidjson::Document j_doc;
     j_doc.SetObject();
     j_doc.AddMember("format_version", SAVEGAME_FILE_FORMAT, j_doc.GetAllocator());
+
+    DeterministicInputContinuationSavegame::Payload input_payload;
+    bool has_input_payload = false;
+    if (!this->CaptureDeterministicActorInputSavegame(
+            input_payload,
+            has_input_payload))
+    {
+        App::GetConsole()->putMessage(
+            Console::CONSOLE_MSGTYPE_INFO,
+            Console::CONSOLE_SYSTEM_ERROR,
+            _L("Error while saving scene: Deterministic input continuation could not be captured"));
+        return false;
+    }
+    j_doc.AddMember(
+        "completed_physics_steps",
+        m_completed_physics_steps,
+        j_doc.GetAllocator());
+    if (has_input_payload)
+    {
+        DeterministicInputContinuationSavegame::Status status;
+        std::string encoded;
+        if (!DeterministicInputContinuationSavegame::Encode(
+                input_payload,
+                encoded,
+                status))
+        {
+            RoR::LogFormat(
+                "[RoR|Savegame] Deterministic input continuation encoding "
+                "failed (error=%s, offset=%llu)",
+                DeterministicInputContinuationSavegame::ToString(
+                    status.error),
+                static_cast<unsigned long long>(status.byte_offset));
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while saving scene: Deterministic input continuation could not be encoded"));
+            return false;
+        }
+        rapidjson::Value encoded_value;
+        encoded_value.SetString(
+            encoded.data(),
+            static_cast<rapidjson::SizeType>(encoded.size()),
+            j_doc.GetAllocator());
+        j_doc.AddMember(
+            rapidjson::StringRef(
+                DETERMINISTIC_INPUT_CONTINUATION_MEMBER),
+            encoded_value,
+            j_doc.GetAllocator());
+    }
 
     // Pretty name
     String pretty_name = App::GetCacheSystem()->GetPrettyName(App::sim_terrain_name->getStr());
@@ -1091,6 +1266,11 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
             staged_material,
             material_validation))
     {
+        if (m_deterministic_actor_input_pending_savegame != nullptr)
+        {
+            this->FailPendingDeterministicActorInputSavegame(
+                "restored Actor state rejected");
+        }
         // A present malformed payload is never treated like a legacy save.
         // Explicitly latch every authored material before returning so a
         // caller that keeps the actor cannot resume it through the old law.
@@ -1394,5 +1574,11 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
     actor->UpdateBoundingBoxes();
     actor->calculateAveragePosition();
     actor->m_avg_node_position_prev = actor->m_avg_node_position;
+    if (m_deterministic_actor_input_pending_savegame != nullptr &&
+        j_entry["player_actor"].GetBool())
+    {
+        if (!this->BindRestoredDeterministicInputSavegamePlayer(actor))
+            return false;
+    }
     return true;
 }

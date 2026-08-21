@@ -2212,6 +2212,15 @@ add_executable(
 )
 
 add_executable(
+    ror_deterministic_input_continuation_savegame_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicInputContinuationSavegameTests.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTraceRuntime.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputContinuationSavegame.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicStateDigest.cpp"
+)
+
+add_executable(
     ror_deterministic_vehicle_input_tests
     "${CMAKE_CURRENT_LIST_DIR}/physics/DeterministicVehicleInputTests.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
@@ -2235,6 +2244,7 @@ add_executable(
 set(ROR_DETERMINISTIC_INPUT_SOURCES
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTrace.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputTraceRuntime.cpp"
+    "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicInputContinuationSavegame.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInput.cpp"
     "${ROR_REPOSITORY_ROOT}/source/main/physics/DeterministicVehicleInputActorAdapter.cpp"
 )
@@ -2905,6 +2915,7 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_scenario_schedule_tests
     ror_deterministic_input_trace_tests
     ror_deterministic_input_trace_runtime_tests
+    ror_deterministic_input_continuation_savegame_tests
     ror_deterministic_impact_initial_condition_tests
     ror_deterministic_impact_initial_condition_fast_math_tests
     ror_deterministic_vehicle_input_tests
@@ -3684,6 +3695,11 @@ add_test(
 add_test(
     NAME deterministic_input_trace_runtime
     COMMAND ror_deterministic_input_trace_runtime_tests
+)
+
+add_test(
+    NAME deterministic_input_continuation_savegame
+    COMMAND ror_deterministic_input_continuation_savegame_tests
 )
 
 add_test(

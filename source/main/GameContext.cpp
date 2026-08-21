@@ -57,6 +57,36 @@ using namespace RoR;
 
 namespace {
 
+class DeterministicSavegameSpawnGuard
+{
+public:
+    DeterministicSavegameSpawnGuard(
+        ActorManager& actor_manager,
+        bool active):
+        m_actor_manager(actor_manager),
+        m_active(active)
+    {
+    }
+
+    ~DeterministicSavegameSpawnGuard() noexcept
+    {
+        if (m_active)
+        {
+            m_actor_manager.NotifyDeterministicInputSavegameRestoreFailed(
+                "queued savegame Actor did not reach state restoration");
+        }
+    }
+
+    void Dismiss()
+    {
+        m_active = false;
+    }
+
+private:
+    ActorManager& m_actor_manager;
+    bool m_active;
+};
+
 class TerrainResourceLoadTransaction
 {
 public:
@@ -465,6 +495,9 @@ bool GameContext::ShutdownSceneForFatalError() noexcept
 
 ActorPtr GameContext::SpawnActor(ActorSpawnRequest& rq)
 {
+    DeterministicSavegameSpawnGuard deterministic_savegame_guard(
+        m_actor_manager,
+        rq.asr_origin == ActorSpawnRequest::Origin::SAVEGAME);
     if (rq.asr_origin == ActorSpawnRequest::Origin::USER)
     {
         m_last_cache_selection = rq.asr_cache_entry;
@@ -546,6 +579,8 @@ ActorPtr GameContext::SpawnActor(ActorSpawnRequest& rq)
 #endif //SOCKETW
 
     ActorPtr fresh_actor = m_actor_manager.CreateNewActor(rq, def);
+    if (fresh_actor == nullptr)
+        return nullptr;
     bool fresh_actor_seat_player = false;
 
     // lock slide nodes after spawning the actor?
@@ -618,6 +653,7 @@ ActorPtr GameContext::SpawnActor(ActorSpawnRequest& rq)
             req->amr_type = ActorModifyRequest::Type::RESTORE_SAVED;
             req->amr_saved_state = rq.asr_saved_state;
             this->PushMessage(Message(MSG_SIM_MODIFY_ACTOR_REQUESTED, (void*)req));
+            deterministic_savegame_guard.Dismiss();
         }
     }
     else

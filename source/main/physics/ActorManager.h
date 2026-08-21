@@ -43,6 +43,10 @@ namespace RoR {
 struct InterActorContactBufferPool;
 struct DeterministicStateTraceRuntime;
 struct DeterministicActorInputRuntime;
+struct DeterministicActorInputPendingSavegame;
+namespace DeterministicInputContinuationSavegame {
+struct Payload;
+}
 
 /// @addtogroup Physics
 /// @{
@@ -129,7 +133,7 @@ public:
     void           SetSimulationSpeed(float speed)         { m_simulation_speed = std::max(0.0f, speed); };
     float          GetSimulationSpeed() const              { return m_simulation_speed; };
     bool           IsSimulationPaused() const              { return m_simulation_paused; }
-    void           SetSimulationPaused(bool v)             { m_simulation_paused = v; }
+    void           SetSimulationPaused(bool v);
     float          GetTotalTime() const                    { return m_total_sim_time; }
     std::uint64_t  GetCompletedPhysicsSteps() const        { return m_completed_physics_steps; }
     RoR::CmdKeyInertiaConfig& GetInertiaConfig()           { return m_inertia_config; }
@@ -166,6 +170,11 @@ public:
     bool           LoadScene(Ogre::String filename);
     bool           SaveScene(Ogre::String filename);
     bool           RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_entry);
+    /// Close the zero-step continuation barrier if a queued SAVEGAME spawn
+    /// cannot reach RestoreSavedState(). Safe to call when no continuation is
+    /// pending and from exception-unwind paths.
+    void           NotifyDeterministicInputSavegameRestoreFailed(
+                       const char* reason) noexcept;
 
     ActorPtrVec& GetActors() { return m_actors; };
     std::vector<ActorPtr> GetLocalActors();
@@ -207,6 +216,19 @@ private:
                        const char* reason,
                        bool suppress_until_disabled,
                        bool stop_replay);
+    bool           CaptureDeterministicActorInputSavegame(
+                       DeterministicInputContinuationSavegame::Payload& output,
+                       bool& present);
+    bool           StageDeterministicActorInputSavegame(
+                       const DeterministicInputContinuationSavegame::Payload*
+                           payload,
+                       std::uint64_t completed_physics_steps,
+                       bool announce_scene_loaded);
+    bool           TryActivateDeterministicActorInputSavegame();
+    bool           BindRestoredDeterministicInputSavegamePlayer(
+                       const ActorPtr& actor);
+    void           FailPendingDeterministicActorInputSavegame(
+                       const char* reason);
 
     // Networking
     std::map<int, std::set<int>> m_stream_mismatches; //!< Networking: A set of streams without a corresponding actor in the actor-array for each stream source
@@ -233,6 +255,7 @@ private:
     std::unique_ptr<DeterministicStateTraceRuntime> m_deterministic_state_trace; //!< Allocates/captures only while the opt-in trace is active
     bool                m_deterministic_state_trace_suppressed = false; //!< Error latch cleared only by disabling capture or loading a new simulation
     std::unique_ptr<DeterministicActorInputRuntime> m_deterministic_actor_input; //!< Authenticated single-player fixed-step input owner
+    std::unique_ptr<DeterministicActorInputPendingSavegame> m_deterministic_actor_input_pending_savegame; //!< Zero-step load barrier until the exact restored Actor can be revalidated
     bool                m_deterministic_actor_input_suppressed = false; //!< Cleared only by selecting mode=off or loading a new simulation
     bool                m_deterministic_actor_input_stop_replay = false; //!< Stops the current physics batch after replay exhaustion/fault
     std::atomic<bool>   m_deterministic_actor_input_pause_requested{false}; //!< Physics worker requests; main thread consumes before scheduling

@@ -217,6 +217,7 @@ set(SOURCE_FILES
         physics/DeterministicScenarioSchedule.h
         physics/DeterministicInputTrace.{h,cpp}
         physics/DeterministicInputTraceRuntime.{h,cpp}
+        physics/DeterministicInputContinuationSavegame.{h,cpp}
         physics/DeterministicVehicleInput.{h,cpp}
         physics/DeterministicVehicleInputActorAdapter.{h,cpp}
         physics/DeterministicStateDigest.{h,cpp}
@@ -806,6 +807,7 @@ endif ()
 set(ROR_DETERMINISTIC_INPUT_SOURCES
         physics/DeterministicInputTrace.cpp
         physics/DeterministicInputTraceRuntime.cpp
+        physics/DeterministicInputContinuationSavegame.cpp
         physics/DeterministicVehicleInput.cpp
         physics/DeterministicVehicleInputActorAdapter.cpp
         )

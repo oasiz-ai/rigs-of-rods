@@ -152,6 +152,15 @@ fi
 
 "${physics_test_compiler}" \
     "${common_test_flags[@]}" \
+    "${repository_dir}/tests/physics/DeterministicInputContinuationSavegameTests.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicInputTrace.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicInputTraceRuntime.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicInputContinuationSavegame.cpp" \
+    "${repository_dir}/source/main/physics/DeterministicStateDigest.cpp" \
+    -o "${test_build_dir}/deterministic_input_continuation_savegame_tests"
+
+"${physics_test_compiler}" \
+    "${common_test_flags[@]}" \
     "${repository_dir}/tests/physics/DeterministicVehicleInputTests.cpp" \
     "${repository_dir}/source/main/physics/DeterministicInputTrace.cpp" \
     "${repository_dir}/source/main/physics/DeterministicInputTraceRuntime.cpp" \
@@ -182,6 +191,7 @@ physics_test_executables=(
     deterministic_contact_order_tests
     deterministic_input_trace_tests
     deterministic_input_trace_runtime_tests
+    deterministic_input_continuation_savegame_tests
     deterministic_vehicle_input_tests
     deterministic_state_digest_tests
     deterministic_state_trace_tests

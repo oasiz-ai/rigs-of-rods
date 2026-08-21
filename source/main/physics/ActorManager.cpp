@@ -36,6 +36,7 @@
 #include "Collisions.h"
 #include "DashBoardManager.h"
 #include "DeterministicContactOrder.h"
+#include "DeterministicInputContinuationSavegame.h"
 #include "DeterministicInputTraceRuntime.h"
 #include "DeterministicScenarioSchedule.h"
 #include "DeterministicStateTrace.h"
@@ -74,6 +75,7 @@
 #include <fstream>
 #include <limits>
 #include <new>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -176,6 +178,13 @@ struct DeterministicActorInputRuntime:
     bool ApplyAppliedControls(
         std::uint64_t physics_step,
         const DeterministicVehicleInput::Snapshot& snapshot) override;
+};
+
+struct DeterministicActorInputPendingSavegame
+{
+    DeterministicInputContinuationSavegame::Payload payload;
+    ActorPtr restored_player_actor;
+    bool announce_scene_loaded = false;
 };
 
 } // namespace RoR
@@ -632,6 +641,44 @@ bool BuildActorInputMetadata(
     }
 }
 
+bool SameActorInputMetadata(
+    const RoR::DeterministicInputTrace::Metadata& first,
+    const RoR::DeterministicInputTrace::Metadata& second)
+{
+    return first.semantic_flags == second.semantic_flags &&
+        first.scenario_id == second.scenario_id &&
+        first.stream_id == second.stream_id &&
+        first.first_physics_step == second.first_physics_step &&
+        first.physics_step_numerator == second.physics_step_numerator &&
+        first.physics_step_denominator == second.physics_step_denominator &&
+        first.scenario_name == second.scenario_name &&
+        first.source_name == second.source_name &&
+        first.source_digest == second.source_digest;
+}
+
+bool ReadContinuationMetadata(
+    const RoR::DeterministicInputTrace::RuntimeContinuation& continuation,
+    RoR::DeterministicInputTrace::Metadata& metadata)
+{
+    try
+    {
+        std::istringstream input(
+            continuation.authenticated_trace,
+            std::ios::in | std::ios::binary);
+        RoR::DeterministicInputTrace::Reader reader(
+            input,
+            continuation.limits);
+        if (!reader.IsReady())
+            return false;
+        metadata = reader.GetMetadata();
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 RoR::DeterministicInputTrace::Limits BuildActorInputLimits(
     std::uint64_t step_limit)
 {
@@ -912,7 +959,8 @@ bool ActorManager::ShutdownWorkerRuntime() noexcept
 {
     if (m_sim_thread_pool == nullptr && m_sim_task == nullptr &&
         m_deterministic_state_trace == nullptr &&
-        m_deterministic_actor_input == nullptr)
+        m_deterministic_actor_input == nullptr &&
+        m_deterministic_actor_input_pending_savegame == nullptr)
     {
         return true;
     }
@@ -927,6 +975,7 @@ bool ActorManager::ShutdownWorkerRuntime() noexcept
             "physics worker shutdown",
             false,
             false);
+        m_deterministic_actor_input_pending_savegame.reset();
         m_sim_task.reset();
         m_sim_thread_pool.reset();
         return true;
@@ -1121,6 +1170,406 @@ void ActorManager::FinishDeterministicActorInput(
         suppress_until_disabled;
     m_deterministic_actor_input_stop_replay =
         suppress_until_disabled && stop_replay;
+}
+
+bool ActorManager::CaptureDeterministicActorInputSavegame(
+    DeterministicInputContinuationSavegame::Payload& output,
+    bool& present)
+{
+    present = false;
+    if (m_deterministic_actor_input_pending_savegame != nullptr)
+        return false;
+    if (m_deterministic_actor_input == nullptr)
+        return true;
+
+    this->SyncWithSimThread();
+    DeterministicActorInputRuntime& runtime =
+        *m_deterministic_actor_input;
+    GameContext* const context = App::GetGameContext();
+    const DeterministicInputTrace::RuntimeLifecycle lifecycle =
+        runtime.trace.GetLifecycle();
+    if (lifecycle != DeterministicInputTrace::RuntimeLifecycle::RUNNING &&
+        lifecycle != DeterministicInputTrace::RuntimeLifecycle::PAUSED)
+    {
+        return false;
+    }
+
+    DeterministicVehicleInputActorAdapter::PolicySnapshot current_policy;
+    DeterministicVehicleInputActorAdapter::Status policy_status;
+    DeterministicInputTrace::Metadata current_metadata;
+    if (context == nullptr ||
+        context->GetActorManager() != this ||
+        runtime.actor == nullptr ||
+        context->GetPlayerActor() != runtime.actor ||
+        runtime.trace.GetNextPhysicsStep() != m_completed_physics_steps ||
+        !BuildActorInputPolicy(
+            runtime.actor,
+            runtime.target_id,
+            current_policy) ||
+        !DeterministicVehicleInputActorAdapter::ValidatePolicy(
+            current_policy,
+            policy_status) ||
+        !DeterministicVehicleInputActorAdapter::SamePolicy(
+            current_policy,
+            runtime.policy) ||
+        !BuildActorInputMetadata(
+            runtime.actor,
+            current_policy,
+            runtime.scenario_id,
+            runtime.trace.GetIdentity().first_physics_step,
+            current_metadata) ||
+        !SameActorInputMetadata(
+            current_metadata,
+            runtime.trace.GetIdentity()))
+    {
+        RoR::LogFormat(
+            "[RoR|Determinism] Refusing input savegame because the live "
+            "Actor, policy, identity, or fixed-step cursor changed");
+        return false;
+    }
+
+    const bool was_running = lifecycle ==
+        DeterministicInputTrace::RuntimeLifecycle::RUNNING;
+    if (was_running && !runtime.trace.Pause())
+    {
+        this->FinishDeterministicActorInput(
+            "savegame pause failed",
+            true,
+            runtime.trace.GetMode() ==
+                DeterministicInputTrace::RuntimeMode::REPLAY);
+        m_simulation_paused = true;
+        return false;
+    }
+
+    DeterministicInputContinuationSavegame::Payload candidate;
+    candidate.resume_after_load = was_running && !m_simulation_paused;
+    candidate.scenario_id = runtime.scenario_id;
+    candidate.target_id = runtime.target_id;
+    candidate.step_limit = runtime.step_limit;
+    candidate.completed_physics_steps = m_completed_physics_steps;
+    candidate.actor_physics_step = runtime.actor->m_physics_step;
+    const bool exported =
+        runtime.trace.ExportContinuation(candidate.continuation);
+    const bool resumed = !was_running || runtime.trace.Resume();
+    if (!exported || !resumed)
+    {
+        const bool replay = runtime.trace.GetMode() ==
+            DeterministicInputTrace::RuntimeMode::REPLAY;
+        this->FinishDeterministicActorInput(
+            exported ? "savegame resume failed" :
+                "savegame continuation export failed",
+            true,
+            replay);
+        m_simulation_paused = true;
+        return false;
+    }
+
+    output.Swap(candidate);
+    present = true;
+    return true;
+}
+
+bool ActorManager::StageDeterministicActorInputSavegame(
+    const DeterministicInputContinuationSavegame::Payload* payload,
+    std::uint64_t completed_physics_steps,
+    bool announce_scene_loaded)
+{
+    std::unique_ptr<DeterministicActorInputPendingSavegame> candidate;
+    try
+    {
+        if (payload != nullptr)
+        {
+            if (payload->completed_physics_steps !=
+                completed_physics_steps)
+            {
+                return false;
+            }
+            candidate.reset(new DeterministicActorInputPendingSavegame());
+            candidate->payload = *payload;
+            candidate->announce_scene_loaded = announce_scene_loaded;
+        }
+    }
+    catch (...)
+    {
+        return false;
+    }
+
+    this->SyncWithSimThread();
+    this->FinishDeterministicActorInput(
+        "savegame load boundary",
+        false,
+        false);
+    m_deterministic_actor_input_pending_savegame = std::move(candidate);
+    m_deterministic_actor_input_suppressed = false;
+    m_deterministic_actor_input_stop_replay = false;
+    m_deterministic_actor_input_pause_requested.store(
+        false,
+        std::memory_order_release);
+    m_completed_physics_steps = completed_physics_steps;
+    if (payload != nullptr)
+    {
+        m_simulation_paused = true;
+    }
+    else
+    {
+        // Absence is authoritative: loading an ordinary save must not restart
+        // a record/replay mode left over from the previously loaded scene.
+        App::sim_deterministic_input_mode->setStr("off");
+        App::sim_deterministic_input_path->setStr("");
+    }
+    return true;
+}
+
+void ActorManager::FailPendingDeterministicActorInputSavegame(
+    const char* reason)
+{
+    RoR::LogFormat(
+        "[RoR|Determinism] Rejected deterministic input savegame "
+        "continuation (%s)",
+        reason != nullptr ? reason : "unspecified failure");
+    m_deterministic_actor_input_pending_savegame.reset();
+    m_deterministic_actor_input_suppressed = true;
+    m_deterministic_actor_input_stop_replay = true;
+    m_simulation_paused = true;
+}
+
+void ActorManager::NotifyDeterministicInputSavegameRestoreFailed(
+    const char* reason) noexcept
+{
+    if (m_deterministic_actor_input_pending_savegame == nullptr)
+        return;
+    try
+    {
+        this->FailPendingDeterministicActorInputSavegame(reason);
+    }
+    catch (...)
+    {
+        m_deterministic_actor_input_pending_savegame.reset();
+        m_deterministic_actor_input_suppressed = true;
+        m_deterministic_actor_input_stop_replay = true;
+        m_simulation_paused = true;
+    }
+}
+
+bool ActorManager::BindRestoredDeterministicInputSavegamePlayer(
+    const ActorPtr& actor)
+{
+    if (m_deterministic_actor_input_pending_savegame == nullptr)
+        return true;
+    DeterministicActorInputPendingSavegame& pending =
+        *m_deterministic_actor_input_pending_savegame;
+    if (actor == nullptr ||
+        pending.restored_player_actor != nullptr ||
+        actor->m_physics_step != pending.payload.actor_physics_step)
+    {
+        this->FailPendingDeterministicActorInputSavegame(
+            "restored player Actor is duplicated or stale");
+        return false;
+    }
+    pending.restored_player_actor = actor;
+    return true;
+}
+
+bool ActorManager::TryActivateDeterministicActorInputSavegame()
+{
+    if (m_deterministic_actor_input_pending_savegame == nullptr)
+        return true;
+
+    GameContext* const context = App::GetGameContext();
+    if (context == nullptr || context->GetActorManager() != this)
+        return false;
+
+    DeterministicActorInputPendingSavegame& pending =
+        *m_deterministic_actor_input_pending_savegame;
+    ActorPtr actor = pending.restored_player_actor;
+    if (actor == nullptr || context->GetPlayerActor() != actor)
+        return false;
+
+    const DeterministicInputContinuationSavegame::Payload& payload =
+        pending.payload;
+    if (actor->m_physics_step != payload.actor_physics_step)
+    {
+        this->FailPendingDeterministicActorInputSavegame(
+            "restored Actor fixed-step cursor changed before activation");
+        return false;
+    }
+
+    DeterministicInputTrace::Metadata trace_metadata;
+    DeterministicVehicleInputActorAdapter::PolicySnapshot policy;
+    DeterministicVehicleInputActorAdapter::Status policy_status;
+    DeterministicInputTrace::Metadata expected_metadata;
+    if (!ReadContinuationMetadata(
+            payload.continuation,
+            trace_metadata) ||
+        trace_metadata.scenario_id != payload.scenario_id ||
+        trace_metadata.stream_id != payload.target_id)
+    {
+        this->FailPendingDeterministicActorInputSavegame(
+            "continuation metadata is invalid");
+        return false;
+    }
+    if (!BuildActorInputPolicy(actor, payload.target_id, policy) ||
+        !DeterministicVehicleInputActorAdapter::ValidatePolicy(
+            policy,
+            policy_status) ||
+        !BuildActorInputMetadata(
+            actor,
+            policy,
+            payload.scenario_id,
+            trace_metadata.first_physics_step,
+            expected_metadata))
+    {
+        this->FailPendingDeterministicActorInputSavegame(
+            "restored Actor policy does not match the saved source");
+        return false;
+    }
+
+    try
+    {
+        std::unique_ptr<DeterministicActorInputRuntime> runtime(
+            new DeterministicActorInputRuntime());
+        runtime->actor = actor;
+        runtime->policy = policy;
+        runtime->configured_mode =
+            DeterministicInputTrace::ToString(payload.continuation.mode);
+        runtime->scenario_id = payload.scenario_id;
+        runtime->target_id = payload.target_id;
+        runtime->step_limit = payload.step_limit;
+        if (!runtime->trace.ImportContinuation(
+                payload.continuation,
+                expected_metadata) ||
+            runtime->trace.GetLifecycle() !=
+                DeterministicInputTrace::RuntimeLifecycle::PAUSED)
+        {
+            this->FailPendingDeterministicActorInputSavegame(
+                "authenticated continuation import failed");
+            return false;
+        }
+
+        if (payload.continuation.mode ==
+            DeterministicInputTrace::RuntimeMode::RECORD)
+        {
+            std::unique_ptr<DeterministicVehicleInput::RecordingSource>
+                recording_source(
+                    new DeterministicVehicleInput::RecordingSource(
+                        runtime->trace,
+                        payload.target_id,
+                        *runtime));
+            if (!OpenUniqueDeterministicInputTrace(
+                    *runtime,
+                    trace_metadata.first_physics_step))
+            {
+                this->FailPendingDeterministicActorInputSavegame(
+                    "recording artifact reservation failed");
+                return false;
+            }
+            runtime->recording_source = std::move(recording_source);
+        }
+        else
+        {
+            runtime->replay_path = "savegame:" +
+                payload.continuation.authentication_digest.ToHex();
+            runtime->replay_sink.reset(
+                new DeterministicVehicleInput::ReplaySink(
+                    runtime->trace,
+                    payload.target_id,
+                    *runtime));
+        }
+
+        if (payload.resume_after_load && !runtime->trace.Resume())
+        {
+            this->FailPendingDeterministicActorInputSavegame(
+                "continuation resume failed");
+            return false;
+        }
+
+        const std::string mode = runtime->configured_mode;
+        const std::string scenario = fmt::format("{}", payload.scenario_id);
+        const std::string target = fmt::format("{}", payload.target_id);
+        const std::string step_limit = fmt::format("{}", payload.step_limit);
+        const std::string path = runtime->replay_path;
+
+        App::sim_deterministic_input_mode->setStr(mode);
+        App::sim_deterministic_input_scenario_id->setStr(scenario);
+        App::sim_deterministic_input_target_id->setStr(target);
+        App::sim_deterministic_input_step_limit->setStr(step_limit);
+        App::sim_deterministic_input_path->setStr(path);
+
+        const std::uint64_t processed_steps =
+            runtime->trace.GetProcessedStepCount();
+        const std::string digest =
+            runtime->trace.GetTraceDigest().ToHex();
+        const bool announce_scene_loaded = pending.announce_scene_loaded;
+        m_deterministic_actor_input = std::move(runtime);
+        m_completed_physics_steps = payload.completed_physics_steps;
+        m_simulation_paused = !payload.resume_after_load;
+        m_deterministic_actor_input_pending_savegame.reset();
+        RoR::LogFormat(
+            "[RoR|Determinism] Restored %s input continuation at fixed "
+            "step %llu after %llu authenticated records, digest=%s",
+            mode.c_str(),
+            static_cast<unsigned long long>(m_completed_physics_steps),
+            static_cast<unsigned long long>(processed_steps),
+            digest.c_str());
+        if (announce_scene_loaded)
+        {
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_NOTICE,
+                _L("Scene loaded with authenticated deterministic input continuation"));
+        }
+        return true;
+    }
+    catch (...)
+    {
+        this->FailPendingDeterministicActorInputSavegame(
+            "allocation or publication exception");
+        return false;
+    }
+}
+
+void ActorManager::SetSimulationPaused(bool paused)
+{
+    this->SyncWithSimThread();
+    if (!paused &&
+        m_deterministic_actor_input_pending_savegame != nullptr)
+    {
+        if (!this->TryActivateDeterministicActorInputSavegame() ||
+            m_deterministic_actor_input_pending_savegame != nullptr)
+        {
+            m_simulation_paused = true;
+            return;
+        }
+    }
+
+    if (m_deterministic_actor_input != nullptr)
+    {
+        DeterministicInputTrace::Runtime& trace =
+            m_deterministic_actor_input->trace;
+        const DeterministicInputTrace::RuntimeLifecycle lifecycle =
+            trace.GetLifecycle();
+        const bool transition_ok =
+            paused
+                ? lifecycle !=
+                        DeterministicInputTrace::RuntimeLifecycle::RUNNING ||
+                    trace.Pause()
+                : lifecycle !=
+                        DeterministicInputTrace::RuntimeLifecycle::PAUSED ||
+                    trace.Resume();
+        if (!transition_ok)
+        {
+            const bool replay = trace.GetMode() ==
+                DeterministicInputTrace::RuntimeMode::REPLAY;
+            this->FinishDeterministicActorInput(
+                paused ? "simulation pause failed" :
+                    "simulation resume failed",
+                true,
+                replay);
+            m_simulation_paused = true;
+            return;
+        }
+    }
+    m_simulation_paused = paused;
 }
 
 bool ActorManager::ProcessDeterministicActorInputStep()
@@ -2734,6 +3183,7 @@ void ActorManager::CleanUpSimulation() // Called after simulation finishes
         "simulation cleanup",
         false,
         false);
+    m_deterministic_actor_input_pending_savegame.reset();
     this->FinishDeterministicStateTrace(
         "simulation cleanup",
         false);
@@ -2935,6 +3385,17 @@ void ActorManager::UpdateActors(ActorPtr player_actor)
         RoR::LogFormat(
             "[RoR|Determinism] Physics paused after deterministic input "
             "replay stopped");
+    }
+
+    // A deterministic savegame always loads behind a zero-step barrier. Actor
+    // spawn/seat messages may need several main-loop turns; do not schedule a
+    // single physics step until the exact restored owner and source policy have
+    // authenticated the continuation.
+    if (m_deterministic_actor_input_pending_savegame != nullptr)
+    {
+        this->SyncWithSimThread();
+        if (!this->TryActivateDeterministicActorInputSavegame())
+            return;
     }
 
     // An exact-step capture runtime is the sole scheduler while it owns this
@@ -3780,7 +4241,7 @@ void ActorManager::UpdateInputEvents(float dt)
     // EV_COMMON_TOGGLE_PHYSICS - Freeze/unfreeze physics
     if (App::GetInputEngine()->getEventBoolValueBounce(EV_COMMON_TOGGLE_PHYSICS))
     {
-        m_simulation_paused = !m_simulation_paused;
+        this->SetSimulationPaused(!m_simulation_paused);
 
         if (m_simulation_paused)
         {
