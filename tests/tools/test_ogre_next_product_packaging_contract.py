@@ -355,6 +355,12 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         )
         self.assertIn("OUTPUT = 160U", self.input_event_transport_header)
         self.assertNotIn("\n  OUT =", self.input_event_transport_header)
+        self.assertIn(
+            "ABSOLUTE_POSITION = 1U", self.input_event_transport_header
+        )
+        self.assertNotIn(
+            "\n  ABSOLUTE =", self.input_event_transport_header
+        )
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (

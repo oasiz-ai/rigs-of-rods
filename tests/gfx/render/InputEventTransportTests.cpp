@@ -69,7 +69,8 @@ InputTransportRawAxisDescriptor
 RawAxis(std::uint16_t index, std::int32_t minimum, std::int32_t maximum,
         std::int32_t center, std::int32_t deadzone_minimum,
         std::int32_t deadzone_maximum,
-        InputTransportRawAxisMode mode = InputTransportRawAxisMode::ABSOLUTE) {
+        InputTransportRawAxisMode mode =
+            InputTransportRawAxisMode::ABSOLUTE_POSITION) {
   InputTransportRawAxisDescriptor axis;
   axis.index = index;
   axis.mode = mode;

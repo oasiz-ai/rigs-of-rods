@@ -383,7 +383,7 @@ enum class InputTransportRawDeviceClass : std::uint8_t {
 };
 
 enum class InputTransportRawAxisMode : std::uint8_t {
-  ABSOLUTE = 1U,
+  ABSOLUTE_POSITION = 1U,
   RELATIVE = 2U,
 };
 
@@ -475,7 +475,8 @@ struct InputTransportWindowCloseEvent {};
 
 struct InputTransportRawAxisDescriptor {
   std::uint16_t index = 0U;
-  InputTransportRawAxisMode mode = InputTransportRawAxisMode::ABSOLUTE;
+  InputTransportRawAxisMode mode =
+      InputTransportRawAxisMode::ABSOLUTE_POSITION;
   std::int32_t logical_minimum = -32768;
   std::int32_t logical_maximum = 32767;
   std::int32_t center = 0;

@@ -89,7 +89,7 @@ bool IsKnownRawDeviceClass(InputTransportRawDeviceClass device_class) noexcept {
 }
 
 bool IsKnownRawAxisMode(InputTransportRawAxisMode mode) noexcept {
-  return mode == InputTransportRawAxisMode::ABSOLUTE ||
+  return mode == InputTransportRawAxisMode::ABSOLUTE_POSITION ||
          mode == InputTransportRawAxisMode::RELATIVE;
 }
 
@@ -188,8 +188,8 @@ bool ValidateRawSliderDescriptor(
   return slider.index == expected_index &&
          ValidateRawAxisDescriptor(slider.x_axis, 0U) &&
          ValidateRawAxisDescriptor(slider.y_axis, 1U) &&
-         slider.x_axis.mode == InputTransportRawAxisMode::ABSOLUTE &&
-         slider.y_axis.mode == InputTransportRawAxisMode::ABSOLUTE;
+         slider.x_axis.mode == InputTransportRawAxisMode::ABSOLUTE_POSITION &&
+         slider.y_axis.mode == InputTransportRawAxisMode::ABSOLUTE_POSITION;
 }
 
 bool ValidateRawDeviceDescriptor(
@@ -437,7 +437,9 @@ bool ValidateReconciliation(
       for (std::size_t index = 0U; index < raw.axes.size(); ++index) {
         const auto &axis = raw.descriptor.axes[index];
         const std::int32_t neutral =
-            axis.mode == InputTransportRawAxisMode::ABSOLUTE ? axis.center : 0;
+            axis.mode == InputTransportRawAxisMode::ABSOLUTE_POSITION
+                ? axis.center
+                : 0;
         if (raw.axes[index] != neutral) {
           return false;
         }
@@ -1179,7 +1181,9 @@ MakeNeutralRawState(const InputTransportRawDeviceDescriptor &descriptor) {
   state.axes.reserve(descriptor.axes.size());
   for (const auto &axis : descriptor.axes) {
     state.axes.push_back(
-        axis.mode == InputTransportRawAxisMode::ABSOLUTE ? axis.center : 0);
+        axis.mode == InputTransportRawAxisMode::ABSOLUTE_POSITION
+            ? axis.center
+            : 0);
   }
   state.hats.assign(descriptor.hat_count, Sdl2HatState::CENTERED);
   state.sliders.reserve(descriptor.sliders.size());
@@ -1202,7 +1206,9 @@ void NeutralizeSnapshot(InputTransportReconciliationSnapshot &snapshot) {
     for (std::size_t index = 0U; index < raw.axes.size(); ++index) {
       const auto &axis = raw.descriptor.axes[index];
       raw.axes[index] =
-          axis.mode == InputTransportRawAxisMode::ABSOLUTE ? axis.center : 0;
+          axis.mode == InputTransportRawAxisMode::ABSOLUTE_POSITION
+              ? axis.center
+              : 0;
     }
     std::fill(raw.hats.begin(), raw.hats.end(), Sdl2HatState::CENTERED);
     for (std::size_t index = 0U; index < raw.sliders.size(); ++index) {

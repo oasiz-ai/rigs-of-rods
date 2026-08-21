@@ -205,15 +205,17 @@ InputTransportRawDeviceDescriptor RawDescriptor() {
   descriptor.guid[0U] = 1U;
   descriptor.name_sha256[0U] = 0xABU;
   descriptor.axes.push_back(
-      RawAxis(0U, InputTransportRawAxisMode::ABSOLUTE));
+      RawAxis(0U, InputTransportRawAxisMode::ABSOLUTE_POSITION));
   descriptor.axes.push_back(
       RawAxis(1U, InputTransportRawAxisMode::RELATIVE));
   descriptor.button_count = 4U;
   descriptor.hat_count = 1U;
   InputTransportRawSliderDescriptor slider;
   slider.index = 0U;
-  slider.x_axis = RawAxis(0U, InputTransportRawAxisMode::ABSOLUTE);
-  slider.y_axis = RawAxis(1U, InputTransportRawAxisMode::ABSOLUTE);
+  slider.x_axis =
+      RawAxis(0U, InputTransportRawAxisMode::ABSOLUTE_POSITION);
+  slider.y_axis =
+      RawAxis(1U, InputTransportRawAxisMode::ABSOLUTE_POSITION);
   descriptor.sliders.push_back(slider);
   return descriptor;
 }
