@@ -196,6 +196,41 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             frontend_configuration,
         )
 
+    def test_visible_ogre_next_startup_is_fail_closed_without_legacy_fallback(
+        self,
+    ) -> None:
+        configure = self.main.index(
+            "RendererOgreNextInProcessPresenterConfiguration presenter_config;"
+        )
+        prepare = self.main.index(
+            "renderer_combined_presenter.PrepareWindow(presenter_config);",
+            configure,
+        )
+        legacy_setup = self.main.index(
+            "App::GetAppContext()->SetUpRendering(", prepare
+        )
+        failure = self.main[prepare:legacy_setup]
+        self.assertLess(prepare, legacy_setup)
+        self.assertIn(
+            '"[RoR|RendererCombined|Startup] Visible OgreNext window "',
+            failure,
+        )
+        self.assertIn('"preparation failed: status=\'{}\'"', failure)
+        self.assertIn("return 70;", failure)
+        self.assertNotIn("SetUpRendering", failure)
+
+        protect = self.main.index(
+            "renderer_combined_presenter.ProtectHiddenResourceWindow(",
+            legacy_setup,
+        )
+        protect_end = self.main.index(
+            "Ogre::TextureManager::getSingleton()", protect
+        )
+        protection_failure = self.main[protect:protect_end]
+        self.assertIn("renderer_resource_window == nullptr", protection_failure)
+        self.assertIn("return 70;", protection_failure)
+        self.assertNotIn("showRenderWindow", protection_failure)
+
     def test_metal_v2_presents_only_after_external_lighting_completion(self) -> None:
         render_start = self.presenter.index(
             "RenderOperationResult Render(const RenderFrameRequest &request,"
@@ -338,7 +373,8 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             '"schema_version={} available={} "'
         )
         lighting_log_end = self.main.index(
-            "if (lighting_audit_signature !=", lighting_log_start
+            '"[RoR|RendererCombined|NativeLighting] "',
+            lighting_log_start,
         )
         lighting_log = self.main[lighting_log_start:lighting_log_end]
         for field in (
