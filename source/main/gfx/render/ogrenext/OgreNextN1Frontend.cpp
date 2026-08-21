@@ -12303,8 +12303,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
             RenderOperationCode::UNSUPPORTED,
             "N1 reconstructed Ogre TRS can overflow native world bounds");
       }
+      // Stage 0 item 4: non-dynamic, undeformed geometry never moves after
+      // creation, so it lives in Ogre's static memory manager and skips the
+      // per-frame node transform and AABB update walk. Every mutation path
+      // that can still touch a static record notifies the static system.
+      record.scene_static = !base_mesh->dynamic &&
+                            instance.deformation_revision <= 1U &&
+                            !OgreNextStage0FeatureDisabled("static_scene");
+      const Ogre::SceneMemoryMgrTypes stage0_memory_type =
+          record.scene_static ? Ogre::SCENE_STATIC : Ogre::SCENE_DYNAMIC;
       record.item = impl_->scene_manager->createItem(render_mesh->mesh,
-                                                     Ogre::SCENE_DYNAMIC);
+                                                     stage0_memory_type);
       const std::uint32_t authored_instance_visibility =
           instance.visibility_mask & native_authored_visibility_mask;
       const bool pbs_material =
@@ -12349,12 +12358,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                           instance, *base_mesh);
       record.item->setCastShadows(casts_shadow);
       record.node = impl_->scene_manager
-                        ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
-                        ->createChildSceneNode(Ogre::SCENE_DYNAMIC);
+                        ->getRootSceneNode(stage0_memory_type)
+                        ->createChildSceneNode(stage0_memory_type);
       record.node->setPosition(position);
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
       record.node->attachObject(record.item);
+      if (record.scene_static) {
+        impl_->scene_manager->notifyStaticDirty(record.node);
+      }
       apply_stage0_distance_cull(record, scale);
       ++diff_created;
       return RenderOperationResult::Success();
@@ -12456,6 +12468,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       record.node->setPosition(position);
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
+      if (record.scene_static) {
+        // Static records accept descriptor updates (they are rare by
+        // construction); the static system just has to be told once.
+        impl_->scene_manager->notifyStaticDirty(record.node);
+      }
       apply_stage0_distance_cull(record, scale);
       return RenderOperationResult::Success();
     };
@@ -12529,9 +12546,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
         }
         render_mesh = &mesh->second;
       }
-      record.item = impl_->scene_manager->createItem(render_mesh->mesh,
-                                                     Ogre::SCENE_DYNAMIC);
+      // The recreated item must live in the same memory manager as the
+      // retained node it re-attaches to.
+      record.item = impl_->scene_manager->createItem(
+          render_mesh->mesh, record.scene_static ? Ogre::SCENE_STATIC
+                                                 : Ogre::SCENE_DYNAMIC);
       record.node->attachObject(record.item);
+      if (record.scene_static) {
+        impl_->scene_manager->notifyStaticDirty(record.node);
+      }
       ++diff_dynamic_updates;
       return RenderOperationResult::Success();
     };
@@ -12628,6 +12651,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
                record.applied_shadow_distance)) {
         throw std::runtime_error(
             "Ogre-Next Stage 0 distance-cull state failed native readback");
+      }
+      // Stage 0 item 4: a record's memory manager placement is immutable
+      // native state; drifting out of it would silently restore per-frame
+      // transform updates or break the static promotion.
+      if (record.item->isStatic() != record.scene_static ||
+          record.node->isStatic() != record.scene_static) {
+        throw std::runtime_error(
+            "Ogre-Next Stage 0 static-scene placement failed native readback");
       }
       record.pbs = pbs_material;
       record.transmission = pbs_material && thin_slab_transmission;
