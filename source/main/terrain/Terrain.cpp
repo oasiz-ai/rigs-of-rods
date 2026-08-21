@@ -200,12 +200,6 @@ void RoR::Terrain::dispose()
         m_shadow_manager = nullptr;
     }
 
-    if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
-    {
-        // Rush to exit
-        return;
-    }
-
     //I think that the order is important
 
 #ifdef USE_CAELUM
@@ -246,6 +240,16 @@ void RoR::Terrain::dispose()
     {
         delete(m_geometry_manager);
         m_geometry_manager = nullptr;
+    }
+
+    if (App::app_state->getEnum<AppState>() == AppState::SHUTDOWN)
+    {
+        // The renderer is still alive here. Complete every renderer-owned
+        // terrain teardown above before taking the abbreviated process-exit
+        // path: TerrainGlobalOptions owns RTShader sub-render states, and
+        // ShaderGenerator cannot be destroyed while those instances survive.
+        m_disposed = true;
+        return;
     }
 
     if (m_collisions != nullptr)

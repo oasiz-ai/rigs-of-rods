@@ -546,6 +546,32 @@ void TestFatalPropagationAndLifetimeOrder(const fs::path& repository_root)
                 std::string::npos &&
             terrain_source.find("m_disposed = true;") != std::string::npos,
         "terrain fatal disposal is not latched and non-throwing");
+    const std::size_t terrain_dispose = terrain_source.find(
+        "void RoR::Terrain::dispose()");
+    const std::size_t shadow_release = terrain_source.find(
+        "if (m_shadow_manager != nullptr)", terrain_dispose);
+    const std::size_t object_release = terrain_source.find(
+        "if (m_object_manager != nullptr)", shadow_release);
+    const std::size_t geometry_release = terrain_source.find(
+        "if (m_geometry_manager != nullptr)", object_release);
+    const std::size_t abbreviated_shutdown = terrain_source.find(
+        "App::app_state->getEnum<AppState>() == AppState::SHUTDOWN",
+        geometry_release);
+    const std::size_t shutdown_disposed = terrain_source.find(
+        "m_disposed = true;", abbreviated_shutdown);
+    Require(
+        terrain_dispose != std::string::npos &&
+            shadow_release != std::string::npos &&
+            object_release != std::string::npos &&
+            geometry_release != std::string::npos &&
+            abbreviated_shutdown != std::string::npos &&
+            shutdown_disposed != std::string::npos &&
+            terrain_dispose < shadow_release &&
+            shadow_release < object_release &&
+            object_release < geometry_release &&
+            geometry_release < abbreviated_shutdown &&
+            abbreviated_shutdown < shutdown_disposed,
+        "application shutdown can abandon renderer-owned terrain or RTShader state");
 
     const std::string collisions = ReadFile(
         repository_root / "source" / "main" / "physics" /
