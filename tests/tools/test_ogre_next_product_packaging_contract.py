@@ -338,6 +338,23 @@ class OgreNextProductPackagingStaticContractTests(unittest.TestCase):
         cls.facts = (
             REPOSITORY_ROOT / "cmake/RendererLauncherPackageConfig.cmake"
         ).read_text(encoding="utf-8")
+        cls.source_texture_decoder_header = (
+            REPOSITORY_ROOT
+            / "source/main/gfx/render/Ogre14SourceTextureDecoder.h"
+        ).read_text(encoding="utf-8")
+        cls.input_event_transport_header = (
+            REPOSITORY_ROOT / "source/main/gfx/render/InputEventTransport.h"
+        ).read_text(encoding="utf-8")
+
+    def test_public_enums_avoid_windows_sdk_macro_tokens(self) -> None:
+        self.assertIn(
+            "OPAQUE_COLOR = 1U", self.source_texture_decoder_header
+        )
+        self.assertNotIn(
+            "\n  OPAQUE =", self.source_texture_decoder_header
+        )
+        self.assertIn("OUTPUT = 160U", self.input_event_transport_header)
+        self.assertNotIn("\n  OUT =", self.input_event_transport_header)
 
     def test_public_suite_defaults_to_isolated_verified_product_stage(self) -> None:
         for token in (
