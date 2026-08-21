@@ -6381,7 +6381,15 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 "radiance_authority="
                 "joined_live_ambient_and_exact_converted_main_light "
                 "sun_light_id={} sun_direction=[{:.9g},{:.9g},{:.9g}] "
-                "sun_intensity={:.9g} ambient=[{:.9g},{:.9g},{:.9g}] "
+                "sun_intensity={:.9g} "
+                // Both ambients are logged and labelled: the raw OGRE 14
+                // scene ambient is only a policy INPUT, while the derived
+                // value is what the presenter actually hands to Ogre-Next as
+                // the ambient/SH level. Logging the raw input alone under the
+                // name "ambient" misdirected two investigations into why the
+                // presented ambient did not match the log.
+                "ambient_native_input=[{:.9g},{:.9g},{:.9g}] "
+                "ambient_derived=[{:.9g},{:.9g},{:.9g}] "
                 "zenith=[{:.9g},{:.9g},{:.9g}] "
                 "horizon=[{:.9g},{:.9g},{:.9g}] "
                 "ground=[{:.9g},{:.9g},{:.9g}] "
@@ -6398,6 +6406,9 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 committed_sun.direction.x, committed_sun.direction.y,
                 committed_sun.direction.z, committed_sun.intensity,
                 native_ambient.x, native_ambient.y, native_ambient.z,
+                candidate.frame.environment.ambient_radiance.x,
+                candidate.frame.environment.ambient_radiance.y,
+                candidate.frame.environment.ambient_radiance.z,
                 sky.zenith_radiance.x, sky.zenith_radiance.y,
                 sky.zenith_radiance.z, sky.horizon_radiance.x,
                 sky.horizon_radiance.y, sky.horizon_radiance.z,

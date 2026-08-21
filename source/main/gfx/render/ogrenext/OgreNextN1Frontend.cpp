@@ -11604,6 +11604,60 @@ RenderOperationResult OgreNextN1Frontend::Render(
     lighting_candidate.ambient_environment_lighting =
         expected_ambient.r > 0.0F || expected_ambient.g > 0.0F ||
         expected_ambient.b > 0.0F;
+    // Foundation F2: with an enabled analytic sky the flat AmbientFixed
+    // scalar above is superseded by SH-9 irradiance integrated on the CPU
+    // from the exact transported descriptor (sun disc excluded - it is
+    // already the calibrated directional light). AmbientSh is a third HlmsPbs
+    // shading path whose magnitude carries over from neither AmbientFixed nor
+    // the withdrawn AmbientHemisphere attempt, so the coefficients are seated
+    // by construction inside the builder: the sphere-mean SH luminance equals
+    // the AmbientFixed level derived from this same snapshot, and bands 1-2
+    // add sky-facing/ground-facing directionality around that mean. Both
+    // hemisphere colours above stay equal on purpose - AmbientSh ignores
+    // them, and any degrade below lands on the exact pre-F2 AmbientFixed
+    // scalar for this present rather than anything that can end a session.
+    bool ambient_sh_active = false;
+    float analytic_sky_capture_radiance_scale = 1.0F;
+    if (portable_sky.enabled) {
+      OgreNextAnalyticSkyAmbientSh ambient_sh;
+      if (BuildOgreNextAnalyticSkyAmbientShCoefficients(
+              snapshot.environment(), ambient_sh)) {
+        Ogre::Vector3 native_sh[9U];
+        for (std::size_t term = 0U; term < 9U; ++term) {
+          native_sh[term] = Ogre::Vector3(ambient_sh.coefficients[term].x,
+                                          ambient_sh.coefficients[term].y,
+                                          ambient_sh.coefficients[term].z);
+        }
+        impl_->scene_manager->setSphericalHarmonics(native_sh);
+        const float *native_sh_readback =
+            impl_->scene_manager->getSphericalHarmonics();
+        bool exact_native_sh = native_sh_readback != nullptr;
+        for (std::size_t component = 0U;
+             exact_native_sh && component < 27U; ++component) {
+          const Ogre::Vector3 &term = native_sh[component / 3U];
+          const float expected = component % 3U == 0U
+                                     ? term.x
+                                     : (component % 3U == 1U ? term.y
+                                                             : term.z);
+          exact_native_sh = native_sh_readback[component] == expected;
+        }
+        if (exact_native_sh) {
+          impl_->pbs->setAmbientLightMode(Ogre::HlmsPbs::AmbientSh);
+          ambient_sh_active =
+              impl_->pbs->getAmbientLightMode() == Ogre::HlmsPbs::AmbientSh;
+        }
+        if (ambient_sh_active && ambient_sh.calibration_gain > 0.0F &&
+            ambient_sh.calibration_gain <= 1.0F) {
+          // The probe capture seats the dome's physical radiance with the
+          // same derived gain, so the probe's diffuse-GI term joins the
+          // calibrated ambient level instead of dwarfing it.
+          analytic_sky_capture_radiance_scale = ambient_sh.calibration_gain;
+        }
+      }
+    }
+    if (!ambient_sh_active) {
+      impl_->pbs->setAmbientLightMode(Ogre::HlmsPbs::AmbientAutoNormal);
+    }
     const std::uint32_t authored_view_visibility =
         view.visibility_mask & native_authored_visibility_mask;
     if (shadow_plan.enabled &&
@@ -13272,12 +13326,47 @@ RenderOperationResult OgreNextN1Frontend::Render(
     }
 
     if (impl_->reflection_probe_runtime) {
+      // Foundation F2: a probe capture admits the per-present analytic-sky
+      // Items so its diffuse-GI mip chain carries real sky radiance instead
+      // of the cleared black. The runtime grants the capture visibility bit
+      // and re-centres the camera-anchored dome on the probe's capture
+      // position for exactly the capture duration, restoring both through
+      // the same fail-closed restore path as ordinary item flags - the
+      // attached-state verification above never observes moved state.
+      OgreNextReflectionProbeSkyBinding reflection_sky;
+      if (analytic_sky_frame_completed && ambient_sh_active &&
+          analytic_sky_background_item != nullptr &&
+          analytic_sky_sun_item != nullptr && analytic_sky_node != nullptr &&
+          analytic_sky_background_datablock != nullptr &&
+          analytic_sky_sun_datablock != nullptr) {
+        // Sky admission requires the active SH seat: the capture scale below
+        // is the SH calibration gain, and a dome captured at full physical
+        // radiance while the ambient runs degraded AmbientFixed would
+        // reintroduce the measured wash-out through the probe's diffuse-GI
+        // term. The degraded state therefore keeps the complete pre-F2
+        // capture behavior.
+        reflection_sky.background_item =
+            reinterpret_cast<std::uintptr_t>(analytic_sky_background_item);
+        reflection_sky.sun_item =
+            reinterpret_cast<std::uintptr_t>(analytic_sky_sun_item);
+        reflection_sky.sky_node =
+            reinterpret_cast<std::uintptr_t>(analytic_sky_node);
+        reflection_sky.background_datablock = reinterpret_cast<std::uintptr_t>(
+            analytic_sky_background_datablock);
+        reflection_sky.sun_datablock =
+            reinterpret_cast<std::uintptr_t>(analytic_sky_sun_datablock);
+        reflection_sky.capture_radiance_scale =
+            analytic_sky_capture_radiance_scale;
+        reflection_sky.authored_visibility_mask = authored_view_visibility;
+        reflection_sky.enabled = true;
+      }
       const RenderOperationResult reflection_capture =
           impl_->reflection_probe_runtime->PrepareFrame(
               request.frame_id, snapshot.simulation_tick(),
               snapshot.absolute_world_origin_meters(),
               snapshot.reflection_probes(), reflection_items,
-              reinterpret_cast<std::uintptr_t>(impl_->camera));
+              reinterpret_cast<std::uintptr_t>(impl_->camera),
+              reflection_sky);
       if (!reflection_capture) {
         return fail_after_cleanup(reflection_capture);
       }

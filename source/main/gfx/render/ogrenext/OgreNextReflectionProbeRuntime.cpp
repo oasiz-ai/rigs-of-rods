@@ -30,6 +30,7 @@
 #include "OgreHlmsCompute.h"
 #include "OgreHlmsManager.h"
 #include "OgreHlmsPbs.h"
+#include "OgreHlmsUnlitDatablock.h"
 #include "OgreId.h"
 #include "OgreImage2.h"
 #include "OgreItem.h"
@@ -48,6 +49,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <limits>
@@ -431,6 +434,12 @@ struct FilteredContentStats final {
   std::uint64_t finite_component_count = 0U;
   std::uint64_t nonzero_rgb_component_count = 0U;
   float max_absolute_rgb = 0.0F;
+  /// Per-channel arithmetic means over every filtered mip pixel, derived from
+  /// the same readback bytes the measurement already walks - no additional
+  /// GPU synchronization is introduced for them.
+  double mean_r = 0.0;
+  double mean_g = 0.0;
+  double mean_b = 0.0;
 };
 
 FilteredContentStats MeasureFilteredContent(
@@ -461,8 +470,24 @@ FilteredContentStats MeasureFilteredContent(
           }
           result.max_absolute_rgb =
               (std::max)(result.max_absolute_rgb, magnitude);
+          if (channel == 0U) {
+            result.mean_r += static_cast<double>(component);
+          } else if (channel == 1U) {
+            result.mean_g += static_cast<double>(component);
+          } else {
+            result.mean_b += static_cast<double>(component);
+          }
         }
       }
+    }
+  }
+  if (result.finite_component_count != 0U) {
+    const double pixel_count =
+        static_cast<double>(result.finite_component_count) / 4.0;
+    if (pixel_count > 0.0) {
+      result.mean_r /= pixel_count;
+      result.mean_g /= pixel_count;
+      result.mean_b /= pixel_count;
     }
   }
   return result;
@@ -936,7 +961,8 @@ public:
                const Double3 &origin,
                const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors,
                const std::vector<OgreNextReflectionProbeItemBinding> &items,
-               std::uintptr_t tracking_camera) {
+               std::uintptr_t tracking_camera,
+               const OgreNextReflectionProbeSkyBinding &sky) {
     if (!audit.initialized) {
       return Failure(RenderOperationCode::NOT_INITIALIZED,
                      "runtime is not initialized");
@@ -992,6 +1018,51 @@ public:
             "capture item does not belong to the scene or authored mask");
       }
     }
+    Ogre::Item *sky_background_item = nullptr;
+    Ogre::Item *sky_sun_item = nullptr;
+    Ogre::SceneNode *sky_node = nullptr;
+    Ogre::HlmsUnlitDatablock *sky_background_datablock = nullptr;
+    Ogre::HlmsUnlitDatablock *sky_sun_datablock = nullptr;
+    if (sky.enabled) {
+      if (sky.background_item == 0U || sky.sun_item == 0U ||
+          sky.sky_node == 0U || sky.background_datablock == 0U ||
+          sky.sun_datablock == 0U) {
+        return Failure(RenderOperationCode::INVALID_ARGUMENT,
+                       "sky capture binding contains a null native object");
+      }
+      if (!std::isfinite(sky.capture_radiance_scale) ||
+          sky.capture_radiance_scale <= 0.0F ||
+          sky.capture_radiance_scale > 1.0F) {
+        return Failure(
+            RenderOperationCode::INVALID_ARGUMENT,
+            "sky capture radiance scale must be a finite fraction in (0, 1]");
+      }
+      sky_background_item = reinterpret_cast<Ogre::Item *>(sky.background_item);
+      sky_sun_item = reinterpret_cast<Ogre::Item *>(sky.sun_item);
+      sky_node = reinterpret_cast<Ogre::SceneNode *>(sky.sky_node);
+      sky_background_datablock = reinterpret_cast<Ogre::HlmsUnlitDatablock *>(
+          sky.background_datablock);
+      sky_sun_datablock =
+          reinterpret_cast<Ogre::HlmsUnlitDatablock *>(sky.sun_datablock);
+      if (sky_background_item->_getManager() != scene_manager ||
+          sky_sun_item->_getManager() != scene_manager ||
+          sky_background_item->getParentSceneNode() != sky_node ||
+          sky_sun_item->getParentSceneNode() != sky_node ||
+          sky_background_item->getVisibilityFlags() !=
+              sky.authored_visibility_mask ||
+          sky_sun_item->getVisibilityFlags() != sky.authored_visibility_mask ||
+          sky_background_item->getNumSubItems() != 1U ||
+          sky_sun_item->getNumSubItems() != 1U ||
+          sky_background_item->getSubItem(0U)->getDatablock() !=
+              sky_background_datablock ||
+          sky_sun_item->getSubItem(0U)->getDatablock() != sky_sun_datablock ||
+          !sky_background_datablock->hasColour() ||
+          !sky_sun_datablock->hasColour()) {
+        return Failure(
+            RenderOperationCode::INVALID_ARGUMENT,
+            "sky capture binding does not match the live analytic-sky scene");
+      }
+    }
 
     ReflectionProbePlanResult planned = scheduler.BeginFrame(
         render_frame_id, simulation_tick, origin, descriptors);
@@ -1037,7 +1108,7 @@ public:
         const ReflectionProbeUpdateRequest &request = plan.requests.front();
         candidate = CreateCandidate(request);
         std::vector<std::pair<Ogre::Item *, Ogre::uint32>> prior_flags;
-        prior_flags.reserve(items.size());
+        prior_flags.reserve(items.size() + 2U);
         bool restored = false;
         const auto restore_items = [&]() noexcept {
           if (restored) {
@@ -1057,6 +1128,18 @@ public:
         const Ogre::uint32 prior_system_mask = pcc->mMask;
         const Ogre::uint32 prior_scene_visibility =
             scene_manager->getVisibilityMask();
+        const Ogre::Vector3 prior_sky_position =
+            sky_node != nullptr ? sky_node->getPosition()
+                                : Ogre::Vector3::ZERO;
+        const Ogre::ColourValue prior_sky_background_colour =
+            sky_background_datablock != nullptr
+                ? sky_background_datablock->getColour()
+                : Ogre::ColourValue::White;
+        const Ogre::ColourValue prior_sky_sun_colour =
+            sky_sun_datablock != nullptr ? sky_sun_datablock->getColour()
+                                         : Ogre::ColourValue::White;
+        bool sky_moved = false;
+        bool sky_scaled = false;
         const auto restore_capture_state = [&]() noexcept {
           bool clean = true;
           try {
@@ -1071,6 +1154,29 @@ public:
                     clean;
           } catch (...) {
             clean = false;
+          }
+          if (sky_moved) {
+            try {
+              sky_node->setPosition(prior_sky_position);
+              sky_moved = sky_node->getPosition() != prior_sky_position;
+              clean = !sky_moved && clean;
+            } catch (...) {
+              clean = false;
+            }
+          }
+          if (sky_scaled) {
+            try {
+              sky_background_datablock->setColour(
+                  prior_sky_background_colour);
+              sky_sun_datablock->setColour(prior_sky_sun_colour);
+              sky_scaled =
+                  sky_background_datablock->getColour() !=
+                      prior_sky_background_colour ||
+                  sky_sun_datablock->getColour() != prior_sky_sun_colour;
+              clean = !sky_scaled && clean;
+            } catch (...) {
+              clean = false;
+            }
           }
           clean = restore_items() && clean;
           return clean;
@@ -1093,6 +1199,34 @@ public:
                                              mask_intersects && dynamic_allowed
                                          ? kOgreNextPccCaptureVisibilityBit
                                          : 0U);
+          }
+          if (sky_node != nullptr) {
+            // The analytic sky is the environment, not scene content: it is
+            // admitted into every capture unconditionally so the probe's
+            // diffuse-GI mip chain carries real sky radiance instead of the
+            // cleared black. The dome is camera-relative geometry, so it is
+            // re-centred on the probe's capture position, and its authored
+            // physical radiance is scaled onto the calibrated ambient level
+            // (capture_radiance_scale, the SH seat gain) for exactly the
+            // capture duration; restore_capture_state puts flag state,
+            // position, and datablock colours back before any main-view
+            // state verification can observe them.
+            prior_flags.emplace_back(
+                sky_background_item,
+                sky_background_item->getVisibilityFlags());
+            prior_flags.emplace_back(sky_sun_item,
+                                     sky_sun_item->getVisibilityFlags());
+            sky_background_item->setVisibilityFlags(
+                kOgreNextPccCaptureVisibilityBit);
+            sky_sun_item->setVisibilityFlags(kOgreNextPccCaptureVisibilityBit);
+            sky_node->setPosition(candidate->getProbeCameraPos());
+            sky_moved = true;
+            const Ogre::ColourValue scaled_capture_colour(
+                sky.capture_radiance_scale, sky.capture_radiance_scale,
+                sky.capture_radiance_scale, 1.0F);
+            sky_background_datablock->setColour(scaled_capture_colour);
+            sky_sun_datablock->setColour(scaled_capture_colour);
+            sky_scaled = true;
           }
           pcc->mMask = kCandidateProbeMask;
           if (!candidate->mEnabled || !candidate->mDirty ||
@@ -1142,6 +1276,29 @@ public:
         }
         const FilteredContentStats filtered_stats =
             MeasureFilteredContent(filtered_readback.views);
+        if (std::getenv("ROR_PCC_CAPTURE_STATS") != nullptr) {
+          // Diagnostic only, opt-in via environment: pure arithmetic on the
+          // readback bytes the measurement above already produced, so it adds
+          // no GPU synchronization. This is the live pass/fail evidence that
+          // a capture carries content (the pre-F2 probes filtered to
+          // all-black).
+          std::fprintf(
+              stderr,
+              "[RoR|PccCaptureStats] frame=%llu probe=%llu resolution=%u "
+              "sky_included=%d sky_capture_radiance_scale=%.6g "
+              "filtered_mean_rgb=[%.6g,%.6g,%.6g] "
+              "filtered_max_abs_rgb=%.6g nonzero_rgb_components=%llu\n",
+              static_cast<unsigned long long>(render_frame_id),
+              static_cast<unsigned long long>(request.probe_id),
+              static_cast<unsigned int>(request.resolution),
+              sky_node != nullptr ? 1 : 0,
+              static_cast<double>(sky.capture_radiance_scale),
+              filtered_stats.mean_r,
+              filtered_stats.mean_g, filtered_stats.mean_b,
+              static_cast<double>(filtered_stats.max_absolute_rgb),
+              static_cast<unsigned long long>(
+                  filtered_stats.nonzero_rgb_component_count));
+        }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
         std::vector<std::uint8_t> *raw_evidence =
             configuration.retain_capture_evidence
@@ -1714,10 +1871,11 @@ RenderOperationResult OgreNextReflectionProbeRuntime::PrepareFrame(
     const Double3 &absolute_world_origin_meters,
     const std::vector<ReflectionProbeRuntimeDescriptor> &descriptors,
     const std::vector<OgreNextReflectionProbeItemBinding> &items,
-    std::uintptr_t tracking_camera) {
+    std::uintptr_t tracking_camera,
+    const OgreNextReflectionProbeSkyBinding &sky) {
   return impl_->PrepareFrame(render_frame_id, simulation_tick,
                             absolute_world_origin_meters, descriptors, items,
-                            tracking_camera);
+                            tracking_camera, sky);
 }
 
 RenderOperationResult OgreNextReflectionProbeRuntime::FinalizeFrame(

@@ -20,9 +20,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace RoR::Render {
+
+class IRendererFrontend;
+class RendererFrontendDirectDispatcher;
 
 constexpr std::uint32_t kRenderFrameContractVersion = 2U;
 constexpr std::uint32_t kMaximumRenderDimension = 65535U;
@@ -121,11 +125,51 @@ inline bool operator!=(const CameraViewRequest &lhs,
   return !(lhs == rhs);
 }
 
+/// Opaque proof that the same-thread direct dispatcher validated every asset
+/// relationship in one exact immutable snapshot against the catalog it had
+/// already synchronized successfully into one exact frontend instance.
+///
+/// Transported and direct-to-frontend callers cannot mint this receipt. They
+/// leave it absent and the frontend performs the complete relationship scan.
+/// The receipt is deliberately not part of the version-2 wire contract.
+class InProcessSceneAssetValidationReceipt final {
+public:
+  [[nodiscard]] bool Authenticates(
+      const std::shared_ptr<const SceneSnapshot> &snapshot,
+      const IRendererFrontend &frontend, std::uint64_t registry_id,
+      std::uint64_t asset_sequence) const noexcept {
+    return snapshot != nullptr && snapshot_.get() == snapshot.get() &&
+           frontend_ == &frontend && registry_id_ == registry_id &&
+           asset_sequence_ == asset_sequence &&
+           snapshot->asset_registry_id() == registry_id &&
+           snapshot->asset_sequence() == asset_sequence;
+  }
+
+private:
+  friend class RendererFrontendDirectDispatcher;
+
+  InProcessSceneAssetValidationReceipt(
+      std::shared_ptr<const SceneSnapshot> snapshot,
+      const IRendererFrontend &frontend) noexcept
+      : snapshot_(std::move(snapshot)), frontend_(&frontend),
+        registry_id_(snapshot_->asset_registry_id()),
+        asset_sequence_(snapshot_->asset_sequence()) {}
+
+  std::shared_ptr<const SceneSnapshot> snapshot_;
+  const IRendererFrontend *frontend_ = nullptr;
+  std::uint64_t registry_id_ = 0U;
+  std::uint64_t asset_sequence_ = 0U;
+};
+
 struct RenderFrameRequest {
   std::uint32_t version = kRenderFrameContractVersion;
   /// Strictly increasing and never reused per initialized frontend lifetime.
   std::uint64_t frame_id = 0U;
   std::shared_ptr<const SceneSnapshot> scene_snapshot;
+  /// In-process-only validation authority. Null for transport and direct
+  /// frontend clients, which retain the complete frontend-side scan.
+  std::shared_ptr<const InProcessSceneAssetValidationReceipt>
+      in_process_scene_asset_validation;
   /// In-process continuous-particle delta aligned to scene_snapshot. The
   /// established SceneSnapshot particle_events field remains discrete bursts.
   std::shared_ptr<const Ogre14ParticleCapturedFrame> continuous_particles;
