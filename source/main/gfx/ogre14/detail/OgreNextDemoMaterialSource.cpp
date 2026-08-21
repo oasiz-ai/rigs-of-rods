@@ -31,7 +31,9 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -4971,9 +4973,31 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
          static_cast<float>(native_specular.g),
          static_cast<float>(native_specular.b),
          static_cast<float>(native_specular.a)}};
-    const float roughness_factor = ResolveOgreNextDemoRoughnessFactor(
+    float roughness_factor = ResolveOgreNextDemoRoughnessFactor(
         *native_material, *pass,
         allow_curated_cityworld ? curated_policy : nullptr);
+    // TEMPORARY F0 VERIFICATION FAULT - removed after the live proof.
+    // With ROR_F0_FAULT_ROUGHNESS_MATERIAL naming a material and
+    // ROR_F0_FAULT_ROUGHNESS_FLAG naming a file, the revalidation-time
+    // roughness for that one material is perturbed while the flag file
+    // exists, forcing a stored-vs-rederived authority disagreement. Deleting
+    // the flag file mid-session clears the fault so per-object re-admission
+    // can be proven live without restarting.
+    {
+      static const char *const fault_material =
+          std::getenv("ROR_F0_FAULT_ROUGHNESS_MATERIAL");
+      static const char *const fault_flag =
+          std::getenv("ROR_F0_FAULT_ROUGHNESS_FLAG");
+      if (fault_material != nullptr && fault_flag != nullptr &&
+          native_material->getName() == fault_material) {
+        std::error_code fault_error;
+        if (std::filesystem::exists(std::filesystem::path(fault_flag),
+                                    fault_error) &&
+            !fault_error) {
+          roughness_factor += 0.25F;
+        }
+      }
+    }
     const Ogre::ColourValue native_emissive = pass->getSelfIllumination();
     const std::array<float, 3U> emissive_factor{
         {static_cast<float>(native_emissive.r),
