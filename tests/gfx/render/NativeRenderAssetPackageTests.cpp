@@ -546,6 +546,21 @@ void TestCheckedFixtureDecodesToCanonicalJoinedInputs() {
                   IsAbsentRenderAssetReference(binding->sampler),
               "offline package manufactured runtime RenderAssetReferences");
     }
+    for (std::size_t slot = 6U;
+         slot < kGraphicsSceneMaterialTextureSlotCount; ++slot) {
+      Require(input->material_bindings[slot] == GraphicsSceneAssetBinding{},
+              "v1 package manufactured a native-only detail binding");
+    }
+    Require(IsAbsentRenderAssetReference(
+                material.detail_weight_texture.texture) &&
+                IsAbsentRenderAssetReference(
+                    material.detail_weight_texture.sampler),
+            "v1 package manufactured a detail-weight runtime reference");
+    for (const TextureBinding &binding : material.detail_textures) {
+      Require(IsAbsentRenderAssetReference(binding.texture) &&
+                  IsAbsentRenderAssetReference(binding.sampler),
+              "v1 package manufactured a detail runtime reference");
+    }
   }
 
   const GraphicsSceneAssetInput *road_mesh_input =

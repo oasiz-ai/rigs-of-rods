@@ -53,6 +53,16 @@ constexpr std::uint32_t kMaximumMeshIndices = 12000000U;
 constexpr std::uint32_t kMaximumTextureDimension = 16384U;
 constexpr std::uint32_t kMaximumTextureMips = 15U;
 constexpr std::size_t kMaximumJsonDepth = 64U;
+// .rornative v1/v2 material records predate the native-only v6 terrain detail
+// profile.  Their binary layout is fixed to the original six core bindings;
+// growing the live GraphicsScene array must not make those immutable packages
+// appear truncated.  A package carrying detail bindings needs a new package
+// version and explicit bytes rather than silently changing v1/v2.
+constexpr std::size_t kNativePackageMaterialTextureSlotCount = 6U;
+static_assert(static_cast<std::size_t>(MaterialTextureSlot::SPECULAR) + 1U ==
+              kNativePackageMaterialTextureSlotCount);
+static_assert(kNativePackageMaterialTextureSlotCount <
+              kGraphicsSceneMaterialTextureSlotCount);
 
 ValidationResult Failure(ValidationCode code, const char *field,
                          const char *detail,
@@ -1399,7 +1409,7 @@ ValidationResult DecodeMaterial(
                    "material transmission payload is truncated or non-canonical");
   }
   for (std::size_t slot = 0U;
-       slot < kGraphicsSceneMaterialTextureSlotCount; ++slot) {
+       slot < kNativePackageMaterialTextureSlotCount; ++slot) {
     std::uint64_t texture_source_id = 0U;
     std::uint64_t sampler_source_id = 0U;
     std::uint8_t texture_coordinate_set = 0U;

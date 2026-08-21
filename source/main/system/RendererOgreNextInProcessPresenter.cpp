@@ -477,6 +477,20 @@ public:
           RenderOperationCode::INVALID_ARGUMENT,
           "production V2 requires one presented synchronous RGBA16 scene");
     }
+    // The direct dispatcher authenticates the public wrapper it submits to.
+    // The raster frontend is an implementation detail with a distinct object
+    // identity, so forwarding that opaque receipt unchanged would make the
+    // inner frontend correctly reject it as belonging to another frontend.
+    // Authenticate it here against this exact wrapper, then deliberately drop
+    // it so the inner frontend performs its complete scene-asset scan.
+    if (request.in_process_scene_asset_validation != nullptr &&
+        !request.in_process_scene_asset_validation->Authenticates(
+            request.scene_snapshot, *this, registry_->registry_id(),
+            registry_->sequence())) {
+      return RenderOperationResult::Failure(
+          RenderOperationCode::RESOURCE_STALE,
+          "production V2 received stale direct-dispatch scene validation authority");
+    }
     std::vector<NativeSunVisibilityV2InstanceSelection> selection;
     const ValidationResult selection_validation = BuildSunVisibilitySelection(
         *request.scene_snapshot, *registry_, request.views.front(), selection);
@@ -488,6 +502,7 @@ public:
           selection_validation.detail);
     }
     RenderFrameRequest raster_request = request;
+    raster_request.in_process_scene_asset_validation.reset();
     raster_request.present = false;
     raster_request.presentation_view_id = 0U;
     raster_request.presentation_surface_revision = 0U;
@@ -526,6 +541,19 @@ public:
 
   RenderOperationResult
   RetireFrameState(const RenderFrameRequest &request) override {
+    if (request.in_process_scene_asset_validation != nullptr) {
+      if (registry_ == nullptr || request.scene_snapshot == nullptr ||
+          !request.in_process_scene_asset_validation->Authenticates(
+              request.scene_snapshot, *this, registry_->registry_id(),
+              registry_->sequence())) {
+        return RenderOperationResult::Failure(
+            RenderOperationCode::RESOURCE_STALE,
+            "production V2 received stale retired-scene validation authority");
+      }
+      RenderFrameRequest raster_request = request;
+      raster_request.in_process_scene_asset_validation.reset();
+      return frontend_->RetireFrameState(raster_request);
+    }
     return frontend_->RetireFrameState(request);
   }
 
