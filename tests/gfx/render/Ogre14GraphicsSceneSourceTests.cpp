@@ -186,6 +186,51 @@ RoR::Render::Ogre14GraphicsSceneTerrainPageCaptureInput MakeTerrainPage(
   return input;
 }
 
+RoR::Render::Ogre14GraphicsSceneTerrainPageCaptureInput
+MakeTerrainPageWithGrid(std::uint32_t size, std::uint32_t minimum_batch_size,
+                        std::uint32_t maximum_batch_size) {
+  using namespace RoR::Render;
+  Ogre14GraphicsSceneTerrainPageCaptureInput input = MakeTerrainPage();
+  input.size = size;
+  input.minimum_batch_size = minimum_batch_size;
+  input.maximum_batch_size = maximum_batch_size;
+  input.lod_levels_per_leaf = 1U;
+  for (std::uint32_t ratio =
+           (maximum_batch_size - 1U) / (minimum_batch_size - 1U);
+       ratio > 1U; ratio >>= 1U) {
+    ++input.lod_levels_per_leaf;
+  }
+  input.lod_level_count = input.lod_levels_per_leaf;
+  for (std::uint32_t ratio =
+           (size - 1U) / (maximum_batch_size - 1U);
+       ratio > 1U; ratio >>= 1U) {
+    ++input.lod_level_count;
+  }
+  input.world_size = static_cast<float>(size - 1U);
+  input.height_samples.clear();
+  input.normal_neighbourhood_positions.clear();
+  const auto height = [](std::int32_t x, std::int32_t y) {
+    return static_cast<float>(x + y) * 0.125F;
+  };
+  for (std::uint32_t y = 0U; y < size; ++y) {
+    for (std::uint32_t x = 0U; x < size; ++x) {
+      input.height_samples.push_back(height(
+          static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)));
+    }
+  }
+  const float base = input.world_size * -0.5F;
+  const std::size_t halo_side = static_cast<std::size_t>(size) + 2U;
+  input.normal_neighbourhood_positions.reserve(halo_side * halo_side);
+  for (std::int32_t y = -1; y <= static_cast<std::int32_t>(size); ++y) {
+    for (std::int32_t x = -1; x <= static_cast<std::int32_t>(size); ++x) {
+      input.normal_neighbourhood_positions.push_back(
+          {static_cast<float>(x) + base, height(x, y),
+           static_cast<float>(y) * -1.0F - base});
+    }
+  }
+  return input;
+}
+
 std::shared_ptr<const RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>
 MakeJoinedDynamicState(float x_offset = 0.0F) {
   using namespace RoR::Render;
@@ -1085,7 +1130,11 @@ void TestStaticIdentityDerivationAndCollisionAudit() {
 
 void TestStaticMeshPayloadPreservesBasisUvAndTightBounds() {
   using namespace RoR::Render;
-  const Ogre14GraphicsSceneCpuMeshSectionInput input = MakeCpuTriangle();
+  Ogre14GraphicsSceneCpuMeshSectionInput input = MakeCpuTriangle();
+  input.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{30.0F, {0U, 2U, 1U}},
+      MeshDistanceLodLevelDescriptor{120.0F, {0U, 1U, 2U}},
+  };
   std::shared_ptr<const RenderAssetPayload> payload;
   ValidationResult result =
       BuildOgre14GraphicsSceneStaticMeshPayload(input, payload);
@@ -1107,16 +1156,34 @@ void TestStaticMeshPayloadPreservesBasisUvAndTightBounds() {
               mesh.normals == input.normals &&
               mesh.texture_coordinates_0 == input.texture_coordinates_0 &&
               mesh.colors == input.colors &&
-              mesh.indices == input.indices,
-          "canonical basis, upper-left UV, color, or CCW stream changed");
+              mesh.indices == input.indices &&
+              mesh.distance_lod_levels.size() == 2U &&
+              mesh.distance_lod_levels[0U].activation_distance_meters ==
+                  30.0F &&
+              mesh.distance_lod_levels[0U].indices ==
+                  std::vector<std::uint32_t>({0U, 2U, 1U}) &&
+              mesh.distance_lod_levels[1U].activation_distance_meters ==
+                  120.0F &&
+              mesh.distance_lod_levels[1U].indices ==
+                  std::vector<std::uint32_t>({0U, 1U, 2U}),
+          "canonical basis, upper-left UV, color, CCW, or LOD stream changed");
 
   std::shared_ptr<const RenderAssetPayload> reversed;
+  Ogre14GraphicsSceneCpuMeshSectionInput reversed_input =
+      MakeCpuTriangle("city.mesh/reversed", true);
+  reversed_input.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{30.0F, {0U, 2U, 1U}},
+  };
   result = BuildOgre14GraphicsSceneStaticMeshPayload(
-      MakeCpuTriangle("city.mesh/reversed", true), reversed);
+      reversed_input, reversed);
   Require(result.ok() &&
               std::get<MeshResourceDescriptor>(*reversed).indices ==
-                  std::vector<std::uint32_t>({0U, 2U, 1U}),
-          "explicit reverse-winding conversion changed or was omitted");
+                  std::vector<std::uint32_t>({0U, 2U, 1U}) &&
+              std::get<MeshResourceDescriptor>(*reversed)
+                      .distance_lod_levels.front()
+                      .indices ==
+                  std::vector<std::uint32_t>({0U, 1U, 2U}),
+          "explicit base or generated-LOD winding conversion changed or was omitted");
 
   const std::shared_ptr<const RenderAssetPayload> accepted = payload;
   Ogre14GraphicsSceneCpuMeshSectionInput malformed = input;
@@ -1512,13 +1579,30 @@ void TestTerrainIdentityAndExactStateKeyAreStable() {
 
 void TestTerrainCacheResolutionIsExactAndTransactional() {
   using namespace RoR::Render;
+  const auto same_chunk_owners = [](
+      const Ogre14GraphicsSceneTerrainPageCacheEntry &first,
+      const Ogre14GraphicsSceneTerrainPageCacheEntry &second) {
+    if (first.chunks.size() != second.chunks.size()) {
+      return false;
+    }
+    for (std::size_t index = 0U; index < first.chunks.size(); ++index) {
+      if (first.chunks[index].chunk_x != second.chunks[index].chunk_x ||
+          first.chunks[index].chunk_y != second.chunks[index].chunk_y ||
+          !SameSharedOwner(first.chunks[index].mesh_payload,
+                           second.chunks[index].mesh_payload)) {
+        return false;
+      }
+    }
+    return true;
+  };
   Ogre14GraphicsSceneTerrainPageCaptureInput page = MakeTerrainPage();
   Ogre14GraphicsSceneTerrainPageCacheEntry cache;
   ValidationResult result =
       ResolveOgre14GraphicsSceneTerrainPageCacheEntry(page, nullptr, cache);
   Require(result.ok() && !cache.exact_geometry_state_key.empty() &&
               cache.topology_revision == 1U &&
-              cache.mesh_payload != nullptr,
+              cache.chunks.size() == 1U &&
+              cache.chunks.front().mesh_payload != nullptr,
           "new terrain cache entry was not built at revision one");
   const Ogre14GraphicsSceneTerrainPageCacheEntry accepted = cache;
 
@@ -1528,7 +1612,7 @@ void TestTerrainCacheResolutionIsExactAndTransactional() {
   Require(result.ok() && stable.topology_revision == 1U &&
               stable.exact_geometry_state_key ==
                   accepted.exact_geometry_state_key &&
-              SameSharedOwner(stable.mesh_payload, accepted.mesh_payload),
+              same_chunk_owners(stable, accepted),
           "stable terrain geometry did not reuse its immutable cache owner");
 
   page.highest_lod_loaded = 1;
@@ -1537,8 +1621,7 @@ void TestTerrainCacheResolutionIsExactAndTransactional() {
   result = ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
       page, &stable, camera_lod);
   Require(result.ok() && camera_lod.topology_revision == 1U &&
-              SameSharedOwner(camera_lod.mesh_payload,
-                              accepted.mesh_payload),
+              same_chunk_owners(camera_lod, accepted),
           "camera-selected terrain LOD invalidated the CPU geometry cache");
 
   page.height_samples[0U] += 0.5F;
@@ -1550,8 +1633,7 @@ void TestTerrainCacheResolutionIsExactAndTransactional() {
   Require(result.ok() && changed.topology_revision == 2U &&
               changed.exact_geometry_state_key !=
                   accepted.exact_geometry_state_key &&
-              !SameSharedOwner(changed.mesh_payload,
-                               accepted.mesh_payload),
+              !same_chunk_owners(changed, accepted),
           "changed terrain geometry reused a stale cache revision or owner");
 
   const Ogre14GraphicsSceneTerrainPageCacheEntry committed = changed;
@@ -1562,8 +1644,7 @@ void TestTerrainCacheResolutionIsExactAndTransactional() {
               changed.topology_revision == committed.topology_revision &&
               changed.exact_geometry_state_key ==
                   committed.exact_geometry_state_key &&
-              SameSharedOwner(changed.mesh_payload,
-                              committed.mesh_payload),
+              same_chunk_owners(changed, committed),
           "rejected terrain cache update modified the committed entry");
 }
 
@@ -1579,7 +1660,12 @@ void TestTerrainLod0MeshPreservesGridSkirtsNormalsAndUv() {
       std::get<MeshResourceDescriptor>(*payload);
   Require(mesh.positions.size() == 45U && mesh.indices.size() == 192U &&
               mesh.index_format == MeshIndexFormat::UINT16 &&
-              mesh.topology_revision == 4U && !mesh.dynamic,
+              mesh.topology_revision == 4U && !mesh.dynamic &&
+              mesh.distance_lod_levels.size() == 1U &&
+              Near(mesh.distance_lod_levels.front()
+                       .activation_distance_meters,
+                   4.0F) &&
+              mesh.distance_lod_levels.front().indices.size() == 72U,
           "terrain LOD0 grid or perimeter-skirt topology changed");
   Require(mesh.positions.front() == Float3{-2.0F, 0.0F, 2.0F} &&
               mesh.texture_coordinates_0.front() == Float2{0.0F, 1.0F} &&
@@ -1605,6 +1691,11 @@ void TestTerrainLod0MeshPreservesGridSkirtsNormalsAndUv() {
   for (const std::uint32_t index : mesh.indices) {
     Require(index < mesh.positions.size(),
             "terrain strip conversion emitted an out-of-range index");
+  }
+  for (const std::uint32_t index :
+       mesh.distance_lod_levels.front().indices) {
+    Require(index < mesh.positions.size(),
+            "terrain distance LOD emitted an out-of-range index");
   }
 
   Ogre14GraphicsSceneTerrainPageCaptureInput isolated = MakeTerrainPage();
@@ -1696,6 +1787,62 @@ void TestTerrainLod0MeshPreservesGridSkirtsNormalsAndUv() {
                        .x,
                    -aligned.skirt_size),
           "Y/Z-aligned terrain basis or skirt direction changed");
+}
+
+void TestTerrainChunksPublishSharedEdgesAndIndependentLodLadders() {
+  using namespace RoR::Render;
+  const Ogre14GraphicsSceneTerrainPageCaptureInput page =
+      MakeTerrainPageWithGrid(129U, 17U, 65U);
+  std::vector<Ogre14GraphicsSceneTerrainChunkMesh> chunks;
+  const ValidationResult result =
+      BuildOgre14GraphicsSceneTerrainChunkMeshes(page, 9U, chunks);
+  Require(result.ok() && chunks.size() == 4U,
+          "129-point terrain did not split into four native chunks");
+  for (std::size_t index = 0U; index < chunks.size(); ++index) {
+    Require(chunks[index].chunk_x == index % 2U &&
+                chunks[index].chunk_y == index / 2U &&
+                chunks[index].mesh_payload != nullptr,
+            "terrain chunks lost canonical row-major identity");
+    const MeshResourceDescriptor &mesh =
+        std::get<MeshResourceDescriptor>(*chunks[index].mesh_payload);
+    Require(mesh.positions.size() == 4485U &&
+                mesh.indices.size() == 26112U &&
+                mesh.topology_revision == 9U &&
+                mesh.distance_lod_levels.size() == 3U &&
+                mesh.distance_lod_levels[0U].indices.size() == 6912U &&
+                mesh.distance_lod_levels[1U].indices.size() == 1920U &&
+                mesh.distance_lod_levels[2U].indices.size() == 576U,
+            "native terrain chunk topology or LOD ladder changed");
+    std::size_t prior_count = mesh.indices.size();
+    for (const MeshDistanceLodLevelDescriptor &level :
+         mesh.distance_lod_levels) {
+      Require(level.indices.size() < prior_count,
+              "terrain chunk LOD ladder did not strictly reduce");
+      prior_count = level.indices.size();
+      for (const std::uint32_t vertex : level.indices) {
+        Require(vertex < mesh.positions.size(),
+                "terrain chunk LOD referenced an absent vertex");
+      }
+    }
+  }
+
+  const MeshResourceDescriptor &left =
+      std::get<MeshResourceDescriptor>(*chunks[0U].mesh_payload);
+  const MeshResourceDescriptor &right =
+      std::get<MeshResourceDescriptor>(*chunks[1U].mesh_payload);
+  constexpr std::size_t kChunkSide = 65U;
+  for (std::size_t y = 0U; y < kChunkSide; ++y) {
+    const std::size_t left_edge = y * kChunkSide + (kChunkSide - 1U);
+    const std::size_t right_edge = y * kChunkSide;
+    Require(left.positions[left_edge] == right.positions[right_edge] &&
+                left.normals[left_edge] == right.normals[right_edge] &&
+                left.texture_coordinates_0[left_edge] ==
+                    right.texture_coordinates_0[right_edge],
+            "adjacent native terrain chunks disagree at their shared edge");
+  }
+  Require(!SameSharedOwner(chunks[0U].mesh_payload,
+                           chunks[1U].mesh_payload),
+          "independent terrain chunks unexpectedly share one mesh owner");
 }
 
 void TestTerrainPageSetRequiresCompleteMatchingSharedEdges() {
@@ -2473,6 +2620,7 @@ int main() {
   TestTerrainIdentityAndExactStateKeyAreStable();
   TestTerrainCacheResolutionIsExactAndTransactional();
   TestTerrainLod0MeshPreservesGridSkirtsNormalsAndUv();
+  TestTerrainChunksPublishSharedEdgesAndIndependentLodLadders();
   TestTerrainPageSetRequiresCompleteMatchingSharedEdges();
   TestTerrainMaterialGateAndSectionAreTransactional();
   TestTerrainInventoryReusesPayloadAndFeedsProducer();

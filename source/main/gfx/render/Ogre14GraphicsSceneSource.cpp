@@ -1439,27 +1439,15 @@ ValidationResult BuildOgre14GraphicsSceneTerrainGeometryStateKey(
   return ValidationResult::Success();
 }
 
-ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
+static ValidationResult BuildTerrainPatchMeshPayloadValidated(
     const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
     std::uint64_t topology_revision,
+    std::uint32_t patch_origin_x,
+    std::uint32_t patch_origin_y,
+    std::uint32_t patch_quads,
     std::shared_ptr<const RenderAssetPayload> &payload) {
-  ValidationResult validation = ValidateTerrainGeometryInput(input);
-  if (!validation) {
-    return validation;
-  }
-  if (topology_revision == 0U) {
-    return ValidationResult::Failure(
-        ValidationCode::INVALID_IDENTIFIER, "mesh.topology_revision",
-        "terrain mesh topology revision must be nonzero");
-  }
-  if (!IsKnownMaterialCull(input.material.cull)) {
-    return ValidationResult::Failure(
-        ValidationCode::INVALID_ENUM, "material.cull",
-        "terrain material has an unknown cull mode");
-  }
-
-  const std::size_t side = input.size;
-  const std::size_t halo_side = side + 2U;
+  const std::size_t side = static_cast<std::size_t>(patch_quads) + 1U;
+  const std::size_t halo_side = static_cast<std::size_t>(input.size) + 2U;
   const std::size_t main_vertex_count = side * side;
   const std::size_t total_vertex_count = main_vertex_count + 4U * side;
   if (total_vertex_count >
@@ -1470,7 +1458,9 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
   }
 
   Ogre14GraphicsSceneCpuMeshSectionInput mesh;
-  mesh.debug_name = BuildTerrainPageDebugName(input.identity);
+  mesh.debug_name = BuildTerrainPageDebugName(input.identity) + "/chunk-" +
+                    std::to_string(patch_origin_x / patch_quads) + "-" +
+                    std::to_string(patch_origin_y / patch_quads);
   mesh.index_format = total_vertex_count <= 65536U
                           ? MeshIndexFormat::UINT16
                           : MeshIndexFormat::UINT32;
@@ -1488,27 +1478,22 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
         static_cast<std::size_t>(y + 1) * halo_side +
         static_cast<std::size_t>(x + 1)];
   };
-  for (std::uint32_t y = 0U; y < input.size; ++y) {
-    for (std::uint32_t x = 0U; x < input.size; ++x) {
-      const Float3 &centre = point(static_cast<std::int32_t>(x),
-                                   static_cast<std::int32_t>(y));
+  for (std::uint32_t y = 0U; y <= patch_quads; ++y) {
+    for (std::uint32_t x = 0U; x <= patch_quads; ++x) {
+      const std::int32_t global_x = static_cast<std::int32_t>(
+          patch_origin_x + x);
+      const std::int32_t global_y = static_cast<std::int32_t>(
+          patch_origin_y + y);
+      const Float3 &centre = point(global_x, global_y);
       const std::array<Float3, 8U> adjacent{{
-          point(static_cast<std::int32_t>(x) + 1,
-                static_cast<std::int32_t>(y)),
-          point(static_cast<std::int32_t>(x) + 1,
-                static_cast<std::int32_t>(y) + 1),
-          point(static_cast<std::int32_t>(x),
-                static_cast<std::int32_t>(y) + 1),
-          point(static_cast<std::int32_t>(x) - 1,
-                static_cast<std::int32_t>(y) + 1),
-          point(static_cast<std::int32_t>(x) - 1,
-                static_cast<std::int32_t>(y)),
-          point(static_cast<std::int32_t>(x) - 1,
-                static_cast<std::int32_t>(y) - 1),
-          point(static_cast<std::int32_t>(x),
-                static_cast<std::int32_t>(y) - 1),
-          point(static_cast<std::int32_t>(x) + 1,
-                static_cast<std::int32_t>(y) - 1),
+          point(global_x + 1, global_y),
+          point(global_x + 1, global_y + 1),
+          point(global_x, global_y + 1),
+          point(global_x - 1, global_y + 1),
+          point(global_x - 1, global_y),
+          point(global_x - 1, global_y - 1),
+          point(global_x, global_y - 1),
+          point(global_x + 1, global_y - 1),
       }};
       Float3 normal{};
       for (std::size_t neighbour = 0U; neighbour < adjacent.size();
@@ -1535,10 +1520,8 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
       }
 
       Float3 tangent = Subtract(
-          point(static_cast<std::int32_t>(x) + 1,
-                static_cast<std::int32_t>(y)),
-          point(static_cast<std::int32_t>(x) - 1,
-                static_cast<std::int32_t>(y)));
+          point(global_x + 1, global_y),
+          point(global_x - 1, global_y));
       tangent = Subtract(tangent,
                          Scale(normal, DotProduct(normal, tangent)));
       if (!Normalize(tangent)) {
@@ -1548,10 +1531,8 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
             static_cast<std::size_t>(y) * side + x);
       }
       const Float3 increasing_v = Subtract(
-          point(static_cast<std::int32_t>(x),
-                static_cast<std::int32_t>(y) - 1),
-          point(static_cast<std::int32_t>(x),
-                static_cast<std::int32_t>(y) + 1));
+          point(global_x, global_y - 1),
+          point(global_x, global_y + 1));
       const float handedness_measure =
           DotProduct(CrossProduct(normal, tangent), increasing_v);
       if (!std::isfinite(handedness_measure) ||
@@ -1568,8 +1549,9 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
           {tangent.x, tangent.y, tangent.z,
            handedness_measure > 0.0F ? 1.0F : -1.0F});
       mesh.texture_coordinates_0.push_back(
-          {static_cast<float>(x) / static_cast<float>(input.size - 1U),
-           1.0F - static_cast<float>(y) /
+          {static_cast<float>(patch_origin_x + x) /
+               static_cast<float>(input.size - 1U),
+           1.0F - static_cast<float>(patch_origin_y + y) /
                       static_cast<float>(input.size - 1U)});
     }
   }
@@ -1583,104 +1565,203 @@ ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
     mesh.texture_coordinates_0.push_back(
         mesh.texture_coordinates_0[main_index]);
   };
-  for (std::uint32_t x = 0U; x < input.size; ++x) {
+  for (std::uint32_t x = 0U; x <= patch_quads; ++x) {
     append_skirt_vertex(x);
   }
-  for (std::uint32_t x = 0U; x < input.size; ++x) {
-    append_skirt_vertex((input.size - 1U) * input.size + x);
+  for (std::uint32_t x = 0U; x <= patch_quads; ++x) {
+    append_skirt_vertex(patch_quads * static_cast<std::uint32_t>(side) + x);
   }
-  for (std::uint32_t y = 0U; y < input.size; ++y) {
-    append_skirt_vertex(y * input.size);
+  for (std::uint32_t y = 0U; y <= patch_quads; ++y) {
+    append_skirt_vertex(y * static_cast<std::uint32_t>(side));
   }
-  for (std::uint32_t y = 0U; y < input.size; ++y) {
-    append_skirt_vertex(y * input.size + input.size - 1U);
+  for (std::uint32_t y = 0U; y <= patch_quads; ++y) {
+    append_skirt_vertex(y * static_cast<std::uint32_t>(side) + patch_quads);
   }
 
-  std::vector<std::uint32_t> strip;
-  const std::size_t strip_index_count =
-      (side * 2U + 1U) * (side - 1U) + (side - 1U) * 8U + 2U;
-  strip.reserve(strip_index_count);
-  std::int64_t current_vertex = static_cast<std::int64_t>(side - 1U);
-  bool right_to_left = true;
-  for (std::uint32_t row = 0U; row < input.size - 1U; ++row) {
-    for (std::uint32_t column = 0U; column < input.size; ++column) {
-      strip.push_back(static_cast<std::uint32_t>(current_vertex));
-      strip.push_back(static_cast<std::uint32_t>(current_vertex + side));
-      if (column + 1U < input.size) {
-        current_vertex += right_to_left ? -1 : 1;
+  const std::uint32_t patch_side = patch_quads + 1U;
+  const std::uint32_t skirt_base = patch_side * patch_side;
+  const auto build_level_indices = [&](std::uint32_t stride,
+                                       std::vector<std::uint32_t> &indices) {
+    if (stride == 0U || patch_quads % stride != 0U) {
+      return false;
+    }
+    const std::size_t cells = patch_quads / stride;
+    indices.clear();
+    indices.reserve((cells * cells * 2U + cells * 8U) * 3U);
+    const auto append_triangle = [&](std::uint32_t a, std::uint32_t b,
+                                     std::uint32_t c) {
+      indices.push_back(a);
+      indices.push_back(b);
+      indices.push_back(c);
+    };
+    for (std::uint32_t y = 0U; y < patch_quads; y += stride) {
+      for (std::uint32_t x = 0U; x < patch_quads; x += stride) {
+        const std::uint32_t top_left = y * patch_side + x;
+        const std::uint32_t top_right = top_left + stride;
+        const std::uint32_t bottom_left =
+            (y + stride) * patch_side + x;
+        const std::uint32_t bottom_right = bottom_left + stride;
+        append_triangle(top_left, top_right, bottom_right);
+        append_triangle(top_left, bottom_right, bottom_left);
       }
     }
-    right_to_left = !right_to_left;
-    current_vertex += static_cast<std::int64_t>(side);
-    strip.push_back(static_cast<std::uint32_t>(current_vertex));
-  }
-  const auto skirt_index = [&](std::uint32_t main_index, bool column) {
-    const std::uint32_t row = main_index / input.size;
-    const std::uint32_t col = main_index % input.size;
-    const std::uint32_t base = input.size * input.size;
-    if (column) {
-      return base + 2U * input.size +
-             input.size * (col / (input.size - 1U)) + row;
+    for (std::uint32_t offset = 0U; offset < patch_quads;
+         offset += stride) {
+      const std::uint32_t next = offset + stride;
+
+      const std::uint32_t top0 = offset;
+      const std::uint32_t top1 = next;
+      const std::uint32_t top_skirt0 = skirt_base + offset;
+      const std::uint32_t top_skirt1 = skirt_base + next;
+      append_triangle(top0, top_skirt0, top1);
+      append_triangle(top_skirt0, top_skirt1, top1);
+
+      const std::uint32_t bottom0 = patch_quads * patch_side + offset;
+      const std::uint32_t bottom1 = patch_quads * patch_side + next;
+      const std::uint32_t bottom_skirt0 =
+          skirt_base + patch_side + offset;
+      const std::uint32_t bottom_skirt1 =
+          skirt_base + patch_side + next;
+      append_triangle(bottom0, bottom1, bottom_skirt0);
+      append_triangle(bottom1, bottom_skirt1, bottom_skirt0);
+
+      const std::uint32_t left0 = offset * patch_side;
+      const std::uint32_t left1 = next * patch_side;
+      const std::uint32_t left_skirt0 =
+          skirt_base + 2U * patch_side + offset;
+      const std::uint32_t left_skirt1 =
+          skirt_base + 2U * patch_side + next;
+      append_triangle(left0, left1, left_skirt0);
+      append_triangle(left1, left_skirt1, left_skirt0);
+
+      const std::uint32_t right0 = offset * patch_side + patch_quads;
+      const std::uint32_t right1 = next * patch_side + patch_quads;
+      const std::uint32_t right_skirt0 =
+          skirt_base + 3U * patch_side + offset;
+      const std::uint32_t right_skirt1 =
+          skirt_base + 3U * patch_side + next;
+      append_triangle(right0, right_skirt0, right1);
+      append_triangle(right_skirt0, right_skirt1, right1);
     }
-    return base + input.size * (row / (input.size - 1U)) + col;
+    return true;
   };
-  for (std::uint32_t side_index = 0U; side_index < 4U; ++side_index) {
-    std::int64_t edge_increment = 0;
-    std::int64_t skirt_increment = 0;
-    switch (side_index) {
-    case 0U:
-      edge_increment = -1;
-      skirt_increment = -1;
-      break;
-    case 1U:
-      edge_increment = -static_cast<std::int64_t>(side);
-      skirt_increment = -1;
-      break;
-    case 2U:
-      edge_increment = 1;
-      skirt_increment = 1;
-      break;
-    case 3U:
-      edge_increment = static_cast<std::int64_t>(side);
-      skirt_increment = 1;
-      break;
-    }
-    std::int64_t current_skirt = skirt_index(
-        static_cast<std::uint32_t>(current_vertex),
-        (side_index % 2U) != 0U);
-    for (std::uint32_t edge = 0U; edge < input.size - 1U; ++edge) {
-      strip.push_back(static_cast<std::uint32_t>(current_vertex));
-      strip.push_back(static_cast<std::uint32_t>(current_skirt));
-      current_vertex += edge_increment;
-      current_skirt += skirt_increment;
-    }
-    if (side_index == 3U) {
-      strip.push_back(static_cast<std::uint32_t>(current_vertex));
-      strip.push_back(static_cast<std::uint32_t>(current_skirt));
-      current_vertex += edge_increment;
-    }
-  }
-  if (strip.size() != strip_index_count) {
+
+  if (!build_level_indices(1U, mesh.indices)) {
     return ValidationResult::Failure(
         ValidationCode::SIZE_MISMATCH, "mesh.indices",
-        "canonical terrain strip construction changed index count");
+        "terrain base patch is not a regular grid");
   }
-  mesh.indices.reserve((strip.size() - 2U) * 3U);
-  for (std::size_t index = 2U; index < strip.size(); ++index) {
-    std::uint32_t first = strip[index - 2U];
-    std::uint32_t second = strip[index - 1U];
-    const std::uint32_t third = strip[index];
-    if ((index & 1U) != 0U) {
-      std::swap(first, second);
+  const float point_spacing =
+      input.world_size / static_cast<float>(input.size - 1U);
+  const float patch_world_span =
+      point_spacing * static_cast<float>(patch_quads);
+  std::uint32_t stride = 2U;
+  const std::size_t maximum_levels = (std::min)(
+      static_cast<std::size_t>(input.lod_level_count - 1U),
+      kMaximumMeshDistanceLodLevels);
+  while (stride <= patch_quads &&
+         mesh.distance_lod_levels.size() < maximum_levels) {
+    MeshDistanceLodLevelDescriptor level;
+    level.activation_distance_meters =
+        patch_world_span * (static_cast<float>(stride) * 0.5F);
+    if (!build_level_indices(stride, level.indices) ||
+        level.indices.size() >=
+            (mesh.distance_lod_levels.empty()
+                 ? mesh.indices.size()
+                 : mesh.distance_lod_levels.back().indices.size())) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "mesh.distance_lod_levels.indices",
+          "terrain LOD did not produce a strictly smaller skirted grid");
     }
-    if (first == second || first == third || second == third) {
-      continue;
+    mesh.distance_lod_levels.push_back(std::move(level));
+    if (stride > patch_quads / 2U) {
+      break;
     }
-    mesh.indices.push_back(first);
-    mesh.indices.push_back(second);
-    mesh.indices.push_back(third);
+    stride *= 2U;
   }
   return BuildOgre14GraphicsSceneStaticMeshPayload(mesh, payload);
+}
+
+ValidationResult BuildOgre14GraphicsSceneTerrainMeshPayload(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::uint64_t topology_revision,
+    std::shared_ptr<const RenderAssetPayload> &payload) {
+  ValidationResult validation = ValidateTerrainGeometryInput(input);
+  if (!validation) {
+    return validation;
+  }
+  if (topology_revision == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "mesh.topology_revision",
+        "terrain mesh topology revision must be nonzero");
+  }
+  if (!IsKnownMaterialCull(input.material.cull)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.cull",
+        "terrain material has an unknown cull mode");
+  }
+  return BuildTerrainPatchMeshPayloadValidated(
+      input, topology_revision, 0U, 0U, input.size - 1U, payload);
+}
+
+ValidationResult BuildOgre14GraphicsSceneTerrainChunkMeshes(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::uint64_t topology_revision,
+    std::vector<Ogre14GraphicsSceneTerrainChunkMesh> &chunks) {
+  ValidationResult validation = ValidateTerrainGeometryInput(input);
+  if (!validation) {
+    return validation;
+  }
+  if (topology_revision == 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "mesh.topology_revision",
+        "terrain chunk topology revision must be nonzero");
+  }
+  if (!IsKnownMaterialCull(input.material.cull)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_ENUM, "material.cull",
+        "terrain material has an unknown cull mode");
+  }
+  constexpr std::uint32_t kMaximumTerrainChunkQuads = 64U;
+  const std::uint32_t page_quads = input.size - 1U;
+  const std::uint32_t chunk_quads =
+      (std::min)(page_quads, kMaximumTerrainChunkQuads);
+  if (chunk_quads == 0U || (chunk_quads & (chunk_quads - 1U)) != 0U ||
+      page_quads % chunk_quads != 0U) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "terrain.chunks.grid",
+        "terrain page quads must split into power-of-two native chunks");
+  }
+  const std::uint32_t chunks_per_axis = page_quads / chunk_quads;
+  if (chunks_per_axis == 0U ||
+      static_cast<std::uint64_t>(chunks_per_axis) * chunks_per_axis >
+          4096U) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "terrain.chunks.count",
+        "terrain page produces too many native chunks");
+  }
+  std::vector<Ogre14GraphicsSceneTerrainChunkMesh> candidate;
+  candidate.reserve(static_cast<std::size_t>(chunks_per_axis) *
+                    chunks_per_axis);
+  for (std::uint32_t chunk_y = 0U; chunk_y < chunks_per_axis; ++chunk_y) {
+    for (std::uint32_t chunk_x = 0U; chunk_x < chunks_per_axis; ++chunk_x) {
+      Ogre14GraphicsSceneTerrainChunkMesh chunk;
+      chunk.chunk_x = chunk_x;
+      chunk.chunk_y = chunk_y;
+      validation = BuildTerrainPatchMeshPayloadValidated(
+          input, topology_revision, chunk_x * chunk_quads,
+          chunk_y * chunk_quads, chunk_quads, chunk.mesh_payload);
+      if (!validation) {
+        validation.field = "terrain.chunks." + validation.field;
+        validation.element_index = candidate.size();
+        return validation;
+      }
+      candidate.push_back(std::move(chunk));
+    }
+  }
+  chunks = std::move(candidate);
+  return ValidationResult::Success();
 }
 
 ValidationResult ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
@@ -1699,26 +1780,41 @@ ValidationResult ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
   if (previous != nullptr) {
     if (previous->exact_geometry_state_key.empty() ||
         previous->topology_revision == 0U ||
-        previous->mesh_payload == nullptr ||
-        previous->mesh_payload->valueless_by_exception() ||
-        RenderAssetPayloadKind(*previous->mesh_payload) !=
-            RenderAssetKind::MESH) {
+        previous->chunks.empty()) {
       return ValidationResult::Failure(
           ValidationCode::REVISION_MISMATCH, "terrain.pages.cache",
           "prior terrain cache entry is incomplete");
     }
-    const MeshResourceDescriptor &prior_mesh =
-        std::get<MeshResourceDescriptor>(*previous->mesh_payload);
-    validation = ValidateMeshResourceDescriptor(prior_mesh);
-    if (!validation) {
-      validation.field = "terrain.pages.cache." + validation.field;
-      return validation;
-    }
-    if (prior_mesh.topology_revision != previous->topology_revision) {
-      return ValidationResult::Failure(
-          ValidationCode::REVISION_MISMATCH,
-          "terrain.pages.cache.topology_revision",
-          "prior terrain cache owner and revision disagree");
+    std::set<std::pair<std::uint32_t, std::uint32_t>> chunk_coordinates;
+    for (std::size_t chunk_index = 0U;
+         chunk_index < previous->chunks.size(); ++chunk_index) {
+      const Ogre14GraphicsSceneTerrainChunkMesh &chunk =
+          previous->chunks[chunk_index];
+      if (!chunk_coordinates.emplace(chunk.chunk_x, chunk.chunk_y).second ||
+          chunk.mesh_payload == nullptr ||
+          chunk.mesh_payload->valueless_by_exception() ||
+          RenderAssetPayloadKind(*chunk.mesh_payload) !=
+              RenderAssetKind::MESH) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.cache.chunks",
+            "prior terrain cache chunk is incomplete or duplicated",
+            chunk_index);
+      }
+      const MeshResourceDescriptor &prior_mesh =
+          std::get<MeshResourceDescriptor>(*chunk.mesh_payload);
+      validation = ValidateMeshResourceDescriptor(prior_mesh);
+      if (!validation) {
+        validation.field = "terrain.pages.cache.chunks." + validation.field;
+        validation.element_index = chunk_index;
+        return validation;
+      }
+      if (prior_mesh.topology_revision != previous->topology_revision) {
+        return ValidationResult::Failure(
+            ValidationCode::REVISION_MISMATCH,
+            "terrain.pages.cache.topology_revision",
+            "prior terrain cache owner and revision disagree", chunk_index);
+      }
     }
     if (previous->exact_geometry_state_key == geometry_state_key) {
       entry = *previous;
@@ -1734,16 +1830,16 @@ ValidationResult ResolveOgre14GraphicsSceneTerrainPageCacheEntry(
     topology_revision = previous->topology_revision + 1U;
   }
 
-  std::shared_ptr<const RenderAssetPayload> payload;
-  validation = BuildOgre14GraphicsSceneTerrainMeshPayload(
-      input, topology_revision, payload);
+  std::vector<Ogre14GraphicsSceneTerrainChunkMesh> chunks;
+  validation = BuildOgre14GraphicsSceneTerrainChunkMeshes(
+      input, topology_revision, chunks);
   if (!validation) {
     return validation;
   }
   Ogre14GraphicsSceneTerrainPageCacheEntry candidate;
   candidate.exact_geometry_state_key = std::move(geometry_state_key);
   candidate.topology_revision = topology_revision;
-  candidate.mesh_payload = std::move(payload);
+  candidate.chunks = std::move(chunks);
   entry = std::move(candidate);
   return ValidationResult::Success();
 }
@@ -1857,16 +1953,30 @@ ValidationResult BuildOgre14GraphicsSceneStaticMeshPayload(
   descriptor.texture_coordinates_1 = input.texture_coordinates_1;
   descriptor.colors = input.colors;
   descriptor.indices = input.indices;
+  descriptor.distance_lod_levels = input.distance_lod_levels;
   if (input.reverse_winding) {
-    if (descriptor.indices.size() % 3U != 0U) {
+    const auto reverse_triangles = [](std::vector<std::uint32_t> &indices) {
+      if (indices.size() % 3U != 0U) {
+        return false;
+      }
+      for (std::size_t index = 0U; index < indices.size(); index += 3U) {
+        std::swap(indices[index + 1U], indices[index + 2U]);
+      }
+      return true;
+    };
+    if (!reverse_triangles(descriptor.indices)) {
       return ValidationResult::Failure(
           ValidationCode::SIZE_MISMATCH, "mesh.indices",
           "triangle winding conversion requires complete triangles");
     }
-    for (std::size_t index = 0U; index < descriptor.indices.size();
-         index += 3U) {
-      std::swap(descriptor.indices[index + 1U],
-                descriptor.indices[index + 2U]);
+    for (MeshDistanceLodLevelDescriptor &level :
+         descriptor.distance_lod_levels) {
+      if (!reverse_triangles(level.indices)) {
+        return ValidationResult::Failure(
+            ValidationCode::SIZE_MISMATCH,
+            "mesh.distance_lod_levels.indices",
+            "LOD winding conversion requires complete triangles");
+      }
     }
   }
 

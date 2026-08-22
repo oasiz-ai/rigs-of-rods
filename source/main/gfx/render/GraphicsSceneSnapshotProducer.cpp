@@ -139,17 +139,27 @@ bool AddElementBytes(std::size_t count, std::size_t element_size,
 
 bool AddMeshPayloadBytes(const MeshResourceDescriptor &mesh,
                          std::uint64_t &total) noexcept {
-  return AddElementBytes(mesh.debug_name.size(), sizeof(char), total) &&
-         AddElementBytes(mesh.positions.size(), sizeof(Float3), total) &&
-         AddElementBytes(mesh.normals.size(), sizeof(Float3), total) &&
-         AddElementBytes(mesh.tangents.size(), sizeof(Float4), total) &&
-         AddElementBytes(mesh.velocities.size(), sizeof(Float3), total) &&
-         AddElementBytes(mesh.texture_coordinates_0.size(), sizeof(Float2),
-                         total) &&
-         AddElementBytes(mesh.texture_coordinates_1.size(), sizeof(Float2),
-                         total) &&
-         AddElementBytes(mesh.colors.size(), sizeof(Float4), total) &&
-         AddElementBytes(mesh.indices.size(), sizeof(std::uint32_t), total);
+  if (!AddElementBytes(mesh.debug_name.size(), sizeof(char), total) ||
+      !AddElementBytes(mesh.positions.size(), sizeof(Float3), total) ||
+      !AddElementBytes(mesh.normals.size(), sizeof(Float3), total) ||
+      !AddElementBytes(mesh.tangents.size(), sizeof(Float4), total) ||
+      !AddElementBytes(mesh.velocities.size(), sizeof(Float3), total) ||
+      !AddElementBytes(mesh.texture_coordinates_0.size(), sizeof(Float2),
+                       total) ||
+      !AddElementBytes(mesh.texture_coordinates_1.size(), sizeof(Float2),
+                       total) ||
+      !AddElementBytes(mesh.colors.size(), sizeof(Float4), total) ||
+      !AddElementBytes(mesh.indices.size(), sizeof(std::uint32_t), total)) {
+    return false;
+  }
+  for (const MeshDistanceLodLevelDescriptor &level :
+       mesh.distance_lod_levels) {
+    if (!AddElementBytes(1U, sizeof(float), total) ||
+        !AddElementBytes(level.indices.size(), sizeof(std::uint32_t), total)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool AddTexturePayloadBytes(const TextureResourceDescriptor &texture,

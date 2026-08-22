@@ -346,6 +346,7 @@ struct Ogre14GraphicsSceneCpuMeshSectionInput {
   std::vector<Float2> texture_coordinates_1;
   std::vector<Float4> colors;
   std::vector<std::uint32_t> indices;
+  std::vector<MeshDistanceLodLevelDescriptor> distance_lod_levels;
 };
 
 /// One material-bound static section after native CPU extraction. The
@@ -457,12 +458,24 @@ struct Ogre14GraphicsSceneTerrainPageCaptureInput {
   bool visible_in_reflections = true;
 };
 
-/// Immutable full-page CPU cache. The exact state key contains every geometry
-/// scalar and IEEE-754 sample byte, so equality never relies on a lossy hash.
+/// One immutable renderer-owned terrain chunk. Chunk coordinates are in the
+/// page's regular grid of bounded square patches. Every chunk carries its own
+/// skirted base mesh and deterministic distance-LOD ladder so Ogre-Next can
+/// frustum-cull and reduce terrain while the camera remains inside a large
+/// legacy Terrain page.
+struct Ogre14GraphicsSceneTerrainChunkMesh {
+  std::uint32_t chunk_x = 0U;
+  std::uint32_t chunk_y = 0U;
+  std::shared_ptr<const RenderAssetPayload> mesh_payload;
+};
+
+/// Immutable chunked-page CPU cache. The exact state key contains every
+/// geometry scalar and IEEE-754 sample byte, so equality never relies on a
+/// lossy hash. Stable pages reuse every chunk owner as one transaction.
 struct Ogre14GraphicsSceneTerrainPageCacheEntry {
   std::string exact_geometry_state_key;
   std::uint64_t topology_revision = 0U;
-  std::shared_ptr<const RenderAssetPayload> mesh_payload;
+  std::vector<Ogre14GraphicsSceneTerrainChunkMesh> chunks;
 };
 
 
@@ -806,6 +819,16 @@ ValidateOgre14GraphicsSceneTerrainMaterialCapture(
     const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
     std::uint64_t topology_revision,
     std::shared_ptr<const RenderAssetPayload> &payload);
+
+/// Splits a complete legacy Terrain page into deterministic square patches,
+/// each with a full-resolution base grid, four perimeter skirts, and
+/// index-only distance LODs. Neighbouring chunks share the exact authored edge
+/// samples and every LOD keeps its own skirt, so independently selected levels
+/// do not expose holes. Failure leaves `chunks` untouched.
+[[nodiscard]] ValidationResult BuildOgre14GraphicsSceneTerrainChunkMeshes(
+    const Ogre14GraphicsSceneTerrainPageCaptureInput &input,
+    std::uint64_t topology_revision,
+    std::vector<Ogre14GraphicsSceneTerrainChunkMesh> &chunks);
 
 /// Resolves one immutable terrain payload against an optional prior exact
 /// cache entry. Same-state pages reuse the owner and revision; changed pages
