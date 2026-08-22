@@ -267,9 +267,14 @@ private:
     descriptor.inputHeight = input_height_;
     descriptor.outputWidth = output_width_;
     descriptor.outputHeight = output_height_;
-    // The RoR HDR split writes raw scene-referred radiance and owns its own
-    // metering downstream, so the scaler derives exposure itself.
-    descriptor.autoExposureEnabled = YES;
+    // The RoR HDR split writes raw scene-referred radiance and the stock HDR
+    // metering downstream owns exposure entirely, so the scaler is told not to
+    // evaluate exposure itself. NOTE: toggling this made no measured
+    // difference to the known exposure regression under upscaling (scene mean
+    // sRGB 0.0354 with YES vs 0.0355 with NO, against 0.2480 at the NATIVE
+    // tier), so the crush is NOT the scaler's exposure handling - see the
+    // outstanding metering-hazard investigation.
+    descriptor.autoExposureEnabled = NO;
     descriptor.requiresSynchronousInitialization = YES;
     scaler_ = [descriptor newTemporalScalerWithDevice:device_->mDevice];
     if (scaler_ == nil) {
