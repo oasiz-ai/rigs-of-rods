@@ -1006,7 +1006,10 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
           : descriptor.alpha_test_mode ==
                     MaterialAlphaTestMode::GREATER_EQUAL
                 ? Ogre::CMPF_GREATER
-                : Ogre::CMPF_ALWAYS_PASS;
+                : descriptor.alpha_test_mode ==
+                          MaterialAlphaTestMode::LESS_EQUAL
+                      ? Ogre::CMPF_LESS
+                      : Ogre::CMPF_ALWAYS_PASS;
   const Ogre::HlmsPbsDatablock::TransparencyModes expected_transparency =
       thin_slab_transmission
           ? Ogre::HlmsPbsDatablock::Refractive
@@ -4855,7 +4858,10 @@ public:
               : descriptor.alpha_test_mode ==
                         MaterialAlphaTestMode::GREATER_EQUAL
                     ? Ogre::CMPF_GREATER
-                    : Ogre::CMPF_ALWAYS_PASS,
+                    : descriptor.alpha_test_mode ==
+                              MaterialAlphaTestMode::LESS_EQUAL
+                          ? Ogre::CMPF_LESS
+                          : Ogre::CMPF_ALWAYS_PASS,
           false, !thin_slab_transmission);
       native.pbs_datablock->setAlphaTestThreshold(descriptor.alpha_cutoff);
       if (directional_shadow_mode ==

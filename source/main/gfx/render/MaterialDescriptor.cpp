@@ -119,6 +119,7 @@ bool IsKnownMaterialAlphaTestMode(MaterialAlphaTestMode mode) noexcept {
   case MaterialAlphaTestMode::DISABLED:
   case MaterialAlphaTestMode::GREATER:
   case MaterialAlphaTestMode::GREATER_EQUAL:
+  case MaterialAlphaTestMode::LESS_EQUAL:
     return true;
   }
   return false;

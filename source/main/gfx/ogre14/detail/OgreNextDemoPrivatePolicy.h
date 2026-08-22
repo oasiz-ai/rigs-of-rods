@@ -428,6 +428,7 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t active_alpha_test_disabled_material_projections = 0U;
   std::size_t active_alpha_test_greater_material_projections = 0U;
   std::size_t active_alpha_test_greater_equal_material_projections = 0U;
+  std::size_t active_alpha_test_less_equal_material_projections = 0U;
   std::size_t active_metallic_roughness_workflow_projections = 0U;
   std::size_t active_specular_workflow_projections = 0U;
   std::size_t active_anisotropic_sampler_projections = 0U;
@@ -492,6 +493,10 @@ enum class OgreNextDemoObservedSamplerFilter : std::uint8_t {
   LINEAR = 1U,
   ANISOTROPIC = 2U,
   UNSUPPORTED = 3U,
+  /// OGRE FO_NONE is meaningful only for the mip filter. It lowers to a
+  /// nearest portable mip filter with maximum_lod=0, which selects the base
+  /// level without sampling a mip chain.
+  NONE = 4U,
 };
 
 enum class OgreNextDemoObservedSamplerAddressMode : std::uint8_t {
@@ -527,11 +532,12 @@ struct OgreNextDemoExactSamplerObservation final {
     const OgreNextDemoExactSamplerObservation &left,
     const OgreNextDemoExactSamplerObservation &right) noexcept;
 
-/// Admits POINT/LINEAR filtering or pinned TFO_ANISOTROPIC's exact min/mag
-/// ANISOTROPIC plus mip LINEAR tuple, WRAP/MIRROR/CLAMP addressing, zero LOD
-/// bias, and disabled comparison. Anisotropy retains the exact authored
-/// maximum in (1, 16]. The exact border color is retained in the portable
-/// descriptor, but border addressing is unsupported.
+/// Admits POINT/LINEAR filtering, mip-only NONE, or pinned TFO_ANISOTROPIC's
+/// exact min/mag ANISOTROPIC plus mip LINEAR tuple, WRAP/MIRROR/CLAMP
+/// addressing, zero LOD bias, and disabled comparison. Mip NONE clamps the
+/// portable sampler to base LOD. Anisotropy retains the exact authored maximum
+/// in (1, 16]. The exact border color is retained in the portable descriptor,
+/// but border addressing is unsupported.
 [[nodiscard]] Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
     const OgreNextDemoExactSamplerObservation &observation,
     std::size_t mip_count, std::string_view debug_token,

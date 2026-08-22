@@ -1601,16 +1601,13 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
           if (!binding_validation) {
             return binding_validation;
           }
-          if (binding == &material->base_color_texture &&
-              material->blend_mode == MaterialBlendMode::REPLACE &&
-              material->alpha_test_mode ==
-                  MaterialAlphaTestMode::DISABLED &&
-              !HasOpaqueRgba8Alpha(*texture)) {
-            return Unsupported(
-                "assets.material.base_color_texture.alpha",
-                "RT4/V1 opaque materials require alpha 255 in every authored base-color texel and mip",
-                record_index);
-          }
+          // For an opaque PBS material, authored base-colour alpha is inactive
+          // state: neither fixed-function blending nor alpha testing consumes
+          // it.  Requiring every texel and mip to contain 255 rejected valid
+          // legacy RGB looks merely because their container retained an
+          // unused alpha channel.  Keep the strict coverage checks on the
+          // alpha-blended/alpha-tested paths and on display-domain Unlit, but
+          // admit the complete authored RGB payload here.
           if (binding == &material->normal_texture) {
             binding_validation =
                 ValidateCanonicalPositiveZNormalTexture(*texture,

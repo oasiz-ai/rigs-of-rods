@@ -69,6 +69,10 @@ enum class MaterialAlphaTestMode : std::uint8_t {
   /// Keep fragments whose resolved straight alpha is greater than or equal to
   /// alpha_cutoff.
   GREATER_EQUAL = 2,
+  /// Keep fragments whose resolved straight alpha is less than or equal to
+  /// alpha_cutoff. This is the complementary cutout used by dynamically split
+  /// legacy cab/window geometry; it remains independent from blending.
+  LESS_EQUAL = 3,
 };
 
 enum class MaterialPbrWorkflow : std::uint8_t {
@@ -147,11 +151,11 @@ struct TextureBinding {
 ///   premultiplied by the renderer; PREMULTIPLIED_SOURCE_OVER instead declares
 ///   that the authored texel RGB already carries its coverage and blends
 ///   ONE/ONE_MINUS_SRC_ALPHA on both channels;
-/// - alpha testing is independent of blending. GREATER rejects equality while
-///   GREATER_EQUAL keeps equality; depth testing is always enabled with
-///   LESS_EQUAL while depth_write is explicit. This represents blended cutout
-///   layers without silently collapsing them into one mutually exclusive alpha
-///   mode;
+/// - alpha testing is independent of blending. GREATER rejects equality,
+///   GREATER_EQUAL keeps equality, and LESS_EQUAL keeps the complementary
+///   low-alpha slice; depth testing is always enabled with LESS_EQUAL while
+///   depth_write is explicit. This represents blended cutout layers without
+///   silently collapsing them into one mutually exclusive alpha mode;
 /// - texture transforms apply `offset + rotate(rotation, scale * uv)` about
 ///   UV origin (0, 0). With +V downward, positive rotation is clockwise.
 ///

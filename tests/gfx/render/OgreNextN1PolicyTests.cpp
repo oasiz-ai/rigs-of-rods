@@ -1107,6 +1107,17 @@ void TestModernPbrAssetPolicy() {
                                               kModern)
                   .ok(),
           "combined legacy-alpha/GREATER/depth-write-off RT4/V1 material was rejected");
+  RenderAssetRegistry complementary_alpha_registry(kRegistryId + 106U);
+  Require(complementary_alpha_registry
+              .Apply(alpha_catalog(kRegistryId + 106U,
+                                   MaterialBlendMode::LEGACY_STRAIGHT_ALPHA,
+                                   MaterialAlphaTestMode::LESS_EQUAL,
+                                   128.0F / 255.0F))
+              .ok() &&
+              ValidateOgreNextN1AssetCatalog(complementary_alpha_registry,
+                                              false, kModern)
+                  .ok(),
+          "combined legacy-alpha/LESS_EQUAL/depth-write-off RT4/V1 material was rejected");
 
   RenderAssetDelta missing_alpha_texture = alpha_catalog(
       kRegistryId + 103U, MaterialBlendMode::STRAIGHT_SOURCE_OVER,
@@ -1392,19 +1403,19 @@ void TestModernPbrAssetPolicy() {
               .ok(),
           "RT4/V1 constrained texture or sampler assets not referenced by a material");
 
-  RenderAssetDelta transparent_base_delta =
+  RenderAssetDelta inactive_alpha_delta =
       MakeModernCatalogDelta(kRegistryId + 7U);
   std::get<TextureResourceDescriptor>(
-      transparent_base_delta.mutations[2U].payload)
+      inactive_alpha_delta.mutations[2U].payload)
       .mip_levels.front()
       .bytes[3U] = 128U;
-  RenderAssetRegistry transparent_base_registry(kRegistryId + 7U);
-  Require(transparent_base_registry.Apply(transparent_base_delta).ok(),
-          "nonopaque base-color fixture is not renderer-contract valid");
-  Require(ValidateOgreNextN1AssetCatalog(transparent_base_registry, false,
+  RenderAssetRegistry inactive_alpha_registry(kRegistryId + 7U);
+  Require(inactive_alpha_registry.Apply(inactive_alpha_delta).ok(),
+          "inactive-alpha base-color fixture is not renderer-contract valid");
+  Require(ValidateOgreNextN1AssetCatalog(inactive_alpha_registry, false,
                                          kModern)
-              .code == ValidationCode::UNSUPPORTED_FEATURE,
-          "nonopaque base texture escaped RT4/V1 straight-alpha evidence policy");
+              .ok(),
+          "opaque RT4/V1 material incorrectly consumed inactive authored alpha");
 
   RenderAssetDelta missing_tangent_delta =
       MakeModernCatalogDelta(kRegistryId + 8U);

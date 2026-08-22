@@ -84,6 +84,9 @@ constexpr char kAlexisAuthoredRoughnessPolicy[] =
 constexpr char kOgreNextDemoAdditiveEquivalentGlowOverlayPolicy[] =
     "RoR/OgreNextDemo/LegacyOverlay/AdditiveEquivalentGlowAuthoredTexelProof/"
     "v1";
+constexpr char kOgreNextDemoOpaqueAlphaOutputDiscardPolicy[] =
+    "RoR/OgreNextDemo/LegacyTextureCombine/"
+    "OpaqueReplaceManualAlphaOutputDiscard/v1";
 constexpr std::uint32_t kMaximumTextureDimension = 8192U;
 constexpr std::uint64_t kMaximumTextureBaseBytes = 256ULL * 1024ULL * 1024ULL;
 
@@ -673,14 +676,43 @@ bool IsCanonicalModulate(const Ogre::LayerBlendModeEx &blend,
 OgreNextDemoExactSamplerObservation
 ObserveExactSampler(const Ogre::Sampler &sampler) noexcept;
 
-bool IsCanonicalTextureUnitSemantic(
+bool HasCanonicalTextureUnitEnvelope(
     const Ogre::TextureUnitState &unit) noexcept {
   return unit.getNumFrames() == 1U && unit.getTextureCoordSet() == 0U &&
          unit.getProjectiveTexturingFrustum() == nullptr &&
          unit.getEffects().empty() && unit.getUnorderedAccessMipLevel() == -1 &&
-         IsIdentityTextureTransform(unit.getTextureTransform()) &&
+         IsIdentityTextureTransform(unit.getTextureTransform());
+}
+
+bool IsCanonicalTextureUnitSemantic(
+    const Ogre::TextureUnitState &unit) noexcept {
+  return HasCanonicalTextureUnitEnvelope(unit) &&
          IsCanonicalModulate(unit.getColourBlendMode(), Ogre::LBT_COLOUR) &&
          IsCanonicalModulate(unit.getAlphaBlendMode(), Ogre::LBT_ALPHA);
+}
+
+/// One bounded legacy spelling changes only the alpha written by an otherwise
+/// opaque replace pass. With no scene blend and no alpha test, that alpha is
+/// not coverage and has no visible consumer in the scene pipeline. The base
+/// texture RGB remains canonical and is therefore safe to project while the
+/// unused render-target alpha is deliberately discarded. This is a structural
+/// rule for any material with that exact topology, not a material-name allow
+/// list.
+bool IsOpaqueReplaceManualAlphaOutputOnly(
+    const Ogre::TextureUnitState &unit,
+    Render::MaterialBlendMode blend_mode,
+    Render::MaterialAlphaTestMode alpha_test_mode) noexcept {
+  const Ogre::LayerBlendModeEx &alpha = unit.getAlphaBlendMode();
+  return blend_mode == Render::MaterialBlendMode::REPLACE &&
+         alpha_test_mode == Render::MaterialAlphaTestMode::DISABLED &&
+         HasCanonicalTextureUnitEnvelope(unit) &&
+         IsCanonicalModulate(unit.getColourBlendMode(), Ogre::LBT_COLOUR) &&
+         alpha.blendType == Ogre::LBT_ALPHA &&
+         alpha.operation == Ogre::LBX_SOURCE1 &&
+         alpha.source1 == Ogre::LBS_MANUAL &&
+         alpha.source2 == Ogre::LBS_CURRENT &&
+         std::isfinite(static_cast<float>(alpha.alphaArg1)) &&
+         alpha.alphaArg1 >= 0.0F && alpha.alphaArg1 <= 1.0F;
 }
 
 bool IsExactCuratedCityWorldSpecularUnit(
@@ -1470,6 +1502,8 @@ bool ClassifyCanonicalPass(
       observation.alpha_reject == Ogre::CMPF_GREATER;
   const bool greater_equal_alpha_test =
       observation.alpha_reject == Ogre::CMPF_GREATER_EQUAL;
+  const bool less_equal_alpha_test =
+      observation.alpha_reject == Ogre::CMPF_LESS_EQUAL;
   const bool alpha_factor_is_unit = observation.diffuse[3U] == 1.0F;
   if (!std::all_of(observation.diffuse.begin(), observation.diffuse.end(),
                    [](float value) { return std::isfinite(value); }) ||
@@ -1486,10 +1520,11 @@ bool ClassifyCanonicalPass(
       observation.alpha_operation != Ogre::SBO_ADD ||
       (!replace && !legacy_straight_alpha && !straight_source_over) ||
       (!disabled_alpha_test && !greater_alpha_test &&
-       !greater_equal_alpha_test) ||
+       !greater_equal_alpha_test && !less_equal_alpha_test) ||
       ((legacy_straight_alpha || straight_source_over) &&
        !alpha_factor_is_unit) ||
-      ((greater_alpha_test || greater_equal_alpha_test) &&
+      ((greater_alpha_test || greater_equal_alpha_test ||
+        less_equal_alpha_test) &&
        !alpha_factor_is_unit) ||
       (replace && disabled_alpha_test && !alpha_factor_is_unit) ||
       observation.alpha_to_coverage || !observation.depth_check ||
@@ -1532,7 +1567,9 @@ bool ClassifyCanonicalPass(
           ? Render::MaterialAlphaTestMode::GREATER
           : greater_equal_alpha_test
                 ? Render::MaterialAlphaTestMode::GREATER_EQUAL
-                : Render::MaterialAlphaTestMode::DISABLED;
+                : less_equal_alpha_test
+                      ? Render::MaterialAlphaTestMode::LESS_EQUAL
+                      : Render::MaterialAlphaTestMode::DISABLED;
   return true;
 }
 
@@ -1734,6 +1771,8 @@ bool IsExactAlexisDiffuseProjection(
 OgreNextDemoObservedSamplerFilter
 ObserveFilter(Ogre::FilterOptions native) noexcept {
   switch (native) {
+  case Ogre::FO_NONE:
+    return OgreNextDemoObservedSamplerFilter::NONE;
   case Ogre::FO_POINT:
     return OgreNextDemoObservedSamplerFilter::POINT;
   case Ogre::FO_LINEAR:
@@ -2457,6 +2496,8 @@ struct Projection final {
   OgreNextDemoExactTextureObservation managed_specular_texture_observation;
   ExactPassObservation pass_observation;
   ExactPassObservation managed_specular_pass_observation;
+  bool discarded_opaque_alpha_output = false;
+  float discarded_opaque_alpha_value = 1.0F;
   std::array<float, 4U> base_color_factor{};
   std::array<float, 4U> discarded_ambient{};
   std::array<float, 4U> discarded_specular{};
@@ -3121,6 +3162,8 @@ struct PendingNativeTextureOwner final {
   bool allow_alexis_approximation = false;
   bool exact_continuous_dust = false;
   bool curated_cityworld = false;
+  bool discarded_opaque_alpha_output = false;
+  float discarded_opaque_alpha_value = 1.0F;
   std::size_t technique_pass_count = 0U;
   std::size_t pass_texture_unit_count = 0U;
   std::size_t unpresented_layer_units = 0U;
@@ -3181,6 +3224,29 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
     const bool observed_curated_cityworld =
         owner.curated_cityworld &&
         HasCuratedCityWorldSphericalFamilyShape(owner.native_material);
+    Render::MaterialBlendMode observed_blend_mode =
+        Render::MaterialBlendMode::REPLACE;
+    Render::MaterialAlphaTestMode observed_alpha_test_mode =
+        Render::MaterialAlphaTestMode::DISABLED;
+    const bool observed_canonical_pass =
+        owner.exact_continuous_dust ||
+        (pass != nullptr &&
+         ClassifyCanonicalPass(ObserveExactPass(*pass),
+                               owner.allow_alexis_approximation,
+                               observed_blend_mode,
+                               observed_alpha_test_mode));
+    if (owner.exact_continuous_dust) {
+      observed_blend_mode = Render::MaterialBlendMode::LEGACY_STRAIGHT_ALPHA;
+      observed_alpha_test_mode = Render::MaterialAlphaTestMode::GREATER;
+    }
+    const bool observed_discarded_opaque_alpha_output =
+        unit != nullptr && observed_canonical_pass &&
+        IsOpaqueReplaceManualAlphaOutputOnly(
+            *unit, observed_blend_mode, observed_alpha_test_mode);
+    const float observed_discarded_opaque_alpha_value =
+        observed_discarded_opaque_alpha_output
+            ? static_cast<float>(unit->getAlphaBlendMode().alphaArg1)
+            : 1.0F;
     // Revalidate the ordinary structural shape through the exact predicate the
     // admission decision used, so the two can never drift apart.
     std::size_t observed_unpresented_layer_units = 0U;
@@ -3206,8 +3272,13 @@ Render::ValidationResult RevalidatePendingNativeTextureOwners(
         owner.exact_continuous_dust != observed_continuous_dust ||
         (!owner.exact_continuous_dust &&
          !IsCanonicalPass(*pass, owner.allow_alexis_approximation)) ||
-        !HasAvailableNamedTextureSource(*unit) ||
-        !IsCanonicalTextureUnitSemantic(*unit) ||
+        !HasAvailableNamedTextureSource(*unit) || !observed_canonical_pass ||
+        (!IsCanonicalTextureUnitSemantic(*unit) &&
+         !observed_discarded_opaque_alpha_output) ||
+        owner.discarded_opaque_alpha_output !=
+            observed_discarded_opaque_alpha_output ||
+        owner.discarded_opaque_alpha_value !=
+            observed_discarded_opaque_alpha_value ||
         (owner.exact_continuous_dust &&
          (native_texture->getName() != "smoke.dds" ||
           !IsExactContinuousDustSampler(ObserveExactSampler(*sampler)))) ||
@@ -3693,7 +3764,15 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     exclusion = OgreNextDemoTextureProjectionExclusion::SOURCE_UNAVAILABLE;
     return false;
   }
-  if (!IsCanonicalTextureUnitSemantic(*unit)) {
+  const bool discarded_opaque_alpha_output =
+      IsOpaqueReplaceManualAlphaOutputOnly(*unit, blend_mode,
+                                           alpha_test_mode);
+  const float discarded_opaque_alpha_value =
+      discarded_opaque_alpha_output
+          ? static_cast<float>(unit->getAlphaBlendMode().alphaArg1)
+          : 1.0F;
+  if (!IsCanonicalTextureUnitSemantic(*unit) &&
+      !discarded_opaque_alpha_output) {
     exclusion = UsesTextureAlphaCombine(*unit)
                     ? OgreNextDemoTextureProjectionExclusion::
                           TEXTURE_ALPHA_COMBINE_UNSUPPORTED
@@ -3912,11 +3991,16 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
   AppendExactTextureObservation(projection_key, exact_texture_observation);
   const bool preserves_opaque_v2_identity =
       alpha_policy == OgreNextDemoTextureAlphaPolicy::FORCE_OPAQUE &&
-      managed_specular == nullptr;
+      managed_specular == nullptr && !discarded_opaque_alpha_output;
   if (preserves_opaque_v2_identity) {
     AppendLegacyOpaqueV2PassIdentity(projection_key, pass_observation);
   } else {
     AppendExactPassObservation(projection_key, pass_observation);
+  }
+  if (discarded_opaque_alpha_output) {
+    AppendField(projection_key,
+                kOgreNextDemoOpaqueAlphaOutputDiscardPolicy);
+    AppendFloatBits(projection_key, discarded_opaque_alpha_value);
   }
   AppendNumber(projection_key, static_cast<std::uint64_t>(input.cull));
   // A managed declaration with no authored specular output does not change
@@ -3999,6 +4083,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
     owner.allow_alexis_approximation = allow_alexis_approximation;
     owner.exact_continuous_dust = exact_continuous_dust;
     owner.curated_cityworld = allow_curated_cityworld;
+    owner.discarded_opaque_alpha_output =
+        discarded_opaque_alpha_output;
+    owner.discarded_opaque_alpha_value = discarded_opaque_alpha_value;
     owner.technique_pass_count = technique->getNumPasses();
     owner.pass_texture_unit_count = pass->getNumTextureUnitStates();
     owner.unpresented_layer_units = unpresented_layer_units;
@@ -4727,6 +4814,9 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
         reinterpret_cast<std::uintptr_t>(native_sampler.get());
     captured.sampler_observation = sampler_observation;
     captured.pass_observation = pass_observation;
+    captured.discarded_opaque_alpha_output =
+        discarded_opaque_alpha_output;
+    captured.discarded_opaque_alpha_value = discarded_opaque_alpha_value;
     validation = Render::DeriveOgre14GraphicsSceneMaterialAssetId(
         kMaterialGroup, captured.exact_name, captured.material_source_id);
     if (!validation) {
@@ -5022,6 +5112,10 @@ bool OgreNextDemoMaterialSource::TryProjectCurrent(
             projection->second.sampler_observation, sampler_observation) ||
         !MatchExactPassObservation(projection->second.pass_observation,
                                    pass_observation) ||
+        projection->second.discarded_opaque_alpha_output !=
+            discarded_opaque_alpha_output ||
+        projection->second.discarded_opaque_alpha_value !=
+            discarded_opaque_alpha_value ||
         projection->second.base_color_factor != base_color_factor ||
         projection->second.discarded_ambient != discarded_ambient ||
         projection->second.discarded_specular != discarded_specular ||
@@ -6104,6 +6198,9 @@ OgreNextDemoMaterialSource::CurrentCaptureCounters() const noexcept {
       break;
     case Render::MaterialAlphaTestMode::GREATER_EQUAL:
       ++counters.active_alpha_test_greater_equal_material_projections;
+      break;
+    case Render::MaterialAlphaTestMode::LESS_EQUAL:
+      ++counters.active_alpha_test_less_equal_material_projections;
       break;
     }
     switch (material->pbr_workflow) {

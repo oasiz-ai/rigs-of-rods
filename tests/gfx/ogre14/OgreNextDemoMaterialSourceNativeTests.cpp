@@ -2056,9 +2056,145 @@ void TestAlphaStateAndAnisotropicProjection() {
   source.Discard();
 
   source.Reset();
+  native.sampler->setFiltering(Ogre::TFO_NONE);
+  native.sampler->setAnisotropy(1U);
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_LESS_EQUAL, 128U);
+  Require(source.BeginCapture(),
+          "begin complementary cab-window alpha capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "project complementary cab-window alpha state");
+  Require(projected,
+          "complementary cab-window alpha state remained matte");
+  assets = BuildPlaceholderAssets(input);
+  RequireOk(source.Apply(assets),
+            "apply complementary cab-window alpha projection");
+  material_asset = FindProjectedMaterial(assets);
+  material = material_asset != nullptr
+                 ? std::get_if<MaterialDescriptor>(
+                       material_asset->payload.get())
+                 : nullptr;
+  const GraphicsSceneAssetBinding *const cab_window_base_binding =
+      material_asset != nullptr
+          ? &material_asset->material_bindings[static_cast<std::size_t>(
+                MaterialTextureSlot::BASE_COLOR)]
+          : nullptr;
+  const SamplerResourceDescriptor *const cab_window_sampler =
+      cab_window_base_binding != nullptr
+          ? FindSamplerBySourceId(
+                assets, cab_window_base_binding->sampler_source_asset_id)
+          : nullptr;
+  const OgreNextDemoMaterialSourceCounters cab_window =
+      source.CurrentCaptureCounters();
+  Require(material != nullptr &&
+              material->blend_mode ==
+                  MaterialBlendMode::STRAIGHT_SOURCE_OVER &&
+              material->alpha_test_mode ==
+                  MaterialAlphaTestMode::LESS_EQUAL &&
+              material->alpha_cutoff == 128.0F / 255.0F &&
+              !material->depth_write && cab_window_sampler != nullptr &&
+              cab_window_sampler->minification_filter ==
+                  SamplerFilter::NEAREST &&
+              cab_window_sampler->magnification_filter ==
+                  SamplerFilter::NEAREST &&
+              cab_window_sampler->mip_filter == SamplerFilter::NEAREST &&
+              cab_window_sampler->minimum_lod == 0.0F &&
+              cab_window_sampler->maximum_lod == 0.0F &&
+              !cab_window_sampler->anisotropy_enabled &&
+              cab_window.active_alpha_test_less_equal_material_projections ==
+                  1U &&
+              cab_window.matte_excluded_sections == 0U,
+          "complementary cab-window alpha or mip-disabled sampler state was "
+          "collapsed");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  Require(source.BeginCapture(),
+          "begin complementary alpha Apply rollback capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "reuse complementary alpha projection before cutoff mutation");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> before_less_equal = assets;
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_LESS_EQUAL, 127U);
+  const ValidationResult failed_less_equal_apply = source.Apply(assets);
+  Require(!failed_less_equal_apply &&
+              failed_less_equal_apply.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, before_less_equal),
+          "complementary alpha cutoff mutation partially published assets");
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_LESS_EQUAL, 128U);
+  source.Discard();
+
+  source.Reset();
+  native.sampler->setFiltering(Ogre::TFO_ANISOTROPIC);
+  native.sampler->setAnisotropy(8U);
+  native.pass->setSeparateSceneBlending(
+      Ogre::SBF_ONE, Ogre::SBF_ZERO, Ogre::SBF_ONE, Ogre::SBF_ZERO);
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_ALWAYS_PASS, 0U);
+  native.pass->setDepthWriteEnabled(true);
+  native.unit->setAlphaOperation(Ogre::LBX_SOURCE1, Ogre::LBS_MANUAL,
+                                 Ogre::LBS_CURRENT, 0.5F);
+  Require(source.BeginCapture(),
+          "begin opaque manual-alpha-output capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "project opaque manual-alpha-output material");
+  Require(projected, "opaque unused manual alpha remained matte");
+  assets = BuildPlaceholderAssets(input);
+  RequireOk(source.Apply(assets),
+            "apply opaque manual-alpha-output projection");
+  material_asset = FindProjectedMaterial(assets);
+  material = material_asset != nullptr
+                 ? std::get_if<MaterialDescriptor>(
+                       material_asset->payload.get())
+                 : nullptr;
+  const OgreNextDemoMaterialSourceCounters opaque_manual_alpha =
+      source.CurrentCaptureCounters();
+  Require(material != nullptr &&
+              material->blend_mode == MaterialBlendMode::REPLACE &&
+              material->alpha_test_mode ==
+                  MaterialAlphaTestMode::DISABLED &&
+              material->depth_write &&
+              opaque_manual_alpha.projections == 1U &&
+              opaque_manual_alpha.matte_excluded_sections == 0U,
+          "opaque unused manual alpha changed portable coverage state");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+
+  Require(source.BeginCapture(),
+          "begin opaque manual-alpha Apply rollback capture");
+  input = CaptureInput();
+  projected = false;
+  RequireOk(source.TryProject(kSectionKey, native.material, true, true, input,
+                              projected),
+            "reuse opaque manual-alpha projection before source mutation");
+  assets = BuildPlaceholderAssets(input);
+  const std::vector<GraphicsSceneAssetInput> before_manual_alpha = assets;
+  native.unit->setAlphaOperation(Ogre::LBX_SOURCE1, Ogre::LBS_MANUAL,
+                                 Ogre::LBS_CURRENT, 0.25F);
+  const ValidationResult failed_manual_alpha_apply = source.Apply(assets);
+  Require(!failed_manual_alpha_apply &&
+              failed_manual_alpha_apply.code ==
+                  ValidationCode::REVISION_MISMATCH &&
+              SameAssetOwners(assets, before_manual_alpha),
+          "manual alpha source mutation partially published assets");
+  native.unit->setAlphaOperation(Ogre::LBX_MODULATE, Ogre::LBS_TEXTURE,
+                                 Ogre::LBS_CURRENT);
+  source.Discard();
+
+  source.Reset();
+  native.pass->setDepthWriteEnabled(false);
   native.pass->setSeparateSceneBlending(
       Ogre::SBF_SOURCE_ALPHA, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA,
       Ogre::SBF_SOURCE_ALPHA, Ogre::SBF_ONE_MINUS_SOURCE_ALPHA);
+  native.pass->setAlphaRejectSettings(Ogre::CMPF_GREATER, 2U);
   Require(source.BeginCapture(), "begin legacy straight-alpha capture");
   input = CaptureInput();
   projected = false;

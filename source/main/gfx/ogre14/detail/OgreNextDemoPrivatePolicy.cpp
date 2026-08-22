@@ -270,8 +270,11 @@ bool HasConsistentMaterialDenominators(
   const std::size_t alpha_test_partition = SaturatingAdd(
       counters.active_alpha_test_disabled_material_projections,
       SaturatingAdd(counters.active_alpha_test_greater_material_projections,
-                    counters
-                        .active_alpha_test_greater_equal_material_projections));
+                    SaturatingAdd(
+                        counters
+                            .active_alpha_test_greater_equal_material_projections,
+                        counters
+                            .active_alpha_test_less_equal_material_projections)));
   const std::size_t workflow_partition = SaturatingAdd(
       counters.active_metallic_roughness_workflow_projections,
       counters.active_specular_workflow_projections);
@@ -859,6 +862,9 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
       SaturatingAdd(
           candidate.active_alpha_test_greater_equal_material_projections,
           increment.active_alpha_test_greater_equal_material_projections);
+  candidate.active_alpha_test_less_equal_material_projections = SaturatingAdd(
+      candidate.active_alpha_test_less_equal_material_projections,
+      increment.active_alpha_test_less_equal_material_projections);
   candidate.active_metallic_roughness_workflow_projections = SaturatingAdd(
       candidate.active_metallic_roughness_workflow_projections,
       increment.active_metallic_roughness_workflow_projections);
@@ -1043,6 +1049,8 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
                                OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
   const bool mip_anisotropic = observation.mip_filter ==
                                OgreNextDemoObservedSamplerFilter::ANISOTROPIC;
+  const bool no_mip_filter =
+      observation.mip_filter == OgreNextDemoObservedSamplerFilter::NONE;
   const bool any_anisotropic =
       min_anisotropic || mag_anisotropic || mip_anisotropic;
   const bool canonical_anisotropic =
@@ -1058,10 +1066,14 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
                   candidate.minification_filter) ||
       !map_filter(observation.magnification_filter,
                   candidate.magnification_filter) ||
-      !map_filter(observation.mip_filter, candidate.mip_filter)) {
+      (!no_mip_filter &&
+       !map_filter(observation.mip_filter, candidate.mip_filter))) {
     return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                    "ogre_next_demo.material.sampler.filter",
-                   "TUS0 sampler requires POINT, LINEAR, or the pinned min/mag ANISOTROPIC plus mip LINEAR tuple");
+                   "TUS0 sampler requires POINT/LINEAR, mip-only NONE, or the pinned min/mag ANISOTROPIC plus mip LINEAR tuple");
+  }
+  if (no_mip_filter) {
+    candidate.mip_filter = Render::SamplerFilter::NEAREST;
   }
   if (!map_address(observation.address_u, candidate.address_u) ||
       !map_address(observation.address_v, candidate.address_v) ||
@@ -1090,7 +1102,8 @@ Render::ValidationResult BuildOgreNextDemoSamplerDescriptor(
   }
   candidate.mip_lod_bias = 0.0F;
   candidate.minimum_lod = 0.0F;
-  candidate.maximum_lod = static_cast<float>(mip_count - 1U);
+  candidate.maximum_lod =
+      no_mip_filter ? 0.0F : static_cast<float>(mip_count - 1U);
   candidate.anisotropy_enabled = canonical_anisotropic;
   candidate.maximum_anisotropy =
       static_cast<float>(observation.maximum_anisotropy);

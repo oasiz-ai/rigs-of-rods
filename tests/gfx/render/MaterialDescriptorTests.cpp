@@ -100,6 +100,12 @@ void TestValidPbrAndUnlitMaterials() {
           "independent true source-over, GREATER test, and specular workflow "
           "were rejected");
 
+  specular.alpha_test_mode = MaterialAlphaTestMode::LESS_EQUAL;
+  specular.alpha_cutoff = 128.0F / 255.0F;
+  Require(IsKnownMaterialAlphaTestMode(MaterialAlphaTestMode::LESS_EQUAL) &&
+              ValidateMaterialDescriptor(specular).ok(),
+          "complementary LESS_EQUAL alpha test was rejected");
+
   descriptor.model = MaterialModel::UNLIT;
   descriptor.blend_mode = MaterialBlendMode::LEGACY_STRAIGHT_ALPHA;
   Require(ValidateMaterialDescriptor(descriptor).ok(),
