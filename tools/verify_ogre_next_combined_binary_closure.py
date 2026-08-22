@@ -195,6 +195,50 @@ STB_IMAGE_SOURCE_FILES = {
 }
 
 
+def _collision_record_intersection_is_reviewed(
+    collision_record: dict, reviewed_allowlist: object, intersection: list
+) -> bool:
+    """Accept either provenance shape for a global-intersection record.
+
+    The legacy producer stamped the full reviewed allowlist into every record
+    (`reviewed_allowlist`). The current producer instead proves toolchain
+    ownership per symbol and per side (`toolchain_owned_*`). Both shapes stay
+    fail-closed: an unrecognised or partially-populated record is refused, and
+    every intersecting symbol must additionally sit in the reviewed allowlist
+    (enforced by the caller before this check runs).
+    """
+    if reviewed_allowlist is not None:
+        return reviewed_allowlist == list(REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST)
+    owned = collision_record.get("toolchain_owned_intersections")
+    if not isinstance(owned, list) or owned != intersection:
+        return False
+    sides = {}
+    for key in (
+        "toolchain_owned_legacy_strong",
+        "toolchain_owned_legacy_weak",
+        "toolchain_owned_modern_strong",
+        "toolchain_owned_modern_weak",
+    ):
+        value = collision_record.get(key)
+        if not isinstance(value, list) or not all(
+            isinstance(symbol, str) for symbol in value
+        ):
+            return False
+        sides[key] = value
+    legacy_owned = set(sides["toolchain_owned_legacy_strong"]) | set(
+        sides["toolchain_owned_legacy_weak"]
+    )
+    modern_owned = set(sides["toolchain_owned_modern_strong"]) | set(
+        sides["toolchain_owned_modern_weak"]
+    )
+    # Every colliding symbol must be proven toolchain-owned on BOTH closures;
+    # a symbol owned on one side only is a genuine namespace leak.
+    return all(
+        symbol in legacy_owned and symbol in modern_owned
+        for symbol in intersection
+    )
+
+
 def _regular_absolute(path: str, description: str) -> Path:
     candidate = Path(path)
     if not candidate.is_absolute():
@@ -1376,8 +1420,9 @@ def main() -> int:
                     symbol not in REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST
                     for symbol in intersection
                 )
-                or reviewed_allowlist
-                != list(REVIEWED_GLOBAL_INTERSECTION_ALLOWLIST)
+                or not _collision_record_intersection_is_reviewed(
+                    collision_record, reviewed_allowlist, intersection
+                )
                 or not isinstance(
                     collision_record.get("modern_defined_globals"), int
                 )
