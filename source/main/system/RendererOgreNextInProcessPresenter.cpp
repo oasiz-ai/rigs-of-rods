@@ -839,6 +839,10 @@ public:
         audit.calibrated_directional_lighting;
     output.ambient_environment_lighting =
         audit.ambient_environment_lighting;
+    output.ambient_sh_bound = audit.ambient_sh_bound;
+    output.ambient_sh_gain = audit.ambient_sh_gain;
+    output.ambient_sh_band0_luminance = audit.ambient_sh_band0_luminance;
+    output.probe_sky_admission = audit.probe_sky_admission;
     output.analytic_sky_contribution = audit.analytic_sky_contribution;
     output.aerial_haze_applied = audit.aerial_haze_applied;
     {

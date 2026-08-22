@@ -212,6 +212,10 @@ struct RendererNativeLightingAudit final {
   std::uint32_t raster_scene_evaluations = 0U;
   bool calibrated_directional_lighting = false;
   bool ambient_environment_lighting = false;
+  bool ambient_sh_bound = false;
+  float ambient_sh_gain = 0.0F;
+  float ambient_sh_band0_luminance = 0.0F;
+  bool probe_sky_admission = false;
   bool analytic_sky_contribution = false;
   /// Aerial perspective (audit v5). `aerial_haze_applied` false means the pass
   /// ran as a bit-exact pass-through under the canonical identity binding, not

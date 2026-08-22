@@ -890,16 +890,23 @@ constexpr float kOgre14ModernAnalyticSkyExposureCompensationEv = 3.5F;
 /// photometry for an OPEN horizontal surface seeing the whole sky. It is too
 /// low for the shadow that dominates this content. A street between facades
 /// sees little sky but is filled by inter-reflection off those facades, and
-/// this renderer has no other indirect mechanism to supply it: the reflection
-/// probe clears to black and excludes the sky dome from its capture, so its
-/// diffuse GI contribution is nil. This one term therefore stands in for sky
+/// facade inter-reflection remains unmodeled: Foundation F2 gave the
+/// presenter SH-9 sky irradiance and a seated sky-carrying reflection probe,
+/// both of which derive their absolute level from THIS term, but neither adds
+/// bounce energy beyond it. This one term therefore still stands in for sky
 /// AND bounce, not sky alone.
 ///
-/// 0.25 seats fully shadowed surfaces at 20% of sunlit. Being a fraction of
-/// the key light it stays correct as the sun moves; it raises a sunlit surface
-/// by only 1.25/1.15 = 8.7% while lifting a shadowed one by 67%, so it opens
-/// shadow without flattening directional contrast.
-constexpr float kOgre14ModernAnalyticSkyAmbientSunFraction = 0.25F;
+/// Being a fraction of the key light it stays correct as the sun moves, and
+/// it lifts shadowed surfaces far more than sunlit ones, so it opens shadow
+/// without flattening directional contrast. 0.25 seated fully shadowed
+/// surfaces at 20% of sunlit and measured imperceptible in live play - the
+/// F2 SH/probe directionality rides on this level, so a level too low hides
+/// the entire indirect stack. 0.40 (shadow at ~29% of sunlit) is the
+/// calibrated raise toward the user's directed realism target: measured to
+/// keep open grass green-dominant (G>R>B, the withdrawn-hemisphere wash-out
+/// gate) while making the canyon's sky-tinted directional fill plainly
+/// visible.
+constexpr float kOgre14ModernAnalyticSkyAmbientSunFraction = 0.40F;
 /// Policy v3 adds the deterministic cloud layer. Coverage scales with the
 /// same smoothstepped daylight term as the gradient so clouds fade out with
 /// the sun instead of floating over a night sky; the cloud radiance sits

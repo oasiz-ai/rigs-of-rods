@@ -4631,6 +4631,9 @@ int main(int argc, char *argv[])
                                     "raster_lit_hdr={} scene_evaluations={} "
                                     "single_history_step={} "
                                     "calibrated_directional={} ambient={} "
+                                    "ambient_sh={} ambient_sh_gain={:.4g} "
+                                    "ambient_sh_band0_lum={:.4g} "
+                                    "probe_sky={} "
                                     "analytic_sky={} emissive_response={} "
                                     "pssm={} thin_slab_refraction={} "
                                     "physical_snell={} beer_lambert={} "
@@ -4709,6 +4712,10 @@ int main(int argc, char *argv[])
                                         .calibrated_directional_lighting,
                                     lighting_audit
                                         .ambient_environment_lighting,
+                                    lighting_audit.ambient_sh_bound,
+                                    lighting_audit.ambient_sh_gain,
+                                    lighting_audit.ambient_sh_band0_luminance,
+                                    lighting_audit.probe_sky_admission,
                                     lighting_audit.analytic_sky_contribution,
                                     lighting_audit.emissive_material_response,
                                     lighting_audit.pssm_shadow_response,
