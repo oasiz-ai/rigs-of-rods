@@ -3676,20 +3676,32 @@ int main(int argc, char *argv[])
             {
                 if (frame_budget_session == nullptr)
                     return;
-                // Loading screens and GUI-only grants are not playable world
-                // frames. Start warm-up only after the requested terrain is
-                // authoritative and the requested startup vehicle is seated.
-                // This keeps the receipt tied to the exact scene it names.
-                const bool requested_actor_ready =
-                    App::cli_preset_vehicle->getStr().empty() ||
-                    App::GetGameContext()->GetPlayerActor() != nullptr;
-                if (App::app_state->getEnum<AppState>() !=
-                        AppState::SIMULATION ||
-                    App::sim_terrain_name->getStr().empty() ||
-                    !requested_actor_ready)
+                // Loading screens and GUI-only grants are not world frames.
+                // The explicit forward-native showcase is the one MAIN_MENU
+                // exception: its authenticated package is already the whole
+                // presented scene and the hidden producer does no rendering.
+                bool frame_budget_scene_ready = false;
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                frame_budget_scene_ready =
+                    renderer_combined_native_visual_showcase;
+#endif
+                if (!frame_budget_scene_ready)
                 {
-                    return;
+                    // Start warm-up only after the requested terrain is
+                    // authoritative and the requested startup vehicle is
+                    // seated. This keeps the receipt tied to the exact scene
+                    // it names.
+                    const bool requested_actor_ready =
+                        App::cli_preset_vehicle->getStr().empty() ||
+                        App::GetGameContext()->GetPlayerActor() != nullptr;
+                    frame_budget_scene_ready =
+                        App::app_state->getEnum<AppState>() ==
+                            AppState::SIMULATION &&
+                        !App::sim_terrain_name->getStr().empty() &&
+                        requested_actor_ready;
                 }
+                if (!frame_budget_scene_ready)
+                    return;
                 frame_budget_session->RecordFrame(
                     static_cast<double>(frame_dt));
                 // The terrain and actor are loaded by this loop's own message
@@ -3699,9 +3711,24 @@ int main(int argc, char *argv[])
                 // and neither observation costs the measured frames anything.
                 if (frame_budget_session->AcceptedFrames() == 1U)
                 {
+#if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+                    if (renderer_combined_native_visual_showcase)
+                    {
+                        frame_budget_session->ObserveSceneIdentity(
+                            renderer_combined_native_visual_scene ==
+                                    RendererCombinedNativeVisualScene::
+                                        A0_LIGHTING_COUPON
+                                ? Render::kNativeVisualShowcasePackageId
+                                : Render::kNativeVisualShowcaseA1PackageId,
+                            "");
+                    }
+                    else
+#endif
+                    {
                     frame_budget_session->ObserveSceneIdentity(
                         App::sim_terrain_name->getStr(),
                         App::cli_preset_vehicle->getStr());
+                    }
                 }
                 if (!frame_budget_shutdown_requested &&
                         frame_budget_session->ShutdownRequested())

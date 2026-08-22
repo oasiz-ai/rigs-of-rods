@@ -76,17 +76,22 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
             self.assertIn(default, block, name)
 
     def test_recorder_samples_the_render_loops_own_delta_time(self) -> None:
-        anchor = "const float dt = std::chrono::duration<float>(now - start_time).count();"
+        anchor = "const auto record_frame_budget = [&](float frame_dt)"
         self.assertEqual(self.main.count(anchor), 1)
-        block = self.main[self.main.index(anchor) : self.main.index(anchor) + 1200]
+        block = self.main[
+            self.main.index(anchor)
+            : self.main.index("// In combined mode a poll", self.main.index(anchor))
+        ]
         # The sample must be taken from the loop's committed delta time, and
         # the recorder must not introduce a clock of its own.
         self.assertIn(
-            "frame_budget_session->RecordFrame(static_cast<double>(dt));",
+            "frame_budget_session->RecordFrame(\n"
+            "                    static_cast<double>(frame_dt));",
             block,
         )
-        self.assertNotIn("high_resolution_clock", block.split("RecordFrame")[0])
+        self.assertNotIn("high_resolution_clock", block)
         self.assertEqual(self.main.count("RecordFrame("), 1)
+        self.assertEqual(self.main.count("record_frame_budget(dt);"), 2)
         self.assertNotIn("std::chrono", self.source)
 
     def test_presentation_fact_distinguishes_bridge_from_combined(
@@ -135,6 +140,17 @@ class FrameTimeBudgetContractTests(unittest.TestCase):
         self.assertIn("FrameTimeBudgetWriteResult::EXISTS", self.source)
         self.assertIn("O_CREAT | O_EXCL", self.source)
         self.assertIn("CREATE_NEW", self.source)
+
+    def test_forward_native_showcase_records_presented_frames(self) -> None:
+        loop = self.main[
+            self.main.index("const auto record_frame_budget")
+            : self.main.index("// In combined mode a poll", self.main.index(
+                "const auto record_frame_budget"))
+        ]
+        self.assertIn("renderer_combined_native_visual_showcase", loop)
+        self.assertIn("kNativeVisualShowcasePackageId", loop)
+        self.assertIn("kNativeVisualShowcaseA1PackageId", loop)
+        self.assertIn("frame_budget_session->RecordFrame", loop)
 
     def test_exit_code_does_not_collide_with_the_renderer_child(self) -> None:
         child = (
