@@ -1416,6 +1416,7 @@ def main() -> int:
             if not isinstance(collision_record, dict):
                 raise ValueError("namespace audit collision record is invalid")
             intersection = collision_record.get("intersection")
+            reviewed_allowlist = collision_record.get("reviewed_allowlist")
             toolchain_owned = collision_record.get(
                 "toolchain_owned_intersections"
             )
