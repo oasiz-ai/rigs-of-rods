@@ -422,7 +422,7 @@ bool RendererOgreNextSdlWindowRuntime::CreateNativeWindow(
     return false;
   }
   SDL_Window *window = SDL_CreateWindow(
-      "RoR Ogre-Next presentation probe", SDL_WINDOWPOS_CENTERED,
+      "Rigs of Rods - Ogre-Next", SDL_WINDOWPOS_CENTERED,
       SDL_WINDOWPOS_CENTERED, static_cast<int>(request.logical_width),
       static_cast<int>(request.logical_height), flags);
   if (window == nullptr) {

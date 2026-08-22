@@ -51,11 +51,11 @@ struct RendererOgreNextSdlWindowEventBatch final {
 
 /// Owns only SDL's process-global video initialization bookkeeping. The
 /// RendererOgreNextWindowHost owns every SDL_Window and platform child view.
-/// This adapter is probe-only until a live Ogre presentation/swap/readback
-/// acceptance gate and package review admit it. The first host validation
-/// claims the current thread; every SDL/AppKit callback must remain on that
-/// thread, and Cocoa also requires the AppKit main thread. The host must finish
-/// explicit owner-thread Shutdown before this adapter is destroyed.
+/// This is the in-process window adapter used by RoR-Combined as well as the
+/// isolated presentation probes. The first host validation claims the current
+/// thread; every SDL/AppKit callback must remain on that thread, and Cocoa also
+/// requires the AppKit main thread. The host must finish explicit owner-thread
+/// Shutdown before this adapter is destroyed.
 class RendererOgreNextSdlWindowRuntime final {
 public:
   RendererOgreNextSdlWindowRuntime() = default;
