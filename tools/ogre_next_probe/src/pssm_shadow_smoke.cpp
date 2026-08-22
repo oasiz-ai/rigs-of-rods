@@ -74,6 +74,8 @@ struct SmokeResult final {
   ImagePair sdr;
   std::array<CascadeProof, 2U> distant_cascades;
   OgreNextPssmShadowRuntimeAudit audit;
+  std::vector<OgreNextPssmNativeBoundsObservation>
+      live_native_bounds_observations;
   std::uint64_t disabled_default_hash = 0U;
   std::uint64_t disabled_explicit_hash = 0U;
   bool normalized_visibility_mask_verified = false;
@@ -736,6 +738,8 @@ RenderOperationResult RunShadow(const std::string &media_root,
   result.normalized_visibility_mask_verified = true;
   const OgreNextPssmShadowRuntimeAudit live_audit =
       frontend.QueryDirectionalShadowAudit();
+  result.live_native_bounds_observations =
+      live_audit.last_native_bounds_observations;
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "PSSM Shutdown");
   result.audit = frontend.QueryDirectionalShadowAudit();
@@ -774,7 +778,7 @@ RenderOperationResult RunShadow(const std::string &media_root,
               result.audit.native_projection_extents_verified &&
               result.audit.native_readback_verified &&
               result.audit.native_bounds_readback_verified &&
-              live_audit.last_native_bounds_observations.size() == 2U &&
+              result.live_native_bounds_observations.size() == 2U &&
               result.audit.last_native_bounds_observations.empty() &&
               std::all_of(result.audit.last_native_normal_offset_bias.begin(),
                           result.audit.last_native_normal_offset_bias.end(),
@@ -1219,9 +1223,9 @@ std::string PassReport(const SmokeResult &result,
          << ",\n"
          << "    \"native_aabb_observations\": [\n";
   for (std::size_t index = 0U;
-       index < result.audit.last_native_bounds_observations.size(); ++index) {
+       index < result.live_native_bounds_observations.size(); ++index) {
     const OgreNextPssmNativeBoundsObservation &observation =
-        result.audit.last_native_bounds_observations[index];
+        result.live_native_bounds_observations[index];
     report << "      {\"instance_id\": " << observation.instance_id
            << ", \"casts_shadow\": "
            << (observation.casts_shadow ? "true" : "false")
@@ -1238,7 +1242,7 @@ std::string PassReport(const SmokeResult &result,
     report << ", \"ogre_item_world\": ";
     WriteAabbJson(report, observation.ogre_item_world);
     report << "}"
-           << (index + 1U == result.audit.last_native_bounds_observations.size()
+           << (index + 1U == result.live_native_bounds_observations.size()
                    ? "\n"
                    : ",\n");
   }
