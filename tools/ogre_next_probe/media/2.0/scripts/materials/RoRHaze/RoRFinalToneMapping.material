@@ -1,0 +1,104 @@
+// RoR shadow-preserving final tone map.
+//
+// Replaces HDR/FinalToneMapping on the stock HDR post node's rt_output
+// target. The pass is byte-for-byte the pinned upstream filmic tone map with
+// one change: the trailing display-space grade
+// `(x - 0.5) * 1.25 + 0.5 + 0.11` (which reduces to `1.25x - 0.015` and
+// therefore clips every filmic output below 0.012 to pure black) becomes the
+// hinge `max(graded, ungraded)`. Above the 0.06 display-linear crossover the
+// graded branch wins and the reviewed image is unchanged; below it the pure
+// filmic curve wins, so dark-albedo legacy surfaces (city asphalt at linear
+// albedo ~0.028) shade smoothly toward zero instead of collapsing to a void
+// the moment a cloud or a building shadows them.
+//
+// The vertex program is the stock Ogre/Compositor/Quad_vs from the pinned
+// Common media closure; only the fragment programs are RoR-owned.
+
+//------------------------
+//OpenGL GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/FinalToneMapping_ps_GLSL glsl
+{
+	source RoRFinalToneMapping_ps.glsl
+
+	default_params
+	{
+		param_named rt0			int 0
+		param_named lumRt		int 1
+		param_named bloomRt		int 2
+	}
+}
+
+//------------------------
+//Vulkan GLSL Definitions
+//------------------------
+fragment_program RoR/HDR/FinalToneMapping_ps_VK glslvk
+{
+	source RoRFinalToneMapping_ps.glsl
+}
+
+//------------------------
+//HLSL Definitions
+//------------------------
+fragment_program RoR/HDR/FinalToneMapping_ps_HLSL hlsl
+{
+	source RoRFinalToneMapping_ps.hlsl
+	target ps_5_0 ps_4_0 ps_4_0_level_9_1 ps_4_0_level_9_3
+	entry_point main
+}
+
+//------------------------
+//Metal Definitions
+//------------------------
+fragment_program RoR/HDR/FinalToneMapping_ps_Metal metal
+{
+	source RoRFinalToneMapping_ps.metal
+	shader_reflection_pair_hint Ogre/Compositor/Quad_vs
+}
+
+fragment_program RoR/HDR/FinalToneMapping_ps unified
+{
+	delegate RoR/HDR/FinalToneMapping_ps_GLSL
+	delegate RoR/HDR/FinalToneMapping_ps_VK
+	delegate RoR/HDR/FinalToneMapping_ps_HLSL
+	delegate RoR/HDR/FinalToneMapping_ps_Metal
+}
+
+material RoR/HDR/FinalToneMapping
+{
+	technique
+	{
+		pass
+		{
+			depth_check off
+			depth_write off
+			cull_hardware none
+
+			vertex_program_ref Ogre/Compositor/Quad_vs
+			{
+			}
+
+			fragment_program_ref RoR/HDR/FinalToneMapping_ps
+			{
+			}
+
+			texture_unit rt0
+			{
+				tex_address_mode	clamp
+				filtering none
+			}
+
+			texture_unit lumRt
+			{
+				tex_address_mode	clamp
+				filtering none
+			}
+
+			texture_unit bloomRt
+			{
+				tex_address_mode	clamp
+				filtering bilinear
+			}
+		}
+	}
+}
