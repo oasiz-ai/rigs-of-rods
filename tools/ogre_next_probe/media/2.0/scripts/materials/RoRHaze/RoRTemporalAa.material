@@ -107,6 +107,11 @@ fragment_program RoR/HDR/TaaResolve_ps_GLSL glsl
 fragment_program RoR/HDR/TaaResolve_ps_VK glslvk
 {
 	source RoRTaaResolve_ps.glsl
+	// The resolve consumes six independent texture/sampler pairs. Ogre-Next's
+	// low-level "standard" Vulkan layout exposes four; "high" exposes eight.
+	// Declare that shader resource requirement here so Vulkan derives the same
+	// binding interface already expressed by GLSL, HLSL, Metal, and the material.
+	root_layout high
 }
 
 fragment_program RoR/HDR/TaaResolve_ps_HLSL hlsl

@@ -39,6 +39,23 @@ UV_AFFINE_SHADER_VERIFIER = importlib.util.module_from_spec(
 UV_AFFINE_SHADER_VERIFIER_SPEC.loader.exec_module(
     UV_AFFINE_SHADER_VERIFIER
 )
+AERIAL_HAZE_SHADER_VERIFIER_PATH = (
+    PROBE_ROOT / "verify_aerial_haze_shader.py"
+)
+AERIAL_HAZE_SHADER_VERIFIER_SPEC = importlib.util.spec_from_file_location(
+    "verify_aerial_haze_shader_for_n1_tests",
+    AERIAL_HAZE_SHADER_VERIFIER_PATH,
+)
+assert (
+    AERIAL_HAZE_SHADER_VERIFIER_SPEC
+    and AERIAL_HAZE_SHADER_VERIFIER_SPEC.loader
+)
+AERIAL_HAZE_SHADER_VERIFIER = importlib.util.module_from_spec(
+    AERIAL_HAZE_SHADER_VERIFIER_SPEC
+)
+AERIAL_HAZE_SHADER_VERIFIER_SPEC.loader.exec_module(
+    AERIAL_HAZE_SHADER_VERIFIER
+)
 
 
 def reflection_fixture(
@@ -267,6 +284,47 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         self.assertIn(
             "verify_uv0_affine_pbs_shader.py", self.entry_cmake
         )
+
+    def test_vulkan_shader_root_layout_covers_declared_resource_slots(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="ror-vulkan-root-layout-") as temp:
+            root = Path(temp)
+            material = root / "Resolve.material"
+            shader = root / "GLSL" / "Resolve_ps.glsl"
+            shader.parent.mkdir(parents=True)
+            shader.write_text(
+                "vulkan_layout( ogre_t0 ) uniform texture2D currentTexture;\n"
+                "vulkan_layout( ogre_t4 ) uniform texture2D historyTexture;\n"
+                "vulkan( layout( ogre_s4 ) uniform sampler historySampler );\n",
+                encoding="utf-8",
+            )
+            standard_program = (
+                "fragment_program Test/Resolve_ps_VK glslvk\n"
+                "{\n"
+                "  source Resolve_ps.glsl\n"
+                "}\n"
+            )
+            material.write_text(standard_program, encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "standard exposes 4 slots"):
+                AERIAL_HAZE_SHADER_VERIFIER.validate_vulkan_root_layout_capacity(
+                    root, material
+                )
+
+            material.write_text(
+                standard_program.replace(
+                    "  source Resolve_ps.glsl\n",
+                    "  source Resolve_ps.glsl\n  root_layout high\n",
+                ),
+                encoding="utf-8",
+            )
+            AERIAL_HAZE_SHADER_VERIFIER.validate_vulkan_root_layout_capacity(
+                root, material
+            )
+
+        temporal_material = (
+            PROBE_ROOT
+            / "media/2.0/scripts/materials/RoRHaze/RoRTemporalAa.material"
+        ).read_text(encoding="utf-8")
+        self.assertIn("root_layout high", temporal_material)
 
     def test_dependency_policy_is_shared_pinned_and_isolated(self) -> None:
         self.assertIn("cmake/PinnedOgreNext.cmake", self.entry_cmake)

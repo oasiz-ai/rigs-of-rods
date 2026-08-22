@@ -53,7 +53,7 @@
     },
     {
       "path": "media/2.0/scripts/materials/RoRHaze/RoRTemporalAa.material",
-      "sha256": "7811237631c18fbb6782dffa7ae17cd444e7266d661d8d6dbbc22830353d804c"
+      "sha256": "9f7fe40a2ef199ad25be5dfc51e4d4b3d28c1f35e094fa126ed04ae9df67ff92"
     },
     {
       "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRTaaMotionVectors_ps.glsl",
