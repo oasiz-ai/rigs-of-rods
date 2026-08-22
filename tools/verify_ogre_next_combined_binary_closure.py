@@ -1242,6 +1242,10 @@ def main() -> int:
             != "ror.ogre_next_combined_provider.v1"
             or provider_contract_document.get("bridge_sources_linked") is not False
             or provider_contract_document.get("transport_sources_linked") is not False
+            or provider_contract_document.get("rapidjson_namespace")
+            != "RoROgreNextRapidJson"
+            or provider_contract_document.get("rapidjson_namespace_private")
+            is not True
             or provider_contract_document.get("sdl_target") != "SDL2::SDL2"
             or provider_contract_document.get("ror_source_root")
             != str(provider_source_root)
@@ -1269,6 +1273,8 @@ def main() -> int:
             != "ror.ogre_next.embedded_namespace_audit.v2"
             or namespace_audit_document.get("status") != "passed"
             or namespace_audit_document.get("namespace") != "RoROgreNext"
+            or namespace_audit_document.get("rapidjson_namespace")
+            != "RoROgreNextRapidJson"
             or namespace_audit_document.get("ror_source_commit")
             != provider_contract_document.get("ror_commit")
         ):
@@ -1348,6 +1354,7 @@ def main() -> int:
             namespace_evidence_scope.get(field) is not True
             for field in (
                 "namespace_and_dual_root_link",
+                "rapidjson_private_namespace_link",
                 "full_n1_runtime_link",
                 "renderer_neutral_in_process_session_link",
                 "concrete_in_process_presenter_link",

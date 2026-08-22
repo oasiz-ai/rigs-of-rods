@@ -464,6 +464,12 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"bridge_or_transport_symbols_present": False',
             '"root_sdl_symbols_present": False',
             '"ogre14_host_load_commands_present": True',
+            'provider.get("rapidjson_namespace")',
+            'namespace.get("rapidjson_namespace")',
+            '"rapidjson_private_namespace_link"',
+            '"host_namespace": "rapidjson"',
+            '"ogre_next_namespace": "RoROgreNextRapidJson"',
+            '"dual_owner_linked": True',
         ):
             with self.subTest(token=token):
                 self.assertIn(token, ELF_VERIFIER)

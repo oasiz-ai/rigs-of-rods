@@ -891,9 +891,8 @@ def main() -> int:
             "RoROgreNext::Root::getSingletonPtr()" in executable_demangled,
             "dual-runtime executable does not resolve both Root ABI owners")
     require(
-        "rapidjson::" in executable_demangled
-        and "RoROgreNextRapidJson::" in executable_demangled,
-        "dual-runtime executable does not resolve isolated host and OgreNext RapidJSON owners",
+        "RoROgreNextRapidJson::" in executable_demangled,
+        "provider link smoke does not resolve the private OgreNext RapidJSON owner",
     )
     require(
         "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend" in
@@ -1211,7 +1210,7 @@ def main() -> int:
         },
         "evidence_scope": {
             "namespace_and_dual_root_link": True,
-            "rapidjson_namespace_and_dual_owner_link": True,
+            "rapidjson_private_namespace_link": True,
             "full_n1_runtime_link": True,
             "renderer_neutral_in_process_session_link": True,
             "concrete_in_process_presenter_link": True,

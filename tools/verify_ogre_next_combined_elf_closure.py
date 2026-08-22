@@ -195,6 +195,9 @@ def main() -> int:
             or provider.get("platform_policy") != PLATFORM_POLICY
             or provider.get("bridge_sources_linked") is not False
             or provider.get("transport_sources_linked") is not False
+            or provider.get("rapidjson_namespace")
+            != "RoROgreNextRapidJson"
+            or provider.get("rapidjson_namespace_private") is not True
             or provider.get("sdl_target") != "SDL2::SDL2"
             or provider.get("ror_source_root") != str(provider_source_root)
             or provider.get("ror_source_manifest") != str(provider_manifest)
@@ -213,9 +216,19 @@ def main() -> int:
             or namespace.get("status") != "passed"
             or namespace.get("platform_policy") != PLATFORM_POLICY
             or namespace.get("namespace") != "RoROgreNext"
+            or namespace.get("rapidjson_namespace")
+            != "RoROgreNextRapidJson"
             or namespace.get("ror_source_commit") != provider.get("ror_commit")
         ):
             raise ValueError("Linux namespace audit is not an exact passing proof")
+        namespace_scope = namespace.get("evidence_scope")
+        if (
+            not isinstance(namespace_scope, dict)
+            or namespace_scope.get("rapidjson_private_namespace_link") is not True
+        ):
+            raise ValueError(
+                "Linux namespace audit lacks private RapidJSON link evidence"
+            )
         source_checkout = common._verify_source_checkout(namespace)
         strict_fp = common._verify_strict_fp_receipts(provider, namespace)
 
@@ -293,6 +306,18 @@ def main() -> int:
             for symbol in raw_symbols
             if symbol.startswith(("png_", "jpeg_", "stbi_"))
         )
+        host_rapidjson_symbols = sorted(
+            symbol for symbol in demangled_symbols if "rapidjson::" in symbol
+        )
+        ogre_next_rapidjson_symbols = sorted(
+            symbol
+            for symbol in demangled_symbols
+            if "RoROgreNextRapidJson::" in symbol
+        )
+        if not host_rapidjson_symbols or not ogre_next_rapidjson_symbols:
+            raise ValueError(
+                "Linux combined ELF lacks isolated host and OgreNext RapidJSON owners"
+            )
         executable_sdl_symbols = sorted(
             symbol for symbol in raw_symbols if symbol.startswith("SDL_")
         )
@@ -406,6 +431,15 @@ def main() -> int:
                 "external_image_codec_symbols_present": False,
                 "root_sdl_symbols_present": False,
                 "private_stb_image_symbol_count": len(private_stbi),
+                "rapidjson_namespace_isolation": {
+                    "host_namespace": "rapidjson",
+                    "host_defined_symbol_count": len(host_rapidjson_symbols),
+                    "ogre_next_namespace": "RoROgreNextRapidJson",
+                    "ogre_next_defined_symbol_count": len(
+                        ogre_next_rapidjson_symbols
+                    ),
+                    "dual_owner_linked": True,
+                },
                 "ogre_next_runtime_contributors_present": True,
                 "ogre14_host_load_commands_present": True,
             },

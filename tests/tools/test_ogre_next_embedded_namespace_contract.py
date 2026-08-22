@@ -330,6 +330,9 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             '"RoROgreNextRapidJson::" in executable_demangled',
             self.audit_source,
         )
+        self.assertNotIn(
+            '"rapidjson::" in executable_demangled', self.audit_source
+        )
         self.assertIn(
             '"rapidjson_namespace": "RoROgreNextRapidJson"',
             self.audit_source,
