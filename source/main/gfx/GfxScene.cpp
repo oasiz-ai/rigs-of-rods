@@ -5355,6 +5355,48 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                             &std::get<Render::MeshResourceDescriptor>(
                                 *census_asset.payload);
                 }
+                // Roughness census (Foundation F3): count how many admitted
+                // material projections still sit at the fully-rough default
+                // (roughness 1.0 kills every specular highlight) versus how
+                // many carry authored variation, with a coarse histogram.
+                {
+                    std::size_t census_pbr = 0U;
+                    std::size_t census_unlit_materials = 0U;
+                    std::size_t census_fully_rough = 0U;
+                    std::array<std::size_t, 10U> census_bins{};
+                    for (const auto& census_entry : census_materials)
+                    {
+                        const Render::MaterialDescriptor& material =
+                            *census_entry.second;
+                        if (material.model == Render::MaterialModel::UNLIT)
+                        {
+                            ++census_unlit_materials;
+                            continue;
+                        }
+                        ++census_pbr;
+                        if (material.roughness_factor >= 1.0F)
+                        {
+                            ++census_fully_rough;
+                        }
+                        const std::size_t bin = static_cast<std::size_t>(
+                            (std::min)(
+                                9.0F,
+                                (std::max)(
+                                    0.0F,
+                                    material.roughness_factor * 10.0F)));
+                        ++census_bins[bin];
+                    }
+                    LOG(fmt::format(
+                        "[RoR|SceneSource|RoughnessCensus] materials={} "
+                        "pbr={} unlit={} fully_rough={} varied={} "
+                        "bins_0.0-1.0=[{},{},{},{},{},{},{},{},{},{}]",
+                        census_materials.size(), census_pbr,
+                        census_unlit_materials, census_fully_rough,
+                        census_pbr - census_fully_rough, census_bins[0],
+                        census_bins[1], census_bins[2], census_bins[3],
+                        census_bins[4], census_bins[5], census_bins[6],
+                        census_bins[7], census_bins[8], census_bins[9]));
+                }
                 // One-shot full inventory dump for offline analysis:
                 // every instance with joined names, factors, and binding.
                 static bool census_dumped = false;

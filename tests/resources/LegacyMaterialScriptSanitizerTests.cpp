@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -163,7 +164,7 @@ void TestPinnedPlanMetadataIsExact()
     CHECK(
         std::string(plan->script_sha256) ==
         "03e17f9fab655321e7b266ce848e55d3ecd581d417e4f336f3a7928cd9d6e919");
-    CHECK(plan->edit_count == 32U);
+    CHECK(plan->edit_count == 70U);
     CHECK(plan->edits[0].line == 30U);
     CHECK(
         std::string(plan->edits[0].replacement).find(
@@ -173,7 +174,7 @@ void TestPinnedPlanMetadataIsExact()
             plan->archive_sha256,
             "NeoQ2-0-builds.material");
     CHECK(builds_plan != nullptr);
-    CHECK(builds_plan->edit_count == 26U);
+    CHECK(builds_plan->edit_count == 112U);
     const struct
     {
         const char* script_name;
@@ -182,10 +183,10 @@ void TestPinnedPlanMetadataIsExact()
     } neoq20_grade_plans[] = {
         {"NeoQ2-0-asphalt.material",
          "6ce129e2f04aaca9fe8dd29b62b09781f3dca3c19b18d58450976e330b165ae6",
-         8U},
+         9U},
         {"NeoQ2-0-concrete-road.material",
          "fe3c212dd0a1df62fa5c904575d8b0e61d440c42972c00f2792a1fcbab9354a4",
-         10U},
+         12U},
         {"NeoQ2-0-vegetation.material",
          "63fd8844d1efe2393c3499678f06d9c7c09f757c11ae660f41141311ddb94484",
          15U},
@@ -212,7 +213,7 @@ void TestPinnedPlanMetadataIsExact()
             plan->archive_sha256,
             "NeoQueretaro.material");
     CHECK(city_plan != nullptr);
-    CHECK(city_plan->edit_count == 47U);
+    CHECK(city_plan->edit_count == 176U);
     const std::size_t environment_edit_indexes[] = {
         11U, 12U, 24U, 25U};
     const std::size_t environment_lines[] = {
@@ -284,24 +285,29 @@ void TestPinnedPlanMetadataIsExact()
         CHECK(std::string(edit.expected) == duplicate_anchors[index]);
         CHECK(std::string(edit.replacement).empty());
     }
-    for (std::size_t index = 0U; index < city_plan->edit_count; ++index)
+    // The reviewed base edits stay line-sorted; the appended Foundation F3
+    // roughness block restarts the line sequence, so uniqueness (no two
+    // edits contend for one line) replaces global monotonicity here.
     {
-        if (index > 0U)
+        std::set<std::size_t> city_edit_lines;
+        for (std::size_t index = 0U; index < city_plan->edit_count; ++index)
         {
             CHECK(
-                city_plan->edits[index - 1U].line <
-                city_plan->edits[index].line);
+                city_edit_lines.insert(city_plan->edits[index].line).second);
+            // The surviving concretorojo block (lines 1698-1710) stays
+            // byte-intact so the duplicate removal at 1772-1784 remains a
+            // pure de-duplication.
+            CHECK(
+                city_plan->edits[index].line < 1698U ||
+                city_plan->edits[index].line > 1710U);
         }
-        CHECK(
-            city_plan->edits[index].line < 1698U ||
-            city_plan->edits[index].line > 1710U);
     }
     const RoR::LegacyMaterialScriptEditPlan* furniture_plan =
         RoR::FindLegacyMaterialScriptEditPlan(
             plan->archive_sha256,
             "streetfurniture.material");
     CHECK(furniture_plan != nullptr);
-    CHECK(furniture_plan->edit_count == 5U);
+    CHECK(furniture_plan->edit_count == 7U);
     CHECK(
         std::string(furniture_plan->edits[0].expected) ==
         "texture barrier.dds");
@@ -314,7 +320,7 @@ void TestPinnedPlanMetadataIsExact()
             plan->archive_sha256,
             "dneroads.material");
     CHECK(roads_plan != nullptr);
-    CHECK(roads_plan->edit_count == 2U);
+    CHECK(roads_plan->edit_count == 33U);
     CHECK(
         std::string(roads_plan->edits[0].expected) ==
         "texture stopsign.dds");
@@ -356,7 +362,7 @@ void TestReplacementTexturePlansAreNamespacedAndExact()
     CHECK(
         std::string(buildings_plan->script_sha256) ==
         "11bb735dfadd54f594bfa02e967014edcd67cb5b7fcda8b3c8c3668cea2dc420");
-    CHECK(buildings_plan->edit_count == 7U);
+    CHECK(buildings_plan->edit_count == 165U);
 
     // Every replacement token is reserved-namespaced, resolution suffixed,
     // and never rewrites an original name to itself; anchors never reference
@@ -432,7 +438,7 @@ void TestReplacementTexturePlansAreNamespacedAndExact()
         buildings_plan->script_sha256,
         buildings_digest));
     CHECK(buildings_digest ==
-        "1f74ab1c91053fbaa3c5d8448c269c1255c8dd5c33e7203bd92d641c95fb82df");
+        "fdfbc1d380efbd448d4c7422651b144413579929dc3c20bbb9fe0f52c238d6cf");
 }
 
 std::string SyntheticScriptWithAnchors(
@@ -505,47 +511,51 @@ void TestReplacementTexturePlansApplyOnByteExactAnchors()
     CHECK(rejected.payload == drifted);
     CHECK(rejected.applied_edit_count == 0U);
 
+    // The dnebuildings plan now carries the Foundation F3 roughness block on
+    // top of the reviewed texture replacements, so it can only apply against
+    // the real archive script (covered, fixture-gated, by
+    // TestPinnedReplacementScriptsWhenAvailable). The reviewed replacement
+    // edits themselves stay pinned line-exact here.
     const RoR::LegacyMaterialScriptEditPlan* buildings_plan =
         RoR::FindLegacyMaterialScriptEditPlan(
             archive_sha256, "dnebuildings.material");
     CHECK(buildings_plan != nullptr);
-    const std::string buildings_payload = SyntheticScriptWithAnchors(
-        3426U,
-        {{438U, "\t\t\t\ttexture brickwall_darkred.dds"},
-         {2385U, "\t\t\t\ttexture_unit"},
-         {2566U, "\t\t\t\ttexture lightgreybrick.dds"},
-         {2607U, "\t\t\t\ttexture betterbrickdiffuse.dds"},
-         {2637U, "\t\t\t\ttexture concretetan.dds"},
-         {2667U, "\t\t\t\ttexture concretelightgrey.dds"},
-         {3205U, "\t\t\t\ttexture brickwall_darkred.dds"}});
-    const RoR::LegacyMaterialScriptPlanApplication buildings_applied =
-        RoR::ApplyLegacyMaterialScriptEditPlan(
-            *buildings_plan,
-            buildings_plan->script_sha256,
-            buildings_payload);
-    CHECK(buildings_applied.applicable);
-    CHECK(buildings_applied.safe);
-    CHECK(buildings_applied.applied_edit_count == 7U);
-    const char* replaced_tokens[] = {
-        "texture cityworld_next_replacements/brickwall_darkred_1024.png",
-        "texture cityworld_next_replacements/lightgreybrick_1024.png",
-        "texture cityworld_next_replacements/betterbrickdiffuse_1024.png",
-        "texture cityworld_next_replacements/concretetan_1024.png",
-        "texture cityworld_next_replacements/concretelightgrey_1024.png"};
-    for (const char* token : replaced_tokens)
+    const struct
     {
-        CHECK(buildings_applied.payload.find(token) != std::string::npos);
+        std::size_t line;
+        const char* expected;
+        const char* replacement;
+    } buildings_replacements[] = {
+        {438U, "texture brickwall_darkred.dds",
+         "texture cityworld_next_replacements/brickwall_darkred_1024.png"},
+        {2566U, "texture lightgreybrick.dds",
+         "texture cityworld_next_replacements/lightgreybrick_1024.png"},
+        {2607U, "texture betterbrickdiffuse.dds",
+         "texture cityworld_next_replacements/betterbrickdiffuse_1024.png"},
+        {2637U, "texture concretetan.dds",
+         "texture cityworld_next_replacements/concretetan_1024.png"},
+        {2667U, "texture concretelightgrey.dds",
+         "texture cityworld_next_replacements/concretelightgrey_1024.png"},
+        {3205U, "texture brickwall_darkred.dds",
+         "texture cityworld_next_replacements/brickwall_darkred_1024.png"}};
+    for (const auto& expected_edit : buildings_replacements)
+    {
+        bool found = false;
+        for (std::size_t index = 0U; index < buildings_plan->edit_count;
+             ++index)
+        {
+            const RoR::LegacyMaterialScriptEdit& edit =
+                buildings_plan->edits[index];
+            if (edit.line == expected_edit.line &&
+                std::string(edit.expected) == expected_edit.expected &&
+                std::string(edit.replacement) == expected_edit.replacement)
+            {
+                found = true;
+                break;
+            }
+        }
+        CHECK(found);
     }
-    CHECK(
-        buildings_applied.payload.find("texture brickwall_darkred.dds") ==
-        std::string::npos);
-    // Both anchored lines received the same replacement member.
-    const std::size_t first_brick = buildings_applied.payload.find(
-        "texture cityworld_next_replacements/brickwall_darkred_1024.png");
-    CHECK(
-        buildings_applied.payload.find(
-            "texture cityworld_next_replacements/brickwall_darkred_1024.png",
-            first_brick + 1U) != std::string::npos);
 }
 
 void TestPinnedReplacementScriptsWhenAvailable()
