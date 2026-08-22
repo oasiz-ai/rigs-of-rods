@@ -56,6 +56,7 @@
 #include "TerrainGeometryManager.h"
 #include "Terrain.h"
 #include "TerrainObjectManager.h"
+#include "LocalLightBudget.h"
 #include "Utils.h"
 
 #include "imgui_internal.h"
@@ -603,11 +604,32 @@ bool CaptureOgre14MainCamera(
     return true;
 }
 
-RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
+/// Stage 2 capture census. Values describe the most recent joined capture;
+/// the log below re-emits only when any field changes.
+struct OgreNextDemoLocalLightCaptureStats
+{
+    std::size_t discovered = 0;
+    std::size_t visible = 0;
+    std::size_t sanitized = 0;
+    std::size_t native_shadow_requests = 0;
+    std::size_t budget_dropped = 0;
+
+    bool operator==(const OgreNextDemoLocalLightCaptureStats& other) const
+    {
+        return discovered == other.discovered &&
+            visible == other.visible &&
+            sanitized == other.sanitized &&
+            native_shadow_requests == other.native_shadow_requests &&
+            budget_dropped == other.budget_dropped;
+    }
+};
+
+RoR::Render::ValidationResult CaptureOgreNextDemoSceneLights(
     Ogre::SceneManager& scene_manager,
     Ogre::Light* terrain_main_light,
     RoR::Render::Ogre14GraphicsSceneLightIdentityRegistry& identity_registry,
-    std::vector<RoR::Render::GraphicsSceneLightInput>& output)
+    std::vector<RoR::Render::GraphicsSceneLightInput>& output,
+    std::uint64_t& sun_light_id)
 {
     if (terrain_main_light == nullptr)
     {
@@ -624,6 +646,8 @@ RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
         scene_manager.getMovableObjects(Ogre::MOT_LIGHT);
     Ogre::Light* candidate = nullptr;
     std::size_t candidate_count = 0U;
+    std::vector<Ogre::Light*> local_lights;
+    local_lights.reserve(managed_lights.size());
     for (const auto& managed_entry : managed_lights)
     {
         Ogre::MovableObject* const object = managed_entry.second;
@@ -652,6 +676,18 @@ RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
             }
             ++candidate_count;
         }
+        else if (light->getType() == Ogre::Light::LT_POINT ||
+                 light->getType() == Ogre::Light::LT_SPOTLIGHT)
+        {
+            // Stage 2: every live point/spot light is captured, visible or
+            // not. An invisible light must keep publishing its record at zero
+            // intensity because a destroyed portable light identity may never
+            // return; only actual native destruction removes the record.
+            local_lights.push_back(light);
+        }
+        // Remaining native light types (rectangles, extra directionals) have
+        // no portable transport; the directional census below keeps an
+        // unexpected caster visible in the log instead of silently dropped.
     }
     // F9. This required the terrain main light to be the ONLY visible
     // directional shadow caster in the whole OGRE inventory, and rejected the
@@ -734,9 +770,296 @@ RoR::Render::ValidationResult CaptureOgreNextDemoMainShadowLight(
         static_cast<float>(direction.z)};
 
     std::vector<RoR::Render::Ogre14GraphicsSceneLightCaptureInput> inputs;
+    inputs.reserve(local_lights.size() + 1U);
     inputs.push_back(std::move(input));
-    return RoR::Render::BuildOgre14GraphicsSceneLights(
-        inputs, identity_registry, output);
+
+    // Deterministic local-light capture order: the managed map iterates in
+    // exact-name order already, but the explicit sort makes the budget
+    // tie-break independent of OGRE's container choice.
+    std::sort(local_lights.begin(), local_lights.end(),
+        [](const Ogre::Light* lhs, const Ogre::Light* rhs)
+        { return lhs->getName() < rhs->getName(); });
+
+    OgreNextDemoLocalLightCaptureStats stats;
+    stats.discovered = local_lights.size();
+
+    bool camera_position_valid = false;
+    Ogre::Vector3 camera_position = Ogre::Vector3::ZERO;
+    if (RoR::App::GetCameraManager() != nullptr &&
+        RoR::App::GetCameraManager()->GetCamera() != nullptr)
+    {
+        camera_position =
+            RoR::App::GetCameraManager()->GetCamera()->getDerivedPosition();
+        camera_position_valid = std::isfinite(camera_position.x) &&
+            std::isfinite(camera_position.y) &&
+            std::isfinite(camera_position.z);
+    }
+
+    const auto finite3 = [](const RoR::Render::Float3& value)
+    {
+        return std::isfinite(value.x) && std::isfinite(value.y) &&
+            std::isfinite(value.z);
+    };
+
+    struct LocalVisibleRank
+    {
+        double squared_distance;
+        std::size_t input_index;
+    };
+    std::vector<LocalVisibleRank> visible_ranks;
+    visible_ranks.reserve(local_lights.size());
+
+    for (Ogre::Light* const local_light : local_lights)
+    {
+        const bool spot =
+            local_light->getType() == Ogre::Light::LT_SPOTLIGHT;
+        RoR::Render::Ogre14GraphicsSceneLightCaptureInput local;
+        local.exact_name = local_light->getName();
+        local.kind = spot ? RoR::Render::Ogre14GraphicsSceneLightKind::SPOT
+                          : RoR::Render::Ogre14GraphicsSceneLightKind::POINT;
+        const Ogre::ColourValue local_diffuse =
+            local_light->getDiffuseColour();
+        local.diffuse_linear = {
+            static_cast<float>(local_diffuse.r),
+            static_cast<float>(local_diffuse.g),
+            static_cast<float>(local_diffuse.b)};
+        local.power_scale =
+            static_cast<float>(local_light->getPowerScale());
+        local.visible = local_light->getVisible() &&
+            local_light->getVisibilityFlags() != 0U &&
+            local_light->getLightMask() != 0U;
+        local.visibility_flags = local_light->getVisibilityFlags();
+        local.light_mask = local_light->getLightMask();
+        const Ogre::Vector3 local_position =
+            local_light->getDerivedPosition();
+        local.derived_position = {
+            static_cast<float>(local_position.x),
+            static_cast<float>(local_position.y),
+            static_cast<float>(local_position.z)};
+        local.attenuation_range = local_light->getAttenuationRange();
+        local.attenuation_constant = local_light->getAttenuationConstant();
+        local.attenuation_linear = local_light->getAttenuationLinear();
+        local.attenuation_quadratic = local_light->getAttenuationQuadric();
+        if (spot)
+        {
+            local.inner_cone_radians = static_cast<float>(
+                local_light->getSpotlightInnerAngle().valueRadians());
+            local.outer_cone_radians = static_cast<float>(
+                local_light->getSpotlightOuterAngle().valueRadians());
+            local.spot_falloff = static_cast<float>(
+                local_light->getSpotlightFalloff());
+        }
+        // Portable local lights never substitute shadow maps: the combined
+        // PSSM contract admits exactly one directional caster and the local
+        // registration policy forces castShadows=false. A native light that
+        // still requests shadows is captured shadowless and counted so the
+        // policy violation is visible in the census rather than silent.
+        if (local_light->getCastShadows())
+        {
+            ++stats.native_shadow_requests;
+        }
+        local.casts_shadows = false;
+
+        // Per-object sanitization. A degenerate native light must not reject
+        // the whole frame capture (a repeated rejection freezes presentation
+        // behind live input), and its record may not be dropped (a removed
+        // identity may never return), so every irrecoverable field degrades
+        // this one light to an invisible, schema-valid record instead.
+        bool degraded = false;
+        if (!finite3(local.diffuse_linear) ||
+            local.diffuse_linear.x < 0.0F ||
+            local.diffuse_linear.y < 0.0F ||
+            local.diffuse_linear.z < 0.0F)
+        {
+            local.diffuse_linear = {1.0F, 1.0F, 1.0F};
+            degraded = true;
+        }
+        const double local_luminance =
+            0.2126 * static_cast<double>(local.diffuse_linear.x) +
+            0.7152 * static_cast<double>(local.diffuse_linear.y) +
+            0.0722 * static_cast<double>(local.diffuse_linear.z);
+        if (!(local_luminance > 0.0))
+        {
+            local.diffuse_linear = {1.0F, 1.0F, 1.0F};
+            degraded = true;
+        }
+        local.specular_linear = local.diffuse_linear;
+        if (!std::isfinite(local.power_scale) || local.power_scale < 0.0F)
+        {
+            local.power_scale = 0.0F;
+            degraded = true;
+        }
+        if (!std::isfinite(local.attenuation_range) ||
+            !(local.attenuation_range > 0.0F))
+        {
+            local.attenuation_range = 1.0F;
+            degraded = true;
+        }
+        if (!std::isfinite(local.attenuation_constant) ||
+            !std::isfinite(local.attenuation_linear) ||
+            !std::isfinite(local.attenuation_quadratic) ||
+            local.attenuation_constant < 0.0F ||
+            local.attenuation_linear < 0.0F ||
+            local.attenuation_quadratic < 0.0F)
+        {
+            local.attenuation_constant = 1.0F;
+            local.attenuation_linear = 0.0F;
+            local.attenuation_quadratic = 0.0F;
+            degraded = true;
+        }
+        if (!(local.attenuation_constant > 0.0F ||
+              local.attenuation_linear > 0.0F ||
+              local.attenuation_quadratic > 0.0F))
+        {
+            local.attenuation_constant = 1.0F;
+        }
+        if (!finite3(local.derived_position))
+        {
+            local.derived_position = {};
+            degraded = true;
+        }
+        if (spot)
+        {
+            const Ogre::Vector3 local_direction =
+                local_light->getDerivedDirection();
+            const float direction_x = static_cast<float>(local_direction.x);
+            const float direction_y = static_cast<float>(local_direction.y);
+            const float direction_z = static_cast<float>(local_direction.z);
+            const float length_squared = direction_x * direction_x +
+                direction_y * direction_y + direction_z * direction_z;
+            if (!std::isfinite(length_squared) || !(length_squared > 1e-12F))
+            {
+                local.derived_direction = {0.0F, -1.0F, 0.0F};
+                degraded = true;
+            }
+            else
+            {
+                const float inverse_length =
+                    1.0F / std::sqrt(length_squared);
+                local.derived_direction = {
+                    direction_x * inverse_length,
+                    direction_y * inverse_length,
+                    direction_z * inverse_length};
+            }
+            constexpr float kPi = 3.14159265358979323846F;
+            if (!std::isfinite(local.inner_cone_radians) ||
+                !std::isfinite(local.outer_cone_radians) ||
+                !(local.outer_cone_radians > 0.0F) ||
+                local.inner_cone_radians < 0.0F ||
+                local.outer_cone_radians > kPi ||
+                local.outer_cone_radians < local.inner_cone_radians)
+            {
+                local.inner_cone_radians = 0.6F;
+                local.outer_cone_radians = 0.8F;
+                degraded = true;
+            }
+            if (!std::isfinite(local.spot_falloff) ||
+                local.spot_falloff < 0.0F)
+            {
+                local.spot_falloff = 1.0F;
+            }
+        }
+        else
+        {
+            local.derived_direction = {0.0F, -1.0F, 0.0F};
+        }
+        if (degraded)
+        {
+            local.visible = false;
+            ++stats.sanitized;
+        }
+
+        if (local.visible)
+        {
+            double squared_distance = 0.0;
+            if (camera_position_valid)
+            {
+                const double dx =
+                    static_cast<double>(local.derived_position.x) -
+                    static_cast<double>(camera_position.x);
+                const double dy =
+                    static_cast<double>(local.derived_position.y) -
+                    static_cast<double>(camera_position.y);
+                const double dz =
+                    static_cast<double>(local.derived_position.z) -
+                    static_cast<double>(camera_position.z);
+                squared_distance = dx * dx + dy * dy + dz * dz;
+                if (!std::isfinite(squared_distance))
+                {
+                    squared_distance =
+                        (std::numeric_limits<double>::max)();
+                }
+            }
+            visible_ranks.push_back(
+                LocalVisibleRank{squared_distance, inputs.size()});
+        }
+        inputs.push_back(std::move(local));
+    }
+
+    // Deterministic furthest-first budget drop. The record is kept (identity
+    // continuity) but published at zero intensity, so an over-budget set can
+    // never reject publication. Ties resolve by exact name via the sorted
+    // capture order above, and a missing camera degrades to that same order.
+    const std::size_t local_budget = RoR::GetLocalLightActiveBudget();
+    if (visible_ranks.size() > local_budget)
+    {
+        std::stable_sort(visible_ranks.begin(), visible_ranks.end(),
+            [](const LocalVisibleRank& lhs, const LocalVisibleRank& rhs)
+            { return lhs.squared_distance < rhs.squared_distance; });
+        for (std::size_t rank = local_budget;
+             rank < visible_ranks.size(); ++rank)
+        {
+            inputs[visible_ranks[rank].input_index].visible = false;
+        }
+        stats.budget_dropped = visible_ranks.size() - local_budget;
+        stats.visible = local_budget;
+    }
+    else
+    {
+        stats.visible = visible_ranks.size();
+    }
+
+    // Main-thread-only capture boundary; see the quiescence note above.
+    static OgreNextDemoLocalLightCaptureStats last_logged_local_stats{
+        static_cast<std::size_t>(-1), 0U, 0U, 0U, 0U};
+    if (!(stats == last_logged_local_stats))
+    {
+        LOG(fmt::format(
+            "[RoR|GfxScene|LocalLights] discovered={} visible={} "
+            "sanitized={} native_shadow_requests={} budget_dropped={} "
+            "budget={}",
+            stats.discovered, stats.visible, stats.sanitized,
+            stats.native_shadow_requests, stats.budget_dropped,
+            local_budget));
+        last_logged_local_stats = stats;
+    }
+
+    RoR::Render::ValidationResult built =
+        RoR::Render::BuildOgre14GraphicsSceneLights(
+            inputs, identity_registry, output);
+    if (!built)
+    {
+        return built;
+    }
+    // Exactly one directional input exists by construction of the walk
+    // above; its derived identity is the authoritative analytic-sky sun.
+    sun_light_id = 0U;
+    for (const RoR::Render::GraphicsSceneLightInput& built_light : output)
+    {
+        if (built_light.type == RoR::Render::LightType::DIRECTIONAL)
+        {
+            sun_light_id = built_light.source_light_id;
+            break;
+        }
+    }
+    if (sun_light_id == 0U)
+    {
+        return RoR::Render::ValidationResult::Failure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "ogre_next_demo.lights.main_shadow",
+            "converted light inventory lost the directional terrain main light");
+    }
+    return RoR::Render::ValidationResult::Success();
 }
 
 RoR::Render::ValidationResult NativeStaticFailure(
@@ -6360,12 +6683,14 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 Render::Ogre14GraphicsSceneCaptureFieldBit(
                     Render::Ogre14GraphicsSceneCaptureField::DYNAMIC_MESHES);
 
+            std::uint64_t captured_sun_light_id = 0U;
             Render::ValidationResult light_validation =
-                CaptureOgreNextDemoMainShadowLight(
+                CaptureOgreNextDemoSceneLights(
                     *m_scene_manager,
                     terrain != nullptr ? terrain->getMainLight() : nullptr,
                     pending->light_registry,
-                    candidate.frame.lights);
+                    candidate.frame.lights,
+                    captured_sun_light_id);
             if (!light_validation)
             {
                 return light_validation;
@@ -6374,16 +6699,25 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             // prevents a sky descriptor from ever naming an uncommitted or
             // differently normalized light identity; the pending light
             // registry remains rollback-only until producer acceptance.
-            if (candidate.frame.lights.size() != 1U)
+            // Stage 2: the captured inventory now also carries local
+            // point/spot lights, so the sun is found by its derived identity
+            // instead of being the single element.
+            const auto captured_sun_iterator = std::find_if(
+                candidate.frame.lights.begin(),
+                candidate.frame.lights.end(),
+                [captured_sun_light_id](
+                    const Render::GraphicsSceneLightInput& light)
+                { return light.source_light_id == captured_sun_light_id; });
+            if (captured_sun_iterator == candidate.frame.lights.end())
             {
                 return Render::ValidationResult::Failure(
                     Render::ValidationCode::SIZE_MISMATCH,
                     "ogre_next_demo.environment.sun",
-                    "modern analytic sky requires the one captured terrain main light");
+                    "modern analytic sky requires the captured terrain main light");
             }
             Render::ValidationResult environment_validation =
                 Render::BuildOgre14GraphicsSceneAnalyticSkyEnvironment(
-                    native_ambient, candidate.frame.lights.front(),
+                    native_ambient, *captured_sun_iterator,
                     candidate.frame.simulation_time_seconds,
                     candidate.frame.environment);
             if (!environment_validation)
@@ -6393,7 +6727,7 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             const Render::AnalyticSkyDescriptor& sky =
                 candidate.frame.environment.analytic_sky;
             const Render::GraphicsSceneLightInput& committed_sun =
-                candidate.frame.lights.front();
+                *captured_sun_iterator;
             pending->analytic_sky_log_snapshot = fmt::format(
                 "policy_v={} enabled={} exact_skyx_pixel_capture=false "
                 "radiance_authority="

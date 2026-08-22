@@ -540,6 +540,13 @@ struct OgreNextNativeLightingPassAudit final {
   std::uint64_t ogre14_lighting_passes = 0U;
   std::uint32_t last_material_descriptor_version = 0U;
   std::uint32_t last_directional_lights = 0U;
+  /// Stage 2 additive fields: native point/spot lights applied and verified
+  /// this present (zero-intensity records count too; they are retained but
+  /// natively invisible), plus whether the scene manager's Forward+
+  /// clustered light system answered readback this present.
+  std::uint32_t last_point_lights = 0U;
+  std::uint32_t last_spot_lights = 0U;
+  bool forward_clustered_active = false;
   std::uint32_t last_pbs_items = 0U;
   std::uint32_t last_transmission_items = 0U;
   std::uint32_t last_normal_mapped_items = 0U;

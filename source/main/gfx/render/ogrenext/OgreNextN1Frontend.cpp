@@ -48,6 +48,7 @@
 #include "OgreHlmsUnlitDatablock.h"
 #include "OgreImage2.h"
 #include "OgreItem.h"
+#include "OgreForwardPlusBase.h"
 #include "OgreLight.h"
 #include "OgreMaterial.h"
 #include "OgreMaterialManager.h"
@@ -1939,6 +1940,22 @@ constexpr std::uint32_t kOgreNextThinSlabScenePassIdentifier = 0x524f5205U;
 // Native sun lights remain on the authored visibility mask so Ogre's shadow
 // selector sees both an authored layer and its internal caster bit.
 constexpr std::uint32_t kOgreNextHdrDirectionalSunLightVisibility = 1U << 29U;
+
+/// Stage 2 Forward+ clustered configuration. The grid covers view depth
+/// [near, kOgreNextForwardClusteredMaxDistanceMeters]; fragments beyond the
+/// last slice read that slice's list, and a light's range test still bounds
+/// its reach, so the far cap is purely a light-culling distance - street
+/// lamps (range <= ~25 m) contribute nothing past a few hundred meters even
+/// with the 12 km camera far plane. 16x8 cells at 24 exponential slices is
+/// the engine-reviewed reference layout (width must stay a multiple of
+/// ARRAY_PACKED_REALS); 96 lights per cell comfortably exceeds the 64-light
+/// producer budget landing in any one cell.
+constexpr std::uint32_t kOgreNextForwardClusteredWidth = 16U;
+constexpr std::uint32_t kOgreNextForwardClusteredHeight = 8U;
+constexpr std::uint32_t kOgreNextForwardClusteredNumSlices = 24U;
+constexpr std::uint32_t kOgreNextForwardClusteredLightsPerCell = 96U;
+constexpr float kOgreNextForwardClusteredMinDistanceMeters = 0.5F;
+constexpr float kOgreNextForwardClusteredMaxDistanceMeters = 500.0F;
 
 Ogre::MaterialPtr CreateAndVerifyHdrBlendMaterial(
     const char *name, Ogre::SceneBlendOperation operation) {
@@ -9459,6 +9476,11 @@ public:
   std::vector<NativeMesh> frame_meshes;
   /// Retained native lights in snapshot order (strictly increasing light_id).
   std::vector<RetainedLight> retained_lights;
+  /// Stage 2: Forward+ clustered was created on the scene manager and
+  /// answered its construction readback. Local point/spot lights depend on
+  /// it; the "forward_clustered" Stage-0-style kill switch restores the
+  /// directional-only shading for matched A/B measurement.
+  bool forward_clustered_enabled = false;
   /// Stage 0 items 1 and 3: the distance-cull policy last applied to the
   /// retained instances. When a present derives a different policy (window
   /// resize or projection change), every retained instance is re-applied
@@ -10198,6 +10220,32 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
         RegisterUnlit(*impl_->root, impl_->resolved_shader_media_root);
     impl_->scene_manager = impl_->root->createSceneManager(
         Ogre::ST_GENERIC, 1U, "RoROgreNextN1Scene");
+    // Stage 2: Forward+ clustered turns the compositor passes' hitherto
+    // inert mEnableForwardPlus into live point/spot shading. It must exist
+    // before any Hlms shader compiles so every scene pass gets the clustered
+    // light loop; a failed construction readback fails initialization closed
+    // rather than silently presenting unlit local lights.
+    if (impl_->raster_feature_tier ==
+            OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1 &&
+        !OgreNextStage0FeatureDisabled("forward_clustered")) {
+      impl_->scene_manager->setForwardClustered(
+          true, kOgreNextForwardClusteredWidth,
+          kOgreNextForwardClusteredHeight,
+          kOgreNextForwardClusteredNumSlices,
+          kOgreNextForwardClusteredLightsPerCell, 0U, 0U,
+          kOgreNextForwardClusteredMinDistanceMeters,
+          kOgreNextForwardClusteredMaxDistanceMeters);
+      Ogre::ForwardPlusBase *const forward_plus =
+          impl_->scene_manager->getForwardPlus();
+      if (forward_plus == nullptr ||
+          forward_plus->getForwardPlusMethod() !=
+              Ogre::ForwardPlusBase::MethodForwardClustered) {
+        return fail_after_cleanup(RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            "Ogre-Next Forward+ clustered construction failed native readback"));
+      }
+      impl_->forward_clustered_enabled = true;
+    }
     impl_->camera =
         impl_->scene_manager->createCamera("RoROgreNextN1Camera");
     if (impl_->raster_feature_tier ==
@@ -11431,6 +11479,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
       request.scene_snapshot->snapshot_id();
   lighting_candidate.last_material_descriptor_version = 0U;
   lighting_candidate.last_directional_lights = 0U;
+  lighting_candidate.last_point_lights = 0U;
+  lighting_candidate.last_spot_lights = 0U;
+  lighting_candidate.forward_clustered_active =
+      impl_->forward_clustered_enabled &&
+      impl_->scene_manager->getForwardPlus() != nullptr;
   lighting_candidate.last_pbs_items = 0U;
   lighting_candidate.last_transmission_items = 0U;
   lighting_candidate.last_normal_mapped_items = 0U;
@@ -12265,6 +12318,26 @@ RenderOperationResult OgreNextN1Frontend::Render(
       }
     }
 
+    // Stage 2: shadow caster classification keys off the one directional
+    // sun, not element zero - the sorted light vector may lead with local
+    // lights whose derived identity is smaller.
+    const LightDescriptor *pssm_shadow_light = nullptr;
+    if (shadow_plan.enabled) {
+      const auto shadow_light_iterator = std::lower_bound(
+          snapshot.lights().begin(), snapshot.lights().end(),
+          shadow_plan.shadow_light_id,
+          [](const LightDescriptor &light_entry, std::uint64_t identity) {
+            return light_entry.light_id < identity;
+          });
+      if (shadow_light_iterator == snapshot.lights().end() ||
+          shadow_light_iterator->light_id != shadow_plan.shadow_light_id ||
+          shadow_light_iterator->type != LightType::DIRECTIONAL) {
+        throw std::logic_error(
+            "validated PSSM shadow light disappeared before native staging");
+      }
+      pssm_shadow_light = &*shadow_light_iterator;
+    }
+
     // The retained light set is keyed by light_id; set changes (generation
     // boundaries) destroy and recreate. Every present re-applies the full
     // setter set and reads it back: the HDR directional split listener
@@ -12364,7 +12437,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->retained_lights[light_index];
       retained_light.descriptor = descriptor;
       Ogre::Light *light = retained_light.light;
-      light->setType(Ogre::Light::LT_DIRECTIONAL);
+      const bool directional = descriptor.type == LightType::DIRECTIONAL;
+      const float expected_power =
+          descriptor.intensity * kOgreNextRt4LuxToNativePowerScale;
+      const Ogre::ColourValue expected_color(descriptor.color_linear.x,
+                                             descriptor.color_linear.y,
+                                             descriptor.color_linear.z);
       if (persistent_hdr) {
         light->setVisibilityFlags(kOgreNextRt4AuthoredVisibilityMask);
       }
@@ -12374,43 +12452,99 @@ RenderOperationResult OgreNextN1Frontend::Render(
       light->setSpecularColour(descriptor.color_linear.x,
                                descriptor.color_linear.y,
                                descriptor.color_linear.z);
-      light->setPowerScale(
-          descriptor.intensity * kOgreNextRt4LuxToNativePowerScale);
-      light->setDirection(Ogre::Vector3(descriptor.direction.x,
-                                        descriptor.direction.y,
-                                        descriptor.direction.z));
-      light->setCastShadows(shadow_plan.enabled);
-      if (shadow_plan.enabled) {
-        light->setShadowFarDistance(kOgreNextPssmFarMeters);
+      light->setPowerScale(expected_power);
+      bool exact_native_light = true;
+      if (directional) {
+        light->setType(Ogre::Light::LT_DIRECTIONAL);
+        light->setVisible(true);
+        retained_light.node->setPosition(Ogre::Vector3::ZERO);
+        light->setDirection(Ogre::Vector3(descriptor.direction.x,
+                                          descriptor.direction.y,
+                                          descriptor.direction.z));
+        light->setCastShadows(shadow_plan.enabled);
+        if (shadow_plan.enabled) {
+          light->setShadowFarDistance(kOgreNextPssmFarMeters);
+        }
+        const Ogre::Vector3 expected_direction(descriptor.direction.x,
+                                               descriptor.direction.y,
+                                               descriptor.direction.z);
+        exact_native_light =
+            light->getType() == Ogre::Light::LT_DIRECTIONAL &&
+            light->getVisible() &&
+            NearlyEqual(light->getDirection(), expected_direction) &&
+            light->getCastShadows() == shadow_plan.enabled &&
+            (!shadow_plan.enabled ||
+             (NearlyEqual(light->getShadowFarDistance(),
+                          kOgreNextPssmFarMeters) &&
+              descriptor.light_id == shadow_plan.shadow_light_id));
+        ++lighting_candidate.last_directional_lights;
+        positive_calibrated_directional_light =
+            positive_calibrated_directional_light || expected_power > 0.0F;
+      } else {
+        // Stage 2 local light. Point/spot lights ride Forward+ clustered
+        // shading in candela (the shared lux scale keeps I/d^2 photometric
+        // against the calibrated sun); attenuation q=1,l=0 gives the stock
+        // shader's 1/(0.5 + d^2) inverse-square with the engine's linear
+        // range fade as the window. They never cast shadow maps, and a
+        // zero-intensity record (producer distance/budget cull or a
+        // degraded capture) stays retained but natively invisible so the
+        // identity merge-join never observes a removal.
+        const bool spot = descriptor.type == LightType::SPOT;
+        light->setType(spot ? Ogre::Light::LT_SPOTLIGHT
+                            : Ogre::Light::LT_POINT);
+        light->setCastShadows(false);
+        const bool native_visible = expected_power > 0.0F;
+        light->setVisible(native_visible);
+        retained_light.node->setPosition(
+            Ogre::Vector3(descriptor.position.x, descriptor.position.y,
+                          descriptor.position.z));
+        light->setAttenuation(descriptor.range, 1.0F, 0.0F, 1.0F);
+        exact_native_light =
+            light->getType() == (spot ? Ogre::Light::LT_SPOTLIGHT
+                                      : Ogre::Light::LT_POINT) &&
+            light->getVisible() == native_visible &&
+            !light->getCastShadows() &&
+            NearlyEqual(light->getAttenuationRange(), descriptor.range) &&
+            NearlyEqual(retained_light.node->getPosition().x,
+                        descriptor.position.x) &&
+            NearlyEqual(retained_light.node->getPosition().y,
+                        descriptor.position.y) &&
+            NearlyEqual(retained_light.node->getPosition().z,
+                        descriptor.position.z);
+        if (spot) {
+          // Portable cones are half-angles; Ogre's spotlight API and its
+          // packed cos(angle * 0.5) both consume full angles.
+          const Ogre::Radian expected_inner(
+              descriptor.inner_cone_radians * 2.0F);
+          const Ogre::Radian expected_outer(
+              descriptor.outer_cone_radians * 2.0F);
+          light->setSpotlightRange(expected_inner, expected_outer);
+          const Ogre::Vector3 expected_direction(descriptor.direction.x,
+                                                 descriptor.direction.y,
+                                                 descriptor.direction.z);
+          light->setDirection(expected_direction);
+          exact_native_light = exact_native_light &&
+              NearlyEqual(light->getSpotlightInnerAngle().valueRadians(),
+                          expected_inner.valueRadians()) &&
+              NearlyEqual(light->getSpotlightOuterAngle().valueRadians(),
+                          expected_outer.valueRadians()) &&
+              NearlyEqual(light->getDirection(), expected_direction);
+          ++lighting_candidate.last_spot_lights;
+        } else {
+          ++lighting_candidate.last_point_lights;
+        }
       }
-      const Ogre::ColourValue expected_color(descriptor.color_linear.x,
-                                             descriptor.color_linear.y,
-                                             descriptor.color_linear.z);
-      const Ogre::Vector3 expected_direction(descriptor.direction.x,
-                                             descriptor.direction.y,
-                                             descriptor.direction.z);
-      const float expected_power =
-          descriptor.intensity * kOgreNextRt4LuxToNativePowerScale;
-      if (light->getType() != Ogre::Light::LT_DIRECTIONAL ||
+      if (!exact_native_light ||
           !NearlyEqual(light->getDiffuseColour(), expected_color) ||
           !NearlyEqual(light->getSpecularColour(), expected_color) ||
           !NearlyEqual(light->getPowerScale(), expected_power) ||
-          !NearlyEqual(light->getDirection(), expected_direction) ||
           (persistent_hdr &&
            light->getVisibilityFlags() !=
-               kOgreNextRt4AuthoredVisibilityMask) ||
-          light->getCastShadows() != shadow_plan.enabled ||
-          (shadow_plan.enabled &&
-           (!NearlyEqual(light->getShadowFarDistance(),
-                         kOgreNextPssmFarMeters) ||
-            descriptor.light_id != shadow_plan.shadow_light_id))) {
+               kOgreNextRt4AuthoredVisibilityMask)) {
         throw std::logic_error(
-            "validated RT4/V1 directional/PSSM light failed native readback");
+            "validated RT4/V1 light failed native readback");
       }
-      ++lighting_candidate.last_directional_lights;
       ++lighting_candidate.native_state_verifications;
-      positive_calibrated_directional_light =
-          positive_calibrated_directional_light || expected_power > 0.0F;
     }
     lighting_candidate.calibrated_directional_lighting =
         positive_calibrated_directional_light;
@@ -12798,7 +12932,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
       record.item->setVisibilityFlags(authored_instance_visibility);
       const bool casts_shadow =
           pbs_material && shadow_plan.enabled &&
-          MeshInstanceCastsShadowForLight(snapshot.lights().front(),
+          MeshInstanceCastsShadowForLight(*pssm_shadow_light,
                                           instance, *base_mesh);
       record.item->setCastShadows(casts_shadow);
       record.node = impl_->scene_manager
@@ -12890,7 +13024,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                       native_authored_visibility_mask);
       const bool casts_shadow =
           pbs_material && shadow_plan.enabled &&
-          MeshInstanceCastsShadowForLight(snapshot.lights().front(),
+          MeshInstanceCastsShadowForLight(*pssm_shadow_light,
                                           instance, *base_mesh);
       record.item->setCastShadows(casts_shadow);
       Ogre::Vector3 position;
@@ -13070,7 +13204,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
           instance.visibility_mask & native_authored_visibility_mask;
       const bool casts_shadow =
           pbs_material && shadow_plan.enabled &&
-          MeshInstanceCastsShadowForLight(snapshot.lights().front(),
+          MeshInstanceCastsShadowForLight(*pssm_shadow_light,
                                           instance, *base_mesh);
       if (record.item == nullptr || record.node == nullptr ||
           record.item->getCastShadows() != casts_shadow ||
@@ -14430,6 +14564,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
           retained_light_pairs;
       retained_light_pairs.reserve(impl_->retained_lights.size());
       for (const Impl::RetainedLight &record : impl_->retained_lights) {
+        // Stage 2: only directional power participates in the base/sun-full
+        // split transaction. Local lights render identically in both scene
+        // evaluations, so the GPU sun-direct subtraction cancels them.
+        if (record.descriptor.type != LightType::DIRECTIONAL) {
+          continue;
+        }
         retained_light_pairs.emplace_back(record.light, record.node);
       }
       impl_->hdr_directional_split_listener.BeginFrame(retained_light_pairs);

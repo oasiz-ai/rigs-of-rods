@@ -2190,7 +2190,7 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         )
         demo_light = gfx_source[
             gfx_source.index(
-                "CaptureOgreNextDemoMainShadowLight("
+                "CaptureOgreNextDemoSceneLights("
             ) : gfx_source.index("NativeStaticFailure(")
         ]
         self.assertIn("light->getVisible()", demo_light)

@@ -674,7 +674,13 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         combined_policy = self.policy + self.pssm_policy
         for token in (
             "RT4/V1 admits at most one calibrated directional light",
-            "light.type != LightType::DIRECTIONAL",
+            # Stage 2: point/spot lights are admitted through Forward+; the
+            # per-type bounds and the shadowless local contract replace the
+            # old directional-only refusal.
+            "light.type != LightType::POINT && light.type != LightType::SPOT",
+            "kOgreNextRt4MaximumLocalLights",
+            "RT4/V1 local lights do not substitute shadow maps",
+            "PSSM_3_CASCADE_V1 does not substitute local-light shadows",
             "shadow_flags != 0U",
             "light.intensity * kOgreNextRt4LuxToNativePowerScale",
         ):
@@ -957,11 +963,11 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.ogre14_scene_source)
         capture = self.gfx_scene[
-            self.gfx_scene.index("CaptureOgreNextDemoMainShadowLight(") :
+            self.gfx_scene.index("CaptureOgreNextDemoSceneLights(") :
             self.gfx_scene.index("BuildOgre14AutomaticReflectionProbe(")
         ]
         self.assertLess(
-            capture.index("CaptureOgreNextDemoMainShadowLight("),
+            capture.index("CaptureOgreNextDemoSceneLights("),
             capture.index("BuildOgre14GraphicsSceneAnalyticSkyEnvironment("),
         )
         self.assertLess(

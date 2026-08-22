@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 namespace RoR {
@@ -19,6 +20,45 @@ namespace RoR {
 /// scene-query and forward-lighting work; individual materials may expose a
 /// smaller per-pass light count. Sparse scenes retain their legacy behavior.
 constexpr std::size_t LOCAL_LIGHT_ACTIVE_BUDGET = 64u;
+
+/// Hard ceiling for the runtime override below. It matches the combined
+/// presenter's local-light admission bound so a raised budget can never push
+/// the producer past what the fail-closed frame validation admits.
+constexpr std::size_t LOCAL_LIGHT_ACTIVE_BUDGET_MAXIMUM = 256u;
+
+/// Runtime-tunable active local-light budget. `ROR_LOCAL_LIGHT_BUDGET` is
+/// read exactly once per process; an unset, unparsable, or out-of-range
+/// value keeps the compiled default. The result is clamped to
+/// [1, LOCAL_LIGHT_ACTIVE_BUDGET_MAXIMUM] so a hostile environment cannot
+/// disable lighting entirely or exceed the presenter's admission bound.
+inline std::size_t GetLocalLightActiveBudget()
+{
+    static const std::size_t budget = []() -> std::size_t
+    {
+        const char* raw = std::getenv("ROR_LOCAL_LIGHT_BUDGET");
+        if (raw == nullptr || *raw == '\0')
+        {
+            return LOCAL_LIGHT_ACTIVE_BUDGET;
+        }
+        char* end = nullptr;
+        const unsigned long long parsed = std::strtoull(raw, &end, 10);
+        if (end == raw || (end != nullptr && *end != '\0'))
+        {
+            return LOCAL_LIGHT_ACTIVE_BUDGET;
+        }
+        if (parsed < 1ULL)
+        {
+            return std::size_t{1};
+        }
+        if (parsed > static_cast<unsigned long long>(
+                LOCAL_LIGHT_ACTIVE_BUDGET_MAXIMUM))
+        {
+            return LOCAL_LIGHT_ACTIVE_BUDGET_MAXIMUM;
+        }
+        return static_cast<std::size_t>(parsed);
+    }();
+    return budget;
+}
 
 /// Stable prefix consumed by native scene gates.
 constexpr const char* LOCAL_LIGHT_BUDGET_LOG_MARKER =

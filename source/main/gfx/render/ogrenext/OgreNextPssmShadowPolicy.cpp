@@ -213,21 +213,32 @@ ValidationResult ValidateOgreNextPssmShadowScene(
     }
     return ValidationResult::Success();
   }
-  if (snapshot.lights().size() != 1U) {
+  // Stage 2: the light set may carry point/spot lights alongside the sun.
+  // Those are lit through Forward+ and never substitute PSSM shadows, so
+  // this gate requires exactly one directional light, that it casts, and
+  // that every local light is explicitly shadowless.
+  std::size_t directional_count = 0U;
+  for (std::size_t index = 0U; index < snapshot.lights().size(); ++index) {
+    const LightDescriptor &light = snapshot.lights()[index];
+    if (light.type == LightType::DIRECTIONAL) {
+      ++directional_count;
+      if (light.shadow_flags == 0U) {
+        return Unsupported(
+            "lights.shadow_flags",
+            "PSSM_3_CASCADE_V1 requires a nonzero static/dynamic geometry mask",
+            index);
+      }
+    } else if (light.shadow_flags != 0U) {
+      return Unsupported(
+          "lights.shadow_flags",
+          "PSSM_3_CASCADE_V1 does not substitute local-light shadows",
+          index);
+    }
+  }
+  if (directional_count != 1U) {
     return Unsupported(
         "lights",
         "PSSM_3_CASCADE_V1 requires exactly one shadow-casting directional light");
-  }
-  const LightDescriptor &light = snapshot.lights().front();
-  if (light.type != LightType::DIRECTIONAL) {
-    return Unsupported(
-        "lights.type",
-        "PSSM_3_CASCADE_V1 does not substitute local-light shadows");
-  }
-  if (light.shadow_flags == 0U) {
-    return Unsupported(
-        "lights.shadow_flags",
-        "PSSM_3_CASCADE_V1 requires a nonzero static/dynamic geometry mask");
   }
   return ValidationResult::Success();
 }
@@ -268,7 +279,19 @@ ValidationResult TryBuildOgreNextPssmShadowFramePlan(
         "views.clip_from_view",
         "PSSM_3_CASCADE_V1 requires a canonical finite perspective projection matching its fixed near/far planes");
   }
-  const LightDescriptor &light = snapshot.lights().front();
+  // The scene validation above admitted exactly one directional light; the
+  // remaining entries are shadowless local lights that this plan ignores.
+  const auto sun_iterator = std::find_if(
+      snapshot.lights().begin(), snapshot.lights().end(),
+      [](const LightDescriptor &light_entry) {
+        return light_entry.type == LightType::DIRECTIONAL;
+      });
+  if (sun_iterator == snapshot.lights().end()) {
+    return Unsupported(
+        "lights",
+        "PSSM_3_CASCADE_V1 lost its directional light between validation and planning");
+  }
+  const LightDescriptor &light = *sun_iterator;
   candidate.enabled = true;
   candidate.shadow_light_id = light.light_id;
   candidate.native_visibility_mask =

@@ -169,6 +169,11 @@ struct RendererNativeLightingAudit final {
   std::uint64_t ogre14_lighting_passes = 0U;
   std::uint32_t material_descriptor_version = 0U;
   std::uint32_t directional_lights = 0U;
+  /// Stage 2 additive fields: native point/spot lights applied this frame
+  /// and whether Forward+ clustered answered readback.
+  std::uint32_t point_lights = 0U;
+  std::uint32_t spot_lights = 0U;
+  bool forward_clustered = false;
   std::uint32_t pbs_items = 0U;
   std::uint32_t transmission_items = 0U;
   std::uint32_t normal_mapped_items = 0U;

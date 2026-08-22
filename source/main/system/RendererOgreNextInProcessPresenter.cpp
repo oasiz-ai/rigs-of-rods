@@ -782,6 +782,9 @@ public:
     output.material_descriptor_version =
         audit.last_material_descriptor_version;
     output.directional_lights = audit.last_directional_lights;
+    output.point_lights = audit.last_point_lights;
+    output.spot_lights = audit.last_spot_lights;
+    output.forward_clustered = audit.forward_clustered_active;
     output.pbs_items = audit.last_pbs_items;
     output.transmission_items = audit.last_transmission_items;
     output.normal_mapped_items = audit.last_normal_mapped_items;

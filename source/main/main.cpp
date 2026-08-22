@@ -4615,7 +4615,9 @@ int main(int argc, char *argv[])
                                 fmt::format(
                                     "schema_version={} available={} "
                                     "frame={} snapshot={} descriptor_v={} "
-                                    "directional={} pbs={} transmission={} normal={} "
+                                    "directional={} point={} spot={} "
+                                    "forward_clustered={} "
+                                    "pbs={} transmission={} normal={} "
                                     "emissive={} casters={} receivers={} "
                                     "hdr_topology={} pssm_populated_finalize={} "
                                     "reflection_audit_v={} reflection_probes={} "
@@ -4663,6 +4665,9 @@ int main(int argc, char *argv[])
                                     lighting_audit.last_snapshot_id,
                                     lighting_audit.material_descriptor_version,
                                     lighting_audit.directional_lights,
+                                    lighting_audit.point_lights,
+                                    lighting_audit.spot_lights,
+                                    lighting_audit.forward_clustered,
                                     lighting_audit.pbs_items,
                                     lighting_audit.transmission_items,
                                     lighting_audit.normal_mapped_items,

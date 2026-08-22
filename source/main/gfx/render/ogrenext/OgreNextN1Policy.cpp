@@ -1880,29 +1880,86 @@ ValidationResult ValidateOgreNextN1Scene(
   }
   if (raster_feature_tier ==
       OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1) {
-    if (snapshot.lights().size() >
-        kOgreNextRt4MaximumDirectionalLights) {
+    // Stage 2: RT4/V1 admits one calibrated directional sun plus a bounded
+    // set of point/spot lights rendered through Forward+ clustered shading.
+    std::size_t directional_light_count = 0U;
+    std::size_t local_light_count = 0U;
+    constexpr float kHalfPi = 1.57079632679489661923F;
+    for (std::size_t index = 0U; index < snapshot.lights().size(); ++index) {
+      const LightDescriptor &light = snapshot.lights()[index];
+      const float native_power =
+          light.intensity * kOgreNextRt4LuxToNativePowerScale;
+      if (!IsFinite(native_power) || native_power < 0.0F ||
+          !IsFiniteScaled(light.color_linear, native_power)) {
+        return Unsupported(
+            "lights.photometry",
+            "finite photometry and color overflow RT4/V1 native light arithmetic",
+            index);
+      }
+      if (light.type == LightType::DIRECTIONAL) {
+        ++directional_light_count;
+        continue;
+      }
+      if (light.type != LightType::POINT && light.type != LightType::SPOT) {
+        return Unsupported(
+            "lights.type",
+            "RT4/V1 admits directional, point, and spot lights only",
+            index);
+      }
+      ++local_light_count;
+      if (light.shadow_flags != 0U) {
+        return Unsupported(
+            "lights.shadow_flags",
+            "RT4/V1 local lights do not substitute shadow maps",
+            index);
+      }
+      if (!IsFinite(light.range) || !(light.range > 0.0F)) {
+        return Unsupported(
+            "lights.range",
+            "RT4/V1 local lights require a positive finite range cutoff",
+            index);
+      }
+      if (!IsFinite(light.position.x) || !IsFinite(light.position.y) ||
+          !IsFinite(light.position.z)) {
+        return Unsupported(
+            "lights.position",
+            "RT4/V1 local lights require a finite render-relative position",
+            index);
+      }
+      if (light.type == LightType::SPOT) {
+        const float direction_length_squared =
+            light.direction.x * light.direction.x +
+            light.direction.y * light.direction.y +
+            light.direction.z * light.direction.z;
+        if (!IsFinite(direction_length_squared) ||
+            !(direction_length_squared > 0.0F)) {
+          return Unsupported(
+              "lights.direction",
+              "RT4/V1 spot lights require a finite nonzero direction",
+              index);
+        }
+        if (!IsFinite(light.inner_cone_radians) ||
+            !IsFinite(light.outer_cone_radians) ||
+            light.inner_cone_radians < 0.0F ||
+            !(light.outer_cone_radians > 0.0F) ||
+            light.outer_cone_radians < light.inner_cone_radians ||
+            light.outer_cone_radians > kHalfPi) {
+          return Unsupported(
+              "lights.cone",
+              "RT4/V1 spot half-angles must satisfy 0 <= inner <= outer <= pi/2",
+              index);
+        }
+      }
+    }
+    if (directional_light_count > kOgreNextRt4MaximumDirectionalLights) {
       return Unsupported(
           "lights",
           "RT4/V1 admits at most one calibrated directional light");
     }
-    for (std::size_t index = 0U; index < snapshot.lights().size(); ++index) {
-      const LightDescriptor &light = snapshot.lights()[index];
-      if (light.type != LightType::DIRECTIONAL) {
-        return Unsupported(
-            "lights.type",
-            "RT4/V1 admits a directional light only; local-light attenuation is not calibrated yet",
-            index);
-      }
-      const float native_power =
-          light.intensity * kOgreNextRt4LuxToNativePowerScale;
-      if (!IsFinite(native_power) ||
-          !IsFiniteScaled(light.color_linear, native_power)) {
-        return Unsupported(
-            "lights.photometry",
-            "finite directional lux and color overflow RT4/V1 native light arithmetic",
-            index);
-      }
+    if (local_light_count > kOgreNextRt4MaximumLocalLights) {
+      return Unsupported(
+          "lights",
+          "RT4/V1 local light count exceeds the Forward+ admission bound");
     }
   }
   if (native_sun_visibility_v2_enabled) {

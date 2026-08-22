@@ -1427,7 +1427,7 @@ void TerrainObjectManager::RegisterLocalLight(
     registered.owner_node = owner_node;
     registered.stable_id = m_next_local_light_id++;
     registered.active =
-        m_registered_local_lights.size() < LOCAL_LIGHT_ACTIVE_BUDGET;
+        m_registered_local_lights.size() < GetLocalLightActiveBudget();
 
     // This registration path is shared by every terrain-local light source.
     // Enforce the no-shadow policy here as well as at parser call sites so
@@ -1508,7 +1508,7 @@ void TerrainObjectManager::UpdateLocalLightBudget()
             LOG(fmt::format(
                 "{} discovered=0 active=0 budget={}",
                 LOCAL_LIGHT_BUDGET_LOG_MARKER,
-                LOCAL_LIGHT_ACTIVE_BUDGET));
+                GetLocalLightActiveBudget()));
         }
         m_last_logged_local_light_discovered = 0;
         m_last_logged_local_light_active = 0;
@@ -1555,7 +1555,7 @@ void TerrainObjectManager::UpdateLocalLightBudget()
         m_local_light_candidates.data(),
         m_local_light_candidates.size(),
         camera_position,
-        LOCAL_LIGHT_ACTIVE_BUDGET,
+        GetLocalLightActiveBudget(),
         m_local_light_selection.data(),
         m_local_light_rank_scratch.data());
 
@@ -1580,7 +1580,7 @@ void TerrainObjectManager::UpdateLocalLightBudget()
             LOCAL_LIGHT_BUDGET_LOG_MARKER,
             discovered,
             active,
-            LOCAL_LIGHT_ACTIVE_BUDGET));
+            GetLocalLightActiveBudget()));
         m_last_logged_local_light_discovered = discovered;
         m_last_logged_local_light_active = active;
     }
