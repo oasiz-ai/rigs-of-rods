@@ -162,6 +162,7 @@ class CombinedProviderContractTests(unittest.TestCase):
             "_ror_rapidjson_interface_leaked",
             "ror_ogre_next_rapidjson_private_closure_verify",
             "ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256",
+            'ROR_OGRE_NEXT_RAPIDJSON_NAMESPACE "RoROgreNextRapidJson"',
         ):
             self.assertIn(token, private_closure)
         self.assertNotIn("target_link_libraries", private_closure)
@@ -171,6 +172,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             '"OgreNextHlmsPbs", "OgreNextHlmsUnlit"]',
             PROVIDER_CONTRACT,
         )
+        self.assertIn(
+            '"rapidjson_namespace": "@ROR_OGRE_NEXT_RAPIDJSON_NAMESPACE@"',
+            PROVIDER_CONTRACT,
+        )
+        self.assertIn('"rapidjson_namespace_private": true', PROVIDER_CONTRACT)
 
     def test_direct_provider_owns_neutral_sources_exactly_once(self) -> None:
         owned = block(

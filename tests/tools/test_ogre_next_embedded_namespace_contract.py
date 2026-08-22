@@ -92,6 +92,13 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
             self.assertEqual(
                 hashlib.sha256(path.read_bytes()).hexdigest(), entry["sha256"]
             )
+        remap = (
+            PROBE_ROOT / embedded["remap_header"]["path"]
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "#define RAPIDJSON_NAMESPACE RoROgreNextRapidJson", remap
+        )
+        self.assertIn("#define rapidjson RoROgreNextRapidJson", remap)
 
     def test_build_contract_binds_mode_and_does_not_claim_full_n1_link(self) -> None:
         self.assertIn('"schema_version": 7', self.template)
@@ -311,6 +318,22 @@ class EmbeddedNamespaceContractTests(unittest.TestCase):
         ):
             with self.subTest(symbol=symbol):
                 self.assertTrue(AUDIT.is_toolchain_owned_global_collision(symbol))
+
+    def test_audit_requires_private_rapidjson_namespace_in_final_link(self) -> None:
+        self.assertIn(
+            '"RoROgreNextRapidJson::" in next_demangled', self.audit_source
+        )
+        self.assertIn(
+            '"rapidjson::" not in next_demangled', self.audit_source
+        )
+        self.assertIn(
+            '"RoROgreNextRapidJson::" in executable_demangled',
+            self.audit_source,
+        )
+        self.assertIn(
+            '"rapidjson_namespace": "RoROgreNextRapidJson"',
+            self.audit_source,
+        )
         for symbol in (
             "_ZN4Ogre4Root15getSingletonPtrEv",
             "_ZN12RoROgreNext4Root15getSingletonPtrEv",

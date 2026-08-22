@@ -743,6 +743,14 @@ def main() -> int:
     next_demangled = "\n".join(next_demangled_parts)
     require("RoROgreNext::" in next_demangled,
             "OgreNext archives contain no RoROgreNext C++ owner")
+    require(
+        "RoROgreNextRapidJson::" in next_demangled,
+        "OgreNext archives contain no private RapidJSON namespace owner",
+    )
+    require(
+        "rapidjson::" not in next_demangled,
+        "an unremapped RapidJSON symbol remains in the OgreNext archives",
+    )
     require("Ogre::" not in next_demangled,
             "an Ogre namespace symbol remains in the namespaced OgreNext archives")
     require(not UNREMAPPED_OGRE_MANGLED_PATTERN.search(next_raw),
@@ -882,6 +890,11 @@ def main() -> int:
     require("Ogre::Root::getSingletonPtr()" in executable_demangled and
             "RoROgreNext::Root::getSingletonPtr()" in executable_demangled,
             "dual-runtime executable does not resolve both Root ABI owners")
+    require(
+        "rapidjson::" in executable_demangled
+        and "RoROgreNextRapidJson::" in executable_demangled,
+        "dual-runtime executable does not resolve isolated host and OgreNext RapidJSON owners",
+    )
     require(
         "RoR::Render::OgreNextN1Frontend::OgreNextN1Frontend" in
         executable_demangled
@@ -1128,6 +1141,7 @@ def main() -> int:
         "status": "passed",
         "platform_policy": args.platform_policy,
         "namespace": "RoROgreNext",
+        "rapidjson_namespace": "RoROgreNextRapidJson",
         "ror_source_commit": actual_source_commit,
         "source_checkout": source_checkout,
         "canonical_lock": {
@@ -1197,6 +1211,7 @@ def main() -> int:
         },
         "evidence_scope": {
             "namespace_and_dual_root_link": True,
+            "rapidjson_namespace_and_dual_owner_link": True,
             "full_n1_runtime_link": True,
             "renderer_neutral_in_process_session_link": True,
             "concrete_in_process_presenter_link": True,

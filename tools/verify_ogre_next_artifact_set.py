@@ -1003,7 +1003,7 @@ def _read_pinned_lock() -> dict[str, object]:
         "remap_header": {
             "path": "embedded_namespace/RoROgreNextNamespaceRemap.h",
             "sha256": (
-                "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984"
+                "bbb329c68e98a9a8e8c61783601d219d6f5ac2545fe8f4f346be0445b302d47d"
             ),
         },
     }

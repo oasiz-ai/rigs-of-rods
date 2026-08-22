@@ -483,7 +483,7 @@ if (NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME STREQUAL "RoROgreNext" OR
         NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_PATH STREQUAL
             "embedded_namespace/RoROgreNextNamespaceRemap.h" OR
         NOT ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP_SHA256 STREQUAL
-            "fa3abee1afe5d48f0117f7c2c3c218012c6ebde8fc84df55f0b48e261f0d7984")
+            "bbb329c68e98a9a8e8c61783601d219d6f5ac2545fe8f4f346be0445b302d47d")
     message(FATAL_ERROR
         "The reviewed embedded OgreNext namespace contract changed")
 endif ()

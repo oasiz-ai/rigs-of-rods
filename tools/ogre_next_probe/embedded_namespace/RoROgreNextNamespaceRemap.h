@@ -7,6 +7,16 @@
 #define ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_REMAP 1
 #define Ogre RoROgreNext
 
+// RapidJSON is header-only. The combined executable also links OGRE14/RoR
+// translation units built against Conan's RapidJSON closure, so leaving both
+// copies in namespace rapidjson allows the linker to coalesce incompatible
+// weak template bodies. Keep OgreNext's direct `rapidjson::` references and
+// RapidJSON's own declarations in one private namespace. This header is
+// force-included across the complete embedded OgreNext compile universe, so
+// the rename is ABI-consistent without leaking into OGRE14 translation units.
+#define RAPIDJSON_NAMESPACE RoROgreNextRapidJson
+#define rapidjson RoROgreNextRapidJson
+
 // Dynamic plugin entry points have C linkage and therefore do not inherit the
 // C++ namespace remap. Keep them private to the embedded fork as well.
 #define dllStartPlugin RoROgreNext_dllStartPlugin

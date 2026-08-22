@@ -40,6 +40,8 @@
   "rapidjson_document_header_size": @ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SIZE@,
   "rapidjson_document_header_sha256": "@ROR_OGRE_NEXT_RAPIDJSON_DOCUMENT_HEADER_SHA256@",
   "rapidjson_private_consumers": ["OgreNextMain", "OgreNextHlmsPbs", "OgreNextHlmsUnlit"],
+  "rapidjson_namespace": "@ROR_OGRE_NEXT_RAPIDJSON_NAMESPACE@",
+  "rapidjson_namespace_private": true,
   "rapidjson_interface_exported": false,
   "namespace": "@ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME@",
   "sdl_target": "@ROR_OGRE_NEXT_PRESENTATION_SDL_TARGET@",

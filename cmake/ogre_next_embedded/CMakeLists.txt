@@ -370,6 +370,7 @@ set(ROR_OGRE_NEXT_RAPIDJSON_PRIVATE_CONSUMERS
     OgreNextMain
     OgreNextHlmsPbs
     OgreNextHlmsUnlit)
+set(ROR_OGRE_NEXT_RAPIDJSON_NAMESPACE "RoROgreNextRapidJson")
 file(REAL_PATH "${ROR_OGRE_NEXT_RAPIDJSON_INCLUDE_DIR}"
     _ror_rapidjson_canonical_include)
 foreach (_ror_rapidjson_consumer IN LISTS
