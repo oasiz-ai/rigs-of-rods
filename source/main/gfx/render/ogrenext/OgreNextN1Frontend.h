@@ -566,6 +566,19 @@ struct OgreNextNativeLightingPassAudit final {
   std::uint32_t raster_scene_evaluations = 0U;
   bool calibrated_directional_lighting = false;
   bool ambient_environment_lighting = false;
+  /// Foundation F2 positive ambient-state evidence: which HlmsPbs ambient
+  /// path this present actually bound. True = AmbientSh with the seated SH-9
+  /// coefficients (gain and band-0 sphere-mean Rec.709 luminance below);
+  /// false = the AmbientFixed scalar - either no analytic sky or the
+  /// fail-closed degrade. The degrade is deliberately non-fatal, so this
+  /// audit is the one place "is indirect light on" is answerable from the
+  /// log in one grep.
+  bool ambient_sh_bound = false;
+  float ambient_sh_gain = 0.0F;
+  float ambient_sh_band0_luminance = 0.0F;
+  /// True when this present admitted the seated analytic-sky dome into the
+  /// PCC probe capture path.
+  bool probe_sky_admission = false;
   bool analytic_sky_contribution = false;
   /// Version 5: a depth-based aerial-perspective pass extinguished the scene
   /// toward the analytic sky's exact horizon color before tone mapping. False

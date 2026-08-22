@@ -12228,6 +12228,14 @@ RenderOperationResult OgreNextN1Frontend::Render(
           ambient_sh_active =
               impl_->pbs->getAmbientLightMode() == Ogre::HlmsPbs::AmbientSh;
         }
+        if (ambient_sh_active) {
+          lighting_candidate.ambient_sh_bound = true;
+          lighting_candidate.ambient_sh_gain = ambient_sh.calibration_gain;
+          lighting_candidate.ambient_sh_band0_luminance = static_cast<float>(
+              0.2126 * static_cast<double>(ambient_sh.mean_irradiance.x) +
+              0.7152 * static_cast<double>(ambient_sh.mean_irradiance.y) +
+              0.0722 * static_cast<double>(ambient_sh.mean_irradiance.z));
+        }
         if (ambient_sh_active && ambient_sh.calibration_gain > 0.0F &&
             ambient_sh.calibration_gain <= 1.0F) {
           // The probe capture seats the dome's physical radiance with the
@@ -14122,6 +14130,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
             analytic_sky_capture_radiance_scale;
         reflection_sky.authored_visibility_mask = authored_view_visibility;
         reflection_sky.enabled = true;
+        lighting_candidate.probe_sky_admission = true;
       }
       const RenderOperationResult reflection_capture =
           impl_->reflection_probe_runtime->PrepareFrame(
