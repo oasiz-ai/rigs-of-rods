@@ -108,6 +108,19 @@ MeshResourceDescriptor MakeMesh(std::string debug_name = "rich mesh") {
   return mesh;
 }
 
+MeshResourceDescriptor MakeDistanceLodMesh() {
+  MeshResourceDescriptor mesh = MakeMesh("distance LOD mesh");
+  mesh.dynamic = false;
+  mesh.velocities.clear();
+  mesh.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{30.0F, {0U, 2U, 1U}},
+      MeshDistanceLodLevelDescriptor{120.0F, {0U, 1U, 2U}},
+  };
+  Require(ValidateMeshResourceDescriptor(mesh).ok(),
+          "distance LOD mesh fixture must be valid");
+  return mesh;
+}
+
 TextureResourceDescriptor MakeTexture(std::string debug_name = "rich tex") {
   TextureResourceDescriptor texture;
   texture.debug_name = std::move(debug_name);
@@ -245,6 +258,16 @@ RenderAssetDelta MakeMeshOnlyDelta() {
   return delta;
 }
 
+RenderAssetDelta MakeDistanceLodMeshOnlyDelta() {
+  RenderAssetDelta delta;
+  delta.registry_id = 93U;
+  delta.sequence = 1U;
+  delta.full_snapshot = true;
+  delta.mutations.push_back(Upsert(Ref(RenderAssetKind::MESH, 1U),
+                                   MakeDistanceLodMesh()));
+  return delta;
+}
+
 std::uint16_t ReadU16(const std::vector<std::uint8_t> &bytes,
                       std::size_t offset) {
   return static_cast<std::uint16_t>(
@@ -376,9 +399,9 @@ void TestGoldenRichDeltaAndRoundTrip() {
   const std::string payload_digest_hex = ToHex(payload_digest);
   Require(ToHex(first.bytes) != kV3GoldenHex,
           "v4 material wire payload silently reused the v3 golden");
-  Require(first.bytes.size() == 1494U &&
+  Require(first.bytes.size() == 1498U &&
               payload_digest_hex ==
-                  "c94d0faa957ad22d8d4cbc4778eda61d31cccafefc1279976f7dfed3e5a41ac7",
+                  "40867d26d897bb5385658f44ca6e545d06977dbc81cdb486a88a7b42597abc2d",
           "v4 rich asset frame no longer matches compact size/digest golden");
 
   RenderAssetDeltaTransportDecoder decoder(delta.registry_id);
@@ -542,6 +565,40 @@ void TestFramingCountsLengthsAndCorruption() {
                     .status,
                 RenderTransportStatus::MALFORMED_PAYLOAD,
                 "trailing asset payload byte was accepted");
+}
+
+void TestDistanceLodRoundTrip() {
+  const RenderAssetDelta delta = MakeDistanceLodMeshOnlyDelta();
+  const auto encoded = EncodeRenderAssetDeltaTransportFrame(1U, delta);
+  Require(encoded.ok(), "distance LOD delta was not encoded");
+
+  RenderAssetDeltaTransportDecoder decoder(delta.registry_id);
+  const auto decoded = decoder.Accept(encoded.bytes);
+  Require(decoded.ok(), "distance LOD delta was not decoded");
+  RequireEquivalentDelta(*decoded.message->delta(), delta);
+  const MeshResourceDescriptor &mesh =
+      std::get<MeshResourceDescriptor>(
+          decoded.message->delta()->mutations.front().payload);
+  Require(mesh.distance_lod_levels.size() == 2U &&
+              mesh.distance_lod_levels[0U].activation_distance_meters ==
+                  30.0F &&
+              mesh.distance_lod_levels[0U].indices ==
+                  std::vector<std::uint32_t>({0U, 2U, 1U}) &&
+              mesh.distance_lod_levels[1U].activation_distance_meters ==
+                  120.0F,
+          "distance LOD ladder changed across the wire");
+  const auto reencoded = EncodeRenderAssetDeltaTransportFrame(
+      1U, *decoded.message->delta());
+  Require(reencoded.ok() && reencoded.bytes == encoded.bytes,
+          "distance LOD wire representation was not deterministic");
+
+  RenderAssetDelta malformed = delta;
+  MeshResourceDescriptor &malformed_mesh =
+      std::get<MeshResourceDescriptor>(malformed.mutations.front().payload);
+  malformed_mesh.distance_lod_levels[1U].activation_distance_meters = 30.0F;
+  RequireStatus(EncodeRenderAssetDeltaTransportFrame(1U, malformed).status,
+                RenderTransportStatus::PAYLOAD_VALIDATION_FAILED,
+                "noncanonical LOD ladder was encoded");
 }
 
 void TestRegistryTransactionsOrderDependenciesAndTombstones() {
@@ -738,6 +795,7 @@ void TestEncoderFailClosed() {
 int main() {
   TestGoldenRichDeltaAndRoundTrip();
   TestFramingCountsLengthsAndCorruption();
+  TestDistanceLodRoundTrip();
   TestRegistryTransactionsOrderDependenciesAndTombstones();
   TestSharedSequenceSceneAssetInterleaving();
   TestEncoderFailClosed();

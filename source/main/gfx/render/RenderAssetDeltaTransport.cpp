@@ -109,6 +109,12 @@ bool WriteIndex(WireWriter &writer, std::uint32_t value) {
   return writer.AddU32(value);
 }
 
+bool WriteMeshLod(WireWriter &writer,
+                  const MeshDistanceLodLevelDescriptor &level) {
+  return writer.AddFloatExact(level.activation_distance_meters) &&
+         WriteVector(writer, level.indices, WriteIndex);
+}
+
 bool WriteMesh(WireWriter &writer, const MeshResourceDescriptor &mesh) {
   return writer.AddU32(mesh.version) && WriteString(writer, mesh.debug_name) &&
          writer.AddByte(static_cast<std::uint8_t>(mesh.topology)) &&
@@ -122,7 +128,8 @@ bool WriteMesh(WireWriter &writer, const MeshResourceDescriptor &mesh) {
          WriteVector(writer, mesh.texture_coordinates_0, WriteFloat2Value) &&
          WriteVector(writer, mesh.texture_coordinates_1, WriteFloat2Value) &&
          WriteVector(writer, mesh.colors, WriteFloat4Value) &&
-         WriteVector(writer, mesh.indices, WriteIndex);
+         WriteVector(writer, mesh.indices, WriteIndex) &&
+         WriteVector(writer, mesh.distance_lod_levels, WriteMeshLod);
 }
 
 bool WriteTexture(WireWriter &writer,
@@ -251,8 +258,22 @@ RenderTransportStatus ValidateTransportCaps(const RenderAssetDelta &delta) {
           stream_too_large(mesh->texture_coordinates_1.size()) ||
           stream_too_large(mesh->colors.size()) ||
           mesh->indices.size() >
-              kRenderAssetDeltaTransportMaximumMeshIndices) {
+              kRenderAssetDeltaTransportMaximumMeshIndices ||
+          mesh->distance_lod_levels.size() >
+              kRenderAssetDeltaTransportMaximumMeshLodLevels) {
         return RenderTransportStatus::COUNT_LIMIT_EXCEEDED;
+      }
+      std::uint64_t total_indices = mesh->indices.size();
+      for (const MeshDistanceLodLevelDescriptor &level :
+           mesh->distance_lod_levels) {
+        if (level.indices.size() >
+                kRenderAssetDeltaTransportMaximumMeshIndices ||
+            total_indices >
+                kRenderAssetDeltaTransportMaximumMeshIndices -
+                    level.indices.size()) {
+          return RenderTransportStatus::COUNT_LIMIT_EXCEEDED;
+        }
+        total_indices += level.indices.size();
       }
     }
     if (const auto *texture =
@@ -427,6 +448,13 @@ bool ReadIndex(WireReader &reader, std::uint32_t &value) {
   return reader.ReadU32(value);
 }
 
+bool ReadMeshLod(WireReader &reader,
+                 MeshDistanceLodLevelDescriptor &level) {
+  return reader.ReadFloatExact(level.activation_distance_meters) &&
+         ReadVector(reader, kRenderAssetDeltaTransportMaximumMeshIndices,
+                    sizeof(std::uint32_t), level.indices, ReadIndex);
+}
+
 bool ReadMesh(WireReader &reader, MeshResourceDescriptor &mesh) {
   std::uint8_t topology = 0U;
   std::uint8_t index_format = 0U;
@@ -438,9 +466,9 @@ bool ReadMesh(WireReader &reader, MeshResourceDescriptor &mesh) {
   }
   mesh.topology = static_cast<MeshPrimitiveTopology>(topology);
   mesh.index_format = static_cast<MeshIndexFormat>(index_format);
-  return ReadVector(reader,
-                    kRenderAssetDeltaTransportMaximumMeshPositions,
-                    sizeof(float) * 3U, mesh.positions, ReadFloat3Value) &&
+  const bool decoded =
+      ReadVector(reader, kRenderAssetDeltaTransportMaximumMeshPositions,
+                 sizeof(float) * 3U, mesh.positions, ReadFloat3Value) &&
          ReadVector(reader,
                     kRenderAssetDeltaTransportMaximumMeshPositions,
                     sizeof(float) * 3U, mesh.normals, ReadFloat3Value) &&
@@ -462,7 +490,27 @@ bool ReadMesh(WireReader &reader, MeshResourceDescriptor &mesh) {
                     kRenderAssetDeltaTransportMaximumMeshPositions,
                     sizeof(float) * 4U, mesh.colors, ReadFloat4Value) &&
          ReadVector(reader, kRenderAssetDeltaTransportMaximumMeshIndices,
-                    sizeof(std::uint32_t), mesh.indices, ReadIndex);
+                    sizeof(std::uint32_t), mesh.indices, ReadIndex) &&
+         ReadVector(reader, kRenderAssetDeltaTransportMaximumMeshLodLevels,
+                    sizeof(float) + sizeof(std::uint32_t),
+                    mesh.distance_lod_levels, ReadMeshLod);
+  if (!decoded) {
+    return false;
+  }
+  std::uint64_t total_indices = mesh.indices.size();
+  for (const MeshDistanceLodLevelDescriptor &level :
+       mesh.distance_lod_levels) {
+    if (level.indices.size() >
+            kRenderAssetDeltaTransportMaximumMeshIndices ||
+        total_indices >
+            kRenderAssetDeltaTransportMaximumMeshIndices -
+                level.indices.size()) {
+      reader.Fail(RenderTransportStatus::COUNT_LIMIT_EXCEEDED);
+      return false;
+    }
+    total_indices += level.indices.size();
+  }
+  return true;
 }
 
 bool ReadTexture(WireReader &reader, TextureResourceDescriptor &texture,

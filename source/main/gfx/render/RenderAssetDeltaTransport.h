@@ -23,7 +23,7 @@ namespace RoR::Render {
 
 constexpr std::uint32_t kRenderAssetDeltaTransportPayloadVersion = 2U;
 constexpr std::uint32_t kRenderAssetDeltaTransportRegistryVersion = 1U;
-constexpr std::uint32_t kRenderAssetDeltaTransportMeshVersion = 1U;
+constexpr std::uint32_t kRenderAssetDeltaTransportMeshVersion = 2U;
 constexpr std::uint32_t kRenderAssetDeltaTransportTextureVersion = 1U;
 constexpr std::uint32_t kRenderAssetDeltaTransportMaterialVersion = 4U;
 constexpr std::uint32_t kRenderAssetDeltaTransportSamplerVersion = 1U;
@@ -44,6 +44,8 @@ constexpr std::uint32_t kRenderAssetDeltaTransportMaximumMeshPositions =
     44739242U;
 constexpr std::uint32_t kRenderAssetDeltaTransportMaximumMeshIndices =
     134217728U;
+constexpr std::uint32_t kRenderAssetDeltaTransportMaximumMeshLodLevels =
+    static_cast<std::uint32_t>(kMaximumMeshDistanceLodLevels);
 constexpr std::uint32_t kRenderAssetDeltaTransportMaximumTextureMipLevels =
     16U;
 

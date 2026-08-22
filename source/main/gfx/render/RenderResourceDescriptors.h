@@ -24,7 +24,7 @@ namespace RoR::Render {
 struct DynamicMeshUpdateDescriptor;
 struct MeshInstanceDescriptor;
 
-constexpr std::uint32_t kMeshResourceDescriptorVersion = 1U;
+constexpr std::uint32_t kMeshResourceDescriptorVersion = 2U;
 constexpr std::uint32_t kTextureResourceDescriptorVersion = 1U;
 constexpr std::uint32_t kSamplerResourceDescriptorVersion = 1U;
 constexpr std::size_t kMaximumResourceDebugNameBytes = 255U;
@@ -33,6 +33,7 @@ constexpr std::uint32_t kMaximumTextureArrayLayers = 2048U;
 constexpr float kMaximumSamplerAnisotropy = 16.0F;
 constexpr float kMaximumSamplerLod = 32.0F;
 constexpr float kMaximumSamplerLodBias = 16.0F;
+constexpr std::size_t kMaximumMeshDistanceLodLevels = 15U;
 
 enum class MeshPrimitiveTopology : std::uint8_t {
   TRIANGLE_LIST = 0,
@@ -43,6 +44,16 @@ enum class MeshPrimitiveTopology : std::uint8_t {
 enum class MeshIndexFormat : std::uint8_t {
   UINT16 = 0,
   UINT32 = 1,
+};
+
+/// One additional generated index-only LOD. The activation distance is an
+/// object-to-camera distance in meters, not an OGRE-version-specific squared
+/// or projected LOD value. Levels are ordered strictly near-to-far. Vertex
+/// streams remain shared with the base level, so authored replacement-mesh
+/// LODs require a separate future contract.
+struct MeshDistanceLodLevelDescriptor {
+  float activation_distance_meters = 0.0F;
+  std::vector<std::uint32_t> indices;
 };
 
 /// Portable indexed mesh payload. All vertex streams use object-local values.
@@ -78,6 +89,7 @@ struct MeshResourceDescriptor {
   std::vector<Float2> texture_coordinates_1;
   std::vector<Float4> colors;
   std::vector<std::uint32_t> indices;
+  std::vector<MeshDistanceLodLevelDescriptor> distance_lod_levels;
 };
 
 enum class TextureResourceType : std::uint8_t {

@@ -159,6 +159,53 @@ void TestMeshValidation() {
   RequireCode(ValidateMeshResourceDescriptor(descriptor),
               ValidationCode::VALUE_OUT_OF_RANGE,
               "16-bit mesh with too many vertices was accepted");
+
+  descriptor = MakeMesh();
+  descriptor.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{25.0F, {0U, 1U, 2U}},
+      MeshDistanceLodLevelDescriptor{100.0F, {0U, 2U, 1U}},
+  };
+  Require(ValidateMeshResourceDescriptor(descriptor).ok(),
+          "valid generated distance-LOD ladder was rejected");
+
+  descriptor.dynamic = true;
+  RequireCode(ValidateMeshResourceDescriptor(descriptor),
+              ValidationCode::UNSUPPORTED_FEATURE,
+              "dynamic mesh accepted an immutable generated LOD ladder");
+
+  descriptor = MakeMesh();
+  descriptor.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{25.0F, {0U, 1U, 2U}},
+      MeshDistanceLodLevelDescriptor{25.0F, {0U, 2U, 1U}},
+  };
+  RequireCode(ValidateMeshResourceDescriptor(descriptor),
+              ValidationCode::NON_DETERMINISTIC_ORDER,
+              "non-increasing LOD activation distances were accepted");
+
+  descriptor.distance_lod_levels[1U].activation_distance_meters =
+      std::numeric_limits<float>::infinity();
+  RequireCode(ValidateMeshResourceDescriptor(descriptor),
+              ValidationCode::NON_FINITE_VALUE,
+              "non-finite LOD activation distance was accepted");
+
+  descriptor = MakeMesh();
+  descriptor.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{25.0F, {0U, 1U, 9U}},
+  };
+  RequireCode(ValidateMeshResourceDescriptor(descriptor),
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "out-of-range generated LOD index was accepted");
+
+  descriptor.distance_lod_levels.front().indices = {0U, 0U, 2U};
+  RequireCode(ValidateMeshResourceDescriptor(descriptor),
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "degenerate generated LOD triangle was accepted");
+
+  descriptor = MakeMesh();
+  descriptor.distance_lod_levels.resize(kMaximumMeshDistanceLodLevels + 1U);
+  RequireCode(ValidateMeshResourceDescriptor(descriptor),
+              ValidationCode::VALUE_OUT_OF_RANGE,
+              "generated LOD ladder above the portable cap was accepted");
 }
 
 void TestTextureValidation() {

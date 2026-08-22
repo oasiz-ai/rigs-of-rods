@@ -309,7 +309,20 @@ ValidateMeshResourceDescriptor(const MeshResourceDescriptor &descriptor) {
     }
   }
 
-  const std::size_t index_count = descriptor.indices.size();
+  if (descriptor.distance_lod_levels.size() >
+      kMaximumMeshDistanceLodLevels) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "distance_lod_levels",
+        "mesh generated-LOD count exceeds the portable limit");
+  }
+  if (!descriptor.distance_lod_levels.empty() &&
+      (descriptor.dynamic ||
+       descriptor.topology != MeshPrimitiveTopology::TRIANGLE_LIST)) {
+    return ValidationResult::Failure(
+        ValidationCode::UNSUPPORTED_FEATURE, "distance_lod_levels",
+        "index-only distance LODs require an immutable triangle-list mesh");
+  }
+
   std::size_t primitive_width = 1U;
   switch (descriptor.topology) {
   case MeshPrimitiveTopology::TRIANGLE_LIST:
@@ -322,32 +335,70 @@ ValidateMeshResourceDescriptor(const MeshResourceDescriptor &descriptor) {
     primitive_width = 1U;
     break;
   }
-  if (index_count < primitive_width || index_count % primitive_width != 0U) {
-    return ValidationResult::Failure(
-        ValidationCode::SIZE_MISMATCH, "indices",
-        "index count must contain complete primitives");
-  }
-  for (std::size_t index = 0U; index < index_count; ++index) {
-    const std::uint32_t vertex_index = descriptor.indices[index];
-    if (vertex_index >= position_count ||
-        (descriptor.index_format == MeshIndexFormat::UINT16 &&
-         vertex_index > 65535U)) {
+  const auto validate_indices = [&](const std::vector<std::uint32_t> &indices,
+                                    const char *field) -> ValidationResult {
+    if (indices.size() >
+        (std::numeric_limits<std::uint32_t>::max)()) {
       return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "indices",
-          "mesh index is outside the addressable vertex range", index);
+          ValidationCode::VALUE_OUT_OF_RANGE, field,
+          "mesh index count must fit in 32 bits");
     }
-  }
-  for (std::size_t index = 0U; index < index_count; index += primitive_width) {
-    if ((primitive_width == 2U &&
-         descriptor.indices[index] == descriptor.indices[index + 1U]) ||
-        (primitive_width == 3U &&
-         (descriptor.indices[index] == descriptor.indices[index + 1U] ||
-          descriptor.indices[index] == descriptor.indices[index + 2U] ||
-          descriptor.indices[index + 1U] == descriptor.indices[index + 2U]))) {
+    if (indices.size() < primitive_width ||
+        indices.size() % primitive_width != 0U) {
       return ValidationResult::Failure(
-          ValidationCode::VALUE_OUT_OF_RANGE, "indices",
-          "line and triangle primitives must not repeat a vertex index", index);
+          ValidationCode::SIZE_MISMATCH, field,
+          "index count must contain complete primitives");
     }
+    for (std::size_t index = 0U; index < indices.size(); ++index) {
+      const std::uint32_t vertex_index = indices[index];
+      if (vertex_index >= position_count ||
+          (descriptor.index_format == MeshIndexFormat::UINT16 &&
+           vertex_index > 65535U)) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, field,
+            "mesh index is outside the addressable vertex range", index);
+      }
+    }
+    for (std::size_t index = 0U; index < indices.size();
+         index += primitive_width) {
+      if ((primitive_width == 2U && indices[index] == indices[index + 1U]) ||
+          (primitive_width == 3U &&
+           (indices[index] == indices[index + 1U] ||
+            indices[index] == indices[index + 2U] ||
+            indices[index + 1U] == indices[index + 2U]))) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, field,
+            "line and triangle primitives must not repeat a vertex index",
+            index);
+      }
+    }
+    return ValidationResult::Success();
+  };
+  validation = validate_indices(descriptor.indices, "indices");
+  if (!validation) {
+    return validation;
+  }
+  float previous_distance = 0.0F;
+  for (std::size_t level_index = 0U;
+       level_index < descriptor.distance_lod_levels.size(); ++level_index) {
+    const MeshDistanceLodLevelDescriptor &level =
+        descriptor.distance_lod_levels[level_index];
+    if (!std::isfinite(level.activation_distance_meters) ||
+        level.activation_distance_meters <= previous_distance) {
+      return ValidationResult::Failure(
+          std::isfinite(level.activation_distance_meters)
+              ? ValidationCode::NON_DETERMINISTIC_ORDER
+              : ValidationCode::NON_FINITE_VALUE,
+          "distance_lod_levels.activation_distance_meters",
+          "mesh LOD activation distances must be finite, positive, and strictly increasing",
+          level_index);
+    }
+    validation = validate_indices(level.indices, "distance_lod_levels.indices");
+    if (!validation) {
+      validation.element_index = level_index;
+      return validation;
+    }
+    previous_distance = level.activation_distance_meters;
   }
   return ValidationResult::Success();
 }
