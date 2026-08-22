@@ -50,6 +50,46 @@
     {
       "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRFinalToneMapping_ps.metal",
       "sha256": "1e0cf03c5325fd197693ae40d7692ff7adf950d94a2beb43be881b8bc52ebb39"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/RoRTemporalAa.material",
+      "sha256": "7811237631c18fbb6782dffa7ae17cd444e7266d661d8d6dbbc22830353d804c"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRTaaMotionVectors_ps.glsl",
+      "sha256": "cf7ada0d068609740f1cbdc6dd354bedae04a4a55cec9ee621b6d6277510103c"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRTaaMotionVectors_ps.hlsl",
+      "sha256": "709a7d703af171aba525078226929a1473fbf0f7c7cd6b85617b48b148611509"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRTaaMotionVectors_ps.metal",
+      "sha256": "6ceb0e9dfada09d406d3034ad96665d8364160a6e6a2e59f011a94f46d82ef33"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRTaaResolve_ps.glsl",
+      "sha256": "9d6bdbaf5f336053daeb9a48f547415f7d9719a17eac6d45d9e27958188eeffb"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRTaaResolve_ps.hlsl",
+      "sha256": "2e97cfccaa87a62f98666c83c8d95e763fc1a9b4a26b171c232b764b804f4565"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRTaaResolve_ps.metal",
+      "sha256": "5cee4521929d911215f47cb8b98236c46f81fd0e2838ddee12a48c018e18760a"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRTaaDepthStore_ps.glsl",
+      "sha256": "ea8d3645bd3145a954360d837b13607c04ec52081853e0688e3b56526477422c"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRTaaDepthStore_ps.hlsl",
+      "sha256": "ee75023ccafd83aeeffef490931890d9d1600fe6b2c157796e67803584cf0ccf"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRTaaDepthStore_ps.metal",
+      "sha256": "abb39714a03c92048c3ea52cff0cdaaa2445da94bb6798224a5e40ffc407f7ea"
     }
   ]
 }

@@ -665,7 +665,17 @@ set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRFinalToneMapping.material"
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRFinalToneMapping_ps.glsl"
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRFinalToneMapping_ps.hlsl"
-    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRFinalToneMapping_ps.metal")
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRFinalToneMapping_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRTemporalAa.material"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRTaaMotionVectors_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRTaaMotionVectors_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRTaaMotionVectors_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRTaaResolve_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRTaaResolve_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRTaaResolve_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRTaaDepthStore_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRTaaDepthStore_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRTaaDepthStore_ps.metal")
 set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/media")
 set(ROR_OGRE_NEXT_AERIAL_HAZE_SHADER_LOCK
@@ -1139,6 +1149,7 @@ set(_ror_ogre_next_renderer_include_dirs
 if (APPLE)
     list(APPEND _ror_embedded_n1_sources
         "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_render_root}/ogrenext/OgreNextMetalFxUpscaler.mm"
         "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
     list(APPEND _ror_ogre_next_renderer_include_dirs
         "${ogre_next_SOURCE_DIR}/RenderSystems/Metal/include"
@@ -1184,6 +1195,14 @@ target_link_libraries(ror_ogre_next_embedded_n1_runtime
         ${ROR_OGRE_NEXT_RENDERER_TARGET}
         OgreNextMain
         Threads::Threads)
+if (APPLE)
+    # MetalFX arrived in macOS 13 while the deployment target is 11.0, so the
+    # framework is weak-linked: on an older system its symbols resolve to nil
+    # and the runtime @available guards keep the scaler unarmed, instead of
+    # dyld refusing to load the binary at all.
+    target_link_options(ror_ogre_next_embedded_n1_runtime
+        INTERFACE "LINKER:-weak_framework,MetalFX")
+endif ()
 _ror_combined_strict_target(ror_ogre_next_embedded_n1_runtime)
 if (APPLE)
     ror_ogre_next_enable_embedded_namespace(
@@ -1409,6 +1428,7 @@ set(_ror_namespace_audit_namespaced_sources
 if (APPLE)
     list(APPEND _ror_namespace_audit_namespaced_sources
         "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_render_root}/ogrenext/OgreNextMetalFxUpscaler.mm"
         "${_ror_system_root}/RendererOgreNextSdlWindowRuntimeCocoa.mm")
 endif ()
 set(_ror_namespace_audit_namespaced_source_arguments "")

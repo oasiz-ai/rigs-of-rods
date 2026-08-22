@@ -551,7 +551,17 @@ set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_RELATIVE
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRFinalToneMapping.material"
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRFinalToneMapping_ps.glsl"
     "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRFinalToneMapping_ps.hlsl"
-    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRFinalToneMapping_ps.metal")
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRFinalToneMapping_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/RoRTemporalAa.material"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRTaaMotionVectors_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRTaaMotionVectors_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRTaaMotionVectors_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRTaaResolve_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRTaaResolve_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRTaaResolve_ps.metal"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/GLSL/RoRTaaDepthStore_ps.glsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/HLSL/RoRTaaDepthStore_ps.hlsl"
+    "${ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_ROOT_RELATIVE}/Metal/RoRTaaDepthStore_ps.metal")
 set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCE_ROOT
     "${CMAKE_CURRENT_SOURCE_DIR}/media")
 set(ROR_OGRE_NEXT_AERIAL_HAZE_MEDIA_SOURCES "")
@@ -1251,6 +1261,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
         "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_render_root}/ogrenext/OgreNextMetalFxUpscaler.mm"
         "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
     add_library(
         ror_ogre_next_embedded_n1_runtime STATIC
@@ -1550,6 +1561,8 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextMetalInterop.mm"
             --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextMetalFxUpscaler.mm"
+            --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextVulkanExternalDeviceBootstrap.cpp"
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextVulkanRayTracingBootstrap.cpp"
@@ -1709,6 +1722,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_ogre_next_frontend_n1_platform_sources
             "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
             "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+            "${_ror_render_root}/ogrenext/OgreNextMetalFxUpscaler.mm"
             "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
         target_sources(
             ror_ogre_next_frontend_n1
