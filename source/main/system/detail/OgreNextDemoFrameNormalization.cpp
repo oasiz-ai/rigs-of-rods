@@ -127,22 +127,73 @@ Render::ValidationResult NormalizeOgreNextDemoCamera(
 
 Render::ValidationResult ValidateOgreNextDemoShadowLights(
     const std::vector<Render::GraphicsSceneLightInput> &lights) {
-  if (lights.size() != 1U) {
+  // Stage 2: the captured inventory carries the one shadow sun plus a
+  // bounded set of shadowless point/spot lights for Forward+ clustered
+  // shading. Exactly one directional caster remains mandatory; every local
+  // light must be schema-valid and explicitly shadowless.
+  constexpr float kHalfPi = 1.57079632679489661923F;
+  std::size_t directional_count = 0U;
+  std::size_t local_count = 0U;
+  for (const Render::GraphicsSceneLightInput &light : lights) {
+    if (light.source_light_id == 0U ||
+        !Render::IsFinite(light.color_linear) ||
+        !Render::IsNonNegative(light.color_linear) ||
+        !Render::IsFinite(light.intensity) || light.intensity < 0.0F) {
+      return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                     "ogre_next_demo.lights.photometry",
+                     "captured demo lights require identities and finite nonnegative photometry");
+    }
+    if (light.type == Render::LightType::DIRECTIONAL) {
+      ++directional_count;
+      if (!(light.intensity > 0.0F) ||
+          !Render::IsNormalized(light.direction) ||
+          light.shadow_flags != Render::LIGHT_SHADOW_DEFAULT_FLAGS) {
+        return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                       "ogre_next_demo.lights.main_shadow",
+                       "captured demo light must be one visible directional caster for static and dynamic geometry");
+      }
+      continue;
+    }
+    if (light.type != Render::LightType::POINT &&
+        light.type != Render::LightType::SPOT) {
+      return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                     "ogre_next_demo.lights.type",
+                     "the product demo transports directional, point, and spot lights only");
+    }
+    ++local_count;
+    if (light.shadow_flags != 0U) {
+      return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                     "ogre_next_demo.lights.local_shadow",
+                     "captured local lights never substitute shadow maps");
+    }
+    if (!Render::IsFinite(light.range) || !(light.range > 0.0F) ||
+        !Render::IsFinite(light.position)) {
+      return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                     "ogre_next_demo.lights.local_geometry",
+                     "captured local lights require finite positions and a positive range cutoff");
+    }
+    if (light.type == Render::LightType::SPOT &&
+        (!Render::IsNormalized(light.direction) ||
+         !Render::IsFinite(light.inner_cone_radians) ||
+         !Render::IsFinite(light.outer_cone_radians) ||
+         light.inner_cone_radians < 0.0F ||
+         !(light.outer_cone_radians > 0.0F) ||
+         light.outer_cone_radians < light.inner_cone_radians ||
+         light.outer_cone_radians > kHalfPi)) {
+      return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
+                     "ogre_next_demo.lights.cone",
+                     "captured spot lights require a unit direction and ordered half-angles within pi/2");
+    }
+  }
+  if (directional_count != 1U) {
     return Failure(Render::ValidationCode::SIZE_MISMATCH,
                    "ogre_next_demo.lights.inventory",
                    "the product demo requires exactly one captured shadow sun");
   }
-  const Render::GraphicsSceneLightInput &light = lights.front();
-  if (light.source_light_id == 0U ||
-      light.type != Render::LightType::DIRECTIONAL ||
-      !Render::IsFinite(light.color_linear) ||
-      !Render::IsNonNegative(light.color_linear) ||
-      !Render::IsFinite(light.intensity) || !(light.intensity > 0.0F) ||
-      !Render::IsNormalized(light.direction) ||
-      light.shadow_flags != Render::LIGHT_SHADOW_DEFAULT_FLAGS) {
-    return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
-                   "ogre_next_demo.lights.main_shadow",
-                   "captured demo light must be one visible directional caster for static and dynamic geometry");
+  if (local_count > 256U) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.lights.inventory",
+                   "captured local light count exceeds the Forward+ admission bound");
   }
   return Render::ValidationResult::Success();
 }

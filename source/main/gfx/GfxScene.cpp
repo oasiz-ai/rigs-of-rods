@@ -889,6 +889,14 @@ RoR::Render::ValidationResult CaptureOgreNextDemoSceneLights(
             local.power_scale = 0.0F;
             degraded = true;
         }
+        else if (local.power_scale > 1.0e6F)
+        {
+            // The candela conversion multiplies by 1024; an absurd native
+            // power must not overflow the builder's binary32 bound and
+            // reject the whole frame.
+            local.power_scale = 1.0e6F;
+            degraded = true;
+        }
         if (!std::isfinite(local.attenuation_range) ||
             !(local.attenuation_range > 0.0F))
         {
