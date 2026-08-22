@@ -31,9 +31,10 @@ void TestArchiveIdentityAuthorityIsPublicAndExact()
     CHECK(
         std::string(64U, '0') !=
         RoR::kCityWorldLegacyMaterialCompatibilityArchiveSha256);
-    CHECK(
+    static_assert(
         RoR::kCityWorldLegacyMaterialCompatibilityArchiveBytes ==
-        158845395ULL);
+            158845395ULL,
+        "CityWorld compatibility archive byte count changed");
     CHECK(RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, true, true));
     CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(false, true, true));
     CHECK(!RoR::ShouldProbeLegacyMaterialPrimaryArchive(true, false, true));
