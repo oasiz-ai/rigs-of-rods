@@ -2710,7 +2710,7 @@ void CreateAndVerifyHdrSingleSceneNode(
       scene_target->addPass(Ogre::PASS_SCENE));
   scene->mIdentifier = kOgreNextHdrSingleScenePassIdentifier;
   scene->mFirstRQ = 0U;
-  scene->mLastRQ = kOgreNextPccReservedRenderQueue;
+  scene->mLastRQ = kOgreNextThinSlabRenderQueue;
   scene->mIncludeOverlays = false;
   scene->mEnableForwardPlus = true;
   scene->mUpdateLodLists = true;
@@ -2780,6 +2780,8 @@ void CreateAndVerifyHdrSingleSceneNode(
           Ogre::IdString(kOgreNextHdrOpaqueDepthTexture) ||
       verified_scene == nullptr ||
       verified_scene->mIdentifier != kOgreNextHdrSingleScenePassIdentifier ||
+      verified_scene->mFirstRQ != 0U ||
+      verified_scene->mLastRQ != kOgreNextThinSlabRenderQueue ||
       verified_scene->mVisibilityMask != kOgreNextRt4AuthoredVisibilityMask ||
       verified_scene->mShadowNode != Ogre::IdString() ||
       verified_scene->mIncludeOverlays || !verified_scene->mEnableForwardPlus ||
@@ -12686,17 +12688,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
     };
 
     // Cloned non-receiver datablocks must stay inside the same reviewed
-    // RoR PBS shader domain as their source. The custom UV0 affine piece
-    // is deliberately selected by this reserved prefix in both the
-    // normal and shadow-caster hashes; dropping it here would change the
-    // authored texture coordinates on every non-receiver. The clone lives
-    // for the instance lifetime, so its name carries the instance id and
-    // no frame id.
+    // RoR PBS shader domain as their source. The custom UV0 affine and
+    // thin-slab pieces are deliberately selected by their reserved prefixes;
+    // collapsing either prefix here changes the material's shader before its
+    // first frame. The clone lives for the instance lifetime, so its name
+    // carries the instance id and no frame id.
     const auto create_receiver_clone =
         [&](Impl::RetainedInstance &record,
             Ogre::HlmsPbsDatablock *pbs_datablock) {
+      const bool thin_slab_transmission =
+          OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader(
+              pbs_datablock);
       const std::string receiver_name =
-          std::string(kOgreNextUvAffinePbsDatablockPrefix) +
+          std::string(thin_slab_transmission
+                          ? kOgreNextThinSlabPbsDatablockPrefix
+                          : kOgreNextUvAffinePbsDatablockPrefix) +
           "PssmNonReceiver_i" +
           std::to_string(record.descriptor.instance_id);
       Ogre::HlmsDatablock *cloned = nullptr;
@@ -12721,6 +12727,13 @@ RenderOperationResult OgreNextN1Frontend::Render(
         if (receiver_datablock == nullptr) {
           throw std::runtime_error(
               "Ogre-Next PSSM receiver clone changed HLMS type");
+        }
+        if (!OgreNextUvAffinePbs::SelectsUv0AffineShader(
+                receiver_datablock) ||
+            OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader(
+                receiver_datablock) != thin_slab_transmission) {
+          throw std::runtime_error(
+              "Ogre-Next PSSM receiver clone changed its PBS shader domain");
         }
         record.receiver_clone = receiver_datablock;
         record.receiver_clone_name = receiver_name;

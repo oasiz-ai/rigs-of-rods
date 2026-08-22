@@ -1,5 +1,5 @@
 {
   "schema": "ror.ogre_next_uv0_affine_pbs_shader_lock.v1",
-  "sha256": "db5439057c71d6b10b287a010fc171abc429c7c737cadb8fc2c1b0606ce690e6",
+  "sha256": "3d60e9a0e30f2c4490de0b9f88406c9ce9a32acfaff01f308ec5f64922de3159",
   "shader": "media/Hlms/RoR/UvAffinePbs/UvAffinePbs_piece_ps.any"
 }

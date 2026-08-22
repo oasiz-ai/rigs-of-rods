@@ -526,6 +526,9 @@ class CombinedProviderContractTests(unittest.TestCase):
             "--native-visual-showcase",
             '"renderer": "ogre-next-combined"',
             '"presents_frames": True',
+            "grep -Fq '[RoR|RendererCombined|Scene] Snapshot not presented'",
+            "grep -Fq '[RoR|RendererCombined|NativeShowcase|Turntable]'",
+            'echo "Ogre-Next showcase produced no presented-scene receipt"',
             "if: success()",
         ):
             with self.subTest(token=token):
