@@ -15,7 +15,11 @@ archive in place:
   restored, so the body binds the same ``flexmesh_standard`` template the
   chassis already binds successfully instead of falling through to the
   Cg-program material ``SaberBody : AurigaPaint``;
-* ``AlexisSaber.skin`` gains the paired specular replacement per skin.
+* ``AlexisSaber.skin`` gains the paired specular replacement per skin;
+* ``AlexisSaberWinds2.png`` (the glass tint both window materials sample) is
+  re-derived from the archive's own full-range mask ``AlexisSaberWinds.png``
+  so the two-pane windshield transmits ~68 per cent instead of the shipped
+  ~0.3 per cent (see ``build_glass_member`` for the composition math).
 
 Every other member is copied byte for byte: the local header, the extra
 field and the deflate stream are reproduced verbatim, so untouched members
@@ -176,6 +180,138 @@ def _member_payload(entry: _Entry) -> bytes:
         return zlib.decompress(data, -15)
     raise ArchivePatchError(
         f"member '{entry.name}' uses compression method {method}")
+
+
+#: The window-glass tint member both glass managed materials sample, and the
+#: full-range alpha mask it was authored down from.  ``AlexisSaber.truck``
+#: declares
+#:
+#:   SaberWinds     mesh_transparent AlexisSaberWinds2.png AlexisSaberWindss.png
+#:   SaberWinds_int mesh_transparent AlexisSaberWinds2.png AlexisSaberWindss.png
+#:
+#: so every pane of glass on the car - and the windshield renders as TWO
+#: stacked panes, the exterior ``SaberWinds`` skin plus the interior
+#: ``SaberWinds_int`` shell - reads its colour and alpha from this one member.
+#: ``SaberLens`` samples ``AlexisSaberLens.png`` instead and is not touched.
+GLASS_MEMBER = "AlexisSaberWinds2.png"
+GLASS_MASK_MEMBER = "AlexisSaberWinds.png"
+
+#: Per-pane alpha authored over the glass core, replacing the shipped 241.
+#:
+#: The transparent managed-material path alpha-blends each pane over what is
+#: behind it: ``out = glass_rgb*a + behind*(1-a)``.  The glass RGB is black
+#: everywhere in this member, so a single pane scales the scene behind it by
+#: ``1 - a/255``, and the two stacked windshield panes compose to a net
+#: transmission of
+#:
+#:   T = (1 - a/255)^2.
+#:
+#: The shipped member carried a=241 over the glass:
+#: T = (14/255)^2 = 0.30 per cent - a windshield that reads as near-black.
+#: For reference, a road-legal windshield transmits >= 70 per cent and even
+#: dark privacy tint passes 15-25.  Inverting the composition for the 60-75
+#: per cent target band gives a = 255*(1 - sqrt(T)), i.e. a in [34, 57];
+#: 45 sits mid-band:
+#:
+#:   two panes  (windshield):  (210/255)^2 = 67.8 per cent transmission,
+#:   one pane   (any single):   210/255    = 82.4 per cent transmission.
+#:
+#: Because the RGB is black, the tint contribution shrinks with the same
+#: alpha, so at a=45 the glass keeps a subtle dark cast instead of a wall of
+#: black - correct behaviour for tinted glass.  The specular sheen comes from
+#: the separate ``AlexisSaberWindss.png`` unit and is untouched.
+GLASS_PANE_ALPHA = 45
+
+
+def _decode_png_rgba(name: str, payload: bytes) -> tuple[int, int, bytearray]:
+    """Decodes a non-interlaced 8-bit RGBA PNG member, strictly."""
+
+    if payload[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ArchivePatchError(f"member '{name}' is not a PNG")
+    width = height = None
+    idat = bytearray()
+    cursor = 8
+    while cursor + 8 <= len(payload):
+        length, tag = struct.unpack_from(">I4s", payload, cursor)
+        chunk = payload[cursor + 8:cursor + 8 + length]
+        if len(chunk) != length:
+            raise ArchivePatchError(f"member '{name}' has a truncated chunk")
+        if tag == b"IHDR":
+            width, height, depth, colour, _, _, interlace = struct.unpack(
+                ">IIBBBBB", chunk)
+            if (depth, colour, interlace) != (8, 6, 0):
+                raise ArchivePatchError(
+                    f"member '{name}' is not non-interlaced 8-bit RGBA "
+                    f"(depth={depth} colour={colour} interlace={interlace})")
+        elif tag == b"IDAT":
+            idat.extend(chunk)
+        elif tag == b"IEND":
+            break
+        cursor += 12 + length
+    if width is None or height is None or not idat:
+        raise ArchivePatchError(f"member '{name}' has no image data")
+
+    raw = zlib.decompress(bytes(idat))
+    stride = width * 4
+    if len(raw) != (stride + 1) * height:
+        raise ArchivePatchError(f"member '{name}' has a malformed scanline "
+                                f"payload ({len(raw)} bytes)")
+    rgba = bytearray(stride * height)
+    previous = bytearray(stride)
+    for y in range(height):
+        filter_type = raw[y * (stride + 1)]
+        line = bytearray(raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)])
+        if filter_type == 1:
+            for i in range(4, stride):
+                line[i] = (line[i] + line[i - 4]) & 0xFF
+        elif filter_type == 2:
+            for i in range(stride):
+                line[i] = (line[i] + previous[i]) & 0xFF
+        elif filter_type == 3:
+            for i in range(stride):
+                left = line[i - 4] if i >= 4 else 0
+                line[i] = (line[i] + (left + previous[i]) // 2) & 0xFF
+        elif filter_type == 4:
+            for i in range(stride):
+                a = line[i - 4] if i >= 4 else 0
+                b = previous[i]
+                c = previous[i - 4] if i >= 4 else 0
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                predictor = a if pa <= pb and pa <= pc else (
+                    b if pb <= pc else c)
+                line[i] = (line[i] + predictor) & 0xFF
+        elif filter_type != 0:
+            raise ArchivePatchError(
+                f"member '{name}' uses PNG filter {filter_type}")
+        rgba[y * stride:(y + 1) * stride] = line
+        previous = line
+    return width, height, rgba
+
+
+def build_glass_member(mask_payload: bytes) -> bytes:
+    """Re-authors the glass tint from the full-range mask.  Deterministic.
+
+    The archive still ships the original the author compressed the tint down
+    from: ``AlexisSaberWinds.png`` holds alpha 0 over the glass, 255 over the
+    frame and unused UV space, and a nine-step antialiased ramp between, while
+    the shipped ``AlexisSaberWinds2.png`` is exactly
+    ``255 - (255-mask)*14/255`` of it.  This re-runs that same compression
+    with span ``255 - GLASS_PANE_ALPHA`` in place of 14: the glass core lands
+    on ``GLASS_PANE_ALPHA``, fully opaque texels stay 255, and the edge ramp
+    keeps its proportions.  The input member is never itself rewritten, so
+    re-running the tool reproduces the identical output.
+    """
+
+    width, height, rgba = _decode_png_rgba(GLASS_MASK_MEMBER, mask_payload)
+    span = 255 - GLASS_PANE_ALPHA
+    for i in range(0, len(rgba), 4):
+        if rgba[i] or rgba[i + 1] or rgba[i + 2]:
+            raise ArchivePatchError(
+                f"'{GLASS_MASK_MEMBER}' is not black at texel {i // 4}; the "
+                f"transmission derivation assumes black glass")
+        mask = rgba[i + 3]
+        rgba[i + 3] = 255 - ((255 - mask) * span + 127) // 255
+    return alexis_saber_paint.encode_png_rgba(width, height, bytes(rgba))
 
 
 def _authored_entry(name: str, payload: bytes) -> _Entry:
@@ -349,6 +485,14 @@ def patch_archive(archive: bytes) -> tuple[bytes, dict[str, str]]:
 
     entries = _read_entries(archive)
     authored = alexis_saber_paint.build_paint_members()
+    if GLASS_MEMBER in authored or GLASS_MASK_MEMBER in authored:
+        raise ArchivePatchError(
+            "the paint generator must not author the glass members")
+    masks = [entry for entry in entries if entry.name == GLASS_MASK_MEMBER]
+    if len(masks) != 1:
+        raise ArchivePatchError(
+            f"expected exactly one '{GLASS_MASK_MEMBER}', found {len(masks)}")
+    authored[GLASS_MEMBER] = build_glass_member(_member_payload(masks[0]))
     text_patches = {
         TRUCK_MEMBER: patch_truck,
         SKIN_MEMBER: patch_skin,
