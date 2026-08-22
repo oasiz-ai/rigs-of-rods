@@ -41,6 +41,8 @@
 #    include "MacOSInputBridge.h"
 #endif
 
+#include <set>
+
 #define MAX_JOYSTICKS 10
 #define MAX_JOYSTICK_POVS 4
 #define MAX_JOYSTICK_SLIDERS 4
@@ -630,6 +632,11 @@ protected:
 
     // this stores the key/button/axis values
     std::map<int, bool> keyState;
+    /// Ordered renderer key-down transitions observed since the last applied
+    /// reverse reconciliation. A key tapped and released inside one batch
+    /// never appears in the batch's held-key snapshot; remembering the press
+    /// keeps it visible to event evaluation for exactly one applied batch.
+    std::set<int> m_renderer_transient_key_downs;
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     MacOSInputBridge::KeyState m_sdl_key_state;
     MacOSControllerBackend m_sdl_controller_backend;

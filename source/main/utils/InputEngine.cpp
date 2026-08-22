@@ -1020,12 +1020,20 @@ bool InputEngine::ApplyRendererInput(
                 return false;
             next_key_state[key] = true;
         }
+        // Presses observed since the last applied batch stay visible for
+        // this one evaluation even when the release landed in the same
+        // batch; the next reconciliation clears them naturally.
+        for (const int transient_key : m_renderer_transient_key_downs)
+            next_key_state[transient_key] = true;
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
         MacOSInputBridge::KeyState next_sdl_key_state;
         for (const RendererGameKey legacy_key : state.pressed_keys)
             (void)next_sdl_key_state.Set(
                 static_cast<OIS::KeyCode>(legacy_key), true);
+        for (const int transient_key : m_renderer_transient_key_downs)
+            (void)next_sdl_key_state.Set(
+                static_cast<OIS::KeyCode>(transient_key), true);
 #endif
 
         OIS::MouseState next_mouse_state = mouseState;
@@ -1169,6 +1177,7 @@ bool InputEngine::ApplyRendererInput(
         }
 
         keyState.swap(next_key_state);
+        m_renderer_transient_key_downs.clear();
         mouseState = next_mouse_state;
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
         m_sdl_key_state = next_sdl_key_state;
@@ -1192,14 +1201,33 @@ bool InputEngine::ApplyRendererInput(
 void InputEngine::ProcessKeyPress(const OIS::KeyEvent& arg)
 {
     if (m_renderer_input_active)
+    {
+        // Ordered renderer transitions arrive between reverse
+        // reconciliations; the reconciliation snapshot only carries keys
+        // still held at batch end. Remember the press so a key tapped and
+        // released inside one batch reaches event evaluation once.
+        const std::size_t key_index = static_cast<std::size_t>(arg.key);
+        if (arg.key != OIS::KC_UNASSIGNED && key_index < 256U)
+            m_renderer_transient_key_downs.insert(arg.key);
         return;
+    }
     keyState[arg.key] = 1;
 }
 
 void InputEngine::ProcessKeyRelease(const OIS::KeyEvent& arg)
 {
     if (m_renderer_input_active)
+    {
+        // A key released mid-batch was held during the batch. Keep it
+        // visible alongside same-batch presses so a chord split across one
+        // batch boundary (modifier released with the tapped key) still
+        // evaluates with every participating key down once.
+        const std::size_t key_index = static_cast<std::size_t>(arg.key);
+        if (arg.key != OIS::KC_UNASSIGNED && key_index < 256U &&
+            keyState[arg.key])
+            m_renderer_transient_key_downs.insert(arg.key);
         return;
+    }
     keyState[arg.key] = 0;
 }
 
@@ -1459,6 +1487,7 @@ void InputEngine::resetKeysAndMouseButtons()
     {
         iter->second = false;
     }
+    m_renderer_transient_key_downs.clear();
 
 #if OGRE_VERSION_MAJOR >= 14 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE
     m_sdl_key_state.Reset();
