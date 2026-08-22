@@ -219,7 +219,7 @@ jobs:
           binary = build / "bin/RoR-Combined"
           closure = build / "source/main/RoR-Combined.binary-closure.json"
           namespace = build / "ogre-next-embedded/ogre-next-combined-namespace-audit.json"
-          resources = build / "ror-ogre-next-combined-resources/.complete.json"
+          resources = build / "bin/resources/ogrenext/.complete.json"
           for path in (binary, closure, namespace, resources):
               if not path.is_file() or path.is_symlink():
                   raise SystemExit(f"required combined build output is unavailable: {path}")
@@ -257,7 +257,15 @@ jobs:
           test ! -e "$stage/RoR-Ogre14"
           test -d "$stage/lib/OGRE"
           test -d "$stage/resources"
+          test -d "$stage/resources/ogrenext/ShaderMedia"
+          test -d "$stage/resources/ogrenext/Presentation"
+          test -f "$stage/resources/ogrenext/.complete.json"
           test -d "$stage/content"
+          if find "$stage/resources/ogrenext" -type l -print -quit \
+              | grep -q .; then
+            echo 'relocated Ogre-Next media contains an indirect file'
+            exit 1
+          fi
           cmake -E make_directory "$stage/qualification"
           readelf --file-header --dynamic "$stage/RoR-Combined" \
             | tee "$stage/qualification/RoR-Combined.readelf.txt"
@@ -272,6 +280,42 @@ jobs:
             echo 'relocated RoR-Combined retains its build root'
             exit 1
           fi
+          if grep -aFq "$build/bin/resources/ogrenext" \
+              "$stage/RoR-Combined"; then
+            echo 'relocated RoR-Combined embeds its build-tree media root'
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          completion = (
+              Path(os.environ["ROR_COMBINED_STAGE_DIR"])
+              / "resources/ogrenext/.complete.json"
+          )
+          document = json.loads(completion.read_text(encoding="utf-8"))
+          expected = {
+              "schema": "ror.ogre_next_combined_resource_stage.v2",
+              "runtime_layout": "resources/ogrenext",
+              "shader_media_relative": "ShaderMedia",
+              "presentation_media_relative": "Presentation",
+          }
+          for field, value in expected.items():
+              if document.get(field) != value:
+                  raise SystemExit(
+                      f"combined package media receipt changed: {field}={document.get(field)!r}"
+                  )
+          if not isinstance(document.get("file_count"), int) or document["file_count"] <= 0:
+              raise SystemExit("combined package media receipt has no files")
+          manifest_sha256 = document.get("manifest_sha256")
+          if (
+              not isinstance(manifest_sha256, str)
+              or len(manifest_sha256) != 64
+              or any(character not in "0123456789abcdef" for character in manifest_sha256)
+          ):
+              raise SystemExit("combined package media receipt digest is invalid")
+          PY
           cmake -E copy \
             "$build/source/main/RoR-Combined.binary-closure.json" \
             "$stage/qualification/RoR-Combined.binary-closure.json"
@@ -282,8 +326,13 @@ jobs:
             "$build/ogre-next-embedded/ogre-next-combined-provider-contract.json" \
             "$stage/qualification/ogre-next-combined-provider-contract.json"
           cmake -E copy \
-            "$build/ror-ogre-next-combined-resources/.complete.json" \
+            "$build/bin/resources/ogrenext/.complete.json" \
             "$stage/qualification/ogre-next-combined-resources.complete.json"
+
+          quarantine="$RUNNER_TEMP/ror-combined-build-media-quarantine"
+          test ! -e "$quarantine"
+          mv "$build/bin/resources/ogrenext" "$quarantine"
+          test ! -e "$build/bin/resources/ogrenext"
 
       - name: Render bounded Ogre-Next frames with relocated Vulkan runtime
         shell: bash
@@ -293,6 +342,9 @@ jobs:
           cmake -E make_directory "$smoke/home" "$smoke/config" "$smoke/cache" "$smoke/data"
           receipt="$stage/qualification/renderer-smoke.json"
           test ! -e "$receipt"
+          test ! -e "$ROR_COMBINED_BUILD_DIR/bin/resources/ogrenext"
+          test -d "$stage/resources/ogrenext/ShaderMedia"
+          test -d "$stage/resources/ogrenext/Presentation"
           set +e
           HOME="$smoke/home" \
           XDG_CONFIG_HOME="$smoke/config" \
@@ -348,6 +400,12 @@ jobs:
           fi
           if ! grep -Fq '[RoR|RendererCombined|NativeShowcase|Turntable]' "$smoke_log"; then
             echo "Ogre-Next showcase produced no presented-scene receipt" >&2
+            exit 1
+          fi
+          if grep -Fq "$ROR_COMBINED_BUILD_DIR/bin/resources/ogrenext" \
+              "$stage/qualification/renderer-smoke.stdout.log" \
+              "$stage/qualification/renderer-smoke.stderr.log"; then
+            echo "relocated Ogre-Next smoke accessed build-tree media" >&2
             exit 1
           fi
           python - <<'PY'

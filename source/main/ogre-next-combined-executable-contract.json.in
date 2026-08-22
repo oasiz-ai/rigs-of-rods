@@ -6,6 +6,9 @@
   "resource_stage_target": "ror_ogre_next_combined_resources",
   "shader_media_root": "@ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT@",
   "presentation_media_root": "@ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT@",
+  "runtime_media_layout": "resources/ogrenext",
+  "build_root_runtime_dependency": false,
+  "install_tree_rules_present": true,
   "provider_source_root": "@CMAKE_SOURCE_DIR@",
   "provider_source_manifest": "@ROR_SOURCE_MANIFEST@",
   "provider_source_manifest_file_count": @ROR_SOURCE_MANIFEST_FILE_COUNT@,
@@ -22,6 +25,6 @@
   "selected_game_source_manifest_sha256": "@ROR_OGRE_NEXT_COMBINED_EXECUTABLE_SELECTED_SOURCE_MANIFEST_SHA256@",
   "transport_or_bridge_sources_linked": false,
   "post_link_nm_gate": "tools/verify_ogre_next_combined_binary_closure.py",
-  "raw_build_tree_demo": true,
+  "raw_build_tree_demo": false,
   "app_bundle_staged": false
 }

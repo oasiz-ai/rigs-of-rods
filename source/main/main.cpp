@@ -324,11 +324,6 @@ public:
 };
 
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
-#if defined(ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT) != \
-    defined(ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT)
-#error "combined renderer media roots must be defined as an exact pair"
-#endif
-
 constexpr std::uint64_t kCombinedRendererAssetRegistryId =
     0x524f52434f4d4231ULL; // "RORCOMB1", process-local and transport-free.
 constexpr std::uint64_t kCombinedRendererShutdownAttemptNanoseconds =
@@ -340,30 +335,18 @@ bool ResolveCombinedPresenterConfiguration(
 {
     using namespace RoR;
 
-    // Raw combined builds receive authenticated provider-stage roots as exact
-    // target compile definitions. Installed macOS packages omit those build
-    // paths and resolve only through Contents/Resources relative to RoR's
-    // executable-derived ordinary resources directory. cwd/environment are
-    // never read and an incomplete provider pair is a compile-time error.
-#if defined(ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT)
-    const std::string shader_media_root =
-        ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT;
-    const std::string presentation_media_root =
-        ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT;
-    const std::string expected_media = fmt::format(
-        "shader='{}', presentation='{}'",
-        shader_media_root,
-        presentation_media_root);
-#else
+    // Raw and installed combined builds share one authenticated package
+    // layout beneath RoR's executable-derived ordinary resources directory.
+    // No build root, cwd, environment variable, renderer selector, or legacy
+    // fallback participates in media resolution.
     const std::string packaged_media_root = PathCombine(
-        GetParentDirectory(App::sys_resources_dir->getStr().c_str()),
+        App::sys_resources_dir->getStr().c_str(),
         "ogrenext");
     const std::string shader_media_root =
-        PathCombine(packaged_media_root, "Hlms");
+        PathCombine(packaged_media_root, "ShaderMedia");
     const std::string presentation_media_root =
         PathCombine(packaged_media_root, "Presentation");
     const std::string expected_media = packaged_media_root;
-#endif
     if (!FolderExists(shader_media_root) ||
         !FolderExists(presentation_media_root))
     {

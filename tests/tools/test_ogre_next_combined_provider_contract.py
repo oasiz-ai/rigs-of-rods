@@ -242,13 +242,15 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn("OgreNextUvAffinePbs.cpp", sources)
         self.assertIn("OgreNextN1Frontend.cpp", sources)
 
-    def test_media_paths_and_stage_are_build_tree_authority(self) -> None:
+    def test_media_paths_and_stage_are_executable_relative_authority(self) -> None:
         for macro in (
             "ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT",
             "ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT",
         ):
             self.assertIn(macro, PROVIDER)
-        self.assertIn("ror-ogre-next-combined-resources", PROVIDER)
+        self.assertIn(
+            '"${RUNTIME_OUTPUT_DIRECTORY}/resources/ogrenext"', PROVIDER
+        )
         self.assertIn("stage_ogre_next_combined_resources.py", PROVIDER)
         for token in (
             "ROR_OGRE_NEXT_UV_AFFINE_PBS_MEDIA_RELATIVE",
@@ -259,7 +261,13 @@ class CombinedProviderContractTests(unittest.TestCase):
         self.assertIn('"${_ror_stage_relative}!|${_ror_source}', PROVIDER)
         self.assertIn('string(REGEX REPLACE "!$"', PROVIDER)
         self.assertIn("ror_ogre_next_combined_resources", MAIN_CMAKE)
-        self.assertIn('"raw_build_tree_demo": true', PROVIDER_CONTRACT)
+        self.assertNotIn(
+            "ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT=", PROVIDER
+        )
+        self.assertIn('"runtime_media_layout": "resources/ogrenext"', PROVIDER_CONTRACT)
+        self.assertIn('"build_root_runtime_dependency": false', PROVIDER_CONTRACT)
+        self.assertIn('"install_tree_rules_present": true', PROVIDER_CONTRACT)
+        self.assertIn('"raw_build_tree_demo": false', PROVIDER_CONTRACT)
         self.assertIn('"app_bundle_staged": false', PROVIDER_CONTRACT)
 
     def test_presentation_manifest_matches_runtime_bytewise_order(self) -> None:
@@ -343,7 +351,7 @@ class CombinedProviderContractTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            output = build_root / "ror-ogre-next-combined-resources"
+            output = build_root / "bin/resources/ogrenext"
             command = [
                 sys.executable,
                 str(stage_script),
@@ -360,6 +368,22 @@ class CombinedProviderContractTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(
                 (output / "ShaderMedia/Test.material").read_bytes(), b"base\n"
+            )
+            completion = json.loads(
+                (output / ".complete.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                completion,
+                {
+                    "schema": "ror.ogre_next_combined_resource_stage.v2",
+                    "manifest_sha256": hashlib.sha256(
+                        manifest.read_bytes()
+                    ).hexdigest(),
+                    "file_count": 2,
+                    "runtime_layout": "resources/ogrenext",
+                    "shader_media_relative": "ShaderMedia",
+                    "presentation_media_relative": "Presentation",
+                },
             )
 
             manifest.write_text(
@@ -518,6 +542,11 @@ class CombinedProviderContractTests(unittest.TestCase):
             'test -x "$stage/RoR-Combined"',
             'test -x "$stage/RunRoR"',
             'test ! -e "$stage/RoR-Ogre14"',
+            'test -d "$stage/resources/ogrenext/ShaderMedia"',
+            'test -d "$stage/resources/ogrenext/Presentation"',
+            "ror.ogre_next_combined_resource_stage.v2",
+            'mv "$build/bin/resources/ogrenext" "$quarantine"',
+            'test ! -e "$build/bin/resources/ogrenext"',
             "ror.ogre_next_combined_elf_closure.v1",
             "ror.ogre_next_combined_linux_package.v1",
             '"renderer": "ogre-next"',
@@ -526,6 +555,9 @@ class CombinedProviderContractTests(unittest.TestCase):
             "--native-visual-showcase",
             '"renderer": "ogre-next-combined"',
             '"presents_frames": True',
+            "grep -Fq '[RoR|RendererCombined|Scene] Snapshot not presented'",
+            "grep -Fq '[RoR|RendererCombined|NativeShowcase|Turntable]'",
+            'echo "Ogre-Next showcase produced no presented-scene receipt"',
             "if: success()",
         ):
             with self.subTest(token=token):

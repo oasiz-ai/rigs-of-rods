@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the exact authenticated build-tree media for RoR-Combined."""
+"""Stage exact authenticated package-relative media for RoR-Combined."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ import tempfile
 
 
 SCHEMA = "ror.ogre_next_combined_resource_manifest.v1"
-COMPLETION_SCHEMA = "ror.ogre_next_combined_resource_stage.v1"
-EXPECTED_OUTPUT_NAME = "ror-ogre-next-combined-resources"
+COMPLETION_SCHEMA = "ror.ogre_next_combined_resource_stage.v2"
+EXPECTED_OUTPUT_RELATIVE = Path("bin/resources/ogrenext")
 
 
 def fail(message: str) -> None:
@@ -67,8 +67,12 @@ def main() -> int:
     regular_direct_file(args.manifest, "resource manifest")
     build_root = args.build_root.resolve(strict=True)
     output = args.output.resolve(strict=False)
-    if output.name != EXPECTED_OUTPUT_NAME or output.parent != build_root:
-        fail("output must be the exact direct child of the configured build root")
+    expected_output = build_root / EXPECTED_OUTPUT_RELATIVE
+    if output != expected_output:
+        fail(
+            "output must be the exact executable-relative media root "
+            f"{expected_output}"
+        )
 
     manifest_bytes = args.manifest.read_bytes()
     try:
@@ -115,6 +119,7 @@ def main() -> int:
             fail(f"resource source bytes changed: {relative_text}")
         validated.append((relative, source, expected_size, expected_sha256))
 
+    output.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=".ror-ogre-next-combined-stage-", dir=build_root))
     backup = build_root / ".ror-ogre-next-combined-resources.previous"
     try:
@@ -130,8 +135,9 @@ def main() -> int:
             "schema": COMPLETION_SCHEMA,
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "file_count": len(validated),
-            "shader_media_root": str(output / "ShaderMedia"),
-            "presentation_media_root": str(output / "Presentation"),
+            "runtime_layout": "resources/ogrenext",
+            "shader_media_relative": "ShaderMedia",
+            "presentation_media_relative": "Presentation",
         }
         (temporary / ".complete.json").write_text(
             json.dumps(completion, indent=2, sort_keys=True) + "\n",

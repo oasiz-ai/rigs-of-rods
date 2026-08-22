@@ -66,8 +66,11 @@
   "reflection_media_manifest_sha256": "@ROR_OGRE_NEXT_REFLECTION_MEDIA_MANIFEST_SHA256@",
   "presentation_media_root": "@ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT@",
   "presentation_media_manifest_sha256": "@ROR_OGRE_NEXT_N1_PRESENTATION_MEDIA_MANIFEST_SHA256@",
+  "runtime_media_layout": "resources/ogrenext",
+  "build_root_runtime_dependency": false,
+  "install_tree_rules_present": true,
   "transport_sources_linked": false,
   "bridge_sources_linked": false,
-  "raw_build_tree_demo": true,
+  "raw_build_tree_demo": false,
   "app_bundle_staged": false
 }

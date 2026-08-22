@@ -957,8 +957,8 @@ configure_file(
     @ONLY)
 
 set(ROR_OGRE_NEXT_COMBINED_RESOURCE_ROOT
-    "${CMAKE_BINARY_DIR}/ror-ogre-next-combined-resources"
-    CACHE INTERNAL "Authenticated build-tree resources for RoR-Combined" FORCE)
+    "${RUNTIME_OUTPUT_DIRECTORY}/resources/ogrenext"
+    CACHE INTERNAL "Authenticated executable-relative resources for RoR-Combined" FORCE)
 set(ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT
     "${ROR_OGRE_NEXT_COMBINED_RESOURCE_ROOT}/ShaderMedia"
     CACHE INTERNAL "Authenticated OgreNext shader media root" FORCE)
@@ -1248,13 +1248,6 @@ target_include_directories(ror_ogre_next_embedded_game_input_target
     PUBLIC "${_ror_system_root}")
 _ror_combined_strict_target(ror_ogre_next_embedded_game_input_target)
 
-add_library(ror_ogre_next_combined_build_paths INTERFACE)
-target_compile_definitions(ror_ogre_next_combined_build_paths INTERFACE
-    "ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT=\"${ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT}\""
-    "ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT=\"${ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT}\"")
-add_dependencies(ror_ogre_next_combined_build_paths
-    ror_ogre_next_combined_resources)
-
 add_library(ror_ogre_next_in_process_presenter STATIC
     "${_ror_system_root}/RendererOgreNextInProcessPresenter.cpp")
 target_compile_definitions(ror_ogre_next_in_process_presenter
@@ -1278,9 +1271,10 @@ target_link_libraries(ror_ogre_next_in_process_presenter
         ror_ogre_next_embedded_direct_contract
         ror_ogre_next_embedded_game_input_target
         ror_ogre_next_embedded_sdl_window_runtime
-        ror_ogre_next_combined_build_paths
         SDL2::SDL2
         Threads::Threads)
+add_dependencies(ror_ogre_next_in_process_presenter
+    ror_ogre_next_combined_resources)
 _ror_combined_strict_target(ror_ogre_next_in_process_presenter)
 ror_ogre_next_enable_embedded_namespace(
     ror_ogre_next_in_process_presenter LANGUAGES CXX)

@@ -574,18 +574,23 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "        // fail-closed on RenderWindow::isHidden()", self.main
         )
 
-    def test_media_provider_pair_and_bundle_fallback_are_fail_closed(self) -> None:
-        self.assertIn(
+    def test_combined_media_is_package_relative_and_fail_closed(self) -> None:
+        self.assertNotIn(
             "ROR_OGRE_NEXT_COMBINED_SHADER_MEDIA_ROOT", self.main
         )
-        self.assertIn(
+        self.assertNotIn(
             "ROR_OGRE_NEXT_COMBINED_PRESENTATION_MEDIA_ROOT", self.main
         )
         self.assertIn(
-            '#error "combined renderer media roots must be defined as an exact pair"',
+            "App::sys_resources_dir->getStr().c_str(),\n"
+            '        "ogrenext"',
             self.main,
         )
-        self.assertIn('"ogrenext"', self.main)
+        self.assertIn('PathCombine(packaged_media_root, "ShaderMedia")', self.main)
+        self.assertIn('PathCombine(packaged_media_root, "Presentation")', self.main)
+        self.assertNotIn(
+            "GetParentDirectory(App::sys_resources_dir", self.main
+        )
         self.assertIn("FolderExists(shader_media_root)", self.main)
         self.assertIn("FolderExists(presentation_media_root)", self.main)
 
