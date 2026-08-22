@@ -4720,6 +4720,22 @@ public:
         native.pbs_datablock->setMetalness(descriptor.metallic_factor);
       }
       native.pbs_datablock->setRoughness(descriptor.roughness_factor);
+      // Foundation F3 census evidence (opt-in, same switch as the scene
+      // census): one bounded line per created native PBS datablock names the
+      // exact roughness the presenter will render. Line volume is bounded by
+      // catalog churn, not frames, matching the Stage 0 stderr precedent.
+      {
+        static const bool roughness_census_enabled =
+            std::getenv("ROR_SCENE_CENSUS") != nullptr;
+        if (roughness_census_enabled) {
+          std::fprintf(stderr,
+                       "[RoR|OgreNext|NativeRoughnessCensus] name=%s "
+                       "roughness=%.3f workflow=%s\n",
+                       native.name.c_str(),
+                       static_cast<double>(descriptor.roughness_factor),
+                       specular_workflow ? "specular" : "metallic");
+        }
+      }
       native.pbs_datablock->setEmissive(
           Ogre::Vector3(descriptor.emissive_factor.x,
                         descriptor.emissive_factor.y,
