@@ -424,6 +424,7 @@ struct OgreNextDemoTextureSourceCounters final {
   std::size_t active_replace_material_projections = 0U;
   std::size_t active_straight_source_over_material_projections = 0U;
   std::size_t active_legacy_straight_alpha_material_projections = 0U;
+  std::size_t active_premultiplied_source_over_material_projections = 0U;
   std::size_t active_alpha_test_disabled_material_projections = 0U;
   std::size_t active_alpha_test_greater_material_projections = 0U;
   std::size_t active_alpha_test_greater_equal_material_projections = 0U;
@@ -806,6 +807,12 @@ NormalizeOgreNextDemoMatteMesh(Render::MeshResourceDescriptor &mesh);
 /// tangent basis for a joined dynamic update. Finite nonzero directions are
 /// normalized; absent, zero, or non-finite directions become +Y. Both output
 /// streams are unchanged on structural failure.
+[[nodiscard]] Render::ValidationResult
+BuildOgreNextDemoMatteNormalTangent(
+    const Render::Float3 &authored_normal,
+    Render::Float3 &sanitized_normal,
+    Render::Float4 &tangent);
+
 [[nodiscard]] Render::ValidationResult
 BuildOgreNextDemoMatteTangents(std::size_t vertex_count,
                                std::vector<Render::Float3> &normals,

@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -3001,6 +3002,16 @@ struct MaterialCache final {
   std::map<std::string, ProjectionDecision, std::less<>> decisions;
   std::map<std::string, GlowOverlayContentVerdict, std::less<>>
       glow_overlay_verdicts;
+  // Apply-derived data is retained only while the structural cache above is
+  // byte-for-byte unchanged.  Authority is deliberately not cached: every
+  // reachable source is revalidated against the current frame immediately
+  // before its retained owners are published.
+  bool retained_publication_valid = false;
+  std::vector<std::string> retained_used_projection_keys;
+  OgreNextDemoCachedProjectionPublicationTransaction retained_publication;
+  bool retained_owner_assets_valid = false;
+  std::vector<Render::GraphicsSceneAssetInput> retained_owner_assets;
+  std::size_t retained_owner_asset_count = 0U;
 };
 
 /// Per-texel discharge of clauses 1 and 3 of the additive-equivalence
@@ -3538,13 +3549,23 @@ bool OgreNextDemoMaterialSource::VerifyAdditiveEquivalentGlowOverlayContent(
   }
 }
 
-void OgreNextDemoMaterialSource::EnsurePendingCacheWritable() {
+void OgreNextDemoMaterialSource::EnsurePendingCachePrivateForDerivedState() {
   if (pending_ == nullptr || !pending_->capture_open || !pending_->cache) {
     throw std::logic_error("material projection has no writable transaction");
   }
   if (!pending_->cache.unique()) {
     pending_->cache = std::make_shared<MaterialCache>(*pending_->cache);
   }
+}
+
+void OgreNextDemoMaterialSource::EnsurePendingCacheWritable() {
+  EnsurePendingCachePrivateForDerivedState();
+  pending_->cache->retained_publication_valid = false;
+  pending_->cache->retained_used_projection_keys.clear();
+  pending_->cache->retained_publication = {};
+  pending_->cache->retained_owner_assets_valid = false;
+  pending_->cache->retained_owner_assets.clear();
+  pending_->cache->retained_owner_asset_count = 0U;
 }
 
 bool OgreNextDemoMaterialSource::TryProjectCurrent(
@@ -5343,13 +5364,16 @@ Render::ValidationResult OgreNextDemoMaterialSource::TryProject(
 }
 
 Render::ValidationResult OgreNextDemoMaterialSource::Apply(
-    std::vector<Render::GraphicsSceneAssetInput> &assets) noexcept {
+    std::vector<Render::GraphicsSceneAssetInput> &assets,
+    OgreNextDemoMaterialApplyTiming *timing) noexcept {
   try {
     if (pending_ == nullptr || !pending_->capture_open) {
       return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                      "ogre_next_demo.material.pending",
                      "material projection has no open capture transaction");
     }
+    OgreNextDemoMaterialApplyTiming candidate_timing;
+    const auto input_index_started = std::chrono::steady_clock::now();
     std::vector<Render::GraphicsSceneAssetInput> candidate = assets;
     std::set<std::uint64_t> asset_ids;
     for (const Render::GraphicsSceneAssetInput &asset : candidate) {
@@ -5360,7 +5384,12 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
                        "input asset IDs are zero or duplicated");
       }
     }
+    candidate_timing.input_index_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - input_index_started)
+            .count());
 
+    const auto publication_plan_started = std::chrono::steady_clock::now();
     std::vector<OgreNextDemoCachedProjectionPublicationInput>
         cached_projection_publications;
     std::vector<OgreNextDemoCachedTexturePublicationInput>
@@ -5368,33 +5397,39 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     std::vector<OgreNextDemoCachedSamplerPublicationInput>
         cached_sampler_publications;
     std::vector<std::string> used_projection_keys;
-    cached_projection_publications.reserve(pending_->cache->projections.size());
-    cached_texture_publications.reserve(pending_->cache->textures.size());
-    cached_sampler_publications.reserve(pending_->cache->samplers.size());
     used_projection_keys.reserve(pending_->used_projections.size());
-    for (const auto &projection : pending_->cache->projections) {
-      OgreNextDemoCachedProjectionPublicationInput input;
-      input.projection_key = projection.first;
-      input.texture_key = projection.second.texture_key;
-      input.sampler_key = projection.second.sampler_key;
-      input.material_source_id = projection.second.material_source_id;
-      cached_projection_publications.push_back(std::move(input));
-    }
-    for (const auto &texture : pending_->cache->textures) {
-      OgreNextDemoCachedTexturePublicationInput input;
-      input.texture_key = texture.first;
-      input.texture_source_id = texture.second.source_id;
-      input.source_mode = texture.second.source;
-      cached_texture_publications.push_back(std::move(input));
-    }
-    for (const auto &sampler : pending_->cache->samplers) {
-      OgreNextDemoCachedSamplerPublicationInput input;
-      input.sampler_key = sampler.first;
-      input.sampler_source_id = sampler.second.source_id;
-      cached_sampler_publications.push_back(std::move(input));
-    }
     used_projection_keys.assign(pending_->used_projections.begin(),
                                 pending_->used_projections.end());
+    const bool retained_publication_available =
+        pending_->cache->retained_publication_valid &&
+        pending_->cache->retained_used_projection_keys == used_projection_keys;
+    if (!retained_publication_available) {
+      cached_projection_publications.reserve(
+          pending_->cache->projections.size());
+      cached_texture_publications.reserve(pending_->cache->textures.size());
+      cached_sampler_publications.reserve(pending_->cache->samplers.size());
+      for (const auto &projection : pending_->cache->projections) {
+        OgreNextDemoCachedProjectionPublicationInput input;
+        input.projection_key = projection.first;
+        input.texture_key = projection.second.texture_key;
+        input.sampler_key = projection.second.sampler_key;
+        input.material_source_id = projection.second.material_source_id;
+        cached_projection_publications.push_back(std::move(input));
+      }
+      for (const auto &texture : pending_->cache->textures) {
+        OgreNextDemoCachedTexturePublicationInput input;
+        input.texture_key = texture.first;
+        input.texture_source_id = texture.second.source_id;
+        input.source_mode = texture.second.source;
+        cached_texture_publications.push_back(std::move(input));
+      }
+      for (const auto &sampler : pending_->cache->samplers) {
+        OgreNextDemoCachedSamplerPublicationInput input;
+        input.sampler_key = sampler.first;
+        input.sampler_source_id = sampler.second.source_id;
+        cached_sampler_publications.push_back(std::move(input));
+      }
+    }
 
     class SourcePublicationBatchValidator final
         : public IOgreNextDemoTexturePublicationBatchValidator {
@@ -5403,12 +5438,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
           State &pending,
           const Render::IOgre14AuthenticatedTextureResolver *resolver,
           const Render::IOgre14AuthenticatedTextureAuthorityProvider *provider,
-          const Render::IOgre14SelectedTextureSourceResolver *ordinary_resolver)
+          const Render::IOgre14SelectedTextureSourceResolver *ordinary_resolver,
+          std::uint64_t &authority_validation_ns)
           : pending_(pending), resolver_(resolver), provider_(provider),
-            ordinary_resolver_(ordinary_resolver) {}
+            ordinary_resolver_(ordinary_resolver),
+            authority_validation_ns_(authority_validation_ns) {}
 
       Render::ValidationResult ValidateReachableAuthenticatedTextureBatch(
           const std::vector<std::string> &texture_keys) override {
+        AuthorityTimer timer(authority_validation_ns_);
         if (texture_keys.empty()) {
           return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                          "authenticated.batch",
@@ -5487,6 +5525,7 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
 
       Render::ValidationResult ValidateReachableOrdinaryTextureBatch(
           const std::vector<std::string> &texture_keys) override {
+        AuthorityTimer timer(authority_validation_ns_);
         if (texture_keys.empty()) {
           return Failure(Render::ValidationCode::SEQUENCE_MISMATCH,
                          "ordinary.batch",
@@ -5552,21 +5591,86 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       }
 
     private:
+      class AuthorityTimer final {
+      public:
+        explicit AuthorityTimer(std::uint64_t &total) noexcept
+            : total_(total), started_(std::chrono::steady_clock::now()) {}
+        ~AuthorityTimer() {
+          const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                   std::chrono::steady_clock::now() - started_)
+                                   .count();
+          if (elapsed <= 0) {
+            return;
+          }
+          const std::uint64_t value = static_cast<std::uint64_t>(elapsed);
+          total_ = value > (std::numeric_limits<std::uint64_t>::max)() - total_
+                       ? (std::numeric_limits<std::uint64_t>::max)()
+                       : total_ + value;
+        }
+
+      private:
+        std::uint64_t &total_;
+        std::chrono::steady_clock::time_point started_;
+      };
+
       State &pending_;
       const Render::IOgre14AuthenticatedTextureResolver *resolver_;
       const Render::IOgre14AuthenticatedTextureAuthorityProvider *provider_;
       const Render::IOgre14SelectedTextureSourceResolver *ordinary_resolver_;
+      std::uint64_t &authority_validation_ns_;
     } batch_validator(*pending_, texture_resolver_, texture_authority_provider_,
-                      ordinary_texture_source_resolver_);
+                      ordinary_texture_source_resolver_,
+                      candidate_timing.authority_validation_ns);
 
     OgreNextDemoCachedProjectionPublicationTransaction publication_transaction;
     Render::ValidationResult publication_validation =
-        BuildOgreNextDemoCachedProjectionPublicationTransaction(
-            cached_projection_publications, cached_texture_publications,
-            cached_sampler_publications, used_projection_keys, batch_validator,
-            publication_transaction);
+        Render::ValidationResult::Success();
+    if (retained_publication_available) {
+      publication_transaction = pending_->cache->retained_publication;
+      if (!publication_transaction.authenticated_texture_keys.empty()) {
+        publication_validation =
+            batch_validator.ValidateReachableAuthenticatedTextureBatch(
+                publication_transaction.authenticated_texture_keys);
+      }
+      if (publication_validation &&
+          !publication_transaction.ordinary_texture_keys.empty()) {
+        publication_validation =
+            batch_validator.ValidateReachableOrdinaryTextureBatch(
+                publication_transaction.ordinary_texture_keys);
+      }
+      if (!publication_validation) {
+        publication_validation.field =
+            "ogre_next_demo.material.publication." +
+            publication_validation.field;
+      }
+      candidate_timing.retained_authority_plan_reused =
+          static_cast<bool>(publication_validation);
+    } else {
+      publication_validation =
+          BuildOgreNextDemoCachedProjectionPublicationTransaction(
+              cached_projection_publications, cached_texture_publications,
+              cached_sampler_publications, used_projection_keys,
+              batch_validator, publication_transaction);
+    }
     if (!publication_validation) {
       return publication_validation;
+    }
+    const std::uint64_t publication_total_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - publication_plan_started)
+            .count());
+    candidate_timing.publication_plan_ns =
+        publication_total_ns > candidate_timing.authority_validation_ns
+            ? publication_total_ns - candidate_timing.authority_validation_ns
+            : 0U;
+    if (!retained_publication_available) {
+      EnsurePendingCachePrivateForDerivedState();
+      pending_->cache->retained_used_projection_keys = used_projection_keys;
+      pending_->cache->retained_publication = publication_transaction;
+      pending_->cache->retained_publication_valid = true;
+      pending_->cache->retained_owner_assets_valid = false;
+      pending_->cache->retained_owner_assets.clear();
+      pending_->cache->retained_owner_asset_count = 0U;
     }
 
     const auto append_dependency =
@@ -5596,6 +5700,52 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       }
       return Render::ValidationResult::Success();
     };
+    const auto append_projected_material =
+        [&](const Projection &projection,
+            const Render::GraphicsSceneAssetInput &projected_material)
+        -> Render::ValidationResult {
+      auto material = std::find_if(
+          candidate.begin(), candidate.end(), [&](const auto &asset) {
+            return asset.source_asset_id == projection.material_source_id;
+          });
+      if (material == candidate.end()) {
+        if (!asset_ids.insert(projected_material.source_asset_id).second) {
+          return Failure(
+              Render::ValidationCode::DUPLICATE_IDENTIFIER,
+              "ogre_next_demo.material.material_collision",
+              "projected material ID is occupied without an input asset");
+        }
+        candidate.push_back(projected_material);
+        return Render::ValidationResult::Success();
+      }
+      if (!material->payload || !projection.placeholder_payload ||
+          !projection.material_payload ||
+          material->payload->valueless_by_exception() ||
+          Render::RenderAssetPayloadKind(*material->payload) !=
+              Render::RenderAssetKind::MATERIAL) {
+        return Failure(
+            Render::ValidationCode::DUPLICATE_IDENTIFIER,
+            "ogre_next_demo.material.material_collision",
+            "projected material ID collides with a nonmaterial asset");
+      }
+      const bool exact_placeholder =
+          Render::EquivalentRenderAssetPayload(*material->payload,
+                                               *projection.placeholder_payload) &&
+          material->material_bindings ==
+              Render::GraphicsSceneAssetInput{}.material_bindings;
+      const bool exact_projected =
+          Render::EquivalentRenderAssetPayload(*material->payload,
+                                               *projection.material_payload) &&
+          material->material_bindings == projected_material.material_bindings;
+      if (!exact_placeholder && !exact_projected) {
+        return Failure(
+            Render::ValidationCode::DUPLICATE_IDENTIFIER,
+            "ogre_next_demo.material.material_collision",
+            "projected material ID collides with a different material");
+      }
+      *material = projected_material;
+      return Render::ValidationResult::Success();
+    };
 
     // Dynamic inventory tombstones retain their immutable material owner. Keep
     // every already-published projection and dependency alive for the entire
@@ -5609,6 +5759,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     // reload may revoke an unused owner, but any later reachability attempt
     // must first fresh-resolve the exact immutable receipt and will fail closed
     // below.
+    const auto owner_publication_started = std::chrono::steady_clock::now();
+    const std::uint64_t authority_before_owner =
+        candidate_timing.authority_validation_ns;
+    const bool retained_owner_assets_available =
+        candidate_timing.retained_authority_plan_reused &&
+        pending_->cache->retained_owner_assets_valid;
+    candidate_timing.retained_owner_publication_reused =
+        retained_owner_assets_available;
+    std::set<std::uint64_t> retained_owner_asset_ids;
     for (const OgreNextDemoCachedProjectionPublicationOwner &owner :
          publication_transaction.owner_catalog) {
       const auto projection =
@@ -5628,6 +5787,9 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
                        "ogre_next_demo.material.dependencies",
                        "projected texture or sampler disappeared");
       }
+      retained_owner_asset_ids.insert(owner.material_source_id);
+      retained_owner_asset_ids.insert(owner.texture_source_id);
+      retained_owner_asset_ids.insert(owner.sampler_source_id);
       const auto specular_texture =
           projection->second.managed_specular_texture_key.empty()
               ? pending_->cache->managed_specular_textures.end()
@@ -5641,6 +5803,7 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       const bool projection_reachable =
           pending_->used_projections.find(owner.projection_key) !=
           pending_->used_projections.end();
+      const auto owner_authority_started = std::chrono::steady_clock::now();
       if (projection_reachable && projection->second.curated_cityworld &&
           (material_script_resolver_ == nullptr ||
            texture_resolver_ == nullptr ||
@@ -5653,7 +5816,8 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             "ogre_next_demo.material.curated_cityworld.final_authority",
             "reviewed CityWorld declaration, TUS2 pending environment, or texture authority changed before publication");
       }
-      if (projection->second.managed_binding.initialized() &&
+      if (projection_reachable &&
+          projection->second.managed_binding.initialized() &&
           (texture_resolver_ == nullptr ||
            ordinary_texture_source_resolver_ == nullptr ||
            !projection->second.managed_binding.Revalidate(
@@ -5670,6 +5834,19 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             "ogre_next_demo.material.managed.final_authority",
             "managed diffuse/specular source authority changed before publication");
       }
+      candidate_timing.authority_validation_ns +=
+          static_cast<std::uint64_t>(
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  std::chrono::steady_clock::now() - owner_authority_started)
+                  .count());
+      if (specular_texture !=
+          pending_->cache->managed_specular_textures.end()) {
+        retained_owner_asset_ids.insert(specular_texture->second.source_id);
+        retained_owner_asset_ids.insert(specular_sampler->second.source_id);
+      }
+      if (retained_owner_assets_available) {
+        continue;
+      }
       Render::GraphicsSceneAssetInput projected_material;
       projected_material.source_asset_id =
           projection->second.material_source_id;
@@ -5684,51 +5861,15 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             specular_texture->second.source_id,
             specular_sampler->second.source_id};
       }
-      auto material = std::find_if(
-          candidate.begin(), candidate.end(), [&](const auto &asset) {
-            return asset.source_asset_id ==
-                   projection->second.material_source_id;
-          });
-      if (material == candidate.end()) {
-        if (!asset_ids.insert(projected_material.source_asset_id).second) {
-          return Failure(
-              Render::ValidationCode::DUPLICATE_IDENTIFIER,
-              "ogre_next_demo.material.material_collision",
-              "projected material ID is occupied without an input asset");
-        }
-        candidate.push_back(std::move(projected_material));
-      } else {
-        if (!material->payload || !projection->second.placeholder_payload ||
-            !projection->second.material_payload ||
-            material->payload->valueless_by_exception() ||
-            Render::RenderAssetPayloadKind(*material->payload) !=
-                Render::RenderAssetKind::MATERIAL) {
-          return Failure(
-              Render::ValidationCode::DUPLICATE_IDENTIFIER,
-              "ogre_next_demo.material.material_collision",
-              "projected material ID collides with a nonmaterial asset");
-        }
-        const bool exact_placeholder =
-            Render::EquivalentRenderAssetPayload(
-                *material->payload, *projection->second.placeholder_payload) &&
-            material->material_bindings ==
-                Render::GraphicsSceneAssetInput{}.material_bindings;
-        const bool exact_projected =
-            Render::EquivalentRenderAssetPayload(
-                *material->payload, *projection->second.material_payload) &&
-            material->material_bindings == projected_material.material_bindings;
-        if (!exact_placeholder && !exact_projected) {
-          return Failure(
-              Render::ValidationCode::DUPLICATE_IDENTIFIER,
-              "ogre_next_demo.material.material_collision",
-              "projected material ID collides with a different material");
-        }
-        *material = std::move(projected_material);
+      Render::ValidationResult validation = append_projected_material(
+          projection->second, projected_material);
+      if (!validation) {
+        return validation;
       }
 
-      Render::ValidationResult validation =
-          append_dependency(texture->second.source_id, texture->second.payload,
-                            "ogre_next_demo.material.texture_collision");
+      validation = append_dependency(
+          texture->second.source_id, texture->second.payload,
+          "ogre_next_demo.material.texture_collision");
       if (!validation) {
         return validation;
       }
@@ -5756,6 +5897,52 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
         }
       }
     }
+    if (retained_owner_assets_available) {
+      for (const Render::GraphicsSceneAssetInput &asset :
+           pending_->cache->retained_owner_assets) {
+        const auto projection = std::find_if(
+            pending_->cache->projections.begin(),
+            pending_->cache->projections.end(), [&](const auto &entry) {
+              return entry.second.material_source_id == asset.source_asset_id;
+            });
+        Render::ValidationResult validation =
+            projection != pending_->cache->projections.end()
+                ? append_projected_material(projection->second, asset)
+                : append_dependency(asset.source_asset_id, asset.payload,
+                                    "ogre_next_demo.material.retained_owner_collision");
+        if (!validation) {
+          return validation;
+        }
+      }
+      candidate_timing.retained_owner_asset_count =
+          pending_->cache->retained_owner_asset_count;
+    } else {
+      EnsurePendingCachePrivateForDerivedState();
+      pending_->cache->retained_owner_assets.clear();
+      pending_->cache->retained_owner_assets.reserve(
+          retained_owner_asset_ids.size());
+      for (const Render::GraphicsSceneAssetInput &asset : candidate) {
+        if (retained_owner_asset_ids.find(asset.source_asset_id) !=
+            retained_owner_asset_ids.end()) {
+          pending_->cache->retained_owner_assets.push_back(asset);
+        }
+      }
+      pending_->cache->retained_owner_asset_count =
+          retained_owner_asset_ids.size();
+      pending_->cache->retained_owner_assets_valid = true;
+      candidate_timing.retained_owner_asset_count =
+          retained_owner_asset_ids.size();
+    }
+    const std::uint64_t owner_total_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - owner_publication_started)
+            .count());
+    const std::uint64_t owner_authority_ns =
+        candidate_timing.authority_validation_ns - authority_before_owner;
+    candidate_timing.owner_publication_ns =
+        owner_total_ns > owner_authority_ns ? owner_total_ns - owner_authority_ns
+                                             : 0U;
+    const auto accounting_and_sort_started = std::chrono::steady_clock::now();
     if (pending_->counters.gpu_readbacks != 0U ||
         pending_->counters.authenticated_gpu_readbacks != 0U ||
         pending_->counters.unauthenticated_gpu_readbacks != 0U) {
@@ -5776,6 +5963,13 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
                 return first.source_asset_id < second.source_asset_id;
               });
     assets = std::move(candidate);
+    candidate_timing.accounting_and_sort_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - accounting_and_sort_started)
+            .count());
+    if (timing != nullptr) {
+      *timing = candidate_timing;
+    }
     return Render::ValidationResult::Success();
   } catch (const std::bad_alloc &) {
     return Failure(Render::ValidationCode::EMPTY_PAYLOAD,
@@ -5832,6 +6026,9 @@ OgreNextDemoMaterialSource::CurrentCaptureCounters() const noexcept {
       break;
     case Render::MaterialBlendMode::LEGACY_STRAIGHT_ALPHA:
       ++counters.active_legacy_straight_alpha_material_projections;
+      break;
+    case Render::MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER:
+      ++counters.active_premultiplied_source_over_material_projections;
       break;
     }
     switch (material->alpha_test_mode) {

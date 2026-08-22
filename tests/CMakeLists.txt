@@ -1870,17 +1870,6 @@ if (ROR_OGRE14 AND TARGET RoR)
         ror_ogre_next_demo_material_source_native_tests
         PRIVATE ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1
     )
-    # The protected renderer lane already carries the explicit
-    # PREMULTIPLIED_SOURCE_OVER counter case. Until that staged lane lands as
-    # one reviewed change, GCC 11 must keep reporting (but not promote) the
-    # otherwise behavior-neutral exhaustive-switch warning in this test-only
-    # compilation of the source.
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(
-            ror_ogre_next_demo_material_source_native_tests
-            PRIVATE -Wno-error=switch
-        )
-    endif ()
     if (TARGET OgreMain)
         target_link_libraries(
             ror_ogre_next_demo_material_source_native_tests

@@ -17,6 +17,7 @@
 #include <OgreMaterial.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -49,6 +50,20 @@ struct OgreNextDemoCuratedCityWorldCoverage final {
   std::size_t matte_entries = 0U;
   std::size_t environment_pending_entries = 0U;
   std::size_t uncurated_spherical_family_matte_materials = 0U;
+};
+
+/// Disjoint CPU spans inside one successful Apply transaction. The caller
+/// receives this value only after the replacement assets commit; a failed
+/// Apply leaves its output untouched just like the asset vector itself.
+struct OgreNextDemoMaterialApplyTiming final {
+  std::uint64_t input_index_ns = 0U;
+  std::uint64_t publication_plan_ns = 0U;
+  std::uint64_t authority_validation_ns = 0U;
+  std::uint64_t owner_publication_ns = 0U;
+  std::uint64_t accounting_and_sort_ns = 0U;
+  std::uint64_t retained_owner_asset_count = 0U;
+  bool retained_authority_plan_reused = false;
+  bool retained_owner_publication_reused = false;
 };
 
 /// Performance-first private bridge for the playable OgreNext demo. It is not
@@ -126,7 +141,8 @@ public:
   /// Replaces matching synthetic matte material assets and appends their
   /// immutable texture/sampler owners. Input is unchanged on failure.
   [[nodiscard]] Render::ValidationResult
-  Apply(std::vector<Render::GraphicsSceneAssetInput> &assets) noexcept;
+  Apply(std::vector<Render::GraphicsSceneAssetInput> &assets,
+        OgreNextDemoMaterialApplyTiming *timing = nullptr) noexcept;
 
   [[nodiscard]] std::size_t NewProjectionCount() const noexcept;
   [[nodiscard]] std::size_t UsedProjectionCount() const noexcept;
@@ -161,6 +177,7 @@ public:
   void Reset() noexcept;
 
 private:
+  void EnsurePendingCachePrivateForDerivedState();
   void EnsurePendingCacheWritable();
 
   /// Discharges the authored-texel clause of

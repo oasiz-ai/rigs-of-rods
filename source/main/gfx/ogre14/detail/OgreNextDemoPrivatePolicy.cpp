@@ -262,8 +262,11 @@ bool HasConsistentMaterialDenominators(
   const std::size_t blend_partition = SaturatingAdd(
       counters.active_replace_material_projections,
       SaturatingAdd(counters.active_straight_source_over_material_projections,
-                    counters
-                        .active_legacy_straight_alpha_material_projections));
+                    SaturatingAdd(
+                        counters
+                            .active_legacy_straight_alpha_material_projections,
+                        counters
+                            .active_premultiplied_source_over_material_projections)));
   const std::size_t alpha_test_partition = SaturatingAdd(
       counters.active_alpha_test_disabled_material_projections,
       SaturatingAdd(counters.active_alpha_test_greater_material_projections,
@@ -842,6 +845,10 @@ Render::ValidationResult AccumulateOgreNextDemoTextureSourceCounters(
   candidate.active_legacy_straight_alpha_material_projections = SaturatingAdd(
       candidate.active_legacy_straight_alpha_material_projections,
       increment.active_legacy_straight_alpha_material_projections);
+  candidate.active_premultiplied_source_over_material_projections =
+      SaturatingAdd(
+          candidate.active_premultiplied_source_over_material_projections,
+          increment.active_premultiplied_source_over_material_projections);
   candidate.active_alpha_test_disabled_material_projections = SaturatingAdd(
       candidate.active_alpha_test_disabled_material_projections,
       increment.active_alpha_test_disabled_material_projections);
