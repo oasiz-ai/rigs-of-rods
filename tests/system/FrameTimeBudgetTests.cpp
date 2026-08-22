@@ -500,6 +500,74 @@ void TestPhaseAttribution()
     CHECK(malformed.Finalize().phases[producer].samples == 0U);
 }
 
+/// The combined-runtime workload gate ranks the renderer-owned Ogre-Next HDR
+/// scene pass for every accepted frame. Missing, duplicate, or inexact
+/// compositor receipts cannot be replaced with hidden producer counters.
+void TestNativeSceneDrawSubmissionGate()
+{
+    RoR::FrameTimeBudgetContext context = DefaultContext();
+    context.renderer = "ogre-next-combined";
+    context.requires_native_scene_draw_metrics = true;
+
+    {
+        RoR::FrameTimeBudgetSession session(
+            RoR::FrameTimeBudgetMode::GATE, DefaultLimits(), context);
+        for (int frame = 0; frame < 1000; ++frame)
+        {
+            CHECK(session.RecordFrame(0.008));
+            session.RecordNativeSceneDrawSubmissions(
+                frame < 990 ? 934U : 2400U, true);
+        }
+        const RoR::FrameTimeBudgetReport report = session.Finalize();
+        CHECK(report.verdict == RoR::FrameTimeBudgetVerdict::PASS);
+        CHECK(report.native_scene_draws.exact_samples == 1000U);
+        CHECK(report.native_scene_draws.rejected_samples == 0U);
+        CHECK(report.native_scene_draws.p99 == 934U);
+        CHECK(report.native_scene_draws.maximum == 2400U);
+    }
+
+    {
+        RoR::FrameTimeBudgetSession missing(
+            RoR::FrameTimeBudgetMode::GATE, DefaultLimits(), context);
+        for (int frame = 0; frame < 10; ++frame)
+        {
+            CHECK(missing.RecordFrame(0.008));
+            if (frame != 9)
+                missing.RecordNativeSceneDrawSubmissions(934U, true);
+        }
+        CHECK(missing.Finalize().verdict ==
+            RoR::FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_METRICS);
+    }
+
+    {
+        RoR::FrameTimeBudgetSession duplicate(
+            RoR::FrameTimeBudgetMode::GATE, DefaultLimits(), context);
+        for (int frame = 0; frame < 10; ++frame)
+        {
+            CHECK(duplicate.RecordFrame(0.008));
+            duplicate.RecordNativeSceneDrawSubmissions(934U, true);
+        }
+        duplicate.RecordNativeSceneDrawSubmissions(934U, true);
+        CHECK(duplicate.Finalize().verdict ==
+            RoR::FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_METRICS);
+    }
+
+    {
+        RoR::FrameTimeBudgetSession over(
+            RoR::FrameTimeBudgetMode::GATE, DefaultLimits(), context);
+        for (int frame = 0; frame < 1000; ++frame)
+        {
+            CHECK(over.RecordFrame(0.008));
+            over.RecordNativeSceneDrawSubmissions(
+                frame < 989 ? 934U : 3000U, true);
+        }
+        const RoR::FrameTimeBudgetReport report = over.Finalize();
+        CHECK(report.native_scene_draws.p99 == 3000U);
+        CHECK(report.verdict ==
+            RoR::FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_BUDGET);
+    }
+}
+
 /// Finalize is pure: repeated calls return the same report.
 void TestFinalizeIsRepeatable()
 {
@@ -623,6 +691,7 @@ int main(int argc, char** argv)
     TestSaturatingBin();
     TestSceneIdentityIsObservedAndPinned();
     TestPhaseAttribution();
+    TestNativeSceneDrawSubmissionGate();
     TestNonPresentingLoopFailsClosed();
     TestFinalizeIsRepeatable();
     TestModeParsing();
