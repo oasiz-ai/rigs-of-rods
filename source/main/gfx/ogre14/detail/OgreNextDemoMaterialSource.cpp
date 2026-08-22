@@ -5375,10 +5375,11 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
     OgreNextDemoMaterialApplyTiming candidate_timing;
     const auto input_index_started = std::chrono::steady_clock::now();
     std::vector<Render::GraphicsSceneAssetInput> candidate = assets;
-    std::set<std::uint64_t> asset_ids;
-    for (const Render::GraphicsSceneAssetInput &asset : candidate) {
+    std::map<std::uint64_t, std::size_t> asset_indices;
+    for (std::size_t index = 0U; index < candidate.size(); ++index) {
+      const Render::GraphicsSceneAssetInput &asset = candidate[index];
       if (asset.source_asset_id == 0U ||
-          !asset_ids.insert(asset.source_asset_id).second) {
+          !asset_indices.emplace(asset.source_asset_id, index).second) {
         return Failure(Render::ValidationCode::DUPLICATE_IDENTIFIER,
                        "ogre_next_demo.material.assets",
                        "input asset IDs are zero or duplicated");
@@ -5680,20 +5681,19 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
       Render::GraphicsSceneAssetInput dependency;
       dependency.source_asset_id = source_asset_id;
       dependency.payload = payload;
-      if (asset_ids.insert(source_asset_id).second) {
+      const auto existing_index = asset_indices.find(source_asset_id);
+      if (existing_index == asset_indices.end()) {
+        asset_indices.emplace(source_asset_id, candidate.size());
         candidate.push_back(std::move(dependency));
         return Render::ValidationResult::Success();
       }
-      const auto existing =
-          std::find_if(candidate.begin(), candidate.end(),
-                       [source_asset_id](const auto &asset) {
-                         return asset.source_asset_id == source_asset_id;
-                       });
-      if (existing == candidate.end() || !existing->payload || !payload ||
-          existing->payload->valueless_by_exception() ||
+      Render::GraphicsSceneAssetInput &existing =
+          candidate[existing_index->second];
+      if (!existing.payload || !payload ||
+          existing.payload->valueless_by_exception() ||
           payload->valueless_by_exception() ||
-          !Render::EquivalentRenderAssetPayload(*existing->payload, *payload) ||
-          existing->material_bindings != dependency.material_bindings) {
+          !Render::EquivalentRenderAssetPayload(*existing.payload, *payload) ||
+          existing.material_bindings != dependency.material_bindings) {
         return Failure(
             Render::ValidationCode::DUPLICATE_IDENTIFIER, field,
             "projected dependency ID collides with a different input asset");
@@ -5704,24 +5704,20 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
         [&](const Projection &projection,
             const Render::GraphicsSceneAssetInput &projected_material)
         -> Render::ValidationResult {
-      auto material = std::find_if(
-          candidate.begin(), candidate.end(), [&](const auto &asset) {
-            return asset.source_asset_id == projection.material_source_id;
-          });
-      if (material == candidate.end()) {
-        if (!asset_ids.insert(projected_material.source_asset_id).second) {
-          return Failure(
-              Render::ValidationCode::DUPLICATE_IDENTIFIER,
-              "ogre_next_demo.material.material_collision",
-              "projected material ID is occupied without an input asset");
-        }
+      const auto material_index =
+          asset_indices.find(projection.material_source_id);
+      if (material_index == asset_indices.end()) {
+        asset_indices.emplace(projected_material.source_asset_id,
+                              candidate.size());
         candidate.push_back(projected_material);
         return Render::ValidationResult::Success();
       }
-      if (!material->payload || !projection.placeholder_payload ||
+      Render::GraphicsSceneAssetInput &material =
+          candidate[material_index->second];
+      if (!material.payload || !projection.placeholder_payload ||
           !projection.material_payload ||
-          material->payload->valueless_by_exception() ||
-          Render::RenderAssetPayloadKind(*material->payload) !=
+          material.payload->valueless_by_exception() ||
+          Render::RenderAssetPayloadKind(*material.payload) !=
               Render::RenderAssetKind::MATERIAL) {
         return Failure(
             Render::ValidationCode::DUPLICATE_IDENTIFIER,
@@ -5729,21 +5725,21 @@ Render::ValidationResult OgreNextDemoMaterialSource::Apply(
             "projected material ID collides with a nonmaterial asset");
       }
       const bool exact_placeholder =
-          Render::EquivalentRenderAssetPayload(*material->payload,
+          Render::EquivalentRenderAssetPayload(*material.payload,
                                                *projection.placeholder_payload) &&
-          material->material_bindings ==
+          material.material_bindings ==
               Render::GraphicsSceneAssetInput{}.material_bindings;
       const bool exact_projected =
-          Render::EquivalentRenderAssetPayload(*material->payload,
+          Render::EquivalentRenderAssetPayload(*material.payload,
                                                *projection.material_payload) &&
-          material->material_bindings == projected_material.material_bindings;
+          material.material_bindings == projected_material.material_bindings;
       if (!exact_placeholder && !exact_projected) {
         return Failure(
             Render::ValidationCode::DUPLICATE_IDENTIFIER,
             "ogre_next_demo.material.material_collision",
             "projected material ID collides with a different material");
       }
-      *material = projected_material;
+      material = projected_material;
       return Render::ValidationResult::Success();
     };
 
