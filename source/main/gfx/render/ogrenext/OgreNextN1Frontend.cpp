@@ -86,6 +86,11 @@
 #include "Vao/OgreVertexBufferPacked.h"
 #include "Vao/OgreIndexBufferPacked.h"
 
+// Renderer-neutral: declares only the tier enum and opaque-handle entry
+// points. The implementation exists solely in the Apple ObjC++ target, so
+// every call below stays under ROR_OGRE_NEXT_N1_METAL.
+#include "OgreNextMetalFxUpscaler.h"
+
 #if defined(ROR_OGRE_NEXT_N1_METAL)
 #include "OgreMetalPlugin.h"
 using N1RendererPlugin = Ogre::MetalPlugin;
@@ -172,6 +177,41 @@ bool OgreNextTemporalAaRequested() noexcept {
     return !(value == "off" || value == "0" || value == "false");
   }();
   return enabled;
+}
+
+/// Stage 5 second deliverable. MetalFX temporal upscaling reuses the exact
+/// jitter and motion-vector groundwork TAA established, but MTLFXTemporalScaler
+/// performs the temporal accumulation itself, so it REPLACES the RoR resolve
+/// rather than stacking with it. NATIVE keeps the RoR resolve and renders at
+/// the output resolution; the upscaling tiers render the scene, its depth, and
+/// its motion vectors at a reduced internal extent and resolve to the output
+/// extent. Non-Apple builds have no scaler and always report NATIVE.
+[[nodiscard]] OgreNextMetalFxTier OgreNextMetalFxTierRequest() noexcept {
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+  // The scaler consumes jitter and motion vectors, so it is inseparable from
+  // the temporal foundation: ROR_TAA=off also disables upscaling.
+  if (!OgreNextTemporalAaRequested()) {
+    return OgreNextMetalFxTier::NATIVE;
+  }
+  return OgreNextMetalFxRequestedTier();
+#else
+  return OgreNextMetalFxTier::NATIVE;
+#endif
+}
+
+/// Per-axis internal render scale for the active tier, exactly 1 for NATIVE.
+[[nodiscard]] float OgreNextMetalFxRenderScale() noexcept {
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+  return OgreNextMetalFxTierScale(OgreNextMetalFxTierRequest());
+#else
+  return 1.0F;
+#endif
+}
+
+/// True when the compositor must be built in upscaling topology: motion
+/// vectors only, a UAV output at the full extent, and no RoR history.
+[[nodiscard]] bool OgreNextMetalFxUpscalingRequested() noexcept {
+  return OgreNextMetalFxTierRequest() != OgreNextMetalFxTier::NATIVE;
 }
 
 /// Stage 0 item 7 evidence: every blocking waitForStreamingCompletion() in
@@ -2129,6 +2169,9 @@ constexpr std::uint32_t kOgreNextHdrSunFullScenePassIdentifier = 0x524f5202U;
 constexpr std::uint32_t kOgreNextHdrRasterLitScenePassIdentifier = 0x524f5203U;
 constexpr std::uint32_t kOgreNextHdrSingleScenePassIdentifier = 0x524f5204U;
 constexpr std::uint32_t kOgreNextThinSlabScenePassIdentifier = 0x524f5205U;
+/// Marks the motion-vector quad of the MetalFX upscaling topology. The
+/// workspace listener encodes MTLFXTemporalScaler immediately after this pass.
+constexpr std::uint32_t kOgreNextMetalFxEncodePassIdentifier = 0x524f5206U;
 // RT4 reserves bits 28-29 from authored geometry. The node keeps bit 29 out of
 // Base as an explicit topology invariant, but the pinned PBS global
 // directional-light path does not honor per-pass light masks. The listener
@@ -2695,6 +2738,9 @@ void CreateAndVerifyAerialHazeNode(Ogre::CompositorManager2 &compositors) {
   output->textureType = Ogre::TextureTypes::Type2D;
   output->width = 0U;
   output->height = 0U;
+  // Haze runs on the scene image, so it stays at the internal render extent.
+  output->widthFactor = OgreNextMetalFxRenderScale();
+  output->heightFactor = OgreNextMetalFxRenderScale();
   output->depthOrSlices = 1U;
   output->numMipmaps = 1U;
   // Same format as the input so the shader's sky / zero-haze early-out is a
@@ -2792,24 +2838,37 @@ void CreateAndVerifyTemporalAaNode(Ogre::CompositorManager2 &compositors) {
   node->addTextureSourceName(kOgreNextTaaDepthInput, 1U,
                              Ogre::TextureDefinitionBase::TEXTURE_INPUT);
 
-  node->setNumLocalTextureDefinitions(6U);
+  // MetalFX owns temporal accumulation, so the upscaling topology keeps only
+  // the motion-vector target (at the internal extent) and a UAV resolve target
+  // at the full output extent. The RoR history, previous-depth, reactive, and
+  // copy machinery exists solely for the NATIVE tier.
+  const bool upscaling = OgreNextMetalFxUpscalingRequested();
+  const float render_scale = OgreNextMetalFxRenderScale();
+  node->setNumLocalTextureDefinitions(upscaling ? 3U : 6U);
   const auto add_local = [&](const char *name,
                              Ogre::PixelFormatGpu format,
-                             bool persistent) {
+                             bool persistent, float scale = -1.0F,
+                             bool unordered_access = false) {
     Ogre::TextureDefinitionBase::TextureDefinition *texture =
         node->addTextureDefinition(name);
     texture->textureType = Ogre::TextureTypes::Type2D;
     texture->width = 0U;
     texture->height = 0U;
+    const float applied = scale > 0.0F ? scale : render_scale;
+    texture->widthFactor = applied;
+    texture->heightFactor = applied;
     texture->depthOrSlices = 1U;
     texture->numMipmaps = 1U;
     texture->format = format;
     texture->fsaa = "1";
     // History, previous-depth, and reactive content must survive across
-    // frames: no DiscardableContent on the persistent set.
+    // frames: no DiscardableContent on the persistent set. MetalFX writes its
+    // output through a compute encoder, which Ogre only exposes as
+    // MTLTextureUsageShaderWrite when the texture is declared a UAV.
     texture->textureFlags =
         Ogre::TextureFlags::RenderToTexture |
-        (persistent ? 0U : Ogre::TextureFlags::DiscardableContent);
+        (persistent ? 0U : Ogre::TextureFlags::DiscardableContent) |
+        (unordered_access ? Ogre::TextureFlags::Uav : 0U);
     texture->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
     Ogre::RenderTargetViewDef *view = node->addRenderTextureView(name);
     Ogre::RenderTargetViewEntry colour;
@@ -2817,6 +2876,72 @@ void CreateAndVerifyTemporalAaNode(Ogre::CompositorManager2 &compositors) {
     view->colourAttachments.push_back(colour);
     view->depthBufferId = Ogre::DepthBuffer::POOL_NO_DEPTH;
   };
+  if (upscaling) {
+    add_local(kOgreNextTaaMotionTexture, Ogre::PFG_RG16_FLOAT, false);
+    // MTLFXTemporalScaler's reactive mask carries exactly the RoR resolve's
+    // semantics - 0 keeps the scaler's normal history behaviour, 1 rejects
+    // history for that pixel - so the same all-zero target stays wired as the
+    // per-pixel hook a later vehicle-mask tier fills in.
+    add_local(kOgreNextTaaReactiveTexture, Ogre::PFG_R32_FLOAT, true);
+    add_local(kOgreNextTaaOutputTexture, Ogre::PFG_RGBA16_FLOAT, true, 1.0F,
+              true);
+    node->setNumTargetPass(2U);
+    Ogre::CompositorTargetDef *upscale_reactive_target =
+        node->addTargetPass(kOgreNextTaaReactiveTexture);
+    upscale_reactive_target->setNumPasses(1U);
+    auto *upscale_reactive_clear = static_cast<Ogre::CompositorPassClearDef *>(
+        upscale_reactive_target->addPass(Ogre::PASS_CLEAR));
+    upscale_reactive_clear->mNumInitialPasses = 1U;
+    upscale_reactive_clear->setBuffersToClear(
+        Ogre::RenderPassDescriptor::Colour0);
+    upscale_reactive_clear->setAllClearColours(
+        Ogre::ColourValue(0.0F, 0.0F, 0.0F, 0.0F));
+    Ogre::CompositorTargetDef *motion_target =
+        node->addTargetPass(kOgreNextTaaMotionTexture);
+    motion_target->setNumPasses(1U);
+    auto *motion = static_cast<Ogre::CompositorPassQuadDef *>(
+        motion_target->addPass(Ogre::PASS_QUAD));
+    motion->mMaterialIsHlms = false;
+    motion->mMaterialName = kOgreNextTaaMotionMaterial;
+    motion->mUseQuad = false;
+    motion->addQuadTextureSource(0U, kOgreNextTaaDepthInput);
+    motion->setAllLoadActions(Ogre::LoadAction::DontCare);
+    motion->mStoreActionColour[0] = Ogre::StoreAction::Store;
+    // The scaler is encoded immediately after this pass, once the motion
+    // target is resident and while the workspace still owns the frame.
+    motion->mIdentifier = kOgreNextMetalFxEncodePassIdentifier;
+    motion->mProfilingId = "TAA Motion Vectors (MetalFX)";
+    node->setNumOutputChannels(1U);
+    node->mapOutputChannel(0U, kOgreNextTaaOutputTexture);
+    // Exact definition readback for the upscaling topology, mirroring the
+    // NATIVE path's: two textures in declaration order with the reduced
+    // motion extent and the full-extent UAV resolve target, and exactly one
+    // identified motion pass.
+    const auto &upscale_textures = node->getLocalTextureDefinitions();
+    const bool upscale_exact =
+        upscale_textures.size() == 3U &&
+        upscale_textures[0].getName() ==
+            Ogre::IdString(kOgreNextTaaMotionTexture) &&
+        upscale_textures[0].format == Ogre::PFG_RG16_FLOAT &&
+        upscale_textures[0].widthFactor == render_scale &&
+        upscale_textures[1].getName() ==
+            Ogre::IdString(kOgreNextTaaReactiveTexture) &&
+        upscale_textures[1].format == Ogre::PFG_R32_FLOAT &&
+        upscale_textures[1].widthFactor == render_scale &&
+        upscale_textures[2].getName() ==
+            Ogre::IdString(kOgreNextTaaOutputTexture) &&
+        upscale_textures[2].format == Ogre::PFG_RGBA16_FLOAT &&
+        upscale_textures[2].widthFactor == 1.0F &&
+        (upscale_textures[2].textureFlags & Ogre::TextureFlags::Uav) != 0U &&
+        node->getNumTargetPasses() == 2U &&
+        node->calculateNumPasses() == 2U &&
+        node->getNumOutputChannels() == 1U;
+    if (!upscale_exact) {
+      throw std::runtime_error(
+          "Ogre-Next MetalFX upscaling node topology failed exact definition readback");
+    }
+    return;
+  }
   add_local(kOgreNextTaaMotionTexture, Ogre::PFG_RG16_FLOAT, false);
   add_local(kOgreNextTaaPrevDepthTexture, Ogre::PFG_R32_FLOAT, true);
   add_local(kOgreNextTaaHistoryATexture, Ogre::PFG_RGBA16_FLOAT, true);
@@ -2978,11 +3103,18 @@ void CreateAndVerifyHdrSingleSceneNode(
   owns_node_definition = true;
 
   node->setNumLocalTextureDefinitions(3U);
+  // MetalFX upscaling renders the scene at a reduced internal extent. A zero
+  // width/height means "a multiple of the target extent", so the tier scale
+  // rides on widthFactor/heightFactor and every downstream node that keeps
+  // factor 1 stays at the output extent.
+  const float render_scale = OgreNextMetalFxRenderScale();
   Ogre::TextureDefinitionBase::TextureDefinition *scene_texture =
       node->addTextureDefinition(kOgreNextHdrRasterLitTexture);
   scene_texture->textureType = Ogre::TextureTypes::Type2D;
   scene_texture->width = 0U;
   scene_texture->height = 0U;
+  scene_texture->widthFactor = render_scale;
+  scene_texture->heightFactor = render_scale;
   scene_texture->depthOrSlices = 1U;
   scene_texture->numMipmaps = 1U;
   scene_texture->format = Ogre::PFG_RGBA16_FLOAT;
@@ -3023,6 +3155,9 @@ void CreateAndVerifyHdrSingleSceneNode(
   opaque_depth->textureType = Ogre::TextureTypes::Type2D;
   opaque_depth->width = 0U;
   opaque_depth->height = 0U;
+  // The depth attachment must track the colour target exactly.
+  opaque_depth->widthFactor = render_scale;
+  opaque_depth->heightFactor = render_scale;
   opaque_depth->depthOrSlices = 1U;
   opaque_depth->numMipmaps = 1U;
   opaque_depth->format = Ogre::PFG_D32_FLOAT;
@@ -3586,6 +3721,118 @@ private:
   bool failure_ = false;
   bool active_ = false;
 };
+
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+/// Encodes MTLFXTemporalScaler immediately after the motion-vector quad of the
+/// upscaling topology. That seam is the only point where all four scaler
+/// inputs are simultaneously resident and the workspace still owns the frame:
+/// the scene colour and depth were produced by the HDR node, the motion target
+/// was just written, and the UAV resolve target has not yet been read by the
+/// stock HDR post node.
+///
+/// Fail-closed: a frame whose bindings or encode are refused logs its exact
+/// reason once per distinct reason and requests a history reset on the next
+/// frame. It never throws into Ogre's pass iteration and never kills the
+/// session.
+class MetalFxEncodeListener final : public Ogre::CompositorWorkspaceListener {
+public:
+  void Configure(OgreNextMetalFxUpscaler *upscaler,
+                 Ogre::TextureGpu *colour, Ogre::TextureGpu *depth,
+                 Ogre::TextureGpu *motion, Ogre::TextureGpu *reactive,
+                 Ogre::TextureGpu *output) noexcept {
+    upscaler_ = upscaler;
+    colour_ = colour;
+    depth_ = depth;
+    motion_ = motion;
+    reactive_ = reactive;
+    output_ = output;
+  }
+
+  void BeginFrame(std::uint64_t frame_id, float jitter_x, float jitter_y,
+                  float pre_exposure, bool reset_history) noexcept {
+    frame_id_ = frame_id;
+    jitter_x_ = jitter_x;
+    jitter_y_ = jitter_y;
+    pre_exposure_ = pre_exposure;
+    // A degrade on the previous frame leaves the scaler's history describing a
+    // frame that was never resolved, so the next accepted frame reseeds.
+    reset_history_ = reset_history || reset_pending_;
+    encoded_ = false;
+  }
+
+  [[nodiscard]] bool encoded() const noexcept { return encoded_; }
+  [[nodiscard]] std::uint64_t encoded_frames() const noexcept {
+    return encoded_frames_;
+  }
+  [[nodiscard]] std::uint64_t degraded_frames() const noexcept {
+    return degraded_frames_;
+  }
+
+  void passPosExecute(Ogre::CompositorPass *pass) override {
+    if (pass == nullptr || pass->getDefinition() == nullptr ||
+        pass->getDefinition()->mIdentifier !=
+            kOgreNextMetalFxEncodePassIdentifier) {
+      return;
+    }
+    if (upscaler_ == nullptr || colour_ == nullptr || depth_ == nullptr ||
+        motion_ == nullptr || reactive_ == nullptr || output_ == nullptr) {
+      Degrade("MetalFX bindings are not configured");
+      return;
+    }
+    OgreNextMetalFxFrameRequest request;
+    request.colour_texture = reinterpret_cast<std::uintptr_t>(colour_);
+    request.depth_texture = reinterpret_cast<std::uintptr_t>(depth_);
+    request.motion_texture = reinterpret_cast<std::uintptr_t>(motion_);
+    request.reactive_texture = reinterpret_cast<std::uintptr_t>(reactive_);
+    request.output_texture = reinterpret_cast<std::uintptr_t>(output_);
+    request.jitter_pixels_x = jitter_x_;
+    request.jitter_pixels_y = jitter_y_;
+    request.pre_exposure = pre_exposure_;
+    request.reset_history = reset_history_;
+    std::string failure;
+    if (!upscaler_->Encode(request, failure)) {
+      Degrade(failure.c_str());
+      return;
+    }
+    encoded_ = true;
+    reset_pending_ = false;
+    ++encoded_frames_;
+  }
+
+private:
+  void Degrade(const char *reason) noexcept {
+    ++degraded_frames_;
+    reset_pending_ = true;
+    const std::string canonical(reason == nullptr ? "unknown" : reason);
+    if (canonical != last_reason_) {
+      last_reason_ = canonical;
+      std::fprintf(stderr,
+                   "[RoR|OgreNext|MetalFx] degrade frame_id=%llu "
+                   "degraded=%llu reason=%s\n",
+                   static_cast<unsigned long long>(frame_id_),
+                   static_cast<unsigned long long>(degraded_frames_),
+                   canonical.c_str());
+    }
+  }
+
+  OgreNextMetalFxUpscaler *upscaler_ = nullptr;
+  Ogre::TextureGpu *colour_ = nullptr;
+  Ogre::TextureGpu *depth_ = nullptr;
+  Ogre::TextureGpu *motion_ = nullptr;
+  Ogre::TextureGpu *reactive_ = nullptr;
+  Ogre::TextureGpu *output_ = nullptr;
+  std::uint64_t frame_id_ = 0U;
+  float jitter_x_ = 0.0F;
+  float jitter_y_ = 0.0F;
+  float pre_exposure_ = 1.0F;
+  bool reset_history_ = true;
+  bool reset_pending_ = true;
+  bool encoded_ = false;
+  std::uint64_t encoded_frames_ = 0U;
+  std::uint64_t degraded_frames_ = 0U;
+  std::string last_reason_;
+};
+#endif // ROR_OGRE_NEXT_N1_METAL
 
 } // namespace
 
@@ -7553,18 +7800,27 @@ public:
   [[nodiscard]] bool VerifyTemporalAaBinding(
       Ogre::TextureGpu *texture, Ogre::PixelFormatGpu native_format,
       PixelFormat portable_format, const OgreNextTaaFramePlan &plan,
-      OgreNextTaaImageBinding &binding) {
+      OgreNextTaaImageBinding &binding, std::uint32_t width_override = 0U,
+      std::uint32_t height_override = 0U) {
+    // The plan's extent is the extent the scene is rasterized at. Under
+    // MetalFX upscaling the scaler's resolved target lives at the presented
+    // extent instead, so those bindings declare it explicitly rather than
+    // silently accepting a mismatch.
+    const std::uint32_t expected_width =
+        width_override != 0U ? width_override : plan.width;
+    const std::uint32_t expected_height =
+        height_override != 0U ? height_override : plan.height;
     if (texture == nullptr || texture->getPixelFormat() != native_format ||
-        texture->getWidth() != plan.width ||
-        texture->getHeight() != plan.height) {
+        texture->getWidth() != expected_width ||
+        texture->getHeight() != expected_height) {
       return false;
     }
     binding.native_identity =
         static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(texture));
     binding.generation = taa_texture_generation;
     binding.format = portable_format;
-    binding.width = plan.width;
-    binding.height = plan.height;
+    binding.width = expected_width;
+    binding.height = expected_height;
     ++taa_constant_readbacks_this_frame;
     return true;
   }
@@ -7597,6 +7853,20 @@ public:
         taa->getDefinedTexture(kOgreNextTaaHistoryATexture);
     Ogre::TextureGpu *history_b =
         taa->getDefinedTexture(kOgreNextTaaHistoryBTexture);
+    // Under MetalFX the ping-pong history lives inside MTLFXTemporalScaler
+    // rather than in two RoR targets, so the contract's history-source and
+    // history-destination evidence both resolve to the single UAV target the
+    // scaler reads its previous result from and writes this frame's into.
+    if (history_a == nullptr && history_b == nullptr) {
+      Ogre::TextureGpu *const resolved =
+          taa->getDefinedTexture(kOgreNextTaaOutputTexture);
+      history_a = resolved;
+      history_b = resolved;
+    }
+    const std::uint32_t history_extent_width =
+        metalfx_tier == OgreNextMetalFxTier::NATIVE ? 0U : hdr_width;
+    const std::uint32_t history_extent_height =
+        metalfx_tier == OgreNextMetalFxTier::NATIVE ? 0U : hdr_height;
     Ogre::TextureGpu *history_source_texture =
         plan.source_history_slot == 0U ? history_a : history_b;
     Ogre::TextureGpu *history_destination_texture =
@@ -7620,11 +7890,13 @@ public:
             evidence.reactive_mask) &&
         VerifyTemporalAaBinding(history_source_texture, Ogre::PFG_RGBA16_FLOAT,
                                 PixelFormat::RGBA16_FLOAT, plan,
-                                evidence.history_source) &&
+                                evidence.history_source, history_extent_width,
+                                history_extent_height) &&
         VerifyTemporalAaBinding(history_destination_texture,
                                 Ogre::PFG_RGBA16_FLOAT,
                                 PixelFormat::RGBA16_FLOAT, plan,
-                                evidence.history_destination);
+                                evidence.history_destination,
+                                history_extent_width, history_extent_height);
     if (!bindings_exact) {
       return HdrBackendFailure(
           "temporal AA native images failed exact evidence verification");
@@ -8414,6 +8686,92 @@ public:
 #endif
     hdr_width = width;
     hdr_height = height;
+
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+    // Stage 5 MetalFX. The upscaling topology was already chosen when the node
+    // definitions were built, so the internal extent is read back from the
+    // live scene texture rather than recomputed from the tier scale: a
+    // rounding disagreement with Ogre would otherwise surface as a scaler
+    // extent rejection every frame.
+    metalfx_tier = OgreNextMetalFxTier::NATIVE;
+    metalfx_upscaler.reset();
+    if (OgreNextMetalFxUpscalingRequested()) {
+      Ogre::CompositorNode *metalfx_haze =
+          hdr_workspace->findNode(kOgreNextAerialHazeNode);
+      Ogre::CompositorNode *metalfx_rendering =
+          hdr_workspace->findNode(kOgreNextHdrRenderingNode);
+      Ogre::CompositorNode *metalfx_taa =
+          hdr_workspace->findNode(kOgreNextTaaNode);
+      Ogre::TextureGpu *metalfx_colour =
+          metalfx_haze != nullptr
+              ? metalfx_haze->getDefinedTexture(
+                    kOgreNextAerialHazeOutputTexture)
+              : nullptr;
+      Ogre::TextureGpu *metalfx_depth =
+          metalfx_rendering != nullptr
+              ? metalfx_rendering->getDefinedTexture(
+                    kOgreNextHdrOpaqueDepthTexture)
+              : nullptr;
+      Ogre::TextureGpu *metalfx_motion =
+          metalfx_taa != nullptr
+              ? metalfx_taa->getDefinedTexture(kOgreNextTaaMotionTexture)
+              : nullptr;
+      Ogre::TextureGpu *metalfx_reactive =
+          metalfx_taa != nullptr
+              ? metalfx_taa->getDefinedTexture(kOgreNextTaaReactiveTexture)
+              : nullptr;
+      Ogre::TextureGpu *metalfx_output =
+          metalfx_taa != nullptr
+              ? metalfx_taa->getDefinedTexture(kOgreNextTaaOutputTexture)
+              : nullptr;
+      std::string metalfx_failure;
+      if (metalfx_colour == nullptr || metalfx_depth == nullptr ||
+          metalfx_motion == nullptr || metalfx_reactive == nullptr ||
+          metalfx_output == nullptr) {
+        metalfx_failure = "upscaling topology did not expose its textures";
+      } else if (metalfx_colour->getWidth() != metalfx_depth->getWidth() ||
+                 metalfx_colour->getHeight() != metalfx_depth->getHeight() ||
+                 metalfx_colour->getWidth() != metalfx_motion->getWidth() ||
+                 metalfx_colour->getHeight() != metalfx_motion->getHeight()) {
+        metalfx_failure = "scaler inputs disagree on the internal extent";
+      } else if (metalfx_output->getWidth() != hdr_width ||
+                 metalfx_output->getHeight() != hdr_height) {
+        metalfx_failure = "scaler output is not at the presented extent";
+      } else {
+        metalfx_input_width = metalfx_colour->getWidth();
+        metalfx_input_height = metalfx_colour->getHeight();
+        metalfx_upscaler = CreateOgreNextMetalFxUpscaler(
+            reinterpret_cast<std::uintptr_t>(renderer), metalfx_input_width,
+            metalfx_input_height, hdr_width, hdr_height, metalfx_failure);
+      }
+      if (metalfx_upscaler != nullptr) {
+        metalfx_tier = OgreNextMetalFxTierRequest();
+        metalfx_listener.Configure(metalfx_upscaler.get(), metalfx_colour,
+                                   metalfx_depth, metalfx_motion,
+                                   metalfx_reactive, metalfx_output);
+        hdr_workspace->addListener(&metalfx_listener);
+        std::fprintf(
+            stderr,
+            "[RoR|OgreNext|MetalFx] armed tier=%s internal=%ux%u "
+            "output=%ux%u area_ratio=%.3f\n",
+            OgreNextMetalFxTierName(metalfx_tier), metalfx_input_width,
+            metalfx_input_height, hdr_width, hdr_height,
+            static_cast<double>(hdr_width) *
+                static_cast<double>(hdr_height) /
+                (static_cast<double>(metalfx_input_width) *
+                 static_cast<double>(metalfx_input_height)));
+      } else {
+        // The graph is already in upscaling topology, so there is no honest
+        // in-session fallback that still fills the output: refuse the HDR
+        // bring-up rather than present an unresolved target.
+        return RenderOperationResult::Failure(
+            RenderOperationCode::BACKEND_FAILURE,
+            std::string("MetalFX temporal upscaling was requested but could "
+                        "not be armed: ") +
+                metalfx_failure);
+      }
+    }
+#endif
 
     Ogre::CompositorNode *rendering =
         hdr_workspace->findNode(kOgreNextHdrRenderingNode);
@@ -10517,6 +10875,19 @@ public:
   std::uint64_t taa_committed_frames = 0U;
   std::uint64_t taa_degraded_frames = 0U;
   std::string taa_last_degrade_reason;
+  /// Stage 5 MetalFX temporal upscaling. The tier is fixed for the process;
+  /// the scaler is bound to one internal/output extent pair and rebuilt only
+  /// when the HDR workspace is rebuilt. When the scaler cannot be created the
+  /// session keeps running at the reduced internal extent's NATIVE topology
+  /// decision made at graph-build time, so creation failure is reported once
+  /// and the tier is demoted for the frame signature.
+  OgreNextMetalFxTier metalfx_tier = OgreNextMetalFxTier::NATIVE;
+  std::uint32_t metalfx_input_width = 0U;
+  std::uint32_t metalfx_input_height = 0U;
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+  std::unique_ptr<OgreNextMetalFxUpscaler> metalfx_upscaler;
+  MetalFxEncodeListener metalfx_listener;
+#endif
   bool hdr_auto_exposure_graph_verified = false;
   bool hdr_bloom_graph_verified = false;
   bool hdr_tone_map_graph_verified = false;
@@ -12348,6 +12719,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
       taa_input.frame_id = impl_->taa_state.committed_frame_id() + 1U;
       taa_input.snapshot_id = request.scene_snapshot->snapshot_id();
       taa_input.view = validated_view;
+      // The temporal plan describes the extent the scene is actually
+      // rasterized at: under MetalFX upscaling that is the reduced internal
+      // extent, which is what the motion-vector shader's pixel conversion and
+      // every input binding must agree on. Uniform scaling preserves the
+      // aspect ratio, so the reprojection matrices are unaffected.
+      if (impl_->metalfx_input_width != 0U &&
+          impl_->metalfx_input_height != 0U) {
+        taa_input.view.width = impl_->metalfx_input_width;
+        taa_input.view.height = impl_->metalfx_input_height;
+      }
       taa_input.pre_exposure = kOgreNextTaaCurrentRawHdrPreExposure;
       taa_input.camera_cut = false;
       Float2 planned_jitter{};
@@ -12369,6 +12750,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
       } else {
         impl_->taa_frame_plan = taa_plan;
         impl_->taa_frame_active = true;
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+        // Hand the scaler this frame's exact jitter and history policy before
+        // the workspace executes. A seeding frame (no RoR history available)
+        // is precisely the frame whose scaler history must be discarded too.
+        if (impl_->metalfx_upscaler != nullptr) {
+          impl_->metalfx_listener.BeginFrame(
+              request.frame_id, taa_plan.jitter_pixels.x,
+              taa_plan.jitter_pixels.y, taa_plan.current_pre_exposure,
+              !taa_plan.history_available);
+        }
+#endif
         // Enable exactly one resolve/copy parity for this frame's planned
         // history destination slot; everything else in the graph carries the
         // default full mask.
@@ -14686,11 +15078,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
         // pixels while clip-space +Y is up. Culling, LOD, PSSM extents, and
         // every wire-level matrix stay unjittered.
         const Float2 jitter = impl_->taa_frame_plan.jitter_pixels;
+        // The offset is a sub-pixel of the target actually being rasterized.
+        // Under MetalFX upscaling that is the reduced internal extent, so
+        // dividing by the presented extent would shrink the jitter by the
+        // tier scale and starve the scaler of sub-pixel coverage.
+        const float jitter_extent_width =
+            impl_->metalfx_input_width != 0U
+                ? static_cast<float>(impl_->metalfx_input_width)
+                : static_cast<float>(view.width);
+        const float jitter_extent_height =
+            impl_->metalfx_input_height != 0U
+                ? static_cast<float>(impl_->metalfx_input_height)
+                : static_cast<float>(view.height);
         Ogre::Matrix4 jitter_offset = Ogre::Matrix4::IDENTITY;
-        jitter_offset[0U][3U] =
-            2.0F * jitter.x / static_cast<float>(view.width);
-        jitter_offset[1U][3U] =
-            -2.0F * jitter.y / static_cast<float>(view.height);
+        jitter_offset[0U][3U] = 2.0F * jitter.x / jitter_extent_width;
+        jitter_offset[1U][3U] = -2.0F * jitter.y / jitter_extent_height;
         impl_->camera->setCustomProjectionMatrix(
             true, jitter_offset * native_projection, false);
       }
@@ -15983,6 +16385,22 @@ RenderOperationResult OgreNextN1Frontend::Render(
           static_cast<unsigned long long>(impl_->taa_degraded_frames),
           committed_taa_plan.width, committed_taa_plan.height,
           static_cast<unsigned long long>(committed_taa_plan.lifecycle_epoch));
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+      if (impl_->metalfx_upscaler != nullptr) {
+        std::fprintf(
+            stderr,
+            "[RoR|OgreNext|MetalFx] frame_id=%llu tier=%s internal=%ux%u "
+            "output=%ux%u encoded=%llu degraded=%llu\n",
+            static_cast<unsigned long long>(request.frame_id),
+            OgreNextMetalFxTierName(impl_->metalfx_tier),
+            impl_->metalfx_input_width, impl_->metalfx_input_height,
+            impl_->hdr_width, impl_->hdr_height,
+            static_cast<unsigned long long>(
+                impl_->metalfx_listener.encoded_frames()),
+            static_cast<unsigned long long>(
+                impl_->metalfx_listener.degraded_frames()));
+      }
+#endif
     }
     if (shadow_plan.enabled) {
       impl_->shadow_audit.last_frame = shadow_plan;

@@ -1261,6 +1261,7 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
         "${_ror_render_root}/ogrenext/OgreNextPssmShadowPolicy.cpp"
         "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
         "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+        "${_ror_render_root}/ogrenext/OgreNextMetalFxUpscaler.mm"
         "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
     add_library(
         ror_ogre_next_embedded_n1_runtime STATIC
@@ -1560,6 +1561,8 @@ if (ROR_OGRE_NEXT_DUAL_RUNTIME_SMOKE)
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextMetalInterop.mm"
             --namespaced-source-if-present
+                "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextMetalFxUpscaler.mm"
+            --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextVulkanExternalDeviceBootstrap.cpp"
             --namespaced-source-if-present
                 "${ROR_REPOSITORY_ROOT}/source/main/gfx/render/ogrenext/OgreNextVulkanRayTracingBootstrap.cpp"
@@ -1719,6 +1722,7 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
         set(_ror_ogre_next_frontend_n1_platform_sources
             "${_ror_render_root}/ogrenext/OgreNextN2InteropState.cpp"
             "${_ror_render_root}/ogrenext/OgreNextMetalInterop.mm"
+            "${_ror_render_root}/ogrenext/OgreNextMetalFxUpscaler.mm"
             "${_ror_render_root}/ogrenext/OgreNextMetalRayTracingBackend.mm")
         target_sources(
             ror_ogre_next_frontend_n1
