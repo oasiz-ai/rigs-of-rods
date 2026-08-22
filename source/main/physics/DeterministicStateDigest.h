@@ -28,13 +28,14 @@
 namespace RoR {
 namespace DeterministicStateDigest {
 
-static const std::uint32_t SCHEMA_VERSION = 2;
+static const std::uint32_t SCHEMA_VERSION = 3;
 
 // These ceilings are part of the digest schema and cannot be loosened by
 // content or callers. The streaming builder itself retains no records.
 static const std::uint32_t MAX_ACTORS = 4096;
 static const std::uint32_t MAX_NODES = 1048576;
 static const std::uint32_t MAX_BEAMS = 4194304;
+static const std::uint32_t MAX_HYDROS = 1048576;
 static const std::uint32_t MAX_CONTACTS = 65536;
 
 struct Digest
@@ -124,7 +125,7 @@ static const std::uint32_t BEAM_STATE_MASK =
 static const std::uint32_t BEAM_MATERIAL_SCHEMA_NONE = 0;
 static const std::uint32_t BEAM_MATERIAL_SCHEMA_CALIBRATED_V1 = 1;
 
-/// Schema-v2 codes are intentionally independent of the implementation enum
+/// Schema-v3 codes are intentionally independent of the implementation enum
 /// ordinals. Only errors which can be latched into calibrated runtime state
 /// have a representation here.
 enum BeamMaterialRuntimeErrorCode : std::uint32_t
@@ -175,6 +176,69 @@ struct BeamRecord
     BeamRecord();
 };
 
+static const std::uint32_t HYDRO_RUNTIME_SCHEMA_JBEAM_V1 = 1;
+static const std::uint32_t HYDRO_INPUT_ROUTE_STEERING = 1;
+
+enum HydroRecordFlags : std::uint32_t
+{
+    HYDRO_FLAG_HAS_FACTOR = UINT32_C(1) << 0,
+    HYDRO_FLAG_HAS_STEERING_WHEEL_LOCK = UINT32_C(1) << 1,
+    HYDRO_FLAG_FAULT_LATCHED = UINT32_C(1) << 2
+};
+
+static const std::uint32_t HYDRO_FLAG_MASK =
+    HYDRO_FLAG_HAS_FACTOR |
+    HYDRO_FLAG_HAS_STEERING_WHEEL_LOCK |
+    HYDRO_FLAG_FAULT_LATCHED;
+
+/// Canonical schema codes deliberately do not depend on
+/// JBeamHydroRuntimeFault ordinals.
+enum HydroRuntimeFaultCode : std::uint32_t
+{
+    HYDRO_RUNTIME_FAULT_NONE = 0,
+    HYDRO_RUNTIME_FAULT_INVALID_CONFIG = 1,
+    HYDRO_RUNTIME_FAULT_INVALID_INITIAL_LENGTH = 2,
+    HYDRO_RUNTIME_FAULT_INVALID_PREVIOUS_STATE = 3,
+    HYDRO_RUNTIME_FAULT_INVALID_INPUT = 4,
+    HYDRO_RUNTIME_FAULT_INVALID_TIMESTEP = 5,
+    HYDRO_RUNTIME_FAULT_STEP_REJECTED = 6,
+    HYDRO_RUNTIME_FAULT_REST_LENGTH_REJECTED = 7,
+    HYDRO_RUNTIME_FAULT_FLOAT_NARROWING = 8,
+    HYDRO_RUNTIME_FAULT_STEP_COUNTER_EXHAUSTED = 9
+};
+
+/// Complete native JBeam hydro configuration and continuation state. The
+/// runtime rest length is cross-bound to the referenced BeamRecord by the
+/// snapshot adapter, while the reference length and ratio prove that the
+/// binary32 solver value is the exact deterministic resolution of history.
+struct HydroRecord
+{
+    std::int32_t actor_id;
+    std::uint32_t hydro_id;
+    std::uint32_t beam_id;
+    std::uint32_t runtime_schema_version;
+    std::uint32_t input_route;
+    std::uint32_t flags;
+    float reference_length;
+    float runtime_rest_length;
+    double factor;
+    double in_limit;
+    double out_limit;
+    double input_factor;
+    double input_center;
+    double input_in_limit;
+    double input_out_limit;
+    double in_rate;
+    double out_rate;
+    double auto_center_rate;
+    double steering_wheel_lock;
+    double length_ratio;
+    std::uint64_t accepted_step_count;
+    std::uint32_t fault;
+
+    HydroRecord();
+};
+
 struct ContactRecord
 {
     std::int32_t surface_actor;
@@ -186,9 +250,10 @@ struct ContactRecord
 };
 
 /// Streams one complete snapshot in the fixed section order
-/// actors -> nodes -> beams -> contacts. Records must have strictly increasing
-/// canonical keys within each section. Counts are written before records, and
-/// Finish() succeeds only after every declared record was observed.
+/// actors -> nodes -> beams -> hydros -> contacts. Records must have strictly
+/// increasing canonical keys within each section. Counts are written before
+/// records, and Finish() succeeds only after every declared record was
+/// observed.
 ///
 /// Floating-point values are hashed as their exact IEEE-754 binary32 or
 /// binary64 payloads in little-endian schema order. Signed zero is
@@ -209,6 +274,8 @@ public:
     bool AddNode(const NodeRecord& record);
     bool BeginBeams(std::uint32_t count);
     bool AddBeam(const BeamRecord& record);
+    bool BeginHydros(std::uint32_t count);
+    bool AddHydro(const HydroRecord& record);
     bool BeginContacts(std::uint32_t count);
     bool AddContact(const ContactRecord& record);
     bool Finish(Digest& digest);
@@ -223,6 +290,7 @@ private:
         ACTORS,
         NODES,
         BEAMS,
+        HYDROS,
         CONTACTS,
         FINISHED
     };
@@ -260,6 +328,8 @@ private:
     std::uint32_t m_previous_node_id;
     std::int32_t m_previous_beam_actor_id;
     std::uint32_t m_previous_beam_id;
+    std::int32_t m_previous_hydro_actor_id;
+    std::uint32_t m_previous_hydro_id;
     ContactRecord m_previous_contact;
     bool m_has_previous_key;
 
@@ -271,11 +341,14 @@ private:
 
 /// Per-actor section sizes and actor state supplied to the production snapshot
 /// adapter. Node and beam records are read by their immutable array index.
+/// Hydro records enumerate only native JBeam hydros and retain their original
+/// Actor::ar_hydros index as HydroRecord::hydro_id.
 struct SnapshotActor
 {
     ActorRecord actor;
     std::uint32_t node_count;
     std::uint32_t beam_count;
+    std::uint32_t hydro_count;
     std::uint32_t surface_contact_count;
 
     SnapshotActor();
@@ -303,6 +376,10 @@ public:
         std::size_t source_actor_index,
         std::uint32_t beam_index,
         BeamRecord& beam) const = 0;
+    virtual bool ReadHydro(
+        std::size_t source_actor_index,
+        std::uint32_t hydro_index,
+        HydroRecord& hydro) const = 0;
     virtual std::size_t GetContactCount() const = 0;
     virtual bool ReadContact(
         std::size_t source_contact_index,

@@ -464,8 +464,15 @@ corresponding native hydro beam, and the force loop advances it from RoR's
 steering-direction command. The product importer now wraps that document in an
 opaque receipt for the exact immutable ZIP/root/resolved graph, and
 `ActorManager` requires the same currently mounted snapshot immediately before
-spawn construction. Save/replay authority, explicit source-electrics lineage,
-and source-engine calibration remain open. The clean-room product spawn-soak
+spawn construction. Version-3 savegames now use an optional, fail-closed
+`jbeam_hydro_state_v1` member to stage the complete native hydro set before any
+actor mutation and atomically restore actuator history with the exact ordinary
+beam-array rest length. Deterministic-state digest schema v3 independently
+hashes each native hydro's configuration, original hydro/beam identity,
+reference and resolved solver lengths, ratio, accepted-step counter, and
+canonical fault latch. Fresh combined-runtime save/load and replay-trace
+qualification, explicit source-electrics lineage, and source-engine calibration
+remain open. The clean-room product spawn-soak
 proves the admitted native carrier is constructed and advanced for every
 requested step; it does not establish source-engine behavioral parity.
 

@@ -55,6 +55,13 @@ bool IsFiniteBinary32(const float& value)
     return (bits & UINT32_C(0x7f800000)) != UINT32_C(0x7f800000);
 }
 
+bool IsNormalBinary32(const float& value)
+{
+    const std::uint32_t exponent =
+        ExactBinary32Bits(value) & UINT32_C(0x7f800000);
+    return exponent != 0U && exponent != UINT32_C(0x7f800000);
+}
+
 std::uint64_t ExactBinary64Bits(const double& value)
 {
     unsigned char representation[sizeof(value)];
@@ -73,6 +80,55 @@ bool IsFiniteBinary64(const double& value)
     const std::uint64_t bits = ExactBinary64Bits(value);
     return (bits & UINT64_C(0x7ff0000000000000)) !=
         UINT64_C(0x7ff0000000000000);
+}
+
+bool IsValidHydroConfiguration(
+    const RoR::DeterministicStateDigest::HydroRecord& record)
+{
+    using namespace RoR::DeterministicStateDigest;
+    if (!(record.input_in_limit < record.input_center) ||
+        !(record.input_center < record.input_out_limit) ||
+        !(record.in_rate >= 0.0) ||
+        !(record.out_rate >= 0.0) ||
+        !(record.auto_center_rate >= 0.0))
+    {
+        return false;
+    }
+
+    if ((record.flags & HYDRO_FLAG_HAS_FACTOR) != 0)
+    {
+        const volatile double endpoint_a_stage = 1.0 - record.factor;
+        const volatile double endpoint_b_stage = 1.0 + record.factor;
+        const double endpoint_a = endpoint_a_stage;
+        const double endpoint_b = endpoint_b_stage;
+        return IsFiniteBinary64(endpoint_a) &&
+            IsFiniteBinary64(endpoint_b) &&
+            endpoint_a >= 0.0 && endpoint_b >= 0.0 &&
+            (endpoint_a > 0.0 || endpoint_b > 0.0);
+    }
+
+    return record.in_limit >= 0.0 &&
+        record.in_limit <= 1.0 &&
+        record.out_limit >= 1.0;
+}
+
+bool HasExactResolvedHydroRestLength(
+    const RoR::DeterministicStateDigest::HydroRecord& record)
+{
+    const volatile double resolved_stage =
+        static_cast<double>(record.reference_length) *
+        record.length_ratio;
+    const double resolved = resolved_stage;
+    if (!IsFiniteBinary64(resolved) || !(resolved > 0.0) ||
+        resolved > static_cast<double>(std::numeric_limits<float>::max()))
+    {
+        return false;
+    }
+    const volatile float narrowed_stage = static_cast<float>(resolved);
+    const float narrowed = narrowed_stage;
+    return IsNormalBinary32(narrowed) &&
+        ExactBinary32Bits(narrowed) ==
+            ExactBinary32Bits(record.runtime_rest_length);
 }
 
 bool ContactLess(
@@ -227,6 +283,32 @@ BeamRecord::BeamRecord():
 {
 }
 
+HydroRecord::HydroRecord():
+    actor_id(0),
+    hydro_id(0),
+    beam_id(0),
+    runtime_schema_version(HYDRO_RUNTIME_SCHEMA_JBEAM_V1),
+    input_route(HYDRO_INPUT_ROUTE_STEERING),
+    flags(0),
+    reference_length(0.f),
+    runtime_rest_length(0.f),
+    factor(0.0),
+    in_limit(1.0),
+    out_limit(2.0),
+    input_factor(1.0),
+    input_center(0.0),
+    input_in_limit(-1.0),
+    input_out_limit(1.0),
+    in_rate(2.0),
+    out_rate(2.0),
+    auto_center_rate(2.0),
+    steering_wheel_lock(0.0),
+    length_ratio(1.0),
+    accepted_step_count(0),
+    fault(HYDRO_RUNTIME_FAULT_NONE)
+{
+}
+
 ContactRecord::ContactRecord():
     surface_actor(0),
     surface_contact(0),
@@ -239,6 +321,7 @@ SnapshotActor::SnapshotActor():
     actor(),
     node_count(0),
     beam_count(0),
+    hydro_count(0),
     surface_contact_count(0)
 {
 }
@@ -266,6 +349,8 @@ Builder::Builder(std::uint64_t physics_step, std::uint64_t scenario_id):
     m_previous_node_id(0),
     m_previous_beam_actor_id(0),
     m_previous_beam_id(0),
+    m_previous_hydro_actor_id(0),
+    m_previous_hydro_id(0),
     m_previous_contact(),
     m_has_previous_key(false),
     m_sha_state(),
@@ -580,14 +665,114 @@ bool Builder::AddBeam(const BeamRecord& record)
     return true;
 }
 
-bool Builder::BeginContacts(std::uint32_t count)
+bool Builder::BeginHydros(std::uint32_t count)
 {
     return BeginSection(
         Section::BEAMS,
+        Section::HYDROS,
+        count,
+        MAX_HYDROS,
+        UINT8_C(0xa4));
+}
+
+bool Builder::AddHydro(const HydroRecord& record)
+{
+    if (!RequireWritable())
+        return false;
+    if (m_section != Section::HYDROS)
+        return Fail(Error::INVALID_SECTION_ORDER, m_observed_count);
+    if (m_observed_count >= m_expected_count)
+        return Fail(Error::COUNT_MISMATCH, m_observed_count);
+    if (record.actor_id < 0 ||
+        record.runtime_schema_version !=
+            HYDRO_RUNTIME_SCHEMA_JBEAM_V1 ||
+        record.input_route != HYDRO_INPUT_ROUTE_STEERING ||
+        (record.flags & ~HYDRO_FLAG_MASK) != 0 ||
+        !IsNormalBinary32(record.reference_length) ||
+        !IsNormalBinary32(record.runtime_rest_length) ||
+        !(record.length_ratio > 0.0) ||
+        record.fault > HYDRO_RUNTIME_FAULT_STEP_COUNTER_EXHAUSTED)
+    {
+        return Fail(Error::INVALID_RECORD, m_observed_count);
+    }
+    if (m_has_previous_key &&
+            (record.actor_id < m_previous_hydro_actor_id ||
+             (record.actor_id == m_previous_hydro_actor_id &&
+              record.hydro_id <= m_previous_hydro_id)))
+    {
+        return Fail(Error::NON_CANONICAL_KEY, m_observed_count);
+    }
+
+    const double* const configuration[] = {
+        &record.factor,
+        &record.in_limit,
+        &record.out_limit,
+        &record.input_factor,
+        &record.input_center,
+        &record.input_in_limit,
+        &record.input_out_limit,
+        &record.in_rate,
+        &record.out_rate,
+        &record.auto_center_rate,
+        &record.steering_wheel_lock,
+        &record.length_ratio
+    };
+    for (const double* const value : configuration)
+    {
+        if (!RequireFinite(*value, m_observed_count))
+            return false;
+    }
+
+    const bool fault_latched =
+        (record.flags & HYDRO_FLAG_FAULT_LATCHED) != 0;
+    if (!IsValidHydroConfiguration(record) ||
+        (((record.flags & HYDRO_FLAG_HAS_STEERING_WHEEL_LOCK) != 0) &&
+         !(record.steering_wheel_lock > 0.0)) ||
+        (fault_latched !=
+         (record.fault != HYDRO_RUNTIME_FAULT_NONE)) ||
+        !HasExactResolvedHydroRestLength(record))
+    {
+        return Fail(Error::INVALID_RECORD, m_observed_count);
+    }
+
+    HashI32(record.actor_id);
+    HashU32(record.hydro_id);
+    HashU32(record.beam_id);
+    HashU32(record.runtime_schema_version);
+    HashU32(record.input_route);
+    HashU32(record.flags);
+    HashFloat(record.reference_length);
+    HashFloat(record.runtime_rest_length);
+    HashDouble(record.factor);
+    HashDouble(record.in_limit);
+    HashDouble(record.out_limit);
+    HashDouble(record.input_factor);
+    HashDouble(record.input_center);
+    HashDouble(record.input_in_limit);
+    HashDouble(record.input_out_limit);
+    HashDouble(record.in_rate);
+    HashDouble(record.out_rate);
+    HashDouble(record.auto_center_rate);
+    HashDouble(record.steering_wheel_lock);
+    HashDouble(record.length_ratio);
+    HashU64(record.accepted_step_count);
+    HashU32(record.fault);
+
+    m_previous_hydro_actor_id = record.actor_id;
+    m_previous_hydro_id = record.hydro_id;
+    m_has_previous_key = true;
+    ++m_observed_count;
+    return true;
+}
+
+bool Builder::BeginContacts(std::uint32_t count)
+{
+    return BeginSection(
+        Section::HYDROS,
         Section::CONTACTS,
         count,
         MAX_CONTACTS,
-        UINT8_C(0xa4));
+        UINT8_C(0xa5));
 }
 
 bool Builder::AddContact(const ContactRecord& record)
@@ -691,6 +876,7 @@ bool BuildSnapshotDigest(
 
     std::uint32_t total_nodes = 0;
     std::uint32_t total_beams = 0;
+    std::uint32_t total_hydros = 0;
     for (std::size_t source_index = 0;
             source_index < actor_count;
             ++source_index)
@@ -714,7 +900,8 @@ bool BuildSnapshotDigest(
                 Error::NONE);
         }
         if (ordered.snapshot.node_count > MAX_NODES - total_nodes ||
-            ordered.snapshot.beam_count > MAX_BEAMS - total_beams)
+            ordered.snapshot.beam_count > MAX_BEAMS - total_beams ||
+            ordered.snapshot.hydro_count > MAX_HYDROS - total_hydros)
         {
             return fail(
                 SnapshotError::COUNT_LIMIT_EXCEEDED,
@@ -724,6 +911,7 @@ bool BuildSnapshotDigest(
         }
         total_nodes += ordered.snapshot.node_count;
         total_beams += ordered.snapshot.beam_count;
+        total_hydros += ordered.snapshot.hydro_count;
         try
         {
             actors.push_back(ordered);
@@ -860,6 +1048,77 @@ bool BuildSnapshotDigest(
                     Error::NONE);
             }
             if (!builder.AddBeam(beam))
+            {
+                return fail(
+                    SnapshotError::DIGEST_REJECTED,
+                    ordered.source_index,
+                    builder.GetErrorRecordIndex(),
+                    builder.GetError());
+            }
+        }
+    }
+
+    if (!builder.BeginHydros(total_hydros))
+    {
+        return fail(
+            SnapshotError::DIGEST_REJECTED,
+            std::numeric_limits<std::size_t>::max(),
+            builder.GetErrorRecordIndex(),
+            builder.GetError());
+    }
+    for (const OrderedSnapshotActor& ordered : actors)
+    {
+        for (std::uint32_t hydro_index = 0;
+                hydro_index < ordered.snapshot.hydro_count;
+                ++hydro_index)
+        {
+            HydroRecord hydro;
+            if (!source.ReadHydro(
+                    ordered.source_index,
+                    hydro_index,
+                    hydro))
+            {
+                return fail(
+                    SnapshotError::SOURCE_READ_FAILED,
+                    ordered.source_index,
+                    hydro_index,
+                    Error::NONE);
+            }
+            if (hydro.actor_id !=
+                    ordered.snapshot.actor.actor_id ||
+                hydro.beam_id >= ordered.snapshot.beam_count)
+            {
+                return fail(
+                    SnapshotError::INVALID_CROSS_REFERENCE,
+                    ordered.source_index,
+                    hydro_index,
+                    Error::NONE);
+            }
+
+            BeamRecord referenced_beam;
+            if (!source.ReadBeam(
+                    ordered.source_index,
+                    hydro.beam_id,
+                    referenced_beam))
+            {
+                return fail(
+                    SnapshotError::SOURCE_READ_FAILED,
+                    ordered.source_index,
+                    hydro_index,
+                    Error::NONE);
+            }
+            if (referenced_beam.actor_id != hydro.actor_id ||
+                referenced_beam.beam_id != hydro.beam_id ||
+                ExactBinary32Bits(referenced_beam.rest_length) !=
+                    ExactBinary32Bits(hydro.runtime_rest_length))
+            {
+                return fail(
+                    SnapshotError::INVALID_CROSS_REFERENCE,
+                    ordered.source_index,
+                    hydro_index,
+                    Error::NONE);
+            }
+            if (!builder.AddHydro(hydro))
             {
                 return fail(
                     SnapshotError::DIGEST_REJECTED,
