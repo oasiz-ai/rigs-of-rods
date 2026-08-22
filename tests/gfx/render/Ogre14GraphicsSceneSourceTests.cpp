@@ -981,7 +981,7 @@ void TestLightConversionRejectsUnrepresentableState() {
   input.attenuation_linear = 0.0F;
   input.attenuation_quadratic = 0.0F;
   result = BuildOgre14GraphicsSceneLight(input, output);
-  Require(!result && result.field == "lights.range",
+  Require(!result && result.field == "lights.native_state",
           "zero OGRE attenuation denominator was accepted");
 
   input = MakeDirectionalLight();
