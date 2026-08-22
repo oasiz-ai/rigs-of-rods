@@ -238,7 +238,7 @@ class OgreNextMetalN2ContractTests(unittest.TestCase):
             "git status --porcelain=v1 --untracked-files=all",
             "file(GLOB_RECURSE",
             "file(SHA256",
-            "ROR_OGRE_NEXT_N2_RELEVANT_SOURCE_CLEAN=1",
+            "Metal N2 provenance requires a clean relevant source set",
             "ROR_OGRE_NEXT_N2_SOURCE_MANIFEST_SHA256",
             "PRE_LINK",
             "N2_EXPECTED_SOURCE_MANIFEST_SHA256",
