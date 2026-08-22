@@ -1020,6 +1020,91 @@ void VerifyPbsMapping(const Ogre::HlmsPbsDatablock &datablock,
       (1.0F - descriptor.index_of_refraction) /
       (1.0F + descriptor.index_of_refraction);
   const float expected_fresnel = ior_ratio * ior_ratio;
+  const auto require_exact_mapping = [&descriptor](bool condition,
+                                                    const char *field) {
+    if (!condition) {
+      throw std::runtime_error(
+          std::string("Ogre-Next RT4/V1 live PBS datablock mismatch: ") +
+          descriptor.debug_name + ": " + field);
+    }
+  };
+  require_exact_mapping(datablock.getBrdf() == Ogre::PbsBrdf::Default,
+                        "brdf");
+  require_exact_mapping(
+      datablock.getWorkflow() ==
+          (specular_workflow ? Ogre::HlmsPbsDatablock::SpecularWorkflow
+                             : Ogre::HlmsPbsDatablock::MetallicWorkflow),
+      "workflow");
+  require_exact_mapping(
+      datablock.getTwoSidedLighting() == descriptor.double_sided,
+      "two_sided_lighting");
+  require_exact_mapping(NearlyEqual(datablock.getDiffuse(), expected_base_color),
+                        "base_color");
+  require_exact_mapping(NearlyEqual(datablock.getSpecular(), expected_specular),
+                        "specular");
+  require_exact_mapping(
+      !specular_workflow ||
+          (NearlyEqual(datablock.getFresnel().x, expected_fresnel) &&
+           !datablock.hasSeparateFresnel()),
+      "fresnel");
+  require_exact_mapping(
+      specular_workflow ||
+          NearlyEqual(datablock.getMetalness(), descriptor.metallic_factor),
+      "metalness");
+  require_exact_mapping(
+      NearlyEqual(datablock.getRoughness(), descriptor.roughness_factor),
+      "roughness");
+  require_exact_mapping(NearlyEqual(datablock.getEmissive(), expected_emissive),
+                        "emissive");
+  require_exact_mapping(datablock.getNormalMapWeight() == 1.0F,
+                        "normal_map_weight");
+  require_exact_mapping(datablock.getMacroblock() != nullptr, "macroblock");
+  require_exact_mapping(*datablock.getMacroblock() == expected_macroblock,
+                        "macroblock_state");
+  require_exact_mapping(datablock.getBlendblock() != nullptr, "blendblock");
+  require_exact_mapping(*datablock.getBlendblock() == expected_blendblock,
+                        "blendblock_state");
+  require_exact_mapping(
+      datablock.getBlendblock()->isAutoTransparent() ==
+          (!thin_slab_transmission &&
+           descriptor.blend_mode != MaterialBlendMode::REPLACE),
+      "automatic_transparency");
+  require_exact_mapping(
+      datablock.getBlendblock()->isForcedTransparent() ==
+          thin_slab_transmission,
+      "forced_transparency");
+  require_exact_mapping(datablock.getAlphaTest() == expected_alpha_test,
+                        "alpha_test");
+  require_exact_mapping(!datablock.getAlphaTestShadowCasterOnly(),
+                        "alpha_test_shadow_caster_only");
+  require_exact_mapping(
+      NearlyEqual(datablock.getAlphaTestThreshold(), descriptor.alpha_cutoff),
+      "alpha_test_threshold");
+  require_exact_mapping(
+      datablock.getTransparencyMode() == expected_transparency,
+      "transparency_mode");
+  require_exact_mapping(
+      NearlyEqual(datablock.getTransparency(), expected_transparency_value),
+      "transparency_value");
+  require_exact_mapping(
+      datablock.getUseAlphaFromTextures() == !thin_slab_transmission,
+      "use_alpha_from_textures");
+  require_exact_mapping(NearlyEqual(datablock.getRefractionStrength(), 0.0F),
+                        "refraction_strength");
+  require_exact_mapping(datablock.getUserValue(0U) == expected_uv0_affine,
+                        "uv0_affine");
+  require_exact_mapping(
+      datablock.getUserValue(1U) == expected_transmission_attenuation,
+      "transmission_attenuation");
+  require_exact_mapping(exact_transmission_parameters,
+                        "transmission_parameters");
+  require_exact_mapping(
+      OgreNextUvAffinePbs::SelectsUv0AffineShader(&datablock),
+      "uv0_affine_shader_selection");
+  require_exact_mapping(
+      OgreNextUvAffinePbs::SelectsThinSlabTransmissionShader(&datablock) ==
+          thin_slab_transmission,
+      "thin_slab_shader_selection");
   if (datablock.getBrdf() != Ogre::PbsBrdf::Default ||
       datablock.getWorkflow() !=
           (specular_workflow
