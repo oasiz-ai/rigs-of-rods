@@ -130,7 +130,7 @@ void TestInvalidVersionEnumsAndNames() {
               "legacy handle-based material version was accepted");
 
   descriptor = {};
-  descriptor.version = kMaterialDescriptorTransmissionVersion + 1U;
+  descriptor.version = kMaterialDescriptorDetailVersion + 1U;
   RequireCode(descriptor, ValidationCode::UNSUPPORTED_VERSION,
               "unknown material version was accepted");
 

@@ -1239,8 +1239,13 @@ void TestModernPbrAssetPolicy() {
   point.range = 10.0F;
   Require(ValidateOgreNextN1Scene(*make_lit_scene({point}), registry, false,
                                   kModern)
+              .ok(),
+          "bounded native Forward+ point light was rejected by RT4/V1");
+  point.shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
+  Require(ValidateOgreNextN1Scene(*make_lit_scene({point}), registry, false,
+                                  kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
-          "uncalibrated local light escaped RT4/V1 admission");
+          "local light without a native shadow path escaped RT4/V1 admission");
   LightDescriptor shadowed = directional;
   shadowed.shadow_flags = LIGHT_SHADOW_DEFAULT_FLAGS;
   Require(ValidateOgreNextN1Scene(*make_lit_scene({shadowed}), registry,
