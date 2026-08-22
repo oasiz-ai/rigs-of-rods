@@ -293,6 +293,7 @@ jobs:
           cmake -E make_directory "$smoke/home" "$smoke/config" "$smoke/cache" "$smoke/data"
           receipt="$stage/qualification/renderer-smoke.json"
           test ! -e "$receipt"
+          set +e
           HOME="$smoke/home" \
           XDG_CONFIG_HOME="$smoke/config" \
           XDG_CACHE_HOME="$smoke/cache" \
@@ -312,6 +313,34 @@ jobs:
               -frame-budget-frames 12 \
             > "$stage/qualification/renderer-smoke.stdout.log" \
             2> "$stage/qualification/renderer-smoke.stderr.log"
+          smoke_status=$?
+          set -e
+          if [[ "$smoke_status" -ne 0 ]]; then
+            HOME="$smoke/home" \
+            XDG_CONFIG_HOME="$smoke/config" \
+            XDG_CACHE_HOME="$smoke/cache" \
+            XDG_DATA_HOME="$smoke/data" \
+            LD_LIBRARY_PATH="$stage/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            timeout --signal=TERM 120s \
+              xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
+              gdb --batch \
+                -ex 'set pagination off' \
+                -ex run \
+                -ex 'thread apply all backtrace full' \
+                --args "$stage/RoR-Combined" \
+                  --native-visual-showcase \
+                  -frame-budget measure \
+                  -frame-budget-receipt "$receipt" \
+                  -frame-budget-scenario ci.ogre-next-combined.renderer-smoke \
+                  -frame-budget-sustained-ms 1000 \
+                  -frame-budget-percentile 99 \
+                  -frame-budget-percentile-ms 1000 \
+                  -frame-budget-warmup 2 \
+                  -frame-budget-minimum 8 \
+                  -frame-budget-frames 12 \
+              > "$stage/qualification/renderer-smoke.gdb.log" 2>&1 || true
+            exit "$smoke_status"
+          fi
           python - <<'PY'
           import json
           import os
