@@ -24,6 +24,7 @@ struct MeshInstanceDescriptor;
 struct MeshResourceDescriptor;
 class RenderAssetRegistry;
 struct SamplerResourceDescriptor;
+class SceneSnapshot;
 struct SceneSnapshotDescriptor;
 struct TextureResourceDescriptor;
 
@@ -46,6 +47,9 @@ ValidationResult ValidateSceneSnapshotAssetsScoped(
     const SceneSnapshotDescriptor &descriptor,
     const RenderAssetRegistry &registry,
     const std::vector<std::uint64_t> &instance_ids);
+ValidationResult ValidateSceneSnapshotRetainedAssets(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    std::uint64_t expected_predecessor_snapshot_id);
 
 class ValidatedAssetCompatibilityAccess final {
 private:
@@ -79,6 +83,9 @@ private:
       const SceneSnapshotDescriptor &descriptor,
       const RenderAssetRegistry &registry,
       const std::vector<std::uint64_t> &instance_ids);
+  friend ValidationResult ValidateSceneSnapshotRetainedAssets(
+      const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+      std::uint64_t expected_predecessor_snapshot_id);
 };
 
 namespace Detail {

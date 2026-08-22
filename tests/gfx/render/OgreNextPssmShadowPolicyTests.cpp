@@ -79,17 +79,17 @@ CameraViewRequest ShadowView() {
   view.width = 192U;
   view.height = 128U;
   view.near_plane = kOgreNextPssmNearMeters;
-  view.far_plane = kOgreNextPssmFarMeters;
+  view.far_plane = kOgreNextExpectedViewFarMeters;
   view.clip_from_view.elements.fill(0.0F);
   view.clip_from_view.elements[0U] = 1.0F;
   view.clip_from_view.elements[5U] = 1.5F;
   view.clip_from_view.elements[10U] =
-      kOgreNextPssmFarMeters /
-      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+      kOgreNextExpectedViewFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextExpectedViewFarMeters);
   view.clip_from_view.elements[11U] = -1.0F;
   view.clip_from_view.elements[14U] =
-      kOgreNextPssmNearMeters * kOgreNextPssmFarMeters /
-      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+      kOgreNextPssmNearMeters * kOgreNextExpectedViewFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextExpectedViewFarMeters);
   view.previous_clip_from_view = view.clip_from_view;
   return view;
 }

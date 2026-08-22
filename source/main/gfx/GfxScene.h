@@ -119,8 +119,9 @@ public:
     void           EnableOgreNextDemoCapture() noexcept
                    { m_ogre_next_demo_capture_enabled = true; }
     /// The hidden OGRE 14 scene is only an ingestion source in this mode.
-    /// It must not automatically synthesize additional render-only mesh LODs;
-    /// that path is unsafe for some legacy CityWorld meshes in pinned OGRE 14.
+    /// Automatic LOD generation may run there as an offline mesh preparation
+    /// step, but the visible result is accepted only from the final Ogre-Next
+    /// native distance-LOD and selected-triangle receipt.
     [[nodiscard]] bool IsOgreNextDemoCaptureEnabled() const noexcept
                    { return m_ogre_next_demo_capture_enabled; }
     /// Reads only the completed simulation buffer and graphics-owned OGRE 14
@@ -232,8 +233,11 @@ private:
     std::size_t                        m_ogre_next_demo_material_census_log_size = 0U;
     // Last committed policy-v1 sky descriptor telemetry. The candidate text
     // is staged with the joined capture and swapped only from Commit(), so a
-    // rejected capture cannot advertise unpresented sky authority.
+    // rejected capture cannot advertise unpresented sky authority. Dynamic
+    // phase changes are logged only on the first accepted capture and a
+    // bounded heartbeat instead of producing one diagnostic line per frame.
     std::string                        m_ogre_next_demo_analytic_sky_log_snapshot;
+    std::uint64_t                      m_ogre_next_demo_analytic_sky_log_captures = 0U;
     // Map-generation identities reset at the explicit full-scene generation
     // release (and idempotently again in ClearScene), after the product session
     // has sequenced the preceding authoritative empty scene or terminal close.
@@ -318,6 +322,11 @@ private:
     std::uint64_t m_ogre14_section_log_union_ns = 0U;
     std::uint64_t m_ogre14_section_log_particles_ns = 0U;
     std::uint64_t m_ogre14_section_log_material_apply_ns = 0U;
+    std::uint64_t m_ogre14_section_log_material_index_ns = 0U;
+    std::uint64_t m_ogre14_section_log_material_plan_ns = 0U;
+    std::uint64_t m_ogre14_section_log_material_authority_ns = 0U;
+    std::uint64_t m_ogre14_section_log_material_owners_ns = 0U;
+    std::uint64_t m_ogre14_section_log_material_finalize_ns = 0U;
     std::uint64_t m_ogre14_section_log_other_ns = 0U;
     // Full-resolution terrain payload owners are keyed by exact TerrainGroup
     // page identity; each entry retains its collision-free byte state. The
@@ -453,6 +462,7 @@ private:
         /// walk span it executes inside so an empty particle inventory can
         /// never be billed for material republication cost.
         std::uint64_t section_material_apply_ns = 0U;
+        Gfx::Detail::OgreNextDemoMaterialApplyTiming material_apply_timing;
         std::uint64_t section_other_ns = 0U;
     };
     std::unique_ptr<Ogre14PendingCaptureState> m_ogre14_pending_capture;

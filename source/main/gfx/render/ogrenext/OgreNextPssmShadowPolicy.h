@@ -153,6 +153,7 @@ struct OgreNextPssmShadowFramePlan final {
     const CameraViewRequest &view,
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
-    OgreNextPssmShadowFramePlan &output);
+    OgreNextPssmShadowFramePlan &output,
+    bool defer_instance_counts_to_retained_scene = false);
 
 } // namespace RoR::Render

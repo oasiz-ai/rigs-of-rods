@@ -255,7 +255,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             lock.write_bytes(source_lock.read_bytes())
             self.assertEqual(
                 UV_AFFINE_SHADER_VERIFIER.verify_shader(root, lock),
-            "db5439057c71d6b10b287a010fc171abc429c7c737cadb8fc2c1b0606ce690e6",
+                "db5439057c71d6b10b287a010fc171abc429c7c737cadb8fc2c1b0606ce690e6",
             )
             shader.write_bytes(shader.read_bytes() + b"\n")
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
@@ -730,8 +730,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "MaterialAlphaTestMode::GREATER",
             "Ogre::CMPF_GREATER_EQUAL",
             "VerifyPbsMapping(*native.pbs_datablock, descriptor)",
-            "datablock.getBrdf() != Ogre::PbsBrdf::Default",
-            "datablock.getWorkflow() !=",
+            "datablock.getBrdf() == Ogre::PbsBrdf::Default",
+            "datablock.getWorkflow() ==",
             "datablock.getDiffuse()",
             "datablock.getSpecular()",
             "datablock.getMetalness()",
@@ -774,7 +774,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.frontend,
         )
         self.assertIn(
-            "datablock.getUseAlphaFromTextures() != !thin_slab_transmission",
+            "datablock.getUseAlphaFromTextures() == !thin_slab_transmission",
             self.frontend,
         )
 
@@ -864,7 +864,7 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "normal_rg8_allocations",
             "Ogre::PBSM_NORMAL",
             "setNormalMapWeight(1.0F)",
-            "getNormalMapWeight() != 1.0F",
+            "getNormalMapWeight() == 1.0F",
         ):
             self.assertIn(token, self.frontend)
         self.assertIn("allocations.version == 2U", self.smoke)
@@ -1019,11 +1019,21 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "createVertexArrayObject",
             "native_gpu_content_readbacks",
             "last_cpu_geometry_fnv1a64",
+            "AnalyticSkyGeometryCacheKey",
+            "SameAnalyticSkyGeometryCacheKey",
+            "kOgreNextAnalyticSkyGeometryRefreshIntervalFrames = 30U",
+            "analytic_sky_geometry_cache_frame_id",
+            "impl_->retain_analytic_sky_geometry_content_evidence",
             "destroy_sky_datablock",
             "QueryAnalyticSkyAudit",
             "portable_scene_identity_absent = true",
         ):
             self.assertIn(token, self.header + self.frontend)
+        self.assertIn(
+            "analytic_sky_committed_descriptor =\n"
+            "          impl_->analytic_sky_geometry_cache_key.descriptor",
+            self.frontend,
+        )
         for token in (
             "RunAnalyticSkyRollbackProof",
             "RunAnalyticSkyVisualProof",
@@ -1073,7 +1083,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "radiance_authority=",
             "joined_live_ambient_and_exact_converted_main_light",
             "m_ogre_next_demo_analytic_sky_log_snapshot",
+            "m_ogre_next_demo_analytic_sky_log_captures",
             "pending->analytic_sky_log_snapshot",
+            "m_ogre_next_demo_analytic_sky_log_captures % 300U",
+            "captures={} {}",
             "haze_extinction_per_meter={:.9g}",
             "haze_inverse_scale_height_per_meter={:.9g}",
             "haze_base_height_meters={:.9g}",
@@ -1515,9 +1528,10 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             self.assertIn(token, self.hdr_topology_header)
         for token in (
             # Compositor audit v5 adds the depth-export and aerial-haze
-            # evidence; the lighting-pass audit moves to v5 with it.
+            # evidence. Lighting audit v6 adds post-render native distance-LOD
+            # selection and triangle-reduction evidence.
             "std::uint32_t version = 5U;",
-            "kOgreNextNativeLightingPassAuditVersion = 5U",
+            "kOgreNextNativeLightingPassAuditVersion = 6U",
             "OgreNextHdrSceneTopology scene_topology",
             "OgreNextHdrSceneTopology hdr_scene_topology",
             "pssm_finalized_with_populated_scene",
@@ -1627,7 +1641,8 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
             "audit.scene_topology = hdr_scene_topology;",
             "lighting_candidate.hdr_scene_topology = impl_->hdr_scene_topology;",
             "impl_->hdr_enabled && !impl_->SingleSceneHdrPssmEnabled() ? 3U : 1U;",
-            "impl_->hdr_scene_topology);",
+            "impl_->hdr_scene_topology, &shadow_plan, this,",
+            "retained_instance_block_already_validated);",
         ):
             self.assertIn(token, self.frontend)
         policy = self.policy_header + self.policy
@@ -2499,6 +2514,120 @@ class OgreNextN1FrontendContractTests(unittest.TestCase):
                 RUNNER.hdr_media_manifest(root)["sha256"], original_digest
             )
 
+
+
+class RuntimeAuditPerformanceContractTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.frontend = (
+            RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.cpp"
+        ).read_text(encoding="utf-8")
+        self.frontend_header = (
+            RENDER_ROOT / "ogrenext" / "OgreNextN1Frontend.h"
+        ).read_text(encoding="utf-8")
+        self.main_source = (
+            REPOSITORY_ROOT / "source" / "main" / "main.cpp"
+        ).read_text(encoding="utf-8")
+        self.gfx_scene = (
+            REPOSITORY_ROOT / "source" / "main" / "gfx" / "GfxScene.cpp"
+        ).read_text(encoding="utf-8")
+
+    def test_monotonic_audits_are_heartbeat_throttled_and_render_is_timed(
+        self,
+    ) -> None:
+        self.assertIn(
+            "kOgreNextRetainedSceneAuditVersion = 6U",
+            self.frontend_header,
+        )
+        render_timer = self.frontend.index(
+            "const auto native_render_phase_start"
+        )
+        render_call = self.frontend.index(
+            "if (!impl_->root->renderOneFrame())", render_timer
+        )
+        render_receipt = self.frontend.index(
+            "last_native_render_phase_microseconds =", render_call
+        )
+        self.assertLess(render_timer, render_call)
+        self.assertLess(render_call, render_receipt)
+
+        # The frame validator owns the scene/PSSM policy and returns the
+        # validated plan. An exact immutable predecessor receipt narrows the
+        # hot path to patched instances; first/stale frames still take the
+        # complete validator.
+        self.assertIn(
+            "impl_->hdr_scene_topology, &shadow_plan, this,",
+            self.frontend,
+        )
+        for token in (
+            "request.scene_snapshot->has_retained_instance_block_proof()",
+            "retained_instance_predecessor_snapshot_id() ==",
+            "retained_instance_block_already_validated",
+            "snapshot.retained_instance_patched_indices()",
+            "last_diff_used_retained_block_proof =",
+        ):
+            self.assertIn(token, self.frontend)
+        self.assertNotIn(
+            "const ValidationResult shadow_validation =",
+            self.frontend,
+        )
+
+        for token in (
+            "frame_prepare_phase_microseconds =",
+            "light_phase_microseconds =",
+            "instance_phase_microseconds =",
+            "native_prepare_phase_microseconds =",
+            "native_render_phase_microseconds =",
+            "post_render_phase_microseconds =",
+            "cleanup_phase_microseconds =",
+            "publication_phase_microseconds =",
+            "renderer_combined_particle_audit_state_signature",
+            "renderer_combined_particle_audit_logged_sequence",
+            "particle_audit_heartbeat",
+            "renderer_combined_native_lighting_audit_state_signature",
+            "renderer_combined_native_lighting_audit_logged_frame",
+            "lighting_audit_heartbeat",
+            "frame_prepare_phase_us={}",
+            "native_prepare_phase_us={}",
+            "native_render_phase_us={}",
+            "post_render_phase_us={}",
+            "publication_phase_us={}",
+        ):
+            self.assertIn(
+                token,
+                self.frontend
+                if token.endswith("microseconds =")
+                else self.main_source,
+            )
+        self.assertNotIn(
+            "renderer_combined_particle_audit_signature",
+            self.main_source,
+        )
+        self.assertNotIn(
+            "renderer_combined_native_lighting_audit_signature",
+            self.main_source,
+        )
+
+        runtime_particle_key = self.main_source[
+            self.main_source.index(
+                "const std::string audit_state_signature ="
+            ) : self.main_source.index(
+                "const bool particle_audit_heartbeat ="
+            )
+        ]
+        self.assertIn("live_systems={}", runtime_particle_key)
+        self.assertNotIn("audit.live_particles,", runtime_particle_key)
+
+        capture_particle_key = self.gfx_scene[
+            self.gfx_scene.index(
+                "const std::string particle_state_signature ="
+            ) : self.gfx_scene.index(
+                "const std::string particle_snapshot ="
+            )
+        ]
+        self.assertIn("lifetime_max_admitted_particles={}", capture_particle_key)
+        self.assertNotIn("particles.observed_particles", capture_particle_key)
+        self.assertNotIn("particles.captured_particles", capture_particle_key)
+        self.assertIn("particle_audit_heartbeat", self.gfx_scene)
 
 
 class SingleEvaluationPssmDeferralContractTests(unittest.TestCase):

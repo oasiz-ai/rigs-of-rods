@@ -14,6 +14,7 @@
 #include "ValidatedAssetCompatibilityInternal.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -1061,6 +1062,92 @@ const DynamicMeshUpdateDescriptor *FindDynamicMeshUpdate(
              : *found;
 }
 
+/// Exact, invocation-local memoization for repeated mesh/material pairs.
+///
+/// Large imported scenes commonly instantiate the same immutable section pair
+/// thousands of times. Resolving both references through the ordered registry
+/// and rechecking the six material bindings for every instance is redundant.
+/// This direct-mapped cache is deliberately only an optimization: a collision
+/// is an exact-reference miss and runs the full resolver/compatibility path.
+/// Its borrowed descriptor pointers cannot outlive this validation call.
+class ValidatedSceneAssetPairCache final {
+public:
+  explicit ValidatedSceneAssetPairCache(
+      const ValidatedAssetCompatibilityAccess &validated_assets) noexcept
+      : validated_assets_(validated_assets) {}
+
+  [[nodiscard]] ValidationResult Resolve(
+      const RenderAssetRegistry &registry,
+      const RenderAssetReference &mesh_reference,
+      const RenderAssetReference &material_reference,
+      const MeshResourceDescriptor *&mesh,
+      const MaterialDescriptor *&material) noexcept {
+    Entry &entry = entries_[Index(mesh_reference, material_reference)];
+    if (entry.occupied && entry.mesh_reference == mesh_reference &&
+        entry.material_reference == material_reference) {
+      mesh = entry.mesh;
+      material = entry.material;
+      return ValidationResult::Success();
+    }
+
+    mesh = registry.ResolveMesh(mesh_reference);
+    material = registry.ResolveMaterial(material_reference);
+    if (mesh == nullptr || material == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
+          "instance references a missing, stale, or tombstoned asset");
+    }
+    ValidationResult validation =
+        Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
+            validated_assets_, *material, *mesh);
+    if (!validation) {
+      return validation;
+    }
+
+    entry.occupied = true;
+    entry.mesh_reference = mesh_reference;
+    entry.material_reference = material_reference;
+    entry.mesh = mesh;
+    entry.material = material;
+    return ValidationResult::Success();
+  }
+
+private:
+  static constexpr std::size_t kEntryCount = 512U;
+  static_assert((kEntryCount & (kEntryCount - 1U)) == 0U,
+                "scene asset pair cache size must be a power of two");
+
+  struct Entry final {
+    bool occupied = false;
+    RenderAssetReference mesh_reference;
+    RenderAssetReference material_reference;
+    const MeshResourceDescriptor *mesh = nullptr;
+    const MaterialDescriptor *material = nullptr;
+  };
+
+  [[nodiscard]] static std::size_t
+  Index(const RenderAssetReference &mesh,
+        const RenderAssetReference &material) noexcept {
+    constexpr std::uint64_t kOffset = 1469598103934665603ULL;
+    constexpr std::uint64_t kPrime = 1099511628211ULL;
+    std::uint64_t hash = kOffset;
+    const auto add = [&hash](std::uint64_t value) noexcept {
+      hash ^= value;
+      hash *= kPrime;
+    };
+    add(mesh.id.high());
+    add(mesh.id.low());
+    add(mesh.revision);
+    add(material.id.high());
+    add(material.id.low());
+    add(material.revision);
+    return static_cast<std::size_t>(hash) & (kEntryCount - 1U);
+  }
+
+  const ValidatedAssetCompatibilityAccess &validated_assets_;
+  std::array<Entry, kEntryCount> entries_{};
+};
+
 } // namespace
 
 ValidationResult ValidateSceneSnapshotAssets(
@@ -1082,6 +1169,7 @@ ValidationResult ValidateSceneSnapshotAssets(
   }
 
   const ValidatedAssetCompatibilityAccess validated_assets;
+  ValidatedSceneAssetPairCache asset_pair_cache(validated_assets);
   if (descriptor.environment.environment_texture.valid()) {
     const TextureResourceDescriptor *texture = registry.ResolveTexture(
         descriptor.environment.environment_texture);
@@ -1150,16 +1238,10 @@ ValidationResult ValidateSceneSnapshotAssets(
   for (std::size_t index = 0U; index < descriptor.mesh_instances.size();
        ++index) {
     const MeshInstanceDescriptor &instance = descriptor.mesh_instances[index];
-    const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
-    const MaterialDescriptor *material =
-        registry.ResolveMaterial(instance.material);
-    if (mesh == nullptr || material == nullptr) {
-      return ValidationResult::Failure(
-          ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
-          "instance references a missing, stale, or tombstoned asset", index);
-    }
-    validation = Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
-        validated_assets, *material, *mesh);
+    const MeshResourceDescriptor *mesh = nullptr;
+    const MaterialDescriptor *material = nullptr;
+    validation = asset_pair_cache.Resolve(registry, instance.mesh,
+                                          instance.material, mesh, material);
     if (!validation) {
       validation.element_index = index;
       return validation;
@@ -1183,6 +1265,131 @@ ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
   return ValidateSceneSnapshotAssets(snapshot.descriptor_, registry);
 }
 
+ValidationResult ValidateSceneSnapshotRetainedAssets(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    std::uint64_t expected_predecessor_snapshot_id) {
+  const SceneSnapshotDescriptor &descriptor = snapshot.descriptor_;
+  if (!snapshot.has_retained_instance_block_proof() ||
+      expected_predecessor_snapshot_id == 0U ||
+      snapshot.retained_instance_predecessor_snapshot_id_ !=
+          expected_predecessor_snapshot_id ||
+      snapshot.retained_instance_patched_indices_.size() !=
+          snapshot.retained_instance_predecessor_ids_.size()) {
+    return ValidationResult::Failure(
+        ValidationCode::REVISION_MISMATCH, "retained_block.predecessor",
+        "retained asset validation requires the exact accepted predecessor");
+  }
+  if (descriptor.asset_registry_id != registry.registry_id()) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_IDENTIFIER, "asset_registry_id",
+        "scene references a different renderer-neutral asset registry");
+  }
+  if (descriptor.asset_sequence != registry.sequence()) {
+    return ValidationResult::Failure(
+        ValidationCode::SEQUENCE_MISMATCH, "asset_sequence",
+        "scene requires a different asset registry sequence");
+  }
+
+  const ValidatedAssetCompatibilityAccess validated_assets;
+  if (descriptor.environment.environment_texture.valid()) {
+    const TextureResourceDescriptor *texture = registry.ResolveTexture(
+        descriptor.environment.environment_texture);
+    const SamplerResourceDescriptor *sampler = registry.ResolveSampler(
+        descriptor.environment.environment_sampler);
+    if (texture == nullptr || sampler == nullptr) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE, "environment",
+          "environment references a missing, stale, or tombstoned asset");
+    }
+    ValidationResult validation =
+        Detail::ValidateEnvironmentTextureCompatibilityFromValidatedAssets(
+            validated_assets, *texture, *sampler);
+    if (!validation) {
+      return validation;
+    }
+  }
+  if (descriptor.hud_overlay.enabled) {
+    const MaterialDescriptor *material =
+        registry.ResolveMaterial(descriptor.hud_overlay.material);
+    if (material == nullptr || material->model != MaterialModel::UNLIT ||
+        material->base_color_transfer !=
+            BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE ||
+        material->blend_mode !=
+            MaterialBlendMode::PREMULTIPLIED_SOURCE_OVER ||
+        material->alpha_test_mode != MaterialAlphaTestMode::DISABLED ||
+        material->depth_write ||
+        !material->base_color_texture.texture.valid() ||
+        !material->base_color_texture.sampler.valid()) {
+      return ValidationResult::Failure(
+          ValidationCode::UNSUPPORTED_FEATURE, "hud_overlay.material",
+          "HUD overlay retained validation requires the exact admitted display-domain material");
+    }
+    const TextureResourceDescriptor *texture =
+        registry.ResolveTexture(material->base_color_texture.texture);
+    const SamplerResourceDescriptor *sampler =
+        registry.ResolveSampler(material->base_color_texture.sampler);
+    if (texture == nullptr || sampler == nullptr ||
+        texture->mip_levels.size() != 1U) {
+      return ValidationResult::Failure(
+          ValidationCode::MISSING_REFERENCE,
+          "hud_overlay.material.base_color_texture",
+          "HUD overlay texture/sampler retained state is stale or noncanonical");
+    }
+  }
+
+  const std::vector<std::uint32_t> &patched =
+      snapshot.retained_instance_patched_indices_;
+  for (std::size_t patch = 0U; patch < patched.size(); ++patch) {
+    if (patched[patch] >= descriptor.mesh_instances.size()) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE,
+          "retained_block.patched_indices",
+          "retained patch index is outside the immutable instance block",
+          patch);
+    }
+  }
+  for (const DynamicMeshUpdateDescriptor &update :
+       descriptor.dynamic_mesh_updates) {
+    const auto found = std::lower_bound(
+        patched.begin(), patched.end(), update.instance_id,
+        [&descriptor](std::uint32_t index, std::uint64_t instance_id) {
+          return descriptor.mesh_instances[index].instance_id < instance_id;
+        });
+    if (found == patched.end() ||
+        descriptor.mesh_instances[*found].instance_id != update.instance_id) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "retained_block.dynamic_mesh_updates",
+          "every deformable update must be named by the retained patch proof");
+    }
+  }
+
+  ValidatedSceneAssetPairCache asset_pair_cache(validated_assets);
+  const std::vector<const DynamicMeshUpdateDescriptor *> update_index =
+      BuildDynamicMeshUpdateIndex(descriptor);
+  for (std::size_t patch = 0U; patch < patched.size(); ++patch) {
+    const std::uint32_t instance_index = patched[patch];
+    const MeshInstanceDescriptor &instance =
+        descriptor.mesh_instances[instance_index];
+    const MeshResourceDescriptor *mesh = nullptr;
+    const MaterialDescriptor *material = nullptr;
+    ValidationResult validation = asset_pair_cache.Resolve(
+        registry, instance.mesh, instance.material, mesh, material);
+    if (!validation) {
+      validation.element_index = instance_index;
+      return validation;
+    }
+    validation = Detail::ValidateMeshInstanceCompatibilityFromValidatedMesh(
+        validated_assets, *mesh, instance,
+        FindDynamicMeshUpdate(update_index, instance.instance_id));
+    if (!validation) {
+      validation.element_index = instance_index;
+      return validation;
+    }
+  }
+  return ValidationResult::Success();
+}
+
 ValidationResult ValidateSceneSnapshotAssetsScoped(
     const SceneSnapshotDescriptor &descriptor,
     const RenderAssetRegistry &registry,
@@ -1199,6 +1406,7 @@ ValidationResult ValidateSceneSnapshotAssetsScoped(
   }
 
   const ValidatedAssetCompatibilityAccess validated_assets;
+  ValidatedSceneAssetPairCache asset_pair_cache(validated_assets);
   const std::vector<const DynamicMeshUpdateDescriptor *> update_index =
       BuildDynamicMeshUpdateIndex(descriptor);
   std::uint64_t previous_identifier = 0U;
@@ -1230,18 +1438,10 @@ ValidationResult ValidateSceneSnapshotAssetsScoped(
     }
     const MeshInstanceDescriptor &instance =
         descriptor.mesh_instances[instance_scan];
-    const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
-    const MaterialDescriptor *material =
-        registry.ResolveMaterial(instance.material);
-    if (mesh == nullptr || material == nullptr) {
-      return ValidationResult::Failure(
-          ValidationCode::MISSING_REFERENCE, "mesh_instances.asset",
-          "instance references a missing, stale, or tombstoned asset",
-          instance_scan);
-    }
-    ValidationResult validation =
-        Detail::ValidateMaterialMeshCompatibilityFromValidatedAssets(
-            validated_assets, *material, *mesh);
+    const MeshResourceDescriptor *mesh = nullptr;
+    const MaterialDescriptor *material = nullptr;
+    ValidationResult validation = asset_pair_cache.Resolve(
+        registry, instance.mesh, instance.material, mesh, material);
     if (!validation) {
       validation.element_index = instance_scan;
       return validation;
@@ -1347,8 +1547,14 @@ SceneSnapshotCreateResult CreateSceneSnapshotWithRetainedBlock(
   if (!result.validation) {
     return result;
   }
+  std::vector<std::uint64_t> predecessor_ids;
+  predecessor_ids.reserve(patched_indices.size());
+  for (const std::uint32_t patched : patched_indices) {
+    predecessor_ids.push_back(prior[patched].instance_id);
+  }
   result.snapshot = std::shared_ptr<const SceneSnapshot>(
-      new SceneSnapshot(std::move(descriptor)));
+      new SceneSnapshot(std::move(descriptor), previous->snapshot_id(),
+                        patched_indices, std::move(predecessor_ids)));
   return result;
 }
 

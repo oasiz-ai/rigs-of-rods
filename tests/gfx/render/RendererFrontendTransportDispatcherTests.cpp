@@ -973,6 +973,10 @@ void TestInterleavedAssetsScenesAndPresentation() {
   const RenderFrameRequest &request1 = frontend.rendered_requests.front();
   Require(request1.frame_id == 1U && request1.views.size() == 1U,
           "first rendered scene did not receive frontend frame ID one");
+  Require(request1.in_process_scene_asset_validation != nullptr &&
+              request1.in_process_scene_asset_validation->Authenticates(
+                  request1.scene_snapshot, frontend, registry_id, 1U),
+          "decoded scene lost exact direct-dispatch validation authority");
   Require(request1.present && request1.presentation_view_id == 7U &&
               request1.presentation_surface_revision == 9U,
           "caller presentation surface policy was not preserved");
@@ -1385,6 +1389,18 @@ void TestDirectDispatcherTypedLifecycle() {
               frontend.rendered_requests.front().scene_snapshot->snapshot_id() ==
                   101U,
           "typed scene was copied, renumbered, or incompletely drained");
+  const RenderFrameRequest &first_request = frontend.rendered_requests.front();
+  Require(first_request.in_process_scene_asset_validation != nullptr &&
+              first_request.in_process_scene_asset_validation->Authenticates(
+                  first_request.scene_snapshot, frontend, registry_id, 1U),
+          "typed scene did not carry exact direct-dispatch validation authority");
+  FakeFrontend foreign_frontend;
+  Require(!first_request.in_process_scene_asset_validation->Authenticates(
+              first_request.scene_snapshot, foreign_frontend, registry_id,
+              1U) &&
+              !first_request.in_process_scene_asset_validation->Authenticates(
+                  first_request.scene_snapshot, frontend, registry_id, 2U),
+          "typed scene authority admitted a foreign frontend or sequence");
 
   RendererFrontendPresentationPolicy resized = PresentedPolicy();
   resized.presentation_drawable_width = 1280U;
@@ -1470,6 +1486,12 @@ void TestDirectDispatcherRetiresContinuousParticleStateExactlyOnce() {
                   retired_scene.get() &&
               frontend.retired_requests.front().continuous_particles !=
                   nullptr &&
+              frontend.retired_requests.front()
+                      .in_process_scene_asset_validation != nullptr &&
+              frontend.retired_requests.front()
+                  .in_process_scene_asset_validation->Authenticates(
+                      frontend.retired_requests.front().scene_snapshot,
+                      frontend, registry_id, 1U) &&
               frontend.waited_frame_ids == std::vector<std::uint64_t>{1U},
           "retired particle state was dropped, rendered, copied, or incomplete");
 

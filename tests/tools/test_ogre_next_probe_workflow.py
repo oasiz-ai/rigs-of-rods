@@ -356,19 +356,50 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         mesh_object = (
             REPOSITORY_ROOT / "source/main/utils/MeshObject.cpp"
         ).read_text(encoding="utf-8")
+        playable_runner = (
+            REPOSITORY_ROOT / "tools/run_playable_performance_scene.py"
+        ).read_text(encoding="utf-8")
         self.assertIn("IsOgreNextDemoCaptureEnabled()", gfx_header)
-        self.assertIn(
-            "App::GetGfxScene()->IsOgreNextDemoCaptureEnabled()",
-            mesh_object,
-        )
         self.assertIn(
             "BindOrdinarySelectedTextureSourceResolver(*content_manager)",
             gfx_scene,
         )
+        self.assertIn("else if (!m_mesh->isLoaded())", mesh_object)
         self.assertIn(
-            "!ogre_next_demo_source && App::gfx_auto_lod->getBool()",
+            "if (m_mesh->getNumLodLevels() <= 1U)", mesh_object
+        )
+        self.assertIn(
+            "getAutoconfig(\n                    m_mesh, automatic_config)",
             mesh_object,
         )
+        self.assertIn(
+            "Ogre::DistanceLodSphereStrategy::getSingletonPtr()",
+            mesh_object,
+        )
+        self.assertLess(
+            mesh_object.index("if (m_mesh->getNumLodLevels() <= 1U)"),
+            mesh_object.index("createEntity(entityName, meshName, entityRG)"),
+        )
+        self.assertNotIn("ogre_next_demo_source", mesh_object)
+        self.assertNotIn(
+            "App::GetGfxScene()->IsOgreNextDemoCaptureEnabled()",
+            mesh_object,
+        )
+        # LOD enablement is no longer inferred from the source-side branch or
+        # from a focused selector. The playable driver consumes the final
+        # native Ogre-Next frame receipt, requires a real ladder, and validates
+        # either a base or reduced selection without making camera placement a
+        # renderer-availability gate.
+        for receipt_token in (
+            "verify_combined_native_distance_lod",
+            'numbers["lod_items"] <= 0',
+            'numbers["lod_reduced"] > numbers["lod_items"]',
+            'reduced_this_frame = numbers["lod_reduced"] > 0',
+            'numbers["triangles_selected"]',
+            'numbers["triangles_base"]',
+        ):
+            with self.subTest(lod_receipt_token=receipt_token):
+                self.assertIn(receipt_token, playable_runner)
         joined_page = terrain_source[
             terrain_source.index("Render::ValidationResult JoinNativePage(") :
         ]
@@ -1971,6 +2002,10 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         probe_cmake = (
             REPOSITORY_ROOT / "tools/ogre_next_probe/CMakeLists.txt"
         ).read_text(encoding="utf-8")
+        frontend_smoke = (
+            REPOSITORY_ROOT
+            / "tools/ogre_next_probe/src/frontend_n1_smoke.cpp"
+        ).read_text(encoding="utf-8")
         native_cmake = (REPOSITORY_ROOT / "tests/CMakeLists.txt").read_text(
             encoding="utf-8"
         )
@@ -2233,7 +2268,23 @@ class OgreNextProbeWorkflowTests(unittest.TestCase):
         self.assertIn("entity->getVisible() &&", gfx_source)
         self.assertIn("sub_entity->isVisible()", gfx_source)
         self.assertIn("entity->getRenderingDistance()", gfx_source)
-        self.assertIn("_getRenderOperation(operation, 0U)", gfx_source)
+        self.assertIn("CaptureOgre14GeneratedDistanceLods(", gfx_source)
+        self.assertIn("getNumLodLevels()", gfx_source)
+        self.assertIn("usage.userValue", gfx_source)
+        self.assertIn("distance_lod_levels", gfx_source)
+        self.assertIn('getName() != "distance_sphere"', gfx_source)
+        self.assertIn("RunDistanceLodSelectionProof(", frontend_smoke)
+        self.assertIn('ror.ogre_next_distance_lod.v2', frontend_smoke)
+        self.assertIn('"    \\"near_level\\": "', frontend_smoke)
+        self.assertIn('"    \\"far_level\\": "', frontend_smoke)
+        self.assertIn(
+            '"    \\"restored_near_level\\": "', frontend_smoke
+        )
+        self.assertIn('"    \\"base_triangles\\": "', frontend_smoke)
+        self.assertIn(
+            '"    \\"far_selected_triangles\\": "', frontend_smoke
+        )
+        self.assertIn('"    \\"exact_live_audit\\": "', frontend_smoke)
         for diagnostic in (
             "static_meshes.unsupported.terrain",
             "static_meshes.unsupported.procedural",

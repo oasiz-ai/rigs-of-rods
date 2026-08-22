@@ -351,8 +351,21 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
         RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
         ValidationCode::SEQUENCE_MISMATCH);
   }
+  // The snapshot factory has already compared every unlisted instance byte
+  // against an immutable predecessor. Reuse that proof only when the named
+  // predecessor is the exact scene this dispatcher accepted against the
+  // unchanged registry generation. A skipped/rejected/transported frame does
+  // not poison the session: it simply takes the complete validation path.
+  const bool can_validate_retained_assets =
+      scene->has_retained_instance_block_proof() &&
+      scene->retained_instance_predecessor_snapshot_id() ==
+          last_consumed_scene_snapshot_id_ &&
+      last_scene_asset_sequence_ == registry_.sequence();
   const ValidationResult asset_validation =
-      ValidateSceneSnapshotAssets(*scene, registry_);
+      can_validate_retained_assets
+          ? ValidateSceneSnapshotRetainedAssets(
+                *scene, registry_, last_consumed_scene_snapshot_id_)
+          : ValidateSceneSnapshotAssets(*scene, registry_);
   if (!asset_validation) {
     return Reject(
         RendererFrontendDirectDispatchStatus::FAILED_SCENE_VALIDATION,
@@ -395,7 +408,10 @@ RendererFrontendDirectDispatcher::RenderSceneImpl(
 
   RenderFrameRequest request;
   request.frame_id = last_frontend_frame_id_ + 1U;
-  request.scene_snapshot = std::move(scene);
+  request.scene_snapshot = scene;
+  request.in_process_scene_asset_validation =
+      std::shared_ptr<const InProcessSceneAssetValidationReceipt>(
+          new InProcessSceneAssetValidationReceipt(scene, *frontend_));
   request.continuous_particles = std::move(continuous_particles);
   request.views.push_back(camera);
   request.requested_outputs = presentation_policy.requested_outputs;

@@ -39,23 +39,41 @@ struct OgreNextReflectionProbeNativeOwnershipEvidence;
 /// constant and is unchanged in shape, so a version-3 producer of that struct
 /// remains byte-compatible; only the emitted audit grew.
 constexpr std::uint32_t kOgreNextN1PresentationContractVersion = 4U;
-/// Version 4: per-frame scene counters (pbs/transmission/normal/emissive/
+/// Version 5: per-frame scene counters (pbs/transmission/normal/emissive/
 /// caster/receiver) are retained aggregates maintained O(changed) and
 /// cross-checked against the snapshot-derived shadow plan every present,
 /// and native_state_verifications advances per created/updated instance
 /// plus a rotating re-verification window instead of once per instance
 /// per present. Values and log fields are unchanged; only the derivation
 /// and the verification growth rate differ.
-constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 5U;
-constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 2U;
+///
+/// Version 6 adds exact live distance-LOD selection and triangle-reduction
+/// counters. They are read from the retained Ogre Items after native scene
+/// evaluation, then cross-checked against the immutable portable ladders
+/// before the lighting receipt can publish.
+constexpr std::uint32_t kOgreNextNativeLightingPassAuditVersion = 6U;
+/// Version 4 closes the entire frontend CPU timeline around validation,
+/// preparation, retained lights/instances, native graph preparation/render,
+/// post-render verification/publication preparation, cleanup, and final
+/// transactional publication. The playable-performance gate can therefore
+/// attribute scene_dispatch without a framebuffer readback or profiler.
+/// Version 5 states whether the most recent native diff consumed the
+/// SceneSnapshot's immutable retained-block proof instead of merge-scanning
+/// the full instance vector. Version 6 adds the exact per-present Ogre-Next
+/// renderer workload and compositor-pass split used by the playable
+/// performance gate; these are never inferred from the hidden producer.
+constexpr std::uint32_t kOgreNextRetainedSceneAuditVersion = 6U;
 
 /// Rotating native re-verification budget for the retained scene: after the
 /// per-frame diff, up to this many retained instances that were not created
 /// or updated this frame are re-read from Ogre and compared against their
-/// admitted descriptors. Every retained instance is therefore re-verified at
-/// least once every ceil(N / window) presented frames; any mismatch fails the
+/// admitted descriptors. Changed and deformed instances are still verified
+/// synchronously in the frame that mutates them. The smaller untouched-state
+/// slice keeps the audit bounded on large cities while preserving complete
+/// eventual coverage: every retained instance is re-verified at least once
+/// every ceil(N / window) presented frames, and any mismatch still fails the
 /// present closed and tears the retained scene down to empty.
-constexpr std::uint64_t kOgreNextRetainedVerifyWindow = 128U;
+constexpr std::uint64_t kOgreNextRetainedVerifyWindow = 32U;
 
 /// Lifecycle evidence for the instance_id-keyed retained native scene.
 /// `last_*` fields describe the most recent completed present; cumulative
@@ -80,6 +98,7 @@ struct OgreNextRetainedSceneAudit final {
   std::uint64_t last_destroyed = 0U;
   std::uint64_t last_dynamic_updates = 0U;
   std::uint64_t last_verified = 0U;
+  bool last_diff_used_retained_block_proof = false;
   std::uint64_t verify_window = kOgreNextRetainedVerifyWindow;
   std::uint64_t verify_cursor = 0U;
   std::uint64_t recovery_teardowns = 0U;
@@ -90,9 +109,36 @@ struct OgreNextRetainedSceneAudit final {
   std::uint64_t retired_light_teardowns = 0U;
   /// Per-phase CPU cost of the most recent present, for offline
   /// scene_dispatch attribution. Metadata-only; no GPU readback.
+  std::uint64_t last_validation_phase_microseconds = 0U;
+  std::uint64_t last_frame_prepare_phase_microseconds = 0U;
   std::uint64_t last_light_phase_microseconds = 0U;
   std::uint64_t last_instance_phase_microseconds = 0U;
+  std::uint64_t last_native_prepare_phase_microseconds = 0U;
+  std::uint64_t last_native_render_phase_microseconds = 0U;
+  std::uint64_t last_post_render_phase_microseconds = 0U;
   std::uint64_t last_cleanup_phase_microseconds = 0U;
+  std::uint64_t last_publication_phase_microseconds = 0U;
+  /// Exact counters reset immediately before the most recent completed native
+  /// present. `last_native_pass_metrics_exact` additionally proves the HDR
+  /// scene, PSSM shadow, and post-process seams were each observed exactly
+  /// once. A false value is missing evidence, never permission to substitute
+  /// OGRE 14 draw counts.
+  std::uint64_t last_native_renderer_frame_id = 0U;
+  std::uint64_t last_native_frame_batches = 0U;
+  std::uint64_t last_native_frame_draws = 0U;
+  std::uint64_t last_native_frame_instances = 0U;
+  std::uint64_t last_native_frame_faces = 0U;
+  std::uint64_t last_native_frame_vertices = 0U;
+  std::uint64_t last_native_pre_hdr_draws = 0U;
+  std::uint64_t last_native_shadow_draws = 0U;
+  std::uint64_t last_native_scene_draws = 0U;
+  std::uint64_t last_native_hdr_post_draws = 0U;
+  std::uint64_t last_native_after_hdr_draws = 0U;
+  std::uint64_t last_native_shadow_instances = 0U;
+  std::uint64_t last_native_scene_instances = 0U;
+  std::uint64_t last_native_shadow_faces = 0U;
+  std::uint64_t last_native_scene_faces = 0U;
+  bool last_native_pass_metrics_exact = false;
 };
 
 constexpr std::uint32_t kOgreNextRenderBoundaryDegradeAuditVersion = 1U;
@@ -553,6 +599,13 @@ struct OgreNextNativeLightingPassAudit final {
   std::uint32_t last_emissive_items = 0U;
   std::uint32_t last_shadow_casters = 0U;
   std::uint32_t last_shadow_receivers = 0U;
+  std::uint32_t last_distance_lod_items = 0U;
+  std::uint32_t last_distance_lod_reduced_items = 0U;
+  std::uint32_t last_distance_lod_max_selected_level = 0U;
+  std::uint64_t last_distance_lod_selected_level_sum = 0U;
+  std::uint64_t last_base_triangles = 0U;
+  std::uint64_t last_selected_triangles = 0U;
+  bool exact_native_distance_lod_state = false;
   OgreNextDirectionalShadowMode shadow_mode =
       OgreNextDirectionalShadowMode::DISABLED;
   OgreNextHdrSceneTopology hdr_scene_topology =
@@ -776,6 +829,25 @@ struct OgreNextN1PbsUv0AffineState final {
   bool exact_native_state = false;
 };
 
+constexpr std::uint32_t kOgreNextN1MeshLodStateVersion = 1U;
+
+/// CPU-visible native readback for one retained OgreNext Item. This proves
+/// the portable generated distance ladder reached the live Mesh2 normal and
+/// shadow VAO arrays and reports the level selected by Ogre's camera LOD pass.
+struct OgreNextN1MeshLodState final {
+  std::uint32_t version = kOgreNextN1MeshLodStateVersion;
+  std::uint64_t instance_id = 0U;
+  RenderAssetReference mesh;
+  std::uint32_t portable_level_count = 0U;
+  std::uint32_t native_level_count = 0U;
+  std::uint32_t normal_vao_level_count = 0U;
+  std::uint32_t shadow_vao_level_count = 0U;
+  std::uint32_t current_level = 0U;
+  bool live = false;
+  bool distance_sphere = false;
+  bool exact_native_ladder = false;
+};
+
 /// First production adapter behind the renderer-neutral boundary.
 ///
 /// Ogre headers and native objects are confined to the private implementation.
@@ -798,6 +870,8 @@ public:
   QueryTextureAllocationAudit() const noexcept;
   [[nodiscard]] OgreNextN1PbsUv0AffineState
   QueryPbsUv0AffineState(RenderAssetReference material) const noexcept;
+  [[nodiscard]] OgreNextN1MeshLodState
+  QueryMeshLodState(std::uint64_t instance_id) const noexcept;
   [[nodiscard]] OgreNextReflectionProbeAudit
   QueryReflectionProbeAudit() const noexcept;
   [[nodiscard]] OgreNextN1ParticleRuntimeAudit

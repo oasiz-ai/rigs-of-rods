@@ -791,6 +791,17 @@ public:
     output.emissive_items = audit.last_emissive_items;
     output.shadow_casters = audit.last_shadow_casters;
     output.shadow_receivers = audit.last_shadow_receivers;
+    output.distance_lod_items = audit.last_distance_lod_items;
+    output.distance_lod_reduced_items =
+        audit.last_distance_lod_reduced_items;
+    output.distance_lod_max_selected_level =
+        audit.last_distance_lod_max_selected_level;
+    output.distance_lod_selected_level_sum =
+        audit.last_distance_lod_selected_level_sum;
+    output.base_triangles = audit.last_base_triangles;
+    output.selected_triangles = audit.last_selected_triangles;
+    output.exact_native_distance_lod_state =
+        audit.exact_native_distance_lod_state;
     output.hdr_scene_topology =
         static_cast<std::uint32_t>(audit.hdr_scene_topology);
     const OgreNextReflectionProbeAudit reflection =
@@ -908,16 +919,49 @@ public:
     output.last_destroyed = audit.last_destroyed;
     output.last_dynamic_updates = audit.last_dynamic_updates;
     output.last_verified = audit.last_verified;
+    output.last_diff_used_retained_block_proof =
+        audit.last_diff_used_retained_block_proof;
     output.verify_window = audit.verify_window;
     output.verify_cursor = audit.verify_cursor;
     output.recovery_teardowns = audit.recovery_teardowns;
     output.retired_light_teardowns = audit.retired_light_teardowns;
+    output.last_validation_phase_microseconds =
+        audit.last_validation_phase_microseconds;
+    output.last_frame_prepare_phase_microseconds =
+        audit.last_frame_prepare_phase_microseconds;
     output.last_light_phase_microseconds =
         audit.last_light_phase_microseconds;
     output.last_instance_phase_microseconds =
         audit.last_instance_phase_microseconds;
+    output.last_native_prepare_phase_microseconds =
+        audit.last_native_prepare_phase_microseconds;
+    output.last_native_render_phase_microseconds =
+        audit.last_native_render_phase_microseconds;
+    output.last_post_render_phase_microseconds =
+        audit.last_post_render_phase_microseconds;
     output.last_cleanup_phase_microseconds =
         audit.last_cleanup_phase_microseconds;
+    output.last_publication_phase_microseconds =
+        audit.last_publication_phase_microseconds;
+    output.last_native_renderer_frame_id =
+        audit.last_native_renderer_frame_id;
+    output.last_native_frame_batches = audit.last_native_frame_batches;
+    output.last_native_frame_draws = audit.last_native_frame_draws;
+    output.last_native_frame_instances = audit.last_native_frame_instances;
+    output.last_native_frame_faces = audit.last_native_frame_faces;
+    output.last_native_frame_vertices = audit.last_native_frame_vertices;
+    output.last_native_pre_hdr_draws = audit.last_native_pre_hdr_draws;
+    output.last_native_shadow_draws = audit.last_native_shadow_draws;
+    output.last_native_scene_draws = audit.last_native_scene_draws;
+    output.last_native_hdr_post_draws = audit.last_native_hdr_post_draws;
+    output.last_native_after_hdr_draws = audit.last_native_after_hdr_draws;
+    output.last_native_shadow_instances =
+        audit.last_native_shadow_instances;
+    output.last_native_scene_instances = audit.last_native_scene_instances;
+    output.last_native_shadow_faces = audit.last_native_shadow_faces;
+    output.last_native_scene_faces = audit.last_native_scene_faces;
+    output.last_native_pass_metrics_exact =
+        audit.last_native_pass_metrics_exact;
     output.available = true;
     return output;
   }

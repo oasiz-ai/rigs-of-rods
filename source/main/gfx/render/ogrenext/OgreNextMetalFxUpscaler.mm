@@ -113,15 +113,17 @@ bool VerifyUsage(id<MTLTexture> texture, MTLTextureUsage required,
 
 class MetalFxUpscaler final : public OgreNextMetalFxUpscaler {
 public:
-  MetalFxUpscaler(Ogre::MetalRenderSystem *render_system,
-                  Ogre::MetalDevice *device, std::uint32_t input_width,
+  MetalFxUpscaler(Ogre::MetalDevice *device, std::uint32_t input_width,
                   std::uint32_t input_height, std::uint32_t output_width,
                   std::uint32_t output_height)
-      : render_system_(render_system), device_(device),
-        input_width_(input_width), input_height_(input_height),
+      : device_(device), input_width_(input_width), input_height_(input_height),
         output_width_(output_width), output_height_(output_height) {}
 
-  ~MetalFxUpscaler() override { scaler_ = nil; }
+  ~MetalFxUpscaler() override {
+    if (@available(macOS 13.0, *)) {
+      scaler_ = nil;
+    }
+  }
 
   [[nodiscard]] bool Encode(const OgreNextMetalFxFrameRequest &request,
                             std::string &failure_reason) override {
@@ -289,7 +291,6 @@ private:
     return true;
   }
 
-  Ogre::MetalRenderSystem *render_system_ = nullptr;
   Ogre::MetalDevice *device_ = nullptr;
   std::uint32_t input_width_ = 0U;
   std::uint32_t input_height_ = 0U;
@@ -379,9 +380,8 @@ std::unique_ptr<OgreNextMetalFxUpscaler> CreateOgreNextMetalFxUpscaler(
       failure_reason = "MetalFX temporal scaling is unsupported on this device";
       return nullptr;
     }
-    return std::make_unique<MetalFxUpscaler>(render_system, device, input_width,
-                                             input_height, output_width,
-                                             output_height);
+    return std::make_unique<MetalFxUpscaler>(device, input_width, input_height,
+                                             output_width, output_height);
   }
   (void)input_width;
   (void)input_height;

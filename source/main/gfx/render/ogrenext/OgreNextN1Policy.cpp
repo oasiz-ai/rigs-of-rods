@@ -1714,7 +1714,168 @@ ValidationResult ValidateOgreNextN1SamplerDeviceLimits(
   });
 }
 
-ValidationResult ValidateOgreNextN1Scene(
+namespace {
+
+/// Invocation-local exact lookup and RT4 UV validation cache.
+///
+/// Imported terrain repeats immutable mesh/material references thousands of
+/// times. The direct dispatcher has already validated the full scene against
+/// one immutable registry generation, but N1 still needs its renderer-specific
+/// checks. Cache only successful immutable-asset work; every per-instance
+/// transform, visibility, deformation, bounds, and shadow decision remains in
+/// the loops below. Direct-map collisions are exact misses and therefore run
+/// the complete resolver or UV validation path.
+class OgreNextN1SceneValidationCache final {
+public:
+  [[nodiscard]] const MaterialDescriptor *ResolveMaterial(
+      const RenderAssetRegistry &registry,
+      const RenderAssetReference &reference) noexcept {
+    MaterialEntry &entry =
+        materials_[ReferenceIndex(reference, kMaterialEntryCount)];
+    if (entry.occupied && entry.reference == reference) {
+      return entry.material;
+    }
+    const MaterialDescriptor *material = registry.ResolveMaterial(reference);
+    if (material != nullptr) {
+      entry.occupied = true;
+      entry.reference = reference;
+      entry.material = material;
+    }
+    return material;
+  }
+
+  [[nodiscard]] const MeshResourceDescriptor *ResolveMesh(
+      const RenderAssetRegistry &registry,
+      const RenderAssetReference &reference) noexcept {
+    MeshEntry &entry = meshes_[ReferenceIndex(reference, kMeshEntryCount)];
+    if (entry.occupied && entry.reference == reference) {
+      return entry.mesh;
+    }
+    const MeshResourceDescriptor *mesh = registry.ResolveMesh(reference);
+    if (mesh != nullptr) {
+      entry.occupied = true;
+      entry.reference = reference;
+      entry.mesh = mesh;
+    }
+    return mesh;
+  }
+
+  [[nodiscard]] ValidationResult ValidatePbrUv0Affine(
+      const RenderAssetReference &mesh_reference,
+      const RenderAssetReference &material_reference,
+      const MeshResourceDescriptor &mesh,
+      const MaterialDescriptor &material,
+      std::size_t instance_index) noexcept {
+    PairEntry &entry =
+        pairs_[PairIndex(mesh_reference, material_reference)];
+    if (entry.occupied && entry.mesh_reference == mesh_reference &&
+        entry.material_reference == material_reference) {
+      return ValidationResult::Success();
+    }
+
+    if (material.model == MaterialModel::PBR_METALLIC_ROUGHNESS) {
+      OgreNextN1PbsUv0AffineTransform uv0_affine;
+      const ValidationResult affine_validation =
+          BuildOgreNextN1PbsUv0AffineTransform(material, uv0_affine);
+      if (!affine_validation) {
+        return affine_validation;
+      }
+      if (uv0_affine.transformed) {
+        for (const Float2 &uv : mesh.texture_coordinates_0) {
+          // Preserve the renderer-neutral operation order exactly:
+          // offset + (scale * uv). Reject both an overflowing product and an
+          // overflowing sum instead of feeding non-finite coordinates to the
+          // backend sampler.
+          const float scaled_x = uv0_affine.scale.x * uv.x;
+          const float scaled_y = uv0_affine.scale.y * uv.y;
+          if (!IsFinite(scaled_x) || !IsFinite(scaled_y)) {
+            return Unsupported(
+                "mesh_instances.texture_coordinates_0",
+                "finite UV0 and affine scale overflow native binary32 multiplication",
+                instance_index);
+          }
+          const float transformed_x = scaled_x + uv0_affine.offset.x;
+          const float transformed_y = scaled_y + uv0_affine.offset.y;
+          if (!IsFinite(transformed_x) || !IsFinite(transformed_y)) {
+            return Unsupported(
+                "mesh_instances.texture_coordinates_0",
+                "finite scaled UV0 and affine offset overflow native binary32 addition",
+                instance_index);
+          }
+        }
+      }
+    }
+
+    entry.occupied = true;
+    entry.mesh_reference = mesh_reference;
+    entry.material_reference = material_reference;
+    return ValidationResult::Success();
+  }
+
+private:
+  static constexpr std::size_t kMaterialEntryCount = 512U;
+  static constexpr std::size_t kMeshEntryCount = 2048U;
+  static constexpr std::size_t kPairEntryCount = 2048U;
+  static_assert((kMaterialEntryCount & (kMaterialEntryCount - 1U)) == 0U);
+  static_assert((kMeshEntryCount & (kMeshEntryCount - 1U)) == 0U);
+  static_assert((kPairEntryCount & (kPairEntryCount - 1U)) == 0U);
+
+  struct MaterialEntry final {
+    bool occupied = false;
+    RenderAssetReference reference;
+    const MaterialDescriptor *material = nullptr;
+  };
+  struct MeshEntry final {
+    bool occupied = false;
+    RenderAssetReference reference;
+    const MeshResourceDescriptor *mesh = nullptr;
+  };
+  struct PairEntry final {
+    bool occupied = false;
+    RenderAssetReference mesh_reference;
+    RenderAssetReference material_reference;
+  };
+
+  [[nodiscard]] static std::uint64_t
+  AddHashWord(std::uint64_t hash, std::uint64_t value) noexcept {
+    constexpr std::uint64_t kPrime = 1099511628211ULL;
+    return (hash ^ value) * kPrime;
+  }
+
+  [[nodiscard]] static std::uint64_t
+  ReferenceHash(const RenderAssetReference &reference) noexcept {
+    std::uint64_t hash = 1469598103934665603ULL;
+    hash = AddHashWord(hash, reference.id.high());
+    hash = AddHashWord(hash, reference.id.low());
+    hash = AddHashWord(hash, reference.revision);
+    hash = AddHashWord(hash, static_cast<std::uint8_t>(reference.kind));
+    return hash;
+  }
+
+  [[nodiscard]] static std::size_t
+  ReferenceIndex(const RenderAssetReference &reference,
+                 std::size_t entry_count) noexcept {
+    return static_cast<std::size_t>(ReferenceHash(reference)) &
+           (entry_count - 1U);
+  }
+
+  [[nodiscard]] static std::size_t
+  PairIndex(const RenderAssetReference &mesh,
+            const RenderAssetReference &material) noexcept {
+    std::uint64_t hash = ReferenceHash(mesh);
+    hash = AddHashWord(hash, material.id.high());
+    hash = AddHashWord(hash, material.id.low());
+    hash = AddHashWord(hash, material.revision);
+    hash = AddHashWord(hash, static_cast<std::uint8_t>(material.kind));
+    return static_cast<std::size_t>(hash) & (kPairEntryCount - 1U);
+  }
+
+  std::array<MaterialEntry, kMaterialEntryCount> materials_{};
+  std::array<MeshEntry, kMeshEntryCount> meshes_{};
+  std::array<PairEntry, kPairEntryCount> pairs_{};
+};
+
+ValidationResult ValidateOgreNextN1SceneImpl(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
     bool allow_dynamic_meshes,
     OgreNextRasterFeatureTier raster_feature_tier,
@@ -1722,7 +1883,9 @@ ValidationResult ValidateOgreNextN1Scene(
     bool hdr_compositor_enabled,
     bool native_directional_shadow_enabled,
     OgreNextHdrSceneTopology hdr_scene_topology,
-    bool native_sun_visibility_v2_enabled) {
+    bool native_sun_visibility_v2_enabled,
+    bool scene_assets_already_validated,
+    bool retained_instance_block_already_validated) {
   if (!IsKnownOgreNextRasterFeatureTier(raster_feature_tier)) {
     return ValidationResult::Failure(ValidationCode::INVALID_ENUM,
                                      "raster_feature_tier",
@@ -1787,23 +1950,46 @@ ValidationResult ValidateOgreNextN1Scene(
         "hdr_scene_topology",
         "sun-visibility V2 requires exactly RT4/V1, persistent HDR, disabled PSSM and native N4, and DIRECTIONAL_SPLIT_V2");
   }
-  ValidationResult validation = ValidateSceneSnapshotAssets(snapshot, registry);
-  if (!validation) {
-    return validation;
+  ValidationResult validation = ValidationResult::Success();
+  if (!scene_assets_already_validated) {
+    validation = ValidateSceneSnapshotAssets(snapshot, registry);
+    if (!validation) {
+      return validation;
+    }
   }
-  for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
-       ++index) {
-    const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
-    const MaterialDescriptor *material = registry.ResolveMaterial(instance.material);
-    if (material != nullptr && material->model == MaterialModel::UNLIT &&
-        material->base_color_transfer ==
-            BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE &&
-        (instance.flags & (MESH_INSTANCE_CASTS_SHADOW |
-                           MESH_INSTANCE_RECEIVES_SHADOW)) != 0U) {
-      return Unsupported(
-          "mesh_instances.flags",
-          "RT4/V1 display-domain Unlit instances must neither cast nor receive shadows",
-          index);
+  OgreNextN1SceneValidationCache asset_cache;
+  const auto validate_display_domain_shadow_flags =
+      [&](std::size_t index) -> ValidationResult {
+      const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
+      const MaterialDescriptor *material =
+          asset_cache.ResolveMaterial(registry, instance.material);
+      if (material != nullptr && material->model == MaterialModel::UNLIT &&
+          material->base_color_transfer ==
+              BaseColorTransfer::SRGB_DISPLAY_DOMAIN_FILTER_THEN_DECODE &&
+          (instance.flags & (MESH_INSTANCE_CASTS_SHADOW |
+                             MESH_INSTANCE_RECEIVES_SHADOW)) != 0U) {
+        return Unsupported(
+            "mesh_instances.flags",
+            "RT4/V1 display-domain Unlit instances must neither cast nor receive shadows",
+            index);
+      }
+      return ValidationResult::Success();
+    };
+  if (retained_instance_block_already_validated) {
+    for (const std::uint32_t index :
+         snapshot.retained_instance_patched_indices()) {
+      validation = validate_display_domain_shadow_flags(index);
+      if (!validation) {
+        return validation;
+      }
+    }
+  } else {
+    for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
+         ++index) {
+      validation = validate_display_domain_shadow_flags(index);
+      if (!validation) {
+        return validation;
+      }
     }
   }
   if (!IsAbsentRenderAssetReference(snapshot.environment().environment_texture) ||
@@ -1995,7 +2181,8 @@ ValidationResult ValidateOgreNextN1Scene(
          index < snapshot.mesh_instances().size(); ++index) {
       const MeshInstanceDescriptor &instance =
           snapshot.mesh_instances()[index];
-      const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+      const MeshResourceDescriptor *mesh =
+          asset_cache.ResolveMesh(registry, instance.mesh);
       if (mesh == nullptr) {
         return ValidationResult::Failure(
             ValidationCode::MISSING_REFERENCE, "mesh_instances.mesh",
@@ -2035,8 +2222,8 @@ ValidationResult ValidateOgreNextN1Scene(
         "environment.ambient_radiance",
         "finite ambient inputs overflow Ogre's native environment color arithmetic");
   }
-  for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
-       ++index) {
+  const auto validate_native_instance =
+      [&](std::size_t index) -> ValidationResult {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];
     const bool modern_pbr =
         raster_feature_tier ==
@@ -2081,9 +2268,10 @@ ValidationResult ValidateOgreNextN1Scene(
     // one arrives anyway, both through HasEffectivelyUniformLinearScale. Both
     // paths are per-object; the rest of the scene renders.
     if (modern_pbr) {
-      const MeshResourceDescriptor *mesh = registry.ResolveMesh(instance.mesh);
+      const MeshResourceDescriptor *mesh =
+          asset_cache.ResolveMesh(registry, instance.mesh);
       const MaterialDescriptor *material =
-          registry.ResolveMaterial(instance.material);
+          asset_cache.ResolveMaterial(registry, instance.material);
       if (mesh == nullptr || material == nullptr) {
         return ValidationResult::Failure(
             ValidationCode::MISSING_REFERENCE,
@@ -2091,37 +2279,10 @@ ValidationResult ValidateOgreNextN1Scene(
             "RT4/V1 UV0 affine validation lost a synchronized mesh or material",
             index);
       }
-      if (material->model == MaterialModel::PBR_METALLIC_ROUGHNESS) {
-        OgreNextN1PbsUv0AffineTransform uv0_affine;
-        const ValidationResult uv0_affine_validation =
-            BuildOgreNextN1PbsUv0AffineTransform(*material, uv0_affine);
-        if (!uv0_affine_validation) {
-          return uv0_affine_validation;
-        }
-        if (uv0_affine.transformed) {
-          for (const Float2 &uv : mesh->texture_coordinates_0) {
-            // Preserve the renderer-neutral operation order exactly:
-            // offset + (scale * uv). Reject both an overflowing product and
-            // an overflowing sum instead of feeding non-finite coordinates
-            // to the backend sampler.
-            const float scaled_x = uv0_affine.scale.x * uv.x;
-            const float scaled_y = uv0_affine.scale.y * uv.y;
-            if (!IsFinite(scaled_x) || !IsFinite(scaled_y)) {
-              return Unsupported(
-                  "mesh_instances.texture_coordinates_0",
-                  "finite UV0 and affine scale overflow native binary32 multiplication",
-                  index);
-            }
-            const float transformed_x = scaled_x + uv0_affine.offset.x;
-            const float transformed_y = scaled_y + uv0_affine.offset.y;
-            if (!IsFinite(transformed_x) || !IsFinite(transformed_y)) {
-              return Unsupported(
-                  "mesh_instances.texture_coordinates_0",
-                  "finite scaled UV0 and affine offset overflow native binary32 addition",
-                  index);
-            }
-          }
-        }
+      validation = asset_cache.ValidatePbrUv0Affine(
+          instance.mesh, instance.material, *mesh, *material, index);
+      if (!validation) {
+        return validation;
       }
     }
     if (!CanRepresentOgreNextN1WorldBounds(instance.local_bounds,
@@ -2137,8 +2298,43 @@ ValidationResult ValidateOgreNextN1Scene(
           "N1 rejects mirrored TRS because Ogre's signed parent scale can manufacture a negative world radius",
           index);
     }
+    return ValidationResult::Success();
+  };
+  if (retained_instance_block_already_validated) {
+    for (const std::uint32_t index :
+         snapshot.retained_instance_patched_indices()) {
+      validation = validate_native_instance(index);
+      if (!validation) {
+        return validation;
+      }
+    }
+  } else {
+    for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
+         ++index) {
+      validation = validate_native_instance(index);
+      if (!validation) {
+        return validation;
+      }
+    }
   }
   return ValidationResult::Success();
+}
+
+} // namespace
+
+ValidationResult ValidateOgreNextN1Scene(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    bool allow_dynamic_meshes,
+    OgreNextRasterFeatureTier raster_feature_tier,
+    OgreNextDirectionalShadowMode shadow_mode,
+    bool hdr_compositor_enabled,
+    bool native_directional_shadow_enabled,
+    OgreNextHdrSceneTopology hdr_scene_topology,
+    bool native_sun_visibility_v2_enabled) {
+  return ValidateOgreNextN1SceneImpl(
+      snapshot, registry, allow_dynamic_meshes, raster_feature_tier,
+      shadow_mode, hdr_compositor_enabled, native_directional_shadow_enabled,
+      hdr_scene_topology, native_sun_visibility_v2_enabled, false, false);
 }
 
 ValidationResult ValidateOgreNextN1Frame(
@@ -2151,7 +2347,10 @@ ValidationResult ValidateOgreNextN1Frame(
     bool native_directional_shadow_enabled,
     bool native_presentation_enabled,
     bool native_sun_visibility_v2_enabled,
-    OgreNextHdrSceneTopology hdr_scene_topology) {
+    OgreNextHdrSceneTopology hdr_scene_topology,
+    OgreNextPssmShadowFramePlan *validated_shadow_plan,
+    const IRendererFrontend *frontend_authority,
+    bool retained_instance_block_already_validated) {
   ValidationResult validation =
       ValidateRenderFrameRequestAgainstCapabilities(request, capabilities);
   if (!validation) {
@@ -2234,23 +2433,46 @@ ValidationResult ValidateOgreNextN1Frame(
         ValidationCode::REVISION_MISMATCH, "scene_snapshot.asset_sequence",
         "scene requires a different synchronized asset catalog");
   }
-  validation = ValidateOgreNextN1Scene(
+  bool scene_assets_already_validated = false;
+  if (request.in_process_scene_asset_validation != nullptr) {
+    scene_assets_already_validated = frontend_authority != nullptr &&
+        request.in_process_scene_asset_validation->Authenticates(
+            request.scene_snapshot, *frontend_authority,
+            registry.registry_id(), registry.sequence());
+    if (!scene_assets_already_validated) {
+      return ValidationResult::Failure(
+          ValidationCode::REVISION_MISMATCH,
+          "in_process_scene_asset_validation",
+          "direct-dispatch scene validation authority is stale or belongs to a different frontend");
+    }
+  }
+  validation = ValidateOgreNextN1SceneImpl(
       *request.scene_snapshot, registry,
       capabilities.supports_dynamic_mesh_updates, raster_feature_tier,
       shadow_mode, hdr_compositor_enabled,
       native_directional_shadow_enabled,
-      hdr_scene_topology, native_sun_visibility_v2_enabled);
+      hdr_scene_topology, native_sun_visibility_v2_enabled,
+      scene_assets_already_validated,
+      retained_instance_block_already_validated);
   if (!validation) {
     return validation;
   }
   if (native_directional_shadow_enabled ||
       native_sun_visibility_v2_enabled) {
+    if (validated_shadow_plan != nullptr) {
+      *validated_shadow_plan = {};
+    }
     return ValidationResult::Success();
   }
-  OgreNextPssmShadowFramePlan shadow_plan;
-  return TryBuildOgreNextPssmShadowFramePlan(
+  OgreNextPssmShadowFramePlan candidate_shadow_plan;
+  validation = TryBuildOgreNextPssmShadowFramePlan(
       *request.scene_snapshot, registry, view, raster_feature_tier,
-      shadow_mode, shadow_plan);
+      shadow_mode, candidate_shadow_plan,
+      retained_instance_block_already_validated);
+  if (validation && validated_shadow_plan != nullptr) {
+    *validated_shadow_plan = candidate_shadow_plan;
+  }
+  return validation;
 }
 
 RenderOperationResult

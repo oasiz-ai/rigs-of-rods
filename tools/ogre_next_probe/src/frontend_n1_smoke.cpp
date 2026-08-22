@@ -104,6 +104,20 @@ struct SmokeResult final {
     bool base_exact_replay = false;
     bool deformed_exact_replay = false;
   } dynamic_mesh;
+  struct DistanceLodEvidence final {
+    std::uint32_t portable_level_count = 0U;
+    std::uint32_t native_level_count = 0U;
+    std::uint32_t near_level = 0U;
+    std::uint32_t far_level = 0U;
+    std::uint32_t restored_near_level = 0U;
+    std::uint64_t base_triangles = 0U;
+    std::uint64_t near_selected_triangles = 0U;
+    std::uint64_t far_selected_triangles = 0U;
+    std::uint64_t restored_near_selected_triangles = 0U;
+    bool distance_sphere = false;
+    bool exact_native_ladder = false;
+    bool exact_live_audit = false;
+  } distance_lod;
   struct TextureRetirementEvidence final {
     OgreNextN1TextureAllocationAudit initial;
     OgreNextN1TextureAllocationAudit expanded;
@@ -1310,7 +1324,7 @@ RenderFrameRequest MakeSingleSceneHdrPssmFrame(
       MakeFrame(frame_id, scene, PixelFormat::RGBA8_SRGB);
   CameraViewRequest &view = request.views.front();
   view.near_plane = 0.5F;
-  view.far_plane = 350.0F;
+  view.far_plane = kOgreNextExpectedViewFarMeters;
   view.clip_from_view = Projection(view.near_plane, view.far_plane);
   view.previous_clip_from_view = view.clip_from_view;
   return request;
@@ -2056,6 +2070,37 @@ std::string MakeReport(const SmokeResult &result, bool modern_pbr,
          << ",\n"
          << "    \"deformed_exact_replay\": "
          << (result.dynamic_mesh.deformed_exact_replay ? "true" : "false")
+         << "\n"
+         << "  },\n";
+  report << "  \"distance_lod\": {\n"
+         << "    \"schema\": \"ror.ogre_next_distance_lod.v2\",\n"
+         << "    \"strategy\": \"distance_sphere\",\n"
+         << "    \"portable_level_count\": "
+         << result.distance_lod.portable_level_count << ",\n"
+         << "    \"native_level_count\": "
+         << result.distance_lod.native_level_count << ",\n"
+         << "    \"near_level\": " << result.distance_lod.near_level
+         << ",\n"
+         << "    \"far_level\": " << result.distance_lod.far_level
+         << ",\n"
+         << "    \"restored_near_level\": "
+         << result.distance_lod.restored_near_level << ",\n"
+         << "    \"base_triangles\": "
+         << result.distance_lod.base_triangles << ",\n"
+         << "    \"near_selected_triangles\": "
+         << result.distance_lod.near_selected_triangles << ",\n"
+         << "    \"far_selected_triangles\": "
+         << result.distance_lod.far_selected_triangles << ",\n"
+         << "    \"restored_near_selected_triangles\": "
+         << result.distance_lod.restored_near_selected_triangles << ",\n"
+         << "    \"distance_sphere\": "
+         << (result.distance_lod.distance_sphere ? "true" : "false")
+         << ",\n"
+         << "    \"exact_native_ladder\": "
+         << (result.distance_lod.exact_native_ladder ? "true" : "false")
+         << ",\n"
+         << "    \"exact_live_audit\": "
+         << (result.distance_lod.exact_live_audit ? "true" : "false")
          << "\n"
          << "  },\n";
   if (modern_pbr) {
@@ -3497,6 +3542,120 @@ RunDynamicMeshProof(const std::string &media_root, bool modern_pbr) {
           "full dynamic mesh replacement was not visible and deterministic");
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "dynamic mesh proof Shutdown");
+  return evidence;
+}
+
+SmokeResult::DistanceLodEvidence
+RunDistanceLodSelectionProof(const std::string &media_root) {
+  SmokeResult::DistanceLodEvidence evidence;
+  RenderAssetDelta catalog = MakeCatalog(false, nullptr);
+  MeshResourceDescriptor &mesh =
+      std::get<MeshResourceDescriptor>(catalog.mutations.front().payload);
+  mesh.debug_name = "N1 native distance-LOD workload quad";
+  mesh.local_bounds.minimum = {-1.15F, -0.85F, 0.0F};
+  mesh.local_bounds.maximum = {1.15F, 0.95F, 0.0F};
+  mesh.positions = {
+      {-1.15F, -0.85F, 0.0F},
+      {1.15F, -0.85F, 0.0F},
+      {1.15F, 0.95F, 0.0F},
+      {-1.15F, 0.95F, 0.0F},
+  };
+  mesh.normals.assign(mesh.positions.size(), Float3{0.0F, 0.0F, 1.0F});
+  mesh.indices = {0U, 1U, 2U, 0U, 2U, 3U};
+  mesh.distance_lod_levels = {
+      MeshDistanceLodLevelDescriptor{2.0F, {0U, 2U, 1U}},
+      MeshDistanceLodLevelDescriptor{4.0F, {0U, 1U, 2U}},
+  };
+  Require(ValidateRenderAssetDelta(catalog).ok(),
+          "distance LOD native proof catalog is invalid");
+
+  OgreNextN1Frontend frontend(OgreNextN1Configuration{
+      media_root, OgreNextRasterFeatureTier::STATIC_PBR_N1});
+  InitializeAndSync(frontend, catalog);
+  const auto scene = MakeScene(875U, false, false);
+
+  RenderFrameRequest near_frame =
+      MakeFrame(1U, scene, PixelFormat::RGBA8_SRGB);
+  RenderFrameOutput output;
+  RequireSuccess(frontend.Render(near_frame, output),
+                 "distance LOD near Render");
+  const OgreNextN1MeshLodState near = frontend.QueryMeshLodState(1U);
+  const OgreNextNativeLightingPassAudit near_audit =
+      frontend.QueryNativeLightingPassAudit();
+  Require(near.live && near.exact_native_ladder &&
+              near.portable_level_count == 3U &&
+              near.native_level_count == 3U && near.current_level == 0U &&
+              near_audit.version ==
+                  kOgreNextNativeLightingPassAuditVersion &&
+              near_audit.exact_native_distance_lod_state &&
+              near_audit.last_distance_lod_items == 1U &&
+              near_audit.last_distance_lod_reduced_items == 0U &&
+              near_audit.last_distance_lod_max_selected_level == 0U &&
+              near_audit.last_distance_lod_selected_level_sum == 0U &&
+              near_audit.last_base_triangles == 2U &&
+              near_audit.last_selected_triangles == 2U,
+          "near camera did not select the exact native base LOD");
+  evidence.portable_level_count = near.portable_level_count;
+  evidence.native_level_count = near.native_level_count;
+  evidence.near_level = near.current_level;
+  evidence.distance_sphere = near.distance_sphere;
+  evidence.exact_native_ladder = near.exact_native_ladder;
+  evidence.base_triangles = near_audit.last_base_triangles;
+  evidence.near_selected_triangles = near_audit.last_selected_triangles;
+  evidence.exact_live_audit =
+      near_audit.exact_native_distance_lod_state;
+
+  RenderFrameRequest far_frame =
+      MakeFrame(2U, scene, PixelFormat::RGBA8_SRGB);
+  far_frame.views.front().view_from_render.elements[14U] = -10.0F;
+  far_frame.views.front().previous_view_from_render =
+      far_frame.views.front().view_from_render;
+  RequireSuccess(frontend.Render(far_frame, output),
+                 "distance LOD far Render");
+  const OgreNextN1MeshLodState far = frontend.QueryMeshLodState(1U);
+  const OgreNextNativeLightingPassAudit far_audit =
+      frontend.QueryNativeLightingPassAudit();
+  Require(far.live && far.exact_native_ladder && far.current_level == 2U &&
+              far_audit.exact_native_distance_lod_state &&
+              far_audit.last_distance_lod_items == 1U &&
+              far_audit.last_distance_lod_reduced_items == 1U &&
+              far_audit.last_distance_lod_max_selected_level == 2U &&
+              far_audit.last_distance_lod_selected_level_sum == 2U &&
+              far_audit.last_base_triangles == 2U &&
+              far_audit.last_selected_triangles == 1U,
+          "far camera did not select the exact terminal native LOD");
+  evidence.far_level = far.current_level;
+  evidence.far_selected_triangles = far_audit.last_selected_triangles;
+
+  near_frame.frame_id = 3U;
+  RequireSuccess(frontend.Render(near_frame, output),
+                 "distance LOD near replay Render");
+  const OgreNextN1MeshLodState restored = frontend.QueryMeshLodState(1U);
+  const OgreNextNativeLightingPassAudit restored_audit =
+      frontend.QueryNativeLightingPassAudit();
+  Require(restored.live && restored.exact_native_ladder &&
+              restored.current_level == 0U &&
+              restored_audit.exact_native_distance_lod_state &&
+              restored_audit.last_distance_lod_items == 1U &&
+              restored_audit.last_distance_lod_reduced_items == 0U &&
+              restored_audit.last_distance_lod_max_selected_level == 0U &&
+              restored_audit.last_distance_lod_selected_level_sum == 0U &&
+              restored_audit.last_base_triangles == 2U &&
+              restored_audit.last_selected_triangles == 2U,
+          "near camera replay did not restore the native base LOD");
+  evidence.restored_near_level = restored.current_level;
+  evidence.restored_near_selected_triangles =
+      restored_audit.last_selected_triangles;
+  evidence.distance_sphere = evidence.distance_sphere && far.distance_sphere &&
+                             restored.distance_sphere;
+  evidence.exact_native_ladder =
+      evidence.exact_native_ladder && far.exact_native_ladder &&
+      restored.exact_native_ladder;
+  evidence.exact_live_audit =
+      evidence.exact_live_audit && far_audit.exact_native_distance_lod_state &&
+      restored_audit.exact_native_distance_lod_state;
+  RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
+                 "distance LOD proof Shutdown");
   return evidence;
 }
 
@@ -5331,6 +5490,7 @@ SmokeResult RunSmoke(const std::string &media_root, bool modern_pbr) {
           "N1 unexpectedly exported native interop");
 
   SmokeResult result;
+  result.distance_lod = RunDistanceLodSelectionProof(media_root);
   result.dynamic_mesh = RunDynamicMeshProof(media_root, modern_pbr);
   if (modern_pbr) {
     RunAnalyticSkyProductionDefaultReadbackProof(media_root,

@@ -368,12 +368,12 @@ Matrix4x4 Projection(float horizontal_lens_offset = 0.0F,
   projection.elements[8U] = horizontal_lens_offset;
   projection.elements[9U] = vertical_lens_offset;
   projection.elements[10U] =
-      kOgreNextPssmFarMeters /
-      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+      kOgreNextExpectedViewFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextExpectedViewFarMeters);
   projection.elements[11U] = -1.0F;
   projection.elements[14U] =
-      kOgreNextPssmNearMeters * kOgreNextPssmFarMeters /
-      (kOgreNextPssmNearMeters - kOgreNextPssmFarMeters);
+      kOgreNextPssmNearMeters * kOgreNextExpectedViewFarMeters /
+      (kOgreNextPssmNearMeters - kOgreNextExpectedViewFarMeters);
   return projection;
 }
 
@@ -394,7 +394,7 @@ RenderFrameRequest Frame(
   view.width = kWidth;
   view.height = kHeight;
   view.near_plane = kOgreNextPssmNearMeters;
-  view.far_plane = kOgreNextPssmFarMeters;
+  view.far_plane = kOgreNextExpectedViewFarMeters;
   view.view_from_render.elements[14U] = -camera_depth;
   view.previous_view_from_render = view.view_from_render;
   view.clip_from_view =

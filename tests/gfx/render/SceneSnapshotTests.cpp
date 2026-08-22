@@ -184,6 +184,104 @@ void TestValidSnapshotIsDeepCopiedAndImmutable() {
           "snapshot did not retain the exact immutable lighting hash");
 }
 
+void TestRetainedInstanceBlockProofIsImmutableAndExact() {
+  using namespace RoR::Render;
+
+  SceneSnapshotDescriptor first_descriptor = MakeValidDescriptor();
+  const SceneSnapshotCreateResult first =
+      CreateSceneSnapshot(first_descriptor);
+  Require(first.ok() && !first.snapshot->has_retained_instance_block_proof(),
+          "ordinary snapshot unexpectedly minted retained-block authority");
+
+  SceneSnapshotDescriptor next_descriptor = MakeValidDescriptor();
+  next_descriptor.snapshot_id = first.snapshot->snapshot_id() + 1U;
+  next_descriptor.simulation_tick += 1U;
+  next_descriptor.simulation_time_seconds += 0.001;
+  next_descriptor.mesh_instances.front().visibility_mask = 0x7FFFFFFFU;
+  const std::vector<std::uint32_t> patched{0U};
+  const SceneSnapshotCreateResult retained =
+      CreateSceneSnapshotWithRetainedBlock(
+          std::move(next_descriptor), first.snapshot, patched);
+  Require(retained.ok() &&
+              retained.snapshot->has_retained_instance_block_proof() &&
+              retained.snapshot->retained_instance_predecessor_snapshot_id() ==
+                  first.snapshot->snapshot_id() &&
+              retained.snapshot->retained_instance_patched_indices() ==
+                  patched &&
+              retained.snapshot->retained_instance_predecessor_ids().size() ==
+                  1U &&
+              retained.snapshot->retained_instance_predecessor_ids().front() ==
+                  first.snapshot->mesh_instances().front().instance_id,
+          "retained snapshot did not preserve its exact predecessor/patch proof");
+
+  SceneSnapshotDescriptor unproved_change = MakeValidDescriptor();
+  unproved_change.snapshot_id = first.snapshot->snapshot_id() + 2U;
+  unproved_change.mesh_instances.front().visibility_mask = 0x3FFFFFFFU;
+  const SceneSnapshotCreateResult rejected =
+      CreateSceneSnapshotWithRetainedBlock(
+          std::move(unproved_change), first.snapshot, {});
+  Require(!rejected && rejected.validation.code ==
+                           ValidationCode::REVISION_MISMATCH,
+          "retained-block factory accepted an unlisted instance mutation");
+}
+
+void TestRetainedAssetValidationRequiresCurrentPredecessorAndRegistry() {
+  using namespace RoR::Render;
+
+  auto make_empty_scene = [](std::uint64_t snapshot_id,
+                             std::uint64_t asset_sequence) {
+    SceneSnapshotDescriptor descriptor;
+    descriptor.snapshot_id = snapshot_id;
+    descriptor.asset_registry_id = 31U;
+    descriptor.asset_sequence = asset_sequence;
+    descriptor.simulation_tick = snapshot_id;
+    descriptor.simulation_time_seconds =
+        static_cast<double>(snapshot_id) / 2000.0;
+    return descriptor;
+  };
+
+  RenderAssetRegistry registry(31U);
+  RenderAssetDelta initial_assets;
+  initial_assets.registry_id = 31U;
+  initial_assets.base_sequence = 0U;
+  initial_assets.sequence = 1U;
+  initial_assets.full_snapshot = true;
+  Require(registry.Apply(initial_assets).ok(),
+          "empty retained-asset registry fixture could not be applied");
+
+  const SceneSnapshotCreateResult first =
+      CreateSceneSnapshot(make_empty_scene(100U, 1U));
+  Require(first.ok() &&
+              ValidateSceneSnapshotAssets(*first.snapshot, registry).ok(),
+          "empty predecessor did not pass complete asset validation");
+
+  const SceneSnapshotCreateResult retained =
+      CreateSceneSnapshotWithRetainedBlock(make_empty_scene(101U, 1U),
+                                           first.snapshot, {});
+  Require(retained.ok() &&
+              ValidateSceneSnapshotRetainedAssets(
+                  *retained.snapshot, registry, first.snapshot->snapshot_id())
+                  .ok(),
+          "exact empty retained asset proof was rejected");
+  const ValidationResult stale_predecessor =
+      ValidateSceneSnapshotRetainedAssets(*retained.snapshot, registry, 99U);
+  Require(!stale_predecessor &&
+              stale_predecessor.code == ValidationCode::REVISION_MISMATCH,
+          "stale retained predecessor was accepted");
+
+  RenderAssetDelta next_assets;
+  next_assets.registry_id = 31U;
+  next_assets.base_sequence = 1U;
+  next_assets.sequence = 2U;
+  Require(registry.Apply(next_assets).ok(),
+          "retained-asset registry generation fixture could not advance");
+  const ValidationResult stale_registry = ValidateSceneSnapshotRetainedAssets(
+      *retained.snapshot, registry, first.snapshot->snapshot_id());
+  Require(!stale_registry &&
+              stale_registry.code == ValidationCode::SEQUENCE_MISMATCH,
+          "retained proof crossed an asset registry generation");
+}
+
 void TestIdentityOrderAndResourceValidation() {
   using namespace RoR::Render;
 
@@ -953,7 +1051,7 @@ void TestCanonicalLightingEnvironmentHash() {
   SceneSnapshotDescriptor descriptor = MakeValidDescriptor();
   const std::uint64_t baseline =
       ComputeSceneLightingEnvironmentHash(descriptor);
-  Require(baseline == 2759767521327219205ULL,
+  Require(baseline == 11859766919656745629ULL,
           "canonical lighting hash fixture drifted");
 
   SceneSnapshotDescriptor unrelated = descriptor;
@@ -1034,6 +1132,8 @@ void TestCanonicalLightingEnvironmentHash() {
 
 int main() {
   TestValidSnapshotIsDeepCopiedAndImmutable();
+  TestRetainedInstanceBlockProofIsImmutableAndExact();
+  TestRetainedAssetValidationRequiresCurrentPredecessorAndRegistry();
   TestIdentityOrderAndResourceValidation();
   TestDynamicMeshValidation();
   TestWorldLightAndParticleValidation();

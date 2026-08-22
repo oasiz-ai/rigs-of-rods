@@ -63,6 +63,7 @@
 
 #include <Ogre.h>
 #include <OgreBillboardParticleRenderer.h>
+#include <OgreLodStrategy.h>
 
 #include <algorithm>
 #include <array>
@@ -276,8 +277,10 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         "authored_mips={};generated_mips={};output_mips={};native_mips={};"
         "tus_gamma_nonunit={};texture_gamma_nonunit={};tus_hw_gamma_off={};"
         "texture_hw_gamma_off={};automipmap={};blend_replace={};"
-        "blend_source_over={};blend_legacy_alpha={};alpha_disabled={};"
-        "alpha_greater={};alpha_greater_equal={};workflow_mr={};"
+        "blend_source_over={};blend_legacy_alpha={};"
+        "blend_premultiplied_source_over={};alpha_disabled={};"
+        "alpha_greater={};alpha_greater_equal={};alpha_less_equal={};"
+        "workflow_mr={};"
         "workflow_specular={};anisotropic={};normalized_textures={};"
         "opaque_v2={};straight_alpha_v1={};linear_specular_v1={};"
         "curated_cityworld={}/{};curated_observed={};curated_matte={};"
@@ -302,9 +305,11 @@ std::string BuildOgreNextDemoMaterialCoverageSnapshot(
         counters.active_replace_material_projections,
         counters.active_straight_source_over_material_projections,
         counters.active_legacy_straight_alpha_material_projections,
+        counters.active_premultiplied_source_over_material_projections,
         counters.active_alpha_test_disabled_material_projections,
         counters.active_alpha_test_greater_material_projections,
         counters.active_alpha_test_greater_equal_material_projections,
+        counters.active_alpha_test_less_equal_material_projections,
         counters.active_metallic_roughness_workflow_projections,
         counters.active_specular_workflow_projections,
         counters.active_anisotropic_sampler_projections,
@@ -334,9 +339,11 @@ std::string FormatOgreNextDemoMaterialCounters(
         "active_replace_material_projections={} "
         "active_straight_source_over_material_projections={} "
         "active_legacy_straight_alpha_material_projections={} "
+        "active_premultiplied_source_over_material_projections={} "
         "active_alpha_test_disabled_material_projections={} "
         "active_alpha_test_greater_material_projections={} "
         "active_alpha_test_greater_equal_material_projections={} "
+        "active_alpha_test_less_equal_material_projections={} "
         "active_metallic_roughness_workflow_projections={} "
         "active_specular_workflow_projections={} "
         "active_anisotropic_sampler_projections={} "
@@ -352,9 +359,11 @@ std::string FormatOgreNextDemoMaterialCounters(
         counters.active_replace_material_projections,
         counters.active_straight_source_over_material_projections,
         counters.active_legacy_straight_alpha_material_projections,
+        counters.active_premultiplied_source_over_material_projections,
         counters.active_alpha_test_disabled_material_projections,
         counters.active_alpha_test_greater_material_projections,
         counters.active_alpha_test_greater_equal_material_projections,
+        counters.active_alpha_test_less_equal_material_projections,
         counters.active_metallic_roughness_workflow_projections,
         counters.active_specular_workflow_projections,
         counters.active_anisotropic_sampler_projections,
@@ -1843,8 +1852,187 @@ RoR::Render::ValidationResult ExtractOgre14ColorVertexStream(
     return RoR::Render::ValidationResult::Success();
 }
 
+RoR::Render::ValidationResult ExtractOgre14StaticIndexRange(
+    const Ogre::RenderOperation& operation,
+    std::vector<std::uint32_t>& output,
+    RoR::Render::MeshIndexFormat& format)
+{
+    if (operation.operationType != Ogre::RenderOperation::OT_TRIANGLE_LIST ||
+        !operation.useIndexes || operation.indexData == nullptr ||
+        operation.indexData->indexBuffer == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::UNSUPPORTED_FEATURE,
+            "assets.mesh.native_topology",
+            "portable static capture requires indexed OGRE triangle lists");
+    }
+    const Ogre::HardwareIndexBufferSharedPtr index_buffer =
+        operation.indexData->indexBuffer;
+    const std::size_t index_start = operation.indexData->indexStart;
+    const std::size_t index_count = operation.indexData->indexCount;
+    if (index_count == 0U || index_count % 3U != 0U ||
+        index_start > index_buffer->getNumIndexes() ||
+        index_count > index_buffer->getNumIndexes() - index_start)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::SIZE_MISMATCH,
+            "assets.mesh.index.buffer_range",
+            "OGRE index draw range is empty, partial, or exceeds its buffer");
+    }
+    Ogre::HardwareBufferLockGuard index_lock(
+        index_buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
+    if (index_lock.pData == nullptr)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::MISSING_REFERENCE,
+            "assets.mesh.index.cpu_data",
+            "OGRE index buffer did not expose read-only CPU data");
+    }
+    std::vector<std::uint32_t> candidate(index_count);
+    if (index_buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
+    {
+        format = RoR::Render::MeshIndexFormat::UINT16;
+        const auto* const indices =
+            static_cast<const std::uint16_t*>(index_lock.pData);
+        for (std::size_t index = 0U; index < index_count; ++index)
+            candidate[index] = indices[index_start + index];
+    }
+    else if (index_buffer->getType() ==
+             Ogre::HardwareIndexBuffer::IT_32BIT)
+    {
+        format = RoR::Render::MeshIndexFormat::UINT32;
+        const auto* const indices =
+            static_cast<const std::uint32_t*>(index_lock.pData);
+        for (std::size_t index = 0U; index < index_count; ++index)
+            candidate[index] = indices[index_start + index];
+    }
+    else
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::INVALID_ENUM,
+            "assets.mesh.index.format",
+            "OGRE index buffer has an unknown format");
+    }
+    output = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
+RoR::Render::ValidationResult CaptureOgre14GeneratedDistanceLods(
+    Ogre::Mesh& mesh,
+    Ogre::SubMesh& submesh,
+    const Ogre::VertexData* base_vertex_data,
+    RoR::Render::MeshIndexFormat base_index_format,
+    std::size_t base_index_count,
+    std::vector<RoR::Render::MeshDistanceLodLevelDescriptor>& levels)
+{
+    std::vector<RoR::Render::MeshDistanceLodLevelDescriptor> candidate;
+    const std::size_t level_count = mesh.getNumLodLevels();
+    if (level_count <= 1U || mesh.hasManualLodLevel())
+    {
+        levels.clear();
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (mesh.getLodStrategy() == nullptr ||
+        mesh.getLodStrategy()->getName() != "distance_sphere")
+    {
+        levels.clear();
+        return RoR::Render::ValidationResult::Success();
+    }
+    if (level_count - 1U > RoR::Render::kMaximumMeshDistanceLodLevels)
+    {
+        return NativeStaticFailure(
+            RoR::Render::ValidationCode::VALUE_OUT_OF_RANGE,
+            "assets.mesh.distance_lod_levels",
+            "generated OGRE mesh LOD count exceeds the portable limit");
+    }
+    candidate.reserve(level_count - 1U);
+    float previous_distance = 0.0F;
+    std::size_t previous_index_count = base_index_count;
+    for (std::size_t level_index = 1U; level_index < level_count;
+         ++level_index)
+    {
+        const Ogre::MeshLodUsage& usage = mesh.getLodLevel(
+            static_cast<unsigned short>(level_index));
+        const float distance = static_cast<float>(usage.userValue);
+        if (!std::isfinite(distance) || distance <= previous_distance)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::NON_DETERMINISTIC_ORDER,
+                "assets.mesh.distance_lod_levels.activation_distance_meters",
+                "generated OGRE distance LODs must be finite and strictly increasing");
+        }
+        Ogre::RenderOperation operation;
+        submesh._getRenderOperation(
+            operation, static_cast<unsigned short>(level_index));
+        if (operation.vertexData != base_vertex_data)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::REVISION_MISMATCH,
+                "assets.mesh.distance_lod_levels.vertex_data",
+                "index-only generated LOD changed the base vertex stream");
+        }
+        RoR::Render::MeshDistanceLodLevelDescriptor level;
+        level.activation_distance_meters = distance;
+        RoR::Render::MeshIndexFormat level_format = base_index_format;
+        RoR::Render::ValidationResult validation =
+            ExtractOgre14StaticIndexRange(
+                operation, level.indices, level_format);
+        if (!validation)
+            return validation;
+        // Extraction canonicalizes both 16-bit and 32-bit native buffers to
+        // uint32 values.  The portable mesh has one declared output width;
+        // descriptor validation below proves every generated index addresses
+        // the base vertex stream, so OGRE choosing a wider temporary LOD
+        // buffer does not alter the published topology or native packing.
+        (void)level_format;
+        if (level.indices.size() % 3U != 0U)
+        {
+            return NativeStaticFailure(
+                RoR::Render::ValidationCode::SIZE_MISMATCH,
+                "assets.mesh.distance_lod_levels.indices",
+                "generated triangle-list LOD has an incomplete primitive");
+        }
+        // OGRE's edge-collapse output retains degenerate triangles and, for
+        // some old shared-vertex v1.40 meshes, triangles outside this
+        // submesh's addressable base stream. Neither is a valid portable
+        // primitive; remove them transactionally at the extraction boundary.
+        std::vector<std::uint32_t> nondegenerate_indices;
+        nondegenerate_indices.reserve(level.indices.size());
+        for (std::size_t index = 0U; index < level.indices.size(); index += 3U)
+        {
+            const std::uint32_t a = level.indices[index];
+            const std::uint32_t b = level.indices[index + 1U];
+            const std::uint32_t c = level.indices[index + 2U];
+            if (a >= base_vertex_data->vertexCount ||
+                b >= base_vertex_data->vertexCount ||
+                c >= base_vertex_data->vertexCount ||
+                a == b || a == c || b == c)
+                continue;
+            nondegenerate_indices.push_back(a);
+            nondegenerate_indices.push_back(b);
+            nondegenerate_indices.push_back(c);
+        }
+        // A level that contains no drawable reduction, or that is not
+        // strictly smaller than the preceding admitted level, is omitted. Its
+        // farther reductions remain eligible with their own exact distances.
+        if (nondegenerate_indices.empty() ||
+            nondegenerate_indices.size() >= previous_index_count)
+        {
+            continue;
+        }
+        level.indices = std::move(nondegenerate_indices);
+        candidate.push_back(std::move(level));
+        previous_distance = distance;
+        previous_index_count = candidate.back().indices.size();
+    }
+    levels = std::move(candidate);
+    return RoR::Render::ValidationResult::Success();
+}
+
 RoR::Render::ValidationResult ExtractOgre14CpuMeshSection(
     const Ogre::RenderOperation& operation,
+    Ogre::Mesh& mesh,
+    Ogre::SubMesh& submesh,
     const std::string& debug_name,
     bool reverse_winding,
     std::uint64_t topology_revision,
@@ -1907,52 +2095,16 @@ RoR::Render::ValidationResult ExtractOgre14CpuMeshSection(
     if (!validation)
         return validation;
 
-    const Ogre::HardwareIndexBufferSharedPtr index_buffer =
-        operation.indexData->indexBuffer;
-    const std::size_t index_start = operation.indexData->indexStart;
-    const std::size_t index_count = operation.indexData->indexCount;
-    if (index_start > index_buffer->getNumIndexes() ||
-        index_count > index_buffer->getNumIndexes() - index_start)
-    {
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::SIZE_MISMATCH,
-            "assets.mesh.index.buffer_range",
-            "OGRE index draw range exceeds its bound hardware buffer");
-    }
-    Ogre::HardwareBufferLockGuard index_lock(
-        index_buffer, Ogre::HardwareBuffer::HBL_READ_ONLY);
-    if (index_lock.pData == nullptr)
-    {
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::MISSING_REFERENCE,
-            "assets.mesh.index.cpu_data",
-            "OGRE index buffer did not expose read-only CPU data");
-    }
-    input.indices.resize(index_count);
-    if (index_buffer->getType() == Ogre::HardwareIndexBuffer::IT_16BIT)
-    {
-        input.index_format = RoR::Render::MeshIndexFormat::UINT16;
-        const auto* const indices =
-            static_cast<const std::uint16_t*>(index_lock.pData);
-        for (std::size_t index = 0U; index < index_count; ++index)
-            input.indices[index] = indices[index_start + index];
-    }
-    else if (index_buffer->getType() ==
-             Ogre::HardwareIndexBuffer::IT_32BIT)
-    {
-        input.index_format = RoR::Render::MeshIndexFormat::UINT32;
-        const auto* const indices =
-            static_cast<const std::uint32_t*>(index_lock.pData);
-        for (std::size_t index = 0U; index < index_count; ++index)
-            input.indices[index] = indices[index_start + index];
-    }
-    else
-    {
-        return NativeStaticFailure(
-            RoR::Render::ValidationCode::INVALID_ENUM,
-            "assets.mesh.index.format",
-            "OGRE index buffer has an unknown format");
-    }
+    validation = ExtractOgre14StaticIndexRange(
+        operation, input.indices, input.index_format);
+    if (!validation)
+        return validation;
+    validation = CaptureOgre14GeneratedDistanceLods(
+        mesh, submesh, operation.vertexData, input.index_format,
+        input.indices.size(),
+        input.distance_lod_levels);
+    if (!validation)
+        return validation;
     // Sanitize the local extraction before the ordinary builder performs its
     // canonical descriptor validation. The private input and candidate
     // payload are not published until every post-normalization check passes.
@@ -2804,33 +2956,6 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
 
         const std::size_t offset = range->second.first;
         const std::size_t count = range->second.second;
-        RoR::Render::Ogre14GraphicsSceneCpuMeshSectionInput base;
-        base.debug_name = mesh->getGroup() + "/" + mesh->getName() + "#" +
-            std::to_string(section_index);
-        base.reverse_winding = reverse_winding;
-        base.positions.reserve(count);
-        base.normals.reserve(count);
-        if (!joined_texcoords0.empty())
-            base.texture_coordinates_0.reserve(count);
-        for (std::size_t index = 0U; index < count; ++index)
-        {
-            const Ogre::Vector3& position = joined_positions[offset + index];
-            const Ogre::Vector3& normal = joined_normals[offset + index];
-            base.positions.push_back({
-                static_cast<float>(position.x),
-                static_cast<float>(position.y),
-                static_cast<float>(position.z)});
-            base.normals.push_back({
-                static_cast<float>(normal.x),
-                static_cast<float>(normal.y),
-                static_cast<float>(normal.z)});
-            if (!joined_texcoords0.empty())
-            {
-                const Ogre::Vector2& uv = joined_texcoords0[offset + index];
-                base.texture_coordinates_0.push_back({
-                    static_cast<float>(uv.x), static_cast<float>(uv.y)});
-            }
-        }
         std::string cache_key = BuildNativeDynamicMeshCacheKey(identity);
         cache_key.append("/OgreNextDemoRT4/v1");
         auto cached = mesh_cache.find(cache_key);
@@ -2849,12 +2974,90 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             cached->second.index_count == operation.indexData->indexCount &&
             cached->second.reverse_winding == reverse_winding &&
             cached->second.payload != nullptr;
+
+        // Copy the frame-varying state exactly once. Normal sanitization,
+        // deterministic tangent construction, and tight bounds share this
+        // pass. The old path first copied all joined vectors into a temporary
+        // mesh input, copied normals again inside the tangent helper, and then
+        // walked positions a second time for bounds. UV0 is immutable topology
+        // data, so a stable topology-cache hit does not recopy it at all.
+        auto state = std::make_shared<
+            RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>();
+        state->positions.reserve(count);
+        state->normals.reserve(count);
+        state->tangents.reserve(count);
+        for (std::size_t index = 0U; index < count; ++index)
+        {
+            const Ogre::Vector3& source_position =
+                joined_positions[offset + index];
+            const Ogre::Vector3& source_normal =
+                joined_normals[offset + index];
+            const RoR::Render::Float3 position{
+                static_cast<float>(source_position.x),
+                static_cast<float>(source_position.y),
+                static_cast<float>(source_position.z)};
+            const RoR::Render::Float3 authored_normal{
+                static_cast<float>(source_normal.x),
+                static_cast<float>(source_normal.y),
+                static_cast<float>(source_normal.z)};
+            RoR::Render::Float3 sanitized_normal;
+            RoR::Render::Float4 tangent;
+            validation = RoR::Gfx::Detail::
+                BuildOgreNextDemoMatteNormalTangent(
+                    authored_normal, sanitized_normal, tangent);
+            if (!validation)
+            {
+                validation.element_index = index;
+                return validation;
+            }
+            state->positions.push_back(position);
+            state->normals.push_back(sanitized_normal);
+            state->tangents.push_back(tangent);
+            if (index == 0U)
+            {
+                state->updated_local_bounds.minimum = position;
+                state->updated_local_bounds.maximum = position;
+            }
+            else
+            {
+                state->updated_local_bounds.minimum.x = (std::min)(
+                    state->updated_local_bounds.minimum.x, position.x);
+                state->updated_local_bounds.minimum.y = (std::min)(
+                    state->updated_local_bounds.minimum.y, position.y);
+                state->updated_local_bounds.minimum.z = (std::min)(
+                    state->updated_local_bounds.minimum.z, position.z);
+                state->updated_local_bounds.maximum.x = (std::max)(
+                    state->updated_local_bounds.maximum.x, position.x);
+                state->updated_local_bounds.maximum.y = (std::max)(
+                    state->updated_local_bounds.maximum.y, position.y);
+                state->updated_local_bounds.maximum.z = (std::max)(
+                    state->updated_local_bounds.maximum.z, position.z);
+            }
+        }
         if (cache_matches)
         {
             section.mesh_payload = cached->second.payload;
         }
         else
         {
+            RoR::Render::Ogre14GraphicsSceneCpuMeshSectionInput base;
+            base.debug_name = mesh->getGroup() + "/" + mesh->getName() + "#" +
+                std::to_string(section_index);
+            base.reverse_winding = reverse_winding;
+            base.positions = state->positions;
+            base.normals = state->normals;
+            base.tangents = state->tangents;
+            if (!joined_texcoords0.empty())
+            {
+                base.texture_coordinates_0.reserve(count);
+                for (std::size_t index = 0U; index < count; ++index)
+                {
+                    const Ogre::Vector2& uv =
+                        joined_texcoords0[offset + index];
+                    base.texture_coordinates_0.push_back({
+                        static_cast<float>(uv.x), static_cast<float>(uv.y)});
+                }
+            }
             // Immutable topology is copied only for a new/reloaded native
             // allocation. Stable frames never read back a dynamic buffer.
             validation = CopyOgre14DynamicIndices(
@@ -2884,10 +3087,6 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             // non-terrain meshes, not only sections whose material was matted.
             // Sanitize the local joined state before the ordinary dynamic
             // builder validates it, then retain the full private post-check.
-            validation = RoR::Gfx::Detail::BuildOgreNextDemoMatteTangents(
-                base.positions.size(), base.normals, base.tangents);
-            if (!validation)
-                return validation;
             if (base.texture_coordinates_0.empty())
             {
                 base.texture_coordinates_0.assign(base.positions.size(), {});
@@ -2929,34 +3128,9 @@ RoR::Render::ValidationResult CaptureOgre14DynamicEntitySections(
             mesh_cache[cache_key] = std::move(entry);
         }
 
-        auto state = std::make_shared<
-            RoR::Render::Ogre14GraphicsSceneJoinedDynamicState>();
         state->topology_revision =
             std::get<RoR::Render::MeshResourceDescriptor>(
                 *section.mesh_payload).topology_revision;
-        state->positions = std::move(base.positions);
-        state->normals = std::move(base.normals);
-        validation = RoR::Gfx::Detail::BuildOgreNextDemoMatteTangents(
-            state->positions.size(), state->normals, state->tangents);
-        if (!validation)
-            return validation;
-        state->updated_local_bounds.minimum = state->positions.front();
-        state->updated_local_bounds.maximum = state->positions.front();
-        for (const RoR::Render::Float3& position : state->positions)
-        {
-            state->updated_local_bounds.minimum.x = (std::min)(
-                state->updated_local_bounds.minimum.x, position.x);
-            state->updated_local_bounds.minimum.y = (std::min)(
-                state->updated_local_bounds.minimum.y, position.y);
-            state->updated_local_bounds.minimum.z = (std::min)(
-                state->updated_local_bounds.minimum.z, position.z);
-            state->updated_local_bounds.maximum.x = (std::max)(
-                state->updated_local_bounds.maximum.x, position.x);
-            state->updated_local_bounds.maximum.y = (std::max)(
-                state->updated_local_bounds.maximum.y, position.y);
-            state->updated_local_bounds.maximum.z = (std::max)(
-                state->updated_local_bounds.maximum.z, position.z);
-        }
         section.state = std::move(state);
         sections.push_back(std::move(section));
     }
@@ -3290,7 +3464,7 @@ RoR::Render::ValidationResult CaptureOgre14RigidActorEntitySections(
             std::shared_ptr<const RoR::Render::RenderAssetPayload>
                 candidate_payload;
             validation = ExtractOgre14CpuMeshSection(
-                operation,
+                operation, *mesh, *sub_entity->getSubMesh(),
                 mesh->getGroup() + "/" + mesh->getName() + "#" +
                     std::to_string(section_index),
                 reverse_winding, topology_revision, candidate_payload);
@@ -3770,7 +3944,7 @@ RoR::Render::ValidationResult CaptureOgre14StaticMeshObjects(
                         topology_revision = previous_revision + 1U;
                     }
                     validation = ExtractOgre14CpuMeshSection(
-                        operation,
+                        operation, *mesh, *sub_entity->getSubMesh(),
                         mesh->getGroup() + "/" + mesh->getName() + "#" +
                             std::to_string(section_index),
                         reverse_winding, topology_revision,
@@ -3866,6 +4040,7 @@ void GfxScene::ResetOgre14GraphicsSceneGeneration() noexcept
     m_ogre14_rigid_actor_state_cache.clear();
     m_ogre14_rigid_actor_capture_log_snapshot.clear();
     m_ogre_next_demo_analytic_sky_log_snapshot.clear();
+    m_ogre_next_demo_analytic_sky_log_captures = 0U;
     m_ogre14_automatic_reflection_probe_state = {};
     // The retained GUI readback belongs to the closing generation; the next
     // map republishes only after a fresh overlay capture.
@@ -6335,13 +6510,19 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                         std::move(placeholder));
                 nonterrain_assets.push_back(std::move(material_asset));
             }
+            section_particle_walk_ns += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - particle_walk_started)
+                    .count());
+            const std::chrono::steady_clock::time_point
+                material_apply_started = std::chrono::steady_clock::now();
+            Gfx::Detail::OgreNextDemoMaterialApplyTiming
+                material_apply_timing;
             if (material_capture_open)
             {
-                const std::chrono::steady_clock::time_point
-                    material_apply_started = std::chrono::steady_clock::now();
                 dynamic_validation =
                     m_ogre_next_demo_material_source.Apply(
-                        nonterrain_assets);
+                        nonterrain_assets, &material_apply_timing);
                 if (!dynamic_validation)
                     return dynamic_validation;
                 pending->new_material_projection_count =
@@ -6353,11 +6534,14 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                 pending->curated_cityworld_material_coverage =
                     m_ogre_next_demo_material_source
                         .CurrentCuratedCityWorldCoverage();
-                section_material_apply_ns = static_cast<std::uint64_t>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now() -
-                        material_apply_started).count());
             }
+            section_material_apply_ns = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - material_apply_started)
+                    .count());
+            pending->material_apply_timing = material_apply_timing;
+            const std::chrono::steady_clock::time_point
+                particle_finalize_started = std::chrono::steady_clock::now();
             if (!captured_dust_systems.empty())
             {
                 const auto dust_material_asset = std::find_if(
@@ -6589,9 +6773,10 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
             ++pending->particle_capture_state.next_source_sequence;
             candidate.frame.continuous_particles =
                 std::move(particle_frame);
-            section_particle_walk_ns = static_cast<std::uint64_t>(
+            section_particle_walk_ns += static_cast<std::uint64_t>(
                 std::chrono::duration_cast<std::chrono::nanoseconds>(
-                    std::chrono::steady_clock::now() - particle_walk_started)
+                    std::chrono::steady_clock::now() -
+                        particle_finalize_started)
                     .count());
             // The material Apply transaction ran inside this span; bill it
             // to its own section so `particles` measures particle work.
@@ -6983,17 +7168,23 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
          m_ogre14_pending_capture->particle_capture_state);
     swap(m_ogre14_automatic_reflection_probe_state,
          m_ogre14_pending_capture->automatic_reflection_probe_state);
-    const bool analytic_sky_changed =
-        !m_ogre14_pending_capture->analytic_sky_log_snapshot.empty() &&
-        m_ogre14_pending_capture->analytic_sky_log_snapshot !=
-            m_ogre_next_demo_analytic_sky_log_snapshot;
     swap(m_ogre_next_demo_analytic_sky_log_snapshot,
          m_ogre14_pending_capture->analytic_sky_log_snapshot);
-    if (analytic_sky_changed)
+    if (!m_ogre_next_demo_analytic_sky_log_snapshot.empty())
     {
-        LOG(fmt::format(
-            "[RoR|OgreNextDemo|AnalyticSky|Source] {}",
-            m_ogre_next_demo_analytic_sky_log_snapshot));
+        if (m_ogre_next_demo_analytic_sky_log_captures <
+            (std::numeric_limits<std::uint64_t>::max)())
+        {
+            ++m_ogre_next_demo_analytic_sky_log_captures;
+        }
+        if (m_ogre_next_demo_analytic_sky_log_captures == 1U ||
+            (m_ogre_next_demo_analytic_sky_log_captures % 300U) == 0U)
+        {
+            LOG(fmt::format(
+                "[RoR|OgreNextDemo|AnalyticSky|Source] captures={} {}",
+                m_ogre_next_demo_analytic_sky_log_captures,
+                m_ogre_next_demo_analytic_sky_log_snapshot));
+        }
     }
     m_ogre_next_demo_material_source.Commit();
     if (m_ogre14_pending_capture->has_road_material_frame &&
@@ -7040,6 +7231,17 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         m_ogre14_pending_capture->section_particles_ns;
     m_ogre14_section_log_material_apply_ns +=
         m_ogre14_pending_capture->section_material_apply_ns;
+    m_ogre14_section_log_material_index_ns +=
+        m_ogre14_pending_capture->material_apply_timing.input_index_ns;
+    m_ogre14_section_log_material_plan_ns +=
+        m_ogre14_pending_capture->material_apply_timing.publication_plan_ns;
+    m_ogre14_section_log_material_authority_ns +=
+        m_ogre14_pending_capture->material_apply_timing
+            .authority_validation_ns;
+    m_ogre14_section_log_material_owners_ns +=
+        m_ogre14_pending_capture->material_apply_timing.owner_publication_ns;
+    m_ogre14_section_log_material_finalize_ns +=
+        m_ogre14_pending_capture->material_apply_timing.accounting_and_sort_ns;
     m_ogre14_section_log_other_ns +=
         m_ogre14_pending_capture->section_other_ns;
     if ((m_ogre14_section_log_captures % 300U) == 0U)
@@ -7047,7 +7249,10 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         LOG(fmt::format(
             "[RoR|SceneSource] captures={} mean_ns terrain={} static={} "
             "dynamic={} retained={} merge={} union={} particles={} "
-            "material_apply={} other={}",
+            "material_apply={} other={} material_index={} material_plan={} "
+            "material_authority={} material_owners={} material_finalize={} "
+            "material_authority_plan_cache_hit={} "
+            "material_owner_cache_hit={} material_owner_assets={}",
             m_ogre14_section_log_captures,
             m_ogre14_section_log_terrain_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_static_ns / m_ogre14_section_log_captures,
@@ -7058,7 +7263,23 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
             m_ogre14_section_log_particles_ns / m_ogre14_section_log_captures,
             m_ogre14_section_log_material_apply_ns /
                 m_ogre14_section_log_captures,
-            m_ogre14_section_log_other_ns / m_ogre14_section_log_captures));
+            m_ogre14_section_log_other_ns / m_ogre14_section_log_captures,
+            m_ogre14_section_log_material_index_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_material_plan_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_material_authority_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_material_owners_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_section_log_material_finalize_ns /
+                m_ogre14_section_log_captures,
+            m_ogre14_pending_capture->material_apply_timing
+                .retained_authority_plan_reused,
+            m_ogre14_pending_capture->material_apply_timing
+                .retained_owner_publication_reused,
+            m_ogre14_pending_capture->material_apply_timing
+                .retained_owner_asset_count));
     }
     const Gfx::Detail::OgreNextDemoMaterialSourceCounters& capture_counters =
         m_ogre14_pending_capture->material_source_counters;
@@ -7303,6 +7524,38 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
     }
     const Ogre14ContinuousParticleCaptureState& particles =
         m_ogre14_particle_capture_state;
+    // Current dust-particle count is animation, not a structural audit
+    // transition. Using it as the log change key wrote two large diagnostic
+    // lines on most presented frames and made the performance gate measure
+    // synchronous log traffic. Keep the full instantaneous counts in the
+    // emitted snapshot, but wake logging only for topology/lifetime changes
+    // or the same 300-frame heartbeat used by the other scene receipts.
+    const std::string particle_state_signature = fmt::format(
+        "observed_systems={} admitted_systems={} "
+        "deferred_inactive_systems={} excluded_systems={} "
+        "excluded_non_dust_systems={} excluded_sparks_systems={} "
+        "excluded_ripple_systems={} excluded_other_non_dust_systems={} "
+        "excluded_billboard_modes={} excluded_local_space_systems={} "
+        "excluded_animated_systems={} excluded_sorted_systems={} "
+        "excluded_timing_modes={} distinct_source_textures={} "
+        "source_alpha_textures={} gpu_readbacks={} "
+        "lifetime_max_admitted_systems={} "
+        "lifetime_max_admitted_particles={}",
+        particles.observed_systems, particles.captured_systems,
+        particles.deferred_inactive_systems, particles.excluded_systems,
+        particles.excluded_non_dust_systems,
+        particles.excluded_sparks_systems,
+        particles.excluded_ripple_systems,
+        particles.excluded_other_non_dust_systems,
+        particles.excluded_billboard_modes,
+        particles.excluded_local_space_systems,
+        particles.excluded_animated_systems,
+        particles.excluded_sorted_systems,
+        particles.excluded_timing_modes,
+        particles.source_backed_textures,
+        particles.source_alpha_textures, particles.gpu_readbacks,
+        particles.lifetime_max_captured_systems,
+        particles.lifetime_max_captured_particles);
     const std::string particle_snapshot = fmt::format(
         "observed_systems={} observed_particles={} admitted_systems={} "
         "admitted_particles={} deferred_inactive_systems={} "
@@ -7332,12 +7585,16 @@ void GfxScene::CommitOgre14GraphicsSceneCapture() noexcept
         particles.source_alpha_textures, particles.gpu_readbacks,
         particles.lifetime_max_captured_systems,
         particles.lifetime_max_captured_particles);
-    if (particle_snapshot != m_ogre14_particle_coverage_log_snapshot)
+    const bool particle_audit_heartbeat =
+        (m_ogre14_section_log_captures % 300U) == 0U;
+    if (particle_state_signature !=
+            m_ogre14_particle_coverage_log_snapshot ||
+        particle_audit_heartbeat)
     {
         LOG(fmt::format(
             "[RoR|OgreNextDemo|ContinuousParticles|Capture] {}",
             particle_snapshot));
-        m_ogre14_particle_coverage_log_snapshot = particle_snapshot;
+        m_ogre14_particle_coverage_log_snapshot = particle_state_signature;
     }
     m_ogre14_pending_capture.reset();
 }

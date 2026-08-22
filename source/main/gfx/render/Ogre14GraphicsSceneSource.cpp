@@ -719,6 +719,99 @@ bool EquivalentJoinedDynamicContents(
          lhs.updated_local_bounds.maximum == rhs.updated_local_bounds.maximum;
 }
 
+/// Validates a freshly joined state directly from its immutable owner. The
+/// public dynamic-update validator owns its vectors and is correct at the
+/// renderer API boundary, but constructing that descriptor here deep-copied
+/// every deformable stream solely to inspect it. This adapter has already
+/// validated `mesh`; one pass below proves the same compatibility, exact tight
+/// bounds, and tangent orthogonality without a second owner or byte copy.
+ValidationResult ValidateJoinedDynamicStateCompatibility(
+    const MeshResourceDescriptor &mesh,
+    const Ogre14GraphicsSceneJoinedDynamicState &state) {
+  if (!mesh.dynamic) {
+    return ValidationResult::Failure(
+        ValidationCode::VALUE_OUT_OF_RANGE, "mesh.dynamic",
+        "dynamic updates require a mesh created with dynamic storage");
+  }
+  if (mesh.topology_revision != state.topology_revision) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "update.topology_revision",
+        "dynamic update topology revision differs from the live mesh");
+  }
+  if (state.positions.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::EMPTY_PAYLOAD, "update.positions",
+        "dynamic update requires a nonempty position range");
+  }
+  if (state.positions.size() != mesh.positions.size()) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "update.positions",
+        "version 1 update must contain every live mesh position");
+  }
+  if (state.normals.empty() != mesh.normals.empty() ||
+      state.tangents.empty() != mesh.tangents.empty() ||
+      state.velocities.empty() != mesh.velocities.empty()) {
+    return ValidationResult::Failure(
+        ValidationCode::MISSING_REFERENCE, "update.vertex_streams",
+        "full update must reproduce every stream allocated at mesh creation");
+  }
+  if ((!state.normals.empty() &&
+       state.normals.size() != state.positions.size()) ||
+      (!state.tangents.empty() &&
+       state.tangents.size() != state.positions.size()) ||
+      (!state.velocities.empty() &&
+       state.velocities.size() != state.positions.size())) {
+    return ValidationResult::Failure(
+        ValidationCode::SIZE_MISMATCH, "update.vertex_streams",
+        "full update streams must match the complete position count");
+  }
+  if (!IsValid(state.updated_local_bounds)) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_BOUNDS, "update.updated_local_bounds",
+        "full update requires finite ordered authored bounds");
+  }
+
+  constexpr float kVectorBasisTolerance = 1.0e-3F;
+  Bounds3 tight;
+  tight.minimum = state.positions.front();
+  tight.maximum = state.positions.front();
+  for (std::size_t index = 0U; index < state.positions.size(); ++index) {
+    const Float3 &position = state.positions[index];
+    const Bounds3 &bounds = state.updated_local_bounds;
+    if (position.x < bounds.minimum.x || position.x > bounds.maximum.x ||
+        position.y < bounds.minimum.y || position.y > bounds.maximum.y ||
+        position.z < bounds.minimum.z || position.z > bounds.maximum.z) {
+      return ValidationResult::Failure(
+          ValidationCode::INVALID_BOUNDS, "update.updated_local_bounds",
+          "updated bounds must contain every full-state position", index);
+    }
+    if (!state.tangents.empty()) {
+      const Float4 &tangent = state.tangents[index];
+      if (std::fabs(Dot(state.normals[index],
+                        Float3{tangent.x, tangent.y, tangent.z})) >
+          kVectorBasisTolerance) {
+        return ValidationResult::Failure(
+            ValidationCode::VALUE_OUT_OF_RANGE, "update.tangents",
+            "updated tangent must be orthogonal to its updated normal", index);
+      }
+    }
+    tight.minimum.x = (std::min)(tight.minimum.x, position.x);
+    tight.minimum.y = (std::min)(tight.minimum.y, position.y);
+    tight.minimum.z = (std::min)(tight.minimum.z, position.z);
+    tight.maximum.x = (std::max)(tight.maximum.x, position.x);
+    tight.maximum.y = (std::max)(tight.maximum.y, position.y);
+    tight.maximum.z = (std::max)(tight.maximum.z, position.z);
+  }
+  if (tight.minimum != state.updated_local_bounds.minimum ||
+      tight.maximum != state.updated_local_bounds.maximum) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_BOUNDS,
+        "dynamic_meshes.state.updated_local_bounds",
+        "joined staging bounds must be exact and tight");
+  }
+  return ValidationResult::Success();
+}
+
 
 ValidationResult HashStableKey(std::string_view key, const char *field,
                                std::uint64_t &stable_id) {
@@ -2492,36 +2585,9 @@ ValidationResult BuildOgre14GraphicsSceneDynamicInventory(
           input_index);
     }
 
-    DynamicMeshUpdateDescriptor compatibility_update;
-    compatibility_update.topology_revision = input.state->topology_revision;
-    compatibility_update.positions = input.state->positions;
-    compatibility_update.normals = input.state->normals;
-    compatibility_update.tangents = input.state->tangents;
-    compatibility_update.velocities = input.state->velocities;
-    compatibility_update.has_updated_bounds = true;
-    compatibility_update.updated_local_bounds = input.state->updated_local_bounds;
-    validation =
-        ValidateDynamicMeshUpdateCompatibility(mesh, compatibility_update);
+    validation = ValidateJoinedDynamicStateCompatibility(mesh, *input.state);
     if (!validation) {
       return AtDynamicSection(std::move(validation), input_index);
-    }
-    Bounds3 tight;
-    tight.minimum = input.state->positions.front();
-    tight.maximum = input.state->positions.front();
-    for (const Float3 &position : input.state->positions) {
-      tight.minimum.x = (std::min)(tight.minimum.x, position.x);
-      tight.minimum.y = (std::min)(tight.minimum.y, position.y);
-      tight.minimum.z = (std::min)(tight.minimum.z, position.z);
-      tight.maximum.x = (std::max)(tight.maximum.x, position.x);
-      tight.maximum.y = (std::max)(tight.maximum.y, position.y);
-      tight.maximum.z = (std::max)(tight.maximum.z, position.z);
-    }
-    if (tight.minimum != input.state->updated_local_bounds.minimum ||
-        tight.maximum != input.state->updated_local_bounds.maximum) {
-      return ValidationResult::Failure(
-          ValidationCode::INVALID_BOUNDS,
-          "dynamic_meshes.state.updated_local_bounds",
-          "joined staging bounds must be exact and tight", input_index);
     }
 
     const std::string mesh_key = BuildDynamicSectionKey(

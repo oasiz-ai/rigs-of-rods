@@ -86,6 +86,21 @@ def make_receipt(request, **overrides):
     return document
 
 
+def make_combined_receipt(request, **overrides):
+    document = make_receipt(
+        request,
+        renderer="ogre-next-combined",
+        requires_native_scene_draw_metrics=True,
+        native_scene_draw_p99_limit=2500,
+        native_scene_draw_exact_samples=request.requested_frames,
+        native_scene_draw_rejected_samples=0,
+        native_scene_draw_p99=934,
+        native_scene_draw_maximum=1158,
+    )
+    document.update(overrides)
+    return document
+
+
 class BudgetRequestTests(unittest.TestCase):
     def test_valid_request_round_trips(self) -> None:
         request = make_request()
@@ -211,6 +226,43 @@ class ReceiptValidationTests(unittest.TestCase):
                 request,
             )
 
+    def test_combined_receipt_requires_exact_native_draw_distribution(
+        self,
+    ) -> None:
+        request = make_request()
+        receipt = runner.validate_receipt(
+            make_combined_receipt(request), request)
+        self.assertEqual(receipt["native_scene_draw_p99"], 934)
+
+        malformed = (
+            {"requires_native_scene_draw_metrics": False},
+            {"native_scene_draw_exact_samples": request.requested_frames - 1},
+            {"native_scene_draw_rejected_samples": 1},
+            {"native_scene_draw_p99": 0},
+            {"native_scene_draw_p99": 1200, "native_scene_draw_maximum": 1100},
+            {"native_scene_draw_p99_limit": 2499},
+        )
+        for overrides in malformed:
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.validate_receipt(
+                        make_combined_receipt(request, **overrides), request)
+
+    def test_combined_gate_rejects_native_draw_p99_over_roadmap_limit(
+        self,
+    ) -> None:
+        request = make_request()
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.validate_receipt(
+                make_combined_receipt(
+                    request,
+                    native_scene_draw_p99=2501,
+                    native_scene_draw_maximum=3000,
+                ),
+                request,
+            )
+        self.assertIn("draw budget failed", str(caught.exception))
+
 
 class PresentationPacingTests(unittest.TestCase):
     def test_sixty_hertz_pacing_is_reported(self) -> None:
@@ -273,6 +325,25 @@ class LogScanTests(unittest.TestCase):
                     runner.scan_runtime_log(self.HEADER + f"{marker} thing\n")
                 self.assertIn(marker, str(bad.exception))
 
+    def test_capture_rejections_are_diagnostic_not_lod_lineage(self) -> None:
+        native = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=7398 casters=200 "
+            "lod_items=120 lod_reduced=96 lod_max=3 lod_level_sum=211 "
+            "triangles_base=7130751 triangles_selected=2419000 "
+            "lod_exact=true pssm=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=1\n"
+        )
+        for text in (
+            self.HEADER + runner.CAPTURE_REJECTED_MARKER + "\n",
+            self.HEADER + native + runner.CAPTURE_REJECTED_MARKER + "\n",
+            self.HEADER + runner.CAPTURE_REJECTED_MARKER + "\n" + native,
+        ):
+            with self.subTest(text=text):
+                identity = runner.scan_runtime_log(text)
+                self.assertEqual(identity["startup_capture_rejections"], 1)
+
     def test_content_markers_are_counted_and_optionally_gated(self) -> None:
         for marker in runner.CONTENT_LOG_MARKERS:
             with self.subTest(marker=marker):
@@ -305,6 +376,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn("gfx_texture_filter=Anisotropic (best looking)", config)
         self.assertIn("gfx_vegetation_mode=Full (best looking, slower)", config)
         self.assertIn("gfx_shadow_quality=3", config)
+        self.assertIn("gfx_auto_lod=true", config)
         for name, (value, _) in runner.GRAPHICS_PRESETS["high"].items():
             self.assertIn(f"{name}={value}", config)
 
@@ -343,6 +415,162 @@ class ConfigurationTests(unittest.TestCase):
             runner.verify_graphics_preset(statement + "\n", "high")
         self.assertIn("gfx_shadow_type", str(caught.exception))
         self.assertIn("did not take effect", str(caught.exception))
+
+    def test_combined_runtime_verifies_visible_renderer_not_hidden_rtts(
+        self,
+    ) -> None:
+        preset = runner.GRAPHICS_PRESETS["high"]
+        effective = {
+            name: expected for name, (_, expected) in preset.items()
+        }
+        effective.update(runner.COMBINED_PRODUCER_OVERRIDES)
+        statement = "[RoR|Perf] Graphics: " + " ".join(
+            f"{name}={effective[name]}" for name in preset
+        )
+        observed = runner.verify_graphics_preset(
+            statement + "\n", "high", combined_runtime=True
+        )
+        self.assertEqual(observed["gfx_shadow_type"], "0")
+        self.assertEqual(observed["gfx_envmap_enabled"], "0")
+        self.assertEqual(observed["gfx_auto_lod"], "1")
+
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.verify_graphics_preset(statement + "\n", "high")
+
+    def test_native_combined_lod_receipt_proves_visible_reduction(self) -> None:
+        statement = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=7406 casters=200 "
+            "lod_items=1378 lod_reduced=1005 lod_max=4 lod_level_sum=2494 "
+            "triangles_base=7135111 triangles_selected=5773448 "
+            "lod_exact=true pssm=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=3067\n"
+        )
+        receipt = runner.verify_combined_native_distance_lod(statement)
+        self.assertEqual(receipt["lod_items"], 1378)
+        self.assertEqual(receipt["lod_reduced"], 1005)
+        self.assertTrue(receipt["reduced_this_frame"])
+        self.assertLess(
+            receipt["triangles_selected"], receipt["triangles_base"]
+        )
+
+    def test_native_combined_lod_requires_recovery_after_rejection(self) -> None:
+        native = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=7406 casters=200 "
+            "lod_items=1378 lod_reduced=1005 lod_max=4 "
+            "lod_level_sum=2494 triangles_base=7135111 "
+            "triangles_selected=5773448 lod_exact=true pssm=true "
+            "reflection_initialized=true native_scene_lighting=true "
+            "gpu_only=true no_ogre14_lighting=true completed_frames=1\n"
+        )
+        recovered = runner.CAPTURE_REJECTED_MARKER + "\n" + native
+        receipt = runner.verify_combined_native_distance_lod(recovered)
+        self.assertEqual(receipt["completed_frames"], 1)
+
+        unrecovered = native + runner.CAPTURE_REJECTED_MARKER + "\n"
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.verify_combined_native_distance_lod(unrecovered)
+        self.assertIn("was not recovered", str(caught.exception))
+
+    def test_native_combined_lod_receipt_accepts_exact_base_selection(
+        self,
+    ) -> None:
+        statement = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=7398 casters=200 "
+            "lod_items=1378 lod_reduced=0 lod_max=0 lod_level_sum=0 "
+            "triangles_base=7130751 triangles_selected=7130751 "
+            "lod_exact=true pssm=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=1800\n"
+        )
+        receipt = runner.verify_combined_native_distance_lod(statement)
+        self.assertFalse(receipt["reduced_this_frame"])
+        self.assertEqual(
+            receipt["triangles_selected"], receipt["triangles_base"]
+        )
+
+    def test_native_combined_lod_receipt_rejects_missing_ladder(self) -> None:
+        statement = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=7398 casters=200 "
+            "lod_items=0 lod_reduced=0 lod_max=0 lod_level_sum=0 "
+            "triangles_base=7130751 triangles_selected=7130751 "
+            "lod_exact=true pssm=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=1800\n"
+        )
+        with self.assertRaises(runner.PerformanceSceneFailure) as caught:
+            runner.verify_combined_native_distance_lod(statement)
+        self.assertIn("no native distance-LOD ladders", str(caught.exception))
+
+    def test_native_combined_lod_receipt_rejects_mismatched_selection(
+        self,
+    ) -> None:
+        common = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=7398 casters=200 "
+            "lod_items=1378 "
+            "lod_exact=true pssm=true reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=1800 "
+        )
+        malformed = (
+            common + "lod_reduced=0 lod_max=0 lod_level_sum=0 "
+            "triangles_base=7130751 triangles_selected=7000000\n",
+            common + "lod_reduced=1 lod_max=1 lod_level_sum=1 "
+            "triangles_base=7130751 triangles_selected=7130751\n",
+            common + "lod_reduced=1 lod_max=1 lod_level_sum=1 "
+            "triangles_base=7130751 triangles_selected=7130752\n",
+            common + "lod_reduced=-1 lod_max=0 lod_level_sum=0 "
+            "triangles_base=7130751 triangles_selected=7130751\n",
+        )
+        for statement in malformed:
+            with self.subTest(statement=statement):
+                with self.assertRaises(runner.PerformanceSceneFailure):
+                    runner.verify_combined_native_distance_lod(statement)
+
+    def test_native_combined_lod_allows_empty_shadow_caster_inventory(
+        self,
+    ) -> None:
+        statement = (
+            "[RoR|RendererCombined|NativeLighting] "
+            "schema_version=6 available=true pbs=256 casters=0 "
+            "lod_items=256 lod_reduced=244 lod_max=4 lod_level_sum=688 "
+            "triangles_base=2228224 triangles_selected=194560 "
+            "lod_exact=true pssm=false reflection_initialized=true "
+            "native_scene_lighting=true gpu_only=true "
+            "no_ogre14_lighting=true completed_frames=300\n"
+        )
+        receipt = runner.verify_combined_native_distance_lod(statement)
+        self.assertFalse(receipt["pssm"])
+        self.assertEqual(receipt["casters"], 0)
+
+    def test_scene_source_timing_reads_real_separate_material_apply(self) -> None:
+        statement = (
+            "[RoR|SceneSource] captures=300 mean_ns terrain=1675902 "
+            "static=30859736 dynamic=2943982 retained=3141 merge=579941 "
+            "union=40911 particles=81234 material_apply=6278541 "
+            "other=526984 material_index=671204 material_plan=148226 "
+            "material_authority=3547001 material_owners=912104 "
+            "material_finalize=602817\n"
+        )
+        timing = runner.read_scene_source_timing(statement)
+        self.assertEqual(timing["captures"], 300)
+        self.assertEqual(timing["mean_ns"]["particles"], 81234)
+        self.assertEqual(timing["mean_ns"]["material_apply"], 6278541)
+        self.assertEqual(timing["mean_ns"]["material_index"], 671204)
+        self.assertEqual(timing["mean_ns"]["material_authority"], 3547001)
+
+    def test_scene_source_timing_requires_new_runtime_receipt(self) -> None:
+        with self.assertRaises(runner.PerformanceSceneFailure):
+            runner.read_scene_source_timing(
+                "[RoR|SceneSource] captures=300 mean_ns "
+                "terrain=1 static=2 dynamic=3 retained=4 merge=5 union=6 "
+                "particles=7 other=8\n"
+            )
 
     def test_a_missing_or_repeated_statement_is_refused(self) -> None:
         preset = runner.GRAPHICS_PRESETS["high"]

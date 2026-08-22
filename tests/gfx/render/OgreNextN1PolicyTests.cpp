@@ -714,11 +714,13 @@ void TestNativeDirectionalShadowScenePolicy() {
   request.views.front().previous_clip_from_view =
       request.views.front().clip_from_view;
   request.color_format = PixelFormat::RGBA8_SRGB;
+  OgreNextPssmShadowFramePlan validated_shadow_plan;
   const ValidationResult reviewed_hdr_pssm = ValidateOgreNextN1Frame(
       request, capabilities, registry, kModern,
       OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
       false, false, false,
-      OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1);
+      OgreNextHdrSceneTopology::SINGLE_EVALUATION_PSSM_V1,
+      &validated_shadow_plan);
   if (!reviewed_hdr_pssm) {
     std::cerr << "Ogre-Next N1 policy test failed: reviewed one-scene "
                  "HDR+PSSM compositor topology was rejected ("
@@ -726,6 +728,12 @@ void TestNativeDirectionalShadowScenePolicy() {
               << reviewed_hdr_pssm.detail << ")\n";
     std::exit(EXIT_FAILURE);
   }
+  Require(validated_shadow_plan.enabled &&
+              validated_shadow_plan.shadow_light_id == 1U &&
+              validated_shadow_plan.static_caster_count == 1U &&
+              validated_shadow_plan.dynamic_caster_count == 0U &&
+              validated_shadow_plan.receiver_count == 1U,
+          "frame admission did not return its exact validated PSSM plan");
   Require(ValidateOgreNextN1Frame(
               request, capabilities, registry, kModern,
               OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1, true,
@@ -1427,6 +1435,105 @@ void TestModernPbrAssetPolicy() {
   Require(ValidateOgreNextN1AssetCatalog(missing_tangent_registry, false, kModern)
               .code == ValidationCode::UNSUPPORTED_FEATURE,
           "missing authored tangent stream escaped RT4/V1 admission");
+}
+
+void TestSceneValidationCacheCollisionFailsClosed() {
+  constexpr std::uint64_t kRegistryId = 740U;
+  constexpr std::size_t kPairCacheEntryCount = 2048U;
+  constexpr OgreNextRasterFeatureTier kModern =
+      OgreNextRasterFeatureTier::MODERN_PBR_RT4_V1;
+
+  const auto add_hash_word = [](std::uint64_t hash,
+                                std::uint64_t value) noexcept {
+    return (hash ^ value) * UINT64_C(1099511628211);
+  };
+  const auto reference_hash = [&](const RenderAssetReference &reference) {
+    std::uint64_t hash = UINT64_C(1469598103934665603);
+    hash = add_hash_word(hash, reference.id.high());
+    hash = add_hash_word(hash, reference.id.low());
+    hash = add_hash_word(hash, reference.revision);
+    return add_hash_word(
+        hash, static_cast<std::uint8_t>(reference.kind));
+  };
+  const auto pair_cache_index = [&](const RenderAssetReference &mesh,
+                                    const RenderAssetReference &material) {
+    std::uint64_t hash = reference_hash(mesh);
+    hash = add_hash_word(hash, material.id.high());
+    hash = add_hash_word(hash, material.id.low());
+    hash = add_hash_word(hash, material.revision);
+    hash = add_hash_word(hash, static_cast<std::uint8_t>(material.kind));
+    return static_cast<std::size_t>(hash) & (kPairCacheEntryCount - 1U);
+  };
+
+  const RenderAssetReference material_reference =
+      Ref(RenderAssetKind::MATERIAL, 2U);
+  const std::size_t first_index = pair_cache_index(
+      Ref(RenderAssetKind::MESH, 1U), material_reference);
+  std::uint64_t colliding_mesh_id = 0U;
+  for (std::uint64_t candidate = 8U; candidate < UINT64_C(1000000);
+       ++candidate) {
+    if (pair_cache_index(Ref(RenderAssetKind::MESH, candidate),
+                         material_reference) == first_index) {
+      colliding_mesh_id = candidate;
+      break;
+    }
+  }
+  Require(colliding_mesh_id != 0U,
+          "could not construct an exact direct-map collision fixture");
+
+  RenderAssetDelta delta = MakeModernCatalogDelta(kRegistryId);
+  MaterialDescriptor &material =
+      std::get<MaterialDescriptor>(delta.mutations[1U].payload);
+  TextureBinding *bindings[] = {
+      &material.base_color_texture,
+      &material.metallic_roughness_texture,
+      &material.normal_texture,
+      &material.emissive_texture,
+  };
+  for (TextureBinding *binding : bindings) {
+    binding->scale = {2.0F, 2.0F};
+  }
+
+  MeshResourceDescriptor overflowing_mesh = MakeModernMesh();
+  overflowing_mesh.debug_name = "RT4/V1 colliding transformed-UV hostile";
+  overflowing_mesh.texture_coordinates_0.front().x =
+      (std::numeric_limits<float>::max)();
+  RenderAssetMutation overflowing_mesh_mutation;
+  overflowing_mesh_mutation.asset =
+      Ref(RenderAssetKind::MESH, colliding_mesh_id);
+  overflowing_mesh_mutation.payload = overflowing_mesh;
+  delta.mutations.push_back(std::move(overflowing_mesh_mutation));
+
+  RenderAssetRegistry registry(kRegistryId);
+  Require(registry.Apply(delta).ok(),
+          "direct-map collision catalog fixture is not structurally valid");
+
+  SceneSnapshotDescriptor descriptor;
+  descriptor.snapshot_id = 1U;
+  descriptor.asset_registry_id = kRegistryId;
+  descriptor.asset_sequence = 1U;
+  MeshInstanceDescriptor valid_instance;
+  valid_instance.instance_id = 1U;
+  valid_instance.mesh = Ref(RenderAssetKind::MESH, 1U);
+  valid_instance.material = material_reference;
+  valid_instance.local_bounds = MakeModernMesh().local_bounds;
+  descriptor.mesh_instances.push_back(valid_instance);
+  MeshInstanceDescriptor hostile_instance = valid_instance;
+  hostile_instance.instance_id = 2U;
+  hostile_instance.mesh =
+      Ref(RenderAssetKind::MESH, colliding_mesh_id);
+  descriptor.mesh_instances.push_back(hostile_instance);
+  SceneSnapshotCreateResult scene =
+      CreateSceneSnapshot(std::move(descriptor));
+  Require(scene.ok(),
+          "direct-map collision scene fixture is not structurally valid");
+
+  const ValidationResult result =
+      ValidateOgreNextN1Scene(*scene.snapshot, registry, false, kModern);
+  Require(result.code == ValidationCode::UNSUPPORTED_FEATURE &&
+              result.field == "mesh_instances.texture_coordinates_0" &&
+              result.element_index == 1U,
+          "a colliding mesh/material pair reused another pair's successful UV validation");
 }
 
 void TestDisplayDomainUnlitPolicy() {
@@ -2291,6 +2398,7 @@ int main() {
   TestInitializationPolicy();
   TestAssetPolicy();
   TestModernPbrAssetPolicy();
+  TestSceneValidationCacheCollisionFailsClosed();
   TestDisplayDomainUnlitPolicy();
   TestHudOverlayMaterialPolicy();
   TestAnalyticSkyNativeMeshIsCameraLocalAndTransactional();

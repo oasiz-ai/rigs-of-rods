@@ -408,6 +408,29 @@ public:
   particle_events() const noexcept {
     return descriptor_.particle_events;
   }
+  /// In-process proof minted only by CreateSceneSnapshotWithRetainedBlock().
+  /// Every mesh-instance entry outside `retained_instance_patched_indices()`
+  /// was byte-identical to the same index in the named predecessor when this
+  /// immutable snapshot was created. Transport decoding deliberately drops
+  /// the proof and therefore retains the complete validation/diff path.
+  [[nodiscard]] bool has_retained_instance_block_proof() const noexcept {
+    return retained_instance_predecessor_snapshot_id_ != 0U;
+  }
+  [[nodiscard]] std::uint64_t
+  retained_instance_predecessor_snapshot_id() const noexcept {
+    return retained_instance_predecessor_snapshot_id_;
+  }
+  [[nodiscard]] const std::vector<std::uint32_t> &
+  retained_instance_patched_indices() const noexcept {
+    return retained_instance_patched_indices_;
+  }
+  /// Instance IDs occupying each patched index in the predecessor, in the
+  /// same order as retained_instance_patched_indices(). This lets a consumer
+  /// express a removal plus insertion without retaining the predecessor.
+  [[nodiscard]] const std::vector<std::uint64_t> &
+  retained_instance_predecessor_ids() const noexcept {
+    return retained_instance_predecessor_ids_;
+  }
   [[nodiscard]] std::uint64_t lighting_environment_hash() const noexcept {
     return lighting_environment_hash_;
   }
@@ -416,13 +439,26 @@ public:
   }
 
 private:
-  explicit SceneSnapshot(SceneSnapshotDescriptor &&descriptor)
+  explicit SceneSnapshot(
+      SceneSnapshotDescriptor &&descriptor,
+      std::uint64_t retained_instance_predecessor_snapshot_id = 0U,
+      std::vector<std::uint32_t> retained_instance_patched_indices = {},
+      std::vector<std::uint64_t> retained_instance_predecessor_ids = {})
       : descriptor_(std::move(descriptor)),
+        retained_instance_predecessor_snapshot_id_(
+            retained_instance_predecessor_snapshot_id),
+        retained_instance_patched_indices_(
+            std::move(retained_instance_patched_indices)),
+        retained_instance_predecessor_ids_(
+            std::move(retained_instance_predecessor_ids)),
         lighting_environment_hash_(
             ComputeSceneLightingEnvironmentHash(descriptor_)),
         reflection_probe_hash_(ComputeSceneReflectionProbeHash(descriptor_)) {}
 
   SceneSnapshotDescriptor descriptor_;
+  std::uint64_t retained_instance_predecessor_snapshot_id_ = 0U;
+  std::vector<std::uint32_t> retained_instance_patched_indices_;
+  std::vector<std::uint64_t> retained_instance_predecessor_ids_;
   std::uint64_t lighting_environment_hash_ = 0U;
   std::uint64_t reflection_probe_hash_ = 0U;
 
@@ -437,6 +473,9 @@ private:
   friend ValidationResult ValidateSceneSnapshotAssetsScoped(
       const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
       const std::vector<std::uint64_t> &instance_ids);
+  friend ValidationResult ValidateSceneSnapshotRetainedAssets(
+      const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+      std::uint64_t expected_predecessor_snapshot_id);
 };
 
 struct SceneSnapshotCreateResult {
@@ -476,6 +515,13 @@ ValidateSceneSnapshotAssets(const SceneSnapshot &snapshot,
 [[nodiscard]] ValidationResult ValidateSceneSnapshotAssetsScoped(
     const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
     const std::vector<std::uint64_t> &instance_ids);
+/// Validates current non-instance asset references plus only the instance
+/// indices authenticated by CreateSceneSnapshotWithRetainedBlock(). The caller
+/// names the immediately preceding snapshot it already accepted against this
+/// unchanged registry generation. Transported or stale proofs fail closed.
+[[nodiscard]] ValidationResult ValidateSceneSnapshotRetainedAssets(
+    const SceneSnapshot &snapshot, const RenderAssetRegistry &registry,
+    std::uint64_t expected_predecessor_snapshot_id);
 [[nodiscard]] SceneSnapshotCreateResult
 CreateSceneSnapshot(SceneSnapshotDescriptor descriptor);
 /// Creates a snapshot whose mesh_instances claim byte-identity with

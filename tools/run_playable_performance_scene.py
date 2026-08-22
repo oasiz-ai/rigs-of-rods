@@ -39,13 +39,13 @@ MAX_RECEIPT_BYTES = 64 * 1024
 MAX_LOG_BYTES = 256 * 1024 * 1024
 
 #: A renderer fault always invalidates the measurement: a run that is losing
-#: draw calls or dying is not the scene we budgeted.
+#: draw calls or dying is not the scene we budgeted.  A combined-runtime
+#: capture rejection is handled separately: one may occur while the actor's
+#: authenticated material authority is still being published, but it is
+#: accepted only when a later final native frame proves the visible scene and
+#: exact native distance-LOD state. The current camera is allowed to select
+#: base detail; camera placement is not a renderer-availability gate.
 FATAL_LOG_MARKERS = (
-    # A combined-runtime session whose scenes are rejected keeps its loop
-    # spinning and presents only the bootstrap clear frame. Counting those
-    # iterations as frames produced a false 73 FPS pass on a blank screen;
-    # a rejected scene stream is not a measurement.
-    "status='capture_rejected'",
     "Validation Failed: Sampler error:",
     "GL_INVALID_",
     "RenderingAPIException",
@@ -53,6 +53,8 @@ FATAL_LOG_MARKERS = (
     "EXC_BAD_ACCESS",
     "Segmentation fault",
 )
+
+CAPTURE_REJECTED_MARKER = "status='capture_rejected'"
 
 #: Content diagnostics are always counted and reported, but only gated when the
 #: caller asks. The pinned baseline content emits some of these, so making them
@@ -186,6 +188,7 @@ GRAPHICS_PRESETS = {
         "gfx_skidmarks_mode": (1, "1"),
         "gfx_sight_range": (5000, "5000"),
         "gfx_postprocess_mode": (0, "0"),
+        "gfx_auto_lod": ("true", "1"),
     },
     "low": {
         "gfx_shadow_type": ("No shadows (fastest)", "0"),
@@ -201,7 +204,19 @@ GRAPHICS_PRESETS = {
         "gfx_skidmarks_mode": (0, "0"),
         "gfx_sight_range": (2000, "2000"),
         "gfx_postprocess_mode": (0, "0"),
+        "gfx_auto_lod": ("true", "1"),
     },
+}
+
+# The combined executable renders shadows and reflections only in Ogre-Next.
+# Its hidden Ogre 14 scene producer disables the duplicate RTT passes after the
+# presenter has consumed the requested configuration.  These are therefore
+# expected producer values, not evidence that the visible renderer is in a low
+# quality mode.
+COMBINED_PRODUCER_OVERRIDES = {
+    "gfx_shadow_type": "0",
+    "gfx_envmap_enabled": "0",
+    "gfx_envmap_rate": "0",
 }
 
 #: The runtime's authoritative one-line statement of its effective graphics
@@ -213,6 +228,26 @@ GRAPHICS_STATEMENT_PATTERN = re.compile(
 )
 GRAPHICS_SETTING_PATTERN = re.compile(
     r"(?P<name>gfx_[a-z_]+)=(?P<value>\S+)"
+)
+NATIVE_LIGHTING_PATTERN = re.compile(
+    r"\[RoR\|RendererCombined\|NativeLighting\](?P<body>[^\r\n]+)"
+)
+NATIVE_LIGHTING_FIELD_PATTERN = re.compile(
+    r"(?P<name>[a-z][a-z0-9_]*)=(?P<value>\S+)"
+)
+SCENE_SOURCE_TIMING_PATTERN = re.compile(
+    r"\[RoR\|SceneSource\] captures=(?P<captures>[0-9]+) mean_ns "
+    r"terrain=(?P<terrain>[0-9]+) static=(?P<static>[0-9]+) "
+    r"dynamic=(?P<dynamic>[0-9]+) retained=(?P<retained>[0-9]+) "
+    r"merge=(?P<merge>[0-9]+) union=(?P<union>[0-9]+) "
+    r"particles=(?P<particles>[0-9]+) "
+    r"material_apply=(?P<material_apply>[0-9]+) "
+    r"other=(?P<other>[0-9]+) "
+    r"material_index=(?P<material_index>[0-9]+) "
+    r"material_plan=(?P<material_plan>[0-9]+) "
+    r"material_authority=(?P<material_authority>[0-9]+) "
+    r"material_owners=(?P<material_owners>[0-9]+) "
+    r"material_finalize=(?P<material_finalize>[0-9]+)"
 )
 
 
@@ -234,7 +269,12 @@ def effective_graphics_settings(text: str) -> dict[str, str]:
     }
 
 
-def verify_graphics_preset(text: str, preset_name: str) -> dict[str, str]:
+def verify_graphics_preset(
+    text: str,
+    preset_name: str,
+    *,
+    combined_runtime: bool = False,
+) -> dict[str, str]:
     """Prove the run actually used the preset it was asked for.
 
     Writing a setting is not the same as it taking effect. A value the config
@@ -257,9 +297,14 @@ def verify_graphics_preset(text: str, preset_name: str) -> dict[str, str]:
             "the runtime did not state these settings: " + ", ".join(missing)
         )
 
+    expected_values = {
+        name: expected for name, (_, expected) in preset.items()
+    }
+    if combined_runtime:
+        expected_values.update(COMBINED_PRODUCER_OVERRIDES)
     wrong = {
         name: (observed[name], expected)
-        for name, (_, expected) in preset.items()
+        for name, expected in expected_values.items()
         if observed[name] != expected
     }
     if wrong:
@@ -271,6 +316,189 @@ def verify_graphics_preset(text: str, preset_name: str) -> dict[str, str]:
             )
         )
     return {name: observed[name] for name in preset}
+
+
+def verify_combined_native_distance_lod(text: str) -> dict[str, object]:
+    """Prove the visible Ogre-Next frame owns an exact native LOD state.
+
+    The portable ladder and focused selector fixture are useful development
+    checks, but they do not get to decide whether the production renderer may
+    run. The playable gate consumes the final native frame receipt and requires
+    a published ladder plus internally consistent base-or-reduced selection
+    while the visible Ogre-Next PSSM/reflection path is active.
+    """
+
+    native_receipts = list(NATIVE_LIGHTING_PATTERN.finditer(text))
+    if not native_receipts:
+        raise PerformanceSceneFailure(
+            "the combined runtime emitted no native lighting/LOD receipt"
+        )
+    final_native_receipt = native_receipts[-1]
+    final_capture_rejection = text.rfind(CAPTURE_REJECTED_MARKER)
+    if final_capture_rejection > final_native_receipt.start():
+        raise PerformanceSceneFailure(
+            "the final combined-runtime capture rejection was not recovered "
+            "by a later native lighting/LOD frame"
+        )
+    fields = {
+        match.group("name"): match.group("value")
+        for match in NATIVE_LIGHTING_FIELD_PATTERN.finditer(
+            final_native_receipt.group("body")
+        )
+    }
+    required = {
+        "schema_version",
+        "available",
+        "pbs",
+        "casters",
+        "lod_items",
+        "lod_reduced",
+        "lod_max",
+        "lod_level_sum",
+        "triangles_base",
+        "triangles_selected",
+        "lod_exact",
+        "pssm",
+        "reflection_initialized",
+        "native_scene_lighting",
+        "gpu_only",
+        "no_ogre14_lighting",
+        "completed_frames",
+    }
+    missing = sorted(required - fields.keys())
+    if missing:
+        raise PerformanceSceneFailure(
+            "the native lighting/LOD receipt is missing: "
+            + ", ".join(missing)
+        )
+
+    true_fields = (
+        "available",
+        "lod_exact",
+        "reflection_initialized",
+        "native_scene_lighting",
+        "gpu_only",
+        "no_ogre14_lighting",
+    )
+    false_values = sorted(name for name in true_fields if fields[name] != "true")
+    if false_values:
+        raise PerformanceSceneFailure(
+            "the visible Ogre-Next quality/LOD path is incomplete: "
+            + ", ".join(
+                f"{name}={fields[name]!r}" for name in false_values
+            )
+        )
+
+    numeric_names = (
+        "schema_version",
+        "pbs",
+        "casters",
+        "lod_items",
+        "lod_reduced",
+        "lod_max",
+        "lod_level_sum",
+        "triangles_base",
+        "triangles_selected",
+        "completed_frames",
+    )
+    try:
+        numbers = {name: int(fields[name]) for name in numeric_names}
+    except ValueError as error:
+        raise PerformanceSceneFailure(
+            "the native lighting/LOD receipt contains a non-integer counter"
+        ) from error
+
+    if numbers["schema_version"] < 6:
+        raise PerformanceSceneFailure(
+            "the native lighting receipt predates exact distance-LOD audit v6"
+        )
+    if numbers["pbs"] <= 0 or numbers["completed_frames"] <= 0:
+        raise PerformanceSceneFailure(
+            "the native receipt does not describe a completed PBS frame"
+        )
+    if numbers["casters"] < 0:
+        raise PerformanceSceneFailure(
+            "the native receipt contains a negative shadow-caster count"
+        )
+    if numbers["casters"] > 0 and fields["pssm"] != "true":
+        raise PerformanceSceneFailure(
+            "the visible Ogre-Next quality path omitted PSSM while the scene "
+            "contained native shadow casters"
+        )
+    lod_counter_names = (
+        "lod_items",
+        "lod_reduced",
+        "lod_max",
+        "lod_level_sum",
+    )
+    if any(numbers[name] < 0 for name in lod_counter_names):
+        raise PerformanceSceneFailure(
+            "the native distance-LOD receipt contains a negative counter"
+        )
+    if numbers["lod_items"] <= 0:
+        raise PerformanceSceneFailure(
+            "the visible scene published no native distance-LOD ladders"
+        )
+    if numbers["lod_reduced"] > numbers["lod_items"]:
+        raise PerformanceSceneFailure(
+            "the native LOD reduced-item count exceeds its ladder-item count"
+        )
+    if numbers["triangles_base"] <= 0 or not (
+        0 < numbers["triangles_selected"] <= numbers["triangles_base"]
+    ):
+        raise PerformanceSceneFailure(
+            "native distance LOD published an invalid visible triangle total"
+    )
+    reduced_this_frame = numbers["lod_reduced"] > 0
+    if reduced_this_frame:
+        if (
+            numbers["lod_max"] <= 0
+            or numbers["lod_level_sum"] < numbers["lod_reduced"]
+            or numbers["triangles_selected"] >= numbers["triangles_base"]
+        ):
+            raise PerformanceSceneFailure(
+                "the reduced native LOD selection is internally inconsistent"
+            )
+    elif (
+        numbers["lod_max"] != 0
+        or numbers["lod_level_sum"] != 0
+        or numbers["triangles_selected"] != numbers["triangles_base"]
+    ):
+        raise PerformanceSceneFailure(
+            "the base native LOD selection is internally inconsistent"
+        )
+    return {
+        **numbers,
+        **{name: fields[name] == "true" for name in true_fields},
+        "pssm": fields["pssm"] == "true",
+        "reduced_this_frame": reduced_this_frame,
+    }
+
+
+def read_scene_source_timing(text: str) -> dict[str, object]:
+    """Read the latest accepted-frame scene-source phase heartbeat.
+
+    This is runtime evidence, not a synthetic benchmark: the values are
+    accumulated only when the joined capture commits. Keeping material Apply
+    separate from particle enumeration prevents the performance report from
+    optimizing the wrong subsystem.
+    """
+
+    matches = list(SCENE_SOURCE_TIMING_PATTERN.finditer(text))
+    if not matches:
+        raise PerformanceSceneFailure(
+            "the combined runtime emitted no scene-source phase receipt"
+        )
+    fields = {
+        name: int(value)
+        for name, value in matches[-1].groupdict().items()
+    }
+    if fields["captures"] <= 0:
+        raise PerformanceSceneFailure(
+            "the scene-source phase receipt has no accepted captures"
+        )
+    captures = fields.pop("captures")
+    return {"captures": captures, "mean_ns": fields}
 
 
 def render_system_name(target_platform: str) -> str:
@@ -617,6 +845,70 @@ def validate_receipt(
             f"observed={observed}, accepted={accepted}, warmup={warmup}"
         )
 
+    combined_runtime = document.get("renderer") == "ogre-next-combined"
+    if combined_runtime:
+        if document.get("requires_native_scene_draw_metrics") is not True:
+            raise PerformanceSceneFailure(
+                "the combined runtime did not require renderer-owned native "
+                "scene draw metrics"
+            )
+        native_numeric = (
+            "native_scene_draw_p99_limit",
+            "native_scene_draw_exact_samples",
+            "native_scene_draw_rejected_samples",
+            "native_scene_draw_p99",
+            "native_scene_draw_maximum",
+        )
+        native_values: dict[str, int] = {}
+        for key in native_numeric:
+            value = document.get(key)
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value < 0
+            ):
+                raise PerformanceSceneFailure(
+                    f"the combined receipt field {key!r} is not a "
+                    "non-negative integer"
+                )
+            native_values[key] = value
+        if native_values["native_scene_draw_p99_limit"] != 2500:
+            raise PerformanceSceneFailure(
+                "the native scene draw ceiling is not the roadmap's 2500"
+            )
+        if native_values["native_scene_draw_exact_samples"] != accepted:
+            raise PerformanceSceneFailure(
+                "the native scene draw distribution does not cover every "
+                f"accepted frame: exact={native_values['native_scene_draw_exact_samples']} "
+                f"accepted={accepted}"
+            )
+        if native_values["native_scene_draw_rejected_samples"] != 0:
+            raise PerformanceSceneFailure(
+                "the native scene draw distribution contains rejected or "
+                "duplicate compositor receipts"
+            )
+        if native_values["native_scene_draw_p99"] <= 0:
+            raise PerformanceSceneFailure(
+                "the visible Ogre-Next scene published no draw submissions"
+            )
+        if (
+            native_values["native_scene_draw_p99"]
+            > native_values["native_scene_draw_maximum"]
+        ):
+            raise PerformanceSceneFailure(
+                "the native scene draw p99 exceeds its measured maximum"
+            )
+        if (
+            request.mode == "gate"
+            and native_values["native_scene_draw_p99"]
+            > native_values["native_scene_draw_p99_limit"]
+        ):
+            raise PerformanceSceneFailure(
+                "the native Ogre-Next scene draw budget failed: "
+                f"p99={native_values['native_scene_draw_p99']} "
+                f"limit={native_values['native_scene_draw_p99_limit']}"
+            )
+
     ordered = (
         float(document["minimum_ms"]),
         float(document["p50_ms"]),
@@ -737,6 +1029,14 @@ def scan_runtime_log(
         )
 
     identity: dict[str, object] = {"content_diagnostics": content}
+    capture_rejections = text.count(CAPTURE_REJECTED_MARKER)
+    # Capture is a producer transaction and may reject an update while the
+    # presenter continues displaying its last committed frame. Preserve the
+    # diagnostic count here; the combined-runtime acceptance path separately
+    # requires a later native lighting/LOD receipt to prove recovery, a
+    # completed PBS frame, and an exact base-or-reduced native selection. A
+    # blank, stale, or bootstrap-only run still fails that renderer-owned gate.
+    identity["startup_capture_rejections"] = capture_rejections
     for key, pattern in RENDERER_IDENTITY_PATTERNS.items():
         match = pattern.search(text)
         if match is not None:
@@ -947,9 +1247,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         document = load_receipt(request.receipt_path)
         identity = scan_runtime_log(
             log_text, require_clean_content=args.require_clean_content)
-        identity["effective_graphics_settings"] = verify_graphics_preset(
-            log_text, request.graphics_preset)
         receipt = validate_receipt(document, request)
+        combined_runtime = receipt.get("renderer") == "ogre-next-combined"
+        identity["effective_graphics_settings"] = verify_graphics_preset(
+            log_text,
+            request.graphics_preset,
+            combined_runtime=combined_runtime,
+        )
+        if combined_runtime:
+            identity["native_distance_lod"] = (
+                verify_combined_native_distance_lod(log_text)
+            )
+            identity["scene_source_timing"] = read_scene_source_timing(
+                log_text
+            )
 
         if completed.returncode != 0:
             raise PerformanceSceneFailure(

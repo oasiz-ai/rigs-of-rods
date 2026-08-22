@@ -248,7 +248,8 @@ ValidationResult TryBuildOgreNextPssmShadowFramePlan(
     const CameraViewRequest &view,
     OgreNextRasterFeatureTier raster_feature_tier,
     OgreNextDirectionalShadowMode shadow_mode,
-    OgreNextPssmShadowFramePlan &output) {
+    OgreNextPssmShadowFramePlan &output,
+    bool defer_instance_counts_to_retained_scene) {
   const ValidationResult scene_validation =
       ValidateOgreNextPssmShadowScene(snapshot, raster_feature_tier,
                                       shadow_mode);
@@ -296,6 +297,14 @@ ValidationResult TryBuildOgreNextPssmShadowFramePlan(
   candidate.shadow_light_id = light.light_id;
   candidate.native_visibility_mask =
       view.visibility_mask & kOgreNextPssmNativeVisibilityMask;
+  if (defer_instance_counts_to_retained_scene) {
+    // The frontend owns an exact retained native scene for the attested
+    // predecessor and applies every patched descriptor transactionally. Its
+    // O(changed) aggregates fill these three counts after the diff; all view,
+    // light, mode, and projection checks above remain per-frame.
+    output = candidate;
+    return ValidationResult::Success();
+  }
   for (std::size_t index = 0U; index < snapshot.mesh_instances().size();
        ++index) {
     const MeshInstanceDescriptor &instance = snapshot.mesh_instances()[index];

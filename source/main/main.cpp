@@ -638,6 +638,7 @@ std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
     context.scenario_id = App::gfx_frame_budget_scenario_id->getStr();
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
     context.renderer = "ogre-next-combined";
+    context.requires_native_scene_draw_metrics = true;
 #else
     context.renderer = "ogre14";
 #endif
@@ -662,7 +663,7 @@ std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
         " gfx_anisotropy=%d gfx_vegetation_mode=%d gfx_water_mode=%d"
         " gfx_sky_mode=%d gfx_envmap_enabled=%d gfx_envmap_rate=%d"
         " gfx_particles_mode=%d gfx_skidmarks_mode=%d gfx_sight_range=%d"
-        " gfx_postprocess_mode=%d",
+        " gfx_postprocess_mode=%d gfx_auto_lod=%d",
         App::gfx_shadow_type->getInt(),
         App::gfx_shadow_quality->getInt(),
         App::gfx_texture_filter->getInt(),
@@ -675,7 +676,8 @@ std::unique_ptr<RoR::FrameTimeBudgetSession> CreateFrameTimeBudgetSession(
         App::gfx_particles_mode->getInt(),
         App::gfx_skidmarks_mode->getInt(),
         App::gfx_sight_range->getInt(),
-        App::gfx_postprocess_mode->getInt());
+        App::gfx_postprocess_mode->getInt(),
+        App::gfx_auto_lod->getBool() ? 1 : 0);
 
     LogFormat(
         "[RoR|Perf] Frame budget armed: mode=%s sustained_ms=%.4f "
@@ -929,10 +931,12 @@ int main(int argc, char *argv[])
     // is showing an older frame than the simulation.
     bool renderer_combined_scene_publication_degraded = false;
     bool renderer_combined_scene_degrade_notified = false;
-    std::string renderer_combined_particle_audit_signature;
+    std::string renderer_combined_particle_audit_state_signature;
+    std::uint64_t renderer_combined_particle_audit_logged_sequence = 0U;
     std::string renderer_combined_analytic_sky_audit_signature;
     std::string renderer_combined_aerial_haze_audit_signature;
-    std::string renderer_combined_native_lighting_audit_signature;
+    std::string renderer_combined_native_lighting_audit_state_signature;
+    std::uint64_t renderer_combined_native_lighting_audit_logged_frame = 0U;
     std::uint64_t renderer_combined_retained_scene_logged_frame = 0U;
     // Render-boundary degrade counters. A degrade nobody can see is not a fix,
     // so this logs on every change to the total rather than on a timer.
@@ -3668,17 +3672,26 @@ int main(int argc, char *argv[])
             } // Check FPS limit block
 
             OgreProfileBegin("RoR Main Loop");
-            // Calculate delta time
-            const auto now = std::chrono::high_resolution_clock::now();
-            const float dt = std::chrono::duration<float>(now - start_time).count();
-            start_time = now;
-
-            // Record exactly the loop's own inter-frame interval. The recorder
-            // owns no clock of its own, so the measured distribution can never
-            // disagree with the delta time the simulation was advanced by.
-            if (frame_budget_session != nullptr)
+            const auto record_frame_budget = [&](float frame_dt)
             {
-                frame_budget_session->RecordFrame(static_cast<double>(dt));
+                if (frame_budget_session == nullptr)
+                    return;
+                // Loading screens and GUI-only grants are not playable world
+                // frames. Start warm-up only after the requested terrain is
+                // authoritative and the requested startup vehicle is seated.
+                // This keeps the receipt tied to the exact scene it names.
+                const bool requested_actor_ready =
+                    App::cli_preset_vehicle->getStr().empty() ||
+                    App::GetGameContext()->GetPlayerActor() != nullptr;
+                if (App::app_state->getEnum<AppState>() !=
+                        AppState::SIMULATION ||
+                    App::sim_terrain_name->getStr().empty() ||
+                    !requested_actor_ready)
+                {
+                    return;
+                }
+                frame_budget_session->RecordFrame(
+                    static_cast<double>(frame_dt));
                 // The terrain and actor are loaded by this loop's own message
                 // queue, so they are unknown when the recorder is armed. Name
                 // the scene on the first recorded frame only; the identity is
@@ -3702,7 +3715,18 @@ int main(int argc, char *argv[])
                     App::GetGameContext()->PushMessage(
                         Message(MSG_APP_SHUTDOWN_REQUESTED));
                 }
-            }
+            };
+            // In combined mode a poll that is waiting for the preceding native
+            // frame is not a simulation or presented frame. Its elapsed time is
+            // accumulated until the session grants the next simulation step
+            // below. The ordinary renderer has no such split grant boundary.
+            float dt = 0.0F;
+#if !defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
+            const auto now = std::chrono::high_resolution_clock::now();
+            dt = std::chrono::duration<float>(now - start_time).count();
+            start_time = now;
+            record_frame_budget(dt);
+#endif
 
 #ifdef USE_SOCKETW
             // Process incoming network traffic
@@ -3740,6 +3764,9 @@ int main(int argc, char *argv[])
             OgreProfileBegin("Input processing");
 #if defined(ROR_OGRE_NEXT_COMBINED_RUNTIME)
             bool renderer_combined_simulation_granted = false;
+            RendererInProcessSessionResult renderer_combined_events;
+            bool renderer_combined_events_available = false;
+            bool frame_budget_native_draw_recorded = false;
             // Capture first: it clears prior relative deltas. The presenter's
             // sole SDL drain then installs this frame's ordered transitions,
             // before any gameplay/GUI consumer observes InputEngine state.
@@ -3748,9 +3775,11 @@ int main(int argc, char *argv[])
             if (renderer_combined_session != nullptr &&
                 renderer_combined_session->active())
             {
-                const RendererInProcessSessionResult events =
-                    renderer_combined_session->
-                        PumpEventsBeforeSimulation();
+                renderer_combined_events = renderer_combined_session->
+                    PumpEventsBeforeSimulation();
+                renderer_combined_events_available = true;
+                const RendererInProcessSessionResult& events =
+                    renderer_combined_events;
                 renderer_combined_simulation_granted =
                     events.simulation_may_advance;
                 if (events.shutdown_requested ||
@@ -3814,6 +3843,37 @@ int main(int argc, char *argv[])
                 OgreProfileEnd("Input processing");
                 OgreProfileEnd("RoR Main Loop");
                 continue;
+            }
+            // One combined game frame begins only when the preceding native
+            // presentation boundary has granted simulation. Include every
+            // backpressure poll in this delta; otherwise the performance
+            // recorder measures the polling cadence while physics advances by
+            // only the final poll interval.
+            const auto combined_frame_now =
+                std::chrono::high_resolution_clock::now();
+            dt = std::chrono::duration<float>(
+                combined_frame_now - start_time).count();
+            start_time = combined_frame_now;
+            record_frame_budget(dt);
+            if (frame_budget_session != nullptr &&
+                renderer_combined_events_available &&
+                renderer_combined_events.status ==
+                    RendererInProcessSessionStatus::FRAME_COMPLETED)
+            {
+                const RendererRetainedSceneAudit retained_scene_audit =
+                    renderer_combined_presenter.RetainedSceneAudit();
+                const bool exact_native_scene_draws =
+                    retained_scene_audit.available &&
+                    retained_scene_audit.version >= 6U &&
+                    retained_scene_audit.last_native_renderer_frame_id ==
+                        renderer_combined_events.frontend_frame_id &&
+                    retained_scene_audit.last_native_pass_metrics_exact;
+                frame_budget_session->RecordNativeSceneDrawSubmissions(
+                    exact_native_scene_draws
+                        ? retained_scene_audit.last_native_scene_draws
+                        : 0U,
+                    exact_native_scene_draws);
+                frame_budget_native_draw_recorded = true;
             }
 #else
             bool renderer_input_captured = false;
@@ -4155,6 +4215,36 @@ int main(int argc, char *argv[])
                             FrameTimeBudgetPhase::SCENE_DISPATCH,
                             static_cast<double>(
                                 scene_result.scene_dispatch_ns) / 1.0e9);
+                        // A deferred native frame is accounted when the next
+                        // event pump completes it. Only a synchronously
+                        // completed frame is available here. Pending is not a
+                        // rejected workload sample, and hidden OGRE 14 draw
+                        // counters are never consulted.
+                        if (!frame_budget_native_draw_recorded &&
+                            scene_result.status ==
+                                RendererInProcessSessionStatus::FRAME_COMPLETED)
+                        {
+                            const RendererRetainedSceneAudit
+                                retained_scene_audit =
+                                    renderer_combined_presenter.
+                                        RetainedSceneAudit();
+                            const bool exact_native_scene_draws =
+                                retained_scene_audit.available &&
+                                retained_scene_audit.version >= 6U &&
+                                retained_scene_audit.
+                                        last_native_renderer_frame_id ==
+                                    scene_result.frontend_frame_id &&
+                                retained_scene_audit.
+                                    last_native_pass_metrics_exact;
+                            frame_budget_session->
+                                RecordNativeSceneDrawSubmissions(
+                                    exact_native_scene_draws
+                                        ? retained_scene_audit.
+                                              last_native_scene_draws
+                                        : 0U,
+                                    exact_native_scene_draws);
+                            frame_budget_native_draw_recorded = true;
+                        }
                         (void)renderer_started;
                     }
                     renderer_combined_simulation_granted = false;
@@ -4511,7 +4601,38 @@ int main(int argc, char *argv[])
                             const RendererContinuousParticleAudit audit =
                                 renderer_combined_presenter
                                     .ContinuousParticleAudit();
-                            const std::string audit_signature = fmt::format(
+                            const std::string audit_state_signature =
+                                fmt::format(
+                                "available={} live_systems={} "
+                                "lifetime_max_live_systems={} "
+                                "lifetime_max_live_particles={} "
+                                "distinct_source_textures={} "
+                                "source_alpha_textures={} "
+                                "lifetime_max_source_backed_textures={} "
+                                "lifetime_max_source_alpha_textures={} "
+                                "gpu_readbacks={}",
+                                audit.available,
+                                audit.live_systems,
+                                audit.lifetime_max_live_systems,
+                                audit.lifetime_max_live_particles,
+                                audit.source_backed_textures,
+                                audit.source_alpha_textures,
+                                audit.lifetime_max_source_backed_textures,
+                                audit.lifetime_max_source_alpha_textures,
+                                audit.gpu_readbacks);
+                            const bool particle_audit_heartbeat =
+                                audit.committed_source_sequence >=
+                                    renderer_combined_particle_audit_logged_sequence &&
+                                audit.committed_source_sequence -
+                                        renderer_combined_particle_audit_logged_sequence >=
+                                    300U;
+                            if (audit_state_signature !=
+                                    renderer_combined_particle_audit_state_signature ||
+                                renderer_combined_particle_audit_logged_sequence ==
+                                    0U ||
+                                particle_audit_heartbeat)
+                            {
+                                const std::string audit_snapshot = fmt::format(
                                 "available={} committed_source_sequence={} "
                                 "create_commands={} update_commands={} "
                                 "stop_commands={} destroy_commands={} "
@@ -4548,15 +4669,14 @@ int main(int argc, char *argv[])
                                 audit.native_particles_submitted,
                                 audit.native_state_readbacks,
                                 audit.native_state_verifications);
-                            if (audit_signature !=
-                                renderer_combined_particle_audit_signature)
-                            {
                                 LOG(fmt::format(
                                     "[RoR|RendererCombined|"
                                     "ContinuousParticles] {}",
-                                    audit_signature));
-                                renderer_combined_particle_audit_signature =
-                                    audit_signature;
+                                    audit_snapshot));
+                                renderer_combined_particle_audit_state_signature =
+                                    audit_state_signature;
+                                renderer_combined_particle_audit_logged_sequence =
+                                    audit.committed_source_sequence;
                             }
                             const RendererAnalyticSkyAudit sky_audit =
                                 renderer_combined_presenter
@@ -4611,14 +4731,66 @@ int main(int argc, char *argv[])
                             const RendererNativeLightingAudit lighting_audit =
                                 renderer_combined_presenter
                                     .NativeLightingAudit();
-                            const std::string lighting_audit_signature =
+                            const std::string lighting_audit_state_signature =
                                 fmt::format(
+                                    "v={} available={} descriptor={} "
+                                    "directional={} pbs={} transmission={} "
+                                    "normal={} emissive={} casters={} "
+                                    "receivers={} lod={}/{}/{}/{}/{}/{} "
+                                    "reflection={}/{}/{}/{}/{}/{}/{} "
+                                    "lighting={} hdr={} pssm={} gpu={} "
+                                    "no_ogre14={}",
+                                    lighting_audit.version,
+                                    lighting_audit.available,
+                                    lighting_audit.material_descriptor_version,
+                                    lighting_audit.directional_lights,
+                                    lighting_audit.pbs_items,
+                                    lighting_audit.transmission_items,
+                                    lighting_audit.normal_mapped_items,
+                                    lighting_audit.emissive_items,
+                                    lighting_audit.shadow_casters,
+                                    lighting_audit.shadow_receivers,
+                                    lighting_audit.distance_lod_items,
+                                    lighting_audit.distance_lod_reduced_items,
+                                    lighting_audit.distance_lod_max_selected_level,
+                                    lighting_audit.distance_lod_selected_level_sum,
+                                    lighting_audit.base_triangles,
+                                    lighting_audit.selected_triangles,
+                                    lighting_audit.reflection_live_probe_count,
+                                    lighting_audit.reflection_successful_capture_count,
+                                    lighting_audit.reflection_failed_capture_count,
+                                    lighting_audit.reflection_completed_face_count,
+                                    lighting_audit.reflection_completed_mip_count,
+                                    lighting_audit.reflection_initialized,
+                                    lighting_audit.reflection_pbs_bound,
+                                    lighting_audit.native_scene_lighting_pass,
+                                    lighting_audit.linear_rgba16_hdr_target,
+                                    lighting_audit.pssm_shadow_response,
+                                    lighting_audit.production_gpu_only,
+                                    lighting_audit.no_ogre14_lighting);
+                            const bool lighting_audit_heartbeat =
+                                lighting_audit.completed_frames >=
+                                    renderer_combined_native_lighting_audit_logged_frame &&
+                                lighting_audit.completed_frames -
+                                        renderer_combined_native_lighting_audit_logged_frame >=
+                                    300U;
+                            if (lighting_audit_state_signature !=
+                                    renderer_combined_native_lighting_audit_state_signature ||
+                                renderer_combined_native_lighting_audit_logged_frame ==
+                                    0U ||
+                                lighting_audit_heartbeat)
+                            {
+                                const std::string lighting_audit_snapshot =
+                                    fmt::format(
                                     "schema_version={} available={} "
                                     "frame={} snapshot={} descriptor_v={} "
                                     "directional={} point={} spot={} "
                                     "forward_clustered={} "
                                     "pbs={} transmission={} normal={} "
                                     "emissive={} casters={} receivers={} "
+                                    "lod_items={} lod_reduced={} lod_max={} "
+                                    "lod_level_sum={} triangles_base={} "
+                                    "triangles_selected={} lod_exact={} "
                                     "hdr_topology={} pssm_populated_finalize={} "
                                     "reflection_audit_v={} reflection_probes={} "
                                     "reflection_captures={} reflection_failures={} "
@@ -4674,6 +4846,17 @@ int main(int argc, char *argv[])
                                     lighting_audit.emissive_items,
                                     lighting_audit.shadow_casters,
                                     lighting_audit.shadow_receivers,
+                                    lighting_audit.distance_lod_items,
+                                    lighting_audit
+                                        .distance_lod_reduced_items,
+                                    lighting_audit
+                                        .distance_lod_max_selected_level,
+                                    lighting_audit
+                                        .distance_lod_selected_level_sum,
+                                    lighting_audit.base_triangles,
+                                    lighting_audit.selected_triangles,
+                                    lighting_audit
+                                        .exact_native_distance_lod_state,
                                     lighting_audit.hdr_scene_topology,
                                     lighting_audit
                                         .pssm_finalized_with_populated_scene,
@@ -4756,16 +4939,15 @@ int main(int argc, char *argv[])
                                     lighting_audit.no_ogre14_lighting,
                                     lighting_audit
                                         .native_state_verifications);
-                            if (lighting_audit_signature !=
-                                renderer_combined_native_lighting_audit_signature)
-                            {
                                 LOG(fmt::format(
                                     "[RoR|RendererCombined|NativeLighting] "
                                     "{} completed_frames={}",
-                                    lighting_audit_signature,
+                                    lighting_audit_snapshot,
                                     lighting_audit.completed_frames));
-                                renderer_combined_native_lighting_audit_signature =
-                                    lighting_audit_signature;
+                                renderer_combined_native_lighting_audit_state_signature =
+                                    lighting_audit_state_signature;
+                                renderer_combined_native_lighting_audit_logged_frame =
+                                    lighting_audit.completed_frames;
                             }
                             // Aerial perspective evidence. constants_bound_
                             // verified must be 1 on every presented frame: it
@@ -4835,7 +5017,15 @@ int main(int argc, char *argv[])
                                 LOG(fmt::format(
                                     "[RoR|RendererCombined|RetainedScene] "
                                     "created={} updated={} destroyed={} "
-                                    "retained={} verified={} "
+                                    "retained={} verified={} retained_proof={} "
+                                    "validation_phase_us={} "
+                                    "frame_prepare_phase_us={} "
+                                    "light_phase_us={} instance_phase_us={} "
+                                    "native_prepare_phase_us={} "
+                                    "native_render_phase_us={} "
+                                    "post_render_phase_us={} "
+                                    "cleanup_phase_us={} "
+                                    "publication_phase_us={} "
                                     "recovery_teardowns={} "
                                     "retired_light_teardowns={}",
                                     retained_scene_audit.last_created,
@@ -4843,6 +5033,26 @@ int main(int argc, char *argv[])
                                     retained_scene_audit.last_destroyed,
                                     retained_scene_audit.retained_instances,
                                     retained_scene_audit.last_verified,
+                                    retained_scene_audit
+                                        .last_diff_used_retained_block_proof,
+                                    retained_scene_audit
+                                        .last_validation_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_frame_prepare_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_light_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_instance_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_native_prepare_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_native_render_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_post_render_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_cleanup_phase_microseconds,
+                                    retained_scene_audit
+                                        .last_publication_phase_microseconds,
                                     retained_scene_audit.recovery_teardowns,
                                     retained_scene_audit
                                         .retired_light_teardowns));

@@ -29,6 +29,7 @@
 #include "GfxScene.h"
 #include "Terrain.h"
 
+#include <OgreDistanceLodStrategy.h>
 #include <OgreMeshLodGenerator.h>
 #include <OgreLodConfig.h>
 
@@ -76,10 +77,26 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
     {
         m_mesh = Ogre::MeshManager::getSingleton().getByName(meshName, entityRG);
 
-        // Mesh hasn't been loaded yet
+        // Resource-group initialization may have already created or loaded the
+        // Mesh resource before the first MeshObject reaches it.  LOD setup is
+        // a property of the mesh, not of how it was first discovered, so do
+        // not hide it behind the null-resource path.
         if (m_mesh == nullptr)
         {
             m_mesh = Ogre::MeshManager::getSingleton().load(meshName, entityRG);
+        }
+        else if (!m_mesh->isLoaded())
+        {
+            m_mesh->load();
+        }
+
+        // Generate a ladder exactly once, before this entity is created.  A
+        // preloaded mesh with only its base level is the normal path in the
+        // combined Ogre-Next runtime; previously it silently stayed at full
+        // detail forever because only newly registered resources entered this
+        // block.
+        if (m_mesh->getNumLodLevels() <= 1U)
+        {
 
 #if OGRE_VERSION_MAJOR >= 14
             // RoR exposes only texture shadows (PSSM) or no shadows, so legacy
@@ -117,7 +134,8 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
                     : basename;
 
             bool lod_available = false;
-            Ogre::LodConfig config(m_mesh);
+            Ogre::LodConfig config(
+                m_mesh, Ogre::DistanceLodSphereStrategy::getSingletonPtr());
 
             // the classic LODs
             FileInfoListPtr files = ResourceGroupManager::getSingleton().findResourceFileInfo(entityRG, lod_family_stem + "_lod*.mesh");
@@ -180,14 +198,50 @@ void MeshObject::createEntity(Ogre::String meshName, Ogre::String entityRG, Ogre
                 lod_available = true;
             }
 
-            const bool ogre_next_demo_source =
-                App::GetGfxScene() != nullptr &&
-                App::GetGfxScene()->IsOgreNextDemoCaptureEnabled();
-
             if (lod_available)
                 Ogre::MeshLodGenerator::getSingleton().generateLodLevels(config);
-            else if (!ogre_next_demo_source && App::gfx_auto_lod->getBool())
-                Ogre::MeshLodGenerator::getSingleton().generateAutoconfiguredLodLevels(m_mesh);
+            else if (App::gfx_auto_lod->getBool())
+            {
+                // OGRE's generic autoconfig chooses the camera-dependent
+                // pixel_count strategy.  The Ogre-Next scene contract carries
+                // exact world-space activation distances so selection stays
+                // deterministic across renderer APIs and resolutions.  Reuse
+                // autoconfig's reviewed collapse-cost reductions, but bind
+                // them to an explicit distance-sphere ladder before baking.
+                Ogre::LodConfig automatic_config;
+                Ogre::MeshLodGenerator::getSingleton().getAutoconfig(
+                    m_mesh, automatic_config);
+                automatic_config.strategy =
+                    Ogre::DistanceLodSphereStrategy::getSingletonPtr();
+                const bool unlimited_sight =
+                    App::gfx_sight_range->getInt() >
+                    Terrain::UNLIMITED_SIGHTRANGE;
+                const float sight_range = static_cast<float>(
+                    App::gfx_sight_range->getInt());
+                const float unlimited_distances[] = {
+                    200.0F, 600.0F, 2000.0F, 5000.0F};
+                const float limited_fractions[] = {
+                    0.1F, 0.2F, 0.3F, 0.4F};
+                const std::size_t distance_count =
+                    sizeof(unlimited_distances) /
+                    sizeof(unlimited_distances[0]);
+                if (automatic_config.levels.size() > distance_count)
+                    automatic_config.levels.resize(distance_count);
+                for (std::size_t level_index = 0U;
+                     level_index < automatic_config.levels.size();
+                     ++level_index)
+                {
+                    automatic_config.levels[level_index].distance =
+                        unlimited_sight
+                            ? unlimited_distances[level_index]
+                            : std::max(
+                                  20.0F,
+                                  sight_range * limited_fractions[level_index]);
+                }
+                Ogre::MeshLodGenerator::getSingleton().generateLodLevels(
+                    automatic_config);
+            }
+
         }
 
         // now create an entity around the mesh and attach it to the scene graph

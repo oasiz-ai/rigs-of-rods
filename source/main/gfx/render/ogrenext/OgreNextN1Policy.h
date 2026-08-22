@@ -257,7 +257,10 @@ ValidateOgreNextN1AssetCatalog(const RenderAssetRegistry &registry,
     bool native_presentation_enabled = false,
     bool native_sun_visibility_v2_enabled = false,
     OgreNextHdrSceneTopology hdr_scene_topology =
-        OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2);
+        OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2,
+    OgreNextPssmShadowFramePlan *validated_shadow_plan = nullptr,
+    const IRendererFrontend *frontend_authority = nullptr,
+    bool retained_instance_block_already_validated = false);
 
 [[nodiscard]] RenderOperationResult
 OgreNextN1OperationFromValidation(const ValidationResult &validation);
