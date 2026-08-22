@@ -29,11 +29,14 @@ constexpr std::uint32_t kOgreNextN1ConservativeMaximumTextureDimension = 2048U;
 constexpr std::size_t kOgreNextN1MaximumDirectionalLights = 0U;
 constexpr std::size_t kOgreNextRt4MaximumDirectionalLights = 1U;
 /// Stage 2: RT4/V1 admits point/spot lights through Forward+ clustered
-/// shading. This validation ceiling bounds native Light allocation and the
-/// per-frame light phase. The producer's LOCAL_LIGHT_ACTIVE_BUDGET_MAXIMUM
-/// equals this value so a raised producer budget can never out-run
-/// presenter admission.
+/// shading. The visible bound governs lights with positive intensity - the
+/// producer's LOCAL_LIGHT_ACTIVE_BUDGET_MAXIMUM equals it so a raised
+/// budget can never out-run presenter admission. The record bound only
+/// stops runaway native Light allocation: over-budget records legitimately
+/// keep publishing at zero intensity because a destroyed portable light
+/// identity may never return (live-verified at 260 records / 256 visible).
 constexpr std::size_t kOgreNextRt4MaximumLocalLights = 256U;
+constexpr std::size_t kOgreNextRt4MaximumLocalLightRecords = 1024U;
 /// Ogre's reference HDR scene scales physical illuminance by 2^-10 to keep
 /// direct-sun values inside RGBA16_FLOAT headroom. RT4/V1 adopts that exact,
 /// renderer-independent mapping for its one admitted directional light.

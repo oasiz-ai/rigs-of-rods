@@ -134,6 +134,7 @@ Render::ValidationResult ValidateOgreNextDemoShadowLights(
   constexpr float kHalfPi = 1.57079632679489661923F;
   std::size_t directional_count = 0U;
   std::size_t local_count = 0U;
+  std::size_t visible_local_count = 0U;
   for (const Render::GraphicsSceneLightInput &light : lights) {
     if (light.source_light_id == 0U ||
         !Render::IsFinite(light.color_linear) ||
@@ -161,6 +162,9 @@ Render::ValidationResult ValidateOgreNextDemoShadowLights(
                      "the product demo transports directional, point, and spot lights only");
     }
     ++local_count;
+    if (light.intensity > 0.0F) {
+      ++visible_local_count;
+    }
     if (light.shadow_flags != 0U) {
       return Failure(Render::ValidationCode::UNSUPPORTED_FEATURE,
                      "ogre_next_demo.lights.local_shadow",
@@ -190,10 +194,21 @@ Render::ValidationResult ValidateOgreNextDemoShadowLights(
                    "ogre_next_demo.lights.inventory",
                    "the product demo requires exactly one captured shadow sun");
   }
-  if (local_count > 256U) {
+  // The 256 Forward+ bound governs VISIBLE lights: the deterministic budget
+  // zeroes over-budget intensities but their records must keep publishing
+  // (a destroyed portable identity may never return), so a map that
+  // discovers more lights than the budget - live-verified at 260 discovered
+  // / 256 active - is normal, not a violation. The record bound only stops
+  // runaway native Light allocation.
+  if (visible_local_count > 256U) {
     return Failure(Render::ValidationCode::SIZE_MISMATCH,
                    "ogre_next_demo.lights.inventory",
-                   "captured local light count exceeds the Forward+ admission bound");
+                   "visible local light count exceeds the Forward+ admission bound");
+  }
+  if (local_count > 1024U) {
+    return Failure(Render::ValidationCode::SIZE_MISMATCH,
+                   "ogre_next_demo.lights.inventory",
+                   "retained local light records exceed the native allocation bound");
   }
   return Render::ValidationResult::Success();
 }

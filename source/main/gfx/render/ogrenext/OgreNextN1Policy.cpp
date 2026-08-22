@@ -1884,6 +1884,7 @@ ValidationResult ValidateOgreNextN1Scene(
     // set of point/spot lights rendered through Forward+ clustered shading.
     std::size_t directional_light_count = 0U;
     std::size_t local_light_count = 0U;
+    std::size_t visible_local_light_count = 0U;
     constexpr float kHalfPi = 1.57079632679489661923F;
     for (std::size_t index = 0U; index < snapshot.lights().size(); ++index) {
       const LightDescriptor &light = snapshot.lights()[index];
@@ -1907,6 +1908,9 @@ ValidationResult ValidateOgreNextN1Scene(
             index);
       }
       ++local_light_count;
+      if (light.intensity > 0.0F) {
+        ++visible_local_light_count;
+      }
       if (light.shadow_flags != 0U) {
         return Unsupported(
             "lights.shadow_flags",
@@ -1956,10 +1960,15 @@ ValidationResult ValidateOgreNextN1Scene(
           "lights",
           "RT4/V1 admits at most one calibrated directional light");
     }
-    if (local_light_count > kOgreNextRt4MaximumLocalLights) {
+    if (visible_local_light_count > kOgreNextRt4MaximumLocalLights) {
       return Unsupported(
           "lights",
-          "RT4/V1 local light count exceeds the Forward+ admission bound");
+          "RT4/V1 visible local light count exceeds the Forward+ admission bound");
+    }
+    if (local_light_count > kOgreNextRt4MaximumLocalLightRecords) {
+      return Unsupported(
+          "lights",
+          "RT4/V1 local light records exceed the native allocation bound");
     }
   }
   if (native_sun_visibility_v2_enabled) {
