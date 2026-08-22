@@ -32,6 +32,9 @@ EXECUTABLE_CONTRACT = (
 PROVIDER_CONTRACT = (
     ROOT / "cmake/ogre_next_embedded/provider-contract.json.in"
 ).read_text(encoding="utf-8")
+NAMESPACE_AUDIT_BUILD_CONTRACT = (
+    ROOT / "cmake/ogre_next_embedded/namespace-audit-build-contract.json.in"
+).read_text(encoding="utf-8")
 VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_binary_closure.py"
 VERIFIER = VERIFIER_PATH.read_text(encoding="utf-8")
 ELF_VERIFIER_PATH = ROOT / "tools/verify_ogre_next_combined_elf_closure.py"
@@ -56,6 +59,16 @@ def block(source: str, start: str, end: str) -> str:
 
 
 class CombinedProviderContractTests(unittest.TestCase):
+    def test_namespace_audit_contract_tracks_the_vulkan_shader_patch(self) -> None:
+        for token in (
+            '"path": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH@"',
+            '"sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256@"',
+            '"source_sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_SHA256@"',
+            '"patched_sha256": "@ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256@"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, NAMESPACE_AUDIT_BUILD_CONTRACT)
+
     def test_root_option_is_off_and_provider_precedes_game_target(self) -> None:
         self.assertRegex(
             ROOT_CMAKE,
