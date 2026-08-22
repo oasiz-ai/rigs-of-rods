@@ -734,7 +734,8 @@ RenderOperationResult RunShadow(const std::string &media_root,
               result.tight_caster_bounds_verified,
           "PSSM off-center tangent or exact caster-bounds fixture failed");
   result.normalized_visibility_mask_verified = true;
-  result.audit = frontend.QueryDirectionalShadowAudit();
+  const OgreNextPssmShadowRuntimeAudit live_audit =
+      frontend.QueryDirectionalShadowAudit();
   RequireSuccess(frontend.Shutdown(kInfiniteRenderTimeoutNanoseconds),
                  "PSSM Shutdown");
   result.audit = frontend.QueryDirectionalShadowAudit();
@@ -773,7 +774,8 @@ RenderOperationResult RunShadow(const std::string &media_root,
               result.audit.native_projection_extents_verified &&
               result.audit.native_readback_verified &&
               result.audit.native_bounds_readback_verified &&
-              result.audit.last_native_bounds_observations.size() == 2U &&
+              live_audit.last_native_bounds_observations.size() == 2U &&
+              result.audit.last_native_bounds_observations.empty() &&
               std::all_of(result.audit.last_native_normal_offset_bias.begin(),
                           result.audit.last_native_normal_offset_bias.end(),
                           [](float bias) {
