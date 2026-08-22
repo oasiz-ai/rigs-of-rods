@@ -3716,10 +3716,43 @@ ValidationResult BuildOgre14GraphicsSceneLight(
 
   const double native_luminance =
       ComputeLinearSrgbRec709D65Luminance(input.diffuse_linear);
+  // Local lights: legacy OGRE content authored its brightness against the
+  // fixed-function attenuation 1/(c + l*d + q*d^2); the portable schema is
+  // windowed inverse-square candela. Converting luminance alone under-lights
+  // that content by an order of magnitude at mid-range (measured live: the
+  // CityWorld street lamps with c=1, l=0.3 rendered ~31x too dim). Preserve
+  // the authored look by matching the legacy curve's illuminance at a bounded
+  // reference distance d* = clamp(range/2, 1 m, 25 m) against the schema
+  // curve I/d^2 * window(d), whose window at half range is (1-0.5^4)^2:
+  //   I = L * P * 1024 * d*^2 / ((c + l*d* + q*d*^2) * window(d*))
+  // The clamp keeps constant-attenuation content (authored "full brightness
+  // to range", e.g. 200 m headlights) from exploding quadratically.
+  double curve_match_scale = 1.0;
+  if (input.kind == Ogre14GraphicsSceneLightKind::POINT ||
+      input.kind == Ogre14GraphicsSceneLightKind::SPOT) {
+    constexpr double kReferenceWindowHalfRange = 0.87890625; // (1-0.5^4)^2
+    const double reference_distance = std::clamp(
+        static_cast<double>(input.attenuation_range) * 0.5, 1.0, 25.0);
+    const double legacy_denominator =
+        static_cast<double>(input.attenuation_constant) +
+        static_cast<double>(input.attenuation_linear) * reference_distance +
+        static_cast<double>(input.attenuation_quadratic) *
+            reference_distance * reference_distance;
+    if (!std::isfinite(legacy_denominator) ||
+        !(legacy_denominator > 0.0)) {
+      return ValidationResult::Failure(
+          ValidationCode::VALUE_OUT_OF_RANGE, "lights.native_state",
+          "OGRE 14 local-light attenuation denominator must be positive at "
+          "the calibration distance");
+    }
+    curve_match_scale = reference_distance * reference_distance /
+                        (legacy_denominator * kReferenceWindowHalfRange);
+  }
   const double calibrated_intensity =
       native_luminance * static_cast<double>(input.power_scale) *
       static_cast<double>(
-          kOgre14LegacyDiffusePowerToCanonicalIntensity);
+          kOgre14LegacyDiffusePowerToCanonicalIntensity) *
+      curve_match_scale;
   if (!std::isfinite(calibrated_intensity) ||
       calibrated_intensity >
           static_cast<double>((std::numeric_limits<float>::max)())) {

@@ -243,15 +243,43 @@ void RequireLegacyDiffusePowerRecovered(
     const RoR::Render::GraphicsSceneLightInput &portable) {
   const float inverse_calibration =
       RoR::Render::kOgreNextRt4LuxToNativePowerScale;
-  Require(Near(portable.color_linear.x * portable.intensity *
-                   inverse_calibration,
-               native.diffuse_linear.x * native.power_scale) &&
-              Near(portable.color_linear.y * portable.intensity *
-                       inverse_calibration,
-                   native.diffuse_linear.y * native.power_scale) &&
-              Near(portable.color_linear.z * portable.intensity *
-                       inverse_calibration,
-                   native.diffuse_linear.z * native.power_scale),
+  // Stage 2: point/spot candela is legacy-curve matched at
+  // d* = clamp(range/2, 1, 25) against the schema window (1-0.5^4)^2, so
+  // the authored fixed-function attenuation brightness survives the
+  // conversion to windowed inverse-square. Directional stays an exact
+  // diffuse*power round trip.
+  float curve_match = 1.0F;
+  if (native.kind == RoR::Render::Ogre14GraphicsSceneLightKind::POINT ||
+      native.kind == RoR::Render::Ogre14GraphicsSceneLightKind::SPOT) {
+    const double reference_distance = std::clamp(
+        static_cast<double>(native.attenuation_range) * 0.5, 1.0, 25.0);
+    const double denominator =
+        static_cast<double>(native.attenuation_constant) +
+        static_cast<double>(native.attenuation_linear) * reference_distance +
+        static_cast<double>(native.attenuation_quadratic) *
+            reference_distance * reference_distance;
+    curve_match = static_cast<float>(reference_distance *
+                                     reference_distance /
+                                     (denominator * 0.87890625));
+  }
+  // Relative tolerance: the curve match legitimately scales the products by
+  // hundreds, so the fixed 1e-5 absolute epsilon would fail on rounding.
+  const auto near_relative = [](float lhs, float rhs) {
+    return std::fabs(lhs - rhs) <=
+           1.0e-5F * (std::max)(1.0F, std::fabs(rhs));
+  };
+  Require(near_relative(portable.color_linear.x * portable.intensity *
+                            inverse_calibration,
+                        native.diffuse_linear.x * native.power_scale *
+                            curve_match) &&
+              near_relative(portable.color_linear.y * portable.intensity *
+                                inverse_calibration,
+                            native.diffuse_linear.y * native.power_scale *
+                                curve_match) &&
+              near_relative(portable.color_linear.z * portable.intensity *
+                                inverse_calibration,
+                            native.diffuse_linear.z * native.power_scale *
+                                curve_match),
           "legacy diffuse*power was not reproduced at Ogre-Next scale");
 }
 
