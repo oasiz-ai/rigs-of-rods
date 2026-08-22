@@ -102,6 +102,8 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -111,6 +113,7 @@ using N1RendererPlugin = Ogre::VulkanPlugin;
 #include <new>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -122,6 +125,186 @@ namespace {
 std::atomic<bool> g_ogre_next_n1_root_claimed{false};
 constexpr char kOgreNextPresentationResourceGroup[] =
     "RoROgreNextPresentationCopyV1";
+
+/// Stage 0 measurement kill-switches. Every Stage 0 performance lever is on
+/// by default; naming its token in ROR_STAGE0_DISABLE (comma separated)
+/// restores the exact pre-lever behavior so one binary can attribute each
+/// lever's frame cost in matched A/B runs. The environment is read once.
+bool OgreNextStage0FeatureDisabled(const char *token) noexcept {
+  static const std::string disabled = [] {
+    const char *raw = std::getenv("ROR_STAGE0_DISABLE");
+    return std::string(raw != nullptr ? raw : "");
+  }();
+  if (disabled.empty()) {
+    return false;
+  }
+  const std::size_t token_length = std::strlen(token);
+  std::size_t cursor = 0U;
+  while (cursor < disabled.size()) {
+    std::size_t end = disabled.find(',', cursor);
+    if (end == std::string::npos) {
+      end = disabled.size();
+    }
+    if (end - cursor == token_length &&
+        disabled.compare(cursor, token_length, token) == 0) {
+      return true;
+    }
+    cursor = end + 1U;
+  }
+  return false;
+}
+
+/// Stage 0 item 7 evidence: every blocking waitForStreamingCompletion() in
+/// this frontend routes through this wrapper, which measures the actual
+/// blocked wall time per site and reports it on stderr (the perf runner
+/// captures stderr as console.txt). The waits fire on asset lifecycle
+/// boundaries, so the line volume is bounded by catalog churn, not frames.
+void OgreNextStage0TimedStreamingWait(Ogre::TextureGpuManager &manager,
+                                      const char *site) {
+  static std::atomic<std::uint64_t> total_microseconds{0U};
+  static std::atomic<std::uint64_t> total_calls{0U};
+  const std::chrono::steady_clock::time_point started =
+      std::chrono::steady_clock::now();
+  manager.waitForStreamingCompletion();
+  const std::uint64_t waited_microseconds = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::steady_clock::now() - started)
+          .count());
+  const std::uint64_t total = total_microseconds.fetch_add(
+                                  waited_microseconds,
+                                  std::memory_order_relaxed) +
+                              waited_microseconds;
+  const std::uint64_t calls =
+      total_calls.fetch_add(1U, std::memory_order_relaxed) + 1U;
+  std::fprintf(stderr,
+               "[RoR|OgreNext|Stage0] streaming_wait site=%s wait_us=%llu "
+               "total_us=%llu calls=%llu\n",
+               site,
+               static_cast<unsigned long long>(waited_microseconds),
+               static_cast<unsigned long long>(total),
+               static_cast<unsigned long long>(calls));
+}
+
+/// Stage 0 items 1 and 3: per-object distance-cull policy derived from the
+/// present's validated projection and the pinned PSSM split policy. The
+/// native distance test is already folded into Ogre's SIMD frustum cull
+/// (ObjectData::mUpperDistance), so applying these upper distances costs
+/// nothing per frame; the thresholds are chosen from projected size so the
+/// culled set is sub-pixel in view and sub-texel in every shadow cascade.
+struct OgreNextStage0DistanceCullPolicy final {
+  bool view_enabled = false;
+  bool shadow_enabled = false;
+  /// Upper rendering distance per meter of world-bounds radius: an object
+  /// is culled once its projected bounding-sphere diameter drops below
+  /// kOgreNextStage0ViewCullDiameterPixels on the validated viewport.
+  float view_distance_per_radius = 0.0F;
+  /// Cascade band far ends and the minimum world-bounds radius an object
+  /// needs to still cover kOgreNextStage0CasterCullTexels texels of that
+  /// cascade's estimated texel density.
+  std::array<float, kOgreNextPssmCascadeCount> band_end{};
+  std::array<float, kOgreNextPssmCascadeCount> minimum_caster_radius{};
+
+  bool operator==(const OgreNextStage0DistanceCullPolicy &other)
+      const noexcept {
+    return view_enabled == other.view_enabled &&
+           shadow_enabled == other.shadow_enabled &&
+           view_distance_per_radius == other.view_distance_per_radius &&
+           band_end == other.band_end &&
+           minimum_caster_radius == other.minimum_caster_radius;
+  }
+  bool operator!=(const OgreNextStage0DistanceCullPolicy &other)
+      const noexcept {
+    return !(*this == other);
+  }
+};
+
+/// Projected bounding-sphere diameter below which an object stops being
+/// submitted for view rendering. Half a pixel keeps the 12 km vista
+/// pixel-comparable: a culled object could at most have contributed
+/// sub-half-pixel coverage.
+constexpr float kOgreNextStage0ViewCullDiameterPixels = 0.5F;
+/// Estimated cascade texels below which an object stops being submitted as
+/// a shadow caster for the bands that cannot resolve it.
+constexpr float kOgreNextStage0CasterCullTexels = 2.0F;
+/// The focused (non-stable) cascades can fit tighter windows than the slice
+/// bounding sphere this policy estimates, so the estimated texel size is
+/// additionally halved before it gates a caster: the cull stays sub-budget
+/// even if the real cascade window is half the estimated one.
+constexpr float kOgreNextStage0CasterTexelMargin = 0.5F;
+/// Casters whose radius misses every cascade budget keep this positive
+/// shadow rendering distance (the native setter rejects zero).
+constexpr float kOgreNextStage0SubTexelCasterDistanceMeters = 0.05F;
+
+/// Builds the per-present distance-cull policy. projection_scale_x/y are
+/// the validated clip_from_view [0][0] and [1][1] magnitudes. Returns false
+/// (all-disabled policy) when the projection cannot support the derivation
+/// or both levers are disabled.
+bool BuildOgreNextStage0DistanceCullPolicy(
+    float projection_scale_x, float projection_scale_y,
+    std::uint32_t viewport_height, bool shadow_plan_enabled,
+    OgreNextStage0DistanceCullPolicy &policy) noexcept {
+  policy = OgreNextStage0DistanceCullPolicy{};
+  const bool view_lever = !OgreNextStage0FeatureDisabled("view_distance");
+  const bool shadow_lever = !OgreNextStage0FeatureDisabled("shadow_distance");
+  if (!(std::isfinite(projection_scale_x) && projection_scale_x > 0.0F &&
+        std::isfinite(projection_scale_y) && projection_scale_y > 0.0F &&
+        viewport_height != 0U)) {
+    return false;
+  }
+  if (view_lever) {
+    // Projected diameter of a sphere of radius r at view depth d is
+    // approximately 2r / d * projection_scale_y * height / 2 pixels, so the
+    // depth where it reaches the cull threshold is linear in r.
+    const float per_radius = projection_scale_y *
+                             static_cast<float>(viewport_height) /
+                             kOgreNextStage0ViewCullDiameterPixels;
+    if (std::isfinite(per_radius) && per_radius > 0.0F) {
+      policy.view_distance_per_radius = per_radius;
+      policy.view_enabled = true;
+    }
+  }
+  if (shadow_lever && shadow_plan_enabled) {
+    OgreNextPssmSplitPolicy splits;
+    bool bands_valid = TryBuildOgreNextPssmSplitPolicy(splits);
+    if (bands_valid) {
+      const float tan_x = 1.0F / projection_scale_x;
+      const float tan_y = 1.0F / projection_scale_y;
+      const float corner_scale = tan_x * tan_x + tan_y * tan_y;
+      for (std::size_t index = 0U;
+           bands_valid && index < kOgreNextPssmCascadeCount; ++index) {
+        const float near_z = splits.split_points[index];
+        const float far_z = splits.split_points[index + 1U];
+        // Bounding sphere of the perspective frustum slice [near_z, far_z]:
+        // the stable cascade window uses exactly this sphere and a focused
+        // cascade window never exceeds it.
+        const float corner_near = near_z * near_z * corner_scale;
+        const float corner_far = far_z * far_z * corner_scale;
+        float center_z =
+            (far_z * far_z + corner_far - near_z * near_z - corner_near) /
+            (2.0F * (far_z - near_z));
+        center_z = std::min(std::max(center_z, near_z), far_z);
+        const float radius = std::sqrt(std::max(
+            (center_z - near_z) * (center_z - near_z) + corner_near,
+            (far_z - center_z) * (far_z - center_z) + corner_far));
+        const float texel =
+            2.0F * radius * kOgreNextPssmXyPadding /
+            static_cast<float>(kOgreNextPssmCascadeLayouts[index].width);
+        const float minimum_radius = texel *
+                                     (kOgreNextStage0CasterCullTexels * 0.5F) *
+                                     kOgreNextStage0CasterTexelMargin;
+        if (!(std::isfinite(far_z) && far_z > 0.0F &&
+              std::isfinite(minimum_radius) && minimum_radius > 0.0F)) {
+          bands_valid = false;
+          break;
+        }
+        policy.band_end[index] = far_z;
+        policy.minimum_caster_radius[index] = minimum_radius;
+      }
+    }
+    policy.shadow_enabled = bands_valid;
+  }
+  return policy.view_enabled || policy.shadow_enabled;
+}
 
 bool TryClaimOgreNextN1Root() noexcept {
   bool expected = false;
@@ -1560,7 +1743,7 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
     texture->setNumMipmaps(1U);
     texture->setPixelFormat(Ogre::PFG_D32_FLOAT);
     texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
-    texture_manager.waitForStreamingCompletion();
+    OgreNextStage0TimedStreamingWait(texture_manager, "pssm_atlas_create");
     if (!texture->isDataReady() ||
         texture->getResidencyStatus() != Ogre::GpuResidency::Resident ||
         texture->getWidth() != kOgreNextPssmAtlasWidth ||
@@ -1615,7 +1798,7 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
     try {
       texture_manager.destroyTexture(texture);
       texture = nullptr;
-      texture_manager.waitForStreamingCompletion();
+      OgreNextStage0TimedStreamingWait(texture_manager, "pssm_atlas_destroy");
       destroy_returned = true;
     } catch (...) {
       texture = nullptr;
@@ -2940,6 +3123,18 @@ public:
     bool casts_shadow = false;
     bool receives_shadow = false;
     bool dynamic_mesh = false;
+    /// Stage 0 item 4: created in Ogre's static memory manager because the
+    /// mesh is non-dynamic and undeformed; transform mutations must notify
+    /// the static system instead of relying on per-frame node updates.
+    bool scene_static = false;
+    /// Stage 0 items 1 and 3: the instance's world-bounds radius at the
+    /// last transform application, and the exact native upper distances
+    /// last applied, so verification and threshold-drift re-application
+    /// read one source of truth. Zero means the lever left the native
+    /// default untouched.
+    float stage0_world_radius = 0.0F;
+    float applied_view_distance = 0.0F;
+    float applied_shadow_distance = 0.0F;
     std::uint32_t material_descriptor_version = 0U;
     /// Retained PSSM evidence, refreshed on create, update, and native
     /// re-verification.
@@ -3225,9 +3420,15 @@ public:
     Ogre::VertexBufferPacked *vertex_buffer = nullptr;
     Ogre::IndexBufferPacked *index_buffer = nullptr;
     Ogre::VertexArrayObject *vao = nullptr;
+    Ogre::VertexBufferPacked *shadow_vertex_buffer = nullptr;
+    Ogre::IndexBufferPacked *shadow_index_buffer = nullptr;
+    Ogre::VertexArrayObject *shadow_vao = nullptr;
     bool attached = false;
+    bool shadow_attached = false;
     void *vertices = nullptr;
     void *indices = nullptr;
+    void *shadow_vertices = nullptr;
+    void *shadow_indices = nullptr;
     try {
       Ogre::VertexElement2Vec elements;
       if (native.vertex_layout == OgreNextNativeVertexLayout::
@@ -3329,7 +3530,101 @@ public:
       Ogre::SubMesh *submesh = native.mesh->createSubMesh();
       submesh->mVao[Ogre::VpNormal].push_back(vao);
       attached = true;
-      submesh->mVao[Ogre::VpShadow].push_back(vao);
+      // Stage 0 item 2: the caster pass previously fetched the full lit
+      // vertex layout through the shared VAO. Build a dedicated caster VAO
+      // instead: position plus UV0 for the PBR layout (UV0 stays because
+      // the HLMS caster pipeline consumes it whenever a datablock
+      // alpha-tests; Ogre's VertexShadowMapHelper::optimizeForShadowMapping
+      // strips UVs and would break every alpha-tested caster), position
+      // only for the UV-less layout. Both are packed from the validated
+      // CPU descriptor, so no GPU readback is needed, and the caster VAO
+      // owns its own index buffer so SubMesh teardown never double-frees a
+      // buffer shared across pass VAOs.
+      // Dynamic meshes recreate their native mesh on every deformation
+      // revision; packing a second buffer per revision would trade steady
+      // per-frame CPU for a caster-fetch win the deforming set is too small
+      // to show. They keep the shared VAO.
+      if (descriptor.dynamic || OgreNextStage0FeatureDisabled("shadow_vao")) {
+        submesh->mVao[Ogre::VpShadow].push_back(vao);
+      } else {
+        Ogre::VertexElement2Vec shadow_elements;
+        shadow_elements.push_back(
+            Ogre::VertexElement2(Ogre::VET_FLOAT3, Ogre::VES_POSITION));
+        const bool shadow_has_uv =
+            native.vertex_layout ==
+            OgreNextNativeVertexLayout::POSITION_NORMAL_TANGENT_UV0_FLOAT32_48;
+        if (shadow_has_uv) {
+          shadow_elements.push_back(Ogre::VertexElement2(
+              Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES));
+        }
+        struct ShadowCasterUvVertex {
+          float position[3U];
+          float uv[2U];
+        };
+        struct ShadowCasterVertex {
+          float position[3U];
+        };
+        static_assert(sizeof(ShadowCasterUvVertex) == 20U,
+                      "caster position+uv0 vertex layout drifted");
+        static_assert(sizeof(ShadowCasterVertex) == 12U,
+                      "caster position vertex layout drifted");
+        if (shadow_has_uv) {
+          const std::size_t shadow_bytes =
+              sizeof(ShadowCasterUvVertex) * descriptor.positions.size();
+          auto *shadow_packed = static_cast<ShadowCasterUvVertex *>(
+              OGRE_MALLOC_SIMD(shadow_bytes, Ogre::MEMCATEGORY_GEOMETRY));
+          shadow_vertices = shadow_packed;
+          for (std::size_t index = 0U; index < descriptor.positions.size();
+               ++index) {
+            const Float3 &position = descriptor.positions[index];
+            const Float2 &uv = descriptor.texture_coordinates_0[index];
+            shadow_packed[index] = {{position.x, position.y, position.z},
+                                    {uv.x, uv.y}};
+          }
+        } else {
+          const std::size_t shadow_bytes =
+              sizeof(ShadowCasterVertex) * descriptor.positions.size();
+          auto *shadow_packed = static_cast<ShadowCasterVertex *>(
+              OGRE_MALLOC_SIMD(shadow_bytes, Ogre::MEMCATEGORY_GEOMETRY));
+          shadow_vertices = shadow_packed;
+          for (std::size_t index = 0U; index < descriptor.positions.size();
+               ++index) {
+            const Float3 &position = descriptor.positions[index];
+            shadow_packed[index] = {{position.x, position.y, position.z}};
+          }
+        }
+        shadow_vertex_buffer = vao_manager->createVertexBuffer(
+            shadow_elements, descriptor.positions.size(), Ogre::BT_IMMUTABLE,
+            shadow_vertices, true);
+        shadow_vertices = nullptr;
+        shadow_indices = OGRE_MALLOC_SIMD(
+            index_stride * descriptor.indices.size(),
+            Ogre::MEMCATEGORY_GEOMETRY);
+        if (use_u16) {
+          auto *destination = static_cast<Ogre::uint16 *>(shadow_indices);
+          for (std::size_t index = 0U; index < descriptor.indices.size();
+               ++index) {
+            destination[index] =
+                static_cast<Ogre::uint16>(descriptor.indices[index]);
+          }
+        } else {
+          std::memcpy(shadow_indices, descriptor.indices.data(),
+                      index_stride * descriptor.indices.size());
+        }
+        shadow_index_buffer = vao_manager->createIndexBuffer(
+            use_u16 ? Ogre::IndexBufferPacked::IT_16BIT
+                    : Ogre::IndexBufferPacked::IT_32BIT,
+            descriptor.indices.size(), Ogre::BT_IMMUTABLE, shadow_indices,
+            true);
+        shadow_indices = nullptr;
+        Ogre::VertexBufferPackedVec shadow_vertex_buffers;
+        shadow_vertex_buffers.push_back(shadow_vertex_buffer);
+        shadow_vao = vao_manager->createVertexArrayObject(
+            shadow_vertex_buffers, shadow_index_buffer,
+            Ogre::OT_TRIANGLE_LIST);
+        submesh->mVao[Ogre::VpShadow].push_back(shadow_vao);
+        shadow_attached = true;
+      }
 
       OgreNextN1NativeMeshBounds bounds;
       if (!TryBuildOgreNextN1NativeMeshBounds(descriptor.local_bounds,
@@ -3353,6 +3648,39 @@ public:
       }
       if (indices != nullptr) {
         OGRE_FREE_SIMD(indices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (shadow_vertices != nullptr) {
+        OGRE_FREE_SIMD(shadow_vertices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (shadow_indices != nullptr) {
+        OGRE_FREE_SIMD(shadow_indices, Ogre::MEMCATEGORY_GEOMETRY);
+      }
+      if (!shadow_attached) {
+        bool shadow_vao_destroyed = true;
+        if (shadow_vao != nullptr) {
+          try {
+            vao_manager->destroyVertexArrayObject(shadow_vao);
+          } catch (...) {
+            clean = false;
+            shadow_vao_destroyed = false;
+          }
+        }
+        if (shadow_vao_destroyed) {
+          if (shadow_vertex_buffer != nullptr) {
+            try {
+              vao_manager->destroyVertexBuffer(shadow_vertex_buffer);
+            } catch (...) {
+              clean = false;
+            }
+          }
+          if (shadow_index_buffer != nullptr) {
+            try {
+              vao_manager->destroyIndexBuffer(shadow_index_buffer);
+            } catch (...) {
+              clean = false;
+            }
+          }
+        }
       }
       if (!attached) {
         bool vao_destroyed = true;
@@ -3764,7 +4092,7 @@ public:
         // destroy-requested entry before its name has actually left Ogre's
         // registry, so it is not sufficient proof that a same-name retry is
         // safe.  Drain the streaming/task queues before auditing absence.
-        manager->waitForStreamingCompletion();
+        OgreNextStage0TimedStreamingWait(*manager, "texture_retire_drain");
         destroy_returned = true;
       } catch (...) {
         // A throwing destroy is ambiguous. The name lookup below still proves
@@ -4478,6 +4806,38 @@ public:
       clean = DestroyMesh(native) && clean;
     }
     frame_meshes.clear();
+    return clean;
+  }
+
+  /// Destroys exactly one retained light's native Light/SceneNode pair.
+  /// The record itself stays alive (with null native pointers) so callers
+  /// keep single-owner teardown semantics while diffing the light vector.
+  [[nodiscard]] bool DestroyRetainedLightRecord(RetainedLight &record)
+      noexcept {
+    bool clean = true;
+    if (record.node != nullptr && record.light != nullptr) {
+      try {
+        record.node->detachObject(record.light);
+      } catch (...) {
+        clean = false;
+      }
+    }
+    if (record.light != nullptr) {
+      try {
+        scene_manager->destroyLight(record.light);
+      } catch (...) {
+        clean = false;
+      }
+      record.light = nullptr;
+    }
+    if (record.node != nullptr) {
+      try {
+        scene_manager->destroySceneNode(record.node);
+      } catch (...) {
+        clean = false;
+      }
+      record.node = nullptr;
+    }
     return clean;
   }
 
@@ -8084,7 +8444,8 @@ public:
           Ogre::TextureGpuManager *texture_manager =
               renderer->getTextureGpuManager();
           texture_manager->destroyTexture(production_source_target);
-          texture_manager->waitForStreamingCompletion();
+          OgreNextStage0TimedStreamingWait(*texture_manager,
+                                           "presentation_target_destroy");
           production_source_target = nullptr;
           ++presentation_audit.source_target_destroys;
         } catch (...) {
@@ -8886,6 +9247,11 @@ public:
   std::vector<NativeMesh> frame_meshes;
   /// Retained native lights in snapshot order (strictly increasing light_id).
   std::vector<RetainedLight> retained_lights;
+  /// Stage 0 items 1 and 3: the distance-cull policy last applied to the
+  /// retained instances. When a present derives a different policy (window
+  /// resize or projection change), every retained instance is re-applied
+  /// once before that present's diff.
+  OgreNextStage0DistanceCullPolicy stage0_distance_policy;
   /// Retained native scene keyed by instance_id, so the per-present diff is a
   /// merge-join against the strictly increasing snapshot instance vector.
   std::map<std::uint64_t, RetainedInstance> retained_instances;
@@ -10337,7 +10703,9 @@ OgreNextN1Frontend::SynchronizeAssets(const RenderAssetDelta &delta) {
         throw std::logic_error("RT4/V1 texture catalog visitation failed");
       }
       if (!candidate_textures.empty()) {
-        impl_->renderer->getTextureGpuManager()->waitForStreamingCompletion();
+        OgreNextStage0TimedStreamingWait(
+            *impl_->renderer->getTextureGpuManager(),
+            "texture_catalog_upload");
       }
       for (const auto &entry : candidate_textures) {
         const TextureResourceDescriptor *descriptor =
@@ -11142,7 +11510,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       if (registered_target != nullptr) {
         try {
           texture_manager->destroyTexture(registered_target);
-          texture_manager->waitForStreamingCompletion();
+          OgreNextStage0TimedStreamingWait(*texture_manager,
+                                           "presentation_registry_destroy");
           destroy_returned = true;
         } catch (...) {
           clean = false;
@@ -11691,7 +12060,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->retained_lights[index].descriptor.light_id ==
           snapshot.lights()[index].light_id;
     }
-    if (!retained_light_set_matches) {
+    if (!retained_light_set_matches &&
+        OgreNextStage0FeatureDisabled("light_merge")) {
+      // Stage 0 kill-switch: the pre-merge behavior destroyed and recreated
+      // the whole native light set on any id-set change.
       if (!impl_->DestroyRetainedLights()) {
         impl_->faulted = true;
         return fail_after_cleanup(
@@ -11708,6 +12080,57 @@ RenderOperationResult OgreNextN1Frontend::Render(
         record.node =
             impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
         record.node->attachObject(record.light);
+      }
+      impl_->retained_audit.retained_lights =
+          static_cast<std::uint64_t>(impl_->retained_lights.size());
+    } else if (!retained_light_set_matches) {
+      // Stage 0, item 5: diff the retained light set like the instance map
+      // instead of destroy-and-recreate. Both the retained vector and the
+      // snapshot are strictly increasing by light_id, so one merge pass
+      // destroys exactly the removed ids, keeps every surviving native
+      // Light/SceneNode pair untouched, and allocates exactly the added
+      // ids. Ownership stays single-owner at every step: a record is
+      // inserted into retained_lights before its native allocation, so a
+      // mid-merge failure has exactly one teardown target per pair.
+      bool merge_clean = true;
+      auto retained_iterator = impl_->retained_lights.begin();
+      for (const LightDescriptor &descriptor : snapshot.lights()) {
+        while (retained_iterator != impl_->retained_lights.end() &&
+               retained_iterator->descriptor.light_id <
+                   descriptor.light_id) {
+          merge_clean =
+              impl_->DestroyRetainedLightRecord(*retained_iterator) &&
+              merge_clean;
+          retained_iterator = impl_->retained_lights.erase(retained_iterator);
+        }
+        if (retained_iterator != impl_->retained_lights.end() &&
+            retained_iterator->descriptor.light_id == descriptor.light_id) {
+          ++retained_iterator;
+          continue;
+        }
+        retained_iterator = impl_->retained_lights.insert(
+            retained_iterator, Impl::RetainedLight{});
+        retained_iterator->descriptor = descriptor;
+        retained_iterator->light = impl_->scene_manager->createLight();
+        retained_iterator->node =
+            impl_->scene_manager->getRootSceneNode()->createChildSceneNode();
+        retained_iterator->node->attachObject(retained_iterator->light);
+        ++retained_iterator;
+      }
+      while (retained_iterator != impl_->retained_lights.end()) {
+        merge_clean =
+            impl_->DestroyRetainedLightRecord(*retained_iterator) &&
+            merge_clean;
+        retained_iterator = impl_->retained_lights.erase(retained_iterator);
+      }
+      if (!merge_clean) {
+        impl_->faulted = true;
+        return fail_after_cleanup(
+            NativeTeardownFailure("Ogre-Next retained light replacement"));
+      }
+      if (impl_->retained_lights.size() != snapshot.lights().size()) {
+        throw std::logic_error(
+            "Ogre-Next retained light merge diverged from the snapshot set");
       }
       impl_->retained_audit.retained_lights =
           static_cast<std::uint64_t>(impl_->retained_lights.size());
@@ -11777,6 +12200,89 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 .count());
 
     const auto instance_phase_start = std::chrono::steady_clock::now();
+
+    // Stage 0 items 1 and 3: derive this present's distance-cull policy
+    // from the validated projection and the pinned PSSM split policy. The
+    // derivation is scalar math; the applied distances ride the SIMD cull's
+    // existing upper-distance test, so the per-frame cost is zero.
+    OgreNextStage0DistanceCullPolicy stage0_present_policy;
+    static_cast<void>(BuildOgreNextStage0DistanceCullPolicy(
+        std::fabs(view.clip_from_view.elements[0U]),
+        std::fabs(view.clip_from_view.elements[5U]), view.height,
+        shadow_plan.enabled, stage0_present_policy));
+
+    // Applies the derived upper distances to one retained item. The world
+    // radius comes from the instance's validated local bounds scaled by the
+    // decomposed node scale, so it bounds the exact TRS the item renders
+    // with. Failure to derive a radius leaves the native default (no cull).
+    const auto apply_stage0_distance_cull =
+        [&stage0_present_policy](Impl::RetainedInstance &record,
+                                 const Ogre::Vector3 &scale) noexcept {
+      record.stage0_world_radius = 0.0F;
+      record.applied_view_distance = 0.0F;
+      record.applied_shadow_distance = 0.0F;
+      if (record.item == nullptr || (!stage0_present_policy.view_enabled &&
+                                     !stage0_present_policy.shadow_enabled)) {
+        return;
+      }
+      OgreNextN1NativeMeshBounds local_bounds;
+      if (!TryBuildOgreNextN1NativeMeshBounds(record.descriptor.local_bounds,
+                                              local_bounds)) {
+        return;
+      }
+      const float scale_bound =
+          std::max(std::max(std::fabs(scale.x), std::fabs(scale.y)),
+                   std::fabs(scale.z));
+      const float world_radius = local_bounds.radius * scale_bound;
+      if (!(std::isfinite(world_radius) && world_radius > 0.0F)) {
+        return;
+      }
+      float view_distance = 0.0F;
+      if (stage0_present_policy.view_enabled) {
+        view_distance =
+            world_radius * stage0_present_policy.view_distance_per_radius;
+        if (!(std::isfinite(view_distance) && view_distance > 0.0F)) {
+          return;
+        }
+        record.item->setRenderingDistance(view_distance);
+      }
+      float shadow_distance = view_distance;
+      if (stage0_present_policy.shadow_enabled) {
+        float caster_distance = kOgreNextStage0SubTexelCasterDistanceMeters;
+        for (std::size_t band = 0U; band < kOgreNextPssmCascadeCount;
+             ++band) {
+          if (world_radius >=
+              stage0_present_policy.minimum_caster_radius[band]) {
+            caster_distance =
+                std::max(caster_distance, stage0_present_policy.band_end[band]);
+          }
+        }
+        shadow_distance = stage0_present_policy.view_enabled
+                              ? std::min(view_distance, caster_distance)
+                              : caster_distance;
+      }
+      if (shadow_distance > 0.0F && std::isfinite(shadow_distance)) {
+        record.item->setShadowRenderingDistance(shadow_distance);
+        record.applied_shadow_distance = shadow_distance;
+      }
+      record.stage0_world_radius = world_radius;
+      record.applied_view_distance = view_distance;
+    };
+
+    // Threshold drift (window resize, projection change, shadow plan
+    // toggle): re-apply the policy once to every retained instance before
+    // this present's diff, reading each node's already-decomposed scale.
+    if (stage0_present_policy != impl_->stage0_distance_policy) {
+      for (auto &stage0_entry : impl_->retained_instances) {
+        Impl::RetainedInstance &stage0_record = stage0_entry.second;
+        if (stage0_record.node != nullptr) {
+          apply_stage0_distance_cull(stage0_record,
+                                     stage0_record.node->getScale());
+        }
+      }
+      impl_->stage0_distance_policy = stage0_present_policy;
+    }
+
     reflection_items.reserve(snapshot.mesh_instances().size());
     if (impl_->native_interop) {
       interop_geometry.reserve(snapshot.mesh_instances().size());
@@ -12020,8 +12526,17 @@ RenderOperationResult OgreNextN1Frontend::Render(
             RenderOperationCode::UNSUPPORTED,
             "N1 reconstructed Ogre TRS can overflow native world bounds");
       }
+      // Stage 0 item 4: non-dynamic, undeformed geometry never moves after
+      // creation, so it lives in Ogre's static memory manager and skips the
+      // per-frame node transform and AABB update walk. Every mutation path
+      // that can still touch a static record notifies the static system.
+      record.scene_static = !base_mesh->dynamic &&
+                            instance.deformation_revision <= 1U &&
+                            !OgreNextStage0FeatureDisabled("static_scene");
+      const Ogre::SceneMemoryMgrTypes stage0_memory_type =
+          record.scene_static ? Ogre::SCENE_STATIC : Ogre::SCENE_DYNAMIC;
       record.item = impl_->scene_manager->createItem(render_mesh->mesh,
-                                                     Ogre::SCENE_DYNAMIC);
+                                                     stage0_memory_type);
       const std::uint32_t authored_instance_visibility =
           instance.visibility_mask & native_authored_visibility_mask;
       const bool pbs_material =
@@ -12066,12 +12581,16 @@ RenderOperationResult OgreNextN1Frontend::Render(
                                           instance, *base_mesh);
       record.item->setCastShadows(casts_shadow);
       record.node = impl_->scene_manager
-                        ->getRootSceneNode(Ogre::SCENE_DYNAMIC)
-                        ->createChildSceneNode(Ogre::SCENE_DYNAMIC);
+                        ->getRootSceneNode(stage0_memory_type)
+                        ->createChildSceneNode(stage0_memory_type);
       record.node->setPosition(position);
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
       record.node->attachObject(record.item);
+      if (record.scene_static) {
+        impl_->scene_manager->notifyStaticDirty(record.node);
+      }
+      apply_stage0_distance_cull(record, scale);
       ++diff_created;
       return RenderOperationResult::Success();
     };
@@ -12172,6 +12691,12 @@ RenderOperationResult OgreNextN1Frontend::Render(
       record.node->setPosition(position);
       record.node->setScale(scale);
       record.node->setOrientation(orientation);
+      if (record.scene_static) {
+        // Static records accept descriptor updates (they are rare by
+        // construction); the static system just has to be told once.
+        impl_->scene_manager->notifyStaticDirty(record.node);
+      }
+      apply_stage0_distance_cull(record, scale);
       return RenderOperationResult::Success();
     };
 
@@ -12244,9 +12769,15 @@ RenderOperationResult OgreNextN1Frontend::Render(
         }
         render_mesh = &mesh->second;
       }
-      record.item = impl_->scene_manager->createItem(render_mesh->mesh,
-                                                     Ogre::SCENE_DYNAMIC);
+      // The recreated item must live in the same memory manager as the
+      // retained node it re-attaches to.
+      record.item = impl_->scene_manager->createItem(
+          render_mesh->mesh, record.scene_static ? Ogre::SCENE_STATIC
+                                                 : Ogre::SCENE_DYNAMIC);
       record.node->attachObject(record.item);
+      if (record.scene_static) {
+        impl_->scene_manager->notifyStaticDirty(record.node);
+      }
       ++diff_dynamic_updates;
       return RenderOperationResult::Success();
     };
@@ -12332,6 +12863,25 @@ RenderOperationResult OgreNextN1Frontend::Render(
           record.item->getSubItem(0U)->getDatablock() != instance_datablock) {
         throw std::runtime_error(
             "Ogre-Next PBS datablock, caster, or visibility state failed native readback");
+      }
+      // Stage 0 items 1 and 3: the applied upper distances are exact native
+      // floats, so untouched retained state must read back bit-identical.
+      if ((record.applied_view_distance > 0.0F &&
+           record.item->getRenderingDistance() !=
+               record.applied_view_distance) ||
+          (record.applied_shadow_distance > 0.0F &&
+           record.item->getShadowRenderingDistance() !=
+               record.applied_shadow_distance)) {
+        throw std::runtime_error(
+            "Ogre-Next Stage 0 distance-cull state failed native readback");
+      }
+      // Stage 0 item 4: a record's memory manager placement is immutable
+      // native state; drifting out of it would silently restore per-frame
+      // transform updates or break the static promotion.
+      if (record.item->isStatic() != record.scene_static ||
+          record.node->isStatic() != record.scene_static) {
+        throw std::runtime_error(
+            "Ogre-Next Stage 0 static-scene placement failed native readback");
       }
       record.pbs = pbs_material;
       record.transmission = pbs_material && thin_slab_transmission;
