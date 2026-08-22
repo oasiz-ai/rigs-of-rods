@@ -3736,16 +3736,15 @@ private:
 /// session.
 class MetalFxEncodeListener final : public Ogre::CompositorWorkspaceListener {
 public:
+  /// Binds the workspace, never individual textures. PSSM finalize and
+  /// rollback both call recreateAllNodes(), which replaces every node
+  /// instance and every TextureGpu behind it, so a cached texture pointer
+  /// becomes a dangling read on the very first frame after a shadow
+  /// transition. The bindings are therefore re-resolved by name every frame.
   void Configure(OgreNextMetalFxUpscaler *upscaler,
-                 Ogre::TextureGpu *colour, Ogre::TextureGpu *depth,
-                 Ogre::TextureGpu *motion, Ogre::TextureGpu *reactive,
-                 Ogre::TextureGpu *output) noexcept {
+                 Ogre::CompositorWorkspace *workspace) noexcept {
     upscaler_ = upscaler;
-    colour_ = colour;
-    depth_ = depth;
-    motion_ = motion;
-    reactive_ = reactive;
-    output_ = output;
+    workspace_ = workspace;
   }
 
   void BeginFrame(std::uint64_t frame_id, float jitter_x, float jitter_y,
@@ -3774,17 +3773,41 @@ public:
             kOgreNextMetalFxEncodePassIdentifier) {
       return;
     }
-    if (upscaler_ == nullptr || colour_ == nullptr || depth_ == nullptr ||
-        motion_ == nullptr || reactive_ == nullptr || output_ == nullptr) {
+    if (upscaler_ == nullptr || workspace_ == nullptr) {
       Degrade("MetalFX bindings are not configured");
       return;
     }
+    Ogre::CompositorNode *haze =
+        workspace_->findNodeNoThrow(Ogre::IdString(kOgreNextAerialHazeNode));
+    Ogre::CompositorNode *rendering =
+        workspace_->findNodeNoThrow(Ogre::IdString(kOgreNextHdrRenderingNode));
+    Ogre::CompositorNode *taa =
+        workspace_->findNodeNoThrow(Ogre::IdString(kOgreNextTaaNode));
+    if (haze == nullptr || rendering == nullptr || taa == nullptr) {
+      Degrade("MetalFX workspace nodes disappeared");
+      return;
+    }
+    Ogre::TextureGpu *const colour =
+        haze->getDefinedTexture(kOgreNextAerialHazeOutputTexture);
+    Ogre::TextureGpu *const depth =
+        rendering->getDefinedTexture(kOgreNextHdrOpaqueDepthTexture);
+    Ogre::TextureGpu *const motion =
+        taa->getDefinedTexture(kOgreNextTaaMotionTexture);
+    Ogre::TextureGpu *const reactive =
+        taa->getDefinedTexture(kOgreNextTaaReactiveTexture);
+    Ogre::TextureGpu *const output =
+        taa->getDefinedTexture(kOgreNextTaaOutputTexture);
+    if (colour == nullptr || depth == nullptr || motion == nullptr ||
+        reactive == nullptr || output == nullptr) {
+      Degrade("MetalFX bindings are not resident this frame");
+      return;
+    }
     OgreNextMetalFxFrameRequest request;
-    request.colour_texture = reinterpret_cast<std::uintptr_t>(colour_);
-    request.depth_texture = reinterpret_cast<std::uintptr_t>(depth_);
-    request.motion_texture = reinterpret_cast<std::uintptr_t>(motion_);
-    request.reactive_texture = reinterpret_cast<std::uintptr_t>(reactive_);
-    request.output_texture = reinterpret_cast<std::uintptr_t>(output_);
+    request.colour_texture = reinterpret_cast<std::uintptr_t>(colour);
+    request.depth_texture = reinterpret_cast<std::uintptr_t>(depth);
+    request.motion_texture = reinterpret_cast<std::uintptr_t>(motion);
+    request.reactive_texture = reinterpret_cast<std::uintptr_t>(reactive);
+    request.output_texture = reinterpret_cast<std::uintptr_t>(output);
     request.jitter_pixels_x = jitter_x_;
     request.jitter_pixels_y = jitter_y_;
     request.pre_exposure = pre_exposure_;
@@ -3816,11 +3839,7 @@ private:
   }
 
   OgreNextMetalFxUpscaler *upscaler_ = nullptr;
-  Ogre::TextureGpu *colour_ = nullptr;
-  Ogre::TextureGpu *depth_ = nullptr;
-  Ogre::TextureGpu *motion_ = nullptr;
-  Ogre::TextureGpu *reactive_ = nullptr;
-  Ogre::TextureGpu *output_ = nullptr;
+  Ogre::CompositorWorkspace *workspace_ = nullptr;
   std::uint64_t frame_id_ = 0U;
   float jitter_x_ = 0.0F;
   float jitter_y_ = 0.0F;
@@ -8057,11 +8076,19 @@ public:
             kOgreNextHdrToneMapMaterial, kOgreNextHdrResourceGroup);
     const Ogre::CompositorNodeDef *definition =
         rendering != nullptr ? rendering->getDefinition() : nullptr;
+    // Scene-extent targets follow the internal render extent, which the
+    // MetalFX tier reduces below the presented extent; recreateAllNodes()
+    // preserves the widthFactor, so the refreshed pointers must be re-verified
+    // against the same reduced extent rather than the presented one.
+    const std::uint32_t scene_width =
+        metalfx_input_width != 0U ? metalfx_input_width : hdr_width;
+    const std::uint32_t scene_height =
+        metalfx_input_height != 0U ? metalfx_input_height : hdr_height;
     hdr_linear_scene_target_verified =
         linear_scene != nullptr &&
         linear_scene->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
-        linear_scene->getWidth() == hdr_width &&
-        linear_scene->getHeight() == hdr_height &&
+        linear_scene->getWidth() == scene_width &&
+        linear_scene->getHeight() == scene_height &&
         linear_scene->getDepth() == 1U &&
         linear_scene->getNumMipmaps() == 1U;
     // PSSM finalize and rollback both call recreateAllNodes(), which replaces
@@ -8071,8 +8098,8 @@ public:
     const bool opaque_depth_verified =
         opaque_depth != nullptr &&
         opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
-        opaque_depth->getWidth() == hdr_width &&
-        opaque_depth->getHeight() == hdr_height &&
+        opaque_depth->getWidth() == scene_width &&
+        opaque_depth->getHeight() == scene_height &&
         opaque_depth->getDepth() == 1U &&
         opaque_depth->getNumMipmaps() == 1U;
     hdr_opaque_depth_export_verified = opaque_depth_verified;
@@ -8085,8 +8112,8 @@ public:
     hdr_aerial_haze_workspace_verified =
         haze != nullptr && haze_output != nullptr &&
         haze_output->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
-        haze_output->getWidth() == hdr_width &&
-        haze_output->getHeight() == hdr_height &&
+        haze_output->getWidth() == scene_width &&
+        haze_output->getHeight() == scene_height &&
         haze_output->getDepth() == 1U &&
         haze_output->getNumMipmaps() == 1U;
     hdr_base_hdr_target_verified = false;
@@ -8746,9 +8773,7 @@ public:
       }
       if (metalfx_upscaler != nullptr) {
         metalfx_tier = OgreNextMetalFxTierRequest();
-        metalfx_listener.Configure(metalfx_upscaler.get(), metalfx_colour,
-                                   metalfx_depth, metalfx_motion,
-                                   metalfx_reactive, metalfx_output);
+        metalfx_listener.Configure(metalfx_upscaler.get(), hdr_workspace);
         hdr_workspace->addListener(&metalfx_listener);
         std::fprintf(
             stderr,
@@ -8841,14 +8866,24 @@ public:
     const Ogre::MaterialPtr tone_map =
         Ogre::MaterialManager::getSingleton().getByName(
             kOgreNextHdrToneMapMaterial, kOgreNextHdrResourceGroup);
+    // Scene-extent targets are rasterized at the internal extent, which the
+    // MetalFX tier reduces below the presented extent. Everything downstream
+    // of the scaler keeps the presented extent.
+    const std::uint32_t scene_width =
+        metalfx_input_width != 0U ? metalfx_input_width : width;
+    const std::uint32_t scene_height =
+        metalfx_input_height != 0U ? metalfx_input_height : height;
     hdr_linear_scene_target_verified =
         linear_scene != nullptr &&
         linear_scene->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
-        linear_scene->getWidth() == width && linear_scene->getHeight() == height;
-    const auto exact_linear_target = [width, height](Ogre::TextureGpu *texture) {
+        linear_scene->getWidth() == scene_width &&
+        linear_scene->getHeight() == scene_height;
+    const auto exact_linear_target = [scene_width,
+                                      scene_height](Ogre::TextureGpu *texture) {
       return texture != nullptr &&
              texture->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
-             texture->getWidth() == width && texture->getHeight() == height &&
+             texture->getWidth() == scene_width &&
+             texture->getHeight() == scene_height &&
              texture->getDepth() == 1U && texture->getNumMipmaps() == 1U;
     };
     hdr_base_hdr_target_verified =
@@ -8861,8 +8896,8 @@ public:
         !SunVisibilityV2Enabled() ||
         (visibility != nullptr && visibility->isUav() &&
          visibility->getPixelFormat() == Ogre::PFG_R16_FLOAT &&
-         visibility->getWidth() == width &&
-         visibility->getHeight() == height &&
+         visibility->getWidth() == scene_width &&
+         visibility->getHeight() == scene_height &&
          visibility->getDepth() == 1U &&
          visibility->getNumMipmaps() == 1U);
     hdr_lit_target_verified =
@@ -8872,8 +8907,8 @@ public:
         (!SunVisibilityV2Enabled() && !SingleSceneHdrPssmEnabled()) ||
         (opaque_depth != nullptr &&
          opaque_depth->getPixelFormat() == Ogre::PFG_D32_FLOAT &&
-         opaque_depth->getWidth() == width &&
-         opaque_depth->getHeight() == height &&
+         opaque_depth->getWidth() == scene_width &&
+         opaque_depth->getHeight() == scene_height &&
          opaque_depth->getDepth() == 1U &&
          opaque_depth->getNumMipmaps() == 1U);
     hdr_opaque_depth_export_verified = opaque_depth_verified;
@@ -10882,6 +10917,7 @@ public:
   /// decision made at graph-build time, so creation failure is reported once
   /// and the tier is demoted for the frame signature.
   OgreNextMetalFxTier metalfx_tier = OgreNextMetalFxTier::NATIVE;
+  std::uint64_t metalfx_signature_frames = 0U;
   std::uint32_t metalfx_input_width = 0U;
   std::uint32_t metalfx_input_height = 0U;
 #if defined(ROR_OGRE_NEXT_N1_METAL)
@@ -12713,6 +12749,30 @@ RenderOperationResult OgreNextN1Frontend::Render(
     impl_->taa_frame_active = false;
     impl_->taa_commit_prepared = false;
     impl_->taa_constant_readbacks_this_frame = 0U;
+#if defined(ROR_OGRE_NEXT_N1_METAL)
+    // Reported independently of the temporal signature: the scaler's encode
+    // count is the evidence that upscaling actually ran, and it must be
+    // visible even on a frame where the temporal plan never activated.
+    if (impl_->metalfx_upscaler != nullptr) {
+      ++impl_->metalfx_signature_frames;
+      if (impl_->metalfx_signature_frames == 1U ||
+          impl_->metalfx_signature_frames % 300U == 0U) {
+        std::fprintf(
+            stderr,
+            "[RoR|OgreNext|MetalFx] frame_id=%llu tier=%s internal=%ux%u "
+            "output=%ux%u taa_enabled=%d encoded=%llu degraded=%llu\n",
+            static_cast<unsigned long long>(request.frame_id),
+            OgreNextMetalFxTierName(impl_->metalfx_tier),
+            impl_->metalfx_input_width, impl_->metalfx_input_height,
+            impl_->hdr_width, impl_->hdr_height,
+            impl_->TemporalAaEnabled() ? 1 : 0,
+            static_cast<unsigned long long>(
+                impl_->metalfx_listener.encoded_frames()),
+            static_cast<unsigned long long>(
+                impl_->metalfx_listener.degraded_frames()));
+      }
+    }
+#endif
     if (impl_->TemporalAaEnabled()) {
       OgreNextTaaFrameInput taa_input;
       taa_input.lifecycle_epoch = impl_->taa_state.lifecycle_epoch();
@@ -16385,22 +16445,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
           static_cast<unsigned long long>(impl_->taa_degraded_frames),
           committed_taa_plan.width, committed_taa_plan.height,
           static_cast<unsigned long long>(committed_taa_plan.lifecycle_epoch));
-#if defined(ROR_OGRE_NEXT_N1_METAL)
-      if (impl_->metalfx_upscaler != nullptr) {
-        std::fprintf(
-            stderr,
-            "[RoR|OgreNext|MetalFx] frame_id=%llu tier=%s internal=%ux%u "
-            "output=%ux%u encoded=%llu degraded=%llu\n",
-            static_cast<unsigned long long>(request.frame_id),
-            OgreNextMetalFxTierName(impl_->metalfx_tier),
-            impl_->metalfx_input_width, impl_->metalfx_input_height,
-            impl_->hdr_width, impl_->hdr_height,
-            static_cast<unsigned long long>(
-                impl_->metalfx_listener.encoded_frames()),
-            static_cast<unsigned long long>(
-                impl_->metalfx_listener.degraded_frames()));
-      }
-#endif
+
     }
     if (shadow_plan.enabled) {
       impl_->shadow_audit.last_frame = shadow_plan;
