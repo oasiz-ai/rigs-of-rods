@@ -257,7 +257,12 @@ bool SameBinding(const OgreNextTaaImageBinding &lhs,
 ValidationResult ValidateBinding(const OgreNextTaaImageBinding &binding,
                                  PixelFormat expected_format,
                                  const OgreNextTaaFramePlan &plan,
-                                 const char *field) {
+                                 const char *field,
+                                 bool at_resolve_extent = false) {
+  const std::uint32_t expected_width =
+      at_resolve_extent ? plan.resolve_width : plan.width;
+  const std::uint32_t expected_height =
+      at_resolve_extent ? plan.resolve_height : plan.height;
   if (binding.native_identity == 0U || binding.generation == 0U) {
     return ValidationResult::Failure(
         ValidationCode::INVALID_IDENTIFIER, field,
@@ -268,7 +273,7 @@ ValidationResult ValidateBinding(const OgreNextTaaImageBinding &binding,
         ValidationCode::INVALID_ENUM, field,
         "TAA native image format does not match its exact role");
   }
-  if (binding.width != plan.width || binding.height != plan.height) {
+  if (binding.width != expected_width || binding.height != expected_height) {
     return ValidationResult::Failure(
         ValidationCode::INVALID_DIMENSIONS, field,
         "TAA native image extent does not match the planned view");
@@ -295,33 +300,52 @@ ValidateEvidence(const OgreNextTaaFramePlan &plan,
         "view lineage");
   }
 
+  // Scene inputs are sampled per rasterized pixel and must match the view
+  // extent. The history pair is the resolved image, which an upscaler
+  // legitimately keeps at the larger resolve extent.
   const struct {
     const OgreNextTaaImageBinding *binding;
     PixelFormat format;
     const char *field;
+    bool at_resolve_extent;
   } bindings[] = {
       {&evidence.current_colour, PixelFormat::RGBA16_FLOAT,
-       "evidence.current_colour"},
+       "evidence.current_colour", false},
       {&evidence.current_depth, PixelFormat::R32_FLOAT,
-       "evidence.current_depth"},
+       "evidence.current_depth", false},
       {&evidence.motion_vectors, PixelFormat::RG16_FLOAT,
-       "evidence.motion_vectors"},
+       "evidence.motion_vectors", false},
       {&evidence.reactive_mask, PixelFormat::R32_FLOAT,
-       "evidence.reactive_mask"},
+       "evidence.reactive_mask", false},
       {&evidence.history_source, PixelFormat::RGBA16_FLOAT,
-       "evidence.history_source"},
+       "evidence.history_source", true},
       {&evidence.history_destination, PixelFormat::RGBA16_FLOAT,
-       "evidence.history_destination"},
+       "evidence.history_destination", true},
   };
   for (const auto &entry : bindings) {
     const ValidationResult validation =
-        ValidateBinding(*entry.binding, entry.format, plan, entry.field);
+        ValidateBinding(*entry.binding, entry.format, plan, entry.field,
+                        entry.at_resolve_extent);
     if (!validation) {
       return validation;
     }
   }
+  // Every role must be a distinct image, with exactly one carve-out: when an
+  // external temporal upscaler owns the resolve, it also owns its own history
+  // rotation internally, so the source and destination roles legitimately name
+  // the single resolved target it reads and writes. That is only admissible
+  // when the plan actually declares an upscaled resolve - an in-engine
+  // ping-pong that aliased its two slots would still be a real defect.
+  const bool external_resolver_owns_history =
+      plan.resolve_width != plan.width || plan.resolve_height != plan.height;
   for (std::size_t left = 0U; left < std::size(bindings); ++left) {
     for (std::size_t right = left + 1U; right < std::size(bindings); ++right) {
+      const bool history_pair =
+          bindings[left].binding == &evidence.history_source &&
+          bindings[right].binding == &evidence.history_destination;
+      if (history_pair && external_resolver_owns_history) {
+        continue;
+      }
       if (bindings[left].binding->native_identity ==
           bindings[right].binding->native_identity) {
         return ValidationResult::Failure(
@@ -695,6 +719,18 @@ OgreNextTaaState::PrepareFrame(const OgreNextTaaFrameInput &input,
   candidate.view_id = input.view.view_id;
   candidate.width = input.view.width;
   candidate.height = input.view.height;
+  // A zero request means the resolve shares the view extent; an upscaler
+  // supplies its own larger target and may never shrink the resolve.
+  candidate.resolve_width = input.resolve_width != 0U ? input.resolve_width
+                                                      : input.view.width;
+  candidate.resolve_height = input.resolve_height != 0U ? input.resolve_height
+                                                        : input.view.height;
+  if (candidate.resolve_width < input.view.width ||
+      candidate.resolve_height < input.view.height) {
+    return ValidationResult::Failure(
+        ValidationCode::INVALID_DIMENSIONS, "input.resolve_width",
+        "TAA resolve extent may not be smaller than the rasterized view");
+  }
   candidate.view = input.view;
   const ValidationResult camera_lineage = ComputeOgreNextTaaCameraLineage(
       input.view, candidate.camera_lineage_fnv1a64);

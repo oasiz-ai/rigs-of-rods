@@ -8467,7 +8467,25 @@ public:
   /// Builds this frame's execution evidence from the live workspace and
   /// prepares the two-phase contract commit. Failure leaves the temporal
   /// stream un-advanced; the caller degrades instead of failing the frame.
+  /// Fail-closed wrapper. Ogre resolves compositor textures by name and
+  /// THROWS for a name the active topology does not declare, so a topology
+  /// mismatch here would otherwise escape as a whole-frame capture rejection
+  /// - which breaks the scene/particle lineage and freezes the session for
+  /// good. Any such fault is converted into an ordinary temporal degrade:
+  /// logged, history reseeded, session untouched.
   [[nodiscard]] RenderOperationResult PrepareTemporalAaCommit() {
+    try {
+      return PrepareTemporalAaCommitUnguarded();
+    } catch (const Ogre::Exception &exception) {
+      return HdrBackendFailure(std::string("temporal AA commit faulted: ") +
+                               exception.getDescription());
+    } catch (const std::exception &exception) {
+      return HdrBackendFailure(std::string("temporal AA commit faulted: ") +
+                               exception.what());
+    }
+  }
+
+  [[nodiscard]] RenderOperationResult PrepareTemporalAaCommitUnguarded() {
     if (!taa_frame_active || hdr_workspace == nullptr) {
       return HdrBackendFailure(
           "temporal AA commit requested without an active frame");
@@ -8488,15 +8506,19 @@ public:
     evidence.snapshot_id = plan.snapshot_id;
     evidence.view_id = plan.view_id;
     evidence.camera_lineage_fnv1a64 = plan.camera_lineage_fnv1a64;
-    Ogre::TextureGpu *history_a =
-        taa->getDefinedTexture(kOgreNextTaaHistoryATexture);
-    Ogre::TextureGpu *history_b =
-        taa->getDefinedTexture(kOgreNextTaaHistoryBTexture);
-    // Under MetalFX the ping-pong history lives inside MTLFXTemporalScaler
-    // rather than in two RoR targets, so the contract's history-source and
+    // CompositorNode::getDefinedTexture THROWS ItemIdentityException for a
+    // name the node definition does not declare - it never returns null - so
+    // the ping-pong history may only be asked for in the topology that
+    // actually defines it. Under MetalFX the history lives inside
+    // MTLFXTemporalScaler instead, and the contract's history-source and
     // history-destination evidence both resolve to the single UAV target the
     // scaler reads its previous result from and writes this frame's into.
-    if (history_a == nullptr && history_b == nullptr) {
+    Ogre::TextureGpu *history_a = nullptr;
+    Ogre::TextureGpu *history_b = nullptr;
+    if (metalfx_tier == OgreNextMetalFxTier::NATIVE) {
+      history_a = taa->getDefinedTexture(kOgreNextTaaHistoryATexture);
+      history_b = taa->getDefinedTexture(kOgreNextTaaHistoryBTexture);
+    } else {
       Ogre::TextureGpu *const resolved =
           taa->getDefinedTexture(kOgreNextTaaOutputTexture);
       history_a = resolved;
@@ -11571,6 +11593,10 @@ public:
   /// and the tier is demoted for the frame signature.
   OgreNextMetalFxTier metalfx_tier = OgreNextMetalFxTier::NATIVE;
   std::uint64_t metalfx_signature_frames = 0U;
+  std::uint64_t hdr_exposure_trace_frames = 0U;
+  std::uint64_t taa_plan_trace_frames = 0U;
+  std::uint64_t taa_commit_reached_frames = 0U;
+  std::uint64_t taa_commit_missed_frames = 0U;
   std::uint32_t metalfx_input_width = 0U;
   std::uint32_t metalfx_input_height = 0U;
 #if defined(ROR_OGRE_NEXT_N1_METAL)
@@ -13424,6 +13450,21 @@ RenderOperationResult OgreNextN1Frontend::Render(
             "persistent R16 history diverged before frame submission");
       }
     }
+    // Stage 5 diagnostic: the exposure the metering resolved for this frame.
+    // Comparing this line between the NATIVE and upscaling tiers separates a
+    // scaler output problem from a metering-input problem.
+    if ((impl_->hdr_exposure_trace_frames++ % 300U) == 0U) {
+      std::fprintf(stderr,
+                   "[RoR|OgreNext|HdrExposure] frame_id=%llu exposure=%.6f "
+                   "min=%.6f max=%.6f prev_inv_lum=%.6f delta=%.5f\n",
+                   static_cast<unsigned long long>(request.frame_id),
+                   static_cast<double>(hdr_plan.ogre_exposure),
+                   static_cast<double>(hdr_plan.minimum_auto_exposure),
+                   static_cast<double>(hdr_plan.maximum_auto_exposure),
+                   static_cast<double>(
+                       hdr_plan.previous_inverse_luminance_r16.decoded),
+                   static_cast<double>(hdr_plan.delta_seconds));
+    }
     const RenderOperationResult configured = impl_->ConfigureHdrParameters(
         hdr_plan.ogre_exposure, hdr_plan.minimum_auto_exposure,
         hdr_plan.maximum_auto_exposure, hdr_plan.bloom_minimum_threshold,
@@ -13489,6 +13530,11 @@ RenderOperationResult OgreNextN1Frontend::Render(
           impl_->metalfx_input_height != 0U) {
         taa_input.view.width = impl_->metalfx_input_width;
         taa_input.view.height = impl_->metalfx_input_height;
+        // The scaler resolves that jittered lower-resolution scene into the
+        // presented extent, so the contract validates the history pair
+        // against this rather than against the rasterized view.
+        taa_input.resolve_width = impl_->hdr_width;
+        taa_input.resolve_height = impl_->hdr_height;
       }
       taa_input.pre_exposure = kOgreNextTaaCurrentRawHdrPreExposure;
       taa_input.camera_cut = false;
@@ -13511,6 +13557,19 @@ RenderOperationResult OgreNextN1Frontend::Render(
       } else {
         impl_->taa_frame_plan = taa_plan;
         impl_->taa_frame_active = true;
+        if ((impl_->taa_plan_trace_frames++ % 300U) == 0U) {
+          std::fprintf(
+              stderr,
+              "[RoR|OgreNext|TaaPlan] frame_id=%llu taa_frame=%llu phase=%u "
+              "jitter=(%.5f,%.5f) committed=%llu degraded=%llu active=1\n",
+              static_cast<unsigned long long>(request.frame_id),
+              static_cast<unsigned long long>(taa_plan.frame_id),
+              taa_plan.jitter_phase,
+              static_cast<double>(taa_plan.jitter_pixels.x),
+              static_cast<double>(taa_plan.jitter_pixels.y),
+              static_cast<unsigned long long>(impl_->taa_committed_frames),
+              static_cast<unsigned long long>(impl_->taa_degraded_frames));
+        }
 #if defined(ROR_OGRE_NEXT_N1_METAL)
         // Hand the scaler this frame's exact jitter and history policy before
         // the workspace executes. A seeding frame (no RoR history available)
@@ -17242,12 +17301,34 @@ RenderOperationResult OgreNextN1Frontend::Render(
         // evidence and prepare the temporal-history advance. A refusal here
         // degrades the stream (this frame presented with at most a half-pixel
         // offset and the next frame re-seeds) - never the session.
+        ++impl_->taa_commit_reached_frames;
         const RenderOperationResult taa_preparation =
             impl_->PrepareTemporalAaCommit();
         if (!taa_preparation) {
           impl_->DegradeTemporalAaFrame(
               request.frame_id, taa_preparation.detail.c_str());
         }
+      } else if ((impl_->taa_commit_missed_frames++ % 300U) == 0U) {
+        // The temporal plan did not activate this frame. Under the upscaling
+        // tiers this silently froze the jitter phase, so the miss is now
+        // always reported with the state that produced it.
+        std::fprintf(stderr,
+                     "[RoR|OgreNext|TaaPlan] frame_id=%llu active=0 "
+                     "enabled=%d committed=%llu degraded=%llu reached=%llu "
+                     "missed=%llu last_reason=%s\n",
+                     static_cast<unsigned long long>(request.frame_id),
+                     impl_->TemporalAaEnabled() ? 1 : 0,
+                     static_cast<unsigned long long>(
+                         impl_->taa_committed_frames),
+                     static_cast<unsigned long long>(
+                         impl_->taa_degraded_frames),
+                     static_cast<unsigned long long>(
+                         impl_->taa_commit_reached_frames),
+                     static_cast<unsigned long long>(
+                         impl_->taa_commit_missed_frames),
+                     impl_->taa_last_degrade_reason.empty()
+                         ? "none"
+                         : impl_->taa_last_degrade_reason.c_str());
       }
 #if defined(ROR_OGRE_NEXT_N1_TEXTURE_TEST_SEAM)
       if (!deferred_sun_visibility_v2) {

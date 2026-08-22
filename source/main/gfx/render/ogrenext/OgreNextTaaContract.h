@@ -65,6 +65,14 @@ struct OgreNextTaaFrameInput final {
   /// equal the deterministic phase for frame_id; projections remain
   /// unjittered and current/previous matrices stay independently visible.
   CameraViewRequest view{};
+  /// Extent of the resolved temporal result when it differs from the extent
+  /// the scene is rasterized at. Zero means "identical to the view", which is
+  /// the case for every in-engine resolve. A temporal upscaler resolves the
+  /// jittered lower-resolution scene into a larger target, so its history
+  /// images legitimately live at this extent while every per-pixel scene
+  /// input stays at the view extent. It must never be SMALLER than the view.
+  std::uint32_t resolve_width = 0U;
+  std::uint32_t resolve_height = 0U;
   /// Scale already applied to the linear HDR scene colour for this frame.
   /// This may differ from CameraViewRequest::exposure because the HDR
   /// compositor's temporal auto-exposure owns pre-exposure history. The
@@ -83,6 +91,10 @@ struct OgreNextTaaFramePlan final {
   std::uint64_t view_id = 0U;
   std::uint32_t width = 0U;
   std::uint32_t height = 0U;
+  /// Extent of the resolved temporal result. Equals width/height unless a
+  /// temporal upscaler resolves into a larger target.
+  std::uint32_t resolve_width = 0U;
+  std::uint32_t resolve_height = 0U;
   CameraViewRequest view{};
   std::uint64_t camera_lineage_fnv1a64 = 0U;
   std::uint32_t jitter_phase = 0U;

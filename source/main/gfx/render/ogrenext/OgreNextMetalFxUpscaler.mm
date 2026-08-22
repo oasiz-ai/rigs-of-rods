@@ -326,7 +326,33 @@ OgreNextMetalFxTier OgreNextMetalFxRequestedTier() noexcept {
   return tier;
 }
 
+/// Diagnostic override for the per-axis internal render scale, e.g.
+/// ROR_METALFX_SCALE=1.0 runs the full scaler path with NO resolution change.
+/// That separates "the scaler alters the image" from "the reduced internal
+/// extent breaks something downstream" without touching any other code path.
+/// Values outside (0.25, 1.0] are ignored.
+[[nodiscard]] static float MetalFxScaleOverride() noexcept {
+  static const float override_scale = [] {
+    const char *raw = std::getenv("ROR_METALFX_SCALE");
+    if (raw == nullptr) {
+      return 0.0F;
+    }
+    const float parsed = std::strtof(raw, nullptr);
+    if (!(parsed > 0.25F) || !(parsed <= 1.0F)) {
+      return 0.0F;
+    }
+    return parsed;
+  }();
+  return override_scale;
+}
+
 float OgreNextMetalFxTierScale(OgreNextMetalFxTier tier) noexcept {
+  if (tier != OgreNextMetalFxTier::NATIVE) {
+    const float override_scale = MetalFxScaleOverride();
+    if (override_scale > 0.0F) {
+      return override_scale;
+    }
+  }
   switch (tier) {
   case OgreNextMetalFxTier::QUALITY:
     return kOgreNextMetalFxQualityScale;
