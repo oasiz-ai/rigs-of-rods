@@ -2340,10 +2340,21 @@ const OgreNextScreenShadeConfig &GetOgreNextScreenShadeConfig() {
     const char *ao_raw = std::getenv("ROR_AO");
     const std::string ao_mode(ao_raw != nullptr ? ao_raw : "half");
     if (ao_mode == "half" || ao_mode == "full") {
-      resolved.ao_radius_m = 1.2F;
-      resolved.ao_strength = 1.1F;
-      resolved.ao_power = 1.5F;
-      resolved.ao_sample_count = ao_mode == "full" ? 12.0F : 10.0F;
+      // Tuned on the alley canyon against the shade-off reference. The
+      // original 1.2 m / 1.1 / 1.5 defaults only reached -10% at the
+      // strongest crevice and -1.1% frame mean, which reads as a wash on
+      // architectural scale; a 3 m radius spans the wall-to-wall occlusion
+      // an alley actually has. These values measure -23% at the strongest
+      // crevice and -3.0% frame mean while still never brightening a pixel
+      // (whole-frame maximum +0.01%) and leaving direct-lit surfaces at
+      // exactly +0.00%. The deep-shade canyon wall moves sRGB (87.0,80.5,
+      // 77.1) -> (79.1,72.9,69.8), still ~8x the pre-SH-seat (10,10,7)
+      // floor, so the raised sky fill is shaped rather than erased.
+      resolved.ao_radius_m = 3.0F;
+      resolved.ao_strength = 1.7F;
+      resolved.ao_power = 1.8F;
+      // The wider radius spreads the spiral, so both tiers take more taps.
+      resolved.ao_sample_count = ao_mode == "full" ? 16.0F : 12.0F;
       resolved.resolution_scale = ao_mode == "full" ? 1.0F : 0.5F;
       (void)ParseShadeEnvFloat("ROR_AO_RADIUS_M", 0.1F, 8.0F,
                                resolved.ao_radius_m);
