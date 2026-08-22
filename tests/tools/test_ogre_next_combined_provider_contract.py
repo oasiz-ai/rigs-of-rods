@@ -423,6 +423,10 @@ class CombinedProviderContractTests(unittest.TestCase):
     def test_linux_binary_proof_uses_the_platform_renderer_and_elf_tools(self) -> None:
         for token in (
             'elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")',
+            'file(REAL_PATH "${CMAKE_NM}" _ror_combined_nm_tool)',
+            'file(REAL_PATH "${ROR_OGRE_NEXT_DYNAMIC_AUDIT_TOOL}"',
+            '--nm "${_ror_combined_nm_tool}"',
+            '--readelf "${_ror_combined_dynamic_audit_tool}"',
             "verify_ogre_next_combined_elf_closure.py",
             "--readelf",
             "--required-ogre14-library",
