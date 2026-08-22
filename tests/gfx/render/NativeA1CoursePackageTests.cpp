@@ -145,8 +145,12 @@ void TestCheckedPackage() {
                            "rorng_a1_glass_slab_mesh",
                            "rorng_a1_lane_marking_mesh",
                            "rorng_a1_shoulder_mesh"}) {
-    Require(FindAsset(package, name) != nullptr,
-            "required course mesh is absent");
+    const GraphicsSceneAssetInput *mesh_asset = FindAsset(package, name);
+    Require(mesh_asset != nullptr, "required course mesh is absent");
+    const auto &mesh = std::get<MeshResourceDescriptor>(*mesh_asset->payload);
+    Require(mesh.version == kMeshResourceDescriptorVersion &&
+                mesh.distance_lod_levels.empty(),
+            "wire-v1 mesh was not upgraded to the current empty-LOD descriptor");
   }
 
   CheckTexture(package, "rorng_a1_road_base", 1024U, 11U,

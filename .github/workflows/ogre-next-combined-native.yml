@@ -341,6 +341,15 @@ jobs:
               > "$stage/qualification/renderer-smoke.gdb.log" 2>&1 || true
             exit "$smoke_status"
           fi
+          smoke_log="$stage/qualification/renderer-smoke.stdout.log"
+          if grep -Fq '[RoR|RendererCombined|Scene] Snapshot not presented' "$smoke_log"; then
+            echo "Ogre-Next showcase rejected a scene snapshot" >&2
+            exit 1
+          fi
+          if ! grep -Fq '[RoR|RendererCombined|NativeShowcase|Turntable]' "$smoke_log"; then
+            echo "Ogre-Next showcase produced no presented-scene receipt" >&2
+            exit 1
+          fi
           python - <<'PY'
           import json
           import os

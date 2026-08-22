@@ -1041,12 +1041,18 @@ bool ReadRecordHeader(Reader &reader, std::uint32_t &type,
 
 ValidationResult DecodeMesh(Reader &reader, RenderAssetPayload &payload) {
   MeshResourceDescriptor mesh;
+  // Native package v1/v2 predates the optional portable distance-LOD ladder
+  // and serializes mesh-record version 1. Decode that wire format into the
+  // current descriptor with an empty ladder; a future package version must
+  // introduce explicit LOD bytes rather than silently changing this record.
+  constexpr std::uint32_t kNativePackageMeshRecordVersion = 1U;
   std::uint32_t version = 0U;
   std::uint8_t topology = 0U;
   std::uint8_t index_format = 0U;
   std::uint8_t dynamic = 0U;
   std::uint8_t reserved = 0U;
-  if (!reader.ReadU32(version) || version != kMeshResourceDescriptorVersion ||
+  if (!reader.ReadU32(version) ||
+      version != kNativePackageMeshRecordVersion ||
       !reader.ReadString(mesh.debug_name) || !reader.ReadU8(topology) ||
       !reader.ReadU8(index_format) || !reader.ReadU8(dynamic) ||
       !reader.ReadU8(reserved) || reserved != 0U || dynamic != 0U ||
@@ -1057,7 +1063,7 @@ ValidationResult DecodeMesh(Reader &reader, RenderAssetPayload &payload) {
     return Failure(ValidationCode::SIZE_MISMATCH, "native.mesh",
                    "mesh header is truncated or non-canonical");
   }
-  mesh.version = version;
+  mesh.version = kMeshResourceDescriptorVersion;
   mesh.topology = static_cast<MeshPrimitiveTopology>(topology);
   mesh.index_format = static_cast<MeshIndexFormat>(index_format);
   mesh.dynamic = false;
