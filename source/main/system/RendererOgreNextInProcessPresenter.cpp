@@ -1096,6 +1096,14 @@ public:
     frontend_configuration.directional_shadow_mode = native_sun_visibility_v2
         ? OgreNextDirectionalShadowMode::DISABLED
         : OgreNextDirectionalShadowMode::PSSM_3_CASCADE_V1;
+    if (!native_sun_visibility_v2) {
+      // Stage 3: the combined raster session opts into the modern cascade
+      // quality defaults (and their fail-closed environment knobs) before
+      // the frontend resolves the immutable shadow configuration. The
+      // standalone probe never calls this and keeps the byte-stable V1
+      // checkpoint values.
+      RoR::Render::RequestOgreNextPssmModernShadowQualityDefaults();
+    }
     frontend_configuration.enable_hdr_compositor = true;
     frontend_configuration.hdr_scene_topology = native_sun_visibility_v2
         ? OgreNextHdrSceneTopology::DIRECTIONAL_SPLIT_V2

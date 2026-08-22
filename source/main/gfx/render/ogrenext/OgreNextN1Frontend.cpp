@@ -263,8 +263,8 @@ struct OgreNextStage0DistanceCullPolicy final {
   /// Cascade band far ends and the minimum world-bounds radius an object
   /// needs to still cover kOgreNextStage0CasterCullTexels texels of that
   /// cascade's estimated texel density.
-  std::array<float, kOgreNextPssmCascadeCount> band_end{};
-  std::array<float, kOgreNextPssmCascadeCount> minimum_caster_radius{};
+  std::array<float, kOgreNextPssmMaxCascadeCount> band_end{};
+  std::array<float, kOgreNextPssmMaxCascadeCount> minimum_caster_radius{};
 
   bool operator==(const OgreNextStage0DistanceCullPolicy &other)
       const noexcept {
@@ -326,6 +326,8 @@ bool BuildOgreNextStage0DistanceCullPolicy(
     }
   }
   if (shadow_lever && shadow_plan_enabled) {
+    const OgreNextPssmShadowQualityConfig &shadow_config =
+        GetOgreNextPssmShadowQualityConfig();
     OgreNextPssmSplitPolicy splits;
     bool bands_valid = TryBuildOgreNextPssmSplitPolicy(splits);
     if (bands_valid) {
@@ -333,7 +335,7 @@ bool BuildOgreNextStage0DistanceCullPolicy(
       const float tan_y = 1.0F / projection_scale_y;
       const float corner_scale = tan_x * tan_x + tan_y * tan_y;
       for (std::size_t index = 0U;
-           bands_valid && index < kOgreNextPssmCascadeCount; ++index) {
+           bands_valid && index < shadow_config.cascade_count; ++index) {
         const float near_z = splits.split_points[index];
         const float far_z = splits.split_points[index + 1U];
         // Bounding sphere of the perspective frustum slice [near_z, far_z]:
@@ -350,7 +352,7 @@ bool BuildOgreNextStage0DistanceCullPolicy(
             (far_z - center_z) * (far_z - center_z) + corner_far));
         const float texel =
             2.0F * radius * kOgreNextPssmXyPadding /
-            static_cast<float>(kOgreNextPssmCascadeLayouts[index].width);
+            static_cast<float>(shadow_config.layouts[index].width);
         const float minimum_radius = texel *
                                      (kOgreNextStage0CasterCullTexels * 0.5F) *
                                      kOgreNextStage0CasterTexelMargin;
@@ -1516,17 +1518,19 @@ void CreateAndVerifyPssmShadowNode(
     const Ogre::RenderSystemCapabilities &capabilities,
     const std::string &shadow_node_name,
     std::uint32_t native_visibility_mask) {
+  const OgreNextPssmShadowQualityConfig &shadow_config =
+      GetOgreNextPssmShadowQualityConfig();
   Ogre::ShadowNodeHelper::ShadowParam parameter{};
   parameter.supportedLightTypes = 0U;
   parameter.addLightType(Ogre::Light::LT_DIRECTIONAL);
   parameter.technique = Ogre::SHADOWMAP_PSSM;
   parameter.numPssmSplits =
-      static_cast<Ogre::uint8>(kOgreNextPssmCascadeCount);
+      static_cast<Ogre::uint8>(shadow_config.cascade_count);
   parameter.atlasId = 0U;
-  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount;
+  for (std::size_t index = 0U; index < shadow_config.cascade_count;
        ++index) {
     const OgreNextPssmCascadeLayout &layout =
-        kOgreNextPssmCascadeLayouts[index];
+        shadow_config.layouts[index];
     parameter.resolution[index] =
         Ogre::ShadowNodeHelper::Resolution(layout.width, layout.height);
     parameter.atlasStart[index] =
@@ -1536,7 +1540,7 @@ void CreateAndVerifyPssmShadowNode(
   parameters.push_back(parameter);
   Ogre::ShadowNodeHelper::createShadowNodeWithSettings(
       &compositors, &capabilities, shadow_node_name, parameters, false,
-      1024U, kOgreNextPssmLambda, kOgreNextPssmSplitPaddingMeters,
+      1024U, shadow_config.lambda, kOgreNextPssmSplitPaddingMeters,
       kOgreNextPssmSplitBlend, kOgreNextPssmSplitFade,
       kOgreNextPssmStableCascadeCount, native_visibility_mask,
       kOgreNextPssmXyPadding, 0U, 255U);
@@ -1550,16 +1554,16 @@ void CreateAndVerifyPssmShadowNode(
           Ogre::IdString(shadow_node_name));
   if (definition == nullptr ||
       definition->getNumShadowTextureDefinitions() !=
-          kOgreNextPssmCascadeCount ||
+          shadow_config.cascade_count ||
       definition->getNumTargetPasses() !=
-          kOgreNextPssmCascadeCount + 1U) {
+          shadow_config.cascade_count + 1U) {
     throw std::runtime_error(
-        "Ogre-Next PSSM helper substituted the reviewed three-cascade node topology");
+        "Ogre-Next PSSM helper substituted the reviewed cascade node topology");
   }
   const auto &textures = definition->getLocalTextureDefinitions();
   if (textures.size() != 1U ||
-      textures.front().width != kOgreNextPssmAtlasWidth ||
-      textures.front().height != kOgreNextPssmAtlasHeight ||
+      textures.front().width != shadow_config.atlas_width ||
+      textures.front().height != shadow_config.atlas_height ||
       textures.front().format != Ogre::PFG_D32_FLOAT ||
       textures.front().depthBufferFormat != Ogre::PFG_D32_FLOAT ||
       textures.front().preferDepthTexture || textures.front().fsaa != "1" ||
@@ -1567,10 +1571,10 @@ void CreateAndVerifyPssmShadowNode(
           (Ogre::TextureFlags::RenderToTexture |
            Ogre::TextureFlags::DiscardableContent)) {
     throw std::runtime_error(
-        "Ogre-Next PSSM helper substituted the reviewed 2048x3072 D32_FLOAT atlas");
+        "Ogre-Next PSSM helper substituted the reviewed D32_FLOAT atlas");
   }
 
-  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount;
+  for (std::size_t index = 0U; index < shadow_config.cascade_count;
        ++index) {
     Ogre::ShadowTextureDefinition *shadow =
         definition->getShadowTextureDefinitionNonConst(index);
@@ -1580,26 +1584,26 @@ void CreateAndVerifyPssmShadowNode(
     shadow->autoNormalOffsetBiasScale =
         kOgreNextPssmAutoNormalOffsetBiasScale;
     const OgreNextPssmCascadeLayout &layout =
-        kOgreNextPssmCascadeLayouts[index];
+        shadow_config.layouts[index];
     const Ogre::Vector2 expected_offset(
         static_cast<float>(layout.atlas_x) /
-            static_cast<float>(kOgreNextPssmAtlasWidth),
+            static_cast<float>(shadow_config.atlas_width),
         static_cast<float>(layout.atlas_y) /
-            static_cast<float>(kOgreNextPssmAtlasHeight));
+            static_cast<float>(shadow_config.atlas_height));
     const Ogre::Vector2 expected_length(
         static_cast<float>(layout.width) /
-            static_cast<float>(kOgreNextPssmAtlasWidth),
+            static_cast<float>(shadow_config.atlas_width),
         static_cast<float>(layout.height) /
-            static_cast<float>(kOgreNextPssmAtlasHeight));
+            static_cast<float>(shadow_config.atlas_height));
     if (shadow->light != 0U || shadow->split != index ||
         shadow->shadowMapTechnique != Ogre::SHADOWMAP_PSSM ||
-        shadow->numSplits != kOgreNextPssmCascadeCount ||
+        shadow->numSplits != shadow_config.cascade_count ||
         shadow->numStableSplits != kOgreNextPssmStableCascadeCount ||
         !NearlyEqual(shadow->uvOffset.x, expected_offset.x) ||
         !NearlyEqual(shadow->uvOffset.y, expected_offset.y) ||
         !NearlyEqual(shadow->uvLength.x, expected_length.x) ||
         !NearlyEqual(shadow->uvLength.y, expected_length.y) ||
-        !NearlyEqual(shadow->pssmLambda, kOgreNextPssmLambda) ||
+        !NearlyEqual(shadow->pssmLambda, shadow_config.lambda) ||
         !NearlyEqual(shadow->splitPadding,
                      kOgreNextPssmSplitPaddingMeters) ||
         !NearlyEqual(shadow->splitBlend, kOgreNextPssmSplitBlend) ||
@@ -1621,7 +1625,7 @@ void CreateAndVerifyPssmShadowNode(
   const std::uint32_t expected_shadow_visibility_mask =
       native_visibility_mask | Ogre::VisibilityFlags::LAYER_SHADOW_CASTER;
   for (std::size_t target_index = 1U;
-       target_index < kOgreNextPssmCascadeCount + 1U; ++target_index) {
+       target_index < shadow_config.cascade_count + 1U; ++target_index) {
     const Ogre::CompositorPassDefVec &passes =
         definition->getTargetPass(target_index)->getCompositorPasses();
     const auto *scene_pass =
@@ -1762,7 +1766,7 @@ void UnbindAndVerifyPssmWorkspace(
 
 struct NativePssmReadback final {
   OgreNextPssmSplitPolicy splits;
-  std::array<float, kOgreNextPssmCascadeCount> normal_offset_bias{};
+  std::array<float, kOgreNextPssmMaxCascadeCount> normal_offset_bias{};
 };
 
 NativePssmReadback ReadAndVerifyNativePssmState(
@@ -1776,12 +1780,14 @@ NativePssmReadback ReadAndVerifyNativePssmState(
       shadow_node != nullptr ? shadow_node->getPssmBlends(0U) : nullptr;
   const Ogre::Real *native_fade =
       shadow_node != nullptr ? shadow_node->getPssmFade(0U) : nullptr;
+  const OgreNextPssmShadowQualityConfig &shadow_config =
+      GetOgreNextPssmShadowQualityConfig();
   OgreNextPssmSplitPolicy expected;
   if (shadow_node == nullptr || native_splits == nullptr ||
       native_blends == nullptr || native_fade == nullptr ||
       shadow_node->getNumActiveShadowCastingLights() != 1U ||
-      native_splits->size() != kOgreNextPssmCascadeCount + 1U ||
-      native_blends->size() != kOgreNextPssmCascadeCount - 1U ||
+      native_splits->size() != shadow_config.cascade_count + 1U ||
+      native_blends->size() != shadow_config.cascade_count - 1U ||
       !TryBuildOgreNextPssmSplitPolicy(expected)) {
     std::ostringstream detail;
     detail << "Ogre-Next PSSM runtime did not expose the reviewed cascade split state"
@@ -1799,6 +1805,7 @@ NativePssmReadback ReadAndVerifyNativePssmState(
     throw std::runtime_error(detail.str());
   }
   NativePssmReadback observed;
+  observed.splits.cascade_count = shadow_config.cascade_count;
   for (std::size_t index = 0U; index < native_splits->size(); ++index) {
     observed.splits.split_points[index] = (*native_splits)[index];
     if (!NearlyEqual(observed.splits.split_points[index],
@@ -1820,7 +1827,8 @@ NativePssmReadback ReadAndVerifyNativePssmState(
     throw std::runtime_error(
         "Ogre-Next PSSM runtime substituted the terminal fade point");
   }
-  for (std::size_t index = 0U; index < kOgreNextPssmCascadeCount; ++index) {
+  for (std::size_t index = 0U; index < shadow_config.cascade_count;
+       ++index) {
     if (!shadow_node->isShadowMapIdxActive(index)) {
       throw std::runtime_error(
           "Ogre-Next PSSM runtime left a reviewed cascade inactive");
@@ -1915,15 +1923,18 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
         OgreNextN1PssmFailureStage::AFTER_D32_ATLAS_CREATE,
         "injected PSSM D32 post-create rollback failure");
 #endif
-    texture->setResolution(kOgreNextPssmAtlasWidth, kOgreNextPssmAtlasHeight);
+    const OgreNextPssmShadowQualityConfig &shadow_config =
+        GetOgreNextPssmShadowQualityConfig();
+    texture->setResolution(shadow_config.atlas_width,
+                           shadow_config.atlas_height);
     texture->setNumMipmaps(1U);
     texture->setPixelFormat(Ogre::PFG_D32_FLOAT);
     texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
     OgreNextStage0TimedStreamingWait(texture_manager, "pssm_atlas_create");
     if (!texture->isDataReady() ||
         texture->getResidencyStatus() != Ogre::GpuResidency::Resident ||
-        texture->getWidth() != kOgreNextPssmAtlasWidth ||
-        texture->getHeight() != kOgreNextPssmAtlasHeight ||
+        texture->getWidth() != shadow_config.atlas_width ||
+        texture->getHeight() != shadow_config.atlas_height ||
         texture->getPixelFormat() != Ogre::PFG_D32_FLOAT) {
       throw std::runtime_error(
           "Ogre-Next did not allocate the exact resident PSSM D32 atlas");
@@ -1940,11 +1951,12 @@ ProbePssmD32Atlas(Ogre::TextureGpuManager &texture_manager
       Ogre::Image2 readback;
       readback.convertFromTexture(texture, 0U, 0U);
       const Ogre::TextureBox pixels = readback.getData(0U);
-      if (readback.getWidth() != kOgreNextPssmAtlasWidth ||
-          readback.getHeight() != kOgreNextPssmAtlasHeight ||
+      if (readback.getWidth() != shadow_config.atlas_width ||
+          readback.getHeight() != shadow_config.atlas_height ||
           readback.getPixelFormat() != Ogre::PFG_D32_FLOAT ||
-          pixels.width != kOgreNextPssmAtlasWidth ||
-          pixels.height != kOgreNextPssmAtlasHeight || pixels.data == nullptr) {
+          pixels.width != shadow_config.atlas_width ||
+          pixels.height != shadow_config.atlas_height ||
+          pixels.data == nullptr) {
         throw std::runtime_error(
             "Ogre-Next PSSM D32 atlas staging readback metadata changed");
       }
@@ -12126,8 +12138,10 @@ RenderOperationResult OgreNextN1Frontend::Initialize(
       impl_->shadow_audit.observed_maximum_texture_dimension =
           impl_->maximum_texture_dimension;
       impl_->shadow_audit.atlas_dimensions_supported =
-          impl_->maximum_texture_dimension >= kOgreNextPssmAtlasWidth &&
-          impl_->maximum_texture_dimension >= kOgreNextPssmAtlasHeight;
+          impl_->maximum_texture_dimension >=
+              GetOgreNextPssmShadowQualityConfig().atlas_width &&
+          impl_->maximum_texture_dimension >=
+              GetOgreNextPssmShadowQualityConfig().atlas_height;
       impl_->shadow_audit.texture_gather_supported =
           device_capabilities->hasCapability(Ogre::RSC_TEXTURE_GATHER);
       if (!impl_->shadow_audit.atlas_dimensions_supported ||
@@ -14418,9 +14432,10 @@ RenderOperationResult OgreNextN1Frontend::Render(
       // evidence of the last completed shadow present until this present
       // commits its own retained set, or a mutation failure tears the
       // retained scene (and its evidence) down with it.
-      impl_->scene_manager->setShadowFarDistance(kOgreNextPssmFarMeters);
+      impl_->scene_manager->setShadowFarDistance(
+          GetOgreNextPssmShadowQualityConfig().far_meters);
       impl_->scene_manager->setShadowDirectionalLightExtrusionDistance(
-          kOgreNextPssmFarMeters);
+          GetOgreNextPssmShadowQualityConfig().far_meters);
     }
     const Ogre::ColourValue expected_ambient(
         snapshot.environment().ambient_radiance.x *
@@ -14690,7 +14705,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
                 Ogre::Vector3::UNIT_Y));
         light->setCastShadows(shadow_plan.enabled);
         if (shadow_plan.enabled) {
-          light->setShadowFarDistance(kOgreNextPssmFarMeters);
+          light->setShadowFarDistance(
+              GetOgreNextPssmShadowQualityConfig().far_meters);
         }
         const Ogre::Vector3 expected_direction(descriptor.direction.x,
                                                descriptor.direction.y,
@@ -14703,7 +14719,7 @@ RenderOperationResult OgreNextN1Frontend::Render(
             light->getCastShadows() == shadow_plan.enabled &&
             (!shadow_plan.enabled ||
              (NearlyEqual(light->getShadowFarDistance(),
-                          kOgreNextPssmFarMeters) &&
+                          GetOgreNextPssmShadowQualityConfig().far_meters) &&
               descriptor.light_id == shadow_plan.shadow_light_id));
         ++lighting_candidate.last_directional_lights;
         positive_calibrated_directional_light =
@@ -14838,7 +14854,8 @@ RenderOperationResult OgreNextN1Frontend::Render(
       float shadow_distance = view_distance;
       if (stage0_present_policy.shadow_enabled) {
         float caster_distance = kOgreNextStage0SubTexelCasterDistanceMeters;
-        for (std::size_t band = 0U; band < kOgreNextPssmCascadeCount;
+        for (std::size_t band = 0U;
+             band < GetOgreNextPssmShadowQualityConfig().cascade_count;
              ++band) {
           if (world_radius >=
               stage0_present_policy.minimum_caster_radius[band]) {
