@@ -293,12 +293,15 @@ force pair is generated equal-and-opposite, and invalid geometry,
 configuration, history, material response, or float-runtime force range latches
 the calibrated beam fault closed instead of silently reverting to the legacy
 law. A faulted production beam is disabled. Deterministic-state digest schema
-v2 records that disabled state separately from a calibrated-material fault and
+v3 records that disabled state separately from a calibrated-material fault and
 hashes canonical runtime and constitutive error codes alongside the unchanged
-finite material history. It rejects non-latching errors, mismatched material
-error provenance, and fractured/faulted state combinations. Corrupted
-non-finite history still makes the canonical snapshot fail rather than
-admitting a NaN payload into a digest.
+finite material history. It also binds every native JBeam hydro's immutable
+configuration, source beam/reference-length identity, resolved binary32 solver
+length, actuator ratio, accepted-step counter, and canonical fault latch. It
+rejects non-latching errors, mismatched material error provenance,
+fractured/faulted state combinations, invalid hydro configuration/history, and
+hydro-to-beam rest-length conflicts. Corrupted non-finite history still makes
+the canonical snapshot fail rather than admitting a NaN payload into a digest.
 
 Calibrated production beams now derive endpoint displacement, length, unit
 axis, and axial relative velocity together in an out-of-line strict-FP C++11

@@ -37,6 +37,8 @@
 #include "GUIManager.h"
 #include "GUI_MessageBox.h"
 #include "InputEngine.h"
+#include "JBeamHydroSavegame.h"
+#include "JBeamHydroSavegameJson.h"
 #include "Language.h"
 #include "PlatformUtils.h"
 #include "ScrewProp.h"
@@ -48,6 +50,7 @@
 
 #include <rapidjson/rapidjson.h>
 #include <fstream>
+#include <limits>
 #include <new>
 #include <set>
 #include <stdexcept>
@@ -62,6 +65,8 @@ namespace {
 
 static const char* const CALIBRATED_BEAM_STATE_MEMBER =
     "calibrated_beam_material_state";
+static const char* const JBEAM_HYDRO_STATE_MEMBER =
+    "jbeam_hydro_state_v1";
 static const char* const DETERMINISTIC_INPUT_CONTINUATION_MEMBER =
     "deterministic_input_continuation_v1";
 static const char* const DETERMINISTIC_SCENARIO_IDENTITY_MEMBER =
@@ -381,6 +386,233 @@ catch (const std::length_error&)
     return false;
 }
 
+bool BuildLiveJBeamHydros(
+    const ActorPtr& actor,
+    const rapidjson::Value* saved_beams,
+    std::vector<JBeamHydroSavegame::LiveHydro>& live_hydros)
+{
+    if (!actor || actor->ar_num_beams < 0 ||
+        (actor->ar_num_beams > 0 && actor->ar_beams == nullptr) ||
+        actor->ar_hydros.size() >
+            JBeamHydroSavegame::MAX_HYDRO_COUNT)
+    {
+        return false;
+    }
+    if (saved_beams != nullptr &&
+        (!saved_beams->IsArray() ||
+            saved_beams->Size() !=
+                static_cast<rapidjson::SizeType>(
+                    actor->ar_num_beams)))
+    {
+        return false;
+    }
+
+    std::vector<JBeamHydroSavegame::LiveHydro> candidate;
+    candidate.reserve(actor->ar_hydros.size());
+    for (std::size_t index = 0U;
+         index < actor->ar_hydros.size();
+         ++index)
+    {
+        const hydrobeam_t& hydro = actor->ar_hydros[index];
+        JBeamHydroSavegame::LiveHydro live;
+        live.hydro_index = static_cast<std::uint32_t>(index);
+        live.beam_index = hydro.hb_beam_index;
+        live.enabled = hydro.hb_has_jbeam_runtime;
+        live.reference_length = hydro.hb_ref_length;
+        live.config = hydro.hb_jbeam_config;
+        live.runtime_state = hydro.hb_jbeam_state;
+        if (!live.enabled)
+        {
+            candidate.push_back(live);
+            continue;
+        }
+        if (live.beam_index >= actor->ar_num_beams)
+            return false;
+
+        if (saved_beams != nullptr)
+        {
+            const rapidjson::Value& saved =
+                (*saved_beams)[live.beam_index];
+            if (!saved.IsArray() || saved.Size() != 9U ||
+                !saved[4].IsNumber())
+            {
+                return false;
+            }
+            const double serialized_length = saved[4].GetDouble();
+            if (!HydroActuatorDetail::IsFinite(serialized_length) ||
+                !(serialized_length > 0.0) ||
+                serialized_length > static_cast<double>(
+                    std::numeric_limits<float>::max()))
+            {
+                return false;
+            }
+            live.saved_runtime_rest_length =
+                static_cast<float>(serialized_length);
+        }
+        else
+        {
+            live.saved_runtime_rest_length =
+                actor->ar_beams[live.beam_index].L;
+        }
+        candidate.push_back(live);
+    }
+    live_hydros.swap(candidate);
+    return true;
+}
+
+bool BuildJBeamHydroPayload(
+    const ActorPtr& actor,
+    JBeamHydroSavegame::ActorPayload& payload,
+    JBeamHydroSavegame::Result& validation) try
+{
+    if (!actor)
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+    bool has_native_hydro = false;
+    for (const hydrobeam_t& hydro: actor->ar_hydros)
+    {
+        if (hydro.hb_has_jbeam_runtime)
+        {
+            has_native_hydro = true;
+            break;
+        }
+    }
+    if (!has_native_hydro)
+    {
+        payload = JBeamHydroSavegame::ActorPayload();
+        validation = JBeamHydroSavegame::Result();
+        return true;
+    }
+
+    std::vector<JBeamHydroSavegame::LiveHydro> live_hydros;
+    if (!BuildLiveJBeamHydros(actor, nullptr, live_hydros))
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+
+    validation = JBeamHydroSavegame::TryCapture(
+        live_hydros,
+        payload);
+    return validation.IsValid();
+}
+catch (const std::bad_alloc&)
+{
+    validation = JBeamHydroSavegame::Failure(
+        JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+        0U);
+    return false;
+}
+catch (const std::length_error&)
+{
+    validation = JBeamHydroSavegame::Failure(
+        JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+        0U);
+    return false;
+}
+
+bool TryStageJBeamHydroRestore(
+    const ActorPtr& actor,
+    const rapidjson::Value& j_entry,
+    bool& has_payload,
+    std::vector<JBeamHydroSavegame::StagedHydro>& staged,
+    JBeamHydroSavegame::Result& validation) try
+{
+    if (!j_entry.IsObject())
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+    has_payload = j_entry.HasMember(JBEAM_HYDRO_STATE_MEMBER);
+    if (!has_payload)
+        return true;
+    if (!j_entry.HasMember("beams"))
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+
+    std::vector<JBeamHydroSavegame::LiveHydro> live_hydros;
+    if (!BuildLiveJBeamHydros(
+            actor,
+            &j_entry["beams"],
+            live_hydros))
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+
+    const rapidjson::Value& serialized =
+        j_entry[JBEAM_HYDRO_STATE_MEMBER];
+    if (!serialized.IsObject() ||
+        !serialized.HasMember("schema_version") ||
+        !serialized["schema_version"].IsUint())
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+    if (serialized["schema_version"].GetUint() !=
+        JBeamHydroSavegame::PAYLOAD_SCHEMA_VERSION)
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::UNSUPPORTED_SCHEMA,
+            0U);
+        return false;
+    }
+    if (!serialized.HasMember("hydro_count") ||
+        !serialized["hydro_count"].IsUint() ||
+        serialized["hydro_count"].GetUint() !=
+            live_hydros.size())
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::HYDRO_COUNT_MISMATCH,
+            0U);
+        return false;
+    }
+
+    JBeamHydroSavegame::ActorPayload payload;
+    if (!JBeamHydroSavegame::ParseJson(serialized, payload))
+    {
+        validation = JBeamHydroSavegame::Failure(
+            JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+            0U);
+        return false;
+    }
+    validation = JBeamHydroSavegame::TryStage(
+        payload,
+        live_hydros,
+        staged);
+    return validation.IsValid();
+}
+catch (const std::bad_alloc&)
+{
+    validation = JBeamHydroSavegame::Failure(
+        JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+        0U);
+    return false;
+}
+catch (const std::length_error&)
+{
+    validation = JBeamHydroSavegame::Failure(
+        JBeamHydroSavegame::Error::MALFORMED_PAYLOAD,
+        0U);
+    return false;
+}
+
 void FailClosedMaterialRestore(const ActorPtr& actor)
 {
     if (!actor || actor->ar_num_beams <= 0 ||
@@ -399,6 +631,20 @@ void FailClosedMaterialRestore(const ActorPtr& actor)
             CalibratedBeamMaterial::Error::INVALID_STATE);
         beam.stress = 0.0f;
         beam.bm_disabled = true;
+    }
+}
+
+void FailClosedJBeamHydroRestore(const ActorPtr& actor)
+{
+    if (!actor)
+        return;
+    for (hydrobeam_t& hydro: actor->ar_hydros)
+    {
+        if (!hydro.hb_has_jbeam_runtime)
+            continue;
+        hydro.hb_jbeam_state.fault_latched = true;
+        hydro.hb_jbeam_state.fault =
+            JBeamHydroRuntimeFault::INVALID_PREVIOUS_STATE;
     }
 }
 
@@ -1365,6 +1611,34 @@ bool ActorManager::SaveScene(Ogre::String filename)
                 j_doc.GetAllocator());
         }
 
+        JBeamHydroSavegame::ActorPayload hydro_payload;
+        JBeamHydroSavegame::Result hydro_validation;
+        if (!BuildJBeamHydroPayload(
+                actor,
+                hydro_payload,
+                hydro_validation))
+        {
+            RoR::LogFormat(
+                "[RoR|Savegame] Refusing to serialize invalid native "
+                "JBeam hydro state (error=%d, hydro=%u)",
+                static_cast<int>(hydro_validation.error),
+                hydro_validation.hydro_index);
+            App::GetConsole()->putMessage(
+                Console::CONSOLE_MSGTYPE_INFO,
+                Console::CONSOLE_SYSTEM_ERROR,
+                _L("Error while saving scene: Invalid native JBeam hydro state"));
+            return false;
+        }
+        if (!hydro_payload.records.empty())
+        {
+            j_entry.AddMember(
+                rapidjson::StringRef(JBEAM_HYDRO_STATE_MEMBER),
+                JBeamHydroSavegame::SerializeJson(
+                    hydro_payload,
+                    j_doc.GetAllocator()),
+                j_doc.GetAllocator());
+        }
+
         j_actors.PushBack(j_entry, j_doc.GetAllocator());
     }
     j_doc.AddMember("actors", j_actors, j_doc.GetAllocator());
@@ -1432,6 +1706,36 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
             Console::CONSOLE_MSGTYPE_INFO,
             Console::CONSOLE_SYSTEM_ERROR,
             _L("Error while loading scene: Invalid calibrated beam state"));
+        return false;
+    }
+
+    bool has_hydro_payload = false;
+    std::vector<JBeamHydroSavegame::StagedHydro> staged_hydros;
+    JBeamHydroSavegame::Result hydro_validation;
+    if (!TryStageJBeamHydroRestore(
+            actor,
+            j_entry,
+            has_hydro_payload,
+            staged_hydros,
+            hydro_validation))
+    {
+        if (m_deterministic_actor_input_pending_savegame != nullptr)
+        {
+            this->FailPendingDeterministicActorInputSavegame(
+                "restored Actor hydro state rejected");
+        }
+        // A malformed native payload cannot resume through legacy hydro
+        // behavior even if a caller keeps the rejected actor alive.
+        FailClosedJBeamHydroRestore(actor);
+        RoR::LogFormat(
+            "[RoR|Savegame] Rejected native JBeam hydro state "
+            "(error=%d, hydro=%u)",
+            static_cast<int>(hydro_validation.error),
+            hydro_validation.hydro_index);
+        App::GetConsole()->putMessage(
+            Console::CONSOLE_MSGTYPE_INFO,
+            Console::CONSOLE_SYSTEM_ERROR,
+            _L("Error while loading scene: Invalid native JBeam hydro state"));
         return false;
     }
 
@@ -1656,6 +1960,25 @@ bool ActorManager::RestoreSavedState(ActorPtr actor, rapidjson::Value const& j_e
                 staged_material[index];
             actor->ar_beams[restored.beam_index].calibrated_material =
                 restored.runtime;
+        }
+    }
+
+    // A present schema-v1 payload was fully decoded and cross-checked against
+    // the ordinary beam array before any actor field changed. Publish every
+    // actuator state and its matching solver rest length together.
+    if (has_hydro_payload)
+    {
+        for (std::size_t index = 0U;
+             index < staged_hydros.size();
+             ++index)
+        {
+            const JBeamHydroSavegame::StagedHydro& restored =
+                staged_hydros[index];
+            hydrobeam_t& hydro =
+                actor->ar_hydros[restored.hydro_index];
+            hydro.hb_jbeam_state = restored.state;
+            actor->ar_beams[restored.beam_index].L =
+                restored.runtime_rest_length;
         }
     }
 

@@ -1,5 +1,6 @@
 #include "CalibratedBeamStateDigest.h"
 #include "DeterministicStateDigest.h"
+#include "JBeamHydroStateDigest.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -53,6 +54,7 @@ struct FakeSnapshotActor
     RoR::DeterministicStateDigest::SnapshotActor snapshot;
     std::vector<RoR::DeterministicStateDigest::NodeRecord> nodes;
     std::vector<RoR::DeterministicStateDigest::BeamRecord> beams;
+    std::vector<RoR::DeterministicStateDigest::HydroRecord> hydros;
 };
 
 class FakeSnapshotSource final :
@@ -70,6 +72,8 @@ public:
     std::size_t failing_node_actor =
         std::numeric_limits<std::size_t>::max();
     std::size_t failing_beam_actor =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t failing_hydro_actor =
         std::numeric_limits<std::size_t>::max();
     std::size_t failing_contact =
         std::numeric_limits<std::size_t>::max();
@@ -128,6 +132,22 @@ public:
         return true;
     }
 
+    bool ReadHydro(
+        std::size_t source_actor_index,
+        std::uint32_t hydro_index,
+        RoR::DeterministicStateDigest::HydroRecord& hydro)
+        const override
+    {
+        if (source_actor_index == failing_hydro_actor ||
+            source_actor_index >= actors.size() ||
+            hydro_index >= actors[source_actor_index].hydros.size())
+        {
+            return false;
+        }
+        hydro = actors[source_actor_index].hydros[hydro_index];
+        return true;
+    }
+
     std::size_t GetContactCount() const override
     {
         return reported_contact_count ==
@@ -167,6 +187,7 @@ FakeSnapshotSource MakeSnapshotSourceFixture()
     actor.snapshot.actor.origin = {{90.f, 9.f, -9.f}};
     actor.snapshot.node_count = 2;
     actor.snapshot.beam_count = 1;
+    actor.snapshot.hydro_count = 0;
     actor.snapshot.surface_contact_count = 3;
 
     NodeRecord node;
@@ -202,6 +223,7 @@ FakeSnapshotSource MakeSnapshotSourceFixture()
     actor.snapshot.actor.origin = {{30.f, 3.f, -3.f}};
     actor.snapshot.node_count = 1;
     actor.snapshot.beam_count = 1;
+    actor.snapshot.hydro_count = 1;
     actor.snapshot.surface_contact_count = 5;
 
     node = NodeRecord();
@@ -218,6 +240,16 @@ FakeSnapshotSource MakeSnapshotSourceFixture()
     beam.stress = 24.f;
     beam.state_flags = BEAM_STATE_BROKEN;
     actor.beams.push_back(beam);
+
+    HydroRecord hydro;
+    hydro.actor_id = 3;
+    hydro.hydro_id = 4;
+    hydro.beam_id = 0;
+    hydro.reference_length = 1.f;
+    hydro.runtime_rest_length = 1.25f;
+    hydro.length_ratio = 1.25;
+    hydro.accepted_step_count = 17U;
+    actor.hydros.push_back(hydro);
     source.actors.push_back(actor);
 
     ContactRecord contact;
@@ -317,6 +349,17 @@ RoR::DeterministicStateDigest::Digest BuildFixture(
     beam.state_flags = UINT32_C(0x07);
     CHECK(builder.AddBeam(beam));
 
+    CHECK(builder.BeginHydros(1));
+    HydroRecord hydro;
+    hydro.actor_id = 3;
+    hydro.hydro_id = 5;
+    hydro.beam_id = 2;
+    hydro.reference_length = 1.f;
+    hydro.runtime_rest_length = 1.25f;
+    hydro.length_ratio = 1.25;
+    hydro.accepted_step_count = 17U;
+    CHECK(builder.AddHydro(hydro));
+
     CHECK(builder.BeginContacts(2));
     ContactRecord contact;
     contact.surface_actor = 3;
@@ -354,6 +397,7 @@ RoR::DeterministicStateDigest::Digest BuildActorFixture(
     CHECK(builder.AddActor(actor));
     CHECK(builder.BeginNodes(0));
     CHECK(builder.BeginBeams(0));
+    CHECK(builder.BeginHydros(0));
     CHECK(builder.BeginContacts(0));
     Digest digest;
     CHECK(builder.Finish(digest));
@@ -373,22 +417,68 @@ RoR::DeterministicStateDigest::Digest BuildMaterialFixture(
     CHECK(builder.BeginNodes(0));
     CHECK(builder.BeginBeams(1));
     CHECK(builder.AddBeam(beam));
+    CHECK(builder.BeginHydros(0));
     CHECK(builder.BeginContacts(0));
     Digest digest;
     CHECK(builder.Finish(digest));
     return digest;
 }
 
+RoR::DeterministicStateDigest::Digest BuildHydroFixture(
+    const RoR::DeterministicStateDigest::HydroRecord& hydro)
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    Builder builder(11, 12);
+    CHECK(builder.BeginActors(1));
+    ActorRecord actor;
+    actor.actor_id = hydro.actor_id;
+    CHECK(builder.AddActor(actor));
+    CHECK(builder.BeginNodes(0));
+    CHECK(builder.BeginBeams(1));
+    BeamRecord beam;
+    beam.actor_id = hydro.actor_id;
+    beam.beam_id = hydro.beam_id;
+    beam.rest_length = hydro.runtime_rest_length;
+    CHECK(builder.AddBeam(beam));
+    CHECK(builder.BeginHydros(1));
+    CHECK(builder.AddHydro(hydro));
+    CHECK(builder.BeginContacts(0));
+    Digest digest;
+    CHECK(builder.Finish(digest));
+    return digest;
+}
+
+bool TryAddHydro(
+    const RoR::DeterministicStateDigest::HydroRecord& hydro,
+    RoR::DeterministicStateDigest::Error& error)
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    Builder builder(0, 0);
+    if (!builder.BeginActors(0) ||
+        !builder.BeginNodes(0) ||
+        !builder.BeginBeams(0) ||
+        !builder.BeginHydros(1))
+    {
+        error = builder.GetError();
+        return false;
+    }
+    const bool accepted = builder.AddHydro(hydro);
+    error = builder.GetError();
+    return accepted;
+}
+
 void TestGoldenAndSensitivity()
 {
     using namespace RoR::DeterministicStateDigest;
 
-    static_assert(SCHEMA_VERSION == 2,
-        "deterministic state digest fixture requires schema version 2");
+    static_assert(SCHEMA_VERSION == 3,
+        "deterministic state digest fixture requires schema version 3");
     const Digest baseline =
         BuildFixture(UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03));
     CHECK(baseline.ToHex() ==
-        "4c4bf29808476fbe9eb8f7f64c8420a8066db9e33f32f23c304ee9ac1924afe6");
+        "2f04acb3c74e37235e999f2616698b32f0b7667617b03582d63fe784bc4f7536");
     CHECK(baseline.ToHex().size() == 64);
     CHECK(BuildFixture(
         UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03)) == baseline);
@@ -420,6 +510,87 @@ void TestActorNoiseStateSensitivity()
         UINT64_C(0x0000000012345678), 11, 20) != baseline);
     CHECK(BuildActorFixture(
         UINT64_C(0x0000000012345678), 10, 21) != baseline);
+}
+
+void TestJBeamHydroHistorySensitivity()
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    HydroRecord hydro;
+    hydro.actor_id = 1;
+    hydro.hydro_id = 7;
+    hydro.beam_id = 3;
+    hydro.reference_length = 2.f;
+    hydro.runtime_rest_length = 1.5f;
+    hydro.length_ratio = 0.75;
+    hydro.accepted_step_count = 101U;
+    const Digest baseline = BuildHydroFixture(hydro);
+
+    HydroRecord changed = hydro;
+    changed.accepted_step_count++;
+    CHECK(BuildHydroFixture(changed) != baseline);
+    changed = hydro;
+    changed.in_rate = 3.0;
+    CHECK(BuildHydroFixture(changed) != baseline);
+    changed = hydro;
+    changed.input_in_limit = -2.0;
+    CHECK(BuildHydroFixture(changed) != baseline);
+    changed = hydro;
+    changed.flags |= HYDRO_FLAG_HAS_STEERING_WHEEL_LOCK;
+    changed.steering_wheel_lock = 540.0;
+    CHECK(BuildHydroFixture(changed) != baseline);
+    changed = hydro;
+    changed.flags |= HYDRO_FLAG_HAS_FACTOR;
+    changed.factor = 0.25;
+    CHECK(BuildHydroFixture(changed) != baseline);
+    changed = hydro;
+    changed.flags |= HYDRO_FLAG_FAULT_LATCHED;
+    changed.fault = HYDRO_RUNTIME_FAULT_INVALID_TIMESTEP;
+    CHECK(BuildHydroFixture(changed) != baseline);
+    changed = hydro;
+    changed.length_ratio = 0.5;
+    changed.runtime_rest_length = 1.f;
+    CHECK(BuildHydroFixture(changed) != baseline);
+}
+
+void TestJBeamHydroRuntimeMapping()
+{
+    using namespace RoR::DeterministicStateDigest;
+
+    RoR::JBeamHydroRuntimeConfig config;
+    config.response.has_factor = true;
+    config.response.factor = 0.25;
+    config.has_steering_wheel_lock = true;
+    config.steering_wheel_lock = 540.0;
+    RoR::JBeamHydroRuntimeState state;
+    state.response.length_ratio = 0.75;
+    state.accepted_step_count = 8U;
+    state.fault_latched = true;
+    state.fault = RoR::JBeamHydroRuntimeFault::INVALID_TIMESTEP;
+
+    HydroRecord hydro;
+    hydro.actor_id = 2;
+    hydro.hydro_id = 4;
+    hydro.beam_id = 6;
+    CHECK(JBeamHydroStateDigest::Populate(
+        config, state, 2.f, 1.5f, hydro));
+    CHECK(hydro.actor_id == 2);
+    CHECK(hydro.hydro_id == 4U);
+    CHECK(hydro.beam_id == 6U);
+    CHECK(hydro.input_route == HYDRO_INPUT_ROUTE_STEERING);
+    CHECK((hydro.flags & HYDRO_FLAG_HAS_FACTOR) != 0);
+    CHECK((hydro.flags & HYDRO_FLAG_HAS_STEERING_WHEEL_LOCK) != 0);
+    CHECK((hydro.flags & HYDRO_FLAG_FAULT_LATCHED) != 0);
+    CHECK(hydro.fault == HYDRO_RUNTIME_FAULT_INVALID_TIMESTEP);
+    CHECK(hydro.accepted_step_count == 8U);
+
+    const HydroRecord unchanged = hydro;
+    state.fault = static_cast<RoR::JBeamHydroRuntimeFault>(999);
+    CHECK(!JBeamHydroStateDigest::Populate(
+        config, state, 2.f, 1.5f, hydro));
+    CHECK(hydro.actor_id == unchanged.actor_id);
+    CHECK(hydro.fault == unchanged.fault);
+    CHECK(hydro.accepted_step_count == unchanged.accepted_step_count);
 }
 
 void TestCompleteMaterialHistorySensitivity()
@@ -558,11 +729,12 @@ void TestEmptySnapshot()
     CHECK(builder.BeginActors(0));
     CHECK(builder.BeginNodes(0));
     CHECK(builder.BeginBeams(0));
+    CHECK(builder.BeginHydros(0));
     CHECK(builder.BeginContacts(0));
     Digest digest;
     CHECK(builder.Finish(digest));
     CHECK(digest.ToHex() ==
-        "1ba7639424c7c8ee2740b81c428c96af6c62baad86ae48ea03b35cdb4a11244c");
+        "f41d8f258f46cfdbdac539e7e2c3cfc484c1a0578b2cc4595fec271d16820ef8");
 
     Digest second;
     CHECK(!builder.Finish(second));
@@ -623,6 +795,23 @@ void TestOrderAndCountFailures()
         CHECK(builder.BeginActors(0));
         CHECK(builder.BeginNodes(0));
         CHECK(builder.BeginBeams(0));
+        CHECK(builder.BeginHydros(2));
+        HydroRecord hydro;
+        hydro.actor_id = 2;
+        hydro.hydro_id = 1;
+        hydro.reference_length = 1.f;
+        hydro.runtime_rest_length = 1.f;
+        CHECK(builder.AddHydro(hydro));
+        hydro.actor_id = 1;
+        CHECK(!builder.AddHydro(hydro));
+        CHECK(builder.GetError() == Error::NON_CANONICAL_KEY);
+    }
+    {
+        Builder builder(1, 2);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(0));
+        CHECK(builder.BeginHydros(0));
         CHECK(builder.BeginContacts(2));
         ContactRecord contact;
         contact.surface_actor = 2;
@@ -663,6 +852,15 @@ void TestHardLimits()
         CHECK(builder.BeginActors(0));
         CHECK(builder.BeginNodes(0));
         CHECK(builder.BeginBeams(0));
+        CHECK(!builder.BeginHydros(MAX_HYDROS + 1));
+        CHECK(builder.GetError() == Error::COUNT_LIMIT_EXCEEDED);
+    }
+    {
+        Builder builder(0, 0);
+        CHECK(builder.BeginActors(0));
+        CHECK(builder.BeginNodes(0));
+        CHECK(builder.BeginBeams(0));
+        CHECK(builder.BeginHydros(0));
         CHECK(!builder.BeginContacts(MAX_CONTACTS + 1));
         CHECK(builder.GetError() == Error::COUNT_LIMIT_EXCEEDED);
     }
@@ -678,6 +876,54 @@ void TestInvalidRecordsAndFastMathFiniteCheck()
         DoubleFromBits(UINT64_C(0x7ff0000000000000));
     const double double_nan =
         DoubleFromBits(UINT64_C(0x7ff8000000001234));
+
+    HydroRecord valid_hydro;
+    valid_hydro.actor_id = 1;
+    valid_hydro.reference_length = 2.f;
+    valid_hydro.runtime_rest_length = 1.5f;
+    valid_hydro.length_ratio = 0.75;
+    Error hydro_error = Error::NONE;
+
+    HydroRecord invalid_hydro = valid_hydro;
+    invalid_hydro.runtime_schema_version++;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.input_route++;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.flags = UINT32_C(1) << 31;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.reference_length = 0.f;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.runtime_rest_length = 1.75f;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.factor = double_nan;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::NON_FINITE_VALUE);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.input_in_limit = 0.0;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.flags = HYDRO_FLAG_FAULT_LATCHED;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.fault = HYDRO_RUNTIME_FAULT_INVALID_INPUT;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::INVALID_RECORD);
+    invalid_hydro = valid_hydro;
+    invalid_hydro.length_ratio = double_infinity;
+    CHECK(!TryAddHydro(invalid_hydro, hydro_error));
+    CHECK(hydro_error == Error::NON_FINITE_VALUE);
 
     {
         Builder builder(0, 0);
@@ -920,7 +1166,7 @@ void TestSnapshotAdapterCanonicalExtraction()
     Digest baseline;
     CHECK(BuildSnapshotDigest(73, 91, source, baseline, &status));
     CHECK(baseline.ToHex() ==
-        "c44bd43b99f69e5a0472772d8457ad11f42d9dcf996407e085cd44bc306103ab");
+        "dfbf3b88c2f210ce5245432a4682e75b2446497ce69b11bff9ef98b254c57160");
     CHECK(status.error == SnapshotError::NONE);
     CHECK(status.digest_error == Error::NONE);
     CHECK(
@@ -955,10 +1201,23 @@ void TestSnapshotAdapterCanonicalExtraction()
         73, 91, changed, changed_digest, &status));
     CHECK(changed_digest != baseline);
 
+    changed = source;
+    changed.actors[1].hydros[0].accepted_step_count++;
+    CHECK(BuildSnapshotDigest(
+        73, 91, changed, changed_digest, &status));
+    CHECK(changed_digest != baseline);
+
+    changed = source;
+    changed.actors[1].hydros[0].out_rate = 3.0;
+    CHECK(BuildSnapshotDigest(
+        73, 91, changed, changed_digest, &status));
+    CHECK(changed_digest != baseline);
+
     FakeSnapshotSource minimum_id = source;
     minimum_id.actors[1].snapshot.actor.actor_id = 1;
     minimum_id.actors[1].nodes[0].actor_id = 1;
     minimum_id.actors[1].beams[0].actor_id = 1;
+    minimum_id.actors[1].hydros[0].actor_id = 1;
     for (ContactRecord& contact : minimum_id.contacts)
     {
         if (contact.surface_actor == 3)
@@ -1000,6 +1259,12 @@ void TestSnapshotAdapterFailsClosed()
     CHECK(status.error == SnapshotError::COUNT_LIMIT_EXCEEDED);
 
     source = MakeSnapshotSourceFixture();
+    source.actors[0].snapshot.hydro_count = MAX_HYDROS;
+    source.actors[1].snapshot.hydro_count = 1U;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::COUNT_LIMIT_EXCEEDED);
+
+    source = MakeSnapshotSourceFixture();
     source.actors[1].snapshot.actor.actor_id = 0;
     CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
     CHECK(status.error == SnapshotError::INVALID_ACTOR_ID);
@@ -1019,6 +1284,22 @@ void TestSnapshotAdapterFailsClosed()
 
     source = MakeSnapshotSourceFixture();
     source.actors[0].nodes[0].node_id = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[1].hydros[0].actor_id = 9;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[1].hydros[0].beam_id = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
+
+    source = MakeSnapshotSourceFixture();
+    source.actors[1].hydros[0].runtime_rest_length = 1.f;
+    source.actors[1].hydros[0].length_ratio = 1.0;
     CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
     CHECK(status.error == SnapshotError::INVALID_CROSS_REFERENCE);
 
@@ -1069,6 +1350,12 @@ void TestSnapshotAdapterFailsClosed()
     CHECK(status.source_index == 1);
 
     source = MakeSnapshotSourceFixture();
+    source.failing_hydro_actor = 1;
+    CHECK(!BuildSnapshotDigest(1, 2, source, sentinel, &status));
+    CHECK(status.error == SnapshotError::SOURCE_READ_FAILED);
+    CHECK(status.source_index == 1);
+
+    source = MakeSnapshotSourceFixture();
     CHECK(BuildSnapshotDigest(1, 2, source, sentinel, &status));
     CHECK(status.error == SnapshotError::NONE);
     CHECK(status.digest_error == Error::NONE);
@@ -1080,6 +1367,8 @@ int main()
 {
     TestGoldenAndSensitivity();
     TestActorNoiseStateSensitivity();
+    TestJBeamHydroHistorySensitivity();
+    TestJBeamHydroRuntimeMapping();
     TestCompleteMaterialHistorySensitivity();
     TestCalibratedMaterialFaultReceipt();
     TestEmptySnapshot();

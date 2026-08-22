@@ -176,6 +176,8 @@ bool FrameTimeBudgetLimits::valid() const noexcept
     }
     if (percentile == 0U || percentile > 100U)
         return false;
+    if (native_scene_draw_p99_limit == 0U)
+        return false;
 
     std::uint64_t sustained_ns = 0U;
     std::uint64_t percentile_ns = 0U;
@@ -197,6 +199,8 @@ FrameTimeBudgetSession::FrameTimeBudgetSession(
     , context_(context)
     , limits_valid_(limits.valid())
     , bins_(kFrameTimeBudgetTotalBins, 0U)
+    , native_scene_draw_bins_(
+          kFrameTimeBudgetNativeSceneDrawTotalBins, 0U)
     , minimum_ns_((std::numeric_limits<std::uint64_t>::max)())
 {
 }
@@ -296,6 +300,35 @@ void FrameTimeBudgetSession::RecordPhase(
         phase_maximum_ns_[index] = sample_ns;
 }
 
+void FrameTimeBudgetSession::RecordNativeSceneDrawSubmissions(
+    std::uint64_t submissions, bool exact)
+{
+    if (!Recording())
+        return;
+    // Each retained frame owns exactly one compositor receipt. A duplicate is
+    // an identity error rather than a second sample from the same frame.
+    if (native_scene_draw_last_accepted_frame_ == accepted_frames_)
+    {
+        ++native_scene_draw_rejected_samples_;
+        return;
+    }
+    native_scene_draw_last_accepted_frame_ = accepted_frames_;
+    if (!exact || submissions == 0U)
+    {
+        ++native_scene_draw_rejected_samples_;
+        return;
+    }
+
+    const std::size_t bin = submissions >=
+            static_cast<std::uint64_t>(kFrameTimeBudgetNativeSceneDrawBinCount)
+        ? kFrameTimeBudgetNativeSceneDrawBinCount
+        : static_cast<std::size_t>(submissions);
+    ++native_scene_draw_bins_[bin];
+    ++native_scene_draw_exact_samples_;
+    native_scene_draw_maximum_ =
+        (std::max)(native_scene_draw_maximum_, submissions);
+}
+
 void FrameTimeBudgetSession::ObserveSceneIdentity(
     const std::string& terrain,
     const std::string& actor)
@@ -352,6 +385,33 @@ double FrameTimeBudgetSession::RankedMilliseconds(
     return ToMilliseconds(maximum_ns_);
 }
 
+std::uint64_t FrameTimeBudgetSession::RankedNativeSceneDraws(
+    std::uint32_t percentile) const
+{
+    if (native_scene_draw_exact_samples_ == 0U || percentile == 0U ||
+            percentile > 100U)
+    {
+        return 0U;
+    }
+    const std::uint64_t rank =
+        ((native_scene_draw_exact_samples_ *
+              static_cast<std::uint64_t>(percentile)) +
+            99U) /
+        100U;
+    std::uint64_t cumulative = 0U;
+    for (std::size_t bin = 0U; bin < native_scene_draw_bins_.size(); ++bin)
+    {
+        cumulative += native_scene_draw_bins_[bin];
+        if (cumulative >= rank)
+        {
+            return bin >= kFrameTimeBudgetNativeSceneDrawBinCount
+                ? native_scene_draw_maximum_
+                : static_cast<std::uint64_t>(bin);
+        }
+    }
+    return native_scene_draw_maximum_;
+}
+
 FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
 {
     FrameTimeBudgetReport report;
@@ -364,6 +424,12 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
     report.rejected_frames = rejected_frames_;
     report.saturated_frames = saturated_frames_;
     report.over_budget_frames = over_budget_frames_;
+    report.native_scene_draws.exact_samples =
+        native_scene_draw_exact_samples_;
+    report.native_scene_draws.rejected_samples =
+        native_scene_draw_rejected_samples_;
+    report.native_scene_draws.maximum = native_scene_draw_maximum_;
+    report.native_scene_draws.p99 = RankedNativeSceneDraws(99U);
 
     if (accepted_frames_ > 0U)
     {
@@ -448,6 +514,22 @@ FrameTimeBudgetReport FrameTimeBudgetSession::Finalize() const
         report.verdict = FrameTimeBudgetVerdict::FAIL_SHORT_RUN;
         return report;
     }
+    if (context_.requires_native_scene_draw_metrics &&
+        (native_scene_draw_rejected_samples_ != 0U ||
+         native_scene_draw_exact_samples_ != accepted_frames_))
+    {
+        report.verdict =
+            FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_METRICS;
+        return report;
+    }
+    if (context_.requires_native_scene_draw_metrics &&
+        report.native_scene_draws.p99 >
+            static_cast<std::uint64_t>(limits_.native_scene_draw_p99_limit))
+    {
+        report.verdict =
+            FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_BUDGET;
+        return report;
+    }
     if (report.mean_ms > limits_.sustained_ms)
     {
         report.verdict = FrameTimeBudgetVerdict::FAIL_SUSTAINED;
@@ -530,6 +612,10 @@ const char* ToString(FrameTimeBudgetVerdict verdict) noexcept
         return "fail-scene-changed";
     case FrameTimeBudgetVerdict::FAIL_NOT_PRESENTING:
         return "fail-not-presenting";
+    case FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_METRICS:
+        return "fail-native-scene-draw-metrics";
+    case FrameTimeBudgetVerdict::FAIL_NATIVE_SCENE_DRAW_BUDGET:
+        return "fail-native-scene-draw-budget";
     }
     return "fail-short-run";
 }
@@ -550,6 +636,19 @@ std::string FormatFrameTimeBudgetSummary(const FrameTimeBudgetReport& report)
     summary += " p99_ms=" + FormatDouble(report.p99_ms, 4);
     summary += " max_ms=" + FormatDouble(report.maximum_ms, 4);
     summary += " over_budget=" + FormatUnsigned(report.over_budget_frames);
+    if (report.context.requires_native_scene_draw_metrics)
+    {
+        summary += " native_scene_draw_samples=" +
+            FormatUnsigned(report.native_scene_draws.exact_samples);
+        summary += " native_scene_draw_rejected=" +
+            FormatUnsigned(report.native_scene_draws.rejected_samples);
+        summary += " native_scene_draw_p99=" +
+            FormatUnsigned(report.native_scene_draws.p99);
+        summary += " native_scene_draw_max=" +
+            FormatUnsigned(report.native_scene_draws.maximum);
+        summary += " native_scene_draw_limit=" +
+            FormatUnsigned(report.limits.native_scene_draw_p99_limit);
+    }
     for (std::size_t index = 0U; index < kFrameTimeBudgetPhaseCount; ++index)
     {
         const FrameTimeBudgetPhaseStats& stats = report.phases[index];
@@ -587,6 +686,9 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
         "presents_frames",
         report.context.presents_frames ? "true" : "false"));
     fields.push_back(JsonRaw(
+        "requires_native_scene_draw_metrics",
+        report.context.requires_native_scene_draw_metrics ? "true" : "false"));
+    fields.push_back(JsonRaw(
         "fps_limit",
         FormatSigned(static_cast<std::int64_t>(report.context.fps_limit))));
     fields.push_back(JsonRaw(
@@ -602,6 +704,9 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
         "percentile", FormatUnsigned(report.limits.percentile)));
     fields.push_back(JsonRaw(
         "percentile_budget_ms", FormatDouble(report.limits.percentile_ms, 4)));
+    fields.push_back(JsonRaw(
+        "native_scene_draw_p99_limit",
+        FormatUnsigned(report.limits.native_scene_draw_p99_limit)));
     fields.push_back(JsonRaw(
         "observed_frames", FormatUnsigned(report.observed_frames)));
     fields.push_back(JsonRaw(
@@ -622,6 +727,18 @@ std::string SerializeFrameTimeBudgetReport(const FrameTimeBudgetReport& report)
     fields.push_back(JsonRaw("p99_ms", FormatDouble(report.p99_ms, 4)));
     fields.push_back(JsonRaw("ranked_ms", FormatDouble(report.ranked_ms, 4)));
     fields.push_back(JsonRaw("mean_fps", FormatDouble(report.mean_fps, 3)));
+    fields.push_back(JsonRaw(
+        "native_scene_draw_exact_samples",
+        FormatUnsigned(report.native_scene_draws.exact_samples)));
+    fields.push_back(JsonRaw(
+        "native_scene_draw_rejected_samples",
+        FormatUnsigned(report.native_scene_draws.rejected_samples)));
+    fields.push_back(JsonRaw(
+        "native_scene_draw_p99",
+        FormatUnsigned(report.native_scene_draws.p99)));
+    fields.push_back(JsonRaw(
+        "native_scene_draw_maximum",
+        FormatUnsigned(report.native_scene_draws.maximum)));
     for (std::size_t index = 0U; index < kFrameTimeBudgetPhaseCount; ++index)
     {
         const std::string prefix =

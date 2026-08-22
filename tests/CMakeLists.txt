@@ -48,6 +48,12 @@ add_test(
         "${ROR_REPOSITORY_ROOT}/tests/tools/test_deterministic_scenario_identity_contract.py"
 )
 add_test(
+    NAME jbeam_hydro_savegame_integration
+    COMMAND
+        "${Python3_EXECUTABLE}"
+        "${ROR_REPOSITORY_ROOT}/tests/tools/test_jbeam_hydro_savegame_integration.py"
+)
+add_test(
     NAME deterministic_savegame_resume_tool
     COMMAND
         "${Python3_EXECUTABLE}"
@@ -63,6 +69,7 @@ add_test(
 set_tests_properties(
     deterministic_input_live_runtime_contract
     deterministic_scenario_identity_contract
+    jbeam_hydro_savegame_integration
     deterministic_savegame_resume_tool
     deterministic_savegame_resume_tool_optimized
     PROPERTIES
@@ -1870,17 +1877,6 @@ if (ROR_OGRE14 AND TARGET RoR)
         ror_ogre_next_demo_material_source_native_tests
         PRIVATE ROR_OGRE14_AUTHENTICATED_MATERIAL_SCRIPT_TESTING=1
     )
-    # The protected renderer lane already carries the explicit
-    # PREMULTIPLIED_SOURCE_OVER counter case. Until that staged lane lands as
-    # one reviewed change, GCC 11 must keep reporting (but not promote) the
-    # otherwise behavior-neutral exhaustive-switch warning in this test-only
-    # compilation of the source.
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(
-            ror_ogre_next_demo_material_source_native_tests
-            PRIVATE -Wno-error=switch
-        )
-    endif ()
     if (TARGET OgreMain)
         target_link_libraries(
             ror_ogre_next_demo_material_source_native_tests
@@ -2426,8 +2422,30 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroRuntimeTests.cpp"
 )
 
+add_executable(
+    ror_jbeam_hydro_savegame_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroSavegameTests.cpp"
+)
+
+if (RapidJSON_INCLUDE_DIRS)
+    add_executable(
+        ror_jbeam_hydro_savegame_json_tests
+        "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroSavegameJsonTests.cpp"
+    )
+    target_include_directories(
+        ror_jbeam_hydro_savegame_json_tests
+        SYSTEM PRIVATE ${RapidJSON_INCLUDE_DIRS}
+    )
+endif ()
+
 target_include_directories(
     ror_jbeam_hydro_runtime_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/physics"
+)
+
+target_include_directories(
+    ror_jbeam_hydro_savegame_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/physics"
 )
@@ -3092,6 +3110,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_state_trace_tests
     ror_state_trace
     ror_hydro_actuator_response_tests
+    ror_jbeam_hydro_runtime_tests
+    ror_jbeam_hydro_savegame_tests
     ror_legacy_material_compatibility_plan_tests
     ror_legacy_material_script_sanitizer_tests
     ror_shader_compatibility_policy_tests
@@ -3120,6 +3140,11 @@ endif ()
 if (TARGET ror_calibrated_beam_savegame_json_tests)
     list(APPEND ROR_PHYSICS_TEST_TARGETS
         ror_calibrated_beam_savegame_json_tests)
+endif ()
+
+if (TARGET ror_jbeam_hydro_savegame_json_tests)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS
+        ror_jbeam_hydro_savegame_json_tests)
 endif ()
 
 if (APPLE)
@@ -3982,6 +4007,18 @@ add_test(
     NAME jbeam_hydro_runtime
     COMMAND ror_jbeam_hydro_runtime_tests
 )
+
+add_test(
+    NAME jbeam_hydro_savegame
+    COMMAND ror_jbeam_hydro_savegame_tests
+)
+
+if (TARGET ror_jbeam_hydro_savegame_json_tests)
+    add_test(
+        NAME jbeam_hydro_savegame_json
+        COMMAND ror_jbeam_hydro_savegame_json_tests
+    )
+endif ()
 
 add_test(
     NAME shader_compatibility_policy

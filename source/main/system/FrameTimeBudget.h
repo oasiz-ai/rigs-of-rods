@@ -51,6 +51,14 @@ inline constexpr std::uint64_t kFrameTimeBudgetMaximumSampleNs =
 /// counter inside 32 bits.
 inline constexpr std::uint64_t kFrameTimeBudgetMaximumFrames = 2000000U;
 
+/// Exact whole-draw histogram for the native main-scene pass. The final bin
+/// saturates counters larger than 65,535 while retaining the exact maximum, so
+/// malformed or catastrophically expensive frames remain visible. Allocation
+/// still happens once at session construction.
+inline constexpr std::size_t kFrameTimeBudgetNativeSceneDrawBinCount = 65536U;
+inline constexpr std::size_t kFrameTimeBudgetNativeSceneDrawTotalBins =
+    kFrameTimeBudgetNativeSceneDrawBinCount + 1U;
+
 /// Process exit code for a refused or failed gated run. 73 and 74 are already
 /// reserved by the renderer child contract, so the budget owns 75 exclusively.
 inline constexpr int kFrameTimeBudgetFailureExitCode = 75;
@@ -85,6 +93,11 @@ enum class FrameTimeBudgetVerdict : std::uint8_t {
     /// The measured loop does not present frames, so its interval is a
     /// producer cadence rather than a frame rate.
     FAIL_NOT_PRESENTING,
+    /// The presenting Ogre-Next runtime did not publish one exact main-scene
+    /// draw count for every accepted frame.
+    FAIL_NATIVE_SCENE_DRAW_METRICS,
+    /// The p99 native main-scene draw count exceeded its declared ceiling.
+    FAIL_NATIVE_SCENE_DRAW_BUDGET,
 };
 
 /// Declared acceptance budget. Defaults carry the roadmap's macOS arm64 high
@@ -104,6 +117,9 @@ struct FrameTimeBudgetLimits {
     double percentile_ms = 18.3;
     /// Percentile to rank, in whole percent.
     std::uint32_t percentile = 95U;
+    /// Roadmap V2 high-preset ceiling for p99 main-scene submissions. It is
+    /// enforced only when the context requires exact native renderer metrics.
+    std::uint32_t native_scene_draw_p99_limit = 2500U;
 
     [[nodiscard]] bool valid() const noexcept;
 };
@@ -126,6 +142,10 @@ struct FrameTimeBudgetContext {
     /// so its inter-frame interval is not a frame rate and must never be
     /// reported as one.
     bool presents_frames = true;
+    /// True only for the in-process Ogre-Next presenter. This turns a missing
+    /// renderer-owned workload receipt into a gate failure instead of allowing
+    /// OGRE 14 producer counters or sparse logs to stand in for it.
+    bool requires_native_scene_draw_metrics = false;
 };
 
 /// Frame phases attributed inside one recorded frame. The combined runtime
@@ -160,6 +180,13 @@ struct FrameTimeBudgetPhaseStats {
     double share = 0.0;
 };
 
+struct FrameTimeBudgetNativeSceneDrawStats {
+    std::uint64_t exact_samples = 0U;
+    std::uint64_t rejected_samples = 0U;
+    std::uint64_t maximum = 0U;
+    std::uint64_t p99 = 0U;
+};
+
 const char* ToString(FrameTimeBudgetPhase phase) noexcept;
 
 struct FrameTimeBudgetReport {
@@ -188,6 +215,7 @@ struct FrameTimeBudgetReport {
     FrameTimeBudgetPhaseStats phases[kFrameTimeBudgetPhaseCount];
     /// Accepted frame time attributed to no declared phase.
     FrameTimeBudgetPhaseStats remainder;
+    FrameTimeBudgetNativeSceneDrawStats native_scene_draws;
 
     [[nodiscard]] bool passed() const noexcept {
         return verdict == FrameTimeBudgetVerdict::PASS;
@@ -219,6 +247,13 @@ public:
     /// Attribute part of the current frame to a phase. Ignored during warm-up
     /// so phase totals and frame totals describe the same frames.
     void RecordPhase(FrameTimeBudgetPhase phase, double seconds);
+
+    /// Record the exact Ogre-Next main HDR scene-pass submissions for the
+    /// current accepted frame. Zero, an inexact compositor split, a duplicate,
+    /// or a missing call is rejected by the native gate; no legacy counter is
+    /// consulted.
+    void RecordNativeSceneDrawSubmissions(
+        std::uint64_t submissions, bool exact);
 
     /// True when the most recently observed frame was retained rather than
     /// discarded as warm-up. `RecordFrame` reports the interval that just
@@ -253,6 +288,8 @@ public:
 
 private:
     [[nodiscard]] double RankedMilliseconds(std::uint32_t percentile) const;
+    [[nodiscard]] std::uint64_t RankedNativeSceneDraws(
+        std::uint32_t percentile) const;
 
     FrameTimeBudgetMode mode_;
     FrameTimeBudgetLimits limits_;
@@ -264,6 +301,7 @@ private:
     bool scene_identity_changed_ = false;
 
     std::vector<std::uint32_t> bins_;
+    std::vector<std::uint32_t> native_scene_draw_bins_;
     std::uint64_t observed_frames_ = 0U;
     std::uint64_t warmup_frames_ = 0U;
     std::uint64_t accepted_frames_ = 0U;
@@ -276,6 +314,10 @@ private:
     std::uint64_t phase_samples_[kFrameTimeBudgetPhaseCount] = {};
     std::uint64_t phase_total_ns_[kFrameTimeBudgetPhaseCount] = {};
     std::uint64_t phase_maximum_ns_[kFrameTimeBudgetPhaseCount] = {};
+    std::uint64_t native_scene_draw_exact_samples_ = 0U;
+    std::uint64_t native_scene_draw_rejected_samples_ = 0U;
+    std::uint64_t native_scene_draw_maximum_ = 0U;
+    std::uint64_t native_scene_draw_last_accepted_frame_ = 0U;
 };
 
 /// Parse a mode name. Unknown names are rejected instead of defaulting.

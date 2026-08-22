@@ -1924,6 +1924,16 @@ constexpr std::uint8_t kOgreNextHdrPostExecutionMask = 0x02U;
 /// kOgreNextHdrMeteringLogLuminanceCeiling.
 constexpr const char kOgreNextHdrMeteringMaterial[] =
     "RoR/HDR/MeteringSumLumStart";
+/// RoR-owned shadow-preserving final tone map, replacing
+/// HDR/FinalToneMapping on the stock post node's rt_output target. Same
+/// filmic curve; only the trailing display-space grade changes from the
+/// black-clipping affine `1.25x - 0.015` to the hinge `max(graded,
+/// ungraded)`, so filmic outputs below the 0.06 crossover shade smoothly to
+/// zero instead of clipping while everything brighter is bit-identical.
+constexpr const char kOgreNextHdrToneMapMaterial[] =
+    "RoR/HDR/FinalToneMapping";
+constexpr const char kOgreNextHdrToneMapFragmentProgram[] =
+    "RoR/HDR/FinalToneMapping_ps";
 /// Winsorization headroom for one metered sample, in natural-log luminance
 /// units above the scene's currently adapted average (recovered on the CPU
 /// from the committed R16 exposure history each frame). Content within
@@ -2815,6 +2825,47 @@ void ConfigureAndVerifyHdrMeteringGraph(
   if (quad->mMaterialName != kOgreNextHdrMeteringMaterial) {
     throw std::runtime_error(
         "Ogre-Next HDR metering material failed native readback");
+  }
+}
+
+/// Stage-1 shadow repair: shadow-preserving final tone map on the stock post
+/// node's rt_output quad. The stock HDR/FinalToneMapping ends in the
+/// display-space grade `(x - 0.5) * 1.25 + 0.5 + 0.11`, which reduces to
+/// `1.25x - 0.015` and clips every filmic output below 0.012 to pure black.
+/// City asphalt (linear albedo ~0.028) tone-maps into exactly that band as
+/// soon as a cloud or a building shades it, so whole road surfaces collapsed
+/// to void black while their painted markings - an order of magnitude
+/// brighter - stayed lit. The RoR-owned replacement keeps the identical
+/// filmic curve and grades through the hinge `max(graded, ungraded)`:
+/// bit-identical above the 0.06 display-linear crossover, smoothly shading
+/// to zero below it.
+void ConfigureAndVerifyHdrToneMapGraph(
+    Ogre::CompositorManager2 &compositors) {
+  Ogre::CompositorNodeDef *post = compositors.getNodeDefinitionNonConst(
+      Ogre::IdString(kOgreNextHdrPostprocessingNode));
+  if (post == nullptr || post->getNumTargetPasses() != 15U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR post node topology changed before tone-map swap");
+  }
+  Ogre::CompositorTargetDef *target = post->getTargetPass(14U);
+  if (target == nullptr ||
+      target->getRenderTargetName() != Ogre::IdString("rt_output") ||
+      target->getCompositorPasses().size() != 1U) {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR tone-map target changed before tone-map swap");
+  }
+  auto *quad = dynamic_cast<Ogre::CompositorPassQuadDef *>(
+      target->getCompositorPasses().front());
+  if (quad == nullptr || quad->mMaterialIsHlms ||
+      quad->mMaterialName != "HDR/FinalToneMapping") {
+    throw std::runtime_error(
+        "Ogre-Next stock HDR tone-map material changed before tone-map swap");
+  }
+  quad->mMaterialName = kOgreNextHdrToneMapMaterial;
+  quad->mProfilingId = "HDR Final ToneMapping (RoR shadow-preserving)";
+  if (quad->mMaterialName != kOgreNextHdrToneMapMaterial) {
+    throw std::runtime_error(
+        "Ogre-Next HDR tone-map material failed native readback");
   }
 }
 
@@ -4759,6 +4810,22 @@ public:
         native.pbs_datablock->setMetalness(descriptor.metallic_factor);
       }
       native.pbs_datablock->setRoughness(descriptor.roughness_factor);
+      // Foundation F3 census evidence (opt-in, same switch as the scene
+      // census): one bounded line per created native PBS datablock names the
+      // exact roughness the presenter will render. Line volume is bounded by
+      // catalog churn, not frames, matching the Stage 0 stderr precedent.
+      {
+        static const bool roughness_census_enabled =
+            std::getenv("ROR_SCENE_CENSUS") != nullptr;
+        if (roughness_census_enabled) {
+          std::fprintf(stderr,
+                       "[RoR|OgreNext|NativeRoughnessCensus] name=%s "
+                       "roughness=%.3f workflow=%s\n",
+                       native.name.c_str(),
+                       static_cast<double>(descriptor.roughness_factor),
+                       specular_workflow ? "specular" : "metallic");
+        }
+      }
       native.pbs_datablock->setEmissive(
           Ogre::Vector3(descriptor.emissive_factor.x,
                         descriptor.emissive_factor.y,
@@ -6973,7 +7040,7 @@ public:
             : nullptr;
     const Ogre::MaterialPtr tone_map =
         Ogre::MaterialManager::getSingleton().getByName(
-            "HDR/FinalToneMapping", kOgreNextHdrResourceGroup);
+            kOgreNextHdrToneMapMaterial, kOgreNextHdrResourceGroup);
     const Ogre::CompositorNodeDef *definition =
         rendering != nullptr ? rendering->getDefinition() : nullptr;
     hdr_linear_scene_target_verified =
@@ -7026,7 +7093,7 @@ public:
         tone_map->getTechnique(0U) != nullptr &&
         tone_map->getTechnique(0U)->getNumPasses() == 1U &&
         tone_map->getTechnique(0U)->getPass(0U)->getFragmentProgramName() ==
-            "HDR/FinalToneMapping_ps";
+            kOgreNextHdrToneMapFragmentProgram;
     hdr_srgb_output_verified =
         hdr_output_target->getPixelFormat() == Ogre::PFG_RGBA8_UNORM_SRGB;
     const bool exact_topology =
@@ -7422,6 +7489,9 @@ public:
       ConfigureAndVerifyHdrBloomGraph(*root->getCompositorManager2());
       // Stage-1 exposure repair: shadow-protected metering on the same node.
       ConfigureAndVerifyHdrMeteringGraph(*root->getCompositorManager2());
+      // Stage-1 shadow repair: shadow-preserving final tone map on the same
+      // node's rt_output quad.
+      ConfigureAndVerifyHdrToneMapGraph(*root->getCompositorManager2());
     } else {
       Ogre::CompositorManager2 *compositors =
           root->getCompositorManager2();
@@ -7643,7 +7713,7 @@ public:
             : nullptr;
     const Ogre::MaterialPtr tone_map =
         Ogre::MaterialManager::getSingleton().getByName(
-            "HDR/FinalToneMapping", kOgreNextHdrResourceGroup);
+            kOgreNextHdrToneMapMaterial, kOgreNextHdrResourceGroup);
     hdr_linear_scene_target_verified =
         linear_scene != nullptr &&
         linear_scene->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
@@ -7710,7 +7780,7 @@ public:
         tone_map->getTechnique(0U) != nullptr &&
         tone_map->getTechnique(0U)->getNumPasses() == 1U &&
         tone_map->getTechnique(0U)->getPass(0U)->getFragmentProgramName() ==
-            "HDR/FinalToneMapping_ps";
+            kOgreNextHdrToneMapFragmentProgram;
     hdr_srgb_output_verified =
         hdr_output_target->getPixelFormat() == Ogre::PFG_RGBA8_UNORM_SRGB;
     if (SunVisibilityV2Enabled() && hdr_visibility_target_verified &&

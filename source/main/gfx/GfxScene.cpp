@@ -5686,6 +5686,72 @@ Render::ValidationResult GfxScene::CaptureOgre14GraphicsScene(
                             &std::get<Render::MeshResourceDescriptor>(
                                 *census_asset.payload);
                 }
+                // Roughness census (Foundation F3): count how many admitted
+                // material projections still sit at the fully-rough default
+                // (roughness 1.0 kills every specular highlight) versus how
+                // many carry authored variation, with a coarse histogram.
+                //
+                // A walk's asset list carries the REAL descriptor only for
+                // projections captured fresh in that walk; cached reuse
+                // publishes an identity placeholder whose shininess is a
+                // hard zero. Real descriptors are distinguished by their
+                // base-color binding, and the census accumulates them
+                // across walks so the last line of a session reports the
+                // union of everything that ever projected for real.
+                {
+                    static std::map<std::uint64_t, float>
+                        census_cumulative_roughness;
+                    static std::size_t census_cumulative_unlit = 0U;
+                    for (const auto& census_entry : census_materials)
+                    {
+                        const auto census_binding =
+                            census_material_bindings.find(
+                                census_entry.first);
+                        if (census_binding == census_material_bindings.end()
+                            || !census_binding->second)
+                        {
+                            continue; // placeholder or unbound factor-only
+                        }
+                        const Render::MaterialDescriptor& material =
+                            *census_entry.second;
+                        if (material.model == Render::MaterialModel::UNLIT)
+                        {
+                            ++census_cumulative_unlit;
+                            continue;
+                        }
+                        census_cumulative_roughness[census_entry.first] =
+                            material.roughness_factor;
+                    }
+                    std::size_t census_fully_rough = 0U;
+                    std::array<std::size_t, 10U> census_bins{};
+                    for (const auto& census_entry :
+                         census_cumulative_roughness)
+                    {
+                        if (census_entry.second >= 1.0F)
+                        {
+                            ++census_fully_rough;
+                        }
+                        const std::size_t bin = static_cast<std::size_t>(
+                            (std::min)(
+                                9.0F,
+                                (std::max)(
+                                    0.0F, census_entry.second * 10.0F)));
+                        ++census_bins[bin];
+                    }
+                    LOG(fmt::format(
+                        "[RoR|SceneSource|RoughnessCensus] walk_materials={} "
+                        "real_pbr_projections={} fully_rough={} varied={} "
+                        "bins_0.0-1.0=[{},{},{},{},{},{},{},{},{},{}]",
+                        census_materials.size(),
+                        census_cumulative_roughness.size(),
+                        census_fully_rough,
+                        census_cumulative_roughness.size() -
+                            census_fully_rough,
+                        census_bins[0], census_bins[1], census_bins[2],
+                        census_bins[3], census_bins[4], census_bins[5],
+                        census_bins[6], census_bins[7], census_bins[8],
+                        census_bins[9]));
+                }
                 // One-shot full inventory dump for offline analysis:
                 // every instance with joined names, factors, and binding.
                 static bool census_dumped = false;

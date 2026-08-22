@@ -171,6 +171,26 @@ inline JBeamHydroRuntimeStep InitializeJBeamHydroRuntime(
     return result;
 }
 
+/// Replaces any previously published actuator history with the exact
+/// ratio-one spawn state. A valid reset publishes both state and binary32
+/// solver length together. A rejected reset still publishes its fault latch,
+/// but leaves the caller's last solver length untouched so an invalid value is
+/// never written into a live beam.
+inline bool ResetJBeamHydroRuntime(
+    const JBeamHydroRuntimeConfig& config,
+    double initial_length,
+    JBeamHydroRuntimeState& published_state,
+    float& published_runtime_rest_length)
+{
+    const JBeamHydroRuntimeStep reset =
+        InitializeJBeamHydroRuntime(config, initial_length);
+    published_state = reset.state;
+    if (!reset.valid)
+        return false;
+    published_runtime_rest_length = reset.runtime_rest_length;
+    return true;
+}
+
 /// Advances one fixed simulation step. Rejections return an invalid result
 /// whose copied state has a permanent fault latch; callers must publish that
 /// state rather than silently retaining the previous healthy receipt.

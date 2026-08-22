@@ -34,6 +34,22 @@
     {
       "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRMeteringSumLumStart_ps.metal",
       "sha256": "4df3cf438cd3a021f73c5f30d0347ad1a0c3678762040c6a0f02b251569c30fc"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/RoRFinalToneMapping.material",
+      "sha256": "1b612174f941e36c31706964cfc420f1785c1097b1c9d55b22f64b0c6ae8776f"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRFinalToneMapping_ps.glsl",
+      "sha256": "5dcfffa50c02a7867c35de424d23ca36da3f40f6a241916d81b9013624a9feea"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRFinalToneMapping_ps.hlsl",
+      "sha256": "c0dc6bc3964c89c74892cdfa1bf4cb9e72944f189f2ad4360b717885f830cf26"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRFinalToneMapping_ps.metal",
+      "sha256": "1e0cf03c5325fd197693ae40d7692ff7adf950d94a2beb43be881b8bc52ebb39"
     }
   ]
 }

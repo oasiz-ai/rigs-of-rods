@@ -995,16 +995,17 @@ void CheckSourceAccountingAndEligibility() {
   require_exclusion(
       mutation, OgreNextDemoTextureProjectionExclusion::NON_UNIT_FACE_COUNT);
 
-  counters.candidate_sections += 3U;
-  counters.projected_sections = 3U;
-  counters.projections = 3U;
+  counters.candidate_sections += 4U;
+  counters.projected_sections = 4U;
+  counters.projections = 4U;
   counters.active_replace_material_projections = 1U;
   counters.active_straight_source_over_material_projections = 1U;
   counters.active_legacy_straight_alpha_material_projections = 1U;
-  counters.active_alpha_test_disabled_material_projections = 1U;
+  counters.active_premultiplied_source_over_material_projections = 1U;
+  counters.active_alpha_test_disabled_material_projections = 2U;
   counters.active_alpha_test_greater_material_projections = 1U;
   counters.active_alpha_test_greater_equal_material_projections = 1U;
-  counters.active_metallic_roughness_workflow_projections = 2U;
+  counters.active_metallic_roughness_workflow_projections = 3U;
   counters.active_specular_workflow_projections = 1U;
   counters.active_anisotropic_sampler_projections = 2U;
   counters.active_normalized_texture_observations = 3U;

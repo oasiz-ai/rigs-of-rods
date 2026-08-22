@@ -32,7 +32,7 @@ namespace RoR {
 namespace DeterministicStateTrace {
 
 static const std::uint32_t SCHEMA_VERSION = 2;
-static const std::uint32_t STATE_DIGEST_SCHEMA_VERSION = 2;
+static const std::uint32_t STATE_DIGEST_SCHEMA_VERSION = 3;
 static const std::uint32_t HEADER_SIZE = 80;
 static const std::uint32_t STEP_RECORD_SIZE = 96;
 static const std::uint32_t TRAILER_SIZE = 56;

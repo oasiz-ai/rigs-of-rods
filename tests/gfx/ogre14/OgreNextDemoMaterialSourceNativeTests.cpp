@@ -980,6 +980,9 @@ void CaptureAndCommit(OgreNextDemoMaterialSource &source,
                   0U &&
               counters.active_legacy_straight_alpha_material_projections ==
                   0U &&
+              counters
+                      .active_premultiplied_source_over_material_projections ==
+                  0U &&
               counters.active_alpha_test_disabled_material_projections == 1U &&
               counters.active_alpha_test_greater_material_projections == 0U &&
               counters.active_metallic_roughness_workflow_projections == 1U &&
@@ -1920,6 +1923,38 @@ void TestManagedSpecularProjectionAndRollback() {
           "managed cache reuse re-decoded or lost active specular authority");
   RequireZeroReadback(source, *readbacks);
   source.Commit();
+
+  // A retained anti-resurrection owner is not a frame authority root. After
+  // the section disappears, stale managed source authority must remain inert:
+  // Apply still republishes the immutable owner catalog without probing or
+  // blessing its revoked source. Reachability on a later frame continues to
+  // fail closed through TryProject and the final publication gate above.
+  const Ogre14SelectedTextureSourceReceiptRegistry
+      stable_unreachable_registry = selected_registry;
+  RequireOk(CommitOgre14SelectedTextureSourceReceipt(
+                BuildReceipt(*specular_texture, 1U, 0U, 0x5202U, bytes),
+                selected_registry),
+            "invalidate unreachable managed source authority");
+  Require(!material_binding.Revalidate(trust_resolver, selected_resolver),
+          "unreachable managed binding fixture remained current");
+  const std::size_t resolves_before_unreachable =
+      selected_resolver.resolve_calls;
+  const std::size_t revalidations_before_unreachable =
+      selected_resolver.revalidate_calls;
+  Require(source.BeginCapture(), "begin stale unreachable managed frame");
+  std::vector<GraphicsSceneAssetInput> unreachable_assets;
+  RequireOk(source.Apply(unreachable_assets),
+            "apply stale unreachable managed owner catalog");
+  Require(unreachable_assets.size() == 5U &&
+              selected_resolver.resolve_calls == resolves_before_unreachable &&
+              selected_resolver.revalidate_calls ==
+                  revalidations_before_unreachable,
+          "stale unreachable managed owner probed source authority");
+  RequireZeroReadback(source, *readbacks);
+  source.Commit();
+  selected_registry = stable_unreachable_registry;
+  Require(material_binding.Revalidate(trust_resolver, selected_resolver),
+          "restored managed authority did not recover after unreachable frame");
 }
 
 void TestAlphaStateAndAnisotropicProjection() {
@@ -2285,14 +2320,43 @@ void TestNativeMaterialSourceLifecycle() {
             "project opaque-v2 identity baseline");
   std::vector<GraphicsSceneAssetInput> v2_assets =
       BuildPlaceholderAssets(v2_input);
+  OgreNextDemoMaterialApplyTiming retained_timing;
   Require(v2_projected && v2_input.exact_name.rfind("OpaqueTUS0/", 0U) == 0U,
           "opaque baseline lost its v2 material name");
-  RequireOk(source.Apply(v2_assets), "apply opaque-v2 identity baseline");
+  RequireOk(source.Apply(v2_assets, &retained_timing),
+            "apply opaque-v2 identity baseline");
+  Require(retained_timing.retained_authority_plan_reused &&
+              retained_timing.retained_owner_publication_reused &&
+              retained_timing.retained_owner_asset_count == 3U,
+          "stable frame rebuilt its immutable authority or owner publication");
   const GraphicsSceneAssetInput *const v2_material =
       FindProjectedMaterial(v2_assets);
   Require(v2_material != nullptr, "opaque-v2 material asset is absent");
   const std::uint64_t v2_material_id = v2_material->source_asset_id;
   const std::string v2_material_name = v2_input.exact_name;
+  source.Commit();
+
+  // A retained scene feeds the exact immutable owner assets back to Apply.
+  // Reusing those owners must preserve their shared payload identities while
+  // still running the fresh reachable-authority validation above them.
+  Require(source.BeginCapture(), "begin exact retained-owner identity reuse");
+  Ogre14GraphicsSceneMaterialCaptureInput retained_identity_input =
+      CaptureInput();
+  bool retained_identity_projected = false;
+  RequireOk(source.TryProject(kSectionKey, native->material, true, true,
+                              retained_identity_input,
+                              retained_identity_projected),
+            "project exact retained-owner identity reuse");
+  std::vector<GraphicsSceneAssetInput> retained_identity_assets = v2_assets;
+  OgreNextDemoMaterialApplyTiming retained_identity_timing;
+  RequireOk(source.Apply(retained_identity_assets, &retained_identity_timing),
+            "apply exact retained-owner identity reuse");
+  Require(retained_identity_projected &&
+              retained_identity_input.exact_name == v2_material_name &&
+              retained_identity_timing.retained_authority_plan_reused &&
+              retained_identity_timing.retained_owner_publication_reused &&
+              SameAssetOwners(retained_identity_assets, v2_assets),
+          "exact retained owner assets were rebuilt or changed identity");
   source.Commit();
 
   Ogre14SelectedTextureSourceResolution managed_resolution;
@@ -2356,7 +2420,8 @@ void TestNativeMaterialSourceLifecycle() {
             "promote opaque-v2 cache to managed authority");
   std::vector<GraphicsSceneAssetInput> promoted_assets =
       BuildPlaceholderAssets(promoted_input);
-  RequireOk(source.Apply(promoted_assets),
+  OgreNextDemoMaterialApplyTiming promoted_timing;
+  RequireOk(source.Apply(promoted_assets, &promoted_timing),
             "apply managed opaque-v2 cache promotion");
   const GraphicsSceneAssetInput *const promoted_material =
       FindProjectedMaterial(promoted_assets);
@@ -2364,6 +2429,10 @@ void TestNativeMaterialSourceLifecycle() {
               promoted_material->source_asset_id == v2_material_id &&
               promoted_input.exact_name == v2_material_name,
           "diffuse-only managed authority churned opaque-v2 asset identity");
+  Require(!promoted_timing.retained_authority_plan_reused &&
+              !promoted_timing.retained_owner_publication_reused &&
+              promoted_timing.retained_owner_asset_count == 3U,
+          "managed cache mutation reused a stale retained publication plan");
   source.Commit();
 
   RequireFrozenProjectionFailure(

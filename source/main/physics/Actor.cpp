@@ -2252,6 +2252,27 @@ void Actor::SyncReset(bool reset_position, bool emit_script_event)
     for (hydrobeam_t& hydrobeam: ar_hydros)
     {
         hydrobeam.hb_inertia.ResetCmdKeyDelay();
+        if (!hydrobeam.hb_has_jbeam_runtime)
+            continue;
+
+        if (hydrobeam.hb_beam_index >= ar_num_beams)
+        {
+            hydrobeam.hb_jbeam_state.fault_latched = true;
+            hydrobeam.hb_jbeam_state.fault =
+                JBeamHydroRuntimeFault::INVALID_PREVIOUS_STATE;
+            continue;
+        }
+
+        float runtime_rest_length =
+            ar_beams[hydrobeam.hb_beam_index].L;
+        if (ResetJBeamHydroRuntime(
+                hydrobeam.hb_jbeam_config,
+                static_cast<double>(hydrobeam.hb_ref_length),
+                hydrobeam.hb_jbeam_state,
+                runtime_rest_length))
+        {
+            ar_beams[hydrobeam.hb_beam_index].L = runtime_rest_length;
+        }
     }
 
     this->GetGfxActor()->ResetFlexbodies();

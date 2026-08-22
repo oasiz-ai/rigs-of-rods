@@ -142,6 +142,7 @@ public:
             builder.BeginNodes(1U) &&
             builder.AddNode(node) &&
             builder.BeginBeams(0U) &&
+            builder.BeginHydros(0U) &&
             builder.BeginContacts(0U) &&
             builder.Finish(output);
     }
@@ -331,7 +332,7 @@ void TestSaveLoadReplayFinalStateDigest()
     CHECK(resumed_sink.BuildDigest(resumed_digest));
     CHECK(resumed_digest == uninterrupted_digest);
     CHECK(uninterrupted_digest.ToHex() ==
-        "b287553431ec87c94d314951c2ef7fcf147fa4696a62e0857e2ce63b659f912b");
+        "df498432672738a6430ba0900aaeee8f2aa92fe190842a29d504784fb85ce2ee");
     std::cout << "save/load final state digest="
               << uninterrupted_digest.ToHex() << '\n';
 }

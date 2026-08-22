@@ -19,8 +19,10 @@
 
 #include "Actor.h"
 #include "CalibratedBeamStateDigest.h"
+#include "JBeamHydroStateDigest.h"
 
 #include <cstddef>
+#include <limits>
 
 namespace RoR {
 namespace DeterministicStateDigest {
@@ -59,6 +61,8 @@ public:
                 static_cast<int>(MAX_BEAMS) ||
             actor->ar_num_collcabs < 0 ||
             actor->ar_num_collcabs > MAX_CABS ||
+            actor->ar_hydros.size() >
+                std::numeric_limits<std::uint32_t>::max() ||
             (actor->ar_num_nodes != 0 &&
                 actor->ar_nodes == nullptr) ||
             (actor->ar_num_beams != 0 &&
@@ -118,6 +122,12 @@ public:
             static_cast<std::uint32_t>(actor->ar_num_nodes);
         snapshot.beam_count =
             static_cast<std::uint32_t>(actor->ar_num_beams);
+        snapshot.hydro_count = 0U;
+        for (const hydrobeam_t& hydro : actor->ar_hydros)
+        {
+            if (hydro.hb_has_jbeam_runtime)
+                ++snapshot.hydro_count;
+        }
         snapshot.surface_contact_count =
             static_cast<std::uint32_t>(actor->ar_num_collcabs);
         return true;
@@ -212,6 +222,57 @@ public:
             source_beam.bm_disabled,
             source_beam.bm_broken,
             beam);
+    }
+
+    bool ReadHydro(
+        std::size_t source_actor_index,
+        std::uint32_t hydro_index,
+        HydroRecord& hydro) const override
+    {
+        if (source_actor_index >= m_actors.size())
+            return false;
+        const Actor* const actor = m_actors[source_actor_index];
+        if (actor == nullptr || actor->ar_num_beams < 0 ||
+            actor->ar_beams == nullptr)
+        {
+            return false;
+        }
+
+        std::uint32_t native_index = 0U;
+        for (std::size_t source_hydro_index = 0U;
+             source_hydro_index < actor->ar_hydros.size();
+             ++source_hydro_index)
+        {
+            const hydrobeam_t& source_hydro =
+                actor->ar_hydros[source_hydro_index];
+            if (!source_hydro.hb_has_jbeam_runtime)
+                continue;
+            if (native_index++ != hydro_index)
+                continue;
+            if (source_hydro.hb_beam_index >=
+                static_cast<std::uint32_t>(actor->ar_num_beams))
+            {
+                return false;
+            }
+
+            HydroRecord candidate;
+            candidate.actor_id = actor->ar_instance_id;
+            candidate.hydro_id =
+                static_cast<std::uint32_t>(source_hydro_index);
+            candidate.beam_id = source_hydro.hb_beam_index;
+            if (!JBeamHydroStateDigest::Populate(
+                    source_hydro.hb_jbeam_config,
+                    source_hydro.hb_jbeam_state,
+                    source_hydro.hb_ref_length,
+                    actor->ar_beams[source_hydro.hb_beam_index].L,
+                    candidate))
+            {
+                return false;
+            }
+            hydro = candidate;
+            return true;
+        }
+        return false;
     }
 
     std::size_t GetContactCount() const override
