@@ -75,9 +75,21 @@ def _soname(readelf: Path, target: Path) -> str:
 
 
 def _required_archive_evidence(
-    payload: str, required_archives: list[Path]
+    payload: str, required_archives: list[Path], build_root: Path
 ) -> dict[str, int]:
-    counts = {str(path): payload.count(str(path)) for path in required_archives}
+    counts: dict[str, int] = {}
+    for path in required_archives:
+        try:
+            relative_path = path.relative_to(build_root).as_posix()
+        except ValueError as error:
+            raise ValueError(
+                f"required Ogre-Next archive escaped the build root: {path}"
+            ) from error
+        # GNU ld writes build-tree inputs relative to the link invocation's
+        # build root. Requiring the opening member delimiter proves that the
+        # archive contributed an object, rather than merely appearing in a
+        # command echo or LOAD record.
+        counts[str(path)] = payload.count(relative_path + "(")
     missing = [path for path, count in counts.items() if count < 1]
     if missing:
         raise ValueError(
@@ -296,7 +308,7 @@ def main() -> int:
 
         link_map_text = link_map.read_text(encoding="utf-8", errors="strict")
         archive_counts = _required_archive_evidence(
-            link_map_text, required_archives
+            link_map_text, required_archives, build_root
         )
         forbidden_objects = sorted(
             token

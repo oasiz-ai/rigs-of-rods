@@ -536,13 +536,24 @@ class CombinedProviderContractTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "duplicate"):
             module._needed_names(dynamic + dynamic)
-        required = Path("/build/libOgreNextMainStatic.a")
+        build_root = Path("/build")
+        required = build_root / "lib/OgreNextMainStatic.a"
         self.assertEqual(
-            module._required_archive_evidence(str(required), [required]),
+            module._required_archive_evidence(
+                "lib/OgreNextMainStatic.a(member.cpp.o)",
+                [required],
+                build_root,
+            ),
             {str(required): 1},
         )
         with self.assertRaisesRegex(ValueError, "lacks required"):
-            module._required_archive_evidence("", [required])
+            module._required_archive_evidence("", [required], build_root)
+        with self.assertRaisesRegex(ValueError, "escaped the build root"):
+            module._required_archive_evidence(
+                "outside.a(member.cpp.o)",
+                [Path("/outside.a")],
+                build_root,
+            )
 
     def test_explicit_combined_build_stages_the_complete_game_resources(self) -> None:
         resource_targets = block(
