@@ -44,6 +44,7 @@ TERRAIN = "simple2.terrn2"
 SCENARIO_ID = 2026082106
 EXPECTED_STEPS = 2000
 EXPECTED_ACTORS = 2
+EXPECTED_STATE_DIGEST_SCHEMA_VERSION = 3
 
 START_MARKER = (
     "[RoR|J2|InterActorCollision] START scenario=2026082106 "
@@ -312,7 +313,8 @@ def inspect_trace(
         or payload.get("step_count") != EXPECTED_STEPS
         or payload.get("has_final_step") is not True
         or not isinstance(metadata, dict)
-        or metadata.get("state_digest_schema_version") != 2
+        or metadata.get("state_digest_schema_version")
+        != EXPECTED_STATE_DIGEST_SCHEMA_VERSION
         or metadata.get("worker_count") != workers
         or metadata.get("scenario_id") != SCENARIO_ID
         or metadata.get("first_physics_step") != 0

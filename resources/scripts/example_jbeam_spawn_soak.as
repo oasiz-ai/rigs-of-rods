@@ -43,6 +43,8 @@ double gMaxAbsVelocity = 0.0;
 double gInitialCenterOfMassY = 0.0;
 double gMinimumCenterOfMassY = 0.0;
 double gPeakCenterOfMassSpeed = 0.0;
+double gMinimumHydroLengthRatio = 1.0;
+double gMaximumHydroLengthRatio = 1.0;
 bool gObservedTerrainImpactResponse = false;
 CVarClass@ gAppState;
 CVarClass@ gSimState;
@@ -78,13 +80,16 @@ double Maximum3(double a, double b, double c)
     return result;
 }
 
-void SetSteeringForStep(BeamClass@ actor, uint64 completed)
+bool SetSteeringForStep(BeamClass@ actor, uint64 completed)
 {
     const bool left = ((completed / 1000) % 2) == 0;
-    actor.setEventSimulatedValue(
-        EV_TRUCK_STEER_LEFT, left ? 0.35f : 0.0f);
-    actor.setEventSimulatedValue(
-        EV_TRUCK_STEER_RIGHT, left ? 0.0f : 0.35f);
+    const float command = left ? -0.35f : 0.35f;
+    if (!actor.trySetJBeamHydroSteeringCommand(command))
+    {
+        FailScenario("native-hydro-steering-command-rejected");
+        return false;
+    }
+    return true;
 }
 
 bool AuditActor(BeamClass@ actor, const string &in phase, uint64 completed)
@@ -159,6 +164,25 @@ bool AuditActor(BeamClass@ actor, const string &in phase, uint64 completed)
             completed);
         return false;
     }
+    const double minimumHydroRatio =
+        actor.getJBeamHydroMinimumLengthRatio();
+    const double maximumHydroRatio =
+        actor.getJBeamHydroMaximumLengthRatio();
+    if (!IsFiniteComponent(minimumHydroRatio) ||
+        !IsFiniteComponent(maximumHydroRatio) ||
+        minimumHydroRatio <= 0.0 ||
+        maximumHydroRatio < minimumHydroRatio)
+    {
+        FailScenario(
+            phase + "-hydro-ratio-invalid-" +
+            formatFloat(minimumHydroRatio, "e", 0, 17) + "-" +
+            formatFloat(maximumHydroRatio, "e", 0, 17));
+        return false;
+    }
+    if (minimumHydroRatio < gMinimumHydroLengthRatio)
+        gMinimumHydroLengthRatio = minimumHydroRatio;
+    if (maximumHydroRatio > gMaximumHydroLengthRatio)
+        gMaximumHydroLengthRatio = maximumHydroRatio;
     if (actor.getJBeamSupportRuntimeCount() !=
             EXPECTED_JBEAM_SUPPORT_BEAMS ||
         actor.getJBeamSupportRuntimeFaultCount() != 0 ||
@@ -427,7 +451,8 @@ void frameStep(float dt)
         }
         gPeakCenterOfMassSpeed = double(armedVelocity.length());
 
-        SetSteeringForStep(actor, 0);
+        if (!SetSteeringForStep(actor, 0))
+            return;
         console.cVarSet("sim_deterministic_state_trace", "true");
         game.pushMessage(MSG_SIM_UNPAUSE_REQUESTED, {});
         gState = RUNNING_SOAK;
@@ -467,7 +492,8 @@ void frameStep(float dt)
         if (completed > 0 && double(centerVelocity.y) > -3.0)
             gObservedTerrainImpactResponse = true;
         actor.wakeUp();
-        SetSteeringForStep(actor, completed);
+        if (!SetSteeringForStep(actor, completed))
+            return;
 
         if (completed == EXPECTED_PHYSICS_STEPS)
         {
@@ -485,7 +511,11 @@ void frameStep(float dt)
                 !IsFiniteComponent(minimumDrop) || minimumDrop <= 1.0 ||
                 !IsFiniteComponent(gPeakCenterOfMassSpeed) ||
                 gPeakCenterOfMassSpeed < 4.0 || brokenBeams != 0 ||
-                supportCompressionSteps == 0)
+                supportCompressionSteps == 0 ||
+                gMinimumHydroLengthRatio >= 0.995 ||
+                gMaximumHydroLengthRatio <= 1.005 ||
+                gMinimumHydroLengthRatio <= 0.98 ||
+                gMaximumHydroLengthRatio >= 1.02)
             {
                 FailScenario(
                     "terrain-impact-response-incomplete-observed-" +
@@ -500,7 +530,11 @@ void frameStep(float dt)
                     "-peak-speed-" +
                     formatFloat(gPeakCenterOfMassSpeed, "e", 0, 17) +
                     "-broken-" + brokenBeams +
-                    "-support-compression-" + supportCompressionSteps);
+                    "-support-compression-" + supportCompressionSteps +
+                    "-hydro-min-ratio-" +
+                    formatFloat(gMinimumHydroLengthRatio, "e", 0, 17) +
+                    "-hydro-max-ratio-" +
+                    formatFloat(gMaximumHydroLengthRatio, "e", 0, 17));
                 return;
             }
             console.cVarSet("sim_deterministic_state_trace", "false");
@@ -520,6 +554,10 @@ void frameStep(float dt)
                 actor.getJBeamSupportMinimumAcceptedStepCount() +
                 " support_compression_steps=" +
                 supportCompressionSteps +
+                " hydro_min_ratio=" +
+                formatFloat(gMinimumHydroLengthRatio, "e", 0, 17) +
+                " hydro_max_ratio=" +
+                formatFloat(gMaximumHydroLengthRatio, "e", 0, 17) +
                 " max_abs_position=" +
                 formatFloat(gMaxAbsPosition, "e", 0, 17) +
                 " max_abs_velocity=" +

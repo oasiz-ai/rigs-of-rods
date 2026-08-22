@@ -52,6 +52,11 @@ EXPECTED_SUPPORT_BEAMS = 1
 EXPECTED_NODE_MASS_KG = 20
 EXPECTED_TOTAL_MASS_KG = 120
 EXPECTED_COM_FROM_REFERENCE_SQUARED = 1.0 / 12.0
+EXPECTED_STATE_DIGEST_SCHEMA_VERSION = 3
+HYDRO_MINIMUM_RATIO_LOWER_BOUND = 0.98
+HYDRO_MINIMUM_RATIO_UPPER_BOUND = 0.995
+HYDRO_MAXIMUM_RATIO_LOWER_BOUND = 1.005
+HYDRO_MAXIMUM_RATIO_UPPER_BOUND = 1.02
 
 START_MARKER = (
     "[RoR|J2|SpawnSoak] START scenario=2026082105 "
@@ -72,6 +77,8 @@ PASS_PATTERN = re.compile(
     r"hydro_steps=120000 "
     r"support_steps=(?P<support_steps>[0-9]+) "
     r"support_compression_steps=(?P<support_compression>[0-9]+) "
+    r"hydro_min_ratio=(?P<hydro_min_ratio>[-+0-9.eE]+) "
+    r"hydro_max_ratio=(?P<hydro_max_ratio>[-+0-9.eE]+) "
     r"max_abs_position=(?P<position>[-+0-9.eE]+) "
     r"max_abs_velocity=(?P<velocity>[-+0-9.eE]+) "
     r"minimum_com_drop=(?P<drop>[-+0-9.eE]+) "
@@ -138,9 +145,9 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
     script_record = profile.get("scenarioScript")
     expected = profile.get("expectedRuntime")
     if (
-        profile.get("schema") != 6
+        profile.get("schema") != 7
         or profile.get("fixtureId")
-        != "ror-jbeam-authenticated-spawn-soak-v6"
+        != "ror-jbeam-authenticated-spawn-soak-v7"
         or profile.get("authorship") != "original-clean-room"
         or profile.get("license") != "GPL-3.0-or-later"
         or profile.get("execution") != "authenticated-product-path"
@@ -170,6 +177,14 @@ def read_profile(repository: Path) -> tuple[dict[str, object], bytes, bytes]:
             "groundContactNodes": EXPECTED_GROUND_CONTACT_NODES,
             "impactTranslationY": 2,
             "impactVelocityY": -4,
+            "hydroMaximumRatioGreaterThan":
+                HYDRO_MAXIMUM_RATIO_LOWER_BOUND,
+            "hydroMaximumRatioLessThan":
+                HYDRO_MAXIMUM_RATIO_UPPER_BOUND,
+            "hydroMinimumRatioGreaterThan":
+                HYDRO_MINIMUM_RATIO_LOWER_BOUND,
+            "hydroMinimumRatioLessThan":
+                HYDRO_MINIMUM_RATIO_UPPER_BOUND,
             "jbeamHydros": EXPECTED_HYDROS,
             "jbeamSupportBeams": EXPECTED_SUPPORT_BEAMS,
             "nodeMassKg": EXPECTED_NODE_MASS_KG,
@@ -309,6 +324,8 @@ def validate_logs(
     support_compression = int(
         matches[0].group("support_compression")
     )
+    hydro_min_ratio = float(matches[0].group("hydro_min_ratio"))
+    hydro_max_ratio = float(matches[0].group("hydro_max_ratio"))
     if not (0.0 < position <= 1.0e7) or not (0.0 <= velocity <= 1.0e7):
         raise SpawnSoakFailure("spawn-soak telemetry is outside finite bounds")
     if (
@@ -317,6 +334,16 @@ def validate_logs(
         or broken_beams != 0
         or support_steps != EXPECTED_STEPS
         or not (0 < support_compression <= support_steps)
+        or not (
+            HYDRO_MINIMUM_RATIO_LOWER_BOUND
+            < hydro_min_ratio
+            < HYDRO_MINIMUM_RATIO_UPPER_BOUND
+        )
+        or not (
+            HYDRO_MAXIMUM_RATIO_LOWER_BOUND
+            < hydro_max_ratio
+            < HYDRO_MAXIMUM_RATIO_UPPER_BOUND
+        )
     ):
         raise SpawnSoakFailure("terrain-impact telemetry is outside bounds")
     return {
@@ -327,6 +354,8 @@ def validate_logs(
         "peak_com_speed": peak_speed,
         "support_accepted_steps": support_steps,
         "support_compression_steps": support_compression,
+        "hydro_min_ratio": hydro_min_ratio,
+        "hydro_max_ratio": hydro_max_ratio,
     }
 
 
@@ -408,7 +437,8 @@ def inspect_trace(
         or payload.get("step_count") != EXPECTED_STEPS
         or payload.get("has_final_step") is not True
         or not isinstance(metadata, dict)
-        or metadata.get("state_digest_schema_version") != 2
+        or metadata.get("state_digest_schema_version")
+        != EXPECTED_STATE_DIGEST_SCHEMA_VERSION
         or metadata.get("worker_count") != workers
         or metadata.get("scenario_id") != SCENARIO_ID
         or metadata.get("first_physics_step") != 0
@@ -618,7 +648,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "executable": str(executable),
         "executable_sha256": support.sha256_file(executable),
         "fixture_id": profile["fixtureId"],
-        "format": "ror-j2-authenticated-jbeam-spawn-soak-v6",
+        "format": "ror-j2-authenticated-jbeam-spawn-soak-v7",
         "jbeam_archive_sha256": jbeam_archive_sha256,
         "jbeam_source_sha256": sha256_bytes(jbeam),
         "machine": platform.machine(),

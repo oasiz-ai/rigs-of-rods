@@ -142,6 +142,9 @@ public:
     bool              hasFiniteJBeamHydroRuntimeState() const;
     std::uint64_t     getJBeamHydroMinimumAcceptedStepCount() const;
     std::uint64_t     getJBeamHydroMaximumAcceptedStepCount() const;
+    double            getJBeamHydroMinimumLengthRatio() const;
+    double            getJBeamHydroMaximumLengthRatio() const;
+    bool              trySetJBeamHydroSteeringCommand(float command);
     int               getJBeamSupportRuntimeCount() const;
     int               getJBeamSupportRuntimeFaultCount() const;
     bool              hasFiniteJBeamSupportRuntimeState() const;

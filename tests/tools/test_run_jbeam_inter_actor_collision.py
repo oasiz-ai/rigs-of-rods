@@ -37,7 +37,8 @@ def inspection(
         "format": "ror-d0-state-trace-inspection-v2",
         "status": "valid",
         "metadata": {
-            "state_digest_schema_version": 2,
+            "state_digest_schema_version":
+                GATE.EXPECTED_STATE_DIGEST_SCHEMA_VERSION,
             "worker_count": workers,
             "scenario_id": GATE.SCENARIO_ID,
             "first_physics_step": 0,

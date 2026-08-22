@@ -59,8 +59,9 @@ def comparison(
 class JBeamSpawnSoakTests(unittest.TestCase):
     def test_fixture_profile_matches_exact_sources(self) -> None:
         profile, jbeam, script = SOAK.read_profile(REPOSITORY_ROOT)
+        self.assertEqual(SOAK.EXPECTED_STATE_DIGEST_SCHEMA_VERSION, 3)
         self.assertEqual(
-            profile["fixtureId"], "ror-jbeam-authenticated-spawn-soak-v6"
+            profile["fixtureId"], "ror-jbeam-authenticated-spawn-soak-v7"
         )
         self.assertEqual(profile["authorship"], "original-clean-room")
         self.assertEqual(profile["execution"], "authenticated-product-path")
@@ -83,6 +84,14 @@ class JBeamSpawnSoakTests(unittest.TestCase):
         self.assertEqual(profile["expectedRuntime"]["fixedSteps"], 120000)
         self.assertEqual(profile["expectedRuntime"]["impactTranslationY"], 2)
         self.assertEqual(profile["expectedRuntime"]["impactVelocityY"], -4)
+        self.assertEqual(
+            profile["expectedRuntime"]["hydroMinimumRatioGreaterThan"],
+            SOAK.HYDRO_MINIMUM_RATIO_LOWER_BOUND,
+        )
+        self.assertEqual(
+            profile["expectedRuntime"]["hydroMaximumRatioLessThan"],
+            SOAK.HYDRO_MAXIMUM_RATIO_UPPER_BOUND,
+        )
         self.assertEqual(
             profile["jbeamSource"]["sha256"], SOAK.sha256_bytes(jbeam)
         )
@@ -116,6 +125,7 @@ class JBeamSpawnSoakTests(unittest.TestCase):
             "hydros=1 support_beams=1 total_mass=120 steps=120000 "
             "hydro_steps=120000 "
             "support_steps=120000 support_compression_steps=73000 "
+            "hydro_min_ratio=0.993 hydro_max_ratio=1.007 "
             "max_abs_position=5.13e2 max_abs_velocity=4.1 "
             "minimum_com_drop=2.0 peak_com_speed=4.1 broken_beams=0"
         )
@@ -144,6 +154,8 @@ class JBeamSpawnSoakTests(unittest.TestCase):
         self.assertEqual(telemetry["minimum_com_drop"], 2.0)
         self.assertEqual(telemetry["support_accepted_steps"], 120000)
         self.assertEqual(telemetry["support_compression_steps"], 73000)
+        self.assertEqual(telemetry["hydro_min_ratio"], 0.993)
+        self.assertEqual(telemetry["hydro_max_ratio"], 1.007)
 
         for bad in (
             script_log.replace("hydro_steps=120000", "hydro_steps=119999"),
@@ -204,6 +216,9 @@ class JBeamSpawnSoakTests(unittest.TestCase):
             "hasFiniteJBeamHydroRuntimeState",
             "getJBeamHydroMinimumAcceptedStepCount",
             "getJBeamHydroMaximumAcceptedStepCount",
+            "getJBeamHydroMinimumLengthRatio",
+            "getJBeamHydroMaximumLengthRatio",
+            "trySetJBeamHydroSteeringCommand",
             "getJBeamSupportRuntimeCount",
             "getJBeamSupportRuntimeFaultCount",
             "hasFiniteJBeamSupportRuntimeState",
@@ -247,7 +262,7 @@ class JBeamSpawnSoakTests(unittest.TestCase):
             "clean-room-structural-hydro-support-normaltype-product-path",
             source,
         )
-        self.assertIn("ror-j2-authenticated-jbeam-spawn-soak-v6", source)
+        self.assertIn("ror-j2-authenticated-jbeam-spawn-soak-v7", source)
         self.assertIn("--allow-worker-count-difference", source)
         self.assertIn('"state_comparisons": state_comparisons', source)
         self.assertNotIn("urlopen", source)

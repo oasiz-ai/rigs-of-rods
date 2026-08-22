@@ -1,6 +1,6 @@
 {
-  "schema": 6,
-  "fixtureId": "ror-jbeam-authenticated-spawn-soak-v6",
+  "schema": 7,
+  "fixtureId": "ror-jbeam-authenticated-spawn-soak-v7",
   "documentationProfile": "beamng-docs-0.38.5.0-2026-07-27",
   "authorship": "original-clean-room",
   "license": "GPL-3.0-or-later",
@@ -12,7 +12,7 @@
   },
   "scenarioScript": {
     "path": "resources/scripts/example_jbeam_spawn_soak.as",
-    "sha256": "e936fa53d3cffe82ffb6b9a817d7ed40e91ffa272fe719dafbf4697c1cc96460"
+    "sha256": "122d18e8c69f356335821d97b6f02a7577fd1404847096b9aaf85e027e84a0d8"
   },
   "expectedRuntime": {
     "cabTriangles": 5,
@@ -23,6 +23,10 @@
     "groundContactNodes": 6,
     "impactTranslationY": 2,
     "impactVelocityY": -4,
+    "hydroMaximumRatioGreaterThan": 1.005,
+    "hydroMaximumRatioLessThan": 1.02,
+    "hydroMinimumRatioGreaterThan": 0.98,
+    "hydroMinimumRatioLessThan": 0.995,
     "jbeamHydros": 1,
     "jbeamSupportBeams": 1,
     "nodeMassKg": 20,

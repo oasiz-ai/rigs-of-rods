@@ -4761,6 +4761,55 @@ std::uint64_t Actor::getJBeamHydroMaximumAcceptedStepCount() const
     return maximum;
 }
 
+double Actor::getJBeamHydroMinimumLengthRatio() const
+{
+    double minimum = std::numeric_limits<double>::max();
+    bool found = false;
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (!hydro.hb_has_jbeam_runtime)
+            continue;
+        const double ratio = hydro.hb_jbeam_state.response.length_ratio;
+        if (!HydroActuatorDetail::IsFinite(ratio) || !(ratio > 0.0))
+            return 0.0;
+        minimum = std::min(minimum, ratio);
+        found = true;
+    }
+    return found ? minimum : 0.0;
+}
+
+double Actor::getJBeamHydroMaximumLengthRatio() const
+{
+    double maximum = 0.0;
+    for (const hydrobeam_t& hydro : ar_hydros)
+    {
+        if (!hydro.hb_has_jbeam_runtime)
+            continue;
+        const double ratio = hydro.hb_jbeam_state.response.length_ratio;
+        if (!HydroActuatorDetail::IsFinite(ratio) || !(ratio > 0.0))
+            return 0.0;
+        maximum = std::max(maximum, ratio);
+    }
+    return maximum;
+}
+
+bool Actor::trySetJBeamHydroSteeringCommand(float command)
+{
+    if (!HydroActuatorDetail::IsFinite(static_cast<double>(command)) ||
+        command < -1.0f || command > 1.0f ||
+        getJBeamHydroRuntimeCount() == 0)
+    {
+        return false;
+    }
+
+    // Native JBeam hydros consume the canonical resolved steering command in
+    // CalcHydros(). Keep this narrow control ingress available to actors that
+    // do not yet carry a legacy truck engine/driveable classification.
+    ar_hydro_dir_command = command;
+    ar_hydro_speed_coupling_active = false;
+    return true;
+}
+
 int Actor::getJBeamSupportRuntimeCount() const
 {
     int count = 0;
