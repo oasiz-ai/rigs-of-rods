@@ -2415,8 +2415,19 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroRuntimeTests.cpp"
 )
 
+add_executable(
+    ror_jbeam_hydro_savegame_tests
+    "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroSavegameTests.cpp"
+)
+
 target_include_directories(
     ror_jbeam_hydro_runtime_tests
+    PRIVATE
+        "${ROR_REPOSITORY_ROOT}/source/main/physics"
+)
+
+target_include_directories(
+    ror_jbeam_hydro_savegame_tests
     PRIVATE
         "${ROR_REPOSITORY_ROOT}/source/main/physics"
 )
@@ -3081,6 +3092,8 @@ set(ROR_PHYSICS_TEST_TARGETS
     ror_deterministic_state_trace_tests
     ror_state_trace
     ror_hydro_actuator_response_tests
+    ror_jbeam_hydro_runtime_tests
+    ror_jbeam_hydro_savegame_tests
     ror_legacy_material_compatibility_plan_tests
     ror_legacy_material_script_sanitizer_tests
     ror_shader_compatibility_policy_tests
@@ -3970,6 +3983,11 @@ add_test(
 add_test(
     NAME jbeam_hydro_runtime
     COMMAND ror_jbeam_hydro_runtime_tests
+)
+
+add_test(
+    NAME jbeam_hydro_savegame
+    COMMAND ror_jbeam_hydro_savegame_tests
 )
 
 add_test(
