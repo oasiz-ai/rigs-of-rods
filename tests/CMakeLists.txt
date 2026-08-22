@@ -2420,6 +2420,17 @@ add_executable(
     "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroSavegameTests.cpp"
 )
 
+if (RapidJSON_INCLUDE_DIRS)
+    add_executable(
+        ror_jbeam_hydro_savegame_json_tests
+        "${CMAKE_CURRENT_LIST_DIR}/physics/JBeamHydroSavegameJsonTests.cpp"
+    )
+    target_include_directories(
+        ror_jbeam_hydro_savegame_json_tests
+        SYSTEM PRIVATE ${RapidJSON_INCLUDE_DIRS}
+    )
+endif ()
+
 target_include_directories(
     ror_jbeam_hydro_runtime_tests
     PRIVATE
@@ -3122,6 +3133,11 @@ endif ()
 if (TARGET ror_calibrated_beam_savegame_json_tests)
     list(APPEND ROR_PHYSICS_TEST_TARGETS
         ror_calibrated_beam_savegame_json_tests)
+endif ()
+
+if (TARGET ror_jbeam_hydro_savegame_json_tests)
+    list(APPEND ROR_PHYSICS_TEST_TARGETS
+        ror_jbeam_hydro_savegame_json_tests)
 endif ()
 
 if (APPLE)
@@ -3989,6 +4005,13 @@ add_test(
     NAME jbeam_hydro_savegame
     COMMAND ror_jbeam_hydro_savegame_tests
 )
+
+if (TARGET ror_jbeam_hydro_savegame_json_tests)
+    add_test(
+        NAME jbeam_hydro_savegame_json
+        COMMAND ror_jbeam_hydro_savegame_json_tests
+    )
+endif ()
 
 add_test(
     NAME shader_compatibility_policy
