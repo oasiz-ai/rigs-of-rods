@@ -849,20 +849,28 @@ Render::ValidationResult BuildAuthoredDensityLayers(
     detail_layers.push_back(std::move(authored));
   }
 
+  // A single-layer page needs no selection: it is the SIMPLEST authored-
+  // density case, just the base layer tiled at its authored world size. The
+  // base CityWorld map is exactly this (one grass layer, 8 m world size), and
+  // refusing it here used to throw the page all the way back to the blurry
+  // page-wide composite -- the very defect this path exists to fix.
   Render::TextureResourceDescriptor weight_texture;
-  validation = BuildLayerWeightMask(terrain, detail_layer_count,
-                                    PageDebugName(slot_x, slot_y, "LayerWeight"),
-                                    weight_texture);
-  if (!validation) {
-    return validation;
+  Render::SamplerResourceDescriptor weight_sampler;
+  if (detail_layer_count > 0U) {
+    validation = BuildLayerWeightMask(
+        terrain, detail_layer_count,
+        PageDebugName(slot_x, slot_y, "LayerWeight"), weight_texture);
+    if (!validation) {
+      return validation;
+    }
+    weight_sampler = MakeRepeatSampler(
+        PageDebugName(slot_x, slot_y, "LayerWeightSampler"),
+        weight_texture.mip_levels.size());
+    // The mask spans the page exactly once, so it clamps rather than repeats.
+    weight_sampler.address_u = Render::SamplerAddressMode::CLAMP_TO_EDGE;
+    weight_sampler.address_v = Render::SamplerAddressMode::CLAMP_TO_EDGE;
+    weight_sampler.address_w = Render::SamplerAddressMode::CLAMP_TO_EDGE;
   }
-  Render::SamplerResourceDescriptor weight_sampler = MakeRepeatSampler(
-      PageDebugName(slot_x, slot_y, "LayerWeightSampler"),
-      weight_texture.mip_levels.size());
-  // The mask spans the page exactly once, so it clamps rather than repeats.
-  weight_sampler.address_u = Render::SamplerAddressMode::CLAMP_TO_EDGE;
-  weight_sampler.address_v = Render::SamplerAddressMode::CLAMP_TO_EDGE;
-  weight_sampler.address_w = Render::SamplerAddressMode::CLAMP_TO_EDGE;
 
   readback.texture = std::move(base_texture);
   readback.sampler = MakeRepeatSampler(
@@ -1196,8 +1204,10 @@ Render::ValidationResult CaptureNativePage(
         "[RoR|SceneSource|TerrainLayers] page=" +
         Ogre::StringConverter::toString(slot_x) + "," +
         Ogre::StringConverter::toString(slot_y) +
-        " authored_density=0 composite_fallback_field=" +
-        authored_validation.field +
+        " authored_density=0 layers=" +
+        Ogre::StringConverter::toString(
+            static_cast<unsigned int>(terrain->getLayerCount())) +
+        " composite_fallback_field=" + authored_validation.field +
         " detail=" + std::string(authored_validation.detail));
   }
 
@@ -1528,10 +1538,11 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
       }
     }
 
-    if (native.authored_density) {
+    if (native.authored_density && !native.detail_layers.empty()) {
       // Each authored layer needs its own stable asset identity. The layer
       // ordinal joins the page key so a page never mints two identities for
-      // one domain, which the registry rejects as a duplicate.
+      // one domain, which the registry rejects as a duplicate. A single-layer
+      // page mints none of these: it publishes only the base four assets.
       const auto register_layer_identity =
           [&](std::string_view domain, std::size_t ordinal,
               std::uint64_t &output) -> Render::ValidationResult {
@@ -1599,12 +1610,17 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     material.base_color_texture.rotation_radians = 0.0F;
     if (native.authored_density) {
       // UV0 spans the page exactly once, so repeating the base layer at its
-      // authored world size is a plain UV scale. Every detail layer then
-      // repeats at its own rate through the native per-detail offset/scale,
-      // while the weight mask stays unscaled across the page.
-      material.version = Render::kMaterialDescriptorDetailVersion;
+      // authored world size is a plain UV scale. That scale is ordinary v4
+      // UV0-affine state, so a single-layer page (the base CityWorld map)
+      // needs nothing beyond it and keeps the v4 material.
       material.base_color_texture.scale = {native.base_uv_repeats,
                                            native.base_uv_repeats};
+    }
+    if (native.authored_density && !native.detail_layers.empty()) {
+      // Every detail layer repeats at its own rate through the native
+      // per-detail offset/scale, while the weight mask stays unscaled across
+      // the page. Detail bindings are what require the v6 profile.
+      material.version = Render::kMaterialDescriptorDetailVersion;
       material.detail_weight_texture.texture_coordinate_set = 0U;
       material.detail_weight_texture.scale = {1.0F, 1.0F};
       material.detail_weight_texture.offset = {};
@@ -1642,7 +1658,7 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
       validation.element_index = index;
       return validation;
     }
-    if (native.authored_density) {
+    if (native.authored_density && !native.detail_layers.empty()) {
       validation = Render::ValidateMaterialTextureCompatibility(
           Render::MaterialTextureSlot::DETAIL_WEIGHT, native.weight_texture,
           native.weight_sampler);
@@ -1676,9 +1692,10 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     owner.slot_x = page.slot_x;
     owner.slot_y = page.slot_y;
     owner.native_terrain = native.terrain;
-    owner.assets.reserve(4U + (native.authored_density
-                                  ? 2U + 2U * native.detail_layers.size()
-                                  : 0U));
+    owner.assets.reserve(4U + (native.authored_density &&
+                                       !native.detail_layers.empty()
+                                   ? 2U + 2U * native.detail_layers.size()
+                                   : 0U));
     Render::GraphicsSceneAssetInput mesh_asset;
     mesh_asset.source_asset_id = mesh_id;
     mesh_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
@@ -1694,7 +1711,7 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
     sampler_asset.payload = std::make_shared<const Render::RenderAssetPayload>(
         std::move(native.sampler));
     owner.assets.push_back(std::move(sampler_asset));
-    if (native.authored_density) {
+    if (native.authored_density && !native.detail_layers.empty()) {
       Render::GraphicsSceneAssetInput weight_texture_asset;
       weight_texture_asset.source_asset_id = weight_texture_id;
       weight_texture_asset.payload =
@@ -1730,7 +1747,7 @@ Render::ValidationResult Ogre14ToOgreNextTerrainSource::Capture(
         std::move(material));
     material_asset.material_bindings[static_cast<std::size_t>(
         Render::MaterialTextureSlot::BASE_COLOR)] = {texture_id, sampler_id};
-    if (native.authored_density) {
+    if (native.authored_density && !native.detail_layers.empty()) {
       material_asset.material_bindings[static_cast<std::size_t>(
           Render::MaterialTextureSlot::DETAIL_WEIGHT)] = {weight_texture_id,
                                                           weight_sampler_id};
