@@ -1738,8 +1738,11 @@ constexpr float kOgreNextHdrMeteringCeilingInert = 30.0F;
 /// blur texel further horizontally than vertically and therefore makes the
 /// bloom anisotropic even with a balanced blur ladder. One-eighth of the
 /// output per axis keeps the total texel budget at the 2560x1664 interactive
-/// backing within one percent of the historical 256x256 budget while making
-/// the blur isotropic in screen space at any aspect.
+/// backing within two percent of the historical 256x256 budget while making
+/// the blur isotropic in screen space at any aspect. One-quarter was
+/// evaluated live on this machine (2026-08-21, 2560x1664): +0.53 ms p50 and
+/// +1.63 ms mean over one eighth - beyond the 0.3 ms Stage-1 budget - so it
+/// was refused.
 constexpr float kOgreNextHdrBloomResolutionFactor = 0.125F;
 constexpr std::uint8_t kOgreNextThinSlabRenderQueue = 200U;
 constexpr std::uint32_t kOgreNextHdrBaseScenePassIdentifier = 0x524f5201U;
@@ -2556,46 +2559,6 @@ void ConfigureAndVerifyHdrPostExecutionMask(
   }
 }
 
-/// TEMPORARY measurement override for the Stage-1 bloom cost report:
-/// ROR_HDR_BLOOM_RES_FACTOR replaces kOgreNextHdrBloomResolutionFactor when
-/// it parses to a finite value in [0.0625, 0.5]. Removed once the shipped
-/// factor is pinned.
-float ResolveHdrBloomResolutionFactor() {
-  const char *const override_text =
-      std::getenv("ROR_HDR_BLOOM_RES_FACTOR");
-  if (override_text == nullptr) {
-    return kOgreNextHdrBloomResolutionFactor;
-  }
-  char *parsed_end = nullptr;
-  const float parsed = std::strtof(override_text, &parsed_end);
-  if (parsed_end == override_text || parsed_end == nullptr ||
-      *parsed_end != '\0' || !std::isfinite(parsed) || parsed < 0.0625F ||
-      parsed > 0.5F) {
-    return kOgreNextHdrBloomResolutionFactor;
-  }
-  return parsed;
-}
-
-/// TEMPORARY measurement override for the Stage-1 exposure report:
-/// ROR_HDR_METERING_CEILING replaces the pinned metering ceiling when it
-/// parses to a finite value in [7.0, 30.0] (30 renders the winsorization
-/// inert for A/B baselines). Removed once the shipped ceiling is pinned.
-float ResolveHdrMeteringCeiling(float adaptive_ceiling) {
-  const char *const override_text =
-      std::getenv("ROR_HDR_METERING_CEILING");
-  if (override_text == nullptr) {
-    return adaptive_ceiling;
-  }
-  char *parsed_end = nullptr;
-  const float parsed = std::strtof(override_text, &parsed_end);
-  if (parsed_end == override_text || parsed_end == nullptr ||
-      *parsed_end != '\0' || !std::isfinite(parsed) || parsed < 7.0F ||
-      parsed > 30.0F) {
-    return adaptive_ceiling;
-  }
-  return parsed;
-}
-
 /// Swaps the stock post node's first metering pass onto the RoR-owned
 /// shadow-protected reduction. Auto-exposure previously adapted to the
 /// unprotected full-frame log-average, so the same shadowed street metered
@@ -2705,7 +2668,7 @@ void ConfigureAndVerifyHdrBloomGraph(Ogre::CompositorManager2 &compositors) {
           "Ogre-Next HDR bloom ladder material failed native readback");
     }
   }
-  const float resolution_factor = ResolveHdrBloomResolutionFactor();
+  const float resolution_factor = kOgreNextHdrBloomResolutionFactor;
   std::size_t corrected_textures = 0U;
   for (Ogre::TextureDefinitionBase::TextureDefinition &texture :
        post->getLocalTextureDefinitionsNonConst()) {
@@ -6268,7 +6231,7 @@ public:
                            kOgreNextHdrMeteringCeilingHeadroom;
       }
     }
-    const float metering_ceiling = ResolveHdrMeteringCeiling(adaptive_ceiling);
+    const float metering_ceiling = adaptive_ceiling;
     metering_parameters->setNamedConstant("meteringCeiling",
                                           metering_ceiling);
     float observed_ceiling = -1.0F;
