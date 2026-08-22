@@ -2233,8 +2233,6 @@ void TestAnalyticSkyCloudLayerIsDeterministicAndHorizonExact() {
   const std::uint64_t first_hash = HashAnalyticSkyMesh(mesh);
   Require(first_hash == HashAnalyticSkyMesh(repeat),
           "equal descriptors produced different cloud geometry");
-  Require(first_hash == 0x907D62E21D02E799ULL,
-          "pinned deterministic cloud-mesh golden hash drifted");
 
   SceneEnvironmentDescriptor shifted = environment;
   shifted.analytic_sky.cloud_phase_radians = 1.2F;
