@@ -329,6 +329,35 @@ class OgreNextProbeContractTests(unittest.TestCase):
         self.assertEqual(source.count("setMaxSupportedAnisotropy( 16.0f )"), 1)
         self.assertIn("RenderSystems/Metal/src/OgreMetalRenderSystem.mm", source)
 
+    def test_vulkan_sky_patch_uses_the_declared_array_slice(self) -> None:
+        patch = self.lock["patches"][3]
+        self.assertEqual(
+            patch["path"],
+            "patches/0009-vulkan-use-sky-array-slice.patch",
+        )
+        self.assertEqual(
+            patch["source_path"],
+            "Samples/Media/2.0/scripts/materials/Common/GLSL/"
+            "SkyEquirectangular_ps.glsl",
+        )
+        self.assertEqual(
+            patch["source_sha256"],
+            "b749834d2dfdf0457cdcffbeffd3b2b4fb8ace7e9c5b6b61f026f9729c82ce0c",
+        )
+        self.assertEqual(
+            patch["patched_sha256"],
+            "793f66f9777a134970cf2b7dad44ee7da5204331cfe2e3db85544b3d8f8b8d62",
+        )
+        source = (PROBE_DIR / patch["path"]).read_text(encoding="utf-8")
+        added_lines = [
+            line[1:]
+            for line in source.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        self.assertEqual(len(added_lines), 1)
+        self.assertIn("vec3( uv.xy, sliceIdx )", added_lines[0])
+        self.assertNotIn("vec3( uv.xy, 0 )", added_lines[0])
+
     def test_ibl_notice_and_patched_shader_are_fail_closed_in_cmake(self) -> None:
         cmake = PINNED_CMAKE_PATH.read_text(encoding="utf-8")
         reflection_media = self.lock["reflection_shader_media"]
@@ -341,9 +370,10 @@ class OgreNextProbeContractTests(unittest.TestCase):
             ]
         )
         for token in (
-            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 3",
+            "ROR_OGRE_NEXT_PATCH_COUNT EQUAL 4",
             "ROR_OGRE_NEXT_IBL_PATCHED_SHA256",
             "ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256",
+            "ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256",
             "_ror_extracted_ibl_shader_sha256",
             "_ror_extracted_iblbaker_license_sha256",
             "ROR_OGRE_NEXT_PACKAGE_IBLBAKER_LICENSE_SOURCE",

@@ -876,6 +876,9 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     expected_metal_anisotropy_patch_sha256 = (
         "f7c5356f5f2025bbc7daf5e0788b7820244ed1ad8c3d45dd5ac73f381d800a22"
     )
+    expected_vulkan_sky_patch_sha256 = (
+        "37d19c4c8fe808a17ff2d6d2eef2f575cab7e14d75e85f1865e274c9a5227a9e"
+    )
     if type(lock.get("schema_version")) is not int or lock.get("schema_version") != 6:
         raise ProbeError("unsupported OGRE-Next lock schema")
     if lock.get("repository") != "https://github.com/OGRECave/ogre-next":
@@ -1062,6 +1065,25 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
             ),
             "patched_sha256": (
                 "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222"
+            ),
+        },
+        {
+            "path": "patches/0009-vulkan-use-sky-array-slice.patch",
+            "sha256": expected_vulkan_sky_patch_sha256,
+            "reason": (
+                "Use the declared Vulkan equirectangular sky array slice so "
+                "shader reflection retains the material parameter instead of "
+                "rejecting it after a hardcoded layer-zero sample"
+            ),
+            "source_path": (
+                "Samples/Media/2.0/scripts/materials/Common/GLSL/"
+                "SkyEquirectangular_ps.glsl"
+            ),
+            "source_sha256": (
+                "b749834d2dfdf0457cdcffbeffd3b2b4fb8ace7e9c5b6b61f026f9729c82ce0c"
+            ),
+            "patched_sha256": (
+                "793f66f9777a134970cf2b7dad44ee7da5204331cfe2e3db85544b3d8f8b8d62"
             ),
         },
     ]

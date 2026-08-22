@@ -1,0 +1,7 @@
+diff --git a/Samples/Media/2.0/scripts/materials/Common/GLSL/SkyEquirectangular_ps.glsl b/Samples/Media/2.0/scripts/materials/Common/GLSL/SkyEquirectangular_ps.glsl
+index 9db2acb1a..9237a365e 100644
+--- a/Samples/Media/2.0/scripts/materials/Common/GLSL/SkyEquirectangular_ps.glsl
++++ b/Samples/Media/2.0/scripts/materials/Common/GLSL/SkyEquirectangular_ps.glsl
+@@ -36 +36 @@
+-	fragColour = texture( vkSampler2DArray( skyEquirectangular, samplerState ), vec3( uv.xy, 0 ) );
++	fragColour = texture( vkSampler2DArray( skyEquirectangular, samplerState ), vec3( uv.xy, sliceIdx ) );

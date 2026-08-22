@@ -179,6 +179,18 @@ string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_SOURCE_SHA256 GET
     "${_ror_lock_json}" patches 2 source_sha256)
 string(JSON ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256 GET
     "${_ror_lock_json}" patches 2 patched_sha256)
+string(JSON ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH GET
+    "${_ror_lock_json}" patches 3 path)
+string(JSON ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256 GET
+    "${_ror_lock_json}" patches 3 sha256)
+string(JSON ROR_OGRE_NEXT_VULKAN_SKY_PATCH_REASON GET
+    "${_ror_lock_json}" patches 3 reason)
+string(JSON ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_PATH GET
+    "${_ror_lock_json}" patches 3 source_path)
+string(JSON ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_SHA256 GET
+    "${_ror_lock_json}" patches 3 source_sha256)
+string(JSON ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256 GET
+    "${_ror_lock_json}" patches 3 patched_sha256)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_NAME GET
     "${_ror_lock_json}" embedded_namespace namespace)
 string(JSON ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_CMAKE_OPTION GET
@@ -606,7 +618,7 @@ endif ()
 file(SHA256
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
     _ror_ibl_patch_sha256)
-if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 3 OR
+if (NOT ROR_OGRE_NEXT_PATCH_COUNT EQUAL 4 OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_PATH STREQUAL
         "patches/0005-metal-typed-ibl-uav-conversions.patch" OR
         NOT ROR_OGRE_NEXT_IBL_PATCH_SHA256 STREQUAL
@@ -637,6 +649,24 @@ if (NOT ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH STREQUAL
         "56bb59e7e8d7be5b9efe10e724e5385583618a12e2bb49482e0472d273dc1222")
     message(FATAL_ERROR
         "The pinned OGRE-Next Metal anisotropy capability adaptation changed")
+endif ()
+file(SHA256
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}"
+    _ror_vulkan_sky_patch_sha256)
+if (NOT ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH STREQUAL
+        "patches/0009-vulkan-use-sky-array-slice.patch" OR
+        NOT ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256 STREQUAL
+        "37d19c4c8fe808a17ff2d6d2eef2f575cab7e14d75e85f1865e274c9a5227a9e" OR
+        NOT _ror_vulkan_sky_patch_sha256 STREQUAL
+        ROR_OGRE_NEXT_VULKAN_SKY_PATCH_SHA256 OR
+        NOT ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_PATH STREQUAL
+        "Samples/Media/2.0/scripts/materials/Common/GLSL/SkyEquirectangular_ps.glsl" OR
+        NOT ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_SHA256 STREQUAL
+        "b749834d2dfdf0457cdcffbeffd3b2b4fb8ace7e9c5b6b61f026f9729c82ce0c" OR
+        NOT ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256 STREQUAL
+        "793f66f9777a134970cf2b7dad44ee7da5204331cfe2e3db85544b3d8f8b8d62")
+    message(FATAL_ERROR
+        "The pinned OGRE-Next Vulkan sky array-slice adaptation changed")
 endif ()
 set(ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH_PATH}")
@@ -1331,7 +1361,8 @@ set(FREETYPE_LIBRARIES "${ROR_OGRE_NEXT_FREETYPE_TARGET}"
 set(_ror_ogre_next_patch_paths
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_PATCH_PATH}"
     "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_IBL_PATCH_PATH}"
-    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}")
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCH_PATH}"
+    "${ROR_OGRE_NEXT_STANDALONE_ROOT}/${ROR_OGRE_NEXT_VULKAN_SKY_PATCH_PATH}")
 if (ROR_OGRE_NEXT_EMBEDDED_NAMESPACE)
     list(APPEND _ror_ogre_next_patch_paths
         "${ROR_OGRE_NEXT_EMBEDDED_NAMESPACE_PATCH}")
@@ -1556,6 +1587,17 @@ if (NOT _ror_extracted_metal_anisotropy_source_sha256 STREQUAL
         "The pinned OGRE-Next Metal anisotropy patch did not produce reviewed bytes: "
         "expected ${ROR_OGRE_NEXT_METAL_ANISOTROPY_PATCHED_SHA256}, got "
         "${_ror_extracted_metal_anisotropy_source_sha256}")
+endif ()
+
+file(SHA256
+    "${ogre_next_SOURCE_DIR}/${ROR_OGRE_NEXT_VULKAN_SKY_SOURCE_PATH}"
+    _ror_extracted_vulkan_sky_source_sha256)
+if (NOT _ror_extracted_vulkan_sky_source_sha256 STREQUAL
+        ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256)
+    message(FATAL_ERROR
+        "The pinned OGRE-Next Vulkan sky shader patch did not produce reviewed bytes: "
+        "expected ${ROR_OGRE_NEXT_VULKAN_SKY_PATCHED_SHA256}, got "
+        "${_ror_extracted_vulkan_sky_source_sha256}")
 endif ()
 
 foreach (_ror_normal_map_source_index RANGE 0
