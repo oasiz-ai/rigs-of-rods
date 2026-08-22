@@ -566,6 +566,13 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
         self.assertIn(
             "!m_render_window->isHidden()", self.context
         )
+        self.assertIn(
+            "const bool resource_window_missing = false;", self.main
+        )
+        self.assertIn(
+            "AppContext has already\n"
+            "        // fail-closed on RenderWindow::isHidden()", self.main
+        )
 
     def test_media_provider_pair_and_bundle_fallback_are_fail_closed(self) -> None:
         self.assertIn(

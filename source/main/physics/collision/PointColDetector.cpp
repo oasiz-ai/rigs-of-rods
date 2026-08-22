@@ -374,12 +374,12 @@ void PointColDetector::partintwo(const int start, const int median, const int en
 
     minex = x;
     maxex = x;
-    for (int i = start; i < median; ++i)
+    for (int left_index = start; left_index < median; ++left_index)
     {
-        minex = std::min(m_ref_list[i].point[axis], minex);
+        minex = std::min(m_ref_list[left_index].point[axis], minex);
     }
-    for (int i = median+1; i < end; ++i)
+    for (int right_index = median + 1; right_index < end; ++right_index)
     {
-        maxex = std::max(maxex, m_ref_list[i].point[axis]);
+        maxex = std::max(maxex, m_ref_list[right_index].point[axis]);
     }
 }

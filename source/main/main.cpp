@@ -1119,8 +1119,18 @@ int main(int argc, char *argv[])
         const RendererOgreNextInProcessPresenterStatus resource_protected =
             renderer_combined_presenter.ProtectHiddenResourceWindow(
                 renderer_resource_window);
-        if (renderer_resource_window == nullptr ||
-            resource_protected !=
+#if defined(__APPLE__)
+        // The Apple producer is an SDL window, so the presenter must retain
+        // its handle and force any SHOWN/RESTORED event back to hidden. Linux
+        // uses OGRE's native GLX window instead: AppContext has already
+        // fail-closed on RenderWindow::isHidden(), and passing that X11 handle
+        // to an SDL-only event guard would be invalid.
+        const bool resource_window_missing =
+            renderer_resource_window == nullptr;
+#else
+        const bool resource_window_missing = false;
+#endif
+        if (resource_window_missing || resource_protected !=
                 RendererOgreNextInProcessPresenterStatus::COMPLETED)
         {
             LOG(fmt::format(

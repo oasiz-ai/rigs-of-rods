@@ -383,7 +383,8 @@ void TestGoldenAndSensitivity()
 {
     using namespace RoR::DeterministicStateDigest;
 
-    CHECK(SCHEMA_VERSION == 2);
+    static_assert(SCHEMA_VERSION == 2,
+        "deterministic state digest fixture requires schema version 2");
     const Digest baseline =
         BuildFixture(UINT32_C(0x3f800000), 4500.f, UINT32_C(0x03));
     CHECK(baseline.ToHex() ==
