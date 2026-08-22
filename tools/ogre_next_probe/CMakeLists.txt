@@ -1774,6 +1774,14 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             OgreNextOverlay
             ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextMain)
+    if (APPLE)
+        # MetalFX is available from macOS 13, while this runtime retains an
+        # 11.0 deployment target. Propagate a weak framework edge to every
+        # executable consuming this static archive; @available guards keep the
+        # scaler disabled on older systems without preventing process launch.
+        target_link_options(ror_ogre_next_frontend_n1
+            INTERFACE "LINKER:-weak_framework,MetalFX")
+    endif ()
     ror_ogre_next_enable_embedded_namespace(
         ror_ogre_next_frontend_n1)
     set_target_properties(
@@ -1826,6 +1834,10 @@ if (ROR_OGRE_NEXT_FRONTEND_N1)
             OgreNextOverlay
             ${ROR_OGRE_NEXT_RENDERER_TARGET}
             OgreNextMain)
+    if (APPLE)
+        target_link_options(ror_ogre_next_frontend_n1_runtime
+            INTERFACE "LINKER:-weak_framework,MetalFX")
+    endif ()
     ror_ogre_next_enable_embedded_namespace(
         ror_ogre_next_frontend_n1_runtime)
     set_target_properties(
