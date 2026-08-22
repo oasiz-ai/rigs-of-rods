@@ -7,6 +7,11 @@ material must enter through the renderer-neutral asset registry. BeamNG, legacy
 RoR, CityWorld, OGRE material scripts, ODEF, and v1 meshes are separate
 compatibility fixtures and cannot satisfy this gate.
 
+The showcase is not the playable-game executable or a replacement scene loop.
+Ordinary gameplay remains in `RoR-Combined`, where Ogre-Next owns the visible
+window and must fail closed instead of presenting through the hidden OGRE 14
+resource producer.
+
 The machine-readable source of truth is
 `tools/ogre_next_probe/native-visual-showcase-v1.contract.json`. The report is
 verified by `tools/verify_native_visual_showcase.py`. The contract deliberately
