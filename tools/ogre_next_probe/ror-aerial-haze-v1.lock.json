@@ -90,6 +90,46 @@
     {
       "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRTaaDepthStore_ps.metal",
       "sha256": "abb39714a03c92048c3ea52cff0cdaaa2445da94bb6798224a5e40ffc407f7ea"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/RoRScreenShade.material",
+      "sha256": "bb785bffead8b6dfa323433f5dfb6be77d61582534cc02d821c92b1234bbca84"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRScreenShadeAO_ps.glsl",
+      "sha256": "b80bdc396d56b4977617bbff4ace530e6d1af96c1809f2f8f4e1e550b4f43c22"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRScreenShadeAO_ps.hlsl",
+      "sha256": "f4ecb3acb60341bb97f74aae8ab88c3a26e9e500974892372fd63ac3181410d9"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRScreenShadeAO_ps.metal",
+      "sha256": "4fdf68c2300cfd1517892984b71dceab0efb6aa4f5e5a2db2b9297ffb46038ec"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRScreenShadeBlur_ps.glsl",
+      "sha256": "c71d24f223d31ee7b67fb98058812f589e6bbc6c4a144fae24e04e101adbba1f"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRScreenShadeBlur_ps.hlsl",
+      "sha256": "754f426c00f07849bf97cb472e708947e29fbe14b5a69e28ac0aea716a782921"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRScreenShadeBlur_ps.metal",
+      "sha256": "7b00092aaeccff2fc5828e693882483d08a1c413632738ee244e91a96f8bc383"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/GLSL/RoRScreenShadeApply_ps.glsl",
+      "sha256": "99b345e6e458b43a5d1bd12a3b0a68eb4bfccc030b0256a731938c036e06466d"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/HLSL/RoRScreenShadeApply_ps.hlsl",
+      "sha256": "752665703064fedaa60e3d8fcdca294b2e2a2997bdba03624546ab6c2153079f"
+    },
+    {
+      "path": "media/2.0/scripts/materials/RoRHaze/Metal/RoRScreenShadeApply_ps.metal",
+      "sha256": "13b5a78e10ba30da8fd3476b02a6d81923c46908393592ca2e4ddb538119c754"
     }
   ]
 }

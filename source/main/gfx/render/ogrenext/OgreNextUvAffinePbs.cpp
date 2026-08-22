@@ -11,7 +11,21 @@
 #include "OgreHlmsDatablock.h"
 #include "OgreRenderable.h"
 
+#include <atomic>
+
 namespace RoR::Render {
+namespace {
+std::atomic<bool> g_indirect_alpha_export_enabled{false};
+} // namespace
+
+void OgreNextUvAffinePbs::SetIndirectAlphaExportEnabled(
+    bool enabled) noexcept {
+  g_indirect_alpha_export_enabled.store(enabled, std::memory_order_release);
+}
+
+bool OgreNextUvAffinePbs::IndirectAlphaExportEnabled() noexcept {
+  return g_indirect_alpha_export_enabled.load(std::memory_order_acquire);
+}
 
 OgreNextUvAffinePbs::OgreNextUvAffinePbs(
     Ogre::Archive *data_folder, Ogre::ArchiveVec *library_folders)
@@ -56,6 +70,18 @@ void OgreNextUvAffinePbs::calculateHashForPreCreate(
           renderable != nullptr ? renderable->getDatablock() : nullptr)
           ? 1
           : 0);
+  // Indirect-alpha export applies to the opaque RT4/V1 datablocks only. The
+  // thin-slab transmission shader keeps its own applyRefractions override,
+  // so the two custom pieces can never be active in one shader.
+  const Ogre::HlmsDatablock *indirect_alpha_datablock =
+      renderable != nullptr ? renderable->getDatablock() : nullptr;
+  setProperty(
+      Ogre::IdString(kOgreNextIndirectAlphaPbsProperty),
+      (IndirectAlphaExportEnabled() &&
+       SelectsUv0AffineShader(indirect_alpha_datablock) &&
+       !SelectsThinSlabTransmissionShader(indirect_alpha_datablock))
+          ? 1
+          : 0);
 }
 
 void OgreNextUvAffinePbs::calculateHashForPreCaster(
@@ -74,6 +100,9 @@ void OgreNextUvAffinePbs::calculateHashForPreCaster(
           ? 1
           : 0);
   setProperty(Ogre::IdString(kOgreNextThinSlabPbsProperty), 0);
+  // The caster body never reaches the colour write the indirect-alpha piece
+  // edits; keep the property out of the caster hash entirely.
+  setProperty(Ogre::IdString(kOgreNextIndirectAlphaPbsProperty), 0);
 }
 
 } // namespace RoR::Render
