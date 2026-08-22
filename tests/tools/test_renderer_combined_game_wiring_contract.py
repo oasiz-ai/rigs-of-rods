@@ -42,6 +42,9 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             ROOT
             / "source/main/gfx/render/NativeVisualShowcaseSceneSource.h"
         ).read_text(encoding="utf-8")
+        cls.ogre14_recipe = (
+            ROOT / "cmake/conan/recipes/ogre3d/conanfile.py"
+        ).read_text(encoding="utf-8")
 
     def test_finder_launch_is_exact_cityworld_alexis_demo(self) -> None:
         start = self.main.index(
@@ -542,6 +545,27 @@ class RendererCombinedGameWiringContractTests(unittest.TestCase):
             "m_presenter.ProtectHiddenResourceWindow(nullptr)", self.main
         )
         self.assertIn("m_presenter.ShutdownWindow()", self.main)
+
+    def test_linux_hidden_producer_uses_glx_not_mapping_egl(self) -> None:
+        # Upstream OGRE 14's EGL/X11 window ignores the `hidden` creation
+        # parameter and maps before returning. GLX consumes it before its first
+        # XFlush and exposes the state through RenderWindow::isHidden(). Keep
+        # this choice in the recipe that CI actually exports and builds.
+        linux = self.ogre14_recipe.index(
+            'if self.settings.os == "Linux":'
+        )
+        glx = self.ogre14_recipe.index(
+            'tc.variables["OGRE_GLSUPPORT_USE_EGL"] = "OFF"', linux
+        )
+        no_wayland = self.ogre14_recipe.index(
+            'tc.variables["OGRE_USE_WAYLAND"] = "OFF"', glx
+        )
+        self.assertLess(linux, glx)
+        self.assertLess(glx, no_wayland)
+        self.assertIn('miscParams["hidden"] = "true";', self.context)
+        self.assertIn(
+            "!m_render_window->isHidden()", self.context
+        )
 
     def test_media_provider_pair_and_bundle_fallback_are_fail_closed(self) -> None:
         self.assertIn(

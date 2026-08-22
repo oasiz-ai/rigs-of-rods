@@ -140,6 +140,15 @@ class OGREConan(ConanFile):
         tc.variables["OGRE_BUILD_RENDERSYSTEM_GL3PLUS"] = (
             "OFF" if self.settings.os == "Windows" else "ON"
         )
+        # The Linux Ogre 14 process is a hidden scene/resource producer in the
+        # combined runtime. Upstream's EGL/X11 window maps unconditionally and
+        # ignores the RenderWindow `hidden` creation parameter, while its GLX
+        # backend applies that parameter before the first XFlush and reports
+        # the resulting hidden state. Pin GLX so Ogre-Next remains the only
+        # visible presentation owner; Wayland/EGL is not an admitted VM host.
+        if self.settings.os == "Linux":
+            tc.variables["OGRE_GLSUPPORT_USE_EGL"] = "OFF"
+            tc.variables["OGRE_USE_WAYLAND"] = "OFF"
         tc.variables["OGRE_BUILD_RENDERSYSTEM_GLES2"] = "OFF"
         tc.variables["OGRE_BUILD_RENDERSYSTEM_METAL"] = (
             "ON" if self.settings.os == "Macos" else "OFF"

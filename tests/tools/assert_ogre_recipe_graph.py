@@ -58,6 +58,9 @@ EXPECTED_PATCH_SHA256 = {
     "patches/14.5.2/expose-shadow-material-declaration-names.patch": (
         "b06ad20fdc2d250d11ef5de456866cd9f1f1b1e05c6d023d6c51ffa530a3d2f4"
     ),
+    "patches/14.5.2/bounds-safe-generated-lod-index-buffers.patch": (
+        "4a69f8d4f902511f61827c234a122c3d0e9432425734b977f71922149965575e"
+    ),
 }
 EXPECTED_OGRE_OPTIONS = {
     "codec_rsimage": "False",

@@ -5,7 +5,7 @@ from conan.tools.cmake import CMakeToolchain, CMakeDeps
 from conan.tools.files import copy
 
 
-OGRE14_RECIPE_REVISION = "a3ce2063a96fc3de5a644088fad70f32"
+OGRE14_RECIPE_REVISION = "b95104379fb90b0514cdafbbcf255de0"
 SDL2_RECIPE_REVISION = "19432981a8779c918a13682d4186fa3b"
 SUPPORTED_OGRE14_TARGETS = {
     ("Linux", "x86_64"),
@@ -21,8 +21,8 @@ class RoR(ConanFile):
         "ogre14": [True, False],
     }
     default_options = {
-        # The public product is OgreNext-first, while OGRE 14 supplies the
-        # simulation/game host and the bounded compatibility fallback.
+        # The public product is OgreNext-first. OGRE 14 supplies the hidden
+        # simulation/content host only and is never a visible fallback.
         "ogre14": True,
         "ogre3d*:resourcemanager_strict": "off",
         "ogre3d/1.11.*:profiling": "True",
