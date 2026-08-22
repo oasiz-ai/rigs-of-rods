@@ -9350,13 +9350,18 @@ public:
           shade != nullptr && shade_output != nullptr &&
           shade_buffer != nullptr &&
           shade_output->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
-          shade_output->getWidth() == hdr_width &&
-          shade_output->getHeight() == hdr_height &&
+          // Scene-extent target, so it follows the internal render extent the
+          // MetalFX tier reduces below the presented one - exactly like the
+          // linear scene and haze targets checked above. Comparing against the
+          // presented extent instead made every upscaling tier fail this
+          // readback, which fails closed into a terminal dispatch rollback.
+          shade_output->getWidth() == scene_width &&
+          shade_output->getHeight() == scene_height &&
           shade_buffer->getPixelFormat() == Ogre::PFG_RGBA16_FLOAT &&
           shade_buffer->getWidth() >= 1U &&
-          shade_buffer->getWidth() <= hdr_width &&
+          shade_buffer->getWidth() <= scene_width &&
           shade_buffer->getHeight() >= 1U &&
-          shade_buffer->getHeight() <= hdr_height;
+          shade_buffer->getHeight() <= scene_height;
       hdr_shade_buffer_width =
           hdr_screen_shade_workspace_verified ? shade_buffer->getWidth() : 0U;
       hdr_shade_buffer_height =
